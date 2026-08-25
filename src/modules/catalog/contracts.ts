@@ -219,6 +219,13 @@ export interface CatalogSnapshot {
     readonly triggerConfig: unknown;
     readonly active: boolean;
   }[];
+  readonly starterOptions: readonly {
+    readonly regionId: string;
+    readonly formId: string;
+    readonly starterLevel: number;
+    readonly sortOrder: number;
+    readonly active: boolean;
+  }[];
   readonly encounterTables: readonly {
     readonly encounterTableId: string;
     readonly areaId: string;
@@ -263,6 +270,7 @@ export const CATALOG_DIFF_CATEGORIES = [
   "formAbilities",
   "learnsets",
   "evolutions",
+  "starterOptions",
 ] as const;
 export type CatalogDiffCategory = (typeof CATALOG_DIFF_CATEGORIES)[number];
 

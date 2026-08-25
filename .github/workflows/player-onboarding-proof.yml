@@ -1,0 +1,100 @@
+name: Player Onboarding Proof
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: player-onboarding-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: migrate / seed / onboarding catalog
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql \
+              --username pokemon \
+              --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Apply immutable migrations
+        run: pnpm db:migrate
+
+      - name: Seed Phase 4 base
+        run: pnpm db:seed:phase4
+
+      - name: Seed Phase 5 twice
+        run: |
+          pnpm db:seed:phase5
+          pnpm db:seed:phase5
+
+      - name: Verify migrated schema
+        run: pnpm db:verify
+
+      - name: Verify Phase 5 active release and starter catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_no="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT release.release_no FROM content_release_pointers pointer JOIN content_releases release ON release.id = pointer.content_release_id WHERE pointer.pointer_key = 'ACTIVE';")"
+          starter_count="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM starter_options starter JOIN content_release_pointers pointer ON pointer.content_release_id = starter.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND starter.active = TRUE;")"
+          context_table="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT to_regclass('public.player_onboarding_context') IS NOT NULL;")"
+
+          test "$release_no" = "2"
+          test "$starter_count" = "3"
+          test "$context_table" = "t"

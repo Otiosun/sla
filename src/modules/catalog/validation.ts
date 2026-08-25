@@ -1,13 +1,13 @@
 import { z } from "zod";
 import {
-  EvolutionTriggerSchemas,
-  RulesetConfigSchema,
-  validateEffectConfig,
   type CatalogCoverage,
   type CatalogSnapshot,
+  EvolutionTriggerSchemas,
+  RulesetConfigSchema,
   type RulesetSnapshot,
   type ValidationIssue,
   type ValidationReport,
+  validateEffectConfig,
 } from "./contracts.js";
 
 export const EffectProgramSchema = z
@@ -358,6 +358,60 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
           "ACTIVE_CONNECTION_HAS_INACTIVE_AREA",
           `connections.${index}`,
           "Active connection references an inactive area",
+        ),
+      );
+    }
+  }
+
+  const starterOptionKeys = new Set<string>();
+  for (const [index, starter] of snapshot.starterOptions.entries()) {
+    const logicalKey = `${starter.regionId}:${starter.formId}`;
+    if (starterOptionKeys.has(logicalKey)) {
+      issues.push(
+        issue(
+          "STARTER_OPTION_DUPLICATE",
+          `starterOptions.${index}`,
+          "Starter option duplicates a region/form pair in this release",
+        ),
+      );
+    }
+    starterOptionKeys.add(logicalKey);
+
+    if (!allRegionIds.has(starter.regionId) || !allFormIds.has(starter.formId)) {
+      issues.push(
+        issue(
+          "STARTER_OPTION_REFERENCE_MISSING",
+          `starterOptions.${index}`,
+          "Starter option references a region or form absent from this release",
+        ),
+      );
+    }
+
+    if (
+      starter.active &&
+      (!activeRegionIds.has(starter.regionId) || !activeFormIds.has(starter.formId))
+    ) {
+      issues.push(
+        issue(
+          "ACTIVE_STARTER_OPTION_INVALID",
+          `starterOptions.${index}`,
+          "Active starter option references inactive content",
+        ),
+      );
+    }
+
+    if (
+      !Number.isSafeInteger(starter.starterLevel) ||
+      starter.starterLevel < 1 ||
+      starter.starterLevel > 100 ||
+      !Number.isSafeInteger(starter.sortOrder) ||
+      starter.sortOrder < 0
+    ) {
+      issues.push(
+        issue(
+          "STARTER_OPTION_RANGE_INVALID",
+          `starterOptions.${index}`,
+          "Starter level must be 1..100 and sort order must be a non-negative safe integer",
         ),
       );
     }
