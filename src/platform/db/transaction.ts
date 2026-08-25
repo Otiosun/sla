@@ -32,6 +32,8 @@ export async function withTransaction<T>(
   options: TransactionOptions = {},
 ): Promise<T> {
   const client = await pool.connect();
+  let destroyClient = false;
+
   try {
     await client.query(buildBeginStatement(options));
     try {
@@ -39,10 +41,18 @@ export async function withTransaction<T>(
       await client.query("COMMIT");
       return result;
     } catch (error) {
-      await client.query("ROLLBACK");
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        destroyClient = true;
+        throw new AggregateError(
+          [error, rollbackError],
+          "Transaction work failed and PostgreSQL rollback also failed",
+        );
+      }
       throw error;
     }
   } finally {
-    client.release();
+    client.release(destroyClient);
   }
 }
