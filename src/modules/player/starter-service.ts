@@ -10,6 +10,7 @@ import { evaluateActionGate, type FeatureAvailability } from "../../shared-kerne
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
   StarterSelectionSchema,
+  type GeneratedStarter,
   type PlayerProfileView,
   type StarterGrantResult,
   type StarterGrantWrite,
@@ -136,7 +137,7 @@ export class PlayerStarterService {
         );
       }
 
-      let generated;
+      let generated: GeneratedStarter;
       try {
         generated = generateStarter(build, this.rng);
       } catch (error) {
