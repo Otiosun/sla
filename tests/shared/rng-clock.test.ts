@@ -3,6 +3,7 @@ import { FixedClock } from "../../src/platform/clock/index.js";
 import {
   generatePrivateSeed,
   HmacCounterRandomSource,
+  RNG_COUNTER_MAX,
   RNG_SEED_BYTES,
 } from "../../src/platform/rng/index.js";
 
@@ -28,6 +29,16 @@ describe("clock and rng", () => {
       expect(value).toBeLessThan(9);
     }
     expect(() => rng.nextInt(4, 4)).toThrow(/greater/);
+  });
+
+  it("never advances beyond the PostgreSQL BIGINT counter range", () => {
+    const seed = new Uint8Array(RNG_SEED_BYTES).fill(9);
+    const finalPersistableDraw = new HmacCounterRandomSource(seed, RNG_COUNTER_MAX - 1n);
+
+    finalPersistableDraw.nextUint32();
+    expect(finalPersistableDraw.getCounter()).toBe(RNG_COUNTER_MAX);
+    expect(() => finalPersistableDraw.nextUint32()).toThrow(/BIGINT/);
+    expect(() => new HmacCounterRandomSource(seed, RNG_COUNTER_MAX + 1n)).toThrow(/BIGINT/);
   });
 
   it("generates production seeds with the canonical length", () => {
