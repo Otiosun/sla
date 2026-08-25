@@ -17,6 +17,8 @@ O nome atual do repositório (`sla`) é provisório; a identidade canônica é r
 
 ## Bootstrap local
 
+Ambiente local/teste pode usar uma única credencial PostgreSQL para reduzir atrito:
+
 ```bash
 cp .env.example .env
 pnpm install --frozen-lockfile
@@ -26,7 +28,7 @@ pnpm check
 pnpm dev
 ```
 
-`DATABASE_URL` é a credencial de runtime. `MIGRATOR_DATABASE_URL` é separada e obrigatória em staging/produção. Nenhum secret deve entrar no Git ou Drive em texto puro.
+`DATABASE_URL` é a credencial de runtime. `MIGRATOR_DATABASE_URL` é separada e obrigatória em staging/produção, e deve usar outro login PostgreSQL. Nenhum secret deve entrar no Git ou Drive em texto puro.
 
 ## Banco e migrations
 
@@ -35,7 +37,9 @@ pnpm dev
 - migrations aplicadas são imutáveis; SHA-256 divergente é erro fatal.
 - o runner usa advisory lock para impedir dois migrators simultâneos.
 - runtime verifica o schema e falha se o banco estiver atrasado.
-- criação de roles fica em `db/bootstrap/`, separada da migration.
+- roles e grants operacionais ficam em `db/bootstrap/`, separados das migrations numeradas.
+
+Staging/produção seguem obrigatoriamente a ordem fail-closed documentada em `db/bootstrap/README.md`: **roles → migrate → runtime grants → verify → start runtime**. Uma tabela recém-criada não fica acessível à aplicação até a reconciliação explícita de privilégios.
 
 ```bash
 pnpm db:migrate
