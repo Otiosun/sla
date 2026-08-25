@@ -42,6 +42,10 @@ export class ConfigError extends Error {
   override readonly name = "ConfigError";
 }
 
+function databaseUsername(connectionString: string): string {
+  return decodeURIComponent(new URL(connectionString).username);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
@@ -50,14 +54,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .join("; ");
     throw new ConfigError(`Invalid application configuration: ${issues}`);
   }
-  if (
-    (parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production") &&
-    parsed.data.MIGRATOR_DATABASE_URL === undefined
-  ) {
+
+  const requiresRoleSeparation =
+    parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production";
+  if (requiresRoleSeparation && parsed.data.MIGRATOR_DATABASE_URL === undefined) {
     throw new ConfigError(
       "Invalid application configuration: MIGRATOR_DATABASE_URL is required in staging/production",
     );
   }
+  if (
+    requiresRoleSeparation &&
+    parsed.data.MIGRATOR_DATABASE_URL !== undefined &&
+    databaseUsername(parsed.data.DATABASE_URL) === databaseUsername(parsed.data.MIGRATOR_DATABASE_URL)
+  ) {
+    throw new ConfigError(
+      "Invalid application configuration: runtime and migrator PostgreSQL roles must be distinct in staging/production",
+    );
+  }
+
   return {
     appEnv: parsed.data.APP_ENV,
     logLevel: parsed.data.LOG_LEVEL,
