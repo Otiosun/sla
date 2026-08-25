@@ -282,6 +282,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          source_migrations="$(docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_test \
+            --tuples-only \
+            --no-align \
+            --command 'SELECT count(*) FROM schema_migrations;')"
+          test "$source_migrations" -ge 1
+
           docker exec pokemon-postgres pg_dump \
             --username pokemon \
             --dbname pokemon_rpg_test \
@@ -305,4 +314,4 @@ jobs:
             --no-align \
             --command 'SELECT count(*) FROM schema_migrations;')"
 
-          test "$restored_migrations" = "1"
+          test "$restored_migrations" = "$source_migrations"
