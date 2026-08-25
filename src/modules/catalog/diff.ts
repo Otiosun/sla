@@ -69,6 +69,10 @@ function snapshotRecords(
       key: `${entry.fromFormId}:${entry.toFormId}:${entry.triggerKind}`,
       value: entry,
     })),
+    starterOptions: snapshot.starterOptions.map((entry) => ({
+      key: `${entry.regionId}:${entry.formId}`,
+      value: entry,
+    })),
     encounterTables: snapshot.encounterTables.map((entry) => ({
       key: entry.encounterTableId,
       value: entry,

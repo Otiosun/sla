@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CatalogService } from "../../src/modules/catalog/service.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
+import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -339,6 +341,38 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
       [granted.pokemonInstanceId],
     );
     expect(placement.rows[0]).toMatchObject({ placement_kind: "BOX", box_no: 1, slot_no: 1 });
+  });
+
+  it("carries starter options when cloning a published release", async () => {
+    const catalog = new CatalogService(new PostgresCatalogRepository(pool));
+    const cloneId = randomUUID();
+    unwrap(
+      await catalog.clonePublishedRelease({
+        parentReleaseId: fixture.releaseId,
+        newReleaseId: cloneId,
+        releaseNo: 99n,
+        name: "phase5-starter-clone",
+      }),
+    );
+
+    const cloned = await pool.query<{
+      region_id: string;
+      form_id: string;
+      starter_level: number;
+      sort_order: number;
+    }>(
+      `SELECT region_id, form_id, starter_level, sort_order
+       FROM starter_options WHERE content_release_id = $1`,
+      [cloneId],
+    );
+    expect(cloned.rows).toEqual([
+      {
+        region_id: fixture.regionId,
+        form_id: fixture.formId,
+        starter_level: 5,
+        sort_order: 1,
+      },
+    ]);
   });
 
   it("keeps published starter options immutable", async () => {

@@ -53,6 +53,7 @@ export function fingerprintCatalog(snapshot: CatalogSnapshotWithEffects): string
     formAbilities: sortByCanonical(snapshot.formAbilities),
     learnsets: sortByCanonical(snapshot.learnsets),
     evolutions: sortByCanonical(snapshot.evolutions),
+    starterOptions: sortByCanonical(snapshot.starterOptions),
     encounterTables: sortByCanonical(
       snapshot.encounterTables.map((table) => ({
         ...table,

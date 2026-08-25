@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  ContentLifecycleStatusSchema,
   type CatalogCoverage,
+  ContentLifecycleStatusSchema,
   type RulesetSnapshot,
   type ValidationReport,
 } from "../../modules/catalog/contracts.js";
@@ -213,6 +213,7 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       formAbilities,
       learnsets,
       evolutions,
+      starterOptions,
       encounterTables,
     ] = await Promise.all([
       this.client.query<{ type_id: string; display_name: string; active: boolean }>(
@@ -349,6 +350,18 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         `SELECT from_form_id, to_form_id, trigger_kind, trigger_config, active
          FROM evolution_rules
          WHERE content_release_id = $1 ORDER BY from_form_id, to_form_id, trigger_kind`,
+        [releaseId],
+      ),
+      this.client.query<{
+        region_id: string;
+        form_id: string;
+        starter_level: number;
+        sort_order: number;
+        active: boolean;
+      }>(
+        `SELECT region_id, form_id, starter_level, sort_order, active
+         FROM starter_options
+         WHERE content_release_id = $1 ORDER BY region_id, sort_order, form_id`,
         [releaseId],
       ),
       this.client.query<{
@@ -494,6 +507,13 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         toFormId: entry.to_form_id,
         triggerKind: entry.trigger_kind,
         triggerConfig: entry.trigger_config,
+        active: entry.active,
+      })),
+      starterOptions: starterOptions.rows.map((entry) => ({
+        regionId: entry.region_id,
+        formId: entry.form_id,
+        starterLevel: entry.starter_level,
+        sortOrder: entry.sort_order,
         active: entry.active,
       })),
       encounterTables: tableRows,
@@ -656,6 +676,10 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       {
         table: "evolution_rules",
         columns: ["from_form_id", "to_form_id", "trigger_kind", "trigger_config", "active"],
+      },
+      {
+        table: "starter_options",
+        columns: ["region_id", "form_id", "starter_level", "sort_order", "active"],
       },
     ] as const;
 

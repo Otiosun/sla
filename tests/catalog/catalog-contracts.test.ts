@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { diffCatalogSnapshots, formatReleaseDiff } from "../../src/modules/catalog/diff.js";
 import { fingerprintCatalog, fingerprintRuleset } from "../../src/modules/catalog/fingerprint.js";
 import {
-  validateCatalogSnapshot,
   type CatalogSnapshotWithEffects,
+  validateCatalogSnapshot,
 } from "../../src/modules/catalog/validation.js";
 
 const RULESET_CONFIG = {
@@ -110,6 +110,15 @@ function validSnapshot(releaseId = "release-1"): CatalogSnapshotWithEffects {
       },
     ],
     evolutions: [],
+    starterOptions: [
+      {
+        regionId: "region-1",
+        formId: "form-1",
+        starterLevel: 5,
+        sortOrder: 1,
+        active: true,
+      },
+    ],
     encounterTables: [
       {
         encounterTableId: "encounter-1",
@@ -196,6 +205,35 @@ describe("catalog contracts", () => {
       })),
     };
     expect(fingerprintCatalog(snapshot)).toBe(fingerprintCatalog(reordered));
+  });
+
+  it("treats starter options as fingerprinted, validated and diffable content", () => {
+    const before = validSnapshot("release-1");
+    const starter = before.starterOptions[0];
+    expect(starter).toBeDefined();
+    if (starter === undefined) return;
+
+    const after: CatalogSnapshotWithEffects = {
+      ...validSnapshot("release-2"),
+      starterOptions: [{ ...starter, starterLevel: 10 }],
+    };
+    expect(fingerprintCatalog(after)).not.toBe(fingerprintCatalog(before));
+    expect(
+      diffCatalogSnapshots(before, after).sections.find(
+        (section) => section.category === "starterOptions",
+      ),
+    ).toEqual({ category: "starterOptions", added: 0, removed: 0, changed: 1 });
+
+    const invalid: CatalogSnapshotWithEffects = {
+      ...before,
+      starterOptions: [{ ...starter, formId: "missing-form", starterLevel: 0 }],
+    };
+    const report = validateCatalogSnapshot(invalid);
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((entry) => entry.code === "STARTER_OPTION_REFERENCE_MISSING")).toBe(
+      true,
+    );
+    expect(report.issues.some((entry) => entry.code === "STARTER_OPTION_RANGE_INVALID")).toBe(true);
   });
 
   it("produces a readable release diff without changing historical snapshots", () => {
