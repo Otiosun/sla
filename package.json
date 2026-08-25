@@ -15,6 +15,7 @@
     "db:migrate": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts migrate",
     "db:verify": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts verify",
     "db:seed:phase4": "node --env-file-if-exists=.env --import tsx db/seeds/phase4_vertical_slice.ts",
+    "db:seed:phase5": "node --env-file-if-exists=.env --import tsx db/seeds/phase5_player_slice.ts",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
