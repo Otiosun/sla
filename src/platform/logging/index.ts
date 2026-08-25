@@ -30,7 +30,11 @@ function sanitizeValue(value: unknown, key: string, seen: WeakSet<object>): unkn
   }
 
   if (typeof value === "string") {
-    if (PHONE_LIKE_PATTERN.test(value) || JID_LIKE_PATTERN.test(value) || BEARER_PATTERN.test(value)) {
+    if (
+      PHONE_LIKE_PATTERN.test(value) ||
+      JID_LIKE_PATTERN.test(value) ||
+      BEARER_PATTERN.test(value)
+    ) {
       return "[REDACTED]";
     }
     return value;

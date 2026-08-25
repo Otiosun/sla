@@ -46,7 +46,10 @@ export type AccessDecision =
       readonly message: string;
     };
 
-function denied(stage: AccessGateStage, decision: Exclude<GateDecision, { allowed: true }>): AccessDecision {
+function denied(
+  stage: AccessGateStage,
+  decision: Exclude<GateDecision, { allowed: true }>,
+): AccessDecision {
   return { allowed: false, stage, code: decision.code, message: decision.message };
 }
 

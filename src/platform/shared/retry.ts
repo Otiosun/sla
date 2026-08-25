@@ -37,7 +37,11 @@ export async function runWithSafeRetry<T>(input: {
 }
 
 function validatePolicy(policy: RetryPolicy): void {
-  if (!Number.isSafeInteger(policy.maxAttempts) || policy.maxAttempts < 1 || policy.maxAttempts > 20) {
+  if (
+    !Number.isSafeInteger(policy.maxAttempts) ||
+    policy.maxAttempts < 1 ||
+    policy.maxAttempts > 20
+  ) {
     throw new RangeError("retry maxAttempts must be an integer in 1..20");
   }
   if (!Number.isSafeInteger(policy.baseDelayMs) || policy.baseDelayMs < 0) {

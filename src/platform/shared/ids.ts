@@ -53,8 +53,10 @@ export const asAbilityId = (value: unknown): AbilityId => parseDomainId("Ability
 export const asAreaId = (value: unknown): AreaId => parseDomainId("AreaId", value);
 export const asAdminOperationId = (value: unknown): AdminOperationId =>
   parseDomainId("AdminOperationId", value);
-export const asDomainEventId = (value: unknown): DomainEventId => parseDomainId("DomainEventId", value);
-export const asCorrelationId = (value: unknown): CorrelationId => parseDomainId("CorrelationId", value);
+export const asDomainEventId = (value: unknown): DomainEventId =>
+  parseDomainId("DomainEventId", value);
+export const asCorrelationId = (value: unknown): CorrelationId =>
+  parseDomainId("CorrelationId", value);
 export const asCausationId = (value: unknown): CausationId => parseDomainId("CausationId", value);
 
 export const newDomainEventId = (): DomainEventId => newDomainId("DomainEventId");

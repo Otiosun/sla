@@ -34,7 +34,10 @@ export function scopedIdempotencyKey(scope: string, key: string): ScopedIdempote
   };
 }
 
-export function deriveIdempotencyKey(scope: string, parts: readonly string[]): ScopedIdempotencyKey {
+export function deriveIdempotencyKey(
+  scope: string,
+  parts: readonly string[],
+): ScopedIdempotencyKey {
   if (parts.length === 0) {
     throw new TypeError("idempotency derivation requires at least one part");
   }
