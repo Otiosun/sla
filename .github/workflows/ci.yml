@@ -47,13 +47,12 @@ jobs:
       - name: Install dependencies (bootstrap lock)
         run: pnpm install --no-frozen-lockfile
 
-      - name: Preserve generated lockfile during bootstrap
-        uses: actions/upload-artifact@v4
-        with:
-          name: pnpm-lock-bootstrap
-          path: pnpm-lock.yaml
-          if-no-files-found: error
-          retention-days: 1
+      - name: Print generated lockfile (bootstrap only)
+        shell: bash
+        run: |
+          echo '===PNPM_LOCKFILE_BEGIN==='
+          cat pnpm-lock.yaml
+          echo '===PNPM_LOCKFILE_END==='
 
       - name: Start PostgreSQL 18.6
         shell: bash
