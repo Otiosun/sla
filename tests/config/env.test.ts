@@ -12,13 +12,32 @@ describe("loadConfig", () => {
     ).toThrow(/PostgreSQL URL scheme/);
   });
 
-  it("requires a distinct migrator URL in staging and production", () => {
+  it("requires a migrator URL in staging and production", () => {
     expect(() =>
       loadConfig({
         APP_ENV: "production",
         DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
       }),
     ).toThrow(/MIGRATOR_DATABASE_URL/);
+  });
+
+  it("rejects the same PostgreSQL role for runtime and migrator in production", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "production",
+        DATABASE_URL: "postgresql://shared:runtime-secret@localhost:5432/pokemon_rpg",
+        MIGRATOR_DATABASE_URL: "postgresql://shared:migrator-secret@localhost:5432/pokemon_rpg",
+      }),
+    ).toThrow(/roles must be distinct/);
+  });
+
+  it("accepts distinct runtime and migrator roles in production", () => {
+    const config = loadConfig({
+      APP_ENV: "production",
+      DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
+      MIGRATOR_DATABASE_URL: "postgresql://migrator:test@localhost:5432/pokemon_rpg",
+    });
+    expect(config.migratorDatabaseUrl).toContain("migrator");
   });
 
   it("loads validated database tuning defaults without exposing unrelated fields", () => {
