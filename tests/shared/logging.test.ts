@@ -15,7 +15,7 @@ class MemorySink implements LogSink {
 }
 
 describe("redacting logger", () => {
-  it("redacts sensitive keys and common phone/JID/token-shaped values", () => {
+  it("redacts sensitive keys and secrets embedded in ordinary text", () => {
     const fields = redactLogFields({
       player: "normal-player-label",
       phone: "+5511999999999",
@@ -25,6 +25,10 @@ describe("redacting logger", () => {
         authorizationHeader: "Bearer abc.def",
       },
       genericPhoneValue: "5511988887777",
+      note: "token leaked as ghp_abcdefghijklmnopqrstuvwxyz123456",
+      error: new Error(
+        "failed postgresql://pokemon:supersecret@localhost:5432/db with Bearer abc.def for +5511977776666",
+      ),
     });
 
     expect(fields).toEqual({
@@ -36,6 +40,12 @@ describe("redacting logger", () => {
         authorizationHeader: "[REDACTED]",
       },
       genericPhoneValue: "[REDACTED]",
+      note: "token leaked as [REDACTED]",
+      error: {
+        name: "Error",
+        message:
+          "failed postgresql://pokemon:[REDACTED]@localhost:5432/db with Bearer [REDACTED] for [REDACTED]",
+      },
     });
   });
 
