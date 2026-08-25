@@ -358,8 +358,15 @@ CREATE TABLE trainer_unlocks (
   unlock_key TEXT NOT NULL,
   source_type TEXT NOT NULL,
   source_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'REVOKED')),
   unlocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (player_id, unlock_key)
+  revoked_at TIMESTAMPTZ NULL,
+  revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
+  PRIMARY KEY (player_id, unlock_key),
+  CHECK (
+    (status = 'ACTIVE' AND revoked_at IS NULL)
+    OR (status = 'REVOKED' AND revoked_at IS NOT NULL)
+  )
 );
 
 CREATE TABLE pokemon_instances (
@@ -372,6 +379,8 @@ CREATE TABLE pokemon_instances (
   current_hp INTEGER NOT NULL CHECK (current_hp >= 0),
   gender TEXT NULL,
   shiny BOOLEAN NOT NULL DEFAULT FALSE,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'ARCHIVED')),
+  archived_at TIMESTAMPTZ NULL,
   ability_id UUID NULL REFERENCES abilities(id),
   origin_type TEXT NOT NULL,
   origin_id UUID NULL,
@@ -380,10 +389,15 @@ CREATE TABLE pokemon_instances (
   revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (id, owner_player_id)
+  UNIQUE (id, owner_player_id),
+  CHECK (
+    (status = 'ACTIVE' AND archived_at IS NULL)
+    OR (status = 'ARCHIVED' AND archived_at IS NOT NULL)
+  )
 );
 
-CREATE INDEX idx_pokemon_instances_owner_created ON pokemon_instances(owner_player_id, created_at DESC);
+CREATE INDEX idx_pokemon_instances_owner_status_created
+  ON pokemon_instances(owner_player_id, status, created_at DESC);
 
 CREATE TABLE pokemon_training_values (
   pokemon_instance_id UUID PRIMARY KEY REFERENCES pokemon_instances(id),
@@ -546,6 +560,7 @@ CREATE TABLE encounter_entries (
   weight BIGINT NOT NULL CHECK (weight > 0),
   min_level SMALLINT NOT NULL CHECK (min_level >= 1),
   max_level SMALLINT NOT NULL CHECK (max_level >= 1),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
   conditions JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(conditions) = 'object'),
   CHECK (max_level >= min_level)
 );
@@ -559,9 +574,9 @@ CREATE TABLE encounters (
   status TEXT NOT NULL CHECK (status IN ('CREATED', 'PRESENTED', 'ENGAGED', 'CAPTURE_RESOLVING', 'IN_BATTLE', 'CAPTURED', 'FLED', 'EXPIRED', 'CLOSED')),
   content_release_id UUID NOT NULL REFERENCES content_releases(id),
   ruleset_id UUID NOT NULL REFERENCES rulesets(id),
-  rng_seed_ciphertext BYTEA NOT NULL CHECK (octet_length(rng_seed_ciphertext) > 0),
-  rng_seed_iv BYTEA NOT NULL CHECK (octet_length(rng_seed_iv) > 0),
-  rng_seed_auth_tag BYTEA NOT NULL CHECK (octet_length(rng_seed_auth_tag) > 0),
+  rng_seed_ciphertext BYTEA NOT NULL CHECK (octet_length(rng_seed_ciphertext) = 32),
+  rng_seed_iv BYTEA NOT NULL CHECK (octet_length(rng_seed_iv) = 12),
+  rng_seed_auth_tag BYTEA NOT NULL CHECK (octet_length(rng_seed_auth_tag) = 16),
   rng_seed_key_version SMALLINT NOT NULL CHECK (rng_seed_key_version > 0),
   rng_counter BIGINT NOT NULL DEFAULT 0 CHECK (rng_counter >= 0),
   revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
@@ -590,9 +605,9 @@ CREATE TABLE battles (
   encounter_id UUID NULL UNIQUE REFERENCES encounters(id),
   turn_number INTEGER NOT NULL DEFAULT 0 CHECK (turn_number >= 0),
   version BIGINT NOT NULL DEFAULT 0 CHECK (version >= 0),
-  rng_seed_ciphertext BYTEA NOT NULL CHECK (octet_length(rng_seed_ciphertext) > 0),
-  rng_seed_iv BYTEA NOT NULL CHECK (octet_length(rng_seed_iv) > 0),
-  rng_seed_auth_tag BYTEA NOT NULL CHECK (octet_length(rng_seed_auth_tag) > 0),
+  rng_seed_ciphertext BYTEA NOT NULL CHECK (octet_length(rng_seed_ciphertext) = 32),
+  rng_seed_iv BYTEA NOT NULL CHECK (octet_length(rng_seed_iv) = 12),
+  rng_seed_auth_tag BYTEA NOT NULL CHECK (octet_length(rng_seed_auth_tag) = 16),
   rng_seed_key_version SMALLINT NOT NULL CHECK (rng_seed_key_version > 0),
   rng_counter BIGINT NOT NULL DEFAULT 0 CHECK (rng_counter >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

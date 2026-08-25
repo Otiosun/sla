@@ -363,7 +363,7 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
         catalog.areaId,
         catalog.releaseId,
         catalog.rulesetId,
-        Buffer.from("ciphertext"),
+        Buffer.alloc(32, 1),
         Buffer.from("123456789012"),
         Buffer.from("1234567890123456"),
       ];
@@ -402,7 +402,7 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
         battleId,
         catalog.releaseId,
         catalog.rulesetId,
-        Buffer.from("ciphertext"),
+        Buffer.alloc(32, 1),
         Buffer.from("123456789012"),
         Buffer.from("1234567890123456"),
       ],
