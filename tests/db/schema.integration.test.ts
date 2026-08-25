@@ -60,13 +60,15 @@ async function seedCatalog(client: PoolClient): Promise<FixtureCatalog> {
   const areaId = randomUUID();
 
   await client.query(
-    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status, published_at)
-     VALUES ($1, 'test-rules', 1, 1, '{}'::jsonb, 'PUBLISHED', now())`,
+    `INSERT INTO rulesets(
+       id, key, version, engine_contract_version, config, status, validated_at, published_at
+     ) VALUES ($1, 'test-rules', 1, 1, '{}'::jsonb, 'PUBLISHED', now(), now())`,
     [rulesetId],
   );
   await client.query(
-    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id, published_at)
-     VALUES ($1, 1, 'test-release', 'PUBLISHED', $2, now())`,
+    `INSERT INTO content_releases(
+       id, release_no, name, status, default_ruleset_id, validated_at, published_at
+     ) VALUES ($1, 1, 'test-release', 'PUBLISHED', $2, now(), now())`,
     [releaseId, rulesetId],
   );
   await client.query("INSERT INTO pokemon_types(id, slug) VALUES ($1, 'normal')", [typeId]);
