@@ -16,7 +16,10 @@ function eligibleMoves(candidates: readonly StarterMoveCandidate[], level: numbe
   const seen = new Set<string>();
   const selected: StarterMoveCandidate[] = [];
   for (const candidate of candidates) {
-    if (candidate.learnMethod === "LEVEL" && (candidate.learnLevel === null || candidate.learnLevel > level)) {
+    if (
+      candidate.learnMethod === "LEVEL" &&
+      (candidate.learnLevel === null || candidate.learnLevel > level)
+    ) {
       continue;
     }
     if (seen.has(candidate.moveId)) continue;
@@ -28,7 +31,11 @@ function eligibleMoves(candidates: readonly StarterMoveCandidate[], level: numbe
 }
 
 export function generateStarter(build: StarterBuild, rng: RandomSource): GeneratedStarter {
-  if (!Number.isSafeInteger(build.starterLevel) || build.starterLevel < 1 || build.starterLevel > 100) {
+  if (
+    !Number.isSafeInteger(build.starterLevel) ||
+    build.starterLevel < 1 ||
+    build.starterLevel > 100
+  ) {
     throw new RangeError("Starter level is outside the supported range");
   }
   if (!Number.isSafeInteger(build.baseHp) || build.baseHp <= 0) {

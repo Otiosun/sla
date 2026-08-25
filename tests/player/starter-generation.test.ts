@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
+import type { StarterBuild } from "../../src/modules/player/contracts.js";
 import { onboardingStateMachine } from "../../src/modules/player/onboarding-state.js";
 import { generateStarter } from "../../src/modules/player/starter-generation.js";
-import type { StarterBuild } from "../../src/modules/player/contracts.js";
+import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 
 const build: StarterBuild = {
   contentReleaseId: "release",

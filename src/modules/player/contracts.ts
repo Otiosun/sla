@@ -13,7 +13,12 @@ export type OnboardingState = z.infer<typeof OnboardingStateSchema>;
 
 export const ExternalIdentitySchema = z
   .object({
-    provider: z.string().trim().min(1).max(32).regex(/^[a-z0-9][a-z0-9_-]*$/),
+    provider: z
+      .string()
+      .trim()
+      .min(1)
+      .max(32)
+      .regex(/^[a-z0-9][a-z0-9_-]*$/),
     externalId: z.string().trim().min(1).max(255),
   })
   .strict();

@@ -1,5 +1,5 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, type AppError } from "../../shared-kernel/result.js";
+import { type AppError, appError } from "../../shared-kernel/result.js";
 import type { OnboardingRecord } from "./contracts.js";
 
 export function playerValidationError(label: string, issues: unknown): AppError {

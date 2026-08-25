@@ -21,7 +21,8 @@ export class PlayerRegistrationService {
 
   public async resolveOrCreatePlayer(identityInput: unknown): Promise<Result<ResolvePlayerResult>> {
     const parsed = ExternalIdentitySchema.safeParse(identityInput);
-    if (!parsed.success) return err(playerValidationError("External identity", parsed.error.issues));
+    if (!parsed.success)
+      return err(playerValidationError("External identity", parsed.error.issues));
     const identity = parsed.data;
 
     return this.repository.transaction(async (transaction) => {
@@ -35,7 +36,9 @@ export class PlayerRegistrationService {
 
       const context = await transaction.loadActiveContentContext();
       if (context === null) {
-        return err(appError("FEATURE_UNAVAILABLE", "No published active content release is available"));
+        return err(
+          appError("FEATURE_UNAVAILABLE", "No published active content release is available"),
+        );
       }
       const playerId = createPlayerId();
       await transaction.createPlayerFoundation({
@@ -67,9 +70,7 @@ export class PlayerRegistrationService {
           profile,
           expectedRevision: onboarding.revision,
         });
-        return changed
-          ? ok({ playerId, state: "PROFILE_CREATED" })
-          : err(playerRevisionConflict());
+        return changed ? ok({ playerId, state: "PROFILE_CREATED" }) : err(playerRevisionConflict());
       }
 
       if (onboardingHasReached(onboarding.state, "PROFILE_CREATED")) {
@@ -101,7 +102,9 @@ export class PlayerRegistrationService {
       if (onboarding === null) return err(playerNotFound(playerId));
       if (onboarding.state === "PROFILE_CREATED") {
         if (!(await transaction.regionIsActive(onboarding.contentReleaseId, regionId))) {
-          return err(appError("ACTION_INVALID", "Region is not active in the pinned content release"));
+          return err(
+            appError("ACTION_INVALID", "Region is not active in the pinned content release"),
+          );
         }
         const transition = onboardingStateMachine.transition("PROFILE_CREATED", "REGION_SELECTED");
         if (!transition.ok) return transition;
@@ -110,9 +113,7 @@ export class PlayerRegistrationService {
           regionId,
           expectedRevision: onboarding.revision,
         });
-        return changed
-          ? ok({ playerId, state: "REGION_SELECTED" })
-          : err(playerRevisionConflict());
+        return changed ? ok({ playerId, state: "REGION_SELECTED" }) : err(playerRevisionConflict());
       }
 
       if (onboardingHasReached(onboarding.state, "REGION_SELECTED")) {

@@ -1,21 +1,21 @@
 import { randomUUID } from "node:crypto";
 import type { Clock } from "../../platform/clock/index.js";
 import type { RandomSource } from "../../platform/rng/index.js";
+import { evaluateActionGate, type FeatureAvailability } from "../../shared-kernel/gates.js";
 import {
-  createPokemonInstanceId,
   type CorrelationId,
+  createPokemonInstanceId,
   type PlayerId,
 } from "../../shared-kernel/ids.js";
-import { evaluateActionGate, type FeatureAvailability } from "../../shared-kernel/gates.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
-  StarterSelectionSchema,
   type GeneratedStarter,
   type PlayerProfileView,
   type StarterGrantResult,
   type StarterGrantWrite,
   type StarterOption,
   type StarterPreparationResult,
+  StarterSelectionSchema,
 } from "./contracts.js";
 import {
   playerInvalidState,
@@ -87,7 +87,10 @@ export class PlayerStarterService {
         return err(playerInvalidState(onboarding, "REGION_SELECTED"));
       }
       return ok(
-        await transaction.listStarterOptions(onboarding.contentReleaseId, onboarding.originRegionId),
+        await transaction.listStarterOptions(
+          onboarding.contentReleaseId,
+          onboarding.originRegionId,
+        ),
       );
     });
   }
@@ -98,7 +101,8 @@ export class PlayerStarterService {
     correlationId: CorrelationId | null = null,
   ): Promise<Result<StarterGrantResult>> {
     const parsed = StarterSelectionSchema.safeParse(selectionInput);
-    if (!parsed.success) return err(playerValidationError("Starter selection", parsed.error.issues));
+    if (!parsed.success)
+      return err(playerValidationError("Starter selection", parsed.error.issues));
     const { formId } = parsed.data;
 
     return this.repository.transaction(async (transaction) => {
@@ -133,7 +137,10 @@ export class PlayerStarterService {
       });
       if (build === null) {
         return err(
-          appError("ACTION_INVALID", "Selected starter is not available in this onboarding release"),
+          appError(
+            "ACTION_INVALID",
+            "Selected starter is not available in this onboarding release",
+          ),
         );
       }
 
@@ -181,7 +188,9 @@ export class PlayerStarterService {
         return err(playerInvalidState(onboarding, "STARTER_GRANTED"));
       }
       if ((await transaction.findStarterGrant(playerId)) === null) {
-        return err(appError("ACTION_INVALID", "Cannot complete onboarding without a durable starter grant"));
+        return err(
+          appError("ACTION_INVALID", "Cannot complete onboarding without a durable starter grant"),
+        );
       }
       const transition = onboardingStateMachine.transition("STARTER_GRANTED", "COMPLETE");
       if (!transition.ok) return transition;
@@ -212,7 +221,8 @@ export class PlayerStarterService {
         feature,
         player: {
           eligible: profile.playerStatus === "ACTIVE",
-          reason: profile.playerStatus === "ACTIVE" ? null : `player-status:${profile.playerStatus}`,
+          reason:
+            profile.playerStatus === "ACTIVE" ? null : `player-status:${profile.playerStatus}`,
         },
         flow: {
           state: profile.onboardingState,

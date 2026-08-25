@@ -3,10 +3,10 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
-import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
-import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { createCorrelationId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
@@ -37,7 +37,10 @@ async function expectPgCode(promise: Promise<unknown>, expectedCode: string): Pr
     await promise;
     throw new Error(`Expected PostgreSQL error code ${expectedCode}`);
   } catch (error) {
-    if (error instanceof Error && error.message === `Expected PostgreSQL error code ${expectedCode}`) {
+    if (
+      error instanceof Error &&
+      error.message === `Expected PostgreSQL error code ${expectedCode}`
+    ) {
       throw error;
     }
     expect(error).toMatchObject({ code: expectedCode });
@@ -66,9 +69,10 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
      WHERE id = $1`,
     [rulesetId, "a".repeat(64)],
   );
-  await client.query("UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1", [
-    rulesetId,
-  ]);
+  await client.query(
+    "UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1",
+    [rulesetId],
+  );
   await client.query(
     `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
      VALUES ($1, 1, 'phase5-test-release', 'DRAFT', $2)`,
@@ -76,9 +80,10 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
   );
 
   await client.query("INSERT INTO pokemon_types(id, slug) VALUES ($1, 'normal')", [typeId]);
-  await client.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 1, 'bulbasaur')", [
-    speciesId,
-  ]);
+  await client.query(
+    "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 1, 'bulbasaur')",
+    [speciesId],
+  );
   await client.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
     formId,
     speciesId,
@@ -169,7 +174,9 @@ async function advanceToStarterPending(
   const resolved = unwrap(
     await registration.resolveOrCreatePlayer({ provider: "whatsapp", externalId: identity }),
   );
-  unwrap(await registration.createProfile(resolved.playerId, { trainerName: "Red", locale: "pt-BR" }));
+  unwrap(
+    await registration.createProfile(resolved.playerId, { trainerName: "Red", locale: "pt-BR" }),
+  );
   unwrap(await registration.selectRegion(resolved.playerId, { regionId }));
   unwrap(await starter.prepareStarterSelection(resolved.playerId));
   return resolved.playerId;
@@ -223,7 +230,9 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
     expect(second.playerId).toBe(first.playerId);
     expect([first.created, second.created].sort()).toEqual([false, true]);
 
-    unwrap(await registration.createProfile(first.playerId, { trainerName: "Red", locale: "pt-BR" }));
+    unwrap(
+      await registration.createProfile(first.playerId, { trainerName: "Red", locale: "pt-BR" }),
+    );
     const badRegion = await registration.selectRegion(first.playerId, { regionId: randomUUID() });
     expect(badRegion).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
     unwrap(await registration.selectRegion(first.playerId, { regionId: fixture.regionId }));
@@ -254,7 +263,11 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
          (SELECT count(*) FROM pokemon_roster_slots WHERE player_id = $1)::text AS roster_count`,
       [first.playerId],
     );
-    expect(counts.rows[0]).toMatchObject({ pokemon_count: "1", grant_count: "1", roster_count: "1" });
+    expect(counts.rows[0]).toMatchObject({
+      pokemon_count: "1",
+      grant_count: "1",
+      roster_count: "1",
+    });
 
     const immediateProfile = unwrap(await starter.getProfile(first.playerId));
     expect(immediateProfile.onboardingState).toBe("STARTER_GRANTED");
@@ -327,9 +340,10 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
 
   it("keeps published starter options immutable", async () => {
     await expectPgCode(
-      pool.query("UPDATE starter_options SET sort_order = sort_order + 1 WHERE content_release_id = $1", [
-        fixture.releaseId,
-      ]),
+      pool.query(
+        "UPDATE starter_options SET sort_order = sort_order + 1 WHERE content_release_id = $1",
+        [fixture.releaseId],
+      ),
       "55000",
     );
   });

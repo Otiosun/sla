@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import {
   OnboardingStateSchema,
   type PlayerProfileView,
@@ -14,10 +14,10 @@ import type {
   PlayerOnboardingTransaction,
 } from "../../modules/player/ports.js";
 import {
-  parsePlayerId,
-  parsePokemonInstanceId,
   type PlayerId,
   type PokemonInstanceId,
+  parsePlayerId,
+  parsePokemonInstanceId,
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 import { PostgresPlayerRegistrationTransaction } from "./postgres-player-registration-transaction.js";
@@ -38,10 +38,6 @@ class PostgresPlayerOnboardingTransaction
   extends PostgresPlayerRegistrationTransaction
   implements PlayerOnboardingTransaction
 {
-  public constructor(client: PoolClient) {
-    super(client);
-  }
-
   public async listStarterOptions(
     contentReleaseId: string,
     regionId: string,
@@ -383,7 +379,9 @@ class PostgresPlayerOnboardingTransaction
       contentReleaseId: row.content_release_id,
       rulesetId: row.ruleset_id,
       starterPokemonInstanceId:
-        row.starter_pokemon_instance_id === null ? null : pokemonId(row.starter_pokemon_instance_id),
+        row.starter_pokemon_instance_id === null
+          ? null
+          : pokemonId(row.starter_pokemon_instance_id),
       team: team.rows.map((member) => ({
         pokemonInstanceId: pokemonId(member.pokemon_instance_id),
         formId: member.form_id,

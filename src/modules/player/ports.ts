@@ -42,10 +42,7 @@ export interface PlayerOnboardingTransaction {
     readonly regionId: string;
     readonly expectedRevision: bigint;
   }): Promise<boolean>;
-  listStarterOptions(
-    contentReleaseId: string,
-    regionId: string,
-  ): Promise<readonly StarterOption[]>;
+  listStarterOptions(contentReleaseId: string, regionId: string): Promise<readonly StarterOption[]>;
   setStarterPending(input: {
     readonly playerId: PlayerId;
     readonly starterClaimKey: string;

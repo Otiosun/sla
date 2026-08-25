@@ -42,10 +42,9 @@ async function resolveRelease(client: PoolClient): Promise<{
     status: "DRAFT" | "VALIDATED" | "PUBLISHED";
     parent_release_id: string | null;
     name: string;
-  }>(
-    `SELECT id, status, parent_release_id, name FROM content_releases WHERE release_no = $1`,
-    [RELEASE_NO.toString()],
-  );
+  }>(`SELECT id, status, parent_release_id, name FROM content_releases WHERE release_no = $1`, [
+    RELEASE_NO.toString(),
+  ]);
   const row = result.rows[0];
   if (row === undefined) throw new Error("Phase 5 release was not created");
   if (row.name !== RELEASE_NAME) throw new Error("Release 2 is bound to unexpected content");
@@ -100,7 +99,9 @@ async function verifyStarterOptions(client: PoolClient, releaseId: string): Prom
     ["squirtle", 5, 3],
   ];
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`Phase 5 starter options differ from canonical seed: ${JSON.stringify(actual)}`);
+    throw new Error(
+      `Phase 5 starter options differ from canonical seed: ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -145,7 +146,8 @@ async function main(): Promise<void> {
       unwrap("publish Phase 5 release", await catalog.publishRelease(release.id));
       release = await withTransaction(pool, resolveRelease);
     }
-    if (release.status !== "PUBLISHED") throw new Error(`Unexpected Phase 5 status: ${release.status}`);
+    if (release.status !== "PUBLISHED")
+      throw new Error(`Unexpected Phase 5 status: ${release.status}`);
 
     unwrap("activate Phase 5 release", await catalog.activateRelease(release.id));
     await withTransaction(pool, async (client) => verifyStarterOptions(client, release.id));

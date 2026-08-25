@@ -1,13 +1,13 @@
 import type { PoolClient } from "pg";
 import {
-  OnboardingStateSchema,
   type ContentContext,
   type ExternalIdentity,
   type OnboardingRecord,
+  OnboardingStateSchema,
   type ProfileInput,
 } from "../../modules/player/contracts.js";
 import type { StoredProfile } from "../../modules/player/ports.js";
-import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 
 function asPlayerId(value: string): PlayerId {
   const parsed = parsePlayerId(value);
@@ -66,7 +66,9 @@ export class PostgresPlayerRegistrationTransaction {
     readonly identity: ExternalIdentity;
     readonly context: ContentContext;
   }): Promise<void> {
-    await this.client.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [input.playerId]);
+    await this.client.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [
+      input.playerId,
+    ]);
     await this.client.query(
       `INSERT INTO player_identities(id, player_id, provider, external_id, status)
        VALUES ($1, $2, $3, $4, 'ACTIVE')`,
@@ -76,10 +78,9 @@ export class PostgresPlayerRegistrationTransaction {
       "INSERT INTO trainer_progression(player_id, level, progression_points) VALUES ($1, 1, 0)",
       [input.playerId],
     );
-    await this.client.query(
-      "INSERT INTO onboarding_states(player_id, state) VALUES ($1, 'NEW')",
-      [input.playerId],
-    );
+    await this.client.query("INSERT INTO onboarding_states(player_id, state) VALUES ($1, 'NEW')", [
+      input.playerId,
+    ]);
     await this.client.query(
       `INSERT INTO player_onboarding_context(player_id, content_release_id, ruleset_id)
        VALUES ($1, $2, $3)`,
@@ -89,7 +90,9 @@ export class PostgresPlayerRegistrationTransaction {
 
   public async loadOnboarding(playerId: PlayerId, lock = false): Promise<OnboardingRecord | null> {
     if (lock) {
-      const locked = await this.client.query("SELECT id FROM players WHERE id = $1 FOR UPDATE", [playerId]);
+      const locked = await this.client.query("SELECT id FROM players WHERE id = $1 FOR UPDATE", [
+        playerId,
+      ]);
       if (locked.rowCount !== 1) return null;
     }
     const result = await this.client.query<{
@@ -202,7 +205,8 @@ export class PostgresPlayerRegistrationTransaction {
        WHERE player_id = $1`,
       [input.playerId, input.regionId],
     );
-    if (profile.rowCount !== 1) throw new Error("Player profile disappeared during region selection");
+    if (profile.rowCount !== 1)
+      throw new Error("Player profile disappeared during region selection");
     return true;
   }
 }
