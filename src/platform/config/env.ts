@@ -65,7 +65,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (
     requiresRoleSeparation &&
     parsed.data.MIGRATOR_DATABASE_URL !== undefined &&
-    databaseUsername(parsed.data.DATABASE_URL) === databaseUsername(parsed.data.MIGRATOR_DATABASE_URL)
+    databaseUsername(parsed.data.DATABASE_URL) ===
+      databaseUsername(parsed.data.MIGRATOR_DATABASE_URL)
   ) {
     throw new ConfigError(
       "Invalid application configuration: runtime and migrator PostgreSQL roles must be distinct in staging/production",

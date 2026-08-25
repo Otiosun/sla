@@ -39,11 +39,11 @@ describe("encrypted RNG seed envelope", () => {
     const aad = Buffer.from("battle:test");
     const encrypted = encryptRngSeed(seed, key, 3, aad);
 
-    expect(() =>
-      decryptRngSeed({ ...encrypted, iv: randomBytes(11) }, key, aad),
-    ).toThrow(/IV must be exactly 12 bytes/);
-    expect(() =>
-      decryptRngSeed({ ...encrypted, authTag: randomBytes(15) }, key, aad),
-    ).toThrow(/auth tag must be exactly 16 bytes/);
+    expect(() => decryptRngSeed({ ...encrypted, iv: randomBytes(11) }, key, aad)).toThrow(
+      /IV must be exactly 12 bytes/,
+    );
+    expect(() => decryptRngSeed({ ...encrypted, authTag: randomBytes(15) }, key, aad)).toThrow(
+      /auth tag must be exactly 16 bytes/,
+    );
   });
 });

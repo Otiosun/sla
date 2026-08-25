@@ -179,7 +179,10 @@ async function releaseMigrationLock(client: PoolClient): Promise<void> {
   ]);
 }
 
-async function rollbackMigration(client: PoolClient, migration: MigrationDefinition): Promise<void> {
+async function rollbackMigration(
+  client: PoolClient,
+  migration: MigrationDefinition,
+): Promise<void> {
   try {
     await client.query("ROLLBACK");
   } catch (rollbackError) {
