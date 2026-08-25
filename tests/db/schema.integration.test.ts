@@ -65,8 +65,13 @@ async function seedCatalog(client: PoolClient): Promise<FixtureCatalog> {
     [rulesetId],
   );
   await client.query(
-    `UPDATE rulesets SET status = 'VALIDATED', validated_at = now() WHERE id = $1`,
-    [rulesetId],
+    `UPDATE rulesets
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"valid":true,"issues":[]}'::jsonb,
+         config_fingerprint = $2
+     WHERE id = $1`,
+    [rulesetId, "a".repeat(64)],
   );
   await client.query(
     `UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
@@ -78,8 +83,13 @@ async function seedCatalog(client: PoolClient): Promise<FixtureCatalog> {
     [releaseId, rulesetId],
   );
   await client.query(
-    `UPDATE content_releases SET status = 'VALIDATED', validated_at = now() WHERE id = $1`,
-    [releaseId],
+    `UPDATE content_releases
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"valid":true,"issues":[]}'::jsonb,
+         content_fingerprint = $2
+     WHERE id = $1`,
+    [releaseId, "b".repeat(64)],
   );
   await client.query(
     `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
