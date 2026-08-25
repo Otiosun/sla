@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Sleeper } from "../../src/platform/clock/index.js";
+import { MAX_SLEEP_MS, type Sleeper } from "../../src/platform/clock/index.js";
 import {
   asBattleId,
   asCausationId,
@@ -21,14 +21,18 @@ import {
 const PLAYER_ID = asPlayerId("11111111-1111-4111-8111-111111111111");
 
 describe("state, access, retry, events and ports", () => {
-  it("allows only declared state transitions", () => {
+  it("allows only declared state transitions and snapshots policy at construction", () => {
     type State = "NEW" | "READY" | "DONE";
+    const mutableNewTargets: State[] = ["READY"];
     const machine = new StateMachine<State>({
-      NEW: ["READY"],
+      NEW: mutableNewTargets,
       READY: ["DONE"],
       DONE: [],
     });
 
+    mutableNewTargets.splice(0, 1, "DONE");
+    expect(machine.canTransition("NEW", "READY")).toBe(true);
+    expect(machine.canTransition("NEW", "DONE")).toBe(false);
     expect(machine.transition("NEW", "READY")).toEqual({ ok: true, value: "READY" });
     const invalid = machine.transition("NEW", "DONE");
     expect(invalid.ok).toBe(false);
@@ -69,7 +73,7 @@ describe("state, access, retry, events and ports", () => {
     });
   });
 
-  it("retries only through an explicitly safe contract", async () => {
+  it("retries only through an explicitly safe and timer-bounded contract", async () => {
     const delays: number[] = [];
     const sleeper: Sleeper = {
       sleep: async (milliseconds) => {
@@ -95,6 +99,16 @@ describe("state, access, retry, events and ports", () => {
     expect(result).toBe("ok");
     expect(calls).toBe(3);
     expect(delays).toEqual([10, 20]);
+
+    await expect(
+      runWithSafeRetry({
+        safety: "READ_ONLY",
+        policy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: MAX_SLEEP_MS + 1 },
+        sleeper,
+        shouldRetry: () => true,
+        operation: async () => "never",
+      }),
+    ).rejects.toThrow(/maxDelayMs/);
 
     // @ts-expect-error Unknown mutation safety must never opt into automatic retry.
     const unsafeSafety: RetrySafety = "UNKNOWN";
@@ -125,6 +139,19 @@ describe("state, access, retry, events and ports", () => {
     expect(event.eventVersion).toBe(1);
     expect(event.correlationId).toBe(correlationId);
     expect(event.causationId).toBe(causationId);
+
+    domainEvent({
+      eventId: asDomainEventId("77777777-7777-4777-8777-777777777777"),
+      eventType: "InvalidAggregateProbe",
+      eventVersion: 1,
+      aggregateType: "battle",
+      // @ts-expect-error Domain events must use nominal internal aggregate IDs.
+      aggregateId: "88888888-8888-4888-8888-888888888888",
+      payload: {},
+      occurredAt: new Date("2026-08-25T15:00:00.000Z"),
+      correlationId,
+      causationId,
+    });
   });
 
   it("keeps transaction and repository contracts infrastructure-neutral", async () => {
