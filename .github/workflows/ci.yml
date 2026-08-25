@@ -19,12 +19,19 @@ jobs:
   verify:
     name: quality / unit / postgres
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       APP_ENV: test
       LOG_LEVEL: warn
       DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      DATABASE_POOL_MAX: 12
+      DATABASE_CONNECT_TIMEOUT_MS: 5000
+      DATABASE_IDLE_TIMEOUT_MS: 30000
+      DATABASE_QUERY_TIMEOUT_MS: 10000
+      DATABASE_STATEMENT_TIMEOUT_MS: 10000
+      DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: 15000
 
     steps:
       - name: Checkout
@@ -79,5 +86,37 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
+      - name: Unit and PostgreSQL integration tests
         run: pnpm test
+
+      - name: Runtime schema verification
+        run: pnpm db:verify
+
+      - name: Logical backup and disposable restore proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec pokemon-postgres pg_dump \
+            --username pokemon \
+            --dbname pokemon_rpg_test \
+            --format custom \
+            --file /tmp/pokemon_rpg_test.dump
+
+          docker exec pokemon-postgres createdb \
+            --username pokemon \
+            pokemon_rpg_restore_test
+
+          docker exec pokemon-postgres pg_restore \
+            --username pokemon \
+            --dbname pokemon_rpg_restore_test \
+            --exit-on-error \
+            /tmp/pokemon_rpg_test.dump
+
+          restored_migrations="$(docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_restore_test \
+            --tuples-only \
+            --no-align \
+            --command 'SELECT count(*) FROM schema_migrations;')"
+
+          test "$restored_migrations" = "1"

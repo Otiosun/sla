@@ -7,15 +7,21 @@ describe("loadConfig", () => {
   });
 
   it("rejects a non-PostgreSQL DATABASE_URL", () => {
-    expect(() =>
-      loadConfig({
-        APP_ENV: "test",
-        DATABASE_URL: "https://example.com/database",
-      }),
-    ).toThrow(/PostgreSQL URL scheme/);
+    expect(() => loadConfig({ APP_ENV: "test", DATABASE_URL: "https://example.com/database" })).toThrow(
+      /PostgreSQL URL scheme/,
+    );
   });
 
-  it("loads validated configuration without exposing extra environment fields", () => {
+  it("requires a distinct migrator URL in staging and production", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "production",
+        DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
+      }),
+    ).toThrow(/MIGRATOR_DATABASE_URL/);
+  });
+
+  it("loads validated database tuning defaults without exposing unrelated fields", () => {
     const config = loadConfig({
       APP_ENV: "test",
       LOG_LEVEL: "warn",
@@ -27,6 +33,33 @@ describe("loadConfig", () => {
       appEnv: "test",
       logLevel: "warn",
       databaseUrl: "postgresql://pokemon:test@localhost:5432/pokemon_rpg_test",
+      migratorDatabaseUrl: null,
+      databasePoolMax: 10,
+      databaseConnectTimeoutMs: 5_000,
+      databaseIdleTimeoutMs: 30_000,
+      databaseQueryTimeoutMs: 10_000,
+      databaseStatementTimeoutMs: 10_000,
+      databaseIdleInTransactionTimeoutMs: 15_000,
     });
+  });
+
+  it("coerces explicit pool/timeout environment values", () => {
+    const config = loadConfig({
+      APP_ENV: "test",
+      DATABASE_URL: "postgresql://pokemon:test@localhost:5432/pokemon_rpg_test",
+      DATABASE_POOL_MAX: "4",
+      DATABASE_CONNECT_TIMEOUT_MS: "2500",
+      DATABASE_IDLE_TIMEOUT_MS: "9000",
+      DATABASE_QUERY_TIMEOUT_MS: "0",
+      DATABASE_STATEMENT_TIMEOUT_MS: "12000",
+      DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: "7000",
+    });
+
+    expect(config.databasePoolMax).toBe(4);
+    expect(config.databaseConnectTimeoutMs).toBe(2_500);
+    expect(config.databaseIdleTimeoutMs).toBe(9_000);
+    expect(config.databaseQueryTimeoutMs).toBe(0);
+    expect(config.databaseStatementTimeoutMs).toBe(12_000);
+    expect(config.databaseIdleInTransactionTimeoutMs).toBe(7_000);
   });
 });
