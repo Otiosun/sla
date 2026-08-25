@@ -3,7 +3,7 @@
 `0001_core_schema.sql` never creates environment-specific login roles. Staging/production use separate credentials:
 
 - **migrator** — applies and owns numbered migrations;
-- **runtime** — application DML, no DDL, no physical `DELETE`, no migration writes and no rewriting append-only history;
+- **runtime** — application DML, no DDL, no migration writes and no destructive deletion of durable/history records;
 - **readonly/support** — deferred until the support/admin surface needs it.
 
 ## Required deployment order
@@ -48,6 +48,8 @@ psql "$MIGRATOR_DATABASE_URL" \
   --file=db/bootstrap/runtime_grants.sql
 ```
 
-The runtime receives `SELECT`, `INSERT` and `UPDATE` on ordinary application tables, but **no table `DELETE` privilege anywhere**. Append-only ledgers, audit/history records and immutable snapshots additionally lose `UPDATE` and `TRUNCATE`. `schema_migrations` is `SELECT`-only.
+Runtime gets `SELECT`, `INSERT` and `UPDATE` on ordinary application tables. `DELETE` is denied by default and is granted only to a small explicit allowlist of transient relationship/state tables whose normal domain operation requires row removal: admin role assignments, Pokémon move/roster slots, persistent conditions and active effects.
+
+Durable entities, economy/progression data and historical records remain non-deletable by runtime. Append-only ledgers, audit/history records and immutable snapshots additionally lose `UPDATE` and `TRUNCATE`. `schema_migrations` is `SELECT`-only.
 
 Provider-specific role creation/grants remain operational infrastructure and are not embedded in numbered schema migrations.
