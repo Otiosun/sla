@@ -31,7 +31,7 @@ describe("shared ids, results and validation", () => {
     expect(() => asPlayerId("not-a-uuid")).toThrow(/PlayerId/);
   });
 
-  it("uses stable error codes instead of textual messages as contract", () => {
+  it("uses and enforces stable error codes instead of textual messages as contract", () => {
     const result = err(
       appError({
         code: "PLAYER.NOT_FOUND",
@@ -44,9 +44,12 @@ describe("shared ids, results and validation", () => {
     if (!result.ok) {
       expect(result.error.code).toBe("PLAYER.NOT_FOUND");
       expect(result.error.retryable).toBe(false);
+      expect(Object.isFrozen(result.error)).toBe(true);
     }
     expect(stableErrorCodeSchema.parse("PLAYER.NOT_FOUND")).toBe("PLAYER.NOT_FOUND");
     expect(() => stableErrorCodeSchema.parse("not stable")).toThrow();
+    expect(() => appError({ code: "not stable", message: "invalid" })).toThrow(/stable/);
+    expect(() => appError({ code: "TEST.EMPTY", message: "   " })).toThrow(/message/);
   });
 
   it("maps successful results without changing failures", () => {
