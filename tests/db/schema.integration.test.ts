@@ -617,4 +617,120 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
       client.release();
     }
   });
+
+  it("supports logical release rollback while historical battles stay pinned", async () => {
+    const newReleaseId = randomUUID();
+    const battleId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+       VALUES ($1, 900001, 'rollback-target', 'DRAFT', $2)`,
+      [newReleaseId, catalog.rulesetId],
+    );
+    await pool.query(
+      `UPDATE content_releases
+       SET status = 'VALIDATED',
+           validated_at = now(),
+           validation_report = '{"valid":true,"issues":[]}'::jsonb,
+           content_fingerprint = $2
+       WHERE id = $1`,
+      [newReleaseId, "b".repeat(64)],
+    );
+    await pool.query(
+      `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+      [newReleaseId],
+    );
+
+    await pool.query(
+      `INSERT INTO content_release_pointers(pointer_key, content_release_id)
+       VALUES ('ACTIVE', $1)
+       ON CONFLICT (pointer_key)
+       DO UPDATE SET content_release_id = EXCLUDED.content_release_id,
+                     revision = content_release_pointers.revision + 1,
+                     updated_at = now()`,
+      [catalog.releaseId],
+    );
+
+    await pool.query(
+      `INSERT INTO battles(
+         id, battle_type, status, content_release_id, ruleset_id,
+         rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version
+       ) VALUES ($1, 'WILD', 'CREATED', $2, $3, $4, $5, $6, 1)`,
+      [
+        battleId,
+        catalog.releaseId,
+        catalog.rulesetId,
+        Buffer.alloc(32, 1),
+        Buffer.alloc(12, 2),
+        Buffer.alloc(16, 3),
+      ],
+    );
+
+    await pool.query(
+      `UPDATE content_release_pointers
+       SET content_release_id = $1,
+           revision = revision + 1,
+           updated_at = now()
+       WHERE pointer_key = 'ACTIVE'`,
+      [newReleaseId],
+    );
+
+    const switched = await pool.query<{
+      battle_release_id: string;
+      pointer_release_id: string;
+    }>(
+      `SELECT b.content_release_id AS battle_release_id,
+              p.content_release_id AS pointer_release_id
+       FROM battles b
+       CROSS JOIN content_release_pointers p
+       WHERE b.id = $1 AND p.pointer_key = 'ACTIVE'`,
+      [battleId],
+    );
+    expect(switched.rows[0]).toEqual({
+      battle_release_id: catalog.releaseId,
+      pointer_release_id: newReleaseId,
+    });
+
+    await expectPgCode(
+      pool.query(
+        `INSERT INTO pokemon_type_revisions(
+           id, content_release_id, type_id, display_name
+         ) VALUES ($1, $2, $3, 'illegal-published-mutation')`,
+        [randomUUID(), catalog.releaseId, catalog.typeId],
+      ),
+      "55000",
+    );
+
+    await pool.query(
+      `UPDATE content_release_pointers
+       SET content_release_id = $1,
+           revision = revision + 1,
+           updated_at = now()
+       WHERE pointer_key = 'ACTIVE'`,
+      [catalog.releaseId],
+    );
+    await pool.query("UPDATE content_releases SET status = 'ARCHIVED' WHERE id = $1", [
+      newReleaseId,
+    ]);
+
+    const rolledBack = await pool.query<{
+      battle_release_id: string;
+      archived_status: string;
+      pointer_release_id: string;
+    }>(
+      `SELECT b.content_release_id AS battle_release_id,
+              archived.status AS archived_status,
+              p.content_release_id AS pointer_release_id
+       FROM battles b
+       CROSS JOIN content_release_pointers p
+       JOIN content_releases archived ON archived.id = $2
+       WHERE b.id = $1 AND p.pointer_key = 'ACTIVE'`,
+      [battleId, newReleaseId],
+    );
+    expect(rolledBack.rows[0]).toEqual({
+      battle_release_id: catalog.releaseId,
+      archived_status: "ARCHIVED",
+      pointer_release_id: catalog.releaseId,
+    });
+  });
 });

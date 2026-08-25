@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { Pool, type PoolClient } from "pg";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
@@ -166,7 +167,7 @@ async function ensureRuleset(client: PoolClient): Promise<{ id: string; status: 
   );
   const row = result.rows[0];
   if (row === undefined) throw new Error("Failed to resolve Phase 4 ruleset");
-  if (JSON.stringify(row.config) !== JSON.stringify(RULESET_CONFIG)) {
+  if (!isDeepStrictEqual(row.config, RULESET_CONFIG)) {
     throw new Error("Existing Phase 4 ruleset config differs from canonical seed");
   }
   return row;
@@ -187,10 +188,9 @@ async function ensureRelease(
     status: string;
     name: string;
     default_ruleset_id: string;
-  }>(
-    "SELECT id, status, name, default_ruleset_id FROM content_releases WHERE release_no = $1",
-    [RELEASE_NO.toString()],
-  );
+  }>("SELECT id, status, name, default_ruleset_id FROM content_releases WHERE release_no = $1", [
+    RELEASE_NO.toString(),
+  ]);
   const row = result.rows[0];
   if (row === undefined) throw new Error("Failed to resolve Phase 4 content release");
   if (row.name !== RELEASE_NAME || row.default_ruleset_id !== rulesetId) {
@@ -202,7 +202,8 @@ async function ensureRelease(
 async function ensureIdentities(client: PoolClient): Promise<IdentityMap> {
   const typeSlugs = ["normal", "grass", "poison", "fire", "water", "flying", "electric"] as const;
   const types: Record<string, string> = {};
-  for (const slug of typeSlugs) types[slug] = await ensureSlugIdentity(client, "pokemon_types", slug);
+  for (const slug of typeSlugs)
+    types[slug] = await ensureSlugIdentity(client, "pokemon_types", slug);
 
   const speciesRows = [
     [1, "bulbasaur"],
@@ -261,7 +262,19 @@ async function ensureIdentities(client: PoolClient): Promise<IdentityMap> {
   const areaId = await ensureArea(client, regionId, "route-1");
   const encounterTableId = await ensureEncounterTable(client, areaId, "grass-day");
 
-  return { types, species, forms, moves, abilities, items, natures, effects, regionId, areaId, encounterTableId };
+  return {
+    types,
+    species,
+    forms,
+    moves,
+    abilities,
+    items,
+    natures,
+    effects,
+    regionId,
+    areaId,
+    encounterTableId,
+  };
 }
 
 async function seedTypeChart(
@@ -298,7 +311,12 @@ async function seedTypeChart(
            ruleset_id, attacking_type_id, defending_type_id, multiplier_basis_points
          ) VALUES ($1, $2, $3, $4)
          ON CONFLICT (ruleset_id, attacking_type_id, defending_type_id) DO NOTHING`,
-        [rulesetId, types[attacking], types[defending], overrides.get(`${attacking}:${defending}`) ?? 10_000],
+        [
+          rulesetId,
+          types[attacking],
+          types[defending],
+          overrides.get(`${attacking}:${defending}`) ?? 10_000,
+        ],
       );
     }
   }
@@ -394,34 +412,124 @@ async function seedReleaseContent(
         "base_sp_defense",
         "base_speed",
       ],
-      [releaseId, ids.forms[slug], displayName, ids.types[type1], type2 === null ? null : ids.types[type2], hp, atk, def, spa, spd, spe],
+      [
+        releaseId,
+        ids.forms[slug],
+        displayName,
+        ids.types[type1],
+        type2 === null ? null : ids.types[type2],
+        hp,
+        atk,
+        def,
+        spa,
+        spd,
+        spe,
+      ],
     );
   }
 
   const moveData = [
     ["tackle", "Tackle", "normal", "PHYSICAL", 40, 100, 0, 35, null, {}],
-    ["growl", "Growl", "normal", "STATUS", null, 100, 0, 40, "modify-stat-stage", { stat: "ATTACK", stages: -1 }],
+    [
+      "growl",
+      "Growl",
+      "normal",
+      "STATUS",
+      null,
+      100,
+      0,
+      40,
+      "modify-stat-stage",
+      { stat: "ATTACK", stages: -1 },
+    ],
     ["vine-whip", "Vine Whip", "grass", "PHYSICAL", 45, 100, 0, 25, null, {}],
-    ["ember", "Ember", "fire", "SPECIAL", 40, 100, 0, 25, "apply-status", { status: "BURN", chanceBasisPoints: 1_000 }],
+    [
+      "ember",
+      "Ember",
+      "fire",
+      "SPECIAL",
+      40,
+      100,
+      0,
+      25,
+      "apply-status",
+      { status: "BURN", chanceBasisPoints: 1_000 },
+    ],
     ["water-gun", "Water Gun", "water", "SPECIAL", 40, 100, 0, 25, null, {}],
     ["quick-attack", "Quick Attack", "normal", "PHYSICAL", 40, 100, 1, 30, null, {}],
-    ["thunder-shock", "Thunder Shock", "electric", "SPECIAL", 40, 100, 0, 30, "apply-status", { status: "PARALYSIS", chanceBasisPoints: 1_000 }],
+    [
+      "thunder-shock",
+      "Thunder Shock",
+      "electric",
+      "SPECIAL",
+      40,
+      100,
+      0,
+      30,
+      "apply-status",
+      { status: "PARALYSIS", chanceBasisPoints: 1_000 },
+    ],
     ["gust", "Gust", "flying", "SPECIAL", 40, 100, 0, 35, null, {}],
   ] as const;
-  for (const [slug, name, type, category, power, accuracy, priority, maxPp, effectKey, effectConfig] of moveData) {
+  for (const [
+    slug,
+    name,
+    type,
+    category,
+    power,
+    accuracy,
+    priority,
+    maxPp,
+    effectKey,
+    effectConfig,
+  ] of moveData) {
     await insertRevision(
       client,
       "move_revisions",
       ["content_release_id", "move_id"],
-      ["content_release_id", "move_id", "display_name", "type_id", "category", "power", "accuracy", "priority", "max_pp", "effect_key", "effect_config"],
-      [releaseId, ids.moves[slug], name, ids.types[type], category, power, accuracy, priority, maxPp, effectKey, JSON.stringify(effectConfig)],
+      [
+        "content_release_id",
+        "move_id",
+        "display_name",
+        "type_id",
+        "category",
+        "power",
+        "accuracy",
+        "priority",
+        "max_pp",
+        "effect_key",
+        "effect_config",
+      ],
+      [
+        releaseId,
+        ids.moves[slug],
+        name,
+        ids.types[type],
+        category,
+        power,
+        accuracy,
+        priority,
+        maxPp,
+        effectKey,
+        JSON.stringify(effectConfig),
+      ],
     );
   }
 
   const abilityData = [
-    ["overgrow", "Overgrow", "low-hp-type-boost", { typeSlug: "grass", multiplierBasisPoints: 15_000 }],
+    [
+      "overgrow",
+      "Overgrow",
+      "low-hp-type-boost",
+      { typeSlug: "grass", multiplierBasisPoints: 15_000 },
+    ],
     ["blaze", "Blaze", "low-hp-type-boost", { typeSlug: "fire", multiplierBasisPoints: 15_000 }],
-    ["torrent", "Torrent", "low-hp-type-boost", { typeSlug: "water", multiplierBasisPoints: 15_000 }],
+    [
+      "torrent",
+      "Torrent",
+      "low-hp-type-boost",
+      { typeSlug: "water", multiplierBasisPoints: 15_000 },
+    ],
     ["keen-eye", "Keen Eye", "prevent-accuracy-drop", {}],
     ["run-away", "Run Away", "run-away", {}],
     ["static", "Static", "apply-status", { status: "PARALYSIS", chanceBasisPoints: 3_000 }],
@@ -473,9 +581,32 @@ async function seedReleaseContent(
   }
 
   const effectData = [
-    ["field-potion", "POKEMON", "REFRESH", "INSTANT", { version: 1, steps: [{ effectKey: "heal-hp", config: { amount: 20 } }] }],
-    ["battle-paralysis", "BATTLE_PARTICIPANT", "REFRESH", "BATTLE", { version: 1, steps: [{ effectKey: "apply-status", config: { status: "PARALYSIS", chanceBasisPoints: 3_000 } }] }],
-    ["escape-action", "PLAYER", "REFRESH", "INSTANT", { version: 1, steps: [{ effectKey: "run-away", config: {} }] }],
+    [
+      "field-potion",
+      "POKEMON",
+      "REFRESH",
+      "INSTANT",
+      { version: 1, steps: [{ effectKey: "heal-hp", config: { amount: 20 } }] },
+    ],
+    [
+      "battle-paralysis",
+      "BATTLE_PARTICIPANT",
+      "REFRESH",
+      "BATTLE",
+      {
+        version: 1,
+        steps: [
+          { effectKey: "apply-status", config: { status: "PARALYSIS", chanceBasisPoints: 3_000 } },
+        ],
+      },
+    ],
+    [
+      "escape-action",
+      "PLAYER",
+      "REFRESH",
+      "INSTANT",
+      { version: 1, steps: [{ effectKey: "run-away", config: {} }] },
+    ],
   ] as const;
   for (const [slug, scope, stacking, duration, rules] of effectData) {
     await insertRevision(
@@ -524,15 +655,28 @@ async function seedReleaseContent(
   }
 
   const learnsets: readonly [string, string, string, number | null][] = [
-    ["bulbasaur", "tackle", "START", null], ["bulbasaur", "growl", "START", null], ["bulbasaur", "vine-whip", "LEVEL", 7],
-    ["ivysaur", "tackle", "START", null], ["ivysaur", "vine-whip", "START", null],
-    ["charmander", "tackle", "START", null], ["charmander", "growl", "START", null], ["charmander", "ember", "LEVEL", 7],
-    ["charmeleon", "tackle", "START", null], ["charmeleon", "ember", "START", null],
-    ["squirtle", "tackle", "START", null], ["squirtle", "growl", "START", null], ["squirtle", "water-gun", "LEVEL", 7],
-    ["wartortle", "tackle", "START", null], ["wartortle", "water-gun", "START", null],
-    ["pidgey", "tackle", "START", null], ["pidgey", "gust", "LEVEL", 5],
-    ["rattata", "tackle", "START", null], ["rattata", "quick-attack", "LEVEL", 7],
-    ["pikachu", "thunder-shock", "START", null], ["pikachu", "growl", "START", null], ["pikachu", "quick-attack", "LEVEL", 7],
+    ["bulbasaur", "tackle", "START", null],
+    ["bulbasaur", "growl", "START", null],
+    ["bulbasaur", "vine-whip", "LEVEL", 7],
+    ["ivysaur", "tackle", "START", null],
+    ["ivysaur", "vine-whip", "START", null],
+    ["charmander", "tackle", "START", null],
+    ["charmander", "growl", "START", null],
+    ["charmander", "ember", "LEVEL", 7],
+    ["charmeleon", "tackle", "START", null],
+    ["charmeleon", "ember", "START", null],
+    ["squirtle", "tackle", "START", null],
+    ["squirtle", "growl", "START", null],
+    ["squirtle", "water-gun", "LEVEL", 7],
+    ["wartortle", "tackle", "START", null],
+    ["wartortle", "water-gun", "START", null],
+    ["pidgey", "tackle", "START", null],
+    ["pidgey", "gust", "LEVEL", 5],
+    ["rattata", "tackle", "START", null],
+    ["rattata", "quick-attack", "LEVEL", 7],
+    ["pikachu", "thunder-shock", "START", null],
+    ["pikachu", "growl", "START", null],
+    ["pikachu", "quick-attack", "LEVEL", 7],
   ];
   for (const [formSlug, moveSlug, method, level] of learnsets) {
     await insertRevision(
@@ -544,7 +688,11 @@ async function seedReleaseContent(
     );
   }
 
-  for (const [from, to] of [["bulbasaur", "ivysaur"], ["charmander", "charmeleon"], ["squirtle", "wartortle"]] as const) {
+  for (const [from, to] of [
+    ["bulbasaur", "ivysaur"],
+    ["charmander", "charmeleon"],
+    ["squirtle", "wartortle"],
+  ] as const) {
     await insertRevision(
       client,
       "evolution_rules",
@@ -567,7 +715,8 @@ async function seedReleaseContent(
     [releaseId, ids.encounterTableId],
   );
   const encounterTableRevisionId = resolvedEncounterRevision.rows[0]?.id;
-  if (encounterTableRevisionId === undefined) throw new Error("Failed to resolve encounter revision");
+  if (encounterTableRevisionId === undefined)
+    throw new Error("Failed to resolve encounter revision");
 
   for (const [formSlug, weight, minLevel, maxLevel] of [
     ["pidgey", 50, 2, 4],
@@ -590,7 +739,12 @@ async function seedReleaseContent(
   }
 }
 
-function unwrap<T>(label: string, result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }): T {
+function unwrap<T>(
+  label: string,
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } },
+): T {
   if (result.ok) return result.value;
   throw new Error(`${label} failed [${result.error.code}]: ${result.error.message}`);
 }
@@ -609,7 +763,11 @@ async function main(): Promise<void> {
     const prepared = await withTransaction(pool, async (client) => {
       const ruleset = await ensureRuleset(client);
       const release = await ensureRelease(client, ruleset.id);
-      if (release.status !== "DRAFT" && release.status !== "VALIDATED" && release.status !== "PUBLISHED") {
+      if (
+        release.status !== "DRAFT" &&
+        release.status !== "VALIDATED" &&
+        release.status !== "PUBLISHED"
+      ) {
         throw new Error(`Vertical-slice release is not seedable from status ${release.status}`);
       }
       const ids = await ensureIdentities(client);

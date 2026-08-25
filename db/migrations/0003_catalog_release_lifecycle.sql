@@ -70,7 +70,7 @@ CREATE TABLE move_learnset_entries (
   learn_level SMALLINT NULL CHECK (learn_level IS NULL OR learn_level >= 1),
   source_key TEXT NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
-  UNIQUE (content_release_id, form_id, move_id, learn_method, learn_level),
+  UNIQUE NULLS NOT DISTINCT (content_release_id, form_id, move_id, learn_method, learn_level),
   CHECK ((learn_method = 'LEVEL' AND learn_level IS NOT NULL) OR learn_method <> 'LEVEL')
 );
 

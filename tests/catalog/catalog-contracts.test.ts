@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { diffCatalogSnapshots, formatReleaseDiff } from "../../src/modules/catalog/diff.js";
 import { fingerprintCatalog, fingerprintRuleset } from "../../src/modules/catalog/fingerprint.js";
-import { validateCatalogSnapshot, type CatalogSnapshotWithEffects } from "../../src/modules/catalog/validation.js";
+import {
+  validateCatalogSnapshot,
+  type CatalogSnapshotWithEffects,
+} from "../../src/modules/catalog/validation.js";
 
 const RULESET_CONFIG = {
   schemaVersion: 1,
@@ -154,10 +157,7 @@ describe("catalog contracts", () => {
     const snapshot = validSnapshot();
     const invalid: CatalogSnapshotWithEffects = {
       ...snapshot,
-      types: [
-        ...snapshot.types,
-        { typeId: "type-fire", displayName: "Fire", active: true },
-      ],
+      types: [...snapshot.types, { typeId: "type-fire", displayName: "Fire", active: true }],
     };
 
     const report = validateCatalogSnapshot(invalid);
