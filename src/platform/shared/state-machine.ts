@@ -11,7 +11,14 @@ export class StateMachine<State extends string> {
   readonly #transitions: TransitionMap<State>;
 
   constructor(transitions: TransitionMap<State>) {
-    this.#transitions = transitions;
+    this.#transitions = Object.freeze(
+      Object.fromEntries(
+        Object.entries(transitions).map(([state, targets]) => [
+          state,
+          Object.freeze([...(targets as readonly State[])]),
+        ]),
+      ) as Record<State, readonly State[]>,
+    );
   }
 
   canTransition(from: State, to: State): boolean {
