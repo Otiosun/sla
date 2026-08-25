@@ -12,7 +12,7 @@ jobs:
   harden:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,15 +36,30 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
-          def replace_one(path_str, old, new):
-              path = Path(path_str)
-              text = path.read_text()
-              if text.count(old) != 1:
-                  raise SystemExit(f'{path}: expected exactly one target, found {text.count(old)}')
-              path.write_text(text.replace(old, new, 1))
+          def read(path):
+              return Path(path).read_text()
 
-          replace_one(
+          def write(path, text):
+              Path(path).write_text(text)
+
+          def replace_once(path, old, new, label):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one anchor in {path}, found {count}')
+              write(path, text.replace(old, new, 1))
+
+          def regex_once(path, pattern, replacement, label):
+              text = read(path)
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one regex match in {path}, found {count}')
+              write(path, updated)
+
+          # Catalog contract and lifecycle surfaces.
+          replace_once(
               'src/modules/catalog/contracts.ts',
               '  readonly encounterTables: readonly {\n',
               '''  readonly starterOptions: readonly {
@@ -56,20 +71,21 @@ jobs:
           }[];
           readonly encounterTables: readonly {
           ''',
+              'contracts snapshot',
           )
-          replace_one(
+          replace_once(
               'src/modules/catalog/contracts.ts',
               '  "evolutions",\n] as const;',
               '  "evolutions",\n  "starterOptions",\n] as const;',
+              'contracts diff category',
           )
-
-          replace_one(
+          replace_once(
               'src/modules/catalog/fingerprint.ts',
               '    evolutions: sortByCanonical(snapshot.evolutions),\n    encounterTables:',
               '    evolutions: sortByCanonical(snapshot.evolutions),\n    starterOptions: sortByCanonical(snapshot.starterOptions),\n    encounterTables:',
+              'fingerprint',
           )
-
-          replace_one(
+          replace_once(
               'src/modules/catalog/diff.ts',
               '    encounterTables: snapshot.encounterTables.map((entry) => ({\n',
               '''    starterOptions: snapshot.starterOptions.map((entry) => ({
@@ -78,9 +94,9 @@ jobs:
               })),
               encounterTables: snapshot.encounterTables.map((entry) => ({
               ''',
+              'catalog diff',
           )
-
-          replace_one(
+          replace_once(
               'src/modules/catalog/validation.ts',
               '  const activeAbilityByForm = new Map<string, number>();\n',
               '''  const starterOptionKeys = new Set<string>();
@@ -136,15 +152,17 @@ jobs:
 
           const activeAbilityByForm = new Map<string, number>();
           ''',
+              'catalog validation',
           )
 
           repo = 'src/platform/catalog/postgres-catalog-repository.ts'
-          replace_one(
+          replace_once(
               repo,
               '      evolutions,\n      encounterTables,\n',
               '      evolutions,\n      starterOptions,\n      encounterTables,\n',
+              'snapshot destructuring',
           )
-          replace_one(
+          replace_once(
               repo,
               '''      this.client.query<{
                 revision_id: string;
@@ -172,8 +190,9 @@ jobs:
                 active: boolean;
               }>(
               ''',
+              'snapshot starter query',
           )
-          replace_one(
+          replace_once(
               repo,
               '      encounterTables: tableRows,\n      parentCoverage,\n',
               '''      starterOptions: starterOptions.rows.map((entry) => ({
@@ -186,29 +205,21 @@ jobs:
               encounterTables: tableRows,
               parentCoverage,
               ''',
+              'snapshot return',
           )
-          replace_one(
+          regex_once(
               repo,
-              '''      {
-                table: "evolution_rules",
-                columns: ["from_form_id", "to_form_id", "trigger_kind", "trigger_config", "active"],
-              },
-            ] as const;
-          ''',
-              '''      {
-                table: "evolution_rules",
-                columns: ["from_form_id", "to_form_id", "trigger_kind", "trigger_config", "active"],
-              },
+              r'(\n\s*\{\n\s*table: "evolution_rules",\n\s*columns: \[[^\]]*\],\n\s*\},)(\n\s*\] as const;)',
+              r'''\1
               {
                 table: "starter_options",
                 columns: ["region_id", "form_id", "starter_level", "sort_order", "active"],
-              },
-            ] as const;
-          ''',
+              },\2''',
+              'clone starter options',
           )
 
           test = 'tests/catalog/catalog-contracts.test.ts'
-          replace_one(
+          replace_once(
               test,
               '    evolutions: [],\n    encounterTables: [\n',
               '''    evolutions: [],
@@ -223,8 +234,9 @@ jobs:
               ],
               encounterTables: [
               ''',
+              'catalog fixture starter options',
           )
-          replace_one(
+          replace_once(
               test,
               '  it("produces a readable release diff without changing historical snapshots", () => {\n',
               '''  it("treats starter options as fingerprinted, validated and diffable content", () => {
@@ -256,18 +268,27 @@ jobs:
 
               it("produces a readable release diff without changing historical snapshots", () => {
               ''',
+              'catalog starter lifecycle test',
           )
 
           integration = 'tests/db/player-onboarding.integration.test.ts'
-          replace_one(
+          replace_once(
               integration,
-              'import { PlayerStarterService } from "../../src/modules/player/starter-service.js";\n',
-              '''import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
-              import { CatalogService } from "../../src/modules/catalog/service.js";
-              import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
+              'import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";\n',
+              '''import { CatalogService } from "../../src/modules/catalog/service.js";
+              import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
               ''',
+              'catalog service import',
           )
-          replace_one(
+          replace_once(
+              integration,
+              'import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";\n',
+              '''import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
+              import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+              ''',
+              'catalog repository import',
+          )
+          replace_once(
               integration,
               '  it("keeps published starter options immutable", async () => {\n',
               '''  it("carries starter options when cloning a published release", async () => {
@@ -303,7 +324,22 @@ jobs:
 
               it("keeps published starter options immutable", async () => {
               ''',
+              'clone integration test',
           )
+
+          checks = {
+              'contracts': ('src/modules/catalog/contracts.ts', 'readonly starterOptions:'),
+              'fingerprint': ('src/modules/catalog/fingerprint.ts', 'starterOptions: sortByCanonical'),
+              'diff': ('src/modules/catalog/diff.ts', 'starterOptions: snapshot.starterOptions.map'),
+              'validation': ('src/modules/catalog/validation.ts', 'STARTER_OPTION_REFERENCE_MISSING'),
+              'snapshot query': (repo, 'FROM starter_options'),
+              'clone': (repo, 'table: "starter_options"'),
+              'catalog tests': (test, 'fingerprinted, validated and diffable content'),
+              'clone test': (integration, 'carries starter options when cloning a published release'),
+          }
+          for label, (path, needle) in checks.items():
+              if needle not in read(path):
+                  raise SystemExit(f'{label}: post-patch verification failed')
           PY
 
       - name: Apply canonical Biome formatting
@@ -317,6 +353,13 @@ jobs:
           tests/catalog/catalog-contracts.test.ts
           tests/db/player-onboarding.integration.test.ts
 
+      - name: Validate hardening before commit
+        run: |
+          pnpm lint
+          pnpm format:check
+          pnpm typecheck
+          pnpm test
+
       - name: Commit catalog hardening
         shell: bash
         run: |
@@ -324,5 +367,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/modules/catalog src/platform/catalog/postgres-catalog-repository.ts tests/catalog/catalog-contracts.test.ts tests/db/player-onboarding.integration.test.ts
+          if git diff --cached --quiet; then
+            echo "No hardening changes to commit."
+            exit 0
+          fi
           git commit -m "hardening(catalog): version starter options end to end"
           git push origin "HEAD:${GITHUB_REF_NAME}"
