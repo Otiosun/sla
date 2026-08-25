@@ -19,12 +19,19 @@ jobs:
   verify:
     name: quality / unit / postgres
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       APP_ENV: test
       LOG_LEVEL: warn
       DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      DATABASE_POOL_MAX: 12
+      DATABASE_CONNECT_TIMEOUT_MS: 5000
+      DATABASE_IDLE_TIMEOUT_MS: 30000
+      DATABASE_QUERY_TIMEOUT_MS: 10000
+      DATABASE_STATEMENT_TIMEOUT_MS: 10000
+      DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: 15000
 
     steps:
       - name: Checkout
@@ -79,5 +86,223 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
+      - name: Unit and PostgreSQL integration tests
         run: pnpm test
+
+      - name: Runtime schema verification
+        run: pnpm db:verify
+
+      - name: Migrator/runtime privilege separation proof
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          roles_db="pokemon_rpg_roles_test"
+          migrator_role="pokemon_migrator_ci"
+          runtime_role="pokemon_runtime_ci"
+          migrator_password="migrator-ci-password"
+          runtime_password="runtime-ci-password"
+          migrator_url="postgresql://${migrator_role}:${migrator_password}@localhost:5432/${roles_db}"
+          runtime_url="postgresql://${runtime_role}:${runtime_password}@localhost:5432/${roles_db}"
+
+          docker exec pokemon-postgres createdb \
+            --username pokemon \
+            "$roles_db"
+
+          docker exec -i pokemon-postgres psql \
+            --username pokemon \
+            --dbname "$roles_db" \
+            --set ON_ERROR_STOP=1 \
+            --set "migrator_role=${migrator_role}" \
+            --set "migrator_password=${migrator_password}" \
+            --set "runtime_role=${runtime_role}" \
+            --set "runtime_password=${runtime_password}" \
+            < db/bootstrap/roles.sql
+
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+          MIGRATION_APPLIED_BY="ci-role-proof" \
+            pnpm db:migrate
+
+          docker exec -i \
+            --env "PGPASSWORD=${migrator_password}" \
+            pokemon-postgres psql \
+            --host 127.0.0.1 \
+            --username "$migrator_role" \
+            --dbname "$roles_db" \
+            --set ON_ERROR_STOP=1 \
+            --set "migrator_role=${migrator_role}" \
+            --set "runtime_role=${runtime_role}" \
+            < db/bootstrap/runtime_grants.sql
+
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+            pnpm db:verify
+
+          runtime_psql() {
+            docker exec \
+              --env "PGPASSWORD=${runtime_password}" \
+              pokemon-postgres psql \
+              --host 127.0.0.1 \
+              --username "$runtime_role" \
+              --dbname "$roles_db" \
+              --set ON_ERROR_STOP=1 \
+              "$@"
+          }
+
+          migrator_psql() {
+            docker exec \
+              --env "PGPASSWORD=${migrator_password}" \
+              pokemon-postgres psql \
+              --host 127.0.0.1 \
+              --username "$migrator_role" \
+              --dbname "$roles_db" \
+              --set ON_ERROR_STOP=1 \
+              "$@"
+          }
+
+          assert_runtime_true() {
+            local sql="$1"
+            local result
+            result="$(runtime_psql --tuples-only --no-align --command "$sql")"
+            test "$result" = "t"
+          }
+
+          assert_migrator_true() {
+            local sql="$1"
+            local result
+            result="$(migrator_psql --tuples-only --no-align --command "$sql")"
+            test "$result" = "t"
+          }
+
+          assert_runtime_true "
+            SELECT NOT rolsuper
+              AND NOT rolcreatedb
+              AND NOT rolcreaterole
+              AND NOT rolreplication
+              AND NOT rolbypassrls
+            FROM pg_roles
+            WHERE rolname = current_user;
+          "
+
+          assert_migrator_true "
+            SELECT NOT rolsuper
+              AND NOT rolcreatedb
+              AND NOT rolcreaterole
+              AND NOT rolreplication
+              AND NOT rolbypassrls
+            FROM pg_roles
+            WHERE rolname = current_user;
+          "
+
+          assert_runtime_true "
+            SELECT has_schema_privilege(current_user, 'public', 'USAGE')
+              AND NOT has_schema_privilege(current_user, 'public', 'CREATE');
+          "
+
+          assert_runtime_true "
+            SELECT has_table_privilege(current_user, 'public.players', 'SELECT')
+              AND has_table_privilege(current_user, 'public.players', 'INSERT')
+              AND has_table_privilege(current_user, 'public.players', 'UPDATE')
+              AND NOT has_table_privilege(current_user, 'public.players', 'DELETE')
+              AND NOT has_table_privilege(current_user, 'public.players', 'TRUNCATE');
+          "
+
+          assert_runtime_true "
+            SELECT has_table_privilege(current_user, 'public.schema_migrations', 'SELECT')
+              AND NOT has_table_privilege(current_user, 'public.schema_migrations', 'INSERT')
+              AND NOT has_table_privilege(current_user, 'public.schema_migrations', 'UPDATE')
+              AND NOT has_table_privilege(current_user, 'public.schema_migrations', 'DELETE');
+          "
+
+          assert_runtime_true "
+            SELECT bool_and(
+              has_table_privilege(current_user, 'public.' || table_name, 'SELECT')
+              AND has_table_privilege(current_user, 'public.' || table_name, 'INSERT')
+              AND NOT has_table_privilege(current_user, 'public.' || table_name, 'UPDATE')
+              AND NOT has_table_privilege(current_user, 'public.' || table_name, 'DELETE')
+              AND NOT has_table_privilege(current_user, 'public.' || table_name, 'TRUNCATE')
+            )
+            FROM unnest(ARRAY[
+              'trainer_progress_ledger',
+              'pokemon_history_events',
+              'starter_grants',
+              'inventory_ledger',
+              'wallet_ledger',
+              'encounter_snapshots',
+              'battle_state_snapshots',
+              'battle_events',
+              'audit_events',
+              'admin_operation_changes'
+            ]) AS protected(table_name);
+          "
+
+          assert_migrator_true "
+            SELECT coalesce(bool_and(pg_get_userbyid(c.relowner) = current_user), true)
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind IN ('r', 'p', 'v', 'm', 'S');
+          "
+
+          runtime_psql --command "
+            BEGIN;
+            INSERT INTO players(id, status)
+            VALUES ('00000000-0000-4000-8000-000000000001', 'ACTIVE');
+            UPDATE players
+            SET revision = revision + 1
+            WHERE id = '00000000-0000-4000-8000-000000000001';
+            INSERT INTO audit_events(id, actor_type, action, target_type)
+            VALUES ('00000000-0000-4000-8000-000000000002', 'SYSTEM', 'CI_PROBE', 'SYSTEM');
+            ROLLBACK;
+          "
+
+          if runtime_psql --command "DELETE FROM players WHERE false;"; then
+            echo "runtime unexpectedly has DELETE privilege"
+            exit 1
+          fi
+
+          if runtime_psql --command "UPDATE audit_events SET action = action WHERE false;"; then
+            echo "runtime unexpectedly can rewrite append-only audit history"
+            exit 1
+          fi
+
+          if runtime_psql --command "ALTER TABLE players ADD COLUMN __runtime_ddl_probe boolean;"; then
+            echo "runtime unexpectedly can execute DDL"
+            exit 1
+          fi
+
+          migrator_psql --command "
+            BEGIN;
+            ALTER TABLE players ADD COLUMN __migrator_ddl_probe boolean;
+            ROLLBACK;
+          "
+
+      - name: Logical backup and disposable restore proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec pokemon-postgres pg_dump \
+            --username pokemon \
+            --dbname pokemon_rpg_test \
+            --format custom \
+            --file /tmp/pokemon_rpg_test.dump
+
+          docker exec pokemon-postgres createdb \
+            --username pokemon \
+            pokemon_rpg_restore_test
+
+          docker exec pokemon-postgres pg_restore \
+            --username pokemon \
+            --dbname pokemon_rpg_restore_test \
+            --exit-on-error \
+            /tmp/pokemon_rpg_test.dump
+
+          restored_migrations="$(docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_restore_test \
+            --tuples-only \
+            --no-align \
+            --command 'SELECT count(*) FROM schema_migrations;')"
+
+          test "$restored_migrations" = "1"
