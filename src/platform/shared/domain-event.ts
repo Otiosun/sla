@@ -1,9 +1,9 @@
-import type { CausationId, CorrelationId, DomainEventId } from "./ids.js";
+import type { CausationId, CorrelationId, DomainEventId, DomainId } from "./ids.js";
 
 export interface DomainEventEnvelope<
   EventType extends string = string,
   Payload = unknown,
-  AggregateId extends string = string,
+  AggregateId extends DomainId<string> = DomainId<string>,
 > {
   readonly eventId: DomainEventId;
   readonly eventType: EventType;
@@ -16,7 +16,11 @@ export interface DomainEventEnvelope<
   readonly causationId: CausationId | null;
 }
 
-export function domainEvent<EventType extends string, Payload, AggregateId extends string>(
+export function domainEvent<
+  EventType extends string,
+  Payload,
+  AggregateId extends DomainId<string>,
+>(
   input: DomainEventEnvelope<EventType, Payload, AggregateId>,
 ): DomainEventEnvelope<EventType, Payload, AggregateId> {
   if (input.eventType.trim().length === 0) {
