@@ -1,0 +1,97 @@
+name: Temporary phase2 schema hardening
+
+on:
+  push:
+    branches:
+      - migration/0001-core-schema-v1
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: migration/0001-core-schema-v1
+
+      - name: Apply exact reviewed transformations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          schema_path = Path('db/migrations/0001_core_schema.sql')
+          schema = schema_path.read_text()
+
+          replacements = [
+              (
+                  """CREATE TABLE trainer_unlocks (\n  player_id UUID NOT NULL REFERENCES players(id),\n  unlock_key TEXT NOT NULL,\n  source_type TEXT NOT NULL,\n  source_id TEXT NOT NULL,\n  unlocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  PRIMARY KEY (player_id, unlock_key)\n);""",
+                  """CREATE TABLE trainer_unlocks (\n  player_id UUID NOT NULL REFERENCES players(id),\n  unlock_key TEXT NOT NULL,\n  source_type TEXT NOT NULL,\n  source_id TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'REVOKED')),\n  unlocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  revoked_at TIMESTAMPTZ NULL,\n  revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),\n  PRIMARY KEY (player_id, unlock_key),\n  CHECK (\n    (status = 'ACTIVE' AND revoked_at IS NULL)\n    OR (status = 'REVOKED' AND revoked_at IS NOT NULL)\n  )\n);""",
+                  1,
+              ),
+              (
+                  """  shiny BOOLEAN NOT NULL DEFAULT FALSE,\n  ability_id UUID NULL REFERENCES abilities(id),""",
+                  """  shiny BOOLEAN NOT NULL DEFAULT FALSE,\n  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'ARCHIVED')),\n  archived_at TIMESTAMPTZ NULL,\n  ability_id UUID NULL REFERENCES abilities(id),""",
+                  1,
+              ),
+              (
+                  """  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  UNIQUE (id, owner_player_id)\n);\n\nCREATE INDEX idx_pokemon_instances_owner_created ON pokemon_instances(owner_player_id, created_at DESC);""",
+                  """  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  UNIQUE (id, owner_player_id),\n  CHECK (\n    (status = 'ACTIVE' AND archived_at IS NULL)\n    OR (status = 'ARCHIVED' AND archived_at IS NOT NULL)\n  )\n);\n\nCREATE INDEX idx_pokemon_instances_owner_status_created\n  ON pokemon_instances(owner_player_id, status, created_at DESC);""",
+                  1,
+              ),
+              (
+                  """  max_level SMALLINT NOT NULL CHECK (max_level >= 1),\n  conditions JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(conditions) = 'object'),""",
+                  """  max_level SMALLINT NOT NULL CHECK (max_level >= 1),\n  active BOOLEAN NOT NULL DEFAULT TRUE,\n  conditions JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(conditions) = 'object'),""",
+                  1,
+              ),
+              (
+                  "rng_seed_ciphertext BYTEA NOT NULL CHECK (octet_length(rng_seed_ciphertext) > 0)",
+                  "rng_seed_ciphertext BYTEA NOT NULL CHECK (octet_length(rng_seed_ciphertext) = 32)",
+                  2,
+              ),
+              (
+                  "rng_seed_iv BYTEA NOT NULL CHECK (octet_length(rng_seed_iv) > 0)",
+                  "rng_seed_iv BYTEA NOT NULL CHECK (octet_length(rng_seed_iv) = 12)",
+                  2,
+              ),
+              (
+                  "rng_seed_auth_tag BYTEA NOT NULL CHECK (octet_length(rng_seed_auth_tag) > 0)",
+                  "rng_seed_auth_tag BYTEA NOT NULL CHECK (octet_length(rng_seed_auth_tag) = 16)",
+                  2,
+              ),
+          ]
+
+          for old, new, expected in replacements:
+              found = schema.count(old)
+              if found == 0 and new in schema:
+                  continue
+              if found != expected:
+                  raise SystemExit(f'Expected {expected} matches but found {found}: {old[:80]!r}')
+              schema = schema.replace(old, new)
+
+          schema_path.write_text(schema)
+
+          test_path = Path('tests/db/schema.integration.test.ts')
+          test = test_path.read_text()
+          test = test.replace('Buffer.from("ciphertext")', 'Buffer.alloc(32, 1)')
+          test_path.write_text(test)
+          PY
+
+      - name: Commit if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Reviewed schema hardening already applied."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/migrations/0001_core_schema.sql tests/db/schema.integration.test.ts
+          git commit -m "migration: harden lifecycle and RNG invariants"
+          git push origin HEAD:migration/0001-core-schema-v1
