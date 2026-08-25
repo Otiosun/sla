@@ -1,9 +1,16 @@
 import { z, type ZodType } from "zod";
-import { appError, err, ok, type AppError, type Result } from "./result.js";
+import {
+  appError,
+  err,
+  ok,
+  STABLE_ERROR_CODE_PATTERN,
+  type AppError,
+  type Result,
+} from "./result.js";
 
 export const stableErrorCodeSchema = z
   .string()
-  .regex(/^[A-Z][A-Z0-9]*(?:\.[A-Z0-9_]+)+$/, "error code must be namespace-qualified and stable");
+  .regex(STABLE_ERROR_CODE_PATTERN, "error code must be namespace-qualified and stable");
 
 export interface ValidationIssue {
   readonly path: string;
