@@ -1,3 +1,5 @@
+export const STABLE_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9]*(?:\.[A-Z0-9_]+)+$/;
+
 export interface AppError<Code extends string = string, Details = unknown> {
   readonly code: Code;
   readonly message: string;
@@ -23,12 +25,19 @@ export function appError<Code extends string, Details = unknown>(input: {
   readonly retryable?: boolean;
   readonly details?: Details;
 }): AppError<Code, Details> {
-  return {
+  if (!STABLE_ERROR_CODE_PATTERN.test(input.code)) {
+    throw new TypeError("app error code must be namespace-qualified and stable");
+  }
+  if (input.message.trim().length === 0) {
+    throw new TypeError("app error message must not be empty");
+  }
+
+  return Object.freeze({
     code: input.code,
     message: input.message,
     retryable: input.retryable ?? false,
     details: input.details ?? null,
-  };
+  });
 }
 
 export function mapResult<T, U, ErrorType extends AppError>(
