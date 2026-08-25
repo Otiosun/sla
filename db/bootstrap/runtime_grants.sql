@@ -30,10 +30,27 @@ SELECT format(
   :'migrator_role', :'migrator_role'
 ) \gexec
 
--- Start from zero effective table privileges on each reconciliation. The runtime application
--- gets no physical DELETE capability; archival/compensation is a domain operation instead.
+-- Start from zero effective table privileges on each reconciliation. Ordinary application
+-- state gets SELECT/INSERT/UPDATE. Physical DELETE is denied by default and must be explicitly
+-- allowlisted only where removing a transient relationship/state row is part of domain semantics.
 SELECT format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', :'runtime_role') \gexec
 SELECT format('GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO %I', :'runtime_role') \gexec
+
+SELECT format(
+  'GRANT DELETE ON TABLE %I TO %I',
+  deletable_table,
+  :'runtime_role'
+)
+FROM (VALUES
+  ('admin_role_capabilities'),
+  ('admin_principal_roles'),
+  ('pokemon_move_slots'),
+  ('pokemon_roster_slots'),
+  ('pokemon_persistent_conditions'),
+  ('active_effects')
+) AS deletable(deletable_table)
+WHERE to_regclass('public.' || deletable_table) IS NOT NULL
+\gexec
 
 -- Migration history is runtime-readable for startup verification, never runtime-writable.
 SELECT format('REVOKE ALL PRIVILEGES ON TABLE schema_migrations FROM %I', :'runtime_role')
