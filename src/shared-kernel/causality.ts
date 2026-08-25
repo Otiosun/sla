@@ -9,10 +9,7 @@ export function rootCausality(correlationId: CorrelationId): CausalityContext {
   return { correlationId, causationId: null };
 }
 
-export function causedBy(
-  parent: CausalityContext,
-  causationId: CausationId,
-): CausalityContext {
+export function causedBy(parent: CausalityContext, causationId: CausationId): CausalityContext {
   return {
     correlationId: parent.correlationId,
     causationId,

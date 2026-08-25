@@ -10,10 +10,7 @@ export function revision(value: number): Revision {
   return value as Revision;
 }
 
-export function requireExpectedRevision(
-  actual: Revision,
-  expected: Revision,
-): Result<void> {
+export function requireExpectedRevision(actual: Revision, expected: Revision): Result<void> {
   if (actual !== expected) {
     return err(
       appError("REVISION_CONFLICT", "Stale revision", {

@@ -46,8 +46,7 @@ describe("domain events and safe retries", () => {
         baseDelayMs: 10,
         maxDelayMs: 100,
         jitterRatio: 0,
-        isRetryable: (error) =>
-          error instanceof Error && error.message === "serialization_failure",
+        isRetryable: (error) => error instanceof Error && error.message === "serialization_failure",
       },
       {
         rng: new DeterministicRandomSource(1),

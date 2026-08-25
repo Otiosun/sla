@@ -1,8 +1,6 @@
 import { appError, err, ok, type Result } from "./result.js";
 
-export type TransitionMap<State extends string> = Readonly<
-  Record<State, readonly State[]>
->;
+export type TransitionMap<State extends string> = Readonly<Record<State, readonly State[]>>;
 
 export class StateMachine<State extends string> {
   public constructor(private readonly transitions: TransitionMap<State>) {}

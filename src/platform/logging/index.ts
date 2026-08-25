@@ -31,7 +31,7 @@ const sensitiveKeys = new Set([
 
 function redactString(value: string): string {
   return value
-    .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED]")
     .replace(/\b\d{10,15}\b/g, "[REDACTED_PHONE]");
 }
 

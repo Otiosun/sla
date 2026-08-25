@@ -46,7 +46,8 @@ export const parsePlayerId = (value: string): Result<PlayerId> => parseUuid(valu
 export const parsePokemonInstanceId = (value: string): Result<PokemonInstanceId> =>
   parseUuid(value, "PokemonInstanceId");
 export const parseBattleId = (value: string): Result<BattleId> => parseUuid(value, "BattleId");
-export const parseEncounterId = (value: string): Result<EncounterId> => parseUuid(value, "EncounterId");
+export const parseEncounterId = (value: string): Result<EncounterId> =>
+  parseUuid(value, "EncounterId");
 export const parseDomainEventId = (value: string): Result<DomainEventId> =>
   parseUuid(value, "DomainEventId");
 export const parseCorrelationId = (value: string): Result<CorrelationId> =>
