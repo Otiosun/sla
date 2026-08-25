@@ -27,15 +27,15 @@ interface AppliedMigrationRow {
 }
 
 export class MigrationError extends Error {
-  override readonly name = "MigrationError";
+  override readonly name: string = "MigrationError";
 }
 
 export class MigrationIntegrityError extends MigrationError {
-  override readonly name = "MigrationIntegrityError";
+  override readonly name: string = "MigrationIntegrityError";
 }
 
 export class DatabaseSchemaOutOfDateError extends MigrationError {
-  override readonly name = "DatabaseSchemaOutOfDateError";
+  override readonly name: string = "DatabaseSchemaOutOfDateError";
 }
 
 export function sha256Hex(content: string): string {
@@ -172,7 +172,9 @@ export async function runMigrations(
   pool: Pool,
   options: RunMigrationsOptions = {},
 ): Promise<readonly MigrationDefinition[]> {
-  const migrations = await loadMigrations(options.migrationsDirectory);
+  const migrations = await loadMigrations(
+    options.migrationsDirectory ?? DEFAULT_MIGRATIONS_DIRECTORY,
+  );
   const client = await pool.connect();
   try {
     await acquireMigrationLock(client);
