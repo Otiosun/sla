@@ -1,0 +1,151 @@
+name: Catalog Seed Proof
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "db/**"
+      - "src/modules/catalog/**"
+      - "src/platform/catalog/**"
+      - "package.json"
+      - ".github/workflows/catalog-seed-proof.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "db/**"
+      - "src/modules/catalog/**"
+      - "src/platform/catalog/**"
+      - "package.json"
+      - ".github/workflows/catalog-seed-proof.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-seed-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seed-proof:
+    name: clean db / seed twice / validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_phase4_seed_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_phase4_seed_test
+      MIGRATION_APPLIED_BY: ci-phase4-seed
+      APP_ENV: test
+      LOG_LEVEL: warn
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-catalog-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_phase4_seed_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-catalog-postgres psql \
+              --username pokemon \
+              --dbname pokemon_rpg_phase4_seed_test \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              echo "PostgreSQL catalog seed database is ready."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs pokemon-catalog-postgres
+          exit 1
+
+      - name: Apply immutable migrations
+        run: pnpm db:migrate
+
+      - name: Seed vertical slice twice
+        run: |
+          pnpm db:seed:phase4
+          pnpm db:seed:phase4
+
+      - name: Verify migrated schema
+        run: pnpm db:verify
+
+      - name: Verify published vertical slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          seed_ok="$(docker exec pokemon-catalog-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_phase4_seed_test \
+            --tuples-only \
+            --no-align \
+            --command "
+              SELECT CASE WHEN
+                (SELECT count(*) = 1
+                   FROM rulesets
+                  WHERE key = 'phase4-core-v1' AND version = 1 AND status = 'PUBLISHED')
+                AND (SELECT count(*) = 1
+                       FROM content_releases
+                      WHERE release_no = 1 AND status = 'PUBLISHED')
+                AND (SELECT count(*) = 1
+                       FROM content_release_pointers p
+                       JOIN content_releases r ON r.id = p.content_release_id
+                      WHERE p.pointer_key = 'ACTIVE' AND r.release_no = 1)
+                AND (SELECT count(*) = 9
+                       FROM pokemon_species_revisions sr
+                       JOIN content_releases r ON r.id = sr.content_release_id
+                      WHERE r.release_no = 1)
+                AND (SELECT count(*) = 8
+                       FROM move_revisions mr
+                       JOIN content_releases r ON r.id = mr.content_release_id
+                      WHERE r.release_no = 1)
+                AND (SELECT count(*) = 6
+                       FROM ability_revisions ar
+                       JOIN content_releases r ON r.id = ar.content_release_id
+                      WHERE r.release_no = 1)
+                AND (SELECT count(*) = 6
+                       FROM item_revisions ir
+                       JOIN content_releases r ON r.id = ir.content_release_id
+                      WHERE r.release_no = 1)
+                AND (SELECT count(*) = 6
+                       FROM nature_revisions nr
+                       JOIN content_releases r ON r.id = nr.content_release_id
+                      WHERE r.release_no = 1)
+                AND (SELECT count(*) = 1
+                       FROM area_revisions avr
+                       JOIN content_releases r ON r.id = avr.content_release_id
+                      WHERE r.release_no = 1)
+                AND (SELECT count(*) = 3
+                       FROM encounter_entries ee
+                       JOIN encounter_table_revisions etr ON etr.id = ee.encounter_table_revision_id
+                       JOIN content_releases r ON r.id = etr.content_release_id
+                      WHERE r.release_no = 1)
+              THEN 'ok' ELSE 'bad' END;
+            ")"
+
+          test "$seed_ok" = "ok"
