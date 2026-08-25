@@ -219,7 +219,7 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("DELETE FROM schema_migrations WHERE version = 1");
+      await client.query("DELETE FROM schema_migrations WHERE version = $1", [migrationCount]);
       await expect(verifyAppliedMigrations(client, migrations, true)).rejects.toBeInstanceOf(
         DatabaseSchemaOutOfDateError,
       );
