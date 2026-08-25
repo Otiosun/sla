@@ -32,7 +32,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Stage starter catalog hardening
-        run: python scripts/phase5_starter_catalog_hardening_temp.py
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/phase5_starter_catalog_hardening_temp.py')
+          text = path.read_text()
+          old = '      ),\\1"""'
+          new = '      ),\\\\1"""'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one unsafe backreference, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          python scripts/phase5_starter_catalog_hardening_temp.py
 
       - name: Apply canonical Biome formatting
         run: >-
