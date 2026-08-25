@@ -55,12 +55,13 @@ jobs:
             postgres:18.6-alpine
 
           for attempt in {1..30}; do
-            if docker exec pokemon-postgres pg_isready -U pokemon -d pokemon_rpg_test; then
-              docker exec pokemon-postgres psql \
-                --username pokemon \
-                --dbname pokemon_rpg_test \
-                --set ON_ERROR_STOP=1 \
-                --command "SELECT 1;"
+            if docker exec pokemon-postgres psql \
+              --username pokemon \
+              --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              echo "PostgreSQL target database is ready."
               exit 0
             fi
             sleep 1
