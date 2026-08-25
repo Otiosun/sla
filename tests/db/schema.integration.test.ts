@@ -158,17 +158,19 @@ async function applyIdempotentInventoryGrant(
 
 describe.sequential("PostgreSQL core schema and migration contract", () => {
   let catalog: FixtureCatalog;
+  let migrationCount: number;
 
   beforeAll(async () => {
     await pool.query("DROP SCHEMA public CASCADE");
     await pool.query("CREATE SCHEMA public");
 
+    migrationCount = (await loadMigrations()).length;
     const concurrentRuns = await Promise.all([
       runMigrations(pool, { appliedBy: "vitest-a" }),
       runMigrations(pool, { appliedBy: "vitest-b" }),
     ]);
-    expect(concurrentRuns[0]).toHaveLength(1);
-    expect(concurrentRuns[1]).toHaveLength(1);
+    expect(concurrentRuns[0]).toHaveLength(migrationCount);
+    expect(concurrentRuns[1]).toHaveLength(migrationCount);
 
     const client = await pool.connect();
     try {
@@ -182,17 +184,17 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
     await pool.end();
   });
 
-  it("migrates an empty database exactly once and concurrent runners serialize", async () => {
+  it("applies every migration exactly once and concurrent runners serialize", async () => {
     const result = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM schema_migrations",
     );
-    expect(result.rows[0]?.count).toBe("1");
+    expect(result.rows[0]?.count).toBe(String(migrationCount));
 
     await runMigrations(pool, { appliedBy: "vitest-repeat" });
     const repeated = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM schema_migrations",
     );
-    expect(repeated.rows[0]?.count).toBe("1");
+    expect(repeated.rows[0]?.count).toBe(String(migrationCount));
   });
 
   it("fails closed when an applied migration checksum differs", async () => {
@@ -217,7 +219,7 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("DELETE FROM schema_migrations WHERE version = 1");
+      await client.query("DELETE FROM schema_migrations WHERE version = $1", [migrationCount]);
       await expect(verifyAppliedMigrations(client, migrations, true)).rejects.toBeInstanceOf(
         DatabaseSchemaOutOfDateError,
       );
@@ -451,22 +453,52 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
     expect(ledger.rows[0]?.count).toBe("1");
   });
 
-  it("keeps outbox retries separate from mechanics and unique by message idempotency key", async () => {
+  it("persists required input correlation and rejects uncorrelated inbox rows", async () => {
+    const correlationId = randomUUID();
+    await pool.query(
+      `INSERT INTO inbox_messages(
+         id, provider, external_message_id, payload_hash, status, correlation_id
+       ) VALUES ($1, 'whatsapp', $2, 'sha256:test', 'RECEIVED', $3)`,
+      [randomUUID(), randomUUID(), correlationId],
+    );
+
+    const persisted = await pool.query<{ correlation_id: string }>(
+      "SELECT correlation_id FROM inbox_messages WHERE correlation_id=$1",
+      [correlationId],
+    );
+    expect(persisted.rows[0]?.correlation_id).toBe(correlationId);
+
+    await expectPgCode(
+      pool.query(
+        `INSERT INTO inbox_messages(
+           id, provider, external_message_id, payload_hash, status
+         ) VALUES ($1, 'whatsapp', $2, 'sha256:test', 'RECEIVED')`,
+        [randomUUID(), randomUUID()],
+      ),
+      "23502",
+    );
+  });
+
+  it("keeps outbox retries separate from mechanics and preserves causality", async () => {
     const key = randomUUID();
     const outboxId = randomUUID();
+    const correlationId = randomUUID();
+    const causationId = randomUUID();
     await pool.query(
       `INSERT INTO outbox_messages(
-         id, channel, destination_ref, message_type, payload, idempotency_key, status
-       ) VALUES ($1, 'whatsapp', 'test-destination', 'TEXT', '{}'::jsonb, $2, 'PENDING')`,
-      [outboxId, key],
+         id, channel, destination_ref, message_type, payload, idempotency_key, status,
+         correlation_id, causation_id
+       ) VALUES ($1, 'whatsapp', 'test-destination', 'TEXT', '{}'::jsonb, $2, 'PENDING', $3, $4)`,
+      [outboxId, key, correlationId, causationId],
     );
 
     await expectPgCode(
       pool.query(
         `INSERT INTO outbox_messages(
-           id, channel, destination_ref, message_type, payload, idempotency_key, status
-         ) VALUES ($1, 'whatsapp', 'test-destination', 'TEXT', '{}'::jsonb, $2, 'PENDING')`,
-        [randomUUID(), key],
+           id, channel, destination_ref, message_type, payload, idempotency_key, status,
+           correlation_id, causation_id
+         ) VALUES ($1, 'whatsapp', 'test-destination', 'TEXT', '{}'::jsonb, $2, 'PENDING', $3, $4)`,
+        [randomUUID(), key, correlationId, causationId],
       ),
       "23505",
     );
@@ -484,11 +516,22 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
       [outboxId],
     );
 
-    const row = await pool.query<{ attempts: number; status: string }>(
-      "SELECT attempts, status FROM outbox_messages WHERE id=$1",
+    const row = await pool.query<{
+      attempts: number;
+      causation_id: string;
+      correlation_id: string;
+      status: string;
+    }>(
+      `SELECT attempts, causation_id, correlation_id, status
+       FROM outbox_messages WHERE id=$1`,
       [outboxId],
     );
-    expect(row.rows[0]).toMatchObject({ attempts: 2, status: "SENT" });
+    expect(row.rows[0]).toMatchObject({
+      attempts: 2,
+      causation_id: causationId,
+      correlation_id: correlationId,
+      status: "SENT",
+    });
   });
 
   it("enforces caught_count <= seen_count", async () => {
