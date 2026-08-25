@@ -186,6 +186,13 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'DRAFT' THEN
+      RAISE EXCEPTION 'rulesets must be created as DRAFT' USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     IF OLD.status <> 'DRAFT' THEN
       RAISE EXCEPTION 'validated/published rulesets cannot be deleted' USING ERRCODE = '55000';
@@ -248,6 +255,13 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'DRAFT' THEN
+      RAISE EXCEPTION 'content releases must be created as DRAFT' USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     IF OLD.status <> 'DRAFT' THEN
       RAISE EXCEPTION 'validated/published content releases cannot be deleted' USING ERRCODE = '55000';
@@ -327,11 +341,11 @@ END;
 $$;
 
 CREATE TRIGGER trg_rulesets_lifecycle
-BEFORE UPDATE OR DELETE ON rulesets
+BEFORE INSERT OR UPDATE OR DELETE ON rulesets
 FOR EACH ROW EXECUTE FUNCTION guard_ruleset_lifecycle();
 
 CREATE TRIGGER trg_content_releases_lifecycle
-BEFORE UPDATE OR DELETE ON content_releases
+BEFORE INSERT OR UPDATE OR DELETE ON content_releases
 FOR EACH ROW EXECUTE FUNCTION guard_content_release_lifecycle();
 
 CREATE TRIGGER trg_type_matchups_draft_only
