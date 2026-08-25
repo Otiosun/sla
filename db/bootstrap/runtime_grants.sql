@@ -82,3 +82,83 @@ FROM (VALUES
 ) AS protected(protected_table)
 WHERE to_regclass('public.' || protected_table) IS NOT NULL
 \gexec
+
+-- Reconciliation is self-verifying. Any accidental privilege broadening blocks deployment.
+SELECT format(
+  $sql$
+  DO $block$
+  DECLARE
+    runtime_name TEXT := %L;
+  BEGIN
+    IF EXISTS (
+      SELECT 1
+      FROM pg_class AS c
+      JOIN pg_namespace AS n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'p')
+        AND c.relname <> ALL (ARRAY[
+          'admin_role_capabilities',
+          'admin_principal_roles',
+          'pokemon_move_slots',
+          'pokemon_roster_slots',
+          'pokemon_persistent_conditions',
+          'active_effects'
+        ])
+        AND has_table_privilege(runtime_name, format('%%I.%%I', n.nspname, c.relname), 'DELETE')
+    ) THEN
+      RAISE EXCEPTION 'runtime DELETE privilege escaped the explicit allowlist';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM unnest(ARRAY[
+        'admin_role_capabilities',
+        'admin_principal_roles',
+        'pokemon_move_slots',
+        'pokemon_roster_slots',
+        'pokemon_persistent_conditions',
+        'active_effects'
+      ]) AS allowed(table_name)
+      WHERE to_regclass('public.' || table_name) IS NOT NULL
+        AND NOT has_table_privilege(runtime_name, 'public.' || table_name, 'DELETE')
+    ) THEN
+      RAISE EXCEPTION 'runtime DELETE allowlist is incomplete';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM unnest(ARRAY[
+        'trainer_progress_ledger',
+        'pokemon_history_events',
+        'starter_grants',
+        'inventory_ledger',
+        'wallet_ledger',
+        'encounter_snapshots',
+        'battle_state_snapshots',
+        'battle_events',
+        'audit_events',
+        'admin_operation_changes'
+      ]) AS protected(table_name)
+      WHERE to_regclass('public.' || table_name) IS NOT NULL
+        AND (
+          has_table_privilege(runtime_name, 'public.' || table_name, 'UPDATE')
+          OR has_table_privilege(runtime_name, 'public.' || table_name, 'DELETE')
+          OR has_table_privilege(runtime_name, 'public.' || table_name, 'TRUNCATE')
+        )
+    ) THEN
+      RAISE EXCEPTION 'append-only runtime privilege policy was not enforced';
+    END IF;
+
+    IF to_regclass('public.schema_migrations') IS NOT NULL AND (
+      NOT has_table_privilege(runtime_name, 'public.schema_migrations', 'SELECT')
+      OR has_table_privilege(runtime_name, 'public.schema_migrations', 'INSERT')
+      OR has_table_privilege(runtime_name, 'public.schema_migrations', 'UPDATE')
+      OR has_table_privilege(runtime_name, 'public.schema_migrations', 'DELETE')
+    ) THEN
+      RAISE EXCEPTION 'schema_migrations must be SELECT-only for runtime';
+    END IF;
+  END
+  $block$;
+  $sql$,
+  :'runtime_role'
+) \gexec
