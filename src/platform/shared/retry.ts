@@ -1,4 +1,4 @@
-import { systemSleeper, type Sleeper } from "../clock/index.js";
+import { MAX_SLEEP_MS, systemSleeper, type Sleeper } from "../clock/index.js";
 
 export type RetrySafety = "READ_ONLY" | "IDEMPOTENT";
 
@@ -47,7 +47,11 @@ function validatePolicy(policy: RetryPolicy): void {
   if (!Number.isSafeInteger(policy.baseDelayMs) || policy.baseDelayMs < 0) {
     throw new RangeError("retry baseDelayMs must be a non-negative safe integer");
   }
-  if (!Number.isSafeInteger(policy.maxDelayMs) || policy.maxDelayMs < policy.baseDelayMs) {
-    throw new RangeError("retry maxDelayMs must be a safe integer >= baseDelayMs");
+  if (
+    !Number.isSafeInteger(policy.maxDelayMs) ||
+    policy.maxDelayMs < policy.baseDelayMs ||
+    policy.maxDelayMs > MAX_SLEEP_MS
+  ) {
+    throw new RangeError(`retry maxDelayMs must be an integer in baseDelayMs..${MAX_SLEEP_MS}`);
   }
 }
