@@ -1,0 +1,49 @@
+name: Temporary Phase 4 Fixture Fix
+
+on:
+  push:
+    branches:
+      - feat/catalog-ruleset-release-v1
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Repair integration fixture
+        run: python scripts/fix_phase4_fixture_temp.py
+
+      - name: Apply canonical formatter
+        run: pnpm format
+
+      - name: Commit fixture repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm scripts/fix_phase4_fixture_temp.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/db/schema.integration.test.ts
+          git commit -m "test(catalog): align fixture with lifecycle metadata"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
