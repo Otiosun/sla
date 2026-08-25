@@ -19,7 +19,11 @@ interface DiffRecord {
   readonly value: unknown;
 }
 
-function compareRecords(category: string, from: readonly DiffRecord[], to: readonly DiffRecord[]): ReleaseDiffSection {
+function compareRecords(
+  category: string,
+  from: readonly DiffRecord[],
+  to: readonly DiffRecord[],
+): ReleaseDiffSection {
   const fromMap = new Map(from.map((entry) => [entry.key, sha256Canonical(entry.value)]));
   const toMap = new Map(to.map((entry) => [entry.key, sha256Canonical(entry.value)]));
   let added = 0;
@@ -38,7 +42,9 @@ function compareRecords(category: string, from: readonly DiffRecord[], to: reado
   return { category, added, removed, changed };
 }
 
-function snapshotRecords(snapshot: CatalogSnapshotWithEffects): Readonly<Record<string, readonly DiffRecord[]>> {
+function snapshotRecords(
+  snapshot: CatalogSnapshotWithEffects,
+): Readonly<Record<string, readonly DiffRecord[]>> {
   return {
     types: snapshot.types.map((entry) => ({ key: entry.typeId, value: entry })),
     species: snapshot.species.map((entry) => ({ key: entry.speciesId, value: entry })),
@@ -51,7 +57,10 @@ function snapshotRecords(snapshot: CatalogSnapshotWithEffects): Readonly<Record<
     regions: snapshot.regions.map((entry) => ({ key: entry.regionId, value: entry })),
     areas: snapshot.areas.map((entry) => ({ key: entry.areaId, value: entry })),
     connections: snapshot.connections.map((entry) => ({ key: entry.connectionId, value: entry })),
-    formAbilities: snapshot.formAbilities.map((entry) => ({ key: `${entry.formId}:${entry.abilityId}`, value: entry })),
+    formAbilities: snapshot.formAbilities.map((entry) => ({
+      key: `${entry.formId}:${entry.abilityId}`,
+      value: entry,
+    })),
     learnsets: snapshot.learnsets.map((entry) => ({
       key: `${entry.formId}:${entry.moveId}:${entry.learnMethod}:${entry.learnLevel ?? "-"}`,
       value: entry,
@@ -60,18 +69,26 @@ function snapshotRecords(snapshot: CatalogSnapshotWithEffects): Readonly<Record<
       key: `${entry.fromFormId}:${entry.toFormId}:${entry.triggerKind}`,
       value: entry,
     })),
-    encounterTables: snapshot.encounterTables.map((entry) => ({ key: entry.encounterTableId, value: entry })),
+    encounterTables: snapshot.encounterTables.map((entry) => ({
+      key: entry.encounterTableId,
+      value: entry,
+    })),
   };
 }
 
-export function diffCatalogSnapshots(from: CatalogSnapshotWithEffects, to: CatalogSnapshotWithEffects): ReleaseDiff {
+export function diffCatalogSnapshots(
+  from: CatalogSnapshotWithEffects,
+  to: CatalogSnapshotWithEffects,
+): ReleaseDiff {
   const fromRecords = snapshotRecords(from);
   const toRecords = snapshotRecords(to);
   const categories = Object.keys(fromRecords).sort();
   return {
     fromReleaseId: from.release.id,
     toReleaseId: to.release.id,
-    sections: categories.map((category) => compareRecords(category, fromRecords[category] ?? [], toRecords[category] ?? [])),
+    sections: categories.map((category) =>
+      compareRecords(category, fromRecords[category] ?? [], toRecords[category] ?? []),
+    ),
   };
 }
 

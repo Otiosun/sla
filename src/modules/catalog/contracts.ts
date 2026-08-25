@@ -1,11 +1,6 @@
 import { z } from "zod";
 
-export const ContentLifecycleStatusSchema = z.enum([
-  "DRAFT",
-  "VALIDATED",
-  "PUBLISHED",
-  "ARCHIVED",
-]);
+export const ContentLifecycleStatusSchema = z.enum(["DRAFT", "VALIDATED", "PUBLISHED", "ARCHIVED"]);
 export type ContentLifecycleStatus = z.infer<typeof ContentLifecycleStatusSchema>;
 
 const basisPointsSchema = z.number().int().min(0).max(100_000);
@@ -56,12 +51,25 @@ export const EffectConfigSchemas = {
   "catch-modifier": z
     .object({ multiplierBasisPoints: z.number().int().min(1).max(100_000) })
     .strict(),
-  "apply-status": z.object({ status: statusKeySchema, chanceBasisPoints: basisPointsSchema.max(10_000) }).strict(),
+  "apply-status": z
+    .object({ status: statusKeySchema, chanceBasisPoints: basisPointsSchema.max(10_000) })
+    .strict(),
   "modify-stat-stage": z
-    .object({ stat: statKeySchema, stages: z.number().int().min(-6).max(6).refine((value) => value !== 0) })
+    .object({
+      stat: statKeySchema,
+      stages: z
+        .number()
+        .int()
+        .min(-6)
+        .max(6)
+        .refine((value) => value !== 0),
+    })
     .strict(),
   "low-hp-type-boost": z
-    .object({ typeSlug: z.string().min(1).max(64), multiplierBasisPoints: z.number().int().min(10_001).max(100_000) })
+    .object({
+      typeSlug: z.string().min(1).max(64),
+      multiplierBasisPoints: z.number().int().min(10_001).max(100_000),
+    })
     .strict(),
   "prevent-accuracy-drop": z.object({}).strict(),
   "run-away": z.object({}).strict(),
@@ -70,7 +78,10 @@ export const EffectConfigSchemas = {
 export type EffectKey = keyof typeof EffectConfigSchemas;
 export const EFFECT_KEYS = Object.freeze(Object.keys(EffectConfigSchemas) as EffectKey[]);
 
-export function validateEffectConfig(effectKey: string | null, config: unknown): z.ZodSafeParseResult<unknown> {
+export function validateEffectConfig(
+  effectKey: string | null,
+  config: unknown,
+): z.ZodSafeParseResult<unknown> {
   if (effectKey === null) {
     return z.object({}).strict().safeParse(config);
   }
@@ -94,9 +105,7 @@ export function validateEffectConfig(effectKey: string | null, config: unknown):
 export const EvolutionTriggerSchemas = {
   LEVEL: z.object({ level: z.number().int().min(2).max(100) }).strict(),
   ITEM: z.object({ itemId: z.string().uuid() }).strict(),
-  CONDITION: z
-    .object({ conditionKey: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/) })
-    .strict(),
+  CONDITION: z.object({ conditionKey: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/) }).strict(),
 } as const;
 export type EvolutionTriggerKind = keyof typeof EvolutionTriggerSchemas;
 
@@ -180,7 +189,11 @@ export interface CatalogSnapshot {
     readonly active: boolean;
   }[];
   readonly regions: readonly { readonly regionId: string; readonly active: boolean }[];
-  readonly areas: readonly { readonly areaId: string; readonly regionId: string; readonly active: boolean }[];
+  readonly areas: readonly {
+    readonly areaId: string;
+    readonly regionId: string;
+    readonly active: boolean;
+  }[];
   readonly connections: readonly {
     readonly connectionId: string;
     readonly fromAreaId: string;

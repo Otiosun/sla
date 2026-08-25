@@ -100,7 +100,10 @@ class PostgresCatalogTransaction implements CatalogTransaction {
     expectOneRow(result.rowCount, "ruleset publish transition");
   }
 
-  public async loadReleaseRecord(releaseId: string, lock = false): Promise<CatalogReleaseRecord | null> {
+  public async loadReleaseRecord(
+    releaseId: string,
+    lock = false,
+  ): Promise<CatalogReleaseRecord | null> {
     const result = await this.client.query<ReleaseRow>(
       `SELECT id, release_no::text, status, parent_release_id, default_ruleset_id, content_fingerprint
        FROM content_releases
@@ -119,20 +122,31 @@ class PostgresCatalogTransaction implements CatalogTransaction {
   }
 
   private async loadCoverage(releaseId: string): Promise<CatalogCoverage> {
-    const [types, species, forms, moves, abilities, items, natures, regions, areas, connections, tables] =
-      await Promise.all([
-        this.ids("pokemon_type_revisions", "type_id", releaseId),
-        this.ids("pokemon_species_revisions", "species_id", releaseId),
-        this.ids("pokemon_form_revisions", "form_id", releaseId),
-        this.ids("move_revisions", "move_id", releaseId),
-        this.ids("ability_revisions", "ability_id", releaseId),
-        this.ids("item_revisions", "item_id", releaseId),
-        this.ids("nature_revisions", "nature_id", releaseId),
-        this.ids("region_revisions", "region_id", releaseId),
-        this.ids("area_revisions", "area_id", releaseId),
-        this.ids("area_connection_revisions", "connection_id", releaseId),
-        this.ids("encounter_table_revisions", "encounter_table_id", releaseId),
-      ]);
+    const [
+      types,
+      species,
+      forms,
+      moves,
+      abilities,
+      items,
+      natures,
+      regions,
+      areas,
+      connections,
+      tables,
+    ] = await Promise.all([
+      this.ids("pokemon_type_revisions", "type_id", releaseId),
+      this.ids("pokemon_species_revisions", "species_id", releaseId),
+      this.ids("pokemon_form_revisions", "form_id", releaseId),
+      this.ids("move_revisions", "move_id", releaseId),
+      this.ids("ability_revisions", "ability_id", releaseId),
+      this.ids("item_revisions", "item_id", releaseId),
+      this.ids("nature_revisions", "nature_id", releaseId),
+      this.ids("region_revisions", "region_id", releaseId),
+      this.ids("area_revisions", "area_id", releaseId),
+      this.ids("area_connection_revisions", "connection_id", releaseId),
+      this.ids("encounter_table_revisions", "encounter_table_id", releaseId),
+    ]);
     return {
       types,
       species,
@@ -180,7 +194,8 @@ class PostgresCatalogTransaction implements CatalogTransaction {
     if (release === undefined) return null;
 
     const ruleset = await this.loadRuleset(release.default_ruleset_id);
-    if (ruleset === null) throw new Error("Release default ruleset disappeared despite foreign key");
+    if (ruleset === null)
+      throw new Error("Release default ruleset disappeared despite foreign key");
 
     const [
       types,
@@ -380,7 +395,9 @@ class PostgresCatalogTransaction implements CatalogTransaction {
     );
 
     const parentCoverage =
-      release.parent_release_id === null ? null : await this.loadCoverage(release.parent_release_id);
+      release.parent_release_id === null
+        ? null
+        : await this.loadCoverage(release.parent_release_id);
 
     return {
       release: {

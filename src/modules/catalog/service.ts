@@ -62,10 +62,14 @@ function notFound(resource: string, id: string) {
 }
 
 function invalidState(resource: string, status: string, expected: string) {
-  return appError("INVALID_STATE_TRANSITION", `${resource} is not in the required lifecycle state`, {
-    status,
-    expected,
-  });
+  return appError(
+    "INVALID_STATE_TRANSITION",
+    `${resource} is not in the required lifecycle state`,
+    {
+      status,
+      expected,
+    },
+  );
 }
 
 export class CatalogService {
@@ -233,7 +237,10 @@ export class CatalogService {
     });
   }
 
-  public async diffReleases(fromReleaseId: string, toReleaseId: string): Promise<Result<ReleaseDiff>> {
+  public async diffReleases(
+    fromReleaseId: string,
+    toReleaseId: string,
+  ): Promise<Result<ReleaseDiff>> {
     return this.repository.read(async (transaction) => {
       const [from, to] = await Promise.all([
         transaction.loadCatalogSnapshot(fromReleaseId),

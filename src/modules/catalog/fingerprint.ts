@@ -23,7 +23,9 @@ function sortByCanonical<T>(values: readonly T[]): readonly T[] {
 }
 
 export function sha256Canonical(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalize(value)))
+    .digest("hex");
 }
 
 export function fingerprintRuleset(snapshot: RulesetSnapshot): string {
