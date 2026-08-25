@@ -20,9 +20,20 @@ export interface Logger {
 
 const SENSITIVE_KEY_PATTERN =
   /(authorization|cookie|jid|password|phone|secret|seed|token|whatsapp)/i;
-const PHONE_LIKE_PATTERN = /^\+?\d{10,15}$/;
-const JID_LIKE_PATTERN = /@(?:s\.whatsapp\.net|g\.us)$/i;
-const BEARER_PATTERN = /^Bearer\s+\S+/i;
+const URL_CREDENTIAL_PATTERN = /((?:https?|postgres(?:ql)?):\/\/[^:\s/@]+):([^@\s/]+)@/gi;
+const INLINE_BEARER_PATTERN = /Bearer\s+\S+/gi;
+const INLINE_JID_PATTERN = /\b\d+@(?:s\.whatsapp\.net|g\.us)\b/gi;
+const INLINE_PHONE_PATTERN = /(?<!\d)\+?\d{10,15}(?!\d)/g;
+const COMMON_TOKEN_PATTERN = /\b(?:ghp_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]+\b/g;
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(URL_CREDENTIAL_PATTERN, "$1:[REDACTED]@")
+    .replace(INLINE_BEARER_PATTERN, "Bearer [REDACTED]")
+    .replace(INLINE_JID_PATTERN, "[REDACTED]")
+    .replace(COMMON_TOKEN_PATTERN, "[REDACTED]")
+    .replace(INLINE_PHONE_PATTERN, "[REDACTED]");
+}
 
 function sanitizeValue(value: unknown, key: string, seen: WeakSet<object>): unknown {
   if (SENSITIVE_KEY_PATTERN.test(key)) {
@@ -30,18 +41,11 @@ function sanitizeValue(value: unknown, key: string, seen: WeakSet<object>): unkn
   }
 
   if (typeof value === "string") {
-    if (
-      PHONE_LIKE_PATTERN.test(value) ||
-      JID_LIKE_PATTERN.test(value) ||
-      BEARER_PATTERN.test(value)
-    ) {
-      return "[REDACTED]";
-    }
-    return value;
+    return redactSensitiveText(value);
   }
 
   if (value instanceof Error) {
-    return { name: value.name, message: value.message };
+    return { name: value.name, message: redactSensitiveText(value.message) };
   }
 
   if (Array.isArray(value)) {
