@@ -1,8 +1,8 @@
 import { createHmac, randomBytes } from "node:crypto";
 
 export const RNG_SEED_BYTES = 32;
+export const RNG_COUNTER_MAX = (1n << 63n) - 1n;
 const UINT32_RANGE = 0x1_0000_0000;
-const MAX_COUNTER = (1n << 64n) - 1n;
 
 export interface RandomSource {
   nextUint32(): number;
@@ -22,8 +22,8 @@ export class HmacCounterRandomSource implements RandomSource {
     if (seed.byteLength !== RNG_SEED_BYTES) {
       throw new RangeError(`rng seed must be exactly ${RNG_SEED_BYTES} bytes`);
     }
-    if (initialCounter < 0n || initialCounter > MAX_COUNTER) {
-      throw new RangeError("rng counter must fit unsigned 64-bit range");
+    if (initialCounter < 0n || initialCounter > RNG_COUNTER_MAX) {
+      throw new RangeError("rng counter must fit PostgreSQL BIGINT range");
     }
     this.#seed = Buffer.from(seed);
     this.#counter = initialCounter;
@@ -34,8 +34,8 @@ export class HmacCounterRandomSource implements RandomSource {
   }
 
   nextUint32(): number {
-    if (this.#counter > MAX_COUNTER) {
-      throw new RangeError("rng counter exhausted");
+    if (this.#counter >= RNG_COUNTER_MAX) {
+      throw new RangeError("rng counter exhausted before PostgreSQL BIGINT overflow");
     }
 
     const counterBytes = Buffer.allocUnsafe(8);
