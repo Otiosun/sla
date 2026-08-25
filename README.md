@@ -6,37 +6,44 @@ Este projeto nasce **do zero**. Clover e Pokestor são referências de auditoria
 
 ## Stack base
 
-- Node.js 24.19.0 LTS
-- TypeScript 7.0.2 (`strict`)
-- pnpm 11.23.0
-- Biome 2.5.10
-- Vitest 4.1.11
-- Zod 4.4.3
-- PostgreSQL 18.6 para CI/integração
-
-As versões são exatas e só mudam por alteração deliberada e testada.
+Node.js 24.19.0 LTS · TypeScript 7.0.2 strict · pnpm 11.23.0 · Biome 2.5.10 · Vitest 4.1.11 · Zod 4.4.3 · node-postgres 8.23.0 · PostgreSQL 18.6.
 
 ## Fontes de verdade
 
 - **GitHub:** código, migrations, testes, seeds/importers, CI/CD e releases.
 - **Google Drive canônico:** arquitetura, decisões, auditorias, checklist, checkpoints, QA e handoffs.
 
-O nome atual do repositório (`sla`) é provisório. A identidade canônica é o repository ID `1342507339`; um rename futuro não altera histórico ou identidade.
+O nome atual do repositório (`sla`) é provisório; a identidade canônica é repository ID `1342507339`.
 
 ## Bootstrap local
-
-Pré-requisitos: Node 24.19.0 e pnpm 11.23.0.
 
 ```bash
 cp .env.example .env
 pnpm install --frozen-lockfile
+pnpm db:migrate
+pnpm db:verify
 pnpm check
 pnpm dev
 ```
 
-`DATABASE_URL` é obrigatória. O loader falha imediatamente se a configuração mínima for inválida.
+`DATABASE_URL` é a credencial de runtime. `MIGRATOR_DATABASE_URL` é separada e obrigatória em staging/produção. Nenhum secret deve entrar no Git ou Drive em texto puro.
 
-## Comandos
+## Banco e migrations
+
+- `db/migrations/0001_core_schema.sql` é schema, não seed de conteúdo.
+- `schema_migrations` é bootstrap do runner e registra version/name/checksum/applied_at/applied_by.
+- migrations aplicadas são imutáveis; SHA-256 divergente é erro fatal.
+- o runner usa advisory lock para impedir dois migrators simultâneos.
+- runtime verifica o schema e falha se o banco estiver atrasado.
+- criação de roles fica em `db/bootstrap/`, separada da migration.
+
+```bash
+pnpm db:migrate
+pnpm db:verify
+pnpm test:db
+```
+
+## Qualidade
 
 ```bash
 pnpm lint
@@ -44,29 +51,20 @@ pnpm format:check
 pnpm typecheck
 pnpm test
 pnpm check
-pnpm dev
 ```
 
-## Arquitetura inicial
+## Arquitetura
 
 ```text
-src/
-  modules/
-    player catalog pokemon inventory economy world encounter battle
-    capture progression pokedex admin narrative-ai
-  platform/
-    db logging config clock rng
-  adapters/
-    whatsapp
-db/
-  migrations/
-  seeds/
-  imports/
-tests/
+src/modules/{player,catalog,pokemon,inventory,economy,world,encounter,battle,capture,progression,pokedex,admin,narrative-ai}
+src/platform/{db,logging,config,clock,rng}
+src/adapters/whatsapp
+db/{migrations,bootstrap,seeds,imports}
+tests/{config,db}
 ```
 
-A estrutura é um monólito modular. Regra de negócio não deve morar em adapter de WhatsApp, SQL solto ou camada narrativa.
+Monólito modular: regra de negócio não mora em adapter de WhatsApp, SQL solto ou camada narrativa. APIs externas nunca são chamadas com uma transação de gameplay aberta.
 
 ## Fluxo Git
 
-Após o commit excepcional que inicializou o repositório vazio, desenvolvimento normal usa branch → PR → CI → revisão → merge. Consulte `CONTRIBUTING.md`.
+Desenvolvimento normal usa branch → PR → CI → revisão → merge. Consulte `CONTRIBUTING.md`.

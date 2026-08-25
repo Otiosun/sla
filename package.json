@@ -5,27 +5,26 @@
   "type": "module",
   "description": "Deterministic and narrative-safe Pokemon RPG engine for WhatsApp.",
   "packageManager": "pnpm@11.23.0",
-  "engines": {
-    "node": "24.19.0",
-    "pnpm": "11.23.0"
-  },
+  "engines": { "node": "24.19.0", "pnpm": "11.23.0" },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "start": "node --env-file=.env --import tsx src/main.ts",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts migrate",
+    "db:verify": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts verify",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "vitest run tests/db",
     "test:watch": "vitest",
     "check": "biome ci . && pnpm typecheck && pnpm test"
   },
-  "dependencies": {
-    "zod": "4.4.3"
-  },
+  "dependencies": { "pg": "8.23.0", "zod": "4.4.3" },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
     "@types/node": "24.13.3",
+    "@types/pg": "8.23.1",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
