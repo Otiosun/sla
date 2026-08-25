@@ -45,7 +45,17 @@ export function sha256Hex(content: string): string {
 export async function loadMigrations(
   directory: string = DEFAULT_MIGRATIONS_DIRECTORY,
 ): Promise<readonly MigrationDefinition[]> {
-  const fileNames = (await readdir(directory))
+  const directoryEntries = await readdir(directory);
+  const malformedSqlFiles = directoryEntries.filter(
+    (fileName) => fileName.endsWith(".sql") && !MIGRATION_FILE_PATTERN.test(fileName),
+  );
+  if (malformedSqlFiles.length > 0) {
+    throw new MigrationIntegrityError(
+      `Malformed SQL migration filename(s): ${malformedSqlFiles.sort().join(", ")}`,
+    );
+  }
+
+  const fileNames = directoryEntries
     .filter((fileName) => MIGRATION_FILE_PATTERN.test(fileName))
     .sort();
   const migrations: MigrationDefinition[] = [];
@@ -53,7 +63,9 @@ export async function loadMigrations(
 
   for (const fileName of fileNames) {
     const match = MIGRATION_FILE_PATTERN.exec(fileName);
-    if (match === null) continue;
+    if (match === null) {
+      throw new MigrationIntegrityError(`Invalid migration filename: ${fileName}`);
+    }
     const versionText = match[1];
     const name = match[2];
     if (versionText === undefined || name === undefined) {
