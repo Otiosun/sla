@@ -39,15 +39,20 @@ describe("redacting logger", () => {
     });
   });
 
-  it("handles circular values without throwing or mutating the source", () => {
+  it("handles circular objects and arrays without throwing or mutating the source", () => {
     const circular: Record<string, unknown> = { label: "safe" };
     circular.self = circular;
+    const circularArray: unknown[] = ["safe"];
+    circularArray.push(circularArray);
+    circular.array = circularArray;
 
     expect(redactLogFields(circular)).toEqual({
       label: "safe",
       self: "[CIRCULAR]",
+      array: ["safe", "[CIRCULAR]"],
     });
     expect(circular.self).toBe(circular);
+    expect(circularArray[1]).toBe(circularArray);
   });
 
   it("writes structured records only after redaction", () => {
