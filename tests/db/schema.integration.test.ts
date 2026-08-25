@@ -222,6 +222,64 @@ describe.sequential("PostgreSQL core schema and migration contract", () => {
     );
   });
 
+  it("rejects lifecycle metadata that does not match DRAFT or VALIDATED state", async () => {
+    const draftRulesetId = randomUUID();
+    await expectPgCode(
+      pool.query(
+        `INSERT INTO rulesets(
+           id, key, version, engine_contract_version, config, status, validated_at,
+           validation_report, config_fingerprint
+         ) VALUES ($1, $2, 1001, 1, '{}'::jsonb, 'DRAFT', now(), '{}'::jsonb, $3)`,
+        [draftRulesetId, `draft-metadata-${draftRulesetId}`, "a".repeat(64)],
+      ),
+      "23514",
+    );
+
+    const validatingRulesetId = randomUUID();
+    await pool.query(
+      `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+       VALUES ($1, $2, 1002, 1, '{}'::jsonb, 'DRAFT')`,
+      [validatingRulesetId, `validated-metadata-${validatingRulesetId}`],
+    );
+    await expectPgCode(
+      pool.query(
+        `UPDATE rulesets
+         SET status = 'VALIDATED', validated_at = now(), validation_report = '{}'::jsonb
+         WHERE id = $1`,
+        [validatingRulesetId],
+      ),
+      "23514",
+    );
+
+    const draftReleaseId = randomUUID();
+    await expectPgCode(
+      pool.query(
+        `INSERT INTO content_releases(
+           id, release_no, name, status, default_ruleset_id, validated_at,
+           validation_report, content_fingerprint
+         ) VALUES ($1, 999998, 'draft-metadata', 'DRAFT', $2, now(), '{}'::jsonb, $3)`,
+        [draftReleaseId, catalog.rulesetId, "b".repeat(64)],
+      ),
+      "23514",
+    );
+
+    const validatingReleaseId = randomUUID();
+    await pool.query(
+      `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+       VALUES ($1, 999997, 'validated-metadata', 'DRAFT', $2)`,
+      [validatingReleaseId, catalog.rulesetId],
+    );
+    await expectPgCode(
+      pool.query(
+        `UPDATE content_releases
+         SET status = 'VALIDATED', validated_at = now(), validation_report = '{}'::jsonb
+         WHERE id = $1`,
+        [validatingReleaseId],
+      ),
+      "23514",
+    );
+  });
+
   it("applies every migration exactly once and concurrent runners serialize", async () => {
     const result = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM schema_migrations",

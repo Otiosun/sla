@@ -137,11 +137,15 @@ describe("catalog contracts", () => {
 
   it("rejects unknown executable-like effect primitives", () => {
     const snapshot = validSnapshot();
+    const firstMove = snapshot.moves[0];
+    expect(firstMove).toBeDefined();
+    if (firstMove === undefined) return;
+
     const invalid: CatalogSnapshotWithEffects = {
       ...snapshot,
       moves: [
         {
-          ...snapshot.moves[0]!,
+          ...firstMove,
           effectKey: "javascript",
           effectConfig: { source: "process.exit()" },
         },
@@ -196,13 +200,17 @@ describe("catalog contracts", () => {
 
   it("produces a readable release diff without changing historical snapshots", () => {
     const before = validSnapshot("release-1");
+    const beforeMove = before.moves[0];
+    expect(beforeMove).toBeDefined();
+    if (beforeMove === undefined) return;
+
     const after: CatalogSnapshotWithEffects = {
       ...validSnapshot("release-2"),
       release: {
         ...validSnapshot("release-2").release,
         parentReleaseId: "release-1",
       },
-      moves: [{ ...before.moves[0]!, power: 50 }],
+      moves: [{ ...beforeMove, power: 50 }],
     };
 
     const diff = diffCatalogSnapshots(before, after);

@@ -20,10 +20,27 @@ SET validated_at = COALESCE(validated_at, published_at, now()),
 WHERE status IN ('PUBLISHED', 'ARCHIVED');
 
 ALTER TABLE rulesets
-  ADD CONSTRAINT rulesets_validated_timestamp_check
-  CHECK (status = 'DRAFT' OR validated_at IS NOT NULL),
-  ADD CONSTRAINT rulesets_published_timestamp_check
-  CHECK (status NOT IN ('PUBLISHED', 'ARCHIVED') OR published_at IS NOT NULL);
+  ADD CONSTRAINT rulesets_lifecycle_metadata_check
+  CHECK (
+    (status = 'DRAFT'
+      AND validated_at IS NULL
+      AND validation_report IS NULL
+      AND config_fingerprint IS NULL
+      AND published_at IS NULL)
+    OR (status = 'VALIDATED'
+      AND validated_at IS NOT NULL
+      AND validation_report IS NOT NULL
+      AND config_fingerprint IS NOT NULL
+      AND published_at IS NULL)
+    OR (status IN ('PUBLISHED', 'ARCHIVED')
+      AND validated_at IS NOT NULL
+      AND validation_report IS NOT NULL
+      AND published_at IS NOT NULL
+      AND (
+        config_fingerprint IS NOT NULL
+        OR validation_report ->> 'legacy_backfill' = 'true'
+      ))
+  );
 
 ALTER TABLE content_releases
   DROP CONSTRAINT content_releases_status_check;
@@ -43,10 +60,27 @@ SET validated_at = COALESCE(validated_at, published_at, now()),
 WHERE status IN ('PUBLISHED', 'ARCHIVED');
 
 ALTER TABLE content_releases
-  ADD CONSTRAINT content_releases_validated_timestamp_check
-  CHECK (status = 'DRAFT' OR validated_at IS NOT NULL),
-  ADD CONSTRAINT content_releases_published_timestamp_check
-  CHECK (status NOT IN ('PUBLISHED', 'ARCHIVED') OR published_at IS NOT NULL);
+  ADD CONSTRAINT content_releases_lifecycle_metadata_check
+  CHECK (
+    (status = 'DRAFT'
+      AND validated_at IS NULL
+      AND validation_report IS NULL
+      AND content_fingerprint IS NULL
+      AND published_at IS NULL)
+    OR (status = 'VALIDATED'
+      AND validated_at IS NOT NULL
+      AND validation_report IS NOT NULL
+      AND content_fingerprint IS NOT NULL
+      AND published_at IS NULL)
+    OR (status IN ('PUBLISHED', 'ARCHIVED')
+      AND validated_at IS NOT NULL
+      AND validation_report IS NOT NULL
+      AND published_at IS NOT NULL
+      AND (
+        content_fingerprint IS NOT NULL
+        OR validation_report ->> 'legacy_backfill' = 'true'
+      ))
+  );
 
 CREATE TABLE pokemon_form_ability_options (
   id UUID PRIMARY KEY,
