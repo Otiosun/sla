@@ -1,0 +1,44 @@
+name: Temporary Phase 4 Fixture Fix
+
+on:
+  push:
+    branches:
+      - feat/catalog-ruleset-release-v1
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Fix lifecycle-aware integration fixture and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/db/schema.integration.test.ts')
+          text = path.read_text()
+          old_ruleset = """`INSERT INTO rulesets(id, key, version, engine_contract_version, config, status, published_at)\n     VALUES ($1, 'test-rules', 1, 1, '{}'::jsonb, 'PUBLISHED', now())`"""
+          new_ruleset = """`INSERT INTO rulesets(\n       id, key, version, engine_contract_version, config, status, validated_at, published_at\n     ) VALUES ($1, 'test-rules', 1, 1, '{}'::jsonb, 'PUBLISHED', now(), now())`"""
+          old_release = """`INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id, published_at)\n     VALUES ($1, 1, 'test-release', 'PUBLISHED', $2, now())`"""
+          new_release = """`INSERT INTO content_releases(\n       id, release_no, name, status, default_ruleset_id, validated_at, published_at\n     ) VALUES ($1, 1, 'test-release', 'PUBLISHED', $2, now(), now())`"""
+          if text.count(old_ruleset) != 1 or text.count(old_release) != 1:
+              raise SystemExit('Expected lifecycle fixture statements were not found exactly once')
+          text = text.replace(old_ruleset, new_ruleset).replace(old_release, new_release)
+          path.write_text(text)
+          PY
+          git rm .github/workflows/fix-phase4-fixture-temp.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/db/schema.integration.test.ts
+          git commit -m "test(db): align catalog fixture with lifecycle"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
