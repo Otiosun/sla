@@ -1,0 +1,328 @@
+name: Temporary Phase 5 Starter Catalog Hardening
+
+on:
+  push:
+    branches:
+      - feat/player-onboarding-starter-v1
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Integrate starter options into catalog lifecycle
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_one(path_str, old, new):
+              path = Path(path_str)
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected exactly one target, found {text.count(old)}')
+              path.write_text(text.replace(old, new, 1))
+
+          replace_one(
+              'src/modules/catalog/contracts.ts',
+              '  readonly encounterTables: readonly {\n',
+              '''  readonly starterOptions: readonly {
+            readonly regionId: string;
+            readonly formId: string;
+            readonly starterLevel: number;
+            readonly sortOrder: number;
+            readonly active: boolean;
+          }[];
+          readonly encounterTables: readonly {
+          ''',
+          )
+          replace_one(
+              'src/modules/catalog/contracts.ts',
+              '  "evolutions",\n] as const;',
+              '  "evolutions",\n  "starterOptions",\n] as const;',
+          )
+
+          replace_one(
+              'src/modules/catalog/fingerprint.ts',
+              '    evolutions: sortByCanonical(snapshot.evolutions),\n    encounterTables:',
+              '    evolutions: sortByCanonical(snapshot.evolutions),\n    starterOptions: sortByCanonical(snapshot.starterOptions),\n    encounterTables:',
+          )
+
+          replace_one(
+              'src/modules/catalog/diff.ts',
+              '    encounterTables: snapshot.encounterTables.map((entry) => ({\n',
+              '''    starterOptions: snapshot.starterOptions.map((entry) => ({
+                key: `${entry.regionId}:${entry.formId}`,
+                value: entry,
+              })),
+              encounterTables: snapshot.encounterTables.map((entry) => ({
+              ''',
+          )
+
+          replace_one(
+              'src/modules/catalog/validation.ts',
+              '  const activeAbilityByForm = new Map<string, number>();\n',
+              '''  const starterOptionKeys = new Set<string>();
+          for (const [index, starter] of snapshot.starterOptions.entries()) {
+            const logicalKey = `${starter.regionId}:${starter.formId}`;
+            if (starterOptionKeys.has(logicalKey)) {
+              issues.push(
+                issue(
+                  "STARTER_OPTION_DUPLICATE",
+                  `starterOptions.${index}`,
+                  "Starter option duplicates a region/form pair in this release",
+                ),
+              );
+            }
+            starterOptionKeys.add(logicalKey);
+            if (!allRegionIds.has(starter.regionId) || !allFormIds.has(starter.formId)) {
+              issues.push(
+                issue(
+                  "STARTER_OPTION_REFERENCE_MISSING",
+                  `starterOptions.${index}`,
+                  "Starter option references a region or form absent from this release",
+                ),
+              );
+            }
+            if (
+              starter.active &&
+              (!activeRegionIds.has(starter.regionId) || !activeFormIds.has(starter.formId))
+            ) {
+              issues.push(
+                issue(
+                  "ACTIVE_STARTER_OPTION_INVALID",
+                  `starterOptions.${index}`,
+                  "Active starter option references inactive content",
+                ),
+              );
+            }
+            if (
+              !Number.isSafeInteger(starter.starterLevel) ||
+              starter.starterLevel < 1 ||
+              starter.starterLevel > 100 ||
+              !Number.isSafeInteger(starter.sortOrder) ||
+              starter.sortOrder < 0
+            ) {
+              issues.push(
+                issue(
+                  "STARTER_OPTION_RANGE_INVALID",
+                  `starterOptions.${index}`,
+                  "Starter level must be 1..100 and sort order must be a non-negative safe integer",
+                ),
+              );
+            }
+          }
+
+          const activeAbilityByForm = new Map<string, number>();
+          ''',
+          )
+
+          repo = 'src/platform/catalog/postgres-catalog-repository.ts'
+          replace_one(
+              repo,
+              '      evolutions,\n      encounterTables,\n',
+              '      evolutions,\n      starterOptions,\n      encounterTables,\n',
+          )
+          replace_one(
+              repo,
+              '''      this.client.query<{
+                revision_id: string;
+                encounter_table_id: string;
+                area_id: string;
+                active: boolean;
+              }>(
+          ''',
+              '''      this.client.query<{
+                region_id: string;
+                form_id: string;
+                starter_level: number;
+                sort_order: number;
+                active: boolean;
+              }>(
+                `SELECT region_id, form_id, starter_level, sort_order, active
+                 FROM starter_options
+                 WHERE content_release_id = $1 ORDER BY region_id, sort_order, form_id`,
+                [releaseId],
+              ),
+              this.client.query<{
+                revision_id: string;
+                encounter_table_id: string;
+                area_id: string;
+                active: boolean;
+              }>(
+              ''',
+          )
+          replace_one(
+              repo,
+              '      encounterTables: tableRows,\n      parentCoverage,\n',
+              '''      starterOptions: starterOptions.rows.map((entry) => ({
+                regionId: entry.region_id,
+                formId: entry.form_id,
+                starterLevel: entry.starter_level,
+                sortOrder: entry.sort_order,
+                active: entry.active,
+              })),
+              encounterTables: tableRows,
+              parentCoverage,
+              ''',
+          )
+          replace_one(
+              repo,
+              '''      {
+                table: "evolution_rules",
+                columns: ["from_form_id", "to_form_id", "trigger_kind", "trigger_config", "active"],
+              },
+            ] as const;
+          ''',
+              '''      {
+                table: "evolution_rules",
+                columns: ["from_form_id", "to_form_id", "trigger_kind", "trigger_config", "active"],
+              },
+              {
+                table: "starter_options",
+                columns: ["region_id", "form_id", "starter_level", "sort_order", "active"],
+              },
+            ] as const;
+          ''',
+          )
+
+          test = 'tests/catalog/catalog-contracts.test.ts'
+          replace_one(
+              test,
+              '    evolutions: [],\n    encounterTables: [\n',
+              '''    evolutions: [],
+              starterOptions: [
+                {
+                  regionId: "region-1",
+                  formId: "form-1",
+                  starterLevel: 5,
+                  sortOrder: 1,
+                  active: true,
+                },
+              ],
+              encounterTables: [
+              ''',
+          )
+          replace_one(
+              test,
+              '  it("produces a readable release diff without changing historical snapshots", () => {\n',
+              '''  it("treats starter options as fingerprinted, validated and diffable content", () => {
+                const before = validSnapshot("release-1");
+                const starter = before.starterOptions[0];
+                expect(starter).toBeDefined();
+                if (starter === undefined) return;
+
+                const after: CatalogSnapshotWithEffects = {
+                  ...validSnapshot("release-2"),
+                  starterOptions: [{ ...starter, starterLevel: 10 }],
+                };
+                expect(fingerprintCatalog(after)).not.toBe(fingerprintCatalog(before));
+                expect(
+                  diffCatalogSnapshots(before, after).sections.find(
+                    (section) => section.category === "starterOptions",
+                  ),
+                ).toEqual({ category: "starterOptions", added: 0, removed: 0, changed: 1 });
+
+                const invalid: CatalogSnapshotWithEffects = {
+                  ...before,
+                  starterOptions: [{ ...starter, formId: "missing-form", starterLevel: 0 }],
+                };
+                const report = validateCatalogSnapshot(invalid);
+                expect(report.valid).toBe(false);
+                expect(report.issues.some((entry) => entry.code === "STARTER_OPTION_REFERENCE_MISSING")).toBe(true);
+                expect(report.issues.some((entry) => entry.code === "STARTER_OPTION_RANGE_INVALID")).toBe(true);
+              });
+
+              it("produces a readable release diff without changing historical snapshots", () => {
+              ''',
+          )
+
+          integration = 'tests/db/player-onboarding.integration.test.ts'
+          replace_one(
+              integration,
+              'import { PlayerStarterService } from "../../src/modules/player/starter-service.js";\n',
+              '''import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
+              import { CatalogService } from "../../src/modules/catalog/service.js";
+              import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
+              ''',
+          )
+          replace_one(
+              integration,
+              '  it("keeps published starter options immutable", async () => {\n',
+              '''  it("carries starter options when cloning a published release", async () => {
+                const catalog = new CatalogService(new PostgresCatalogRepository(pool));
+                const cloneId = randomUUID();
+                unwrap(
+                  await catalog.clonePublishedRelease({
+                    parentReleaseId: fixture.releaseId,
+                    newReleaseId: cloneId,
+                    releaseNo: 99n,
+                    name: "phase5-starter-clone",
+                  }),
+                );
+                const cloned = await pool.query<{
+                  region_id: string;
+                  form_id: string;
+                  starter_level: number;
+                  sort_order: number;
+                }>(
+                  `SELECT region_id, form_id, starter_level, sort_order
+                   FROM starter_options WHERE content_release_id = $1`,
+                  [cloneId],
+                );
+                expect(cloned.rows).toEqual([
+                  {
+                    region_id: fixture.regionId,
+                    form_id: fixture.formId,
+                    starter_level: 5,
+                    sort_order: 1,
+                  },
+                ]);
+              });
+
+              it("keeps published starter options immutable", async () => {
+              ''',
+          )
+          PY
+
+      - name: Apply canonical Biome formatting
+        run: >-
+          pnpm exec biome check --write --unsafe
+          src/modules/catalog/contracts.ts
+          src/modules/catalog/fingerprint.ts
+          src/modules/catalog/diff.ts
+          src/modules/catalog/validation.ts
+          src/platform/catalog/postgres-catalog-repository.ts
+          tests/catalog/catalog-contracts.test.ts
+          tests/db/player-onboarding.integration.test.ts
+
+      - name: Commit catalog hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/catalog src/platform/catalog/postgres-catalog-repository.ts tests/catalog/catalog-contracts.test.ts tests/db/player-onboarding.integration.test.ts
+          git commit -m "hardening(catalog): version starter options end to end"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
