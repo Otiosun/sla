@@ -1,9 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 
-export type TransactionIsolationLevel =
-  | "READ COMMITTED"
-  | "REPEATABLE READ"
-  | "SERIALIZABLE";
+export type TransactionIsolationLevel = "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE";
 
 export interface TransactionOptions {
   readonly isolationLevel?: TransactionIsolationLevel;

@@ -7,9 +7,9 @@ describe("loadConfig", () => {
   });
 
   it("rejects a non-PostgreSQL DATABASE_URL", () => {
-    expect(() => loadConfig({ APP_ENV: "test", DATABASE_URL: "https://example.com/database" })).toThrow(
-      /PostgreSQL URL scheme/,
-    );
+    expect(() =>
+      loadConfig({ APP_ENV: "test", DATABASE_URL: "https://example.com/database" }),
+    ).toThrow(/PostgreSQL URL scheme/);
   });
 
   it("requires a distinct migrator URL in staging and production", () => {

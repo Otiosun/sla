@@ -39,7 +39,10 @@ async function expectPgCode(promise: Promise<unknown>, expectedCode: string): Pr
     await promise;
     throw new Error(`Expected PostgreSQL error code ${expectedCode}`);
   } catch (error) {
-    if (error instanceof Error && error.message === `Expected PostgreSQL error code ${expectedCode}`) {
+    if (
+      error instanceof Error &&
+      error.message === `Expected PostgreSQL error code ${expectedCode}`
+    ) {
       throw error;
     }
     expect(error).toMatchObject({ code: expectedCode });
@@ -71,16 +74,16 @@ async function seedCatalog(client: PoolClient): Promise<FixtureCatalog> {
     "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 1, 'bulbasaur')",
     [speciesId],
   );
-  await client.query(
-    "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')",
-    [formId, speciesId],
-  );
+  await client.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
+    formId,
+    speciesId,
+  ]);
   await client.query("INSERT INTO items(id, slug) VALUES ($1, 'poke-ball')", [itemId]);
   await client.query("INSERT INTO regions(id, slug) VALUES ($1, 'kanto')", [regionId]);
-  await client.query(
-    "INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'route-1')",
-    [areaId, regionId],
-  );
+  await client.query("INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'route-1')", [
+    areaId,
+    regionId,
+  ]);
 
   return { rulesetId, releaseId, typeId, speciesId, formId, itemId, regionId, areaId };
 }

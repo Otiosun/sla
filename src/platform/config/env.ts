@@ -7,8 +7,10 @@ const postgresUrl = z
     (value) => value.startsWith("postgresql://") || value.startsWith("postgres://"),
     "must use the PostgreSQL URL scheme",
   );
-const positiveInteger = (defaultValue: number) => z.coerce.number().int().positive().default(defaultValue);
-const nonNegativeInteger = (defaultValue: number) => z.coerce.number().int().nonnegative().default(defaultValue);
+const positiveInteger = (defaultValue: number) =>
+  z.coerce.number().int().positive().default(defaultValue);
+const nonNegativeInteger = (defaultValue: number) =>
+  z.coerce.number().int().nonnegative().default(defaultValue);
 
 const envSchema = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),

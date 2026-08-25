@@ -187,7 +187,12 @@ export async function runMigrations(
         await client.query(
           `INSERT INTO schema_migrations(version, name, checksum, applied_by)
            VALUES ($1::bigint, $2, $3, $4)`,
-          [migration.version.toString(), migration.name, migration.checksum, options.appliedBy ?? null],
+          [
+            migration.version.toString(),
+            migration.name,
+            migration.checksum,
+            options.appliedBy ?? null,
+          ],
         );
         await client.query("COMMIT");
       } catch (error) {
