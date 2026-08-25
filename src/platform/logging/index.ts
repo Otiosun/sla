@@ -45,6 +45,10 @@ function sanitizeValue(value: unknown, key: string, seen: WeakSet<object>): unkn
   }
 
   if (Array.isArray(value)) {
+    if (seen.has(value)) {
+      return "[CIRCULAR]";
+    }
+    seen.add(value);
     return value.map((item) => sanitizeValue(item, key, seen));
   }
 
@@ -65,6 +69,7 @@ function sanitizeValue(value: unknown, key: string, seen: WeakSet<object>): unkn
 
 export function redactLogFields(fields: LogFields): Readonly<Record<string, unknown>> {
   const seen = new WeakSet<object>();
+  seen.add(fields);
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
     sanitized[key] = sanitizeValue(value, key, seen);
