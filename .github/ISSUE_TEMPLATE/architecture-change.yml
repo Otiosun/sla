@@ -1,0 +1,32 @@
+name: Mudança arquitetural
+
+description: Propor mudança que altera contrato, arquitetura ou regra canônica
+title: "[ARCH] "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: Qual limitação concreta exige a mudança?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: Novo contrato/comportamento sugerido.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Trade-offs e riscos
+      description: Compatibilidade, migration, segurança, operação e alternativas rejeitadas.
+    validations:
+      required: true
+  - type: input
+    id: drive
+    attributes:
+      label: DEC/ARQ no Drive
+      description: Referência canônica; pode ser criada durante a análise, mas deve existir antes do merge.

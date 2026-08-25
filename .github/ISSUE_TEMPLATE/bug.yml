@@ -1,0 +1,36 @@
+name: Bug
+
+description: Relatar comportamento incorreto ou regressão
+title: "[BUG] "
+labels: []
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumo
+      description: O que aconteceu?
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidade estimada
+      options:
+        - P0 — corrupção/segurança/indisponibilidade total
+        - P1 — fluxo principal quebrado
+        - P2 — secundário com workaround
+        - P3 — UX/cosmético/documental
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reprodução
+      description: Passos mínimos e determinísticos, se conhecidos.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidências
+      description: Correlation ID, logs redigidos, commit/release e contexto sem secrets.
