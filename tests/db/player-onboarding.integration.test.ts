@@ -10,10 +10,13 @@ import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { createCorrelationId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (databaseUrl === undefined) {
-  throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
-}
+const databaseUrl = (() => {
+  const value = process.env.DATABASE_URL;
+  if (value === undefined) {
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  }
+  return value;
+})();
 
 interface Fixture {
   readonly regionId: string;
