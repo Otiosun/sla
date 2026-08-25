@@ -1,0 +1,33 @@
+{
+  "name": "pokemon-rpg-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic and narrative-safe Pokemon RPG engine for WhatsApp.",
+  "packageManager": "pnpm@11.23.0",
+  "engines": {
+    "node": "24.19.0",
+    "pnpm": "11.23.0"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "start": "node --env-file=.env --import tsx src/main.ts",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "biome ci . && pnpm typecheck && pnpm test"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.10",
+    "@types/node": "24.13.3",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}

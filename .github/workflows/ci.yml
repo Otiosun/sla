@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "infra/**"
+      - "feat/**"
+      - "fix/**"
+      - "refactor/**"
+      - "migration/**"
+      - "hardening/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: lint / typecheck / unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokemon_rpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d pokemon_rpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies (bootstrap lock)
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Preserve generated lockfile during bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lock-bootstrap
+          path: pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
