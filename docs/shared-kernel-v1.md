@@ -9,6 +9,7 @@ Phase 3 establishes contracts that every gameplay module must reuse instead of r
 - Time is accessed through an injectable `Clock`.
 - Randomness is accessed through `RandomSource`; production uses CSPRNG and tests/replay can use deterministic seeded RNG.
 - `CorrelationId` and `CausationId` are propagated as explicit causality context.
+- Incoming external work persists a required `correlation_id`; outgoing work persists the same correlation plus an optional `causation_id`. This is introduced by immutable migration sequence extension `0002_inbox_outbox_causality.sql`; `0001_core_schema.sql` remains frozen.
 - Structured logging redacts JIDs, phone-like values, tokens, seeds, secrets, authorization and related sensitive keys before the sink.
 - Boundary validation uses Zod through the shared contract parser.
 - Idempotency keys always have an explicit scope and are hashed for storage.
