@@ -28,6 +28,13 @@ describe("migration discovery", () => {
     await expect(loadMigrations(directory)).rejects.toBeInstanceOf(MigrationIntegrityError);
   });
 
+  it("rejects SQL files whose names do not obey the migration contract", async () => {
+    const directory = await createMigrationDirectory();
+    await writeFile(join(directory, "0001_core.sql"), "SELECT 1;\n");
+    await writeFile(join(directory, "0002-bad-name.sql"), "SELECT 2;\n");
+    await expect(loadMigrations(directory)).rejects.toThrow(/Malformed SQL migration filename/);
+  });
+
   it("rejects a sequence that does not begin at 0001", async () => {
     const directory = await createMigrationDirectory();
     await writeFile(join(directory, "0002_gap.sql"), "SELECT 2;\n");
