@@ -1,0 +1,34 @@
+name: Temporary Phase 4 Clone ID Fix
+
+on:
+  push:
+    branches:
+      - feat/catalog-ruleset-release-v1
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Apply application-generated clone IDs
+        run: python scripts/fix_phase4_clone_ids_temp.py
+
+      - name: Commit fix and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm scripts/fix_phase4_clone_ids_temp.py .github/workflows/fix-phase4-clone-ids-temp.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/platform/catalog/postgres-catalog-repository.ts
+          git commit -m "fix(catalog): generate clone IDs in application"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
