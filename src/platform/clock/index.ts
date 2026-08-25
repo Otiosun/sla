@@ -14,11 +14,7 @@ export const systemClock: Clock = Object.freeze({
 
 export const systemSleeper: Sleeper = Object.freeze({
   sleep: async (milliseconds: number) => {
-    if (
-      !Number.isSafeInteger(milliseconds) ||
-      milliseconds < 0 ||
-      milliseconds > MAX_SLEEP_MS
-    ) {
+    if (!Number.isSafeInteger(milliseconds) || milliseconds < 0 || milliseconds > MAX_SLEEP_MS) {
       throw new RangeError(`sleep milliseconds must be an integer in 0..${MAX_SLEEP_MS}`);
     }
     await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
