@@ -1,3 +1,5 @@
+export const MAX_SLEEP_MS = 2_147_483_647;
+
 export interface Clock {
   now(): Date;
 }
@@ -12,8 +14,12 @@ export const systemClock: Clock = Object.freeze({
 
 export const systemSleeper: Sleeper = Object.freeze({
   sleep: async (milliseconds: number) => {
-    if (!Number.isFinite(milliseconds) || milliseconds < 0) {
-      throw new RangeError("sleep milliseconds must be a finite non-negative number");
+    if (
+      !Number.isSafeInteger(milliseconds) ||
+      milliseconds < 0 ||
+      milliseconds > MAX_SLEEP_MS
+    ) {
+      throw new RangeError(`sleep milliseconds must be an integer in 0..${MAX_SLEEP_MS}`);
     }
     await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
   },
@@ -46,6 +52,10 @@ export class FixedClock implements Clock {
     if (!Number.isFinite(milliseconds)) {
       throw new RangeError("clock advance must be finite");
     }
-    this.#milliseconds += milliseconds;
+    const next = this.#milliseconds + milliseconds;
+    if (!Number.isFinite(new Date(next).getTime())) {
+      throw new RangeError("clock advance would create an invalid instant");
+    }
+    this.#milliseconds = next;
   }
 }
