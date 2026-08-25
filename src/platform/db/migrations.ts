@@ -74,6 +74,10 @@ export async function loadMigrations(
     });
   }
 
+  if (migrations.length === 0) {
+    throw new MigrationIntegrityError(`No numbered migrations found in ${directory}`);
+  }
+
   for (let index = 0; index < migrations.length; index += 1) {
     const migration = migrations[index];
     const expectedVersion = BigInt(index + 1);
@@ -91,9 +95,9 @@ export async function loadMigrations(
 async function ensureMigrationTable(client: PoolClient): Promise<void> {
   await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
-      version BIGINT PRIMARY KEY,
-      name TEXT NOT NULL,
-      checksum TEXT NOT NULL,
+      version BIGINT PRIMARY KEY CHECK (version > 0),
+      name TEXT NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9_]*$'),
+      checksum TEXT NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       applied_by TEXT NULL
     )
@@ -163,6 +167,18 @@ async function releaseMigrationLock(client: PoolClient): Promise<void> {
   ]);
 }
 
+async function rollbackMigration(client: PoolClient, migration: MigrationDefinition): Promise<void> {
+  try {
+    await client.query("ROLLBACK");
+  } catch (rollbackError) {
+    throw new MigrationError(
+      `Failed applying ${migration.fileName} and PostgreSQL rollback also failed: ${String(
+        rollbackError,
+      )}`,
+    );
+  }
+}
+
 export interface RunMigrationsOptions {
   readonly migrationsDirectory?: string;
   readonly appliedBy?: string | null;
@@ -176,12 +192,15 @@ export async function runMigrations(
     options.migrationsDirectory ?? DEFAULT_MIGRATIONS_DIRECTORY,
   );
   const client = await pool.connect();
+  let migrationLockAcquired = false;
   try {
     await acquireMigrationLock(client);
+    migrationLockAcquired = true;
     await ensureMigrationTable(client);
     await verifyAppliedMigrations(client, migrations, false);
     const applied = await readAppliedMigrations(client);
     const pending = migrations.slice(applied.length);
+
     for (const migration of pending) {
       await client.query("BEGIN");
       try {
@@ -198,15 +217,18 @@ export async function runMigrations(
         );
         await client.query("COMMIT");
       } catch (error) {
-        await client.query("ROLLBACK");
+        await rollbackMigration(client, migration);
         throw new MigrationError(`Failed applying ${migration.fileName}: ${String(error)}`);
       }
     }
+
     await verifyAppliedMigrations(client, migrations, true);
     return migrations;
   } finally {
     try {
-      await releaseMigrationLock(client);
+      if (migrationLockAcquired) {
+        await releaseMigrationLock(client);
+      }
     } finally {
       client.release();
     }
