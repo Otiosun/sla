@@ -120,6 +120,7 @@ async function readAppliedMigrations(client: PoolClient): Promise<readonly Appli
   const result = await client.query<AppliedMigrationRow>(`
     SELECT version::text AS version, name, checksum
     FROM schema_migrations
+    -- Qualify the BIGINT source column: ORDER BY the TEXT alias would place 10 before 2.
     ORDER BY schema_migrations.version ASC
   `);
   return result.rows;
