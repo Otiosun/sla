@@ -730,7 +730,7 @@ async function auditState(pool: Pool, fixture: PlayerPokemonFixture): Promise<un
        (SELECT count(*)::text FROM pokemon_evolution_claims WHERE pokemon_instance_id = $1) AS evolution_claims,
        (SELECT count(*)::text FROM pending_move_choices WHERE pokemon_instance_id = $1) AS pending_choices,
        (SELECT count(*)::text FROM pokemon_history_events WHERE pokemon_instance_id = $1) AS histories,
-       (SELECT count(*)::text FROM outbox_messages WHERE destination_ref = $2) AS outbox`,
+       (SELECT count(*)::text FROM outbox_messages WHERE destination_ref = $2::text) AS outbox`,
     [fixture.pokemonId, fixture.playerId],
   );
   return {
@@ -758,7 +758,7 @@ async function assertBattleClaimCounts(
        (SELECT count(*)::text FROM battle_reward_claims WHERE battle_id = $1) AS reward_claims,
        (SELECT count(*)::text FROM pokemon_xp_ledger WHERE source_type = 'BATTLE_REWARD' AND source_id = $1) AS xp_ledgers,
        (SELECT count(*)::text FROM trainer_progress_ledger WHERE source_type = 'BATTLE_REWARD' AND source_id = $1) AS trainer_ledgers,
-       (SELECT count(*)::text FROM outbox_messages WHERE idempotency_key = 'progression.reward:' || $1) AS outbox`,
+       (SELECT count(*)::text FROM outbox_messages WHERE idempotency_key = 'progression.reward:' || $1::text) AS outbox`,
     [battleId],
   );
   const row = result.rows[0];
@@ -1029,7 +1029,7 @@ async function main(): Promise<void> {
     expectFailure("conflicting move choice", conflictingChoice, "MOVE_CHOICE_CONFLICT");
     const slotFour = await pool.query<{ move_id: string; status: string; count: string }>(
       `SELECT slot.move_id, choice.status,
-              (SELECT count(*)::text FROM outbox_messages WHERE idempotency_key = 'progression.move-choice:' || $2) AS count
+              (SELECT count(*)::text FROM outbox_messages WHERE idempotency_key = 'progression.move-choice:' || $2::text) AS count
        FROM pokemon_move_slots slot
        JOIN pending_move_choices choice ON choice.id = $2
        WHERE slot.pokemon_instance_id = $1 AND slot.slot_no = 4`,
