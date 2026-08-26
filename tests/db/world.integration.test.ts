@@ -77,7 +77,11 @@ async function createRelease(
   );
 }
 
-async function publishRelease(client: PoolClient, releaseId: string, fingerprint: string): Promise<void> {
+async function publishRelease(
+  client: PoolClient,
+  releaseId: string,
+  fingerprint: string,
+): Promise<void> {
   await client.query(
     `UPDATE content_releases
      SET status = 'VALIDATED', validated_at = now(),
@@ -271,8 +275,8 @@ async function createEligiblePlayer(client: PoolClient, regionId: string): Promi
     [playerId, regionId],
   );
   await client.query(
-    `INSERT INTO onboarding_states(player_id, state, completed_at)
-     VALUES ($1, 'COMPLETE', now())`,
+    `INSERT INTO onboarding_states(player_id, state, starter_claim_key, completed_at)
+     VALUES ($1, 'COMPLETE', 'phase7-world-test-starter', now())`,
     [playerId],
   );
   return playerId;
@@ -461,9 +465,10 @@ describe.sequential("Phase 7 world exploration on disposable PostgreSQL", () => 
     expect(encounterBlocked).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
 
     const battleClient = await pool.connect();
-    await battleClient.query("UPDATE encounters SET status = 'CLOSED', closed_at = now() WHERE id = $1", [
-      encounterId,
-    ]);
+    await battleClient.query(
+      "UPDATE encounters SET status = 'CLOSED', closed_at = now() WHERE id = $1",
+      [encounterId],
+    );
     const battleId = randomUUID();
     await battleClient.query(
       `INSERT INTO battles(
@@ -537,9 +542,7 @@ describe.sequential("Phase 7 world exploration on disposable PostgreSQL", () => 
       },
     });
 
-    const relocated = unwrap(
-      await service(pool).relocate({ playerId, expectedRevision: 1n }),
-    );
+    const relocated = unwrap(await service(pool).relocate({ playerId, expectedRevision: 1n }));
     expect(relocated).toMatchObject({
       areaId: fixture.palletId,
       requiresRelocation: false,
