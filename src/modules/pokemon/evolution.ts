@@ -15,18 +15,22 @@ export interface EvolutionRuleView {
 
 export function evolutionRuleMatches(rule: EvolutionRuleView, trigger: EvolutionTrigger): boolean {
   if (rule.triggerKind !== trigger.kind) return false;
-  const schema = EvolutionTriggerSchemas[rule.triggerKind];
-  const parsed = schema.safeParse(rule.triggerConfig);
-  if (!parsed.success) return false;
 
-  if (rule.triggerKind === "LEVEL" && trigger.kind === "LEVEL") {
-    return trigger.level >= parsed.data.level;
+  switch (trigger.kind) {
+    case "LEVEL": {
+      if (rule.triggerKind !== "LEVEL") return false;
+      const parsed = EvolutionTriggerSchemas.LEVEL.safeParse(rule.triggerConfig);
+      return parsed.success && trigger.level >= parsed.data.level;
+    }
+    case "ITEM": {
+      if (rule.triggerKind !== "ITEM") return false;
+      const parsed = EvolutionTriggerSchemas.ITEM.safeParse(rule.triggerConfig);
+      return parsed.success && trigger.itemId === parsed.data.itemId;
+    }
+    case "CONDITION": {
+      if (rule.triggerKind !== "CONDITION") return false;
+      const parsed = EvolutionTriggerSchemas.CONDITION.safeParse(rule.triggerConfig);
+      return parsed.success && trigger.conditionKey === parsed.data.conditionKey;
+    }
   }
-  if (rule.triggerKind === "ITEM" && trigger.kind === "ITEM") {
-    return trigger.itemId === parsed.data.itemId;
-  }
-  if (rule.triggerKind === "CONDITION" && trigger.kind === "CONDITION") {
-    return trigger.conditionKey === parsed.data.conditionKey;
-  }
-  return false;
 }
