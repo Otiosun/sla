@@ -3,10 +3,16 @@ import type { BattleState } from "../../src/modules/battle/contracts.js";
 import { BattleRuntimeService } from "../../src/modules/battle/runtime.js";
 import { battleState } from "./fixtures.js";
 
-function playerSide(state: BattleState) {
-  const side = state.sides.find((entry) => entry.controllerKind === "PLAYER");
-  if (side === undefined || side.playerId === null)
-    throw new Error("fixture player side is missing");
+type BattleSide = BattleState["sides"][number];
+type PlayerBattleSide = BattleSide & { playerId: string };
+
+function isPlayerSide(side: BattleSide): side is PlayerBattleSide {
+  return side.controllerKind === "PLAYER" && side.playerId !== null;
+}
+
+function playerSide(state: BattleState): PlayerBattleSide {
+  const side = state.sides.find(isPlayerSide);
+  if (side === undefined) throw new Error("fixture player side is missing");
   return side;
 }
 
