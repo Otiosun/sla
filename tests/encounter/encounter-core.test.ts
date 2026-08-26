@@ -90,10 +90,7 @@ describe("encounter core", () => {
     if (!gated.success) return;
     expect(encounterConditionsAllow(gated.data, new Set(["badge.boulder"]))).toBe(true);
     expect(
-      encounterConditionsAllow(
-        gated.data,
-        new Set(["badge.boulder", "story.rocket-active"]),
-      ),
+      encounterConditionsAllow(gated.data, new Set(["badge.boulder", "story.rocket-active"])),
     ).toBe(false);
   });
 
@@ -130,11 +127,15 @@ describe("encounter core", () => {
   });
 
   it("generates an identical wild snapshot when replayed from the same seed", () => {
+    const entry = entries[0];
+    expect(entry).toBeDefined();
+    if (entry === undefined) return;
+
     const seed = Buffer.alloc(32, 0x77);
     const firstRng = new CounterRandomSource(seed);
     const secondRng = new CounterRandomSource(seed);
-    const firstLevel = chooseEncounterLevel(entries[0]!, firstRng);
-    const secondLevel = chooseEncounterLevel(entries[0]!, secondRng);
+    const firstLevel = chooseEncounterLevel(entry, firstRng);
+    const secondLevel = chooseEncounterLevel(entry, secondRng);
     const first = generateWildPokemon(wildBuild, firstLevel, firstRng);
     const second = generateWildPokemon(wildBuild, secondLevel, secondRng);
 
