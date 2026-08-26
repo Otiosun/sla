@@ -40,7 +40,11 @@ export interface EncounterTransaction {
     lock?: boolean,
   ): Promise<EncounterRecord | null>;
   activeForPlayer(playerId: PlayerId, lock?: boolean): Promise<EncounterRecord | null>;
-  byId(playerId: PlayerId, encounterId: EncounterId, lock?: boolean): Promise<EncounterRecord | null>;
+  byId(
+    playerId: PlayerId,
+    encounterId: EncounterId,
+    lock?: boolean,
+  ): Promise<EncounterRecord | null>;
   snapshot(encounterId: EncounterId): Promise<WildPokemonSnapshot | null>;
   battleId(encounterId: EncounterId): Promise<string | null>;
   tables(contentReleaseId: string, areaId: string): Promise<readonly EncounterTableRecord[]>;
