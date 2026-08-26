@@ -196,7 +196,12 @@ export class CaptureService {
           input.encounterId,
           input.ballItemId,
         );
-        if (context === null) return err(captureNotFound());
+        if (context === null) {
+          const terminalReplay = await transaction.findAttempt(idempotency.value.storageKey);
+          return terminalReplay === null
+            ? err(captureNotFound())
+            : replay(terminalReplay, fingerprint);
+        }
 
         const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);
         if (racedReplay !== null) return replay(racedReplay, fingerprint);
