@@ -267,8 +267,8 @@ export class EncounterService {
       });
       if (!gate.ok) return gate;
 
-      const battleId = createBattleId();
-      const battleSeed = this.seedProvider.create(`battle:${battleId}`);
+      const requestedBattleId = createBattleId();
+      const battleSeed = this.seedProvider.create(`battle:${requestedBattleId}`);
       const moved = await this.transition(
         transaction,
         record,
@@ -277,8 +277,8 @@ export class EncounterService {
         null,
       );
       if (!moved.ok) return moved;
-      await transaction.createBattle({
-        battleId,
+      const battleId = await transaction.createBattle({
+        battleId: requestedBattleId,
         encounter: moved.value,
         seed: battleSeed.envelope,
       });
