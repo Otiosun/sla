@@ -470,7 +470,7 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
       itemQuantity === null ||
       itemQuantity <= 0n ||
       priceAmount === null ||
-      priceAmount < 0n ||
+      priceAmount <= 0n ||
       !Number.isSafeInteger(offer.sortOrder) ||
       offer.sortOrder < 0
     ) {
@@ -478,7 +478,7 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
         issue(
           "PURCHASE_OFFER_RANGE_INVALID",
           `purchaseOffers.${index}`,
-          "Purchase quantity must be positive, price non-negative, and sort order a non-negative safe integer",
+          "Purchase quantity and price must be positive, and sort order must be a non-negative safe integer",
         ),
       );
     }

@@ -156,7 +156,9 @@ export class EconomyService {
     return this.inventoryMutation(input, INVENTORY_ADD_SCOPE, input.quantity, "ADD");
   }
 
-  public async consumeItem(input: InventoryOperationInput): Promise<Result<InventoryMutationResult>> {
+  public async consumeItem(
+    input: InventoryOperationInput,
+  ): Promise<Result<InventoryMutationResult>> {
     return this.inventoryMutation(input, INVENTORY_CONSUME_SCOPE, -input.quantity, "CONSUME");
   }
 
@@ -174,7 +176,11 @@ export class EconomyService {
       return err(economyValidationError("offerKey", offerKey.error.issues));
     }
 
-    const walletMetadata = prepareMetadata(input.metadata, input.idempotencyKey, PURCHASE_WALLET_SCOPE);
+    const walletMetadata = prepareMetadata(
+      input.metadata,
+      input.idempotencyKey,
+      PURCHASE_WALLET_SCOPE,
+    );
     if (!walletMetadata.ok) return walletMetadata;
     const inventoryMetadata = prepareMetadata(
       input.metadata,
@@ -219,7 +225,9 @@ export class EconomyService {
           );
           if (racedReplay !== null) return racedReplay;
           throw new EconomyRollback(
-            economyIntegrityError("Purchase idempotency claim lost without a durable replay record"),
+            economyIntegrityError(
+              "Purchase idempotency claim lost without a durable replay record",
+            ),
           );
         }
 
@@ -232,7 +240,9 @@ export class EconomyService {
         });
         if (!inventoryClaimed) {
           throw new EconomyRollback(
-            economyIntegrityError("Purchase has a partial idempotency history across economy ledgers"),
+            economyIntegrityError(
+              "Purchase has a partial idempotency history across economy ledgers",
+            ),
           );
         }
 
@@ -273,14 +283,20 @@ export class EconomyService {
   public async getInventoryBalance(playerId: PlayerId, itemId: string): Promise<Result<bigint>> {
     const item = uuid("itemId", itemId);
     if (!item.ok) return item;
-    return ok(await this.repository.read((transaction) => transaction.inventoryBalance(playerId, item.value)));
+    return ok(
+      await this.repository.read((transaction) =>
+        transaction.inventoryBalance(playerId, item.value),
+      ),
+    );
   }
 
   public async getWalletBalance(playerId: PlayerId, currencyId: string): Promise<Result<bigint>> {
     const currency = uuid("currencyId", currencyId);
     if (!currency.ok) return currency;
     return ok(
-      await this.repository.read((transaction) => transaction.walletBalance(playerId, currency.value)),
+      await this.repository.read((transaction) =>
+        transaction.walletBalance(playerId, currency.value),
+      ),
     );
   }
 
@@ -304,7 +320,14 @@ export class EconomyService {
           metadata.value.idempotency.storageKey,
         );
         if (existing !== null) {
-          return this.inventoryReplay(transaction, existing, input.playerId, item.value, delta, metadata.value);
+          return this.inventoryReplay(
+            transaction,
+            existing,
+            input.playerId,
+            item.value,
+            delta,
+            metadata.value,
+          );
         }
 
         const ledgerId = randomUUID();
@@ -322,7 +345,9 @@ export class EconomyService {
           );
           if (raced === null) {
             return err(
-              economyIntegrityError("Inventory idempotency claim lost without a durable ledger row"),
+              economyIntegrityError(
+                "Inventory idempotency claim lost without a durable ledger row",
+              ),
             );
           }
           return this.inventoryReplay(
@@ -518,20 +543,20 @@ export class EconomyService {
     walletMetadata: EconomyMutationMetadata,
     inventoryMetadata: EconomyMutationMetadata,
   ): Promise<Result<PurchaseResult> | null> {
-    const [walletLedger, inventoryLedger] = await Promise.all([
-      transaction.findWalletLedger(
-        walletMetadata.idempotency.scope,
-        walletMetadata.idempotency.storageKey,
-      ),
-      transaction.findInventoryLedger(
-        inventoryMetadata.idempotency.scope,
-        inventoryMetadata.idempotency.storageKey,
-      ),
-    ]);
+    const walletLedger = await transaction.findWalletLedger(
+      walletMetadata.idempotency.scope,
+      walletMetadata.idempotency.storageKey,
+    );
+    const inventoryLedger = await transaction.findInventoryLedger(
+      inventoryMetadata.idempotency.scope,
+      inventoryMetadata.idempotency.storageKey,
+    );
 
     if (walletLedger === null && inventoryLedger === null) return null;
     if (walletLedger === null || inventoryLedger === null) {
-      return err(economyIntegrityError("Purchase has a partial idempotency history across economy ledgers"));
+      return err(
+        economyIntegrityError("Purchase has a partial idempotency history across economy ledgers"),
+      );
     }
     if (
       walletLedger.playerId !== playerId ||
@@ -547,7 +572,9 @@ export class EconomyService {
 
     const offer = await transaction.loadPurchaseOfferById(walletLedger.sourceId);
     if (offer === null) {
-      return err(economyIntegrityError("Purchase replay references an unavailable historical offer"));
+      return err(
+        economyIntegrityError("Purchase replay references an unavailable historical offer"),
+      );
     }
     if (
       offer.offerKey !== requestedOfferKey ||
@@ -559,10 +586,8 @@ export class EconomyService {
       return err(idempotencyReplayMismatch());
     }
 
-    const [walletAmount, inventoryQuantity] = await Promise.all([
-      transaction.walletBalance(playerId, offer.currencyId),
-      transaction.inventoryBalance(playerId, offer.itemId),
-    ]);
+    const walletAmount = await transaction.walletBalance(playerId, offer.currencyId);
+    const inventoryQuantity = await transaction.inventoryBalance(playerId, offer.itemId);
     return ok({
       playerId,
       contentReleaseId: offer.contentReleaseId,

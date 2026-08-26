@@ -9,7 +9,8 @@ import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -66,9 +67,10 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
      WHERE id = $1`,
     [rulesetId, "a".repeat(64)],
   );
-  await client.query("UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1", [
-    rulesetId,
-  ]);
+  await client.query(
+    "UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1",
+    [rulesetId],
+  );
   await client.query(
     `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
      VALUES ($1, 1, 'phase6-economy-release', 'DRAFT', $2)`,
@@ -318,8 +320,6 @@ describe.sequential("Phase 6 economy on disposable PostgreSQL", () => {
       "UPDATE content_release_pointers SET content_release_id = $1 WHERE pointer_key = 'ACTIVE'",
       [newReleaseId],
     );
-    await pool.query("UPDATE content_releases SET status = 'ARCHIVED' WHERE id = $1", [fixture.releaseId]);
-
     const afterSwitch = unwrap(
       await service.purchase({
         playerId,
@@ -332,6 +332,11 @@ describe.sequential("Phase 6 economy on disposable PostgreSQL", () => {
     expect(afterSwitch.contentReleaseId).toBe(fixture.releaseId);
     expect(unwrap(await service.getWalletBalance(playerId, fixture.currencyId))).toBe(300n);
     expect(unwrap(await service.getInventoryBalance(playerId, fixture.itemId))).toBe(1n);
+
+    await pool.query(
+      "UPDATE content_release_pointers SET content_release_id = $1 WHERE pointer_key = 'ACTIVE'",
+      [fixture.releaseId],
+    );
   });
 
   it("rolls back ledger claims and wallet debit if a later purchase step fails", async () => {
