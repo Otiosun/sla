@@ -629,8 +629,19 @@ async function seedReleaseContent(
     client,
     "area_revisions",
     ["content_release_id", "area_id"],
-    ["content_release_id", "area_id", "display_name"],
-    [releaseId, ids.areaId, "Route 1"],
+    ["content_release_id", "area_id", "display_name", "data"],
+    [
+      releaseId,
+      ids.areaId,
+      "Route 1",
+      {
+        schemaVersion: 1,
+        kind: "ROUTE",
+        safePoint: true,
+        startingArea: true,
+        relocationPriority: 0,
+      },
+    ],
   );
 
   const abilityByForm: Readonly<Record<string, string>> = {

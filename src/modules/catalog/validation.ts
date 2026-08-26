@@ -9,6 +9,7 @@ import {
   type ValidationReport,
   validateEffectConfig,
 } from "./contracts.js";
+import { ConnectionAccessRuleSchema, WorldAreaConfigSchema } from "./world-contracts.js";
 
 export const EffectProgramSchema = z
   .object({
@@ -318,6 +319,7 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
     }
   }
 
+  const areaConfigs = new Map<string, z.infer<typeof WorldAreaConfigSchema>>();
   for (const [index, area] of snapshot.areas.entries()) {
     if (!allRegionIds.has(area.regionId)) {
       issues.push(
@@ -334,6 +336,39 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
           "ACTIVE_AREA_HAS_INACTIVE_REGION",
           `areas.${index}.regionId`,
           "Active area references an inactive region",
+        ),
+      );
+    }
+    const parsedConfig = WorldAreaConfigSchema.safeParse(area.data);
+    addZodIssues(issues, "AREA_WORLD_CONFIG_INVALID", `areas.${index}.data`, parsedConfig);
+    if (parsedConfig.success) areaConfigs.set(area.areaId, parsedConfig.data);
+  }
+
+  for (const regionId of activeRegionIds) {
+    const activeRegionAreas = snapshot.areas.filter(
+      (area) => area.active && area.regionId === regionId && areaConfigs.has(area.areaId),
+    );
+    const startingAreas = activeRegionAreas.filter(
+      (area) => areaConfigs.get(area.areaId)?.startingArea === true,
+    );
+    const safePoints = activeRegionAreas.filter(
+      (area) => areaConfigs.get(area.areaId)?.safePoint === true,
+    );
+    if (startingAreas.length !== 1) {
+      issues.push(
+        issue(
+          "REGION_STARTING_AREA_INVALID",
+          `regions.${regionId}`,
+          "Each active region must define exactly one active starting area",
+        ),
+      );
+    }
+    if (safePoints.length === 0) {
+      issues.push(
+        issue(
+          "REGION_SAFE_POINT_MISSING",
+          `regions.${regionId}`,
+          "Each active region must define at least one active safe point",
         ),
       );
     }
@@ -361,6 +396,12 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
         ),
       );
     }
+    addZodIssues(
+      issues,
+      "CONNECTION_ACCESS_RULE_INVALID",
+      `connections.${index}.accessRule`,
+      ConnectionAccessRuleSchema.safeParse(connection.accessRule),
+    );
   }
 
   const starterOptionKeys = new Set<string>();

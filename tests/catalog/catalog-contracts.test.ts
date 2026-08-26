@@ -96,8 +96,22 @@ function validSnapshot(releaseId = "release-1"): CatalogSnapshotWithEffects {
       },
     ],
     effects: [],
-    regions: [{ regionId: "region-1", active: true }],
-    areas: [{ areaId: "area-1", regionId: "region-1", active: true }],
+    regions: [{ regionId: "region-1", displayName: "Test Region", active: true, data: {} }],
+    areas: [
+      {
+        areaId: "area-1",
+        regionId: "region-1",
+        displayName: "Test Area",
+        active: true,
+        data: {
+          schemaVersion: 1,
+          kind: "TOWN",
+          safePoint: true,
+          startingArea: true,
+          relocationPriority: 0,
+        },
+      },
+    ],
     connections: [],
     formAbilities: [{ formId: "form-1", abilityId: "ability-1", active: true }],
     learnsets: [

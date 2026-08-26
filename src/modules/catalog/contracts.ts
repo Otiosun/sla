@@ -188,16 +188,25 @@ export interface CatalogSnapshot {
     readonly decreasedStat: string | null;
     readonly active: boolean;
   }[];
-  readonly regions: readonly { readonly regionId: string; readonly active: boolean }[];
+  readonly regions: readonly {
+    readonly regionId: string;
+    readonly displayName: string;
+    readonly active: boolean;
+    readonly data: unknown;
+  }[];
   readonly areas: readonly {
     readonly areaId: string;
     readonly regionId: string;
+    readonly displayName: string;
     readonly active: boolean;
+    readonly data: unknown;
   }[];
   readonly connections: readonly {
     readonly connectionId: string;
+    readonly connectionKey: string;
     readonly fromAreaId: string;
     readonly toAreaId: string;
+    readonly accessRule: unknown;
     readonly active: boolean;
   }[];
   readonly formAbilities: readonly {
