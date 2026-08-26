@@ -302,7 +302,10 @@ class PostgresWorldTransaction implements WorldTransaction {
          ) AS battle_active`,
       [player],
     );
-    return result.rows[0] ?? { encounter_active: false, battle_active: false };
+    const row = result.rows[0];
+    return row === undefined
+      ? { encounterActive: false, battleActive: false }
+      : { encounterActive: row.encounter_active, battleActive: row.battle_active };
   }
 
   public async activeUnlockKeys(player: PlayerId): Promise<readonly string[]> {
