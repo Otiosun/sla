@@ -19,7 +19,7 @@ export async function recordPokedexSeen(
   );
 }
 
-export async function recordPokedexOwned(
+export async function recordPokedexCaught(
   client: PoolClient,
   playerId: string,
   speciesId: string,
@@ -36,6 +36,28 @@ export async function recordPokedexOwned(
                    last_seen_at = now(),
                    first_caught_at = COALESCE(player_pokedex_species.first_caught_at, now()),
                    last_caught_at = now(),
+                   revision = player_pokedex_species.revision + 1`,
+    [playerId, speciesId],
+  );
+}
+
+export async function recordPokedexOwned(
+  client: PoolClient,
+  playerId: string,
+  speciesId: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO player_pokedex_species(
+       player_id, species_id, seen_count, caught_count,
+       first_seen_at, last_seen_at, first_caught_at, last_caught_at
+     ) VALUES ($1, $2, 1, 1, now(), now(), now(), now())
+     ON CONFLICT (player_id, species_id)
+     DO UPDATE SET seen_count = GREATEST(player_pokedex_species.seen_count, 1),
+                   caught_count = GREATEST(player_pokedex_species.caught_count, 1),
+                   first_seen_at = COALESCE(player_pokedex_species.first_seen_at, now()),
+                   last_seen_at = COALESCE(player_pokedex_species.last_seen_at, now()),
+                   first_caught_at = COALESCE(player_pokedex_species.first_caught_at, now()),
+                   last_caught_at = COALESCE(player_pokedex_species.last_caught_at, now()),
                    revision = player_pokedex_species.revision + 1`,
     [playerId, speciesId],
   );
