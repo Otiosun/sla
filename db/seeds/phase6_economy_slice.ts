@@ -75,10 +75,9 @@ async function ensureCurrency(client: PoolClient): Promise<string> {
     id: string;
     display_name: string;
     allows_negative: boolean;
-  }>(
-    "SELECT id, display_name, allows_negative FROM currency_definitions WHERE slug = $1",
-    [CURRENCY_SLUG],
-  );
+  }>("SELECT id, display_name, allows_negative FROM currency_definitions WHERE slug = $1", [
+    CURRENCY_SLUG,
+  ]);
   const row = result.rows[0];
   if (row === undefined) throw new Error("Failed to resolve Phase 6 currency");
   if (row.display_name !== "PokéDollar" || row.allows_negative) {
@@ -107,7 +106,11 @@ async function resolveReleaseItem(
   return id;
 }
 
-async function seedOffers(client: PoolClient, releaseId: string, currencyId: string): Promise<void> {
+async function seedOffers(
+  client: PoolClient,
+  releaseId: string,
+  currencyId: string,
+): Promise<void> {
   const offers = [
     ["shop.poke-ball", "poke-ball", 1n, 200n, 1],
     ["shop.potion", "potion", 1n, 300n, 2],
