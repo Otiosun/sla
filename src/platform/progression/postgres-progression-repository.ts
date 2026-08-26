@@ -114,7 +114,7 @@ async function resolveEvolutionAbility(
   contentReleaseId: string,
   targetFormId: string,
   currentAbilityId: string | null,
-): Promise<string | null> {
+): Promise<string> {
   const result = await client.query<{ ability_id: string; slot_kind: string }>(
     `SELECT ability_id, slot_kind
      FROM pokemon_form_ability_options
@@ -125,7 +125,11 @@ async function resolveEvolutionAbility(
   if (currentAbilityId !== null && result.rows.some((row) => row.ability_id === currentAbilityId)) {
     return currentAbilityId;
   }
-  return result.rows[0]?.ability_id ?? null;
+  const fallback = result.rows[0]?.ability_id;
+  if (fallback === undefined) {
+    throw new ProgressionStateViolation("Evolution target has no active Ability option");
+  }
+  return fallback;
 }
 
 async function insertPokemonHistory(
@@ -741,7 +745,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     const pendingMoveChoiceIds: string[] = [];
     const evolutions: EvolutionResult[] = [];
     let currentFormId = row.form_id;
-    let currentAbilityId = row.ability_id;
+    if (row.ability_id === null) {
+      throw new ProgressionStateViolation("Winning Pokemon has no persisted Ability");
+    }
+    let currentAbilityId: string = row.ability_id;
     let previousLevel = row.level;
     const visitedForms = new Set([currentFormId]);
 
