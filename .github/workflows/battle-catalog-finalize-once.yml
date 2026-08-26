@@ -89,6 +89,12 @@ jobs:
           repo = Path('src/platform/catalog/postgres-catalog-repository.ts')
           text = repo.read_text()
 
+          import_anchor = '''import {\n  type CatalogCoverage,\n  ContentLifecycleStatusSchema,'''
+          import_replacement = '''import {\n  BattleMoveFlagsSchema,\n  type CatalogCoverage,\n  ContentLifecycleStatusSchema,'''
+          if text.count(import_anchor) != 1:
+              raise SystemExit('catalog import anchor mismatch')
+          text = text.replace(import_anchor, import_replacement)
+
           old_type = '''        effect_key: string | null;\n        effect_config: unknown;\n        active: boolean;\n      }>(\n        `SELECT move_id, type_id, category, power, accuracy, priority, max_pp,\n                effect_key, effect_config, active'''
           new_type = '''        effect_key: string | null;\n        effect_config: unknown;\n        flags: unknown;\n        active: boolean;\n      }>(\n        `SELECT move_id, type_id, category, power, accuracy, priority, max_pp,\n                effect_key, effect_config, flags, active'''
           if text.count(old_type) != 1:
@@ -96,7 +102,7 @@ jobs:
           text = text.replace(old_type, new_type)
 
           old_map = '''        effectKey: entry.effect_key,\n        effectConfig: entry.effect_config,\n        active: entry.active,\n      })),\n      abilities:'''
-          new_map = '''        effectKey: entry.effect_key,\n        effectConfig: entry.effect_config,\n        flags: entry.flags,\n        active: entry.active,\n      })),\n      abilities:'''
+          new_map = '''        effectKey: entry.effect_key,\n        effectConfig: entry.effect_config,\n        flags: BattleMoveFlagsSchema.parse(entry.flags),\n        active: entry.active,\n      })),\n      abilities:'''
           if text.count(old_map) != 1:
               raise SystemExit('move mapping anchor mismatch')
           text = text.replace(old_map, new_map)
@@ -112,15 +118,26 @@ jobs:
       - name: Apply canonical formatting
         run: pnpm format
 
-      - name: Quality gates
-        run: |
-          set -euo pipefail
-          pnpm lint
-          pnpm format:check
-          pnpm typecheck
-          pnpm test
-          pnpm db:verify
-          git diff --check
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Migrate target database
+        run: pnpm db:migrate
+
+      - name: Full test suite
+        run: pnpm test
+
+      - name: Verify schema
+        run: pnpm db:verify
+
+      - name: Diff hygiene
+        run: git diff --check
 
       - name: Remove temporary helpers
         shell: bash
