@@ -28,6 +28,7 @@ export const EvolvePokemonInputSchema = z
     trigger: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("LEVEL") }).strict(),
       z.object({ kind: z.literal("ITEM"), itemId: uuid }).strict(),
+      z.object({ kind: z.literal("CONDITION") }).strict(),
     ]),
   })
   .strict();

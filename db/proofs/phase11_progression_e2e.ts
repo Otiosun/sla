@@ -11,12 +11,14 @@ import {
 import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { calculatePokemonStats } from "../../src/modules/pokemon/stats.js";
+import { EvolutionConditionService } from "../../src/modules/progression/evolution-condition-service.js";
 import {
   pokemonXpRequiredForNextLevel,
   trainerPointsRequiredForLevel,
 } from "../../src/modules/progression/rules.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
+import { PostgresEvolutionConditionRepository } from "../../src/platform/progression/postgres-evolution-condition-repository.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -807,6 +809,36 @@ async function createItemEvolutionRelease(
   return { release: { releaseId: newReleaseId, rulesetId: parent.rulesetId }, itemId };
 }
 
+async function createConditionEvolutionRelease(
+  pool: Pool,
+  parent: ReleaseRef,
+): Promise<{ release: ReleaseRef; conditionKey: string }> {
+  const catalog = new CatalogService(new PostgresCatalogRepository(pool));
+  const newReleaseId = randomUUID();
+  unwrap(
+    "clone condition-evolution proof release",
+    await catalog.clonePublishedRelease({
+      parentReleaseId: parent.releaseId,
+      newReleaseId,
+      releaseNo: 11_002n,
+      name: "Phase 11 Condition Evolution Proof",
+    }),
+  );
+  const from = await loadForm(pool, newReleaseId, "charmander");
+  const to = await loadForm(pool, newReleaseId, "charmeleon");
+  const conditionKey = "phase11-ready";
+  await pool.query(
+    `INSERT INTO evolution_rules(
+       id, content_release_id, from_form_id, to_form_id, trigger_kind, trigger_config, active
+     ) VALUES ($1, $2, $3, $4, 'CONDITION', $5::jsonb, TRUE)`,
+    [randomUUID(), newReleaseId, from.formId, to.formId, JSON.stringify({ conditionKey })],
+  );
+  unwrap("validate condition-evolution proof release", await catalog.validateRelease(newReleaseId));
+  unwrap("publish condition-evolution proof release", await catalog.publishRelease(newReleaseId));
+  unwrap("activate condition-evolution proof release", await catalog.activateRelease(newReleaseId));
+  return { release: { releaseId: newReleaseId, rulesetId: parent.rulesetId }, conditionKey };
+}
+
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl, max: 16 });
   try {
@@ -1161,8 +1193,182 @@ async function main(): Promise<void> {
       throw new Error(`Missing-item evolution leaked partial state: ${JSON.stringify(noItemRow)}`);
     }
 
+    const conditionProof = await createConditionEvolutionRelease(pool, itemProof.release);
+    const conditionPlayer = await createPlayerPokemon(pool, conditionProof.release, {
+      speciesSlug: "charmander",
+      level: 16,
+      xp: 0,
+      moveSlugs: ["tackle", "growl", "ember"],
+      trainerLevel: 1,
+      trainerPoints: 0,
+    });
+    const missingCondition = await service.evolvePokemon({
+      playerId: conditionPlayer.playerId,
+      pokemonInstanceId: conditionPlayer.pokemonId,
+      idempotencyKey: "phase11-condition-missing",
+      correlationId: randomUUID(),
+      trigger: { kind: "CONDITION" },
+    });
+    expectFailure("missing server evolution condition", missingCondition, "EVOLUTION_NOT_ELIGIBLE");
+    const missingConditionAudit = await pool.query<{ species_slug: string; claims: string }>(
+      `SELECT species.slug AS species_slug,
+              (SELECT count(*)::text FROM pokemon_evolution_claims WHERE pokemon_instance_id = $1 AND trigger_kind = 'CONDITION') AS claims
+       FROM pokemon_instances instance
+       JOIN pokemon_forms form ON form.id = instance.form_id
+       JOIN pokemon_species species ON species.id = form.species_id
+       WHERE instance.id = $1`,
+      [conditionPlayer.pokemonId],
+    );
+    if (
+      missingConditionAudit.rows[0]?.species_slug !== "charmander" ||
+      missingConditionAudit.rows[0]?.claims !== "0"
+    ) {
+      throw new Error(
+        `Missing CONDITION flag leaked evolution state: ${JSON.stringify(missingConditionAudit.rows[0])}`,
+      );
+    }
+
+    const conditionOwner = new EvolutionConditionService(
+      new PostgresEvolutionConditionRepository(pool),
+    );
+    const conditionSource = {
+      sourceType: "PROOF",
+      sourceId: "phase11-condition-proof",
+    } as const;
+    const firstActivationInput = {
+      pokemonInstanceId: conditionPlayer.pokemonId,
+      conditionKey: conditionProof.conditionKey,
+      ...conditionSource,
+      correlationId: randomUUID(),
+      expectedRevision: null,
+    };
+    const firstActivation = unwrap(
+      "activate server evolution condition",
+      await conditionOwner.activate(firstActivationInput),
+    );
+    if (
+      firstActivation.replayed ||
+      firstActivation.status !== "ACTIVE" ||
+      firstActivation.revision !== 0
+    ) {
+      throw new Error(
+        `Initial CONDITION activation was invalid: ${JSON.stringify(firstActivation)}`,
+      );
+    }
+    const activationReplay = unwrap(
+      "replay server evolution condition activation",
+      await conditionOwner.activate(firstActivationInput),
+    );
+    if (!activationReplay.replayed || activationReplay.revision !== 0) {
+      throw new Error(
+        `CONDITION activation retry mutated state: ${JSON.stringify(activationReplay)}`,
+      );
+    }
+
+    const revoked = unwrap(
+      "revoke server evolution condition",
+      await conditionOwner.revoke({
+        pokemonInstanceId: conditionPlayer.pokemonId,
+        conditionKey: conditionProof.conditionKey,
+        ...conditionSource,
+        correlationId: randomUUID(),
+        expectedRevision: firstActivation.revision,
+      }),
+    );
+    if (revoked.replayed || revoked.status !== "REVOKED" || revoked.revision !== 1) {
+      throw new Error(`CONDITION revocation was invalid: ${JSON.stringify(revoked)}`);
+    }
+    const revokedAttempt = await service.evolvePokemon({
+      playerId: conditionPlayer.playerId,
+      pokemonInstanceId: conditionPlayer.pokemonId,
+      idempotencyKey: "phase11-condition-revoked",
+      correlationId: randomUUID(),
+      trigger: { kind: "CONDITION" },
+    });
+    expectFailure("revoked server evolution condition", revokedAttempt, "EVOLUTION_NOT_ELIGIBLE");
+
+    const staleReactivation = await conditionOwner.activate({
+      pokemonInstanceId: conditionPlayer.pokemonId,
+      conditionKey: conditionProof.conditionKey,
+      ...conditionSource,
+      correlationId: randomUUID(),
+      expectedRevision: 0,
+    });
+    expectFailure(
+      "stale CONDITION reactivation",
+      staleReactivation,
+      "EVOLUTION_CONDITION_STALE_REVISION",
+    );
+
+    const conditionCorrelationId = randomUUID();
+    const reactivated = unwrap(
+      "reactivate server evolution condition",
+      await conditionOwner.activate({
+        pokemonInstanceId: conditionPlayer.pokemonId,
+        conditionKey: conditionProof.conditionKey,
+        ...conditionSource,
+        correlationId: conditionCorrelationId,
+        expectedRevision: revoked.revision,
+      }),
+    );
+    if (reactivated.replayed || reactivated.status !== "ACTIVE" || reactivated.revision !== 2) {
+      throw new Error(`CONDITION reactivation was invalid: ${JSON.stringify(reactivated)}`);
+    }
+
+    const conditionInput = {
+      playerId: conditionPlayer.playerId,
+      pokemonInstanceId: conditionPlayer.pokemonId,
+      idempotencyKey: "phase11-condition-evolution",
+      correlationId: conditionCorrelationId,
+      trigger: { kind: "CONDITION" as const },
+    };
+    const conditionEvolution = unwrap(
+      "condition evolution",
+      await service.evolvePokemon(conditionInput),
+    );
+    if (conditionEvolution.replayed || conditionEvolution.triggerKind !== "CONDITION") {
+      throw new Error(`CONDITION evolution did not apply: ${JSON.stringify(conditionEvolution)}`);
+    }
+    const conditionReplay = unwrap(
+      "condition evolution replay",
+      await service.evolvePokemon(conditionInput),
+    );
+    if (!conditionReplay.replayed) throw new Error("CONDITION evolution retry did not replay");
+    const conditionAudit = await pool.query<{
+      species_slug: string;
+      claims: string;
+      flags: string;
+      history: string;
+      caught: string;
+      seen: string;
+    }>(
+      `SELECT species.slug AS species_slug,
+              (SELECT count(*)::text FROM pokemon_evolution_claims WHERE pokemon_instance_id = $1 AND trigger_kind = 'CONDITION') AS claims,
+              (SELECT count(*)::text FROM pokemon_evolution_condition_flags WHERE pokemon_instance_id = $1 AND condition_key = $3 AND status = 'ACTIVE') AS flags,
+              (SELECT count(*)::text FROM pokemon_history_events WHERE pokemon_instance_id = $1 AND event_type IN ('EVOLUTION_CONDITION_ACTIVATED', 'EVOLUTION_CONDITION_REVOKED')) AS history,
+              (SELECT caught_count::text FROM player_pokedex_species entry JOIN pokemon_species dex_species ON dex_species.id = entry.species_id WHERE entry.player_id = $2 AND dex_species.slug = 'charmeleon') AS caught,
+              (SELECT seen_count::text FROM player_pokedex_species entry JOIN pokemon_species dex_species ON dex_species.id = entry.species_id WHERE entry.player_id = $2 AND dex_species.slug = 'charmeleon') AS seen
+       FROM pokemon_instances instance
+       JOIN pokemon_forms form ON form.id = instance.form_id
+       JOIN pokemon_species species ON species.id = form.species_id
+       WHERE instance.id = $1`,
+      [conditionPlayer.pokemonId, conditionPlayer.playerId, conditionProof.conditionKey],
+    );
+    const conditionAuditRow = conditionAudit.rows[0];
+    if (
+      conditionAuditRow === undefined ||
+      conditionAuditRow.species_slug !== "charmeleon" ||
+      conditionAuditRow.claims !== "1" ||
+      conditionAuditRow.flags !== "1" ||
+      conditionAuditRow.history !== "3" ||
+      Number(conditionAuditRow.caught) < 1 ||
+      Number(conditionAuditRow.seen) < Number(conditionAuditRow.caught)
+    ) {
+      throw new Error(`CONDITION evolution audit failed: ${JSON.stringify(conditionAuditRow)}`);
+    }
+
     console.log(
-      `Phase 11 progression proof complete: crash rollback, reward replay/concurrency, move choice, level evolution, trainer unlocks and item evolution are atomic`,
+      `Phase 11 progression proof complete: crash rollback, reward replay/concurrency, move choice, level evolution, trainer unlocks and item/condition evolution are atomic`,
     );
   } finally {
     await pool.end();

@@ -39,6 +39,7 @@ import {
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
 import { withTransaction } from "../db/transaction.js";
+import { recordPokedexOwned } from "../pokedex/postgres-pokedex-writer.js";
 
 const MAJOR_STATUS_KEYS = ["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
 
@@ -156,28 +157,6 @@ async function insertPokemonHistory(
       input.actorId ?? null,
       input.correlationId,
     ],
-  );
-}
-
-async function markPokedexOwned(
-  client: PoolClient,
-  playerId: string,
-  speciesId: string,
-): Promise<void> {
-  await client.query(
-    `INSERT INTO player_pokedex_species(
-       player_id, species_id, seen_count, caught_count,
-       first_seen_at, last_seen_at, first_caught_at, last_caught_at
-     ) VALUES ($1, $2, 1, 1, now(), now(), now(), now())
-     ON CONFLICT (player_id, species_id)
-     DO UPDATE SET seen_count = GREATEST(player_pokedex_species.seen_count, 1),
-                   caught_count = GREATEST(player_pokedex_species.caught_count, 1),
-                   first_seen_at = COALESCE(player_pokedex_species.first_seen_at, now()),
-                   last_seen_at = now(),
-                   first_caught_at = COALESCE(player_pokedex_species.first_caught_at, now()),
-                   last_caught_at = now(),
-                   revision = player_pokedex_species.revision + 1`,
-    [playerId, speciesId],
   );
 }
 
@@ -410,7 +389,7 @@ async function persistAutoEvolution(
     throw new ProgressionStateViolation("Auto-evolution claim already exists without reward claim");
   }
   const target = await loadFormStats(client, input.contentReleaseId, input.rule.toFormId);
-  await markPokedexOwned(client, input.playerId, target.speciesId);
+  await recordPokedexOwned(client, input.playerId, target.speciesId);
   await insertPokemonHistory(client, {
     pokemonInstanceId: input.pokemonInstanceId,
     eventType: "EVOLVED",
@@ -1135,7 +1114,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     const fingerprint = hashParts(
       input.pokemonInstanceId,
       input.trigger.kind,
-      input.trigger.kind === "ITEM" ? input.trigger.itemId : "server-level",
+      input.trigger.kind === "ITEM"
+        ? input.trigger.itemId
+        : input.trigger.kind === "CONDITION"
+          ? "server-condition"
+          : "server-level",
     );
     return withTransaction(this.pool, async (client) => {
       await acquireLocks(client, [
@@ -1226,14 +1209,30 @@ export class PostgresProgressionRepository implements ProgressionRepository {
            AND trigger_kind = $3 AND active = TRUE`,
         [activeRow.content_release_id, pokemonRow.form_id, input.trigger.kind],
       );
-      const eligible = rules.rows.filter((rule) => {
+      let eligible = rules.rows.filter((rule) => {
         if (input.trigger.kind === "LEVEL") {
           const parsed = EvolutionTriggerSchemas.LEVEL.safeParse(rule.trigger_config);
           return parsed.success && pokemonRow.level >= parsed.data.level;
         }
-        const parsed = EvolutionTriggerSchemas.ITEM.safeParse(rule.trigger_config);
-        return parsed.success && parsed.data.itemId === input.trigger.itemId;
+        if (input.trigger.kind === "ITEM") {
+          const parsed = EvolutionTriggerSchemas.ITEM.safeParse(rule.trigger_config);
+          return parsed.success && parsed.data.itemId === input.trigger.itemId;
+        }
+        return false;
       });
+      if (input.trigger.kind === "CONDITION") {
+        const flags = await client.query<{ condition_key: string }>(
+          `SELECT condition_key
+           FROM pokemon_evolution_condition_flags
+           WHERE pokemon_instance_id = $1 AND status = 'ACTIVE'`,
+          [input.pokemonInstanceId],
+        );
+        const activeConditionKeys = new Set(flags.rows.map((entry) => entry.condition_key));
+        eligible = rules.rows.filter((rule) => {
+          const parsed = EvolutionTriggerSchemas.CONDITION.safeParse(rule.trigger_config);
+          return parsed.success && activeConditionKeys.has(parsed.data.conditionKey);
+        });
+      }
       if (eligible.length === 0)
         return { kind: "NOT_ELIGIBLE", reason: "No evolution rule matches" };
       if (eligible.length > 1) {
@@ -1323,7 +1322,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       if (changed.rowCount !== 1) {
         throw new ProgressionStateViolation("Evolution Pokemon CAS failed");
       }
-      await markPokedexOwned(client, input.playerId, newForm.speciesId);
+      await recordPokedexOwned(client, input.playerId, newForm.speciesId);
       const result = EvolutionResultSchema.parse({
         pokemonInstanceId: input.pokemonInstanceId,
         fromFormId: pokemonRow.form_id,

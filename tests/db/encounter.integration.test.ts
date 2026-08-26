@@ -23,6 +23,7 @@ interface Fixture {
   readonly rulesetId: string;
   readonly releaseId: string;
   readonly areaId: string;
+  readonly speciesId: string;
 }
 
 function databaseUrlFor(name: string): string {
@@ -241,7 +242,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
     [releaseId],
   );
 
-  return { rulesetId, releaseId, areaId };
+  return { rulesetId, releaseId, areaId, speciesId };
 }
 
 async function createEligiblePlayer(client: PoolClient, areaId: string): Promise<PlayerId> {
@@ -362,6 +363,29 @@ describe("encounter PostgreSQL integration", () => {
       await encounter.observe({ playerId, encounterId: created.encounterId, expectedRevision: 0n }),
     );
     expect(observedReplay.revision).toBe(1n);
+
+    const pokedex = await pool.query<{
+      seen_count: string;
+      caught_count: string;
+      first_seen_at: Date | null;
+      last_seen_at: Date | null;
+      first_caught_at: Date | null;
+      last_caught_at: Date | null;
+    }>(
+      `SELECT seen_count::text, caught_count::text,
+              first_seen_at, last_seen_at, first_caught_at, last_caught_at
+       FROM player_pokedex_species
+       WHERE player_id = $1 AND species_id = $2`,
+      [playerId, fixture.speciesId],
+    );
+    expect(pokedex.rows[0]).toMatchObject({
+      seen_count: "1",
+      caught_count: "0",
+      first_caught_at: null,
+      last_caught_at: null,
+    });
+    expect(pokedex.rows[0]?.first_seen_at).toBeInstanceOf(Date);
+    expect(pokedex.rows[0]?.last_seen_at).toBeInstanceOf(Date);
 
     const engaged = unwrap(
       await encounter.engage({ playerId, encounterId: created.encounterId, expectedRevision: 1n }),
