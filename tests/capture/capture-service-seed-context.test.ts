@@ -77,6 +77,7 @@ function context(): CaptureContext {
       effectKey: "catch-modifier",
       effectConfig: { multiplierBasisPoints: 10_000 },
     },
+    explicitModifierBasisPoints: [],
   };
 }
 
@@ -138,7 +139,7 @@ describe("CaptureService RNG context", () => {
     expect(contexts[0]).not.toContain("capture:");
   });
 
-  it("changes context for a semantic modifier change and canonicalizes modifier order", async () => {
+  it("changes context when the semantic idempotency identity changes", async () => {
     const value = context();
     const contexts: string[] = [];
     const seedProvider = {
@@ -154,17 +155,14 @@ describe("CaptureService RNG context", () => {
       expectedEncounterRevision: value.encounterRevision,
       expectedBattleVersion: null,
       ballItemId: value.ball.itemId,
-      idempotencyKey: "semantic-message",
       correlationId: createCorrelationId(),
       causationId: null,
     } as const;
 
-    await service.attempt({ ...base, explicitModifierBasisPoints: [5_000, 20_000] });
-    await service.attempt({ ...base, explicitModifierBasisPoints: [20_000, 5_000] });
-    await service.attempt({ ...base, explicitModifierBasisPoints: [20_000] });
+    await service.attempt({ ...base, idempotencyKey: "semantic-message-a" });
+    await service.attempt({ ...base, idempotencyKey: "semantic-message-b" });
 
-    expect(contexts).toHaveLength(3);
-    expect(contexts[0]).toBe(contexts[1]);
-    expect(contexts[2]).not.toBe(contexts[0]);
+    expect(contexts).toHaveLength(2);
+    expect(contexts[0]).not.toBe(contexts[1]);
   });
 });

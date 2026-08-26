@@ -43,10 +43,6 @@ function rollback(error: AppError): never {
   throw new CaptureRollback(error);
 }
 
-function sortedModifiers(input: CaptureAttemptInput): readonly number[] {
-  return [...(input.explicitModifierBasisPoints ?? [])].sort((left, right) => left - right);
-}
-
 function semanticFingerprint(input: CaptureAttemptInput): string {
   return createHash("sha256")
     .update(
@@ -54,7 +50,6 @@ function semanticFingerprint(input: CaptureAttemptInput): string {
         playerId: input.playerId,
         encounterId: input.encounterId,
         ballItemId: input.ballItemId,
-        explicitModifierBasisPoints: sortedModifiers(input),
       }),
     )
     .digest("hex");
@@ -178,7 +173,6 @@ export class CaptureService {
         captureValidationError("Capture request is invalid", { issues: boundary.error.issues }),
       );
     }
-    const modifiers = sortedModifiers(input);
     const idempotency = createIdempotencyKey(
       CAPTURE_ATTEMPT_SCOPE,
       `${input.playerId}:${input.idempotencyKey.trim()}`,
@@ -256,7 +250,7 @@ export class CaptureService {
           maxHp: context.encounterSnapshot.maxHp,
           ballMultiplierBasisPoints: ball.data.multiplierBasisPoints,
           status: target.value.majorStatus,
-          explicitModifierBasisPoints: modifiers,
+          explicitModifierBasisPoints: context.explicitModifierBasisPoints,
           ruleset: ruleset.data.capture,
         });
         if (!probabilityInput.success) {

@@ -74,7 +74,6 @@ export interface CaptureAttemptInput {
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
   readonly causationId: string | null;
-  readonly explicitModifierBasisPoints?: readonly number[];
 }
 
 export interface CaptureRosterPlacement {
@@ -151,6 +150,7 @@ export interface CaptureContext {
   readonly battleId: string | null;
   readonly battleState: BattleState | null;
   readonly ball: CaptureItemPolicy;
+  readonly explicitModifierBasisPoints: readonly number[];
 }
 
 export const CaptureAttemptInputBoundarySchema = z
@@ -163,6 +163,5 @@ export const CaptureAttemptInputBoundarySchema = z
     idempotencyKey: z.string().trim().min(1).max(255),
     correlationId: uuid,
     causationId: uuid.nullable(),
-    explicitModifierBasisPoints: z.array(basisPoints).max(16).optional(),
   })
   .strict();

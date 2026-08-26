@@ -350,7 +350,6 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
     idempotencyKey: "phase10-concurrent-success",
     correlationId: createCorrelationId(),
     causationId: null,
-    explicitModifierBasisPoints: [100_000],
   } as const;
   const concurrent = await Promise.all([capture.attempt(input), capture.attempt(input)]);
   const values = concurrent.map((result, index) => unwrap(`concurrent capture ${index}`, result));
@@ -608,7 +607,6 @@ async function proveCrashRollback(pool: Pool, ballItemId: string): Promise<void>
     idempotencyKey: "phase10-crash-after-ball",
     correlationId: createCorrelationId(),
     causationId: null,
-    explicitModifierBasisPoints: [100_000],
   });
   if (result.ok)
     throw new Error("Injected post-Ball crash unexpectedly committed a capture result");

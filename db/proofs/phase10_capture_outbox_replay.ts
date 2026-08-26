@@ -98,7 +98,6 @@ async function main(): Promise<void> {
       idempotencyKey: "phase10-concurrent-success",
       correlationId: createCorrelationId(),
       causationId: null,
-      explicitModifierBasisPoints: [100_000],
     });
     if (!replay.ok) {
       throw new Error(`Capture replay after delivery failure failed [${replay.error.code}]`);
@@ -109,7 +108,9 @@ async function main(): Promise<void> {
       replay.value.captureAttemptId !== row.attempt_id ||
       replay.value.pokemonInstanceId !== row.pokemon_instance_id
     ) {
-      throw new Error(`Delivery-failure retry did not replay the durable capture: ${JSON.stringify(replay.value)}`);
+      throw new Error(
+        `Delivery-failure retry did not replay the durable capture: ${JSON.stringify(replay.value)}`,
+      );
     }
 
     const audit = await pool.query<{
@@ -146,7 +147,9 @@ async function main(): Promise<void> {
       after.outbox_status !== "FAILED" ||
       after.last_error_code !== "SIMULATED_DELIVERY_FAILURE"
     ) {
-      throw new Error(`Delivery failure replay mutated capture mechanics: ${JSON.stringify({ before: row, after })}`);
+      throw new Error(
+        `Delivery failure replay mutated capture mechanics: ${JSON.stringify({ before: row, after })}`,
+      );
     }
 
     console.log(

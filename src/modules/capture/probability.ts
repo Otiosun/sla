@@ -39,12 +39,15 @@ export function captureProbability(input: CaptureProbabilityInput): CaptureProba
   const hpDenominator = BigInt(3 * value.maxHp);
   const hpFactorBasisPoints = Number((hpNumerator * BASIS) / hpDenominator);
   const statusMultiplier = statusMultiplierBasisPoints(value.status);
+  const explicitModifiers = [...value.explicitModifierBasisPoints].sort(
+    (left, right) => left - right,
+  );
 
   let probability = BigInt(catchRateBasisPoints);
   probability = scaledProduct(probability, BigInt(hpFactorBasisPoints));
   probability = scaledProduct(probability, BigInt(value.ballMultiplierBasisPoints));
   probability = scaledProduct(probability, BigInt(statusMultiplier));
-  for (const modifier of value.explicitModifierBasisPoints) {
+  for (const modifier of explicitModifiers) {
     probability = scaledProduct(probability, BigInt(modifier));
   }
 
@@ -66,7 +69,7 @@ export function captureProbability(input: CaptureProbabilityInput): CaptureProba
       ballMultiplierBasisPoints: value.ballMultiplierBasisPoints,
       status: value.status,
       statusMultiplierBasisPoints: statusMultiplier,
-      explicitModifierBasisPoints: [...value.explicitModifierBasisPoints],
+      explicitModifierBasisPoints: explicitModifiers,
       rawProbabilityBasisPoints,
       maxProbabilityBasisPoints: value.ruleset.maxProbabilityBasisPoints,
       finalProbabilityBasisPoints,

@@ -71,6 +71,14 @@ describe("captureProbability", () => {
     expect(explicit).toBeGreaterThan(baseline);
   });
 
+  it("canonicalizes explicit modifier order before integer rounding", () => {
+    const forward = captureProbability(input({ explicitModifierBasisPoints: [12_345, 17_891] }));
+    const reversed = captureProbability(input({ explicitModifierBasisPoints: [17_891, 12_345] }));
+
+    expect(forward).toEqual(reversed);
+    expect(forward.breakdown.explicitModifierBasisPoints).toEqual([12_345, 17_891]);
+  });
+
   it("returns zero for catchRate zero regardless of bonuses", () => {
     expect(
       captureProbability(

@@ -270,6 +270,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         effectKey: itemRow.effect_key,
         effectConfig: itemRow.effect_config,
       },
+      explicitModifierBasisPoints: [],
     };
   }
 
