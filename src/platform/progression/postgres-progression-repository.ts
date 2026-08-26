@@ -1,25 +1,28 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  BattleStateSchema,
   type BattleCombatant,
   type BattleState,
+  BattleStateSchema,
 } from "../../modules/battle/contracts.js";
 import {
   EvolutionTriggerSchemas,
-  RulesetConfigSchema,
   type ProgressionRules,
   type RulesetConfig,
+  RulesetConfigSchema,
 } from "../../modules/catalog/contracts.js";
 import {
-  BattleRewardResultSchema,
-  EvolutionResultSchema,
-  MoveChoiceResultSchema,
+  adjustCurrentHpAfterStatChange,
+  calculatePokemonStats,
+  type PokemonBaseStats,
+} from "../../modules/pokemon/stats.js";
+import {
   type ApplyBattleRewardInput,
-  type BattleRewardResult,
-  type EvolvePokemonInput,
+  BattleRewardResultSchema,
   type EvolutionResult,
-  type MoveChoiceResult,
+  EvolutionResultSchema,
+  type EvolvePokemonInput,
+  MoveChoiceResultSchema,
   type PokemonXpAwardResult,
   type ResolveMoveChoiceInput,
   type TrainerProgressResult,
@@ -35,11 +38,6 @@ import {
   battlePokemonXp,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
-import {
-  adjustCurrentHpAfterStatChange,
-  calculatePokemonStats,
-  type PokemonBaseStats,
-} from "../../modules/pokemon/stats.js";
 import { withTransaction } from "../db/transaction.js";
 
 const MAJOR_STATUS_KEYS = ["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
@@ -54,7 +52,8 @@ function hashParts(...parts: readonly string[]): string {
 
 function safeInteger(value: string | number, label: string): number {
   const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isSafeInteger(parsed)) throw new ProgressionStateViolation(`${label} is outside JS safe range`);
+  if (!Number.isSafeInteger(parsed))
+    throw new ProgressionStateViolation(`${label} is outside JS safe range`);
   return parsed;
 }
 
@@ -97,7 +96,8 @@ async function loadFormStats(
     [contentReleaseId, formId],
   );
   const row = result.rows[0];
-  if (row === undefined) throw new ProgressionStateViolation("Pinned release is missing Pokemon form stats");
+  if (row === undefined)
+    throw new ProgressionStateViolation("Pinned release is missing Pokemon form stats");
   return {
     speciesId: row.species_id,
     hp: row.base_hp,
@@ -436,17 +436,23 @@ function terminalWinner(state: BattleState): {
   const defeatedSide = state.sides.find(
     (side) => side.controllerKind !== "PLAYER" && side.result === "LOST",
   );
-  if (playerSide?.playerId === null || playerSide?.playerId === undefined || defeatedSide === undefined) {
+  if (
+    playerSide?.playerId === null ||
+    playerSide?.playerId === undefined ||
+    defeatedSide === undefined
+  ) {
     return null;
   }
-  if (playerSide.participantIds.length !== 1 || defeatedSide.participantIds.length !== 1) return null;
+  if (playerSide.participantIds.length !== 1 || defeatedSide.participantIds.length !== 1)
+    return null;
   const winner = state.combatants.find(
     (combatant) => combatant.participantId === playerSide.activeParticipantId,
   );
   const defeated = state.combatants.find(
     (combatant) => combatant.participantId === defeatedSide.activeParticipantId,
   );
-  if (winner === undefined || defeated === undefined || winner.pokemonInstanceId === null) return null;
+  if (winner === undefined || defeated === undefined || winner.pokemonInstanceId === null)
+    return null;
   return { playerId: playerSide.playerId, winner, defeated };
 }
 
@@ -510,7 +516,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           [input.battleId, version],
         );
         const stateRow = snapshot.rows[0];
-        if (stateRow === undefined) throw new ProgressionStateViolation("Terminal battle snapshot is missing");
+        if (stateRow === undefined)
+          throw new ProgressionStateViolation("Terminal battle snapshot is missing");
         const state = BattleStateSchema.parse(stateRow.state);
         if (
           state.status !== "WON" ||
@@ -522,7 +529,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         }
         const terminal = terminalWinner(state);
         if (terminal === null) {
-          return { kind: "UNSUPPORTED", reason: "Battle reward v1 requires one-player 1v1 terminal state" };
+          return {
+            kind: "UNSUPPORTED",
+            reason: "Battle reward v1 requires one-player 1v1 terminal state",
+          };
         }
 
         const ruleset = await client.query<{ config: unknown }>(
@@ -531,14 +541,16 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           [battleRow.ruleset_id],
         );
         const rulesetRow = ruleset.rows[0];
-        if (rulesetRow === undefined) throw new ProgressionStateViolation("Pinned ruleset is unavailable");
+        if (rulesetRow === undefined)
+          throw new ProgressionStateViolation("Pinned ruleset is unavailable");
         const config = parseRulesetConfig(rulesetRow.config);
         const progression = config.progression;
         if (progression === undefined) return { kind: "RULES_MISSING" };
         if (config.battle.evEnabled) {
           return {
             kind: "UNSUPPORTED",
-            reason: "Battle reward v1 refuses EV-enabled stat recalculation until EV support is implemented",
+            reason:
+              "Battle reward v1 refuses EV-enabled stat recalculation until EV support is implemented",
           };
         }
 
@@ -549,7 +561,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         );
         const baseExp = species.rows[0]?.base_exp;
         if (baseExp === undefined || baseExp === null || baseExp <= 0) {
-          throw new ProgressionStateViolation("Defeated species has no valid base EXP in pinned release");
+          throw new ProgressionStateViolation(
+            "Defeated species has no valid base EXP in pinned release",
+          );
         }
         const offeredXp = battlePokemonXp(baseExp, terminal.defeated.level);
         const pokemonResult = await this.applyPokemonBattleReward(client, {
@@ -625,7 +639,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     },
   ): Promise<PokemonXpAwardResult> {
     const pokemonId = input.combatant.pokemonInstanceId;
-    if (pokemonId === null) throw new ProgressionStateViolation("Winner lacks Pokemon instance identity");
+    if (pokemonId === null)
+      throw new ProgressionStateViolation("Winner lacks Pokemon instance identity");
     const pokemon = await client.query<{
       form_id: string;
       level: number;
@@ -649,7 +664,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       [pokemonId, input.playerId],
     );
     const row = pokemon.rows[0];
-    if (row === undefined) throw new ProgressionStateViolation("Winning Pokemon is not an active owned instance");
+    if (row === undefined)
+      throw new ProgressionStateViolation("Winning Pokemon is not an active owned instance");
     const beforeXp = safeInteger(row.xp, "pokemon.xp");
     if (
       row.form_id !== input.combatant.formId ||
@@ -663,7 +679,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       row.iv_sp_defense !== input.combatant.ivs.spDefense ||
       row.iv_speed !== input.combatant.ivs.speed
     ) {
-      throw new ProgressionStateViolation("Winning Pokemon changed after battle snapshot was pinned");
+      throw new ProgressionStateViolation(
+        "Winning Pokemon changed after battle snapshot was pinned",
+      );
     }
 
     const persistentMoves = await client.query<{
@@ -682,7 +700,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     for (const battleMove of input.combatant.moves) {
       const persisted = persistentMoves.rows.find((move) => move.slot_no === battleMove.slotNo);
       if (persisted?.move_id !== battleMove.moveId) {
-        throw new ProgressionStateViolation("Persistent move identity diverged from battle snapshot");
+        throw new ProgressionStateViolation(
+          "Persistent move identity diverged from battle snapshot",
+        );
       }
       await client.query(
         `UPDATE pokemon_move_slots SET pp_current = $3
@@ -818,7 +838,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         row.level,
       ],
     );
-    if (updated.rowCount !== 1) throw new ProgressionStateViolation("Pokemon progression CAS failed");
+    if (updated.rowCount !== 1)
+      throw new ProgressionStateViolation("Pokemon progression CAS failed");
 
     if (xp.awardedXp > 0) {
       const ledger = await client.query(
@@ -844,7 +865,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           input.correlationId,
         ],
       );
-      if (ledger.rowCount !== 1) throw new ProgressionStateViolation("Pokemon XP ledger claim failed");
+      if (ledger.rowCount !== 1)
+        throw new ProgressionStateViolation("Pokemon XP ledger claim failed");
     }
     await insertPokemonHistory(client, {
       pokemonInstanceId: pokemonId,
@@ -898,7 +920,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       [input.playerId],
     );
     const row = current.rows[0];
-    if (row === undefined) throw new ProgressionStateViolation("Trainer progression row is unavailable");
+    if (row === undefined)
+      throw new ProgressionStateViolation("Trainer progression row is unavailable");
     const beforePoints = safeInteger(row.progression_points, "trainer progression_points");
     const pointsGained = input.progression.trainer.pointsPerWonBattle;
     const afterPoints = beforePoints + pointsGained;
@@ -912,7 +935,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
        WHERE player_id = $1`,
       [input.playerId, afterPoints, afterLevel],
     );
-    if (updated.rowCount !== 1) throw new ProgressionStateViolation("Trainer progression update failed");
+    if (updated.rowCount !== 1)
+      throw new ProgressionStateViolation("Trainer progression update failed");
     await client.query(
       `INSERT INTO trainer_progress_ledger(
          id, player_id, delta, source_type, source_id, reason, actor_type, actor_id,
@@ -951,7 +975,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     };
   }
 
-  public async resolveMoveChoice(input: ResolveMoveChoiceInput): Promise<MoveChoicePersistenceResult> {
+  public async resolveMoveChoice(
+    input: ResolveMoveChoiceInput,
+  ): Promise<MoveChoicePersistenceResult> {
     return withTransaction(this.pool, async (client) => {
       await acquireLocks(client, [`progression:move-choice:${input.choiceId}`]);
       const choice = await client.query<{
@@ -976,7 +1002,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         const compatible =
           (row.status === "SKIPPED" && input.replaceSlotNo === null) ||
           (row.status === "RESOLVED" && row.replaced_slot_no === input.replaceSlotNo);
-        if (!compatible) return { kind: "CONFLICT", reason: "Move choice was already resolved differently" };
+        if (!compatible)
+          return { kind: "CONFLICT", reason: "Move choice was already resolved differently" };
         const replay = MoveChoiceResultSchema.parse({
           choiceId: row.id,
           pokemonInstanceId: row.pokemon_instance_id,
@@ -1141,7 +1168,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       const config = parseRulesetConfig(activeRow.ruleset_config);
       if (config.progression === undefined) return { kind: "RULES_MISSING" };
       if (config.battle.evEnabled) {
-        return { kind: "NOT_ELIGIBLE", reason: "EV-enabled evolution stat recalculation is unsupported" };
+        return {
+          kind: "NOT_ELIGIBLE",
+          reason: "EV-enabled evolution stat recalculation is unsupported",
+        };
       }
 
       const pokemon = await client.query<{
@@ -1189,7 +1219,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         const parsed = EvolutionTriggerSchemas.ITEM.safeParse(rule.trigger_config);
         return parsed.success && parsed.data.itemId === input.trigger.itemId;
       });
-      if (eligible.length === 0) return { kind: "NOT_ELIGIBLE", reason: "No evolution rule matches" };
+      if (eligible.length === 0)
+        return { kind: "NOT_ELIGIBLE", reason: "No evolution rule matches" };
       if (eligible.length > 1) {
         return { kind: "NOT_ELIGIBLE", reason: "Multiple evolution rules match the same request" };
       }
@@ -1309,7 +1340,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           JSON.stringify(result),
         ],
       );
-      if (claim.rowCount !== 1) throw new ProgressionStateViolation("Evolution claim insert failed");
+      if (claim.rowCount !== 1)
+        throw new ProgressionStateViolation("Evolution claim insert failed");
       await insertPokemonHistory(client, {
         pokemonInstanceId: input.pokemonInstanceId,
         eventType: "EVOLVED",
@@ -1337,7 +1369,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
   private async loadNature(
     client: PoolClient,
     input: { readonly contentReleaseId: string; readonly natureId: string | null },
-  ): Promise<{ readonly increasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null; readonly decreasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null }> {
+  ): Promise<{
+    readonly increasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
+    readonly decreasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
+  }> {
     if (input.natureId === null) return { increasedStat: null, decreasedStat: null };
     const result = await client.query<{
       increased_stat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
@@ -1348,7 +1383,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       [input.contentReleaseId, input.natureId],
     );
     const row = result.rows[0];
-    if (row === undefined) throw new ProgressionStateViolation("Pinned nature revision is unavailable");
+    if (row === undefined)
+      throw new ProgressionStateViolation("Pinned nature revision is unavailable");
     return { increasedStat: row.increased_stat, decreasedStat: row.decreased_stat };
   }
 
