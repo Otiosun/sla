@@ -301,24 +301,38 @@ class PostgresCatalogTransaction implements CatalogTransaction {
          FROM effect_revisions WHERE content_release_id = $1 ORDER BY effect_id`,
         [releaseId],
       ),
-      this.client.query<{ region_id: string; active: boolean }>(
-        `SELECT region_id, active FROM region_revisions
+      this.client.query<{
+        region_id: string;
+        display_name: string;
+        active: boolean;
+        data: unknown;
+      }>(
+        `SELECT region_id, display_name, active, data FROM region_revisions
          WHERE content_release_id = $1 ORDER BY region_id`,
         [releaseId],
       ),
-      this.client.query<{ area_id: string; region_id: string; active: boolean }>(
-        `SELECT ar.area_id, a.region_id, ar.active
+      this.client.query<{
+        area_id: string;
+        region_id: string;
+        display_name: string;
+        active: boolean;
+        data: unknown;
+      }>(
+        `SELECT ar.area_id, a.region_id, ar.display_name, ar.active, ar.data
          FROM area_revisions ar JOIN areas a ON a.id = ar.area_id
          WHERE ar.content_release_id = $1 ORDER BY ar.area_id`,
         [releaseId],
       ),
       this.client.query<{
         connection_id: string;
+        connection_key: string;
         from_area_id: string;
         to_area_id: string;
+        access_rule: unknown;
         active: boolean;
       }>(
-        `SELECT acr.connection_id, ac.from_area_id, ac.to_area_id, acr.active
+        `SELECT acr.connection_id, ac.connection_key, ac.from_area_id, ac.to_area_id,
+                acr.access_rule, acr.active
          FROM area_connection_revisions acr
          JOIN area_connections ac ON ac.id = acr.connection_id
          WHERE acr.content_release_id = $1 ORDER BY acr.connection_id`,
@@ -494,16 +508,25 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         rules: entry.rules,
         active: entry.active,
       })),
-      regions: regions.rows.map((entry) => ({ regionId: entry.region_id, active: entry.active })),
+      regions: regions.rows.map((entry) => ({
+        regionId: entry.region_id,
+        displayName: entry.display_name,
+        active: entry.active,
+        data: entry.data,
+      })),
       areas: areas.rows.map((entry) => ({
         areaId: entry.area_id,
         regionId: entry.region_id,
+        displayName: entry.display_name,
         active: entry.active,
+        data: entry.data,
       })),
       connections: connections.rows.map((entry) => ({
         connectionId: entry.connection_id,
+        connectionKey: entry.connection_key,
         fromAreaId: entry.from_area_id,
         toAreaId: entry.to_area_id,
+        accessRule: entry.access_rule,
         active: entry.active,
       })),
       formAbilities: formAbilities.rows.map((entry) => ({

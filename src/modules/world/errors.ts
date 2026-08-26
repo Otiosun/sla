@@ -4,7 +4,10 @@ export function worldNotReady(message: string): AppError {
   return appError("NOT_FOUND", message);
 }
 
-export function worldValidationError(message: string, details?: Readonly<Record<string, unknown>>): AppError {
+export function worldValidationError(
+  message: string,
+  details?: Readonly<Record<string, unknown>>,
+): AppError {
   return appError("VALIDATION_FAILED", message, details);
 }
 

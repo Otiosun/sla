@@ -49,7 +49,10 @@ function flowGate(encounterActive: boolean, battleActive: boolean): FlowState {
   return { state: "FREE", allowsAction: true, reason: null };
 }
 
-function missingUnlockKeys(required: readonly string[], owned: ReadonlySet<string>): readonly string[] {
+function missingUnlockKeys(
+  required: readonly string[],
+  owned: ReadonlySet<string>,
+): readonly string[] {
   return required.filter((key) => !owned.has(key));
 }
 
@@ -99,7 +102,9 @@ export class WorldService {
       const starting = areas.filter((area) => area.active && area.config.startingArea);
       if (starting.length !== 1) {
         return err(
-          worldNotReady("Active content release must define exactly one starting area for the region"),
+          worldNotReady(
+            "Active content release must define exactly one starting area for the region",
+          ),
         );
       }
 
@@ -315,7 +320,9 @@ export class WorldService {
       enteredAt: location.enteredAt,
       requiresRelocation: !area.active,
       relocationAreaId: relocation?.areaId ?? null,
-      connections: views.sort((left, right) => left.connectionKey.localeCompare(right.connectionKey)),
+      connections: views.sort((left, right) =>
+        left.connectionKey.localeCompare(right.connectionKey),
+      ),
     });
   }
 }
