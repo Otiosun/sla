@@ -173,10 +173,7 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     return result.rows[0] === undefined ? null : mapEncounter(result.rows[0]);
   }
 
-  public async activeForPlayer(
-    playerId: PlayerId,
-    lock = false,
-  ): Promise<EncounterRecord | null> {
+  public async activeForPlayer(playerId: PlayerId, lock = false): Promise<EncounterRecord | null> {
     const result = await this.client.query<EncounterRow>(
       `${ENCOUNTER_SELECT}
        WHERE player_id = $1
@@ -252,7 +249,9 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     for (const table of tables.rows) {
       const tableConditions = parseEncounterConditions(table.conditions);
       if (!tableConditions.success) {
-        throw new Error(`Published encounter table ${table.encounter_table_id} has invalid conditions`);
+        throw new Error(
+          `Published encounter table ${table.encounter_table_id} has invalid conditions`,
+        );
       }
       const entries = await this.client.query<{
         id: string;
