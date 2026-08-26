@@ -46,9 +46,7 @@ export class CounterRandomSource implements RandomSource {
 
   private nextUint64(): bigint {
     assertCounter(this.counterValue);
-    const digest = createHmac("sha256", this.seed)
-      .update(counterBytes(this.counterValue))
-      .digest();
+    const digest = createHmac("sha256", this.seed).update(counterBytes(this.counterValue)).digest();
     this.counterValue += 1n;
     return digest.readBigUInt64BE(0);
   }
