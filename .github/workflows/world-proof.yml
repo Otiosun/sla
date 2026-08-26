@@ -1,0 +1,121 @@
+name: World Proof
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: world-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: migrate / seed / world invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql \
+              --username pokemon \
+              --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Apply immutable migrations
+        run: pnpm db:migrate
+
+      - name: Seed Phase 4 base
+        run: pnpm db:seed:phase4
+
+      - name: Seed Phase 5 player slice
+        run: pnpm db:seed:phase5
+
+      - name: Seed Phase 6 economy slice
+        run: pnpm db:seed:phase6
+
+      - name: Seed Phase 7 world twice
+        run: |
+          pnpm db:seed:phase7
+          pnpm db:seed:phase7
+
+      - name: Verify migrated schema
+        run: pnpm db:verify
+
+      - name: Verify Phase 7 active release and graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_no="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT release.release_no FROM content_release_pointers pointer JOIN content_releases release ON release.id = pointer.content_release_id WHERE pointer.pointer_key = 'ACTIVE';")"
+          areas="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT string_agg(area.slug || ':' || revision.data->>'kind' || ':' || revision.data->>'safePoint' || ':' || revision.data->>'startingArea', ',' ORDER BY area.slug) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE;")"
+          connection_count="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM area_connection_revisions revision JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND revision.active = TRUE;")"
+          starting_count="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE AND (revision.data->>'startingArea')::boolean;")"
+          safe_count="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE AND (revision.data->>'safePoint')::boolean;")"
+          viridian_gate="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT revision.access_rule->'requiredUnlockKeys'->>0 FROM area_connection_revisions revision JOIN area_connections connection ON connection.id = revision.connection_id JOIN areas source ON source.id = connection.from_area_id JOIN areas destination ON destination.id = connection.to_area_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND source.slug = 'route-1' AND destination.slug = 'viridian-city' AND revision.active = TRUE;")"
+
+          test "$release_no" = "4"
+          test "$areas" = "pallet-town:TOWN:true:true,route-1:ROUTE:false:false,viridian-city:CITY:true:false"
+          test "$connection_count" = "4"
+          test "$starting_count" = "1"
+          test "$safe_count" = "2"
+          test "$viridian_gate" = "world.kanto.viridian-access"
+
+      - name: Run PostgreSQL world integration proof
+        run: pnpm exec vitest run tests/db/world.integration.test.ts
