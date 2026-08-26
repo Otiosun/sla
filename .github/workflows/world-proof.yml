@@ -119,3 +119,6 @@ jobs:
 
       - name: Run PostgreSQL world integration proof
         run: pnpm exec vitest run tests/db/world.integration.test.ts
+
+      - name: Run onboarding to exploration E2E proof
+        run: node --import tsx db/proofs/phase7_world_onboarding_e2e.ts
