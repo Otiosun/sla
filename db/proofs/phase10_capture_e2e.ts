@@ -391,7 +391,7 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
        (SELECT count(*)::text FROM battle_events
          WHERE battle_id = $6 AND event_type = 'BattleEnded'
            AND payload ->> 'reason' = 'POKEMON_CAPTURED'
-           AND payload ->> 'captureAttemptId' = $3) AS capture_events`,
+           AND payload ->> 'captureAttemptId' = $3::text) AS capture_events`,
     [
       fixture.playerId,
       ballItemId,
