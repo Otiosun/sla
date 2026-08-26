@@ -5,7 +5,12 @@ import {
   type FeatureAvailability,
   type PlayerEligibility,
 } from "../../shared-kernel/gates.js";
-import { createBattleId, createEncounterId, type EncounterId, type PlayerId } from "../../shared-kernel/ids.js";
+import {
+  createBattleId,
+  createEncounterId,
+  type EncounterId,
+  type PlayerId,
+} from "../../shared-kernel/ids.js";
 import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import { err, ok, type Result } from "../../shared-kernel/result.js";
 import { encounterConditionsAllow } from "../catalog/encounter-contracts.js";
@@ -152,6 +157,7 @@ export class EncounterService {
         creationIdempotencyKey: idempotency.value.storageKey,
         seed: seedMaterial.envelope,
         rngCounter: rng.counter,
+        createdAt,
         expiresAt,
         snapshot,
       });
@@ -261,11 +267,6 @@ export class EncounterService {
 
       const battleId = createBattleId();
       const battleSeed = this.seedProvider.create(`battle:${battleId}`);
-      await transaction.createBattle({
-        battleId,
-        encounter: record,
-        seed: battleSeed.envelope,
-      });
       const moved = await this.transition(
         transaction,
         record,
@@ -274,6 +275,11 @@ export class EncounterService {
         null,
       );
       if (!moved.ok) return moved;
+      await transaction.createBattle({
+        battleId,
+        encounter: moved.value,
+        seed: battleSeed.envelope,
+      });
       const view = await this.buildView(transaction, moved.value);
       return view.ok ? ok({ encounter: view.value, battleId, replayed: false }) : view;
     });
@@ -289,10 +295,13 @@ export class EncounterService {
       if (record.revision !== input.expectedRevision) {
         return err(encounterRevisionConflict(input.expectedRevision));
       }
+      if (record.status !== "ENGAGED" && record.status !== "IN_BATTLE") {
+        return err(encounterNotReady("Capture cannot start from the current encounter state"));
+      }
       const rulesetConfig = await transaction.rulesetConfig(record.rulesetId);
       if (rulesetConfig === null) return err(encounterNotReady("Pinned encounter ruleset is missing"));
       const policy = resolveEncounterRulesetPolicy(rulesetConfig);
-      if (!policy.captureAllowedStates.includes(record.status as never)) {
+      if (!policy.captureAllowedStates.includes(record.status)) {
         return err(encounterNotReady("Capture is not allowed from the current encounter state"));
       }
       const context = await transaction.playerContext(input.playerId);
