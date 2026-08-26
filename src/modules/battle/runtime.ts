@@ -51,9 +51,9 @@ export interface BattleCancellationPort {
   cancel(input: CancelBattleInput): Promise<BattleCancellationPersistenceResult>;
 }
 
-export interface BattleRuntimeError extends BattleServiceError {
+export type BattleRuntimeError = Omit<BattleServiceError, "code"> & {
   readonly code: BattleServiceError["code"] | "BATTLE_AFTERMATH_FAILED";
-}
+};
 
 export type BattleRuntimeResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -122,7 +122,10 @@ export class BattleRuntimeService {
     }
     const reason = input.reason.trim();
     if (reason.length === 0 || reason.length > 256) {
-      return runtimeFailure("BATTLE_ACTION_INVALID", "Cancellation reason must contain 1..256 characters");
+      return runtimeFailure(
+        "BATTLE_ACTION_INVALID",
+        "Cancellation reason must contain 1..256 characters",
+      );
     }
 
     const persisted = await this.cancellation.cancel({ ...input, reason });
