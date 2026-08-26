@@ -1,0 +1,67 @@
+name: Capture Idempotency Hotfix Temp
+
+on:
+  push:
+    branches:
+      - feat/capture-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !startsWith(github.event.head_commit.message, 'fix(capture): replay after terminal lock race') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/capture-v1
+          fetch-depth: 0
+
+      - name: Patch terminal lock race
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/modules/capture/service.ts')
+          text = path.read_text()
+          old = '''        const context = await transaction.loadContext(
+          input.playerId,
+          input.encounterId,
+          input.ballItemId,
+        );
+        if (context === null) return err(captureNotFound());
+
+        const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);
+'''
+          new = '''        const context = await transaction.loadContext(
+          input.playerId,
+          input.encounterId,
+          input.ballItemId,
+        );
+        if (context === null) {
+          const terminalReplay = await transaction.findAttempt(idempotency.value.storageKey);
+          return terminalReplay === null
+            ? err(captureNotFound())
+            : replay(terminalReplay, fingerprint);
+        }
+
+        const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);
+'''
+          if old not in text:
+              raise SystemExit('Expected CaptureService block not found; refusing unsafe patch')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Canonical format
+        run: pnpm exec biome format --write src/modules/capture/service.ts
+
+      - name: Commit exact hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/capture/service.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(capture): replay after terminal lock race"
+          git push origin HEAD:feat/capture-v1
