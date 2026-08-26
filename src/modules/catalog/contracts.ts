@@ -226,6 +226,15 @@ export interface CatalogSnapshot {
     readonly sortOrder: number;
     readonly active: boolean;
   }[];
+  readonly purchaseOffers: readonly {
+    readonly offerKey: string;
+    readonly itemId: string;
+    readonly currencyId: string;
+    readonly itemQuantity: string;
+    readonly priceAmount: string;
+    readonly sortOrder: number;
+    readonly active: boolean;
+  }[];
   readonly encounterTables: readonly {
     readonly encounterTableId: string;
     readonly areaId: string;
@@ -271,6 +280,7 @@ export const CATALOG_DIFF_CATEGORIES = [
   "learnsets",
   "evolutions",
   "starterOptions",
+  "purchaseOffers",
 ] as const;
 export type CatalogDiffCategory = (typeof CATALOG_DIFF_CATEGORIES)[number];
 

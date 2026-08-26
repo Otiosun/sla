@@ -23,10 +23,7 @@ export interface WalletLedgerWrite {
 }
 
 export interface EconomyTransaction {
-  findInventoryLedger(
-    scope: string,
-    storageKey: string,
-  ): Promise<InventoryLedgerRecord | null>;
+  findInventoryLedger(scope: string, storageKey: string): Promise<InventoryLedgerRecord | null>;
   findWalletLedger(scope: string, storageKey: string): Promise<WalletLedgerRecord | null>;
 
   claimInventoryLedger(input: InventoryLedgerWrite): Promise<boolean>;

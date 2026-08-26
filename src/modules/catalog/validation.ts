@@ -417,6 +417,73 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
     }
   }
 
+  const purchaseOfferKeys = new Set<string>();
+  for (const [index, offer] of snapshot.purchaseOffers.entries()) {
+    if (!/^[a-z0-9][a-z0-9._:-]{0,63}$/.test(offer.offerKey)) {
+      issues.push(
+        issue(
+          "PURCHASE_OFFER_KEY_INVALID",
+          `purchaseOffers.${index}.offerKey`,
+          "Purchase offer key has an invalid format",
+        ),
+      );
+    }
+    if (purchaseOfferKeys.has(offer.offerKey)) {
+      issues.push(
+        issue(
+          "PURCHASE_OFFER_DUPLICATE",
+          `purchaseOffers.${index}.offerKey`,
+          "Purchase offer key is duplicated in this release",
+        ),
+      );
+    }
+    purchaseOfferKeys.add(offer.offerKey);
+
+    if (!allItemIds.has(offer.itemId)) {
+      issues.push(
+        issue(
+          "PURCHASE_OFFER_ITEM_MISSING",
+          `purchaseOffers.${index}.itemId`,
+          "Purchase offer references an item absent from this release",
+        ),
+      );
+    }
+    if (offer.active && !activeItemIds.has(offer.itemId)) {
+      issues.push(
+        issue(
+          "ACTIVE_PURCHASE_OFFER_ITEM_INACTIVE",
+          `purchaseOffers.${index}.itemId`,
+          "Active purchase offer references an inactive item",
+        ),
+      );
+    }
+
+    let itemQuantity: bigint | null = null;
+    let priceAmount: bigint | null = null;
+    try {
+      itemQuantity = BigInt(offer.itemQuantity);
+      priceAmount = BigInt(offer.priceAmount);
+    } catch {
+      // Reported by the range validation below.
+    }
+    if (
+      itemQuantity === null ||
+      itemQuantity <= 0n ||
+      priceAmount === null ||
+      priceAmount < 0n ||
+      !Number.isSafeInteger(offer.sortOrder) ||
+      offer.sortOrder < 0
+    ) {
+      issues.push(
+        issue(
+          "PURCHASE_OFFER_RANGE_INVALID",
+          `purchaseOffers.${index}`,
+          "Purchase quantity must be positive, price non-negative, and sort order a non-negative safe integer",
+        ),
+      );
+    }
+  }
+
   const activeAbilityByForm = new Map<string, number>();
   for (const [index, option] of snapshot.formAbilities.entries()) {
     if (!allFormIds.has(option.formId) || !allAbilityIds.has(option.abilityId)) {
