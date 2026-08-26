@@ -1,0 +1,67 @@
+name: Progression Fault Hook Temp
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/progression-evolution-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout progression branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/progression-evolution-v1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Add transaction fault injection seam
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/platform/progression/postgres-progression-repository.ts')
+          text = p.read_text()
+
+          old = 'export class PostgresProgressionRepository implements ProgressionRepository {\n  public constructor(private readonly pool: Pool) {}\n'
+          new = '''export interface ProgressionFaultInjector {\n  readonly afterRewardMutationsBeforeClaim?: () => void | Promise<void>;\n}\n\nexport class PostgresProgressionRepository implements ProgressionRepository {\n  public constructor(\n    private readonly pool: Pool,\n    private readonly faultInjector: ProgressionFaultInjector = {},\n  ) {}\n'''
+          if old not in text:
+              raise SystemExit('constructor target not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        const trainerResult = await this.applyTrainerBattleReward(client, {\n          battleId: input.battleId,\n          playerId: terminal.playerId,\n          progression,\n          correlationId: input.correlationId,\n        });\n        const result = BattleRewardResultSchema.parse({\n'''
+          new = '''        const trainerResult = await this.applyTrainerBattleReward(client, {\n          battleId: input.battleId,\n          playerId: terminal.playerId,\n          progression,\n          correlationId: input.correlationId,\n        });\n        await this.faultInjector.afterRewardMutationsBeforeClaim?.();\n        const result = BattleRewardResultSchema.parse({\n'''
+          if old not in text:
+              raise SystemExit('fault seam target not found')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+          PY
+          pnpm exec biome check --write src/platform/progression/postgres-progression-repository.ts
+          pnpm typecheck
+          pnpm exec vitest run tests/progression
+
+      - name: Commit fault seam
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/platform/progression/postgres-progression-repository.ts
+          git commit -m "test: add progression transaction fault seam"
+          git push origin HEAD:feat/progression-evolution-v1
