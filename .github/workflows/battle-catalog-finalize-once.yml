@@ -88,25 +88,21 @@ jobs:
 
           repo = Path('src/platform/catalog/postgres-catalog-repository.ts')
           text = repo.read_text()
-
           import_anchor = '''import {\n  type CatalogCoverage,\n  ContentLifecycleStatusSchema,'''
           import_replacement = '''import {\n  BattleMoveFlagsSchema,\n  type CatalogCoverage,\n  ContentLifecycleStatusSchema,'''
           if text.count(import_anchor) != 1:
               raise SystemExit('catalog import anchor mismatch')
           text = text.replace(import_anchor, import_replacement)
-
           old_type = '''        effect_key: string | null;\n        effect_config: unknown;\n        active: boolean;\n      }>(\n        `SELECT move_id, type_id, category, power, accuracy, priority, max_pp,\n                effect_key, effect_config, active'''
           new_type = '''        effect_key: string | null;\n        effect_config: unknown;\n        flags: unknown;\n        active: boolean;\n      }>(\n        `SELECT move_id, type_id, category, power, accuracy, priority, max_pp,\n                effect_key, effect_config, flags, active'''
           if text.count(old_type) != 1:
               raise SystemExit('move query anchor mismatch')
           text = text.replace(old_type, new_type)
-
           old_map = '''        effectKey: entry.effect_key,\n        effectConfig: entry.effect_config,\n        active: entry.active,\n      })),\n      abilities:'''
           new_map = '''        effectKey: entry.effect_key,\n        effectConfig: entry.effect_config,\n        flags: BattleMoveFlagsSchema.parse(entry.flags),\n        active: entry.active,\n      })),\n      abilities:'''
           if text.count(old_map) != 1:
               raise SystemExit('move mapping anchor mismatch')
           text = text.replace(old_map, new_map)
-
           old_clone = '''          "effect_key",\n          "effect_config",\n          "active",\n        ],\n      },\n      {\n        table: "ability_revisions",'''
           new_clone = '''          "effect_key",\n          "effect_config",\n          "flags",\n          "active",\n        ],\n      },\n      {\n        table: "ability_revisions",'''
           if text.count(old_clone) != 1:
@@ -124,8 +120,22 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Typecheck with one-shot diagnostic
+        shell: bash
+        run: |
+          set +e
+          pnpm typecheck > /tmp/battle-typecheck.txt 2>&1
+          status=$?
+          cat /tmp/battle-typecheck.txt
+          if [ "$status" -ne 0 ]; then
+            cp /tmp/battle-typecheck.txt battle-typecheck-diagnostic.txt
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add battle-typecheck-diagnostic.txt
+            git commit -m 'ci: capture catalog battle typecheck diagnostic'
+            git push origin HEAD:feat/battle-engine-v1
+            exit "$status"
+          fi
 
       - name: Migrate target database
         run: pnpm db:migrate
@@ -145,6 +155,7 @@ jobs:
           set -euo pipefail
           rm -f .github/workflows/battle-format-once.yml
           rm -f .github/workflows/battle-catalog-finalize-once.yml
+          rm -f battle-typecheck-diagnostic.txt
 
       - name: Commit permanent hardening
         shell: bash
