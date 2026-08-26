@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { Pool, type PoolClient } from "pg";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import type {
@@ -224,7 +225,7 @@ async function verifyWorld(client: PoolClient, releaseId: string): Promise<void>
     { slug: "route-1", display_name: "Route 1", data: ROUTE_1_CONFIG, active: true },
     { slug: "viridian-city", display_name: "Viridian City", data: VIRIDIAN_CONFIG, active: true },
   ];
-  if (JSON.stringify(areas.rows) !== JSON.stringify(expectedAreas)) {
+  if (!isDeepStrictEqual(areas.rows, expectedAreas)) {
     throw new Error(`Phase 7 areas differ from canonical seed: ${JSON.stringify(areas.rows)}`);
   }
 
@@ -275,7 +276,7 @@ async function verifyWorld(client: PoolClient, releaseId: string): Promise<void>
       active: true,
     },
   ];
-  if (JSON.stringify(connections.rows) !== JSON.stringify(expectedConnections)) {
+  if (!isDeepStrictEqual(connections.rows, expectedConnections)) {
     throw new Error(
       `Phase 7 connections differ from canonical seed: ${JSON.stringify(connections.rows)}`,
     );
