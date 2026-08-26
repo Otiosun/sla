@@ -20,6 +20,7 @@ import {
   parsePokemonInstanceId,
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
+import { recordPokedexOwnedByForm } from "../pokedex/postgres-pokedex-writer.js";
 import { PostgresPlayerRegistrationTransaction } from "./postgres-player-registration-transaction.js";
 
 function playerId(value: string): PlayerId {
@@ -271,6 +272,7 @@ class PostgresPlayerOnboardingTransaction
         input.placement.slotNo,
       ],
     );
+    await recordPokedexOwnedByForm(this.client, input.playerId, input.formId);
     await this.client.query(
       `INSERT INTO starter_grants(
          id, player_id, idempotency_key, pokemon_instance_id, content_release_id,
