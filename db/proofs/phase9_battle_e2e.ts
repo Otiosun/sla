@@ -31,7 +31,9 @@ function unwrap<T>(label: string, result: Result<T>): T {
 
 function unwrapBattle<T>(
   label: string,
-  result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } },
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } },
 ): T {
   if (result.ok) return result.value;
   throw new Error(`${label} failed [${result.error.code}]: ${result.error.message}`);
@@ -49,7 +51,8 @@ function playerMove(state: BattleState): BattleAction {
   const target = state.combatants.find(
     (combatant) => combatant.participantId === opponentSide.activeParticipantId,
   );
-  if (actor === undefined || target === undefined) throw new Error("Active battle combatant is missing");
+  if (actor === undefined || target === undefined)
+    throw new Error("Active battle combatant is missing");
   const move = actor.moves.find(
     (candidate) =>
       candidate.power !== null &&
@@ -110,7 +113,10 @@ async function main(): Promise<void> {
     );
     unwrap("complete onboarding", await starter.completeOnboarding(identity.playerId));
 
-    const world = new WorldService(new PostgresWorldRepository(pool), { enabled: true, reason: null });
+    const world = new WorldService(new PostgresWorldRepository(pool), {
+      enabled: true,
+      reason: null,
+    });
     const initial = unwrap(
       "initialize world location",
       await world.ensureInitialLocation({ playerId: identity.playerId }),
@@ -129,11 +135,7 @@ async function main(): Promise<void> {
     );
     if (traveled.to.areaSlug !== "route-1") throw new Error("World proof did not reach Route 1");
 
-    const seedProvider = new AesEncounterSeedProvider(
-      BATTLE_KEY,
-      1,
-      () => Buffer.alloc(32, 0x4c),
-    );
+    const seedProvider = new AesEncounterSeedProvider(BATTLE_KEY, 1, () => Buffer.alloc(32, 0x4c));
     const encounter = new EncounterService(
       new PostgresEncounterRepository(pool),
       seedProvider,
@@ -176,7 +178,10 @@ async function main(): Promise<void> {
     const repository = new PostgresBattleRepository(pool);
     const seedReader = new AesBattleSeedReader(new Map([[1, BATTLE_KEY]]));
     const battle = new BattleService(repository, seedReader);
-    const initialized = unwrapBattle("initialize battle", await battle.initialize(started.battleId));
+    const initialized = unwrapBattle(
+      "initialize battle",
+      await battle.initialize(started.battleId),
+    );
     if (initialized.replayed) throw new Error("First battle initialization unexpectedly replayed");
     if (initialized.state.version !== 0 || initialized.state.status !== "ACTIVE") {
       throw new Error("Initial battle snapshot is not ACTIVE version 0");
@@ -230,22 +235,38 @@ async function main(): Promise<void> {
       }),
     ]);
     const fulfilled = concurrent.filter(
-      (result): result is PromiseFulfilledResult<Awaited<ReturnType<BattleService["resolvePlayerTurn"]>>> =>
-        result.status === "fulfilled",
+      (
+        result,
+      ): result is PromiseFulfilledResult<
+        Awaited<ReturnType<BattleService["resolvePlayerTurn"]>>
+      > => result.status === "fulfilled",
     );
     const winners = fulfilled.filter((result) => result.value.ok);
     const conflicts = fulfilled.filter(
       (result) => !result.value.ok && result.value.error.code === "BATTLE_VERSION_CONFLICT",
     );
-    if (concurrent.some((result) => result.status === "rejected")) {
-      throw new Error("Concurrent battle CAS leaked a rejected database promise");
+    const rejected = concurrent.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (rejected.length > 0) {
+      const reasons = rejected.map((result) =>
+        result.reason instanceof Error
+          ? `${result.reason.name}: ${result.reason.message}`
+          : String(result.reason),
+      );
+      throw new Error(`Concurrent battle CAS leaked rejected promises: ${reasons.join(" | ")}`);
     }
     if (winners.length !== 1 || conflicts.length !== 1) {
-      throw new Error(`Expected one CAS winner and one version conflict; got ${winners.length}/${conflicts.length}`);
+      throw new Error(
+        `Expected one CAS winner and one version conflict; got ${winners.length}/${conflicts.length}`,
+      );
     }
 
     const restarted = new BattleService(new PostgresBattleRepository(pool), seedReader);
-    const recovered = unwrapBattle("reload battle after restart", await restarted.currentState(started.battleId));
+    const recovered = unwrapBattle(
+      "reload battle after restart",
+      await restarted.currentState(started.battleId),
+    );
     const winningState = winners[0]?.value.ok ? winners[0].value.value.state : null;
     if (winningState === null || JSON.stringify(recovered) !== JSON.stringify(winningState)) {
       throw new Error("Restarted BattleService did not recover the persisted winning snapshot");
@@ -270,9 +291,12 @@ async function main(): Promise<void> {
     );
     const row = audit.rows[0];
     if (row === undefined) throw new Error("Battle audit query returned no row");
-    if (Number(row.snapshots) < 3) throw new Error(`Expected at least 3 snapshots, got ${row.snapshots}`);
+    if (Number(row.snapshots) < 3)
+      throw new Error(`Expected at least 3 snapshots, got ${row.snapshots}`);
     if (row.resolved_actions !== "2" || row.rejected_actions !== "1") {
-      throw new Error(`Unexpected action lifecycle counts: ${row.resolved_actions}/${row.rejected_actions}`);
+      throw new Error(
+        `Unexpected action lifecycle counts: ${row.resolved_actions}/${row.rejected_actions}`,
+      );
     }
     const eventCount = Number(row.events);
     if (eventCount < 1 || row.min_seq !== "1" || Number(row.max_seq) !== eventCount) {

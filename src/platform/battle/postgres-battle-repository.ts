@@ -436,9 +436,10 @@ class PostgresBattleTransaction implements BattleTransaction {
       [encounterRow.player_id, root.contentReleaseId],
     );
     if (party.rows.length === 0) return null;
-    const playerParty = await Promise.all(
-      party.rows.map((row) => this.enrichPlayerPokemon(root.contentReleaseId, row)),
-    );
+    const playerParty: BattlePokemonBuild[] = [];
+    for (const row of party.rows) {
+      playerParty.push(await this.enrichPlayerPokemon(root.contentReleaseId, row));
+    }
     return {
       playerId: encounterRow.player_id,
       playerParty,
@@ -658,7 +659,7 @@ export class PostgresBattleRepository implements BattleRepository {
     return withTransaction(
       this.pool,
       async (client) => work(new PostgresBattleTransaction(client)),
-      { isolationLevel: "SERIALIZABLE" },
+      { isolationLevel: "READ COMMITTED" },
     );
   }
 
