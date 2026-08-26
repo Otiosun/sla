@@ -32,6 +32,7 @@ export interface ActiveEncounterContent {
 
 export interface EncounterTransaction {
   activeContent(): Promise<ActiveEncounterContent | null>;
+  rulesetConfig(rulesetId: string): Promise<unknown | null>;
   playerContext(playerId: PlayerId, lock?: boolean): Promise<EncounterPlayerContext | null>;
   byCreationKey(
     playerId: PlayerId,
