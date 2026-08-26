@@ -84,3 +84,6 @@ jobs:
 
       - name: Run onboarding to encounter to battle PostgreSQL E2E
         run: node --import tsx db/proofs/phase9_battle_e2e.ts
+
+      - name: Run cancellation and defeat-aftermath PostgreSQL E2E
+        run: node --import tsx db/proofs/phase9_terminal_e2e.ts
