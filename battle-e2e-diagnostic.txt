@@ -1,4 +1,4 @@
-(node:2776) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(node:2648) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 /home/runner/work/sla/sla/db/proofs/phase9_battle_e2e.ts:241
       throw new Error("Concurrent battle CAS leaked a rejected database promise");
