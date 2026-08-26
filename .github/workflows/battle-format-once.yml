@@ -51,21 +51,6 @@ jobs:
           path.write_text(text.replace(old, new))
           PY
           rm -f .battle-typecheck-diagnostic.txt
-          cat > .github/workflows/battle-format-once.yml <<'YAML'
-          name: Battle Temporary Helper Disabled
-
-          on:
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-
-          jobs:
-            disabled:
-              runs-on: ubuntu-latest
-              steps:
-                - run: echo "Temporary Battle helper disabled."
-          YAML
 
       - name: Verify typecheck after exact fix
         run: pnpm typecheck
@@ -76,6 +61,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all
+          git add src/modules/battle/resolver.ts
+          git add -u .battle-typecheck-diagnostic.txt || true
           git commit -m "fix: narrow terminal battle status type"
           git push origin HEAD:feat/battle-engine-v1
