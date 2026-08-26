@@ -1,9 +1,11 @@
 import { z } from "zod";
+import type { EncounterConditions } from "./encounter-contracts.js";
 
 export const ContentLifecycleStatusSchema = z.enum(["DRAFT", "VALIDATED", "PUBLISHED", "ARCHIVED"]);
 export type ContentLifecycleStatus = z.infer<typeof ContentLifecycleStatusSchema>;
 
 const basisPointsSchema = z.number().int().min(0).max(100_000);
+const captureEncounterStatusSchema = z.enum(["ENGAGED", "IN_BATTLE"]);
 
 export const RulesetConfigSchema = z
   .object({
@@ -25,8 +27,15 @@ export const RulesetConfigSchema = z
       .object({
         model: z.literal("POKEMON_INSPIRED_V1"),
         maxProbabilityBasisPoints: z.number().int().min(1).max(10_000),
+        allowedEncounterStates: z.array(captureEncounterStatusSchema).min(1).max(2).optional(),
       })
       .strict(),
+    encounter: z
+      .object({
+        expirationSeconds: z.number().int().min(30).max(86_400),
+      })
+      .strict()
+      .optional(),
     defeat: z
       .object({
         automaticMoneyLoss: z.literal(false),
@@ -248,12 +257,14 @@ export interface CatalogSnapshot {
     readonly encounterTableId: string;
     readonly areaId: string;
     readonly active: boolean;
+    readonly conditions: EncounterConditions;
     readonly entries: readonly {
       readonly formId: string;
       readonly weight: string;
       readonly minLevel: number;
       readonly maxLevel: number;
       readonly active: boolean;
+      readonly conditions: EncounterConditions;
     }[];
   }[];
   readonly parentCoverage: CatalogCoverage | null;
