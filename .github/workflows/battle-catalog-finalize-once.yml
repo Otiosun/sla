@@ -109,6 +109,13 @@ jobs:
               raise SystemExit('move clone anchor mismatch')
           text = text.replace(old_clone, new_clone)
           repo.write_text(text)
+
+          service = Path('src/modules/battle/service.ts')
+          service_text = service.read_text()
+          stale_import = '  BattleTransaction,\n'
+          if service_text.count(stale_import) != 1:
+              raise SystemExit('stale BattleTransaction import anchor mismatch')
+          service.write_text(service_text.replace(stale_import, ''))
           PY
 
       - name: Apply canonical formatting
