@@ -119,6 +119,17 @@ function validSnapshot(releaseId = "release-1"): CatalogSnapshotWithEffects {
         active: true,
       },
     ],
+    purchaseOffers: [
+      {
+        offerKey: "shop.potion",
+        itemId: "item-1",
+        currencyId: "currency-1",
+        itemQuantity: "1",
+        priceAmount: "300",
+        sortOrder: 1,
+        active: true,
+      },
+    ],
     encounterTables: [
       {
         encounterTableId: "encounter-1",
@@ -234,6 +245,42 @@ describe("catalog contracts", () => {
       true,
     );
     expect(report.issues.some((entry) => entry.code === "STARTER_OPTION_RANGE_INVALID")).toBe(true);
+  });
+
+  it("treats purchase offers as fingerprinted, validated and diffable content", () => {
+    const before = validSnapshot("release-1");
+    const offer = before.purchaseOffers[0];
+    expect(offer).toBeDefined();
+    if (offer === undefined) return;
+
+    const after: CatalogSnapshotWithEffects = {
+      ...validSnapshot("release-2"),
+      purchaseOffers: [{ ...offer, priceAmount: "350" }],
+    };
+    expect(fingerprintCatalog(after)).not.toBe(fingerprintCatalog(before));
+    expect(
+      diffCatalogSnapshots(before, after).sections.find(
+        (section) => section.category === "purchaseOffers",
+      ),
+    ).toEqual({ category: "purchaseOffers", added: 0, removed: 0, changed: 1 });
+
+    const invalid: CatalogSnapshotWithEffects = {
+      ...before,
+      purchaseOffers: [
+        {
+          ...offer,
+          offerKey: "INVALID KEY",
+          itemId: "missing-item",
+          itemQuantity: "0",
+          priceAmount: "-1",
+        },
+      ],
+    };
+    const report = validateCatalogSnapshot(invalid);
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((entry) => entry.code === "PURCHASE_OFFER_KEY_INVALID")).toBe(true);
+    expect(report.issues.some((entry) => entry.code === "PURCHASE_OFFER_ITEM_MISSING")).toBe(true);
+    expect(report.issues.some((entry) => entry.code === "PURCHASE_OFFER_RANGE_INVALID")).toBe(true);
   });
 
   it("produces a readable release diff without changing historical snapshots", () => {

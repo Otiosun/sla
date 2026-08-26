@@ -73,6 +73,10 @@ function snapshotRecords(
       key: `${entry.regionId}:${entry.formId}`,
       value: entry,
     })),
+    purchaseOffers: snapshot.purchaseOffers.map((entry) => ({
+      key: entry.offerKey,
+      value: entry,
+    })),
     encounterTables: snapshot.encounterTables.map((entry) => ({
       key: entry.encounterTableId,
       value: entry,

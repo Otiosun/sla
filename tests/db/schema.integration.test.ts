@@ -157,9 +157,12 @@ async function applyIdempotentInventoryGrant(
     const ledgerId = randomUUID();
     const inserted = await client.query(
       `INSERT INTO inventory_ledger(
-         id, player_id, item_id, delta, source_type, source_id, actor_type,
-         idempotency_scope, idempotency_key
-       ) VALUES ($1, $2, $3, 5, 'TEST', 'same-source', 'SYSTEM', 'test-grant', $4)
+         id, player_id, item_id, delta, source_type, source_id, reason, actor_type,
+         idempotency_scope, idempotency_key, correlation_id
+       ) VALUES (
+         $1, $2, $3, 5, 'TEST', 'same-source', 'schema idempotency regression',
+         'SYSTEM', 'test-grant', $4, $1
+       )
        ON CONFLICT (idempotency_scope, idempotency_key) DO NOTHING
        RETURNING id`,
       [ledgerId, playerId, itemId, key],

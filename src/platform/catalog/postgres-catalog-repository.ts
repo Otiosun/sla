@@ -214,6 +214,7 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       learnsets,
       evolutions,
       starterOptions,
+      purchaseOffers,
       encounterTables,
     ] = await Promise.all([
       this.client.query<{ type_id: string; display_name: string; active: boolean }>(
@@ -365,6 +366,21 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         [releaseId],
       ),
       this.client.query<{
+        offer_key: string;
+        item_id: string;
+        currency_id: string;
+        item_quantity: string;
+        price_amount: string;
+        sort_order: number;
+        active: boolean;
+      }>(
+        `SELECT offer_key, item_id, currency_id, item_quantity::text, price_amount::text,
+                sort_order, active
+         FROM item_purchase_offers
+         WHERE content_release_id = $1 ORDER BY sort_order, offer_key`,
+        [releaseId],
+      ),
+      this.client.query<{
         revision_id: string;
         encounter_table_id: string;
         area_id: string;
@@ -513,6 +529,15 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         regionId: entry.region_id,
         formId: entry.form_id,
         starterLevel: entry.starter_level,
+        sortOrder: entry.sort_order,
+        active: entry.active,
+      })),
+      purchaseOffers: purchaseOffers.rows.map((entry) => ({
+        offerKey: entry.offer_key,
+        itemId: entry.item_id,
+        currencyId: entry.currency_id,
+        itemQuantity: entry.item_quantity,
+        priceAmount: entry.price_amount,
         sortOrder: entry.sort_order,
         active: entry.active,
       })),
@@ -680,6 +705,18 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       {
         table: "starter_options",
         columns: ["region_id", "form_id", "starter_level", "sort_order", "active"],
+      },
+      {
+        table: "item_purchase_offers",
+        columns: [
+          "offer_key",
+          "item_id",
+          "currency_id",
+          "item_quantity",
+          "price_amount",
+          "sort_order",
+          "active",
+        ],
       },
     ] as const;
 
