@@ -13,7 +13,7 @@ import {
   type ResolvedTurn,
 } from "./contracts.js";
 import { computeDamage } from "./damage.js";
-import { validateBattleAction } from "./legal.js";
+import { activeCombatant, usableReserves, validateBattleAction } from "./legal.js";
 import type { BattleRules } from "./rules.js";
 import { statusCounterOnApply } from "./rules.js";
 import {
@@ -41,6 +41,18 @@ function findSide(state: BattleState, sideNo: number): BattleSide {
   const found = state.sides.find((entry) => entry.sideNo === sideNo);
   if (found === undefined) throw new Error(`Battle state lost side ${sideNo}`);
   return found;
+}
+
+function requiredActionSides(state: BattleState): readonly number[] {
+  const forced = state.sides
+    .filter((side) => {
+      const active = activeCombatant(state, side.sideNo);
+      return active !== undefined && active.currentHp <= 0 && usableReserves(state, side.sideNo).length > 0;
+    })
+    .map((side) => side.sideNo);
+  return forced.length > 0
+    ? forced
+    : state.sides.filter((side) => side.result === null).map((side) => side.sideNo);
 }
 
 function actionPriority(state: BattleState, action: BattleAction): number {
@@ -335,7 +347,11 @@ function terminalStatus(state: BattleState): BattleState["status"] | null {
   return null;
 }
 
-function finishBattle(state: BattleState, status: "WON" | "LOST" | "DRAW", events: BattleEvent[]): void {
+function finishBattle(
+  state: BattleState,
+  status: "WON" | "LOST" | "DRAW",
+  events: BattleEvent[],
+): void {
   state.status = status;
   if (status === "DRAW") {
     for (const side of state.sides) side.result = "DRAW";
@@ -501,6 +517,7 @@ export function resolveTurn(
   if (sourceState.status !== "ACTIVE") {
     return { ok: false, error: { code: "BATTLE_NOT_ACTIVE", message: "Battle is not active" } };
   }
+  const requiredSides = new Set(requiredActionSides(sourceState));
   const actions: BattleAction[] = [];
   const actedSides = new Set<number>();
   for (const rawAction of sourceActions) {
@@ -518,12 +535,17 @@ export function resolveTurn(
     const actor = sourceState.combatants.find(
       (entry) => entry.participantId === parsedAction.data.actorParticipantId,
     );
-    if (actor === undefined || actedSides.has(actor.sideNo)) {
+    if (actor === undefined || actedSides.has(actor.sideNo) || !requiredSides.has(actor.sideNo)) {
       return {
         ok: false,
         error: {
           code: "BATTLE_ACTION_INVALID",
-          message: actor === undefined ? "Action actor is missing" : "Side submitted more than one action",
+          message:
+            actor === undefined
+              ? "Action actor is missing"
+              : actedSides.has(actor.sideNo)
+                ? "Side submitted more than one action"
+                : "Side must wait for forced switch resolution",
         },
       };
     }
@@ -532,13 +554,13 @@ export function resolveTurn(
     actedSides.add(actor.sideNo);
     actions.push(parsedAction.data);
   }
-  if (actions.length !== sourceState.sides.length) {
+  if (actions.length !== requiredSides.size) {
     return {
       ok: false,
       error: {
         code: "BATTLE_ACTION_INVALID",
-        message: "Each battle side must submit exactly one legal action",
-        details: { expected: sourceState.sides.length, actual: actions.length },
+        message: "Every side requiring an action must submit exactly one legal action",
+        details: { expected: requiredSides.size, actual: actions.length },
       },
     };
   }

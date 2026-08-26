@@ -12,7 +12,7 @@ export interface BattleRules {
   readonly stabMultiplierBasisPoints: number;
   readonly damageRandomMinBasisPoints: number;
   readonly damageRandomMaxBasisPoints: number;
-  readonly switchConsumesTurn: boolean;
+  readonly switchConsumesTurn: true;
   readonly typeMultipliers: Readonly<Record<string, number>>;
   readonly status: Readonly<{
     burnAttackMultiplierBasisPoints: number;
@@ -62,6 +62,15 @@ export function normalizeBattleRules(snapshot: RulesetSnapshot): BattleRulesResu
       },
     };
   }
+  if (parsed.data.battle.switchConsumesTurn === false) {
+    return {
+      ok: false,
+      error: {
+        code: "BATTLE_STATE_INVALID",
+        message: "Battle Engine v1 supports only switchConsumesTurn=true",
+      },
+    };
+  }
   const minRandom = parsed.data.battle.damageRandomMinBasisPoints ?? 8_500;
   const maxRandom = parsed.data.battle.damageRandomMaxBasisPoints ?? 10_000;
   if (minRandom > maxRandom) {
@@ -92,7 +101,7 @@ export function normalizeBattleRules(snapshot: RulesetSnapshot): BattleRulesResu
       stabMultiplierBasisPoints: parsed.data.battle.stabMultiplierBasisPoints ?? 15_000,
       damageRandomMinBasisPoints: minRandom,
       damageRandomMaxBasisPoints: maxRandom,
-      switchConsumesTurn: parsed.data.battle.switchConsumesTurn ?? true,
+      switchConsumesTurn: true,
       typeMultipliers,
       status: {
         burnAttackMultiplierBasisPoints: 5_000,
