@@ -33,7 +33,7 @@ export interface EconomyTransaction {
     readonly playerId: PlayerId;
     readonly itemId: string;
     readonly quantity: bigint;
-  }): Promise<bigint>;
+  }): Promise<bigint | null>;
   consumeInventory(input: {
     readonly playerId: PlayerId;
     readonly itemId: string;
@@ -44,7 +44,7 @@ export interface EconomyTransaction {
     readonly playerId: PlayerId;
     readonly currencyId: string;
     readonly amount: bigint;
-  }): Promise<bigint>;
+  }): Promise<bigint | null>;
   debitWallet(input: {
     readonly playerId: PlayerId;
     readonly currencyId: string;
@@ -54,6 +54,7 @@ export interface EconomyTransaction {
   inventoryBalance(playerId: PlayerId, itemId: string): Promise<bigint>;
   walletBalance(playerId: PlayerId, currencyId: string): Promise<bigint>;
 
+  activeContentReleaseId(): Promise<string | null>;
   loadPurchaseOffer(contentReleaseId: string, offerKey: string): Promise<PurchaseOffer | null>;
 }
 
