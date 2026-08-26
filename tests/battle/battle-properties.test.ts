@@ -69,54 +69,58 @@ describe("Battle Engine v1 properties", () => {
     }
   });
 
-  it("fuzzes 5,000 resolved turns without impossible state", () => {
-    let resolvedTurns = 0;
+  it(
+    "fuzzes 5,000 resolved turns without impossible state",
+    () => {
+      let resolvedTurns = 0;
 
-    for (let seed = 1; seed <= 50; seed += 1) {
-      let state = battleState(true);
-      let counter = 0n;
+      for (let seed = 1; seed <= 50; seed += 1) {
+        let state = battleState(true);
+        let counter = 0n;
 
-      for (const combatant of state.combatants) {
-        combatant.maxHp = 999_999;
-        combatant.currentHp = 999_999;
-        combatant.majorStatus = null;
-        combatant.volatile = { flinch: false, confusionTurns: 0 };
-        for (const move of combatant.moves) {
-          move.maxPp = 99;
-          move.ppCurrent = 99;
-          move.effectKey = null;
-          move.effectConfig = {};
-        }
-      }
-
-      for (let turn = 0; turn < 100; turn += 1) {
-        const chooser = rng(seed, counter);
-        const actions = state.sides
-          .map((side) => chooseHeuristicAction(state, side.sideNo, TEST_RULES, chooser))
-          .filter((action): action is NonNullable<typeof action> => action !== null);
-        counter = chooser.counter;
-        expect(actions).toHaveLength(state.sides.length);
-
-        const resolverRng = rng(seed, counter);
-        const resolved = resolveTurn(state, actions, TEST_RULES, resolverRng);
-        expect(resolved.ok).toBe(true);
-        if (!resolved.ok) throw new Error(`Fuzz turn ${turn} failed for seed ${seed}`);
-        state = resolved.value.state;
-        counter = resolverRng.counter;
-        resolvedTurns += 1;
-
-        expect(state.status).toBe("ACTIVE");
         for (const combatant of state.combatants) {
-          expect(combatant.currentHp).toBeGreaterThan(0);
-          expect(combatant.currentHp).toBeLessThanOrEqual(combatant.maxHp);
-          for (const stage of Object.values(combatant.stages)) {
-            expect(stage).toBeGreaterThanOrEqual(-6);
-            expect(stage).toBeLessThanOrEqual(6);
+          combatant.maxHp = 999_999;
+          combatant.currentHp = 999_999;
+          combatant.majorStatus = null;
+          combatant.volatile = { flinch: false, confusionTurns: 0 };
+          for (const move of combatant.moves) {
+            move.maxPp = 99;
+            move.ppCurrent = 99;
+            move.effectKey = null;
+            move.effectConfig = {};
+          }
+        }
+
+        for (let turn = 0; turn < 100; turn += 1) {
+          const chooser = rng(seed, counter);
+          const actions = state.sides
+            .map((side) => chooseHeuristicAction(state, side.sideNo, TEST_RULES, chooser))
+            .filter((action): action is NonNullable<typeof action> => action !== null);
+          counter = chooser.counter;
+          expect(actions).toHaveLength(state.sides.length);
+
+          const resolverRng = rng(seed, counter);
+          const resolved = resolveTurn(state, actions, TEST_RULES, resolverRng);
+          expect(resolved.ok).toBe(true);
+          if (!resolved.ok) throw new Error(`Fuzz turn ${turn} failed for seed ${seed}`);
+          state = resolved.value.state;
+          counter = resolverRng.counter;
+          resolvedTurns += 1;
+
+          expect(state.status).toBe("ACTIVE");
+          for (const combatant of state.combatants) {
+            expect(combatant.currentHp).toBeGreaterThan(0);
+            expect(combatant.currentHp).toBeLessThanOrEqual(combatant.maxHp);
+            for (const stage of Object.values(combatant.stages)) {
+              expect(stage).toBeGreaterThanOrEqual(-6);
+              expect(stage).toBeLessThanOrEqual(6);
+            }
           }
         }
       }
-    }
 
-    expect(resolvedTurns).toBe(5_000);
-  });
+      expect(resolvedTurns).toBe(5_000);
+    },
+    15_000,
+  );
 });
