@@ -18,6 +18,61 @@ export const BattleMoveFlagsSchema = z.union([
 ]);
 export type BattleMoveFlags = z.infer<typeof BattleMoveFlagsSchema>;
 
+const trainerUnlockSchema = z
+  .object({
+    level: z.number().int().min(2).max(100),
+    unlockKey: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,95}$/),
+  })
+  .strict();
+
+export const ProgressionRulesSchema = z
+  .object({
+    pokemon: z
+      .object({
+        xpCurve: z.literal("CUBIC_DELTA_V1"),
+        battleRewardModel: z.literal("BASE_EXP_LEVEL_DIV_7_V1"),
+        rewardRecipient: z.literal("ACTIVE_WINNER_V1"),
+        levelCap: z.literal(100),
+        hpOnLevelUp: z.literal("ADD_MAX_HP_DELTA_IF_ALIVE_V1"),
+        fullMoveSlotsPolicy: z.literal("PENDING_CHOICE_V1"),
+        autoLevelEvolution: z.literal(true),
+      })
+      .strict(),
+    trainer: z
+      .object({
+        visiblePointsName: z.literal("XP de Treinador"),
+        levelCurve: z.literal("QUADRATIC_100_V1"),
+        levelCap: z.literal(100),
+        pointsPerWonBattle: z.number().int().min(1).max(1_000_000),
+        unlocks: z.array(trainerUnlockSchema).max(64),
+      })
+      .strict()
+      .superRefine((trainer, context) => {
+        const levels = new Set<number>();
+        const keys = new Set<string>();
+        for (const [index, unlock] of trainer.unlocks.entries()) {
+          if (levels.has(unlock.level)) {
+            context.addIssue({
+              code: "custom",
+              path: ["unlocks", index, "level"],
+              message: "trainer unlock levels must be unique",
+            });
+          }
+          if (keys.has(unlock.unlockKey)) {
+            context.addIssue({
+              code: "custom",
+              path: ["unlocks", index, "unlockKey"],
+              message: "trainer unlock keys must be unique",
+            });
+          }
+          levels.add(unlock.level);
+          keys.add(unlock.unlockKey);
+        }
+      }),
+  })
+  .strict();
+export type ProgressionRules = z.infer<typeof ProgressionRulesSchema>;
+
 export const RulesetConfigSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -61,6 +116,7 @@ export const RulesetConfigSchema = z
         authority: z.literal("N0_FLAVOR_ONLY"),
       })
       .strict(),
+    progression: ProgressionRulesSchema.optional(),
   })
   .strict();
 export type RulesetConfig = z.infer<typeof RulesetConfigSchema>;

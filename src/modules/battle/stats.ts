@@ -1,62 +1,18 @@
+import { calculatePokemonStats } from "../pokemon/stats.js";
 import type { BattleCombatant, BattleStages, BattleStats } from "./contracts.js";
 import type { BattleRules } from "./rules.js";
 
 const BP = 10_000;
 
-function natureBasisPoints(
-  stat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED",
-  combatant: BattleCombatant,
-  rules: BattleRules,
-): number {
-  if (!rules.natureEnabled) return BP;
-  if (combatant.nature.increasedStat === stat) return 11_000;
-  if (combatant.nature.decreasedStat === stat) return 9_000;
-  return BP;
-}
-
-function nonHpStat(base: number, iv: number, level: number, natureBp: number): number {
-  const beforeNature = Math.floor(((2 * base + iv) * level) / 100) + 5;
-  return Math.max(1, Math.floor((beforeNature * natureBp) / BP));
-}
-
 export function calculateDerivedStats(combatant: BattleCombatant, rules: BattleRules): BattleStats {
-  const ivs = rules.ivEnabled
-    ? combatant.ivs
-    : { hp: 0, attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0 };
-  const level = combatant.level;
-  return {
-    hp: Math.floor(((2 * combatant.baseStats.hp + ivs.hp) * level) / 100) + level + 10,
-    attack: nonHpStat(
-      combatant.baseStats.attack,
-      ivs.attack,
-      level,
-      natureBasisPoints("ATTACK", combatant, rules),
-    ),
-    defense: nonHpStat(
-      combatant.baseStats.defense,
-      ivs.defense,
-      level,
-      natureBasisPoints("DEFENSE", combatant, rules),
-    ),
-    spAttack: nonHpStat(
-      combatant.baseStats.spAttack,
-      ivs.spAttack,
-      level,
-      natureBasisPoints("SP_ATTACK", combatant, rules),
-    ),
-    spDefense: nonHpStat(
-      combatant.baseStats.spDefense,
-      ivs.spDefense,
-      level,
-      natureBasisPoints("SP_DEFENSE", combatant, rules),
-    ),
-    speed: nonHpStat(
-      combatant.baseStats.speed,
-      ivs.speed,
-      level,
-      natureBasisPoints("SPEED", combatant, rules),
-    ),
-  };
+  return calculatePokemonStats({
+    baseStats: combatant.baseStats,
+    ivs: combatant.ivs,
+    level: combatant.level,
+    nature: combatant.nature,
+    ivEnabled: rules.ivEnabled,
+    natureEnabled: rules.natureEnabled,
+  });
 }
 
 export function applyBattleStage(value: number, stage: number): number {

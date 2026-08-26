@@ -18,6 +18,7 @@
     "db:seed:phase5": "node --env-file-if-exists=.env --import tsx db/seeds/phase5_player_slice.ts",
     "db:seed:phase6": "node --env-file-if-exists=.env --import tsx db/seeds/phase6_economy_slice.ts",
     "db:seed:phase7": "node --env-file-if-exists=.env --import tsx db/seeds/phase7_world_slice.ts",
+    "db:seed:phase11": "node --env-file-if-exists=.env --import tsx db/seeds/phase11_progression_slice.ts",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
