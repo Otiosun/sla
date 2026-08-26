@@ -1,0 +1,59 @@
+name: Add Gate Trigger Temp
+
+on:
+  push:
+    branches:
+      - work/phase11-gate-trigger-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: work/phase11-gate-trigger-v1
+      - name: Add gate branch trigger to permanent workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          names = [
+              "battle-proof.yml",
+              "capture-proof.yml",
+              "catalog-seed-proof.yml",
+              "ci.yml",
+              "economy-proof.yml",
+              "encounter-proof.yml",
+              "player-onboarding-proof.yml",
+              "progression-proof.yml",
+              "world-proof.yml",
+          ]
+          old = "  push:\n    branches:\n      - main\n"
+          new = "  push:\n    branches:\n      - main\n      - \"gate/**\"\n"
+          for name in names:
+              path = Path(".github/workflows") / name
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{name}: expected exactly one main push block, found {text.count(old)}")
+              path.write_text(text.replace(old, new, 1))
+          print(f"patched {len(names)} permanent workflows")
+          PY
+          git diff --check
+          count=$(grep -R --include='*.yml' -l 'gate/\*\*' .github/workflows/{battle-proof.yml,capture-proof.yml,catalog-seed-proof.yml,ci.yml,economy-proof.yml,encounter-proof.yml,player-onboarding-proof.yml,progression-proof.yml,world-proof.yml} | wc -l)
+          test "$count" -eq 9
+      - name: Commit permanent trigger hardening and remove writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/add-gate-trigger-temp.yml
+          git add .github/workflows/battle-proof.yml .github/workflows/capture-proof.yml .github/workflows/catalog-seed-proof.yml .github/workflows/ci.yml .github/workflows/economy-proof.yml .github/workflows/encounter-proof.yml .github/workflows/player-onboarding-proof.yml .github/workflows/progression-proof.yml .github/workflows/world-proof.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "ci: add explicit gate branch proof trigger"
+          git push origin HEAD:work/phase11-gate-trigger-v1
