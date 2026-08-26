@@ -57,12 +57,12 @@ export interface InventoryLedgerRecord {
   readonly delta: bigint;
   readonly sourceType: string;
   readonly sourceId: string;
-  readonly reason: string | null;
+  readonly reason: string;
   readonly actorType: string;
   readonly actorId: string | null;
   readonly idempotencyScope: string;
   readonly idempotencyKey: string;
-  readonly correlationId: string | null;
+  readonly correlationId: string;
 }
 
 export interface WalletLedgerRecord {
@@ -72,12 +72,12 @@ export interface WalletLedgerRecord {
   readonly delta: bigint;
   readonly sourceType: string;
   readonly sourceId: string;
-  readonly reason: string | null;
+  readonly reason: string;
   readonly actorType: string;
   readonly actorId: string | null;
   readonly idempotencyScope: string;
   readonly idempotencyKey: string;
-  readonly correlationId: string | null;
+  readonly correlationId: string;
 }
 
 export interface InventoryMutationResult {
