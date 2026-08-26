@@ -1,0 +1,77 @@
+name: Battle E2E Diagnostic Once
+
+on:
+  push:
+    branches:
+      - feat/battle-engine-v1
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/battle-engine-v1
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Start PostgreSQL
+        run: |
+          docker run --detach --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test --tuples-only --command 'SELECT 1;' >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Prepare seeded database
+        run: |
+          pnpm db:migrate
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+      - name: Capture E2E result
+        shell: bash
+        run: |
+          set +e
+          node --import tsx db/proofs/phase9_battle_e2e.ts > battle-e2e-diagnostic.txt 2>&1
+          status=$?
+          cat battle-e2e-diagnostic.txt
+          if [ "$status" -eq 0 ]; then
+            rm -f battle-e2e-diagnostic.txt .github/workflows/battle-e2e-diagnostic-once.yml
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git commit -m 'ci: remove battle e2e diagnostic helper' || true
+            git push origin HEAD:feat/battle-engine-v1
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add battle-e2e-diagnostic.txt
+          git commit -m 'ci: capture battle e2e diagnostic'
+          git push origin HEAD:feat/battle-engine-v1
+          exit "$status"
