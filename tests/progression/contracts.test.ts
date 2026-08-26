@@ -18,9 +18,9 @@ describe("progression public boundary", () => {
   });
 
   it("accepts only public LEVEL or server-priced ITEM requests", () => {
-    expect(EvolvePokemonInputSchema.safeParse({ ...base, trigger: { kind: "LEVEL" } }).success).toBe(
-      true,
-    );
+    expect(
+      EvolvePokemonInputSchema.safeParse({ ...base, trigger: { kind: "LEVEL" } }).success,
+    ).toBe(true);
     expect(
       EvolvePokemonInputSchema.safeParse({
         ...base,
