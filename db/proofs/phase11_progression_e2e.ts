@@ -2,20 +2,20 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { Pool } from "pg";
 import {
-  BattleStateSchema,
-  EMPTY_BATTLE_STAGES,
   type BattleCombatant,
   type BattleMoveSnapshot,
   type BattleState,
+  BattleStateSchema,
+  EMPTY_BATTLE_STAGES,
 } from "../../src/modules/battle/contracts.js";
 import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
-import { ProgressionService } from "../../src/modules/progression/service.js";
+import { calculatePokemonStats } from "../../src/modules/pokemon/stats.js";
 import {
   pokemonXpRequiredForNextLevel,
   trainerPointsRequiredForLevel,
 } from "../../src/modules/progression/rules.js";
-import { calculatePokemonStats } from "../../src/modules/pokemon/stats.js";
+import { ProgressionService } from "../../src/modules/progression/service.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
 
@@ -83,7 +83,9 @@ function unwrap<T>(
 
 function expectFailure(
   label: string,
-  result: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: { readonly code: string } },
+  result:
+    | { readonly ok: true; readonly value: unknown }
+    | { readonly ok: false; readonly error: { readonly code: string } },
   code: string,
 ): void {
   if (result.ok || result.error.code !== code) {
@@ -115,9 +117,10 @@ async function releaseByNumber(pool: Pool, releaseNo: number): Promise<ReleaseRe
 }
 
 async function rulesConfig(pool: Pool, rulesetId: string) {
-  const result = await pool.query<{ config: unknown }>("SELECT config FROM rulesets WHERE id = $1", [
-    rulesetId,
-  ]);
+  const result = await pool.query<{ config: unknown }>(
+    "SELECT config FROM rulesets WHERE id = $1",
+    [rulesetId],
+  );
   const row = result.rows[0];
   if (row === undefined) throw new Error("Ruleset is missing");
   return RulesetConfigSchema.parse(row.config);
@@ -740,7 +743,11 @@ async function auditState(pool: Pool, fixture: PlayerPokemonFixture): Promise<un
   };
 }
 
-async function assertBattleClaimCounts(pool: Pool, battleId: string, expected: number): Promise<void> {
+async function assertBattleClaimCounts(
+  pool: Pool,
+  battleId: string,
+  expected: number,
+): Promise<void> {
   const result = await pool.query<{
     reward_claims: string;
     xp_ledgers: string;
@@ -762,11 +769,16 @@ async function assertBattleClaimCounts(pool: Pool, battleId: string, expected: n
     Number(row.trainer_ledgers) !== expected ||
     Number(row.outbox) !== expected
   ) {
-    throw new Error(`Unexpected exactly-once counts for battle ${battleId}: ${JSON.stringify(row)}`);
+    throw new Error(
+      `Unexpected exactly-once counts for battle ${battleId}: ${JSON.stringify(row)}`,
+    );
   }
 }
 
-async function createItemEvolutionRelease(pool: Pool, parent: ReleaseRef): Promise<{ release: ReleaseRef; itemId: string }> {
+async function createItemEvolutionRelease(
+  pool: Pool,
+  parent: ReleaseRef,
+): Promise<{ release: ReleaseRef; itemId: string }> {
   const catalog = new CatalogService(new PostgresCatalogRepository(pool));
   const newReleaseId = randomUUID();
   unwrap(
@@ -843,12 +855,17 @@ async function main(): Promise<void> {
     if (first.replayed) throw new Error("First successful reward unexpectedly replayed");
     const firstPokemon = first.pokemon[0];
     if (firstPokemon === undefined || firstPokemon.afterLevel !== 10) {
-      throw new Error(`Expected level 10 after multi-level reward: ${JSON.stringify(firstPokemon)}`);
+      throw new Error(
+        `Expected level 10 after multi-level reward: ${JSON.stringify(firstPokemon)}`,
+      );
     }
     if (!firstPokemon.learnedMoveIds.includes(vineWhip.moveId)) {
       throw new Error("Level 7 free-slot move was not learned during multi-level reward");
     }
-    if (first.trainer.afterLevel !== 10 || !first.trainer.unlockKeys.includes("tournament.tier-1")) {
+    if (
+      first.trainer.afterLevel !== 10 ||
+      !first.trainer.unlockKeys.includes("tournament.tier-1")
+    ) {
       throw new Error(`Trainer tier-1 unlock was not granted: ${JSON.stringify(first.trainer)}`);
     }
     await assertBattleClaimCounts(pool, crashBattle.battleId, 1);
@@ -873,7 +890,9 @@ async function main(): Promise<void> {
       persistedFirstRow.poison !== "1" ||
       persistedFirstRow.unlock !== "1"
     ) {
-      throw new Error(`Terminal HP/PP/status or trainer unlock did not persist: ${JSON.stringify(persistedFirstRow)}`);
+      throw new Error(
+        `Terminal HP/PP/status or trainer unlock did not persist: ${JSON.stringify(persistedFirstRow)}`,
+      );
     }
     const replay = unwrap("replay first reward", await service.applyBattleReward(crashInput));
     if (!replay.replayed) throw new Error("Reward retry did not replay persisted result");
@@ -886,12 +905,7 @@ async function main(): Promise<void> {
       15,
       pokemonXpRequiredForNextLevel(15) - 1,
     );
-    await setTrainerProgress(
-      pool,
-      primary.playerId,
-      14,
-      trainerPointsRequiredForLevel(15) - 100,
-    );
+    await setTrainerProgress(pool, primary.playerId, 14, trainerPointsRequiredForLevel(15) - 100);
     const concurrentBattle = await createTerminalBattle(pool, phase11, primary, "WON");
     const concurrentInput = {
       battleId: concurrentBattle.battleId,
@@ -899,16 +913,29 @@ async function main(): Promise<void> {
       correlationId: randomUUID(),
     };
     const concurrent = await Promise.all([
-      new ProgressionService(new PostgresProgressionRepository(pool)).applyBattleReward(concurrentInput),
-      new ProgressionService(new PostgresProgressionRepository(pool)).applyBattleReward(concurrentInput),
+      new ProgressionService(new PostgresProgressionRepository(pool)).applyBattleReward(
+        concurrentInput,
+      ),
+      new ProgressionService(new PostgresProgressionRepository(pool)).applyBattleReward(
+        concurrentInput,
+      ),
     ]);
-    const concurrentValues = concurrent.map((result, index) => unwrap(`concurrent reward ${index + 1}`, result));
+    const concurrentValues = concurrent.map((result, index) =>
+      unwrap(`concurrent reward ${index + 1}`, result),
+    );
     const replayFlags = concurrentValues.map((value) => value.replayed).sort();
     if (JSON.stringify(replayFlags) !== JSON.stringify([false, true])) {
-      throw new Error(`Concurrent reward did not converge to apply+replay: ${JSON.stringify(replayFlags)}`);
+      throw new Error(
+        `Concurrent reward did not converge to apply+replay: ${JSON.stringify(replayFlags)}`,
+      );
     }
     await assertBattleClaimCounts(pool, concurrentBattle.battleId, 1);
-    const evolved = await pool.query<{ species_slug: string; level: number; unlock: string; claims: string }>(
+    const evolved = await pool.query<{
+      species_slug: string;
+      level: number;
+      unlock: string;
+      claims: string;
+    }>(
       `SELECT species.slug AS species_slug, instance.level,
               (SELECT count(*)::text FROM trainer_unlocks WHERE player_id = $2 AND unlock_key = 'tournament.tier-2' AND status = 'ACTIVE') AS unlock,
               (SELECT count(*)::text FROM pokemon_evolution_claims WHERE pokemon_instance_id = $1 AND source_type = 'BATTLE_REWARD' AND source_id = $3) AS claims
@@ -926,7 +953,9 @@ async function main(): Promise<void> {
       evolvedRow.unlock !== "1" ||
       evolvedRow.claims !== "1"
     ) {
-      throw new Error(`Concurrent level evolution/trainer unlock audit failed: ${JSON.stringify(evolvedRow)}`);
+      throw new Error(
+        `Concurrent level evolution/trainer unlock audit failed: ${JSON.stringify(evolvedRow)}`,
+      );
     }
     const ivysaurPokedex = await pool.query<{ caught: string }>(
       `SELECT caught_count::text AS caught FROM player_pokedex_species entry
@@ -958,7 +987,9 @@ async function main(): Promise<void> {
     const pendingPokemon = pendingReward.pokemon[0];
     const choiceId = pendingPokemon?.pendingMoveChoiceIds[0];
     if (choiceId === undefined || pendingPokemon.learnedMoveIds.length !== 0) {
-      throw new Error(`Four-slot level-up did not create a pending move choice: ${JSON.stringify(pendingPokemon)}`);
+      throw new Error(
+        `Four-slot level-up did not create a pending move choice: ${JSON.stringify(pendingPokemon)}`,
+      );
     }
     const choiceCorrelation = randomUUID();
     const resolvedChoice = unwrap(
@@ -970,8 +1001,14 @@ async function main(): Promise<void> {
         correlationId: choiceCorrelation,
       }),
     );
-    if (resolvedChoice.replayed || resolvedChoice.status !== "RESOLVED" || resolvedChoice.replacedSlotNo !== 4) {
-      throw new Error(`Move choice did not resolve exactly once: ${JSON.stringify(resolvedChoice)}`);
+    if (
+      resolvedChoice.replayed ||
+      resolvedChoice.status !== "RESOLVED" ||
+      resolvedChoice.replacedSlotNo !== 4
+    ) {
+      throw new Error(
+        `Move choice did not resolve exactly once: ${JSON.stringify(resolvedChoice)}`,
+      );
     }
     const choiceReplay = unwrap(
       "replay pending move choice",
@@ -999,7 +1036,12 @@ async function main(): Promise<void> {
       [pending.pokemonId, choiceId],
     );
     const slotFourRow = slotFour.rows[0];
-    if (slotFourRow === undefined || slotFourRow.move_id !== vineWhip.moveId || slotFourRow.status !== "RESOLVED" || slotFourRow.count !== "1") {
+    if (
+      slotFourRow === undefined ||
+      slotFourRow.move_id !== vineWhip.moveId ||
+      slotFourRow.status !== "RESOLVED" ||
+      slotFourRow.count !== "1"
+    ) {
       throw new Error(`Move-choice persistence audit failed: ${JSON.stringify(slotFourRow)}`);
     }
 
@@ -1110,7 +1152,12 @@ async function main(): Promise<void> {
       [noItemPlayer.pokemonId, noItemPlayer.playerId, itemProof.itemId],
     );
     const noItemRow = noItemAudit.rows[0];
-    if (noItemRow === undefined || noItemRow.species_slug !== "bulbasaur" || noItemRow.ledgers !== "0" || noItemRow.claims !== "0") {
+    if (
+      noItemRow === undefined ||
+      noItemRow.species_slug !== "bulbasaur" ||
+      noItemRow.ledgers !== "0" ||
+      noItemRow.claims !== "0"
+    ) {
       throw new Error(`Missing-item evolution leaked partial state: ${JSON.stringify(noItemRow)}`);
     }
 
