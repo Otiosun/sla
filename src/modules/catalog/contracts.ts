@@ -142,7 +142,7 @@ export const EvolutionTriggerSchemas = {
   ITEM: z.object({ itemId: z.string().uuid() }).strict(),
   CONDITION: z.object({ conditionKey: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/) }).strict(),
 } as const;
-export type EvolutionTriggerKind = keyof typeof EvolutionTriggerSchemas>;
+export type EvolutionTriggerKind = keyof typeof EvolutionTriggerSchemas;
 
 export interface ValidationIssue {
   readonly code: string;
