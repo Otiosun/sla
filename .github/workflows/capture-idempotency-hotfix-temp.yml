@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: "${{ !startsWith(github.event.head_commit.message, 'fix(capture): replay after terminal lock race') }}"
+    if: ${{ !startsWith(github.event.head_commit.message, 'fix(capture):') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -33,37 +33,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Patch terminal lock race
-        shell: python
+        shell: bash
         run: |
+          set -euo pipefail
+          python - <<'PY'
           from pathlib import Path
           path = Path('src/modules/capture/service.ts')
           text = path.read_text()
-          old = '''        const context = await transaction.loadContext(
-          input.playerId,
-          input.encounterId,
-          input.ballItemId,
-        );
-        if (context === null) return err(captureNotFound());
-
-        const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);
-'''
-          new = '''        const context = await transaction.loadContext(
-          input.playerId,
-          input.encounterId,
-          input.ballItemId,
-        );
-        if (context === null) {
-          const terminalReplay = await transaction.findAttempt(idempotency.value.storageKey);
-          return terminalReplay === null
-            ? err(captureNotFound())
-            : replay(terminalReplay, fingerprint);
-        }
-
-        const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);
-'''
+          old = "        const context = await transaction.loadContext(\n          input.playerId,\n          input.encounterId,\n          input.ballItemId,\n        );\n        if (context === null) return err(captureNotFound());\n\n        const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);\n"
+          new = "        const context = await transaction.loadContext(\n          input.playerId,\n          input.encounterId,\n          input.ballItemId,\n        );\n        if (context === null) {\n          const terminalReplay = await transaction.findAttempt(idempotency.value.storageKey);\n          return terminalReplay === null\n            ? err(captureNotFound())\n            : replay(terminalReplay, fingerprint);\n        }\n\n        const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);\n"
           if old not in text:
               raise SystemExit('Expected CaptureService block not found; refusing unsafe patch')
           path.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Canonical format
         run: pnpm exec biome format --write src/modules/capture/service.ts
