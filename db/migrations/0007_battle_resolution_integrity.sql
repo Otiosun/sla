@@ -65,9 +65,11 @@ ALTER TABLE move_revisions
       flags = '{}'::jsonb
       OR (
         jsonb_typeof(flags) = 'object'
+        AND flags ? 'schemaVersion'
+        AND flags ? 'makesContact'
         AND flags ->> 'schemaVersion' = '1'
         AND jsonb_typeof(flags -> 'makesContact') = 'boolean'
-        AND (SELECT count(*) FROM jsonb_object_keys(flags)) = 2
+        AND (flags - ARRAY['schemaVersion', 'makesContact']) = '{}'::jsonb
       )
     );
 
