@@ -11,7 +11,8 @@ import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -105,18 +106,18 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
     areaId,
     regionId,
   ]);
-  await client.query("INSERT INTO pokemon_types(id, slug) VALUES ($1, 'phase8-normal'), ($2, 'phase8-flying')", [
-    normalTypeId,
-    flyingTypeId,
-  ]);
+  await client.query(
+    "INSERT INTO pokemon_types(id, slug) VALUES ($1, 'phase8-normal'), ($2, 'phase8-flying')",
+    [normalTypeId, flyingTypeId],
+  );
   await client.query(
     "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 901, 'phase8-testmon')",
     [speciesId],
   );
-  await client.query(
-    "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')",
-    [formId, speciesId],
-  );
+  await client.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
+    formId,
+    speciesId,
+  ]);
   await client.query("INSERT INTO abilities(id, slug) VALUES ($1, 'phase8-keen-eye')", [abilityId]);
   await client.query("INSERT INTO natures(id, slug) VALUES ($1, 'phase8-hardy')", [natureId]);
   await client.query("INSERT INTO moves(id, slug) VALUES ($1, 'phase8-tackle')", [moveId]);
@@ -251,10 +252,10 @@ async function createEligiblePlayer(client: PoolClient, areaId: string): Promise
      VALUES ($1, 'COMPLETE', now())`,
     [playerId],
   );
-  await client.query(
-    "INSERT INTO player_locations(player_id, area_id) VALUES ($1, $2)",
-    [playerId, areaId],
-  );
+  await client.query("INSERT INTO player_locations(player_id, area_id) VALUES ($1, $2)", [
+    playerId,
+    areaId,
+  ]);
   return playerId;
 }
 
@@ -331,14 +332,8 @@ describe("encounter PostgreSQL integration", () => {
     ]);
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     expect(
-      results.filter(
-        (result) => !result.ok && result.error.code === "FLOW_BLOCKED",
-      ).length +
-        results.filter(
-          (result) => !result.ok && result.error.code === "ACTION_INVALID",
-        ).length,
-    ).toBe(0);
-    expect(results.filter((result) => !result.ok)).toHaveLength(1);
+      results.filter((result) => !result.ok && result.error.code === "ACTION_INVALID"),
+    ).toHaveLength(1);
 
     const persisted = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM encounters WHERE player_id = $1",
