@@ -10,6 +10,7 @@ import { BattleService } from "../../src/modules/battle/service.js";
 import { PostgresBattleAftermath } from "../../src/platform/battle/postgres-battle-aftermath.js";
 import { PostgresBattleCancellation } from "../../src/platform/battle/postgres-battle-cancellation.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { encryptRngSeed } from "../../src/platform/db/encrypted-seed.js";
 import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -62,14 +63,8 @@ async function cloneActiveBattleForTerminalProof(
     battle_type: "WILD" | "NPC" | "PVP";
     content_release_id: string;
     ruleset_id: string;
-    rng_seed_ciphertext: Buffer;
-    rng_seed_iv: Buffer;
-    rng_seed_auth_tag: Buffer;
-    rng_seed_key_version: number;
   }>(
-    `SELECT battle_type, content_release_id, ruleset_id,
-            rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag,
-            rng_seed_key_version
+    `SELECT battle_type, content_release_id, ruleset_id
      FROM battles
      WHERE id = $1`,
     [sourceBattleId],
@@ -78,6 +73,12 @@ async function cloneActiveBattleForTerminalProof(
   if (root === undefined) throw new Error("Source battle root missing for terminal proof clone");
 
   const battleId = randomUUID();
+  const seedEnvelope = encryptRngSeed(
+    Buffer.alloc(32, 0x5a),
+    BATTLE_KEY,
+    1,
+    Buffer.from(`battle:${battleId}`),
+  );
   const participantIds = new Map(
     sourceState.combatants.map((entry) => [entry.participantId, randomUUID()]),
   );
@@ -123,10 +124,10 @@ async function cloneActiveBattleForTerminalProof(
       root.battle_type,
       root.content_release_id,
       root.ruleset_id,
-      root.rng_seed_ciphertext,
-      root.rng_seed_iv,
-      root.rng_seed_auth_tag,
-      root.rng_seed_key_version,
+      seedEnvelope.ciphertext,
+      seedEnvelope.iv,
+      seedEnvelope.authTag,
+      seedEnvelope.keyVersion,
     ],
   );
 
