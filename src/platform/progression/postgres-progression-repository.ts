@@ -1338,7 +1338,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
            id, pokemon_instance_id, content_release_id, ruleset_id, evolution_rule_id,
            from_form_id, to_form_id, trigger_kind, source_type, source_id,
            idempotency_scope, idempotency_key, request_fingerprint, correlation_id, result
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PLAYER_ACTION', $2::text,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PLAYER_ACTION', $13,
                    'progression.evolve', $9, $10, $11, $12::jsonb)`,
         [
           claimId,
@@ -1353,6 +1353,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           fingerprint,
           input.correlationId,
           JSON.stringify(result),
+          input.pokemonInstanceId,
         ],
       );
       if (claim.rowCount !== 1)
