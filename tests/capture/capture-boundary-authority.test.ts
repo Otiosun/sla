@@ -7,23 +7,28 @@ import {
   createPlayerId,
 } from "../../src/shared-kernel/ids.js";
 
-describe("Capture public boundary authority", () => {
-  it("rejects client-controlled explicit capture modifiers", () => {
-    const valid = {
-      playerId: createPlayerId(),
-      encounterId: createEncounterId(),
-      expectedEncounterRevision: 0n,
-      expectedBattleVersion: null,
-      ballItemId: randomUUID(),
-      idempotencyKey: "boundary-authority",
-      correlationId: createCorrelationId(),
-      causationId: null,
-    };
+function validBoundaryRequest() {
+  return {
+    playerId: createPlayerId(),
+    encounterId: createEncounterId(),
+    expectedEncounterRevision: 0n,
+    expectedBattleVersion: null,
+    ballItemId: randomUUID(),
+    idempotencyKey: "boundary-authority",
+    correlationId: createCorrelationId(),
+    causationId: null,
+  };
+}
 
-    expect(CaptureAttemptInputBoundarySchema.safeParse(valid).success).toBe(true);
+describe("Capture public boundary authority", () => {
+  it("accepts the canonical public capture request", () => {
+    expect(CaptureAttemptInputBoundarySchema.safeParse(validBoundaryRequest()).success).toBe(true);
+  });
+
+  it("rejects client-controlled explicit capture modifiers", () => {
     expect(
       CaptureAttemptInputBoundarySchema.safeParse({
-        ...valid,
+        ...validBoundaryRequest(),
         explicitModifierBasisPoints: [100_000],
       }).success,
     ).toBe(false);
