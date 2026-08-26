@@ -1,0 +1,3 @@
+$ tsc --noEmit
+src/modules/battle/service.ts(24,3): error TS6196: 'BattleTransaction' is declared but never used.
+[ELIFECYCLE] Command failed with exit code 1.
