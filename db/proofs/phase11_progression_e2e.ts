@@ -756,8 +756,8 @@ async function assertBattleClaimCounts(
   }>(
     `SELECT
        (SELECT count(*)::text FROM battle_reward_claims WHERE battle_id = $1) AS reward_claims,
-       (SELECT count(*)::text FROM pokemon_xp_ledger WHERE source_type = 'BATTLE_REWARD' AND source_id = $1) AS xp_ledgers,
-       (SELECT count(*)::text FROM trainer_progress_ledger WHERE source_type = 'BATTLE_REWARD' AND source_id = $1) AS trainer_ledgers,
+       (SELECT count(*)::text FROM pokemon_xp_ledger WHERE source_type = 'BATTLE_REWARD' AND source_id = $1::text) AS xp_ledgers,
+       (SELECT count(*)::text FROM trainer_progress_ledger WHERE source_type = 'BATTLE_REWARD' AND source_id = $1::text) AS trainer_ledgers,
        (SELECT count(*)::text FROM outbox_messages WHERE idempotency_key = 'progression.reward:' || $1::text) AS outbox`,
     [battleId],
   );
