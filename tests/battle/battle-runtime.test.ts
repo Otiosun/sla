@@ -5,7 +5,8 @@ import { battleState } from "./fixtures.js";
 
 function playerSide(state: BattleState) {
   const side = state.sides.find((entry) => entry.controllerKind === "PLAYER");
-  if (side === undefined || side.playerId === null) throw new Error("fixture player side is missing");
+  if (side === undefined || side.playerId === null)
+    throw new Error("fixture player side is missing");
   return side;
 }
 
