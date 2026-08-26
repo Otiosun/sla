@@ -24,6 +24,12 @@ const RULESET_CONFIG = {
   narrative: { authority: "N0_FLAVOR_ONLY" },
 } as const;
 
+const OPEN_ENCOUNTER_CONDITIONS = {
+  schemaVersion: 1,
+  requiredUnlockKeys: [],
+  blockedUnlockKeys: [],
+} as const;
+
 function validSnapshot(releaseId = "release-1"): CatalogSnapshotWithEffects {
   return {
     release: {
@@ -149,6 +155,7 @@ function validSnapshot(releaseId = "release-1"): CatalogSnapshotWithEffects {
         encounterTableId: "encounter-1",
         areaId: "area-1",
         active: true,
+        conditions: OPEN_ENCOUNTER_CONDITIONS,
         entries: [
           {
             formId: "form-1",
@@ -156,6 +163,7 @@ function validSnapshot(releaseId = "release-1"): CatalogSnapshotWithEffects {
             minLevel: 2,
             maxLevel: 4,
             active: true,
+            conditions: OPEN_ENCOUNTER_CONDITIONS,
           },
         ],
       },
@@ -230,6 +238,56 @@ describe("catalog contracts", () => {
       })),
     };
     expect(fingerprintCatalog(snapshot)).toBe(fingerprintCatalog(reordered));
+  });
+
+  it("treats encounter conditions as validated and fingerprinted release content", () => {
+    const before = validSnapshot("release-1");
+    const table = before.encounterTables[0];
+    const entry = table?.entries[0];
+    expect(table).toBeDefined();
+    expect(entry).toBeDefined();
+    if (table === undefined || entry === undefined) return;
+
+    const after: CatalogSnapshotWithEffects = {
+      ...validSnapshot("release-2"),
+      encounterTables: [
+        {
+          ...table,
+          conditions: {
+            schemaVersion: 1,
+            requiredUnlockKeys: ["badge.boulder"],
+            blockedUnlockKeys: [],
+          },
+        },
+      ],
+    };
+    expect(fingerprintCatalog(after)).not.toBe(fingerprintCatalog(before));
+
+    const invalid = {
+      ...before,
+      encounterTables: [
+        {
+          ...table,
+          entries: [
+            {
+              ...entry,
+              maxLevel: 101,
+              conditions: {
+                schemaVersion: 1,
+                requiredUnlockKeys: ["badge.boulder"],
+                blockedUnlockKeys: ["badge.boulder"],
+              },
+            },
+          ],
+        },
+      ],
+    } as unknown as CatalogSnapshotWithEffects;
+    const validation = validateCatalogSnapshot(invalid);
+    expect(validation.valid).toBe(false);
+    expect(
+      validation.issues.some((issue) => issue.code === "ENCOUNTER_ENTRY_CONDITIONS_INVALID"),
+    ).toBe(true);
+    expect(validation.issues.some((issue) => issue.code === "ENCOUNTER_RANGE_INVALID")).toBe(true);
   });
 
   it("treats starter options as fingerprinted, validated and diffable content", () => {
