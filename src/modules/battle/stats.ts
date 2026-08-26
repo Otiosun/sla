@@ -82,7 +82,10 @@ export function effectiveAccuracyPercent(
 }
 
 export function effectiveSpeed(combatant: BattleCombatant, rules: BattleRules): number {
-  let speed = applyBattleStage(calculateDerivedStats(combatant, rules).speed, combatant.stages.speed);
+  let speed = applyBattleStage(
+    calculateDerivedStats(combatant, rules).speed,
+    combatant.stages.speed,
+  );
   if (combatant.majorStatus?.key === "PARALYSIS") {
     speed = Math.max(
       1,

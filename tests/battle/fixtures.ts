@@ -42,7 +42,9 @@ export const IDS = {
   hardy: "00000000-0000-4000-8000-000000000801",
 } as const;
 
-const move = (input: Partial<BattleMoveSnapshot> & Pick<BattleMoveSnapshot, "slotNo" | "moveId">): BattleMoveSnapshot => ({
+const move = (
+  input: Partial<BattleMoveSnapshot> & Pick<BattleMoveSnapshot, "slotNo" | "moveId">,
+): BattleMoveSnapshot => ({
   slotNo: input.slotNo,
   moveId: input.moveId,
   typeId: input.typeId ?? IDS.normal,
@@ -220,7 +222,8 @@ export function battleState(withReserve = false): BattleState {
         sideNo: 1,
         controllerKind: "PLAYER",
         playerId: IDS.player,
-        participantIds: reserve === null ? [player.participantId] : [player.participantId, reserve.participantId],
+        participantIds:
+          reserve === null ? [player.participantId] : [player.participantId, reserve.participantId],
         activeParticipantId: player.participantId,
         result: null,
       },

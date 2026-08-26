@@ -47,7 +47,11 @@ function requiredActionSides(state: BattleState): readonly number[] {
   const forced = state.sides
     .filter((side) => {
       const active = activeCombatant(state, side.sideNo);
-      return active !== undefined && active.currentHp <= 0 && usableReserves(state, side.sideNo).length > 0;
+      return (
+        active !== undefined &&
+        active.currentHp <= 0 &&
+        usableReserves(state, side.sideNo).length > 0
+      );
     })
     .map((side) => side.sideNo);
   return forced.length > 0
@@ -130,7 +134,9 @@ function emitFaintIfNeeded(
   events: BattleEvent[],
 ): void {
   if (previousHp > 0 && combatant.currentHp === 0) {
-    events.push(event("Fainted", { participantId: combatant.participantId, sideNo: combatant.sideNo }));
+    events.push(
+      event("Fainted", { participantId: combatant.participantId, sideNo: combatant.sideNo }),
+    );
   }
 }
 
@@ -162,15 +168,10 @@ function applyMoveEffect(
   if (move.effectKey === "apply-status") {
     const parsed = EffectConfigSchemas["apply-status"].safeParse(move.effectConfig);
     if (parsed.success) {
-      applyStatus(
-        defender,
-        parsed.data.status,
-        parsed.data.chanceBasisPoints,
-        rules,
-        rng,
-        events,
-        { source: "MOVE", moveId: move.moveId },
-      );
+      applyStatus(defender, parsed.data.status, parsed.data.chanceBasisPoints, rules, rng, events, {
+        source: "MOVE",
+        moveId: move.moveId,
+      });
     }
     return;
   }
@@ -223,15 +224,10 @@ function applyContactAbility(
   );
   if (!parsed.success) return;
   const before = attacker.majorStatus;
-  applyStatus(
-    attacker,
-    parsed.data.status,
-    parsed.data.chanceBasisPoints,
-    rules,
-    rng,
-    events,
-    { source: "ABILITY", abilityId: defender.ability.abilityId },
-  );
+  applyStatus(attacker, parsed.data.status, parsed.data.chanceBasisPoints, rules, rng, events, {
+    source: "ABILITY",
+    abilityId: defender.ability.abilityId,
+  });
   if (before === null && attacker.majorStatus !== null) {
     events.push(
       event("AbilityTriggered", {
@@ -300,7 +296,9 @@ function canUseMove(
         }),
       );
       emitFaintIfNeeded(actor, previousHp, events);
-      events.push(event("ActionBlocked", { participantId: actor.participantId, reason: "CONFUSION" }));
+      events.push(
+        event("ActionBlocked", { participantId: actor.participantId, reason: "CONFUSION" }),
+      );
       return false;
     }
   }
@@ -308,7 +306,9 @@ function canUseMove(
   if (status === null) return true;
   if (status.key === "PARALYSIS") {
     if (rng.randomInt(10_000) < rules.status.paralysisBlockChanceBasisPoints) {
-      events.push(event("ActionBlocked", { participantId: actor.participantId, reason: "PARALYSIS" }));
+      events.push(
+        event("ActionBlocked", { participantId: actor.participantId, reason: "PARALYSIS" }),
+      );
       return false;
     }
     return true;
@@ -572,7 +572,9 @@ export function resolveTurn(
     if (state.status !== "ACTIVE") break;
     const actor = findCombatant(state, action.actorParticipantId);
     if (actor.currentHp <= 0 && action.type !== "SWITCH") {
-      events.push(event("ActionSkipped", { participantId: actor.participantId, reason: "FAINTED" }));
+      events.push(
+        event("ActionSkipped", { participantId: actor.participantId, reason: "FAINTED" }),
+      );
       continue;
     }
     if (action.type === "USE_MOVE" && !canUseMove(actor, rules, rng, events)) {

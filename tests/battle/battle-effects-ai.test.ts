@@ -5,7 +5,8 @@ import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
 import { IDS, TEST_RULES, battleState } from "./fixtures.js";
 
-const rng = (byte: number, counter = 0n) => new CounterRandomSource(Buffer.alloc(32, byte), counter);
+const rng = (byte: number, counter = 0n) =>
+  new CounterRandomSource(Buffer.alloc(32, byte), counter);
 
 describe("battle effects, abilities and heuristic AI", () => {
   it("applies Static only after a successful contact hit", () => {
@@ -29,11 +30,13 @@ describe("battle effects, abilities and heuristic AI", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(
-      result.value.state.combatants.find((entry) => entry.participantId === IDS.p1)?.majorStatus?.key,
+      result.value.state.combatants.find((entry) => entry.participantId === IDS.p1)?.majorStatus
+        ?.key,
     ).toBe("PARALYSIS");
     expect(
       result.value.events.some(
-        (entry) => entry.type === "AbilityTriggered" && entry.payload.abilityId === IDS.staticAbility,
+        (entry) =>
+          entry.type === "AbilityTriggered" && entry.payload.abilityId === IDS.staticAbility,
       ),
     ).toBe(true);
   });
@@ -58,7 +61,9 @@ describe("battle effects, abilities and heuristic AI", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.state.combatants.find((entry) => entry.participantId === IDS.p1)?.majorStatus).toBeNull();
+    expect(
+      result.value.state.combatants.find((entry) => entry.participantId === IDS.p1)?.majorStatus,
+    ).toBeNull();
   });
 
   it("blocks negative Accuracy changes behind Keen Eye", () => {
@@ -92,7 +97,10 @@ describe("battle effects, abilities and heuristic AI", () => {
     player.ability = { abilityId: IDS.runAway, effectKey: "run-away", effectConfig: {} };
     const result = resolveTurn(
       state,
-      [{ type: "FLEE", actorParticipantId: IDS.p1 }, { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 }],
+      [
+        { type: "FLEE", actorParticipantId: IDS.p1 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
       TEST_RULES,
       rng(13),
     );
@@ -135,8 +143,11 @@ describe("battle effects, abilities and heuristic AI", () => {
         if (state.status === "ACTIVE") {
           for (const side of state.sides) {
             const legal = legalActionsForSide(state, side.sideNo, TEST_RULES);
-            const active = state.combatants.find((entry) => entry.participantId === side.activeParticipantId);
-            if (active !== undefined && active.currentHp > 0) expect(legal.length).toBeGreaterThan(0);
+            const active = state.combatants.find(
+              (entry) => entry.participantId === side.activeParticipantId,
+            );
+            if (active !== undefined && active.currentHp > 0)
+              expect(legal.length).toBeGreaterThan(0);
           }
         }
       }

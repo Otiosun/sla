@@ -66,9 +66,12 @@ export function legalActionsForSide(
 }
 
 function sameAction(left: BattleAction, right: BattleAction): boolean {
-  if (left.type !== right.type || left.actorParticipantId !== right.actorParticipantId) return false;
+  if (left.type !== right.type || left.actorParticipantId !== right.actorParticipantId)
+    return false;
   if (left.type === "USE_MOVE" && right.type === "USE_MOVE") {
-    return left.moveSlot === right.moveSlot && left.targetParticipantId === right.targetParticipantId;
+    return (
+      left.moveSlot === right.moveSlot && left.targetParticipantId === right.targetParticipantId
+    );
   }
   if (left.type === "SWITCH" && right.type === "SWITCH") {
     return left.switchToParticipantId === right.switchToParticipantId;

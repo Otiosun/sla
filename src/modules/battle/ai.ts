@@ -4,9 +4,15 @@ import { legalActionsForSide } from "./legal.js";
 import type { BattleRules } from "./rules.js";
 import { typeEffectivenessBasisPoints } from "./rules.js";
 
-function scoreMove(state: BattleState, action: Extract<BattleAction, { type: "USE_MOVE" }>, rules: BattleRules): number {
+function scoreMove(
+  state: BattleState,
+  action: Extract<BattleAction, { type: "USE_MOVE" }>,
+  rules: BattleRules,
+): number {
   const actor = state.combatants.find((entry) => entry.participantId === action.actorParticipantId);
-  const target = state.combatants.find((entry) => entry.participantId === action.targetParticipantId);
+  const target = state.combatants.find(
+    (entry) => entry.participantId === action.targetParticipantId,
+  );
   const move = actor?.moves.find((entry) => entry.slotNo === action.moveSlot);
   if (actor === undefined || target === undefined || move === undefined) return -1;
   const defendingTypes = [target.type1Id, ...(target.type2Id === null ? [] : [target.type2Id])];
@@ -21,7 +27,9 @@ export function chooseHeuristicAction(
   rules: BattleRules,
   rng: CounterRandomSource,
 ): BattleAction | null {
-  const legal = legalActionsForSide(state, sideNo, rules).filter((action) => action.type !== "FLEE");
+  const legal = legalActionsForSide(state, sideNo, rules).filter(
+    (action) => action.type !== "FLEE",
+  );
   if (legal.length === 0) return null;
   const scored = legal.map((action) => ({
     action,

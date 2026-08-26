@@ -67,7 +67,10 @@ describe("Battle Engine v1 pure resolver", () => {
     if (!result.ok) return;
     const firstMove = result.value.events.find((entry) => entry.type === "MoveUsed");
     expect(firstMove?.payload.participantId).toBe(IDS.p1);
-    expect(result.value.state.combatants.find((entry) => entry.participantId === IDS.p1)?.moves[2]?.ppCurrent).toBe(29);
+    expect(
+      result.value.state.combatants.find((entry) => entry.participantId === IDS.p1)?.moves[2]
+        ?.ppCurrent,
+    ).toBe(29);
   });
 
   it("replays a speed tie identically from the same seed and counter", () => {
@@ -77,7 +80,8 @@ describe("Battle Engine v1 pure resolver", () => {
     const p2A = stateA.combatants.find((entry) => entry.participantId === IDS.p2);
     const p1B = stateB.combatants.find((entry) => entry.participantId === IDS.p1);
     const p2B = stateB.combatants.find((entry) => entry.participantId === IDS.p2);
-    if (p1A === undefined || p2A === undefined || p1B === undefined || p2B === undefined) throw new Error("fixture incomplete");
+    if (p1A === undefined || p2A === undefined || p1B === undefined || p2B === undefined)
+      throw new Error("fixture incomplete");
     p1A.baseStats.speed = p2A.baseStats.speed;
     p1A.ivs.speed = p2A.ivs.speed;
     p1A.level = p2A.level;
@@ -85,8 +89,18 @@ describe("Battle Engine v1 pure resolver", () => {
     p1B.ivs.speed = p2B.ivs.speed;
     p1B.level = p2B.level;
     const actions = [
-      { type: "USE_MOVE" as const, actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
-      { type: "USE_MOVE" as const, actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      {
+        type: "USE_MOVE" as const,
+        actorParticipantId: IDS.p1,
+        moveSlot: 1,
+        targetParticipantId: IDS.p2,
+      },
+      {
+        type: "USE_MOVE" as const,
+        actorParticipantId: IDS.p2,
+        moveSlot: 1,
+        targetParticipantId: IDS.p1,
+      },
     ];
     const first = resolveTurn(stateA, actions, TEST_RULES, rng(7));
     const second = resolveTurn(stateB, actions, TEST_RULES, rng(7));
@@ -139,7 +153,9 @@ describe("Battle Engine v1 pure resolver", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const updatedWild = result.value.state.combatants.find((entry) => entry.participantId === IDS.p2);
+    const updatedWild = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
     expect(updatedWild?.currentHp).toBe(0);
     expect(result.value.events.filter((entry) => entry.type === "Fainted")).toHaveLength(1);
     expect(result.value.state.status).toBe("WON");

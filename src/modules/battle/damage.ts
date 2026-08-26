@@ -20,10 +20,7 @@ function multiplyBasisPoints(value: number, multiplier: number): number {
   return Math.floor((value * multiplier) / BP);
 }
 
-function abilityDamageMultiplier(
-  attacker: BattleCombatant,
-  move: BattleMoveSnapshot,
-): number {
+function abilityDamageMultiplier(attacker: BattleCombatant, move: BattleMoveSnapshot): number {
   if (attacker.ability.effectKey !== "low-hp-type-boost") return BP;
   const parsed = EffectConfigSchemas["low-hp-type-boost"].safeParse(attacker.ability.effectConfig);
   if (!parsed.success) return BP;
@@ -49,12 +46,11 @@ export function computeDamage(
     };
   }
 
-  const defendingTypes = [defender.type1Id, ...(defender.type2Id === null ? [] : [defender.type2Id])];
-  const effectivenessBasisPoints = typeEffectivenessBasisPoints(
-    rules,
-    move.typeId,
-    defendingTypes,
-  );
+  const defendingTypes = [
+    defender.type1Id,
+    ...(defender.type2Id === null ? [] : [defender.type2Id]),
+  ];
+  const effectivenessBasisPoints = typeEffectivenessBasisPoints(rules, move.typeId, defendingTypes);
   if (effectivenessBasisPoints === 0) {
     return {
       damage: 0,

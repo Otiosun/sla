@@ -114,7 +114,11 @@ export const BattleNatureSchema = z
 export type BattleNature = z.infer<typeof BattleNatureSchema>;
 
 export const BattleAbilitySchema = z
-  .object({ abilityId: uuid, effectKey: z.string().min(1).max(64).nullable(), effectConfig: z.unknown() })
+  .object({
+    abilityId: uuid,
+    effectKey: z.string().min(1).max(64).nullable(),
+    effectConfig: z.unknown(),
+  })
   .strict();
 export type BattleAbility = z.infer<typeof BattleAbilitySchema>;
 
@@ -156,7 +160,11 @@ export const BattleCombatantSchema = z
   .strict()
   .superRefine((combatant, context) => {
     if (combatant.currentHp > combatant.maxHp) {
-      context.addIssue({ code: "custom", path: ["currentHp"], message: "currentHp cannot exceed maxHp" });
+      context.addIssue({
+        code: "custom",
+        path: ["currentHp"],
+        message: "currentHp cannot exceed maxHp",
+      });
     }
     const slots = new Set(combatant.moves.map((move) => move.slotNo));
     if (slots.size !== combatant.moves.length) {
@@ -198,22 +206,38 @@ export const BattleStateSchema = z
     const sideNos = new Set<number>();
     for (const [index, side] of state.sides.entries()) {
       if (sideNos.has(side.sideNo)) {
-        context.addIssue({ code: "custom", path: ["sides", index, "sideNo"], message: "sideNo must be unique" });
+        context.addIssue({
+          code: "custom",
+          path: ["sides", index, "sideNo"],
+          message: "sideNo must be unique",
+        });
       }
       sideNos.add(side.sideNo);
       if (!side.participantIds.includes(side.activeParticipantId)) {
-        context.addIssue({ code: "custom", path: ["sides", index, "activeParticipantId"], message: "active participant must belong to side" });
+        context.addIssue({
+          code: "custom",
+          path: ["sides", index, "activeParticipantId"],
+          message: "active participant must belong to side",
+        });
       }
       for (const participantId of side.participantIds) {
         if (!combatantIds.has(participantId)) {
-          context.addIssue({ code: "custom", path: ["sides", index, "participantIds"], message: "side references missing combatant" });
+          context.addIssue({
+            code: "custom",
+            path: ["sides", index, "participantIds"],
+            message: "side references missing combatant",
+          });
         }
       }
     }
     for (const [index, combatant] of state.combatants.entries()) {
       const side = state.sides.find((entry) => entry.sideNo === combatant.sideNo);
       if (side === undefined || !side.participantIds.includes(combatant.participantId)) {
-        context.addIssue({ code: "custom", path: ["combatants", index, "sideNo"], message: "combatant is not owned by its side" });
+        context.addIssue({
+          code: "custom",
+          path: ["combatants", index, "sideNo"],
+          message: "combatant is not owned by its side",
+        });
       }
     }
   });
@@ -227,7 +251,11 @@ export const BattleActionSchema = z.discriminatedUnion("type", [
     targetParticipantId: uuid,
   }).strict(),
   ActionBaseSchema.extend({ type: z.literal("SWITCH"), switchToParticipantId: uuid }).strict(),
-  ActionBaseSchema.extend({ type: z.literal("USE_ITEM"), itemId: uuid, targetParticipantId: uuid.optional() }).strict(),
+  ActionBaseSchema.extend({
+    type: z.literal("USE_ITEM"),
+    itemId: uuid,
+    targetParticipantId: uuid.optional(),
+  }).strict(),
   ActionBaseSchema.extend({ type: z.literal("FLEE") }).strict(),
 ]);
 export type BattleAction = z.infer<typeof BattleActionSchema>;
