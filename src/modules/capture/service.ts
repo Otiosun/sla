@@ -265,7 +265,7 @@ export class CaptureService {
         const probability = captureProbability(probabilityInput.data);
 
         const attemptId = randomUUID();
-        const seed = this.seedProvider.create(`capture:${attemptId}`);
+        const seed = this.seedProvider.create(`${idempotency.value.storageKey}:${fingerprint}`);
         const rng = new CounterRandomSource(seed.seed);
         const rollBasisPoints = rng.randomInt(10_000);
         const success = rollBasisPoints < probability.probabilityBasisPoints;
