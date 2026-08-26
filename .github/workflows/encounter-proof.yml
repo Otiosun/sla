@@ -1,0 +1,124 @@
+name: Encounter Proof
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: encounter-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: migrate / deterministic encounter invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql \
+              --username pokemon \
+              --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Apply immutable migrations
+        run: pnpm db:migrate
+
+      - name: Verify migrated schema
+        run: pnpm db:verify
+
+      - name: Verify Phase 8 physical invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          migration_count="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM schema_migrations WHERE version = '0006';")"
+          creation_not_null="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'encounters' AND column_name = 'creation_idempotency_key';")"
+          expires_type="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'encounters' AND column_name = 'expires_at';")"
+          creation_index="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uq_encounters_player_creation_idempotency';")"
+          cleanup_index="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'idx_encounters_expiration_cleanup';")"
+          close_constraint="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM pg_constraint WHERE conrelid = 'encounters'::regclass AND conname = 'encounters_closed_state_check';")"
+
+          test "$migration_count" = "1"
+          test "$creation_not_null" = "NO"
+          test "$expires_type" = "timestamp with time zone"
+          test "$creation_index" = "1"
+          test "$cleanup_index" = "1"
+          test "$close_constraint" = "1"
+
+      - name: Reject non-deterministic encounter authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number --fixed-strings "Math.random" \
+            src/modules/encounter src/platform/rng/counter-rng.ts src/platform/rng/encrypted-seed-provider.ts; then
+            echo "Math.random is forbidden as encounter mechanical authority."
+            exit 1
+          fi
+
+      - name: Run encounter contract and deterministic RNG proof
+        run: >-
+          pnpm exec vitest run
+          tests/catalog/encounter-ruleset-contracts.test.ts
+          tests/encounter/encounter-core.test.ts
+
+      - name: Run PostgreSQL retry restart concurrency proof
+        run: pnpm exec vitest run tests/db/encounter.integration.test.ts
