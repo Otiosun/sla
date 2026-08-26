@@ -250,10 +250,10 @@ async function main(): Promise<void> {
       throw new Error(`Cancellation persistence audit failed: ${JSON.stringify(cancellationRow)}`);
     }
 
-    const walletBefore = await pool.query<{ total: string }>(
-      `SELECT COALESCE(sum(balance), 0)::text AS total
-       FROM wallet_balances
-       WHERE player_id = $1`,
+    const walletBefore = await pool.query<{ total: string; ledger_count: string }>(
+      `SELECT
+         COALESCE((SELECT sum(amount) FROM wallet_balances WHERE player_id = $1), 0)::text AS total,
+         (SELECT count(*) FROM wallet_ledger WHERE player_id = $1)::text AS ledger_count`,
       [playerId],
     );
     const locationBefore = await pool.query<{ slug: string; revision: string }>(
@@ -302,14 +302,17 @@ async function main(): Promise<void> {
       throw new Error(`Expected LOST terminal state, got ${defeated.state.status}`);
     }
 
-    const walletAfter = await pool.query<{ total: string }>(
-      `SELECT COALESCE(sum(balance), 0)::text AS total
-       FROM wallet_balances
-       WHERE player_id = $1`,
+    const walletAfter = await pool.query<{ total: string; ledger_count: string }>(
+      `SELECT
+         COALESCE((SELECT sum(amount) FROM wallet_balances WHERE player_id = $1), 0)::text AS total,
+         (SELECT count(*) FROM wallet_ledger WHERE player_id = $1)::text AS ledger_count`,
       [playerId],
     );
-    if (walletAfter.rows[0]?.total !== walletBefore.rows[0]?.total) {
-      throw new Error("Defeat policy changed wallet balance despite automaticMoneyLoss=false");
+    if (
+      walletAfter.rows[0]?.total !== walletBefore.rows[0]?.total ||
+      walletAfter.rows[0]?.ledger_count !== walletBefore.rows[0]?.ledger_count
+    ) {
+      throw new Error("Defeat policy mutated wallet state despite automaticMoneyLoss=false");
     }
     const locationAfter = await pool.query<{ slug: string; revision: string }>(
       `SELECT area.slug, location.revision::text
