@@ -6,6 +6,10 @@ import {
   type RulesetSnapshot,
   type ValidationReport,
 } from "../../modules/catalog/contracts.js";
+import {
+  parseEncounterConditions,
+  type EncounterConditions,
+} from "../../modules/catalog/encounter-contracts.js";
 import type {
   CatalogReleaseRecord,
   CatalogRepository,
@@ -17,6 +21,12 @@ import { withTransaction } from "../db/transaction.js";
 
 function expectOneRow(rowCount: number | null, operation: string): void {
   if (rowCount !== 1) throw new Error(`${operation} did not affect exactly one row`);
+}
+
+function requireEncounterConditions(value: unknown, label: string): EncounterConditions {
+  const parsed = parseEncounterConditions(value);
+  if (!parsed.success) throw new Error(`${label} has invalid encounter conditions`);
+  return parsed.data;
 }
 
 interface RulesetRow {
@@ -399,8 +409,10 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         encounter_table_id: string;
         area_id: string;
         active: boolean;
+        conditions: unknown;
       }>(
-        `SELECT etr.id AS revision_id, etr.encounter_table_id, et.area_id, etr.active
+        `SELECT etr.id AS revision_id, etr.encounter_table_id, et.area_id, etr.active,
+                etr.conditions
          FROM encounter_table_revisions etr
          JOIN encounter_tables et ON et.id = etr.encounter_table_id
          WHERE etr.content_release_id = $1 ORDER BY etr.encounter_table_id`,
@@ -411,13 +423,15 @@ class PostgresCatalogTransaction implements CatalogTransaction {
     const tableRows = await Promise.all(
       encounterTables.rows.map(async (table) => {
         const entries = await this.client.query<{
+          id: string;
           form_id: string;
           weight: string;
           min_level: number;
           max_level: number;
           active: boolean;
+          conditions: unknown;
         }>(
-          `SELECT form_id, weight::text, min_level, max_level, active
+          `SELECT id, form_id, weight::text, min_level, max_level, active, conditions
            FROM encounter_entries
            WHERE encounter_table_revision_id = $1
            ORDER BY id`,
@@ -427,12 +441,17 @@ class PostgresCatalogTransaction implements CatalogTransaction {
           encounterTableId: table.encounter_table_id,
           areaId: table.area_id,
           active: table.active,
+          conditions: requireEncounterConditions(
+            table.conditions,
+            `Encounter table ${table.encounter_table_id}`,
+          ),
           entries: entries.rows.map((entry) => ({
             formId: entry.form_id,
             weight: entry.weight,
             minLevel: entry.min_level,
             maxLevel: entry.max_level,
             active: entry.active,
+            conditions: requireEncounterConditions(entry.conditions, `Encounter entry ${entry.id}`),
           })),
         };
       }),
