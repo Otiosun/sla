@@ -140,7 +140,8 @@ function battleWild(context: CaptureContext): Result<BattleCombatant> {
   if (wild.length !== 1 || wild[0] === undefined) {
     return err(captureNotReady("Wild battle must contain exactly one capturable wild combatant"));
   }
-  if (wild[0].currentHp <= 0) return err(captureNotReady("A fainted wild Pokemon cannot be captured"));
+  if (wild[0].currentHp <= 0)
+    return err(captureNotReady("A fainted wild Pokemon cannot be captured"));
   return ok(wild[0]);
 }
 
@@ -173,7 +174,9 @@ export class CaptureService {
   public async attempt(input: CaptureAttemptInput): Promise<Result<CaptureAttemptResult>> {
     const boundary = CaptureAttemptInputBoundarySchema.safeParse(input);
     if (!boundary.success) {
-      return err(captureValidationError("Capture request is invalid", { issues: boundary.error.issues }));
+      return err(
+        captureValidationError("Capture request is invalid", { issues: boundary.error.issues }),
+      );
     }
     const modifiers = sortedModifiers(input);
     const idempotency = createIdempotencyKey(
@@ -188,7 +191,11 @@ export class CaptureService {
         const existing = await transaction.findAttempt(idempotency.value.storageKey);
         if (existing !== null) return replay(existing, fingerprint);
 
-        const context = await transaction.loadContext(input.playerId, input.encounterId, input.ballItemId);
+        const context = await transaction.loadContext(
+          input.playerId,
+          input.encounterId,
+          input.ballItemId,
+        );
         if (context === null) return err(captureNotFound());
 
         const racedReplay = await transaction.findAttempt(idempotency.value.storageKey);
@@ -217,7 +224,9 @@ export class CaptureService {
           }
         } else {
           if (input.expectedBattleVersion === null) {
-            return err(captureValidationError("expectedBattleVersion is required in battle capture"));
+            return err(
+              captureValidationError("expectedBattleVersion is required in battle capture"),
+            );
           }
           const wild = battleWild(context);
           if (!wild.ok) return wild;
@@ -227,7 +236,9 @@ export class CaptureService {
         }
 
         if (context.ball.itemKind !== "BALL" || context.ball.effectKey !== "catch-modifier") {
-          return err(captureNotReady("Selected item is not an active capture Ball in the pinned release"));
+          return err(
+            captureNotReady("Selected item is not an active capture Ball in the pinned release"),
+          );
         }
         const ball = EffectConfigSchemas["catch-modifier"].safeParse(context.ball.effectConfig);
         if (!ball.success) return err(captureNotReady("Capture Ball modifier is invalid"));
@@ -261,7 +272,8 @@ export class CaptureService {
           sourceStatus: context.sourceStatus,
           expectedRevision: input.expectedEncounterRevision,
         });
-        if (resolvingRevision === null) rollback(captureRevisionConflict(input.expectedEncounterRevision));
+        if (resolvingRevision === null)
+          rollback(captureRevisionConflict(input.expectedEncounterRevision));
 
         const inserted = await transaction.insertPending({
           attemptId,
@@ -279,7 +291,10 @@ export class CaptureService {
           rngCounter: rng.counter,
           breakdown: probability.breakdown,
         });
-        if (!inserted) rollback(captureIntegrityError("Capture idempotency claim was lost after encounter lock"));
+        if (!inserted)
+          rollback(
+            captureIntegrityError("Capture idempotency claim was lost after encounter lock"),
+          );
 
         const consumed = await transaction.consumeBall({
           attemptId,

@@ -67,7 +67,8 @@ function pokemonId(value: string): PokemonInstanceId {
 
 function safeVersion(value: string): number {
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error("battle.version is outside JS safe range");
+  if (!Number.isSafeInteger(parsed) || parsed < 0)
+    throw new Error("battle.version is outside JS safe range");
   return parsed;
 }
 
@@ -137,7 +138,8 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       status,
       probabilityBasisPoints: row.probability_basis_points,
       rollBasisPoints: row.roll_basis_points,
-      pokemonInstanceId: row.pokemon_instance_id === null ? null : pokemonId(row.pokemon_instance_id),
+      pokemonInstanceId:
+        row.pokemon_instance_id === null ? null : pokemonId(row.pokemon_instance_id),
       placement,
       breakdown,
       resolvedAt: row.resolved_at,
@@ -225,9 +227,14 @@ class PostgresCaptureTransaction implements CaptureTransaction {
          FOR UPDATE`,
         [encounterIdValue],
       );
-      if (battle.rows.length !== 1) throw new Error("IN_BATTLE encounter must have exactly one battle root");
+      if (battle.rows.length !== 1)
+        throw new Error("IN_BATTLE encounter must have exactly one battle root");
       const battleRow = battle.rows[0];
-      if (battleRow === undefined || battleRow.status !== "ACTIVE" || battleRow.battle_type !== "WILD") {
+      if (
+        battleRow === undefined ||
+        battleRow.status !== "ACTIVE" ||
+        battleRow.battle_type !== "WILD"
+      ) {
         throw new Error("IN_BATTLE encounter points to a non-active wild battle");
       }
       const version = safeVersion(battleRow.version);
@@ -238,7 +245,8 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       const stateRow = state.rows[0];
       if (stateRow === undefined) throw new Error("Active battle is missing its current snapshot");
       battleState = BattleStateSchema.parse(stateRow.state);
-      if (battleState.version !== version) throw new Error("Battle root and snapshot version diverged");
+      if (battleState.version !== version)
+        throw new Error("Battle root and snapshot version diverged");
       battleId = battleRow.id;
     }
 
@@ -419,7 +427,8 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         input.sourceEncounterStatus,
       ],
     );
-    if (encounter.rowCount !== 1) throw new Error("Capture failure could not restore encounter state");
+    if (encounter.rowCount !== 1)
+      throw new Error("Capture failure could not restore encounter state");
 
     await this.insertOutbox({
       attemptId: input.attemptId,
@@ -447,9 +456,11 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       [input.battleId],
     );
     const row = root.rows[0];
-    if (row === undefined || row.status !== "ACTIVE") throw new Error("Captured battle is no longer active");
+    if (row === undefined || row.status !== "ACTIVE")
+      throw new Error("Captured battle is no longer active");
     const version = safeVersion(row.version);
-    if (version !== input.expectedBattleVersion) throw new Error("Captured battle version changed during transaction");
+    if (version !== input.expectedBattleVersion)
+      throw new Error("Captured battle version changed during transaction");
     const snapshot = await this.client.query<{ state: unknown }>(
       `SELECT state FROM battle_state_snapshots WHERE battle_id = $1 AND version = $2`,
       [input.battleId, version],
@@ -484,7 +495,11 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         input.battleId,
         seq.rows[0]?.next_seq ?? "1",
         next.version,
-        JSON.stringify({ status: "CANCELLED", reason: "POKEMON_CAPTURED", captureAttemptId: input.attemptId }),
+        JSON.stringify({
+          status: "CANCELLED",
+          reason: "POKEMON_CAPTURED",
+          captureAttemptId: input.attemptId,
+        }),
         input.causationId,
         input.correlationId,
       ],
@@ -642,10 +657,8 @@ export class PostgresCaptureRepository implements CaptureRepository {
   public constructor(private readonly pool: Pool) {}
 
   public async transaction<T>(work: (transaction: CaptureTransaction) => Promise<T>): Promise<T> {
-    return withTransaction(
-      this.pool,
-      (client) => work(new PostgresCaptureTransaction(client)),
-      { isolationLevel: "READ COMMITTED" },
-    );
+    return withTransaction(this.pool, (client) => work(new PostgresCaptureTransaction(client)), {
+      isolationLevel: "READ COMMITTED",
+    });
   }
 }

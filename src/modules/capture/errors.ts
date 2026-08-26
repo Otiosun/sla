@@ -1,6 +1,9 @@
 import { appError, type AppError } from "../../shared-kernel/result.js";
 
-export function captureValidationError(message: string, details?: Readonly<Record<string, unknown>>): AppError {
+export function captureValidationError(
+  message: string,
+  details?: Readonly<Record<string, unknown>>,
+): AppError {
   return appError("VALIDATION_FAILED", message, details);
 }
 
@@ -8,7 +11,10 @@ export function captureNotFound(message = "Capture encounter was not found"): Ap
   return appError("NOT_FOUND", message);
 }
 
-export function captureNotReady(message: string, details?: Readonly<Record<string, unknown>>): AppError {
+export function captureNotReady(
+  message: string,
+  details?: Readonly<Record<string, unknown>>,
+): AppError {
   return appError("ACTION_INVALID", message, details);
 }
 

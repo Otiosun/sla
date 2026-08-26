@@ -28,7 +28,9 @@ function statusMultiplierBasisPoints(status: CaptureProbabilityInput["status"]):
 export function captureProbability(input: CaptureProbabilityInput): CaptureProbabilityResult {
   const parsed = CaptureProbabilityInputSchema.safeParse(input);
   if (!parsed.success) {
-    throw new RangeError(`Invalid capture probability input: ${parsed.error.issues[0]?.message ?? "unknown"}`);
+    throw new RangeError(
+      `Invalid capture probability input: ${parsed.error.issues[0]?.message ?? "unknown"}`,
+    );
   }
   const value = parsed.data;
 
