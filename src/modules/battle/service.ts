@@ -21,7 +21,6 @@ import type {
   BattleRepository,
   BattleRootRecord,
   BattleSeedReader,
-  BattleTransaction,
   StoredBattleAction,
 } from "./ports.js";
 import { resolveTurn } from "./resolver.js";

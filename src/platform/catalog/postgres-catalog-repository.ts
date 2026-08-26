@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
+  BattleMoveFlagsSchema,
   type CatalogCoverage,
   ContentLifecycleStatusSchema,
   type RulesetSnapshot,
@@ -261,10 +262,11 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         max_pp: number | null;
         effect_key: string | null;
         effect_config: unknown;
+        flags: unknown;
         active: boolean;
       }>(
         `SELECT move_id, type_id, category, power, accuracy, priority, max_pp,
-                effect_key, effect_config, active
+                effect_key, effect_config, flags, active
          FROM move_revisions WHERE content_release_id = $1 ORDER BY move_id`,
         [releaseId],
       ),
@@ -498,6 +500,7 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         maxPp: entry.max_pp,
         effectKey: entry.effect_key,
         effectConfig: entry.effect_config,
+        flags: BattleMoveFlagsSchema.parse(entry.flags),
         active: entry.active,
       })),
       abilities: abilities.rows.map((entry) => ({
@@ -697,6 +700,7 @@ class PostgresCatalogTransaction implements CatalogTransaction {
           "max_pp",
           "effect_key",
           "effect_config",
+          "flags",
           "active",
         ],
       },
