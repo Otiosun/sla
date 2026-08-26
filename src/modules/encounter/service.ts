@@ -40,7 +40,8 @@ import type { EncounterRepository, EncounterSeedProvider, EncounterTransaction }
 import { encounterStateMachine } from "./state.js";
 
 const encounterCreateScopeResult = parseIdempotencyScope("encounter.create");
-if (!encounterCreateScopeResult.ok) throw new Error("Canonical encounter idempotency scope is invalid");
+if (!encounterCreateScopeResult.ok)
+  throw new Error("Canonical encounter idempotency scope is invalid");
 const ENCOUNTER_CREATE_SCOPE = encounterCreateScopeResult.value;
 const TABLE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -127,7 +128,8 @@ export class EncounterService {
         );
       }
       const table = eligibleTables[0];
-      if (table === undefined) return err(encounterNotReady("Encounter table could not be resolved"));
+      if (table === undefined)
+        return err(encounterNotReady("Encounter table could not be resolved"));
       const entries = table.entries.filter(
         (entry) => entry.active && encounterConditionsAllow(entry.conditions, unlocks),
       );
@@ -299,7 +301,8 @@ export class EncounterService {
         return err(encounterNotReady("Capture cannot start from the current encounter state"));
       }
       const rulesetConfig = await transaction.rulesetConfig(record.rulesetId);
-      if (rulesetConfig === null) return err(encounterNotReady("Pinned encounter ruleset is missing"));
+      if (rulesetConfig === null)
+        return err(encounterNotReady("Pinned encounter ruleset is missing"));
       const policy = resolveEncounterRulesetPolicy(rulesetConfig);
       if (!policy.captureAllowedStates.includes(record.status)) {
         return err(encounterNotReady("Capture is not allowed from the current encounter state"));
