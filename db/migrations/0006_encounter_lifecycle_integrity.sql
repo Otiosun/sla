@@ -12,6 +12,25 @@ UPDATE encounters
 SET creation_idempotency_key = 'legacy:' || id::text
 WHERE creation_idempotency_key IS NULL;
 
+-- Compatibility boundary for older internal callers that still insert encounter rows directly.
+-- New Phase 8 service callers always provide the hashed external idempotency key. A legacy caller
+-- that omits it receives a stable per-encounter key rather than weakening the NOT NULL invariant.
+CREATE OR REPLACE FUNCTION fill_legacy_encounter_creation_key()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.creation_idempotency_key IS NULL THEN
+    NEW.creation_idempotency_key := 'legacy:' || NEW.id::text;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_encounters_fill_legacy_creation_key
+BEFORE INSERT ON encounters
+FOR EACH ROW EXECUTE FUNCTION fill_legacy_encounter_creation_key();
+
 ALTER TABLE encounters
   ALTER COLUMN creation_idempotency_key SET NOT NULL;
 
