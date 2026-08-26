@@ -1,4 +1,4 @@
-name: Battle Typecheck Diagnostic Once
+name: Battle Typecheck Fix Once
 
 on:
   push:
@@ -9,11 +9,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: battle-typecheck-diagnostic-${{ github.ref }}
+  group: battle-typecheck-fix-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  diagnose:
+  fix:
     if: github.repository == 'Otiosun/sla' && github.ref == 'refs/heads/feat/battle-engine-v1' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -36,19 +36,46 @@ jobs:
       - name: Install dependencies from lockfile
         run: pnpm install --frozen-lockfile
 
-      - name: Capture typecheck diagnostics
+      - name: Apply exact type-only fix and cleanup diagnostic
         shell: bash
         run: |
-          set -o pipefail
-          pnpm typecheck > .battle-typecheck-diagnostic.txt 2>&1 || true
-          cat .battle-typecheck-diagnostic.txt
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/modules/battle/resolver.ts')
+          text = path.read_text()
+          old = 'function terminalStatus(state: BattleState): BattleState["status"] | null {'
+          new = 'function terminalStatus(state: BattleState): "WON" | "LOST" | "DRAW" | null {'
+          if text.count(old) != 1:
+              raise SystemExit('Expected exactly one terminalStatus signature to patch')
+          path.write_text(text.replace(old, new))
+          PY
+          rm -f .battle-typecheck-diagnostic.txt
+          cat > .github/workflows/battle-format-once.yml <<'YAML'
+          name: Battle Temporary Helper Disabled
 
-      - name: Persist diagnostic output
+          on:
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            disabled:
+              runs-on: ubuntu-latest
+              steps:
+                - run: echo "Temporary Battle helper disabled."
+          YAML
+
+      - name: Verify typecheck after exact fix
+        run: pnpm typecheck
+
+      - name: Commit verified fix
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .battle-typecheck-diagnostic.txt
-          git commit -m "chore: capture battle typecheck diagnostic"
+          git add --all
+          git commit -m "fix: narrow terminal battle status type"
           git push origin HEAD:feat/battle-engine-v1
