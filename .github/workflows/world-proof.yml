@@ -96,7 +96,7 @@ jobs:
             --command "SELECT release.release_no FROM content_release_pointers pointer JOIN content_releases release ON release.id = pointer.content_release_id WHERE pointer.pointer_key = 'ACTIVE';")"
           areas="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT string_agg(area.slug || ':' || revision.data->>'kind' || ':' || revision.data->>'safePoint' || ':' || revision.data->>'startingArea', ',' ORDER BY area.slug) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE;")"
+            --command "SELECT string_agg(area.slug || ':' || (revision.data->>'kind') || ':' || (revision.data->>'safePoint') || ':' || (revision.data->>'startingArea'), ',' ORDER BY area.slug) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE;")"
           connection_count="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
             --command "SELECT count(*) FROM area_connection_revisions revision JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND revision.active = TRUE;")"
