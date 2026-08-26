@@ -1,0 +1,76 @@
+name: Diagnostic Migration 0010 History
+
+on:
+  push:
+    branches:
+      - diag/migration-0010-history-v1
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+      - name: Print local migration order
+        run: node --import tsx --input-type=module -e 'import { loadMigrations } from "./src/platform/db/migrations.ts"; const ms = await loadMigrations(); console.log(ms.map((m,i)=>`${i}:${m.version.toString()}:${m.fileName}:${m.name}`).join("\n"));'
+      - name: Run migrate and preserve failure
+        id: migrate
+        shell: bash
+        run: |
+          set +e
+          pnpm db:migrate
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Dump schema_migrations
+        shell: bash
+        run: |
+          docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_test \
+            --set ON_ERROR_STOP=1 \
+            --expanded \
+            --command "SELECT version, pg_typeof(version) AS version_type, name, checksum FROM schema_migrations ORDER BY version ASC;"
+      - name: Compare database order to code
+        run: node --import tsx --input-type=module -e 'import { Pool } from "pg"; import { loadMigrations } from "./src/platform/db/migrations.ts"; const pool=new Pool({connectionString:process.env.DATABASE_URL}); const ms=await loadMigrations(); const r=await pool.query("SELECT version::text AS version,name FROM schema_migrations ORDER BY version ASC"); console.log(JSON.stringify({files:ms.map(m=>({version:m.version.toString(),name:m.name})),db:r.rows},null,2)); await pool.end();'
+      - name: Fail if migration unexpectedly succeeded
+        if: steps.migrate.outputs.exit_code == '0'
+        run: |
+          echo "Diagnostic target no longer reproduces the failure."
