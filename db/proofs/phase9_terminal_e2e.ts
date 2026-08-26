@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import type { BattleAction, BattleState } from "../../src/modules/battle/contracts.js";
+import {
+  EMPTY_BATTLE_STAGES,
+  type BattleAction,
+  type BattleState,
+} from "../../src/modules/battle/contracts.js";
 import { BattleRuntimeService } from "../../src/modules/battle/runtime.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { PostgresBattleAftermath } from "../../src/platform/battle/postgres-battle-aftermath.js";
@@ -49,7 +53,7 @@ function playerAction(state: BattleState): BattleAction {
   };
 }
 
-async function cloneActiveBattleForCancellation(
+async function cloneActiveBattleForTerminalProof(
   pool: Pool,
   sourceBattleId: string,
   sourceState: BattleState,
@@ -62,17 +66,16 @@ async function cloneActiveBattleForCancellation(
     rng_seed_iv: Buffer;
     rng_seed_auth_tag: Buffer;
     rng_seed_key_version: number;
-    rng_counter: string;
   }>(
     `SELECT battle_type, content_release_id, ruleset_id,
             rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag,
-            rng_seed_key_version, rng_counter::text
+            rng_seed_key_version
      FROM battles
      WHERE id = $1`,
     [sourceBattleId],
   );
   const root = rootResult.rows[0];
-  if (root === undefined) throw new Error("Source battle root missing for cancellation clone");
+  if (root === undefined) throw new Error("Source battle root missing for terminal proof clone");
 
   const battleId = randomUUID();
   const participantIds = new Map(
@@ -80,7 +83,7 @@ async function cloneActiveBattleForCancellation(
   );
   const mappedParticipantId = (participantId: string): string => {
     const mapped = participantIds.get(participantId);
-    if (mapped === undefined) throw new Error("Cancellation clone participant mapping missing");
+    if (mapped === undefined) throw new Error("Terminal clone participant mapping missing");
     return mapped;
   };
   const state = structuredClone(sourceState);
@@ -89,6 +92,7 @@ async function cloneActiveBattleForCancellation(
   state.status = "ACTIVE";
   state.turnNumber = 0;
   state.version = 0;
+  state.rngCounter = "0";
   state.sides = state.sides.map((side) => ({
     ...side,
     participantIds: side.participantIds.map(mappedParticipantId),
@@ -98,6 +102,14 @@ async function cloneActiveBattleForCancellation(
   state.combatants = state.combatants.map((combatant) => ({
     ...combatant,
     participantId: mappedParticipantId(combatant.participantId),
+    currentHp: combatant.maxHp,
+    majorStatus: null,
+    stages: { ...EMPTY_BATTLE_STAGES },
+    volatile: { flinch: false, confusionTurns: 0 },
+    moves: combatant.moves.map((move) => ({
+      ...move,
+      ppCurrent: move.maxPp === null ? null : move.maxPp,
+    })),
   }));
 
   await pool.query(
@@ -105,7 +117,7 @@ async function cloneActiveBattleForCancellation(
        id, battle_type, status, content_release_id, ruleset_id, encounter_id,
        turn_number, version, rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag,
        rng_seed_key_version, rng_counter
-     ) VALUES ($1, $2, 'ACTIVE', $3, $4, NULL, 0, 0, $5, $6, $7, $8, $9)`,
+     ) VALUES ($1, $2, 'ACTIVE', $3, $4, NULL, 0, 0, $5, $6, $7, $8, 0)`,
     [
       battleId,
       root.battle_type,
@@ -115,7 +127,6 @@ async function cloneActiveBattleForCancellation(
       root.rng_seed_iv,
       root.rng_seed_auth_tag,
       root.rng_seed_key_version,
-      root.rng_counter,
     ],
   );
 
@@ -131,7 +142,7 @@ async function cloneActiveBattleForCancellation(
   }
   for (const combatant of state.combatants) {
     const sideId = sideIds.get(combatant.sideNo);
-    if (sideId === undefined) throw new Error("Cancellation clone side mapping missing");
+    if (sideId === undefined) throw new Error("Terminal clone side mapping missing");
     await pool.query(
       `INSERT INTO battle_participants(
          id, battle_id, battle_side_id, pokemon_instance_id, participant_kind,
@@ -171,19 +182,18 @@ async function main(): Promise<void> {
       throw new Error("Phase 9 terminal proof requires the preceding battle E2E player");
     }
 
-    const activeBattle = await pool.query<{ id: string }>(
+    const latestBattle = await pool.query<{ id: string }>(
       `SELECT battle.id
        FROM battle_sides side
        JOIN battles battle ON battle.id = side.battle_id
        WHERE side.player_id = $1
-         AND battle.status = 'ACTIVE'
        ORDER BY battle.created_at DESC
        LIMIT 1`,
       [playerId],
     );
-    const battleId = activeBattle.rows[0]?.id;
-    if (battleId === undefined) {
-      throw new Error("Phase 9 terminal proof requires the preceding ACTIVE battle");
+    const sourceBattleId = latestBattle.rows[0]?.id;
+    if (sourceBattleId === undefined) {
+      throw new Error("Phase 9 terminal proof requires the preceding battle E2E snapshot");
     }
 
     const seedReader = new AesBattleSeedReader(new Map([[1, BATTLE_KEY]]));
@@ -193,9 +203,13 @@ async function main(): Promise<void> {
       new PostgresBattleAftermath(pool),
       new PostgresBattleCancellation(pool),
     );
-    const source = unwrap("load source battle", await runtime.currentState(battleId));
+    const source = unwrap("load source battle", await runtime.currentState(sourceBattleId));
 
-    const cancellationBattleId = await cloneActiveBattleForCancellation(pool, battleId, source);
+    const cancellationBattleId = await cloneActiveBattleForTerminalProof(
+      pool,
+      sourceBattleId,
+      source,
+    );
     const cancelled = unwrap(
       "cancel cloned battle",
       await runtime.cancel({
@@ -267,7 +281,11 @@ async function main(): Promise<void> {
       throw new Error("Defeat proof must start from non-safe Route 1");
     }
 
-    const current = unwrap("reload battle before defeat", await runtime.currentState(battleId));
+    const defeatBattleId = await cloneActiveBattleForTerminalProof(pool, sourceBattleId, source);
+    const current = unwrap(
+      "load cloned battle before defeat",
+      await runtime.currentState(defeatBattleId),
+    );
     const doomed = structuredClone(current);
     const playerSide = doomed.sides.find((side) => side.controllerKind === "PLAYER");
     if (playerSide === undefined) throw new Error("Defeat proof player side missing");
@@ -283,7 +301,7 @@ async function main(): Promise<void> {
       `UPDATE battle_state_snapshots
        SET state = $3::jsonb
        WHERE battle_id = $1 AND version = $2`,
-      [battleId, current.version, JSON.stringify(doomed)],
+      [defeatBattleId, current.version, JSON.stringify(doomed)],
     );
     if (patched.rowCount !== 1) throw new Error("Could not prepare deterministic defeat snapshot");
 
@@ -291,7 +309,7 @@ async function main(): Promise<void> {
     const defeated = unwrap(
       "resolve deterministic defeat",
       await runtime.resolvePlayerTurn({
-        battleId,
+        battleId: defeatBattleId,
         playerId,
         expectedVersion: doomed.version,
         idempotencyKey: "phase9-terminal-defeat",
@@ -329,7 +347,7 @@ async function main(): Promise<void> {
     const defeatReplay = unwrap(
       "replay deterministic defeat",
       await runtime.resolvePlayerTurn({
-        battleId,
+        battleId: defeatBattleId,
         playerId,
         expectedVersion: doomed.version,
         idempotencyKey: "phase9-terminal-defeat",
@@ -348,7 +366,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `Phase 9 terminal E2E complete: cancelled ${cancellationBattleId}; defeated ${battleId}; safe point pallet-town; wallet unchanged`,
+      `Phase 9 terminal E2E complete: cancelled ${cancellationBattleId}; defeated ${defeatBattleId}; safe point pallet-town; wallet unchanged`,
     );
   } finally {
     await pool.end();
