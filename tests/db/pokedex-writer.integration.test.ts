@@ -10,7 +10,8 @@ import {
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -35,10 +36,10 @@ describe.sequential("Pokédex PostgreSQL writer semantics", () => {
     playerId = randomUUID();
     speciesId = randomUUID();
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
-    await pool.query(
-      "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9999, $2)",
-      [speciesId, `proof-${speciesId}`],
-    );
+    await pool.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9999, $2)", [
+      speciesId,
+      `proof-${speciesId}`,
+    ]);
   }, 30_000);
 
   afterAll(async () => {

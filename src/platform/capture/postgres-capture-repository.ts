@@ -28,7 +28,7 @@ import {
   parsePokemonInstanceId,
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
-import { recordPokedexOwned } from "../pokedex/postgres-pokedex-writer.js";
+import { recordPokedexCaught } from "../pokedex/postgres-pokedex-writer.js";
 
 const breakdownSchema = z
   .object({
@@ -586,7 +586,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         ],
       );
     }
-    await recordPokedexOwned(this.client, input.playerId, snapshot.speciesId);
+    await recordPokedexCaught(this.client, input.playerId, snapshot.speciesId);
     await this.client.query(
       `INSERT INTO pokemon_history_events(
          id, pokemon_instance_id, event_type, payload, actor_type, correlation_id
