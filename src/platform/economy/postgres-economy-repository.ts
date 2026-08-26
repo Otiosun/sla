@@ -15,6 +15,17 @@ import { withTransaction } from "../db/transaction.js";
 
 const PG_BIGINT_MAX = "9223372036854775807";
 
+interface PurchaseOfferRow {
+  readonly id: string;
+  readonly content_release_id: string;
+  readonly offer_key: string;
+  readonly item_id: string;
+  readonly currency_id: string;
+  readonly item_quantity: string;
+  readonly price_amount: string;
+  readonly active: boolean;
+}
+
 function toPlayerId(value: string): PlayerId {
   const parsed = parsePlayerId(value);
   if (!parsed.ok) throw new Error("Database returned an invalid PlayerId");
@@ -23,6 +34,19 @@ function toPlayerId(value: string): PlayerId {
 
 function toBigInt(value: string): bigint {
   return BigInt(value);
+}
+
+function toPurchaseOffer(row: PurchaseOfferRow): PurchaseOffer {
+  return {
+    id: row.id,
+    contentReleaseId: row.content_release_id,
+    offerKey: row.offer_key,
+    itemId: row.item_id,
+    currencyId: row.currency_id,
+    itemQuantity: toBigInt(row.item_quantity),
+    priceAmount: toBigInt(row.price_amount),
+    active: row.active,
+  };
 }
 
 class PostgresEconomyTransaction implements EconomyTransaction {
@@ -264,16 +288,7 @@ class PostgresEconomyTransaction implements EconomyTransaction {
     contentReleaseId: string,
     offerKey: string,
   ): Promise<PurchaseOffer | null> {
-    const result = await this.client.query<{
-      id: string;
-      content_release_id: string;
-      offer_key: string;
-      item_id: string;
-      currency_id: string;
-      item_quantity: string;
-      price_amount: string;
-      active: boolean;
-    }>(
+    const result = await this.client.query<PurchaseOfferRow>(
       `SELECT offer.id, offer.content_release_id, offer.offer_key, offer.item_id,
               offer.currency_id, offer.item_quantity::text, offer.price_amount::text, offer.active
        FROM item_purchase_offers offer
@@ -289,17 +304,20 @@ class PostgresEconomyTransaction implements EconomyTransaction {
       [contentReleaseId, offerKey],
     );
     const row = result.rows[0];
-    if (row === undefined) return null;
-    return {
-      id: row.id,
-      contentReleaseId: row.content_release_id,
-      offerKey: row.offer_key,
-      itemId: row.item_id,
-      currencyId: row.currency_id,
-      itemQuantity: toBigInt(row.item_quantity),
-      priceAmount: toBigInt(row.price_amount),
-      active: row.active,
-    };
+    return row === undefined ? null : toPurchaseOffer(row);
+  }
+
+  public async loadPurchaseOfferById(offerId: string): Promise<PurchaseOffer | null> {
+    const result = await this.client.query<PurchaseOfferRow>(
+      `SELECT offer.id, offer.content_release_id, offer.offer_key, offer.item_id,
+              offer.currency_id, offer.item_quantity::text, offer.price_amount::text, offer.active
+       FROM item_purchase_offers offer
+       JOIN content_releases release ON release.id = offer.content_release_id
+       WHERE offer.id = $1 AND release.status IN ('PUBLISHED', 'ARCHIVED')`,
+      [offerId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : toPurchaseOffer(row);
   }
 }
 
