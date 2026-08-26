@@ -1,0 +1,53 @@
+name: Capture Format Temp
+
+on:
+  push:
+    branches:
+      - feat/capture-v1
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(format):') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/capture-v1
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+          check-latest: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format Capture files
+        run: >-
+          pnpm exec biome format --write
+          src/modules/capture
+          src/platform/capture/postgres-capture-repository.ts
+
+      - name: Commit formatting only when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/modules/capture src/platform/capture/postgres-capture-repository.ts; then
+            echo "Capture files already formatted."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/capture src/platform/capture/postgres-capture-repository.ts
+          git commit -m "chore(format): apply canonical Biome formatting"
+          git push origin HEAD:feat/capture-v1
