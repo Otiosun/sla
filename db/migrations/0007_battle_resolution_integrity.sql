@@ -51,9 +51,6 @@ ALTER TABLE battles
 ALTER TABLE battles
   VALIDATE CONSTRAINT battles_lifecycle_coherent;
 
-ALTER TABLE battle_events
-  ALTER COLUMN correlation_id DROP NOT NULL;
-
 UPDATE battle_events
 SET correlation_id = gen_random_uuid()
 WHERE correlation_id IS NULL;
@@ -62,8 +59,58 @@ ALTER TABLE battle_events
   ALTER COLUMN correlation_id SET NOT NULL;
 
 ALTER TABLE move_revisions
-  ADD COLUMN flags JSONB NOT NULL DEFAULT '{}'::jsonb
-    CHECK (jsonb_typeof(flags) = 'object');
+  ADD COLUMN flags JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD CONSTRAINT move_revisions_battle_flags_shape
+    CHECK (
+      flags = '{}'::jsonb
+      OR (
+        jsonb_typeof(flags) = 'object'
+        AND flags ->> 'schemaVersion' = '1'
+        AND jsonb_typeof(flags -> 'makesContact') = 'boolean'
+        AND (SELECT count(*) FROM jsonb_object_keys(flags)) = 2
+      )
+    );
+
+-- Catalog clone code written before battle flags intentionally omits the new column. Preserve
+-- snapshot semantics at the database boundary: a child release inherits the parent's move flags
+-- when the insert uses the legacy/default empty object. Explicit non-empty flags in a DRAFT child
+-- still win and can be deliberately changed before validation.
+CREATE OR REPLACE FUNCTION inherit_move_revision_battle_flags()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  parent_id UUID;
+  inherited_flags JSONB;
+BEGIN
+  IF NEW.flags <> '{}'::jsonb THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT parent_release_id INTO parent_id
+  FROM content_releases
+  WHERE id = NEW.content_release_id;
+
+  IF parent_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT flags INTO inherited_flags
+  FROM move_revisions
+  WHERE content_release_id = parent_id
+    AND move_id = NEW.move_id;
+
+  IF inherited_flags IS NOT NULL THEN
+    NEW.flags := inherited_flags;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_move_revisions_inherit_battle_flags
+BEFORE INSERT ON move_revisions
+FOR EACH ROW EXECUTE FUNCTION inherit_move_revision_battle_flags();
 
 CREATE INDEX idx_battle_actions_battle_version
   ON battle_actions(battle_id, expected_battle_version, created_at);
