@@ -90,7 +90,8 @@ interface MoveRow {
 
 function safeVersion(value: string, label: string): number {
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${label} is outside JS safe range`);
+  if (!Number.isSafeInteger(parsed) || parsed < 0)
+    throw new Error(`${label} is outside JS safe range`);
   return parsed;
 }
 
@@ -496,7 +497,10 @@ class PostgresBattleTransaction implements BattleTransaction {
     return state;
   }
 
-  public async findAction(idempotencyKey: string, lock = false): Promise<StoredBattleAction | null> {
+  public async findAction(
+    idempotencyKey: string,
+    lock = false,
+  ): Promise<StoredBattleAction | null> {
     const result = await this.client.query<{
       id: string;
       battle_id: string;

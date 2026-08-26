@@ -128,8 +128,7 @@ function buildCombatant(
     })),
     maxHp: build.maxHp,
     currentHp: Math.max(0, Math.min(build.currentHp, build.maxHp)),
-    majorStatus:
-      build.majorStatus === null ? null : { key: build.majorStatus, counter: null },
+    majorStatus: build.majorStatus === null ? null : { key: build.majorStatus, counter: null },
     stages: { ...EMPTY_BATTLE_STAGES },
     volatile: { flinch: false, confusionTurns: 0 },
   };
@@ -160,7 +159,10 @@ function buildInitialState(
   const playerActive = firstLiving(playerCombatants);
   const opponentActive = firstLiving(opponentCombatants);
   if (playerActive === undefined || opponentActive === undefined) {
-    return failure("BATTLE_INITIALIZATION_INVALID", "Battle active combatants could not be selected");
+    return failure(
+      "BATTLE_INITIALIZATION_INVALID",
+      "Battle active combatants could not be selected",
+    );
   }
 
   const sides: BattleSide[] = [
@@ -283,7 +285,10 @@ export class BattleService {
     input: ResolvePlayerTurnInput,
   ): Promise<BattleServiceResult<ResolvePlayerTurnOutput>> {
     if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) {
-      return failure("BATTLE_ACTION_INVALID", "expectedVersion must be a non-negative safe integer");
+      return failure(
+        "BATTLE_ACTION_INVALID",
+        "expectedVersion must be a non-negative safe integer",
+      );
     }
     const parsedAction = BattleActionSchema.safeParse(input.action);
     if (!parsedAction.success) {
@@ -331,7 +336,8 @@ export class BattleService {
       }
 
       const state = await transaction.loadState(input.battleId, root.version);
-      if (state === null) return failure("BATTLE_NOT_INITIALIZED", "Battle has no current snapshot");
+      if (state === null)
+        return failure("BATTLE_NOT_INITIALIZED", "Battle has no current snapshot");
       if (root.version !== input.expectedVersion || state.version !== input.expectedVersion) {
         const actionId = this.idFactory();
         const correlationId = this.idFactory();
@@ -367,7 +373,8 @@ export class BattleService {
       }
 
       const ruleset = await transaction.loadRuleset(root.rulesetId);
-      if (ruleset === null) return failure("BATTLE_STATE_INVALID", "Pinned battle ruleset is missing");
+      if (ruleset === null)
+        return failure("BATTLE_STATE_INVALID", "Pinned battle ruleset is missing");
       const normalized = normalizeBattleRules(ruleset);
       if (!normalized.ok) return { ok: false, error: normalized.error };
       const invalid = validateBattleAction(state, parsedAction.data, normalized.value);
