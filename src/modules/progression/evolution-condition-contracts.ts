@@ -2,7 +2,12 @@ import { z } from "zod";
 
 const uuid = z.string().uuid();
 const conditionKey = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
-const sourceType = z.string().trim().min(1).max(64).regex(/^[A-Z0-9_.-]+$/);
+const sourceType = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Z0-9_.-]+$/);
 const sourceId = z.string().trim().min(1).max(256);
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
@@ -16,9 +21,7 @@ export const ActivateEvolutionConditionInputSchema = z
     expectedRevision: revision.nullable(),
   })
   .strict();
-export type ActivateEvolutionConditionInput = z.infer<
-  typeof ActivateEvolutionConditionInputSchema
->;
+export type ActivateEvolutionConditionInput = z.infer<typeof ActivateEvolutionConditionInputSchema>;
 
 export const RevokeEvolutionConditionInputSchema = z
   .object({

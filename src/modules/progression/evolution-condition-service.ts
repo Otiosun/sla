@@ -26,7 +26,9 @@ export type EvolutionConditionResult<T> =
 export class EvolutionConditionService {
   public constructor(private readonly repository: EvolutionConditionRepository) {}
 
-  public async activate(input: unknown): Promise<EvolutionConditionResult<EvolutionConditionState>> {
+  public async activate(
+    input: unknown,
+  ): Promise<EvolutionConditionResult<EvolutionConditionState>> {
     const parsed = ActivateEvolutionConditionInputSchema.safeParse(input);
     if (!parsed.success) {
       return {
