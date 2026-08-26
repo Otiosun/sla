@@ -1,9 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import type { BattleState } from "../../modules/battle/contracts.js";
-import type {
-  BattleAftermathPort,
-  BattleAftermathResult,
-} from "../../modules/battle/runtime.js";
+import type { BattleAftermathPort, BattleAftermathResult } from "../../modules/battle/runtime.js";
 import { RulesetConfigSchema } from "../../modules/catalog/contracts.js";
 import { WorldAreaConfigSchema } from "../../modules/catalog/world-contracts.js";
 import { withTransaction } from "../db/transaction.js";
@@ -110,7 +107,11 @@ export class PostgresBattleAftermath implements BattleAftermathPort {
 
         const relocated: string[] = [];
         for (const side of state.sides) {
-          if (side.controllerKind !== "PLAYER" || side.playerId === null || side.result !== "LOST") {
+          if (
+            side.controllerKind !== "PLAYER" ||
+            side.playerId === null ||
+            side.result !== "LOST"
+          ) {
             continue;
           }
           if (await relocatePlayer(client, side.playerId, state.contentReleaseId)) {
