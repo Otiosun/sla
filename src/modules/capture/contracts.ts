@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { BattleMajorStatus, BattleState } from "../battle/contracts.js";
 import type { WildPokemonSnapshot } from "../encounter/contracts.js";
-import type { CorrelationId, EncounterId, PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
+import type {
+  CorrelationId,
+  EncounterId,
+  PlayerId,
+  PokemonInstanceId,
+} from "../../shared-kernel/ids.js";
 
 const uuid = z.string().uuid();
 const basisPoints = z.number().int().min(1).max(100_000);
@@ -64,6 +69,7 @@ export interface CaptureAttemptInput {
   readonly playerId: PlayerId;
   readonly encounterId: EncounterId;
   readonly expectedEncounterRevision: bigint;
+  readonly expectedBattleVersion: number | null;
   readonly ballItemId: string;
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
@@ -75,6 +81,15 @@ export interface CaptureRosterPlacement {
   readonly placementKind: "TEAM" | "BOX";
   readonly boxNo: number | null;
   readonly slotNo: number;
+}
+
+export interface CapturedPokemonState {
+  readonly currentHp: number;
+  readonly majorStatus: BattleMajorStatus["key"] | null;
+  readonly moves: readonly {
+    readonly moveId: string;
+    readonly ppCurrent: number;
+  }[];
 }
 
 export interface CaptureDomainEvent {
@@ -109,6 +124,7 @@ export interface CaptureAttemptRecord {
   readonly probabilityBasisPoints: number;
   readonly rollBasisPoints: number;
   readonly pokemonInstanceId: PokemonInstanceId | null;
+  readonly placement: CaptureRosterPlacement | null;
   readonly breakdown: CaptureProbabilityBreakdown;
   readonly resolvedAt: Date | null;
 }
@@ -122,6 +138,8 @@ export interface CaptureItemPolicy {
 
 export interface CaptureContext {
   readonly playerId: PlayerId;
+  readonly playerActive: boolean;
+  readonly onboardingComplete: boolean;
   readonly encounterId: EncounterId;
   readonly encounterRevision: bigint;
   readonly sourceStatus: CaptureSourceStatus;
@@ -135,18 +153,12 @@ export interface CaptureContext {
   readonly ball: CaptureItemPolicy;
 }
 
-export interface CaptureTargetState {
-  readonly currentHp: number;
-  readonly maxHp: number;
-  readonly majorStatus: BattleMajorStatus | null;
-  readonly movePpById: ReadonlyMap<string, number | null>;
-}
-
 export const CaptureAttemptInputBoundarySchema = z
   .object({
     playerId: uuid,
     encounterId: uuid,
     expectedEncounterRevision: z.bigint().nonnegative(),
+    expectedBattleVersion: z.number().int().nonnegative().safe().nullable(),
     ballItemId: uuid,
     idempotencyKey: z.string().trim().min(1).max(255),
     correlationId: uuid,
