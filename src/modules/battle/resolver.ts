@@ -336,7 +336,7 @@ function canUseMove(
   return true;
 }
 
-function terminalStatus(state: BattleState): BattleState["status"] | null {
+function terminalStatus(state: BattleState): "WON" | "LOST" | "DRAW" | null {
   const living = state.sides.map((side) =>
     side.participantIds.some((id) => findCombatant(state, id).currentHp > 0),
   );
