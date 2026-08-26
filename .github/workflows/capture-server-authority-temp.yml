@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   harden:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -109,8 +109,7 @@ jobs:
           probability.write_text(text)
 
           e2e = Path('db/proofs/phase10_capture_e2e.ts')
-          text = e2e.read_text()
-          text = text.replace('    explicitModifierBasisPoints: [100_000],\n', '')
+          text = e2e.read_text().replace('    explicitModifierBasisPoints: [100_000],\n', '')
           e2e.write_text(text)
 
           outbox = Path('db/proofs/phase10_capture_outbox_replay.ts')
@@ -174,6 +173,40 @@ jobs:
           if marker not in text:
               raise SystemExit('Probability insertion marker missing')
           probability_test.write_text(text.replace(marker, insert + marker, 1))
+
+          boundary_test = Path('tests/capture/capture-boundary-authority.test.ts')
+          boundary_test.write_text('''import { randomUUID } from "node:crypto";
+          import { describe, expect, it } from "vitest";
+          import { CaptureAttemptInputBoundarySchema } from "../../src/modules/capture/contracts.js";
+          import {
+            createCorrelationId,
+            createEncounterId,
+            createPlayerId,
+          } from "../../src/shared-kernel/ids.js";
+
+          describe("Capture public boundary authority", () => {
+            it("rejects client-controlled explicit capture modifiers", () => {
+              const valid = {
+                playerId: createPlayerId(),
+                encounterId: createEncounterId(),
+                expectedEncounterRevision: 0n,
+                expectedBattleVersion: null,
+                ballItemId: randomUUID(),
+                idempotencyKey: "boundary-authority",
+                correlationId: createCorrelationId(),
+                causationId: null,
+              };
+
+              expect(CaptureAttemptInputBoundarySchema.safeParse(valid).success).toBe(true);
+              expect(
+                CaptureAttemptInputBoundarySchema.safeParse({
+                  ...valid,
+                  explicitModifierBasisPoints: [100_000],
+                }).success,
+              ).toBe(false);
+            });
+          });
+          '''.replace('          ', ''))
           PY
 
       - name: Canonical format
