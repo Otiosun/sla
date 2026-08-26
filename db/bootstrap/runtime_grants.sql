@@ -71,6 +71,9 @@ SELECT format(
 FROM (VALUES
   ('trainer_progress_ledger'),
   ('pokemon_history_events'),
+  ('pokemon_xp_ledger'),
+  ('pokemon_evolution_claims'),
+  ('battle_reward_claims'),
   ('starter_grants'),
   ('player_onboarding_context'),
   ('inventory_ledger'),
@@ -131,6 +134,9 @@ SELECT format(
       FROM unnest(ARRAY[
         'trainer_progress_ledger',
         'pokemon_history_events',
+        'pokemon_xp_ledger',
+        'pokemon_evolution_claims',
+        'battle_reward_claims',
         'starter_grants',
         'player_onboarding_context',
         'inventory_ledger',
