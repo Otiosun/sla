@@ -1,134 +1,13 @@
-name: Battle CAS Diagnostic Once
+name: Battle CAS Diagnostic Once (disabled)
 
 on:
-  push:
-    branches:
-      - feat/battle-engine-v1
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  diagnose:
-    if: github.actor != 'github-actions[bot]'
+  noop:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      APP_ENV: test
-      LOG_LEVEL: warn
-      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
-      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: feat/battle-engine-v1
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          package-manager-cache: false
-
-      - name: Install exact pnpm
-        run: npm install --global pnpm@11.23.0
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Patch battle repository and diagnostic
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          repo = Path('src/platform/battle/postgres-battle-repository.ts')
-          text = repo.read_text()
-          text = text.replace(
-              '    const playerParty = await Promise.all(\n      party.rows.map((row) => this.enrichPlayerPokemon(root.contentReleaseId, row)),\n    );',
-              '    const playerParty = [];\n    for (const row of party.rows) {\n      playerParty.push(await this.enrichPlayerPokemon(root.contentReleaseId, row));\n    }',
-              1,
-          )
-          text = text.replace(
-              '{ isolationLevel: "SERIALIZABLE" },',
-              '{ isolationLevel: "READ COMMITTED" },',
-              1,
-          )
-          repo.write_text(text)
-
-          proof = Path('db/proofs/phase9_battle_e2e.ts')
-          text = proof.read_text()
-          old = '    if (concurrent.some((result) => result.status === "rejected")) {\n      throw new Error("Concurrent battle CAS leaked a rejected database promise");\n    }'
-          new = '''    const rejected = concurrent.filter(\n      (result): result is PromiseRejectedResult => result.status === "rejected",\n    );\n    if (rejected.length > 0) {\n      const reasons = rejected.map((result) =>\n        result.reason instanceof Error\n          ? `${result.reason.name}: ${result.reason.message}`\n          : String(result.reason),\n      );\n      throw new Error(`Concurrent battle CAS leaked rejected promises: ${reasons.join(" | ")}`);\n    }'''
-          if old not in text:
-              raise SystemExit('E2E rejection anchor not found')
-          proof.write_text(text.replace(old, new, 1))
-          PY
-
-      - name: Apply canonical formatting
-        run: pnpm exec biome format --write src/platform/battle/postgres-battle-repository.ts db/proofs/phase9_battle_e2e.ts tests/battle/battle-golden.test.ts tests/battle/battle-properties.test.ts .github/workflows/battle-proof.yml
-
-      - name: Start PostgreSQL
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --detach \
-            --name pokemon-postgres \
-            --env POSTGRES_USER=pokemon \
-            --env POSTGRES_PASSWORD=test-only-password \
-            --env POSTGRES_DB=pokemon_rpg_test \
-            --publish 5432:5432 \
-            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
-          for attempt in {1..30}; do
-            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test --tuples-only --command 'SELECT 1;' >/dev/null 2>&1; then exit 0; fi
-            sleep 1
-          done
-          docker logs pokemon-postgres
-          exit 1
-
-      - name: Prepare seeded database
-        run: |
-          pnpm db:migrate
-          pnpm db:seed:phase4
-          pnpm db:seed:phase5
-          pnpm db:seed:phase6
-          pnpm db:seed:phase7
-          pnpm db:verify
-
-      - name: Quality and full suite
-        run: |
-          pnpm lint
-          pnpm format:check
-          pnpm typecheck
-          pnpm test
-
-      - name: Capture E2E result
-        shell: bash
-        run: |
-          set +e
-          node --import tsx db/proofs/phase9_battle_e2e.ts > battle-cas-diagnostic.txt 2>&1
-          status=$?
-          cat battle-cas-diagnostic.txt
-          set -e
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-          if [ "$status" -eq 0 ]; then
-            rm -f battle-cas-diagnostic.txt battle-e2e-diagnostic.txt
-            rm -f .github/workflows/battle-cas-diagnose-once.yml
-            rm -f .github/workflows/battle-finalize-once.yml
-            rm -f .github/workflows/battle-e2e-diagnostic-once.yml
-            git add -A
-            git diff --cached --check
-            git commit -m 'battle: harden CAS concurrency and proof formatting'
-            git push origin HEAD:feat/battle-engine-v1
-            exit 0
-          fi
-
-          git add battle-cas-diagnostic.txt
-          git commit -m 'ci: capture battle CAS diagnostic'
-          git push origin HEAD:feat/battle-engine-v1
-          exit "$status"
+      - run: echo "obsolete one-shot workflow; safe to remove before merge"
