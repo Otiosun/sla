@@ -1,0 +1,62 @@
+name: Progression Proof Source Cast Temp
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/progression-evolution-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout progression branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/progression-evolution-v1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cast textual battle source identifiers explicitly
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('db/proofs/phase11_progression_e2e.ts')
+          text = p.read_text()
+          targets = [
+              ("source_type = 'BATTLE_REWARD' AND source_id = $1) AS xp_ledgers", "source_type = 'BATTLE_REWARD' AND source_id = $1::text) AS xp_ledgers"),
+              ("source_type = 'BATTLE_REWARD' AND source_id = $1) AS trainer_ledgers", "source_type = 'BATTLE_REWARD' AND source_id = $1::text) AS trainer_ledgers"),
+          ]
+          for old, new in targets:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one target: {old!r}; got {text.count(old)}')
+              text = text.replace(old, new, 1)
+          p.write_text(text)
+          PY
+          pnpm exec biome check --write db/proofs/phase11_progression_e2e.ts
+          pnpm typecheck
+
+      - name: Commit source-id cast fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/proofs/phase11_progression_e2e.ts
+          git commit -m "fix: cast progression proof source identifiers"
+          git push origin HEAD:feat/progression-evolution-v1
