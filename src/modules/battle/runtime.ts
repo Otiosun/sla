@@ -100,12 +100,11 @@ export class BattleRuntimeService {
     if (resolved.value.state.status === "LOST") {
       try {
         await this.aftermath.applyDefeat(resolved.value.state);
-      } catch (error) {
+      } catch {
         return runtimeFailure(
           "BATTLE_AFTERMATH_FAILED",
           "Battle was resolved, but defeat aftermath has not been confirmed yet",
           resolved.value.state,
-          { cause: error instanceof Error ? error.message : "unknown" },
         );
       }
     }
