@@ -48,10 +48,7 @@ async function main(): Promise<void> {
         locale: "pt-BR",
       }),
     );
-    unwrap(
-      "select Kanto",
-      await registration.selectRegion(identity.playerId, { regionId }),
-    );
+    unwrap("select Kanto", await registration.selectRegion(identity.playerId, { regionId }));
     const selection = unwrap(
       "prepare starter",
       await starter.prepareStarterSelection(identity.playerId),
@@ -106,9 +103,7 @@ async function main(): Promise<void> {
 
     const local = unwrap("query persisted location", await world.getLocation(identity.playerId));
     if (local.areaSlug !== "route-1" || local.revision !== 1n) {
-      throw new Error(
-        `Persisted location mismatch: ${local.areaSlug} revision ${local.revision}`,
-      );
+      throw new Error(`Persisted location mismatch: ${local.areaSlug} revision ${local.revision}`);
     }
 
     console.log(
