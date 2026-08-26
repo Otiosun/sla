@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !startsWith(github.event.head_commit.message, 'fix(capture): replay after terminal lock race') }}
+    if: "${{ !startsWith(github.event.head_commit.message, 'fix(capture): replay after terminal lock race') }}"
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -18,6 +18,19 @@ jobs:
         with:
           ref: feat/capture-v1
           fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+          check-latest: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Patch terminal lock race
         shell: python
