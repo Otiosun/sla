@@ -120,7 +120,8 @@ async function prepareEngagedEncounter(
     await starter.prepareStarterSelection(identity.playerId),
   );
   const starterOption = selection.options[0];
-  if (starterOption === undefined) throw new Error("No active starter option exists for capture proof");
+  if (starterOption === undefined)
+    throw new Error("No active starter option exists for capture proof");
   unwrap(
     "grant capture starter",
     await starter.grantStarter(
@@ -131,7 +132,10 @@ async function prepareEngagedEncounter(
   );
   unwrap("complete capture onboarding", await starter.completeOnboarding(identity.playerId));
 
-  const world = new WorldService(new PostgresWorldRepository(pool), { enabled: true, reason: null });
+  const world = new WorldService(new PostgresWorldRepository(pool), {
+    enabled: true,
+    reason: null,
+  });
   const initial = unwrap(
     "initialize capture world location",
     await world.ensureInitialLocation({ playerId: identity.playerId }),
@@ -289,7 +293,11 @@ class CrashAfterBallRepository implements CaptureRepository {
 }
 
 async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Promise<void> {
-  const fixture = await prepareEngagedEncounter(pool, "capture-success", "phase10-success-encounter");
+  const fixture = await prepareEngagedEncounter(
+    pool,
+    "capture-success",
+    "phase10-success-encounter",
+  );
   const started = unwrap(
     "start capture battle",
     await fixture.encounter.startBattle({
@@ -303,7 +311,10 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
     battleRepository,
     new AesBattleSeedReader(new Map([[1, BATTLE_KEY]])),
   );
-  const initialized = unwrapBattle("initialize capture battle", await battle.initialize(started.battleId));
+  const initialized = unwrapBattle(
+    "initialize capture battle",
+    await battle.initialize(started.battleId),
+  );
   const first = unwrapBattle(
     "resolve capture setup turn",
     await battle.resolvePlayerTurn({
@@ -346,7 +357,9 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
   const primary = values.find((value) => !value.replayed);
   const replay = values.find((value) => value.replayed);
   if (primary === undefined || replay === undefined) {
-    throw new Error("Concurrent duplicate capture did not produce one primary result and one replay");
+    throw new Error(
+      "Concurrent duplicate capture did not produce one primary result and one replay",
+    );
   }
   if (
     primary.status !== "CAPTURED" ||
@@ -362,7 +375,9 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
     primary.placement.boxNo !== 1 ||
     primary.placement.slotNo !== 1
   ) {
-    throw new Error(`Full Team did not route captured Pokemon to Box 1 slot 1: ${JSON.stringify(primary.placement)}`);
+    throw new Error(
+      `Full Team did not route captured Pokemon to Box 1 slot 1: ${JSON.stringify(primary.placement)}`,
+    );
   }
 
   const audit = await pool.query<{
@@ -460,7 +475,9 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
     capturedRow.iv_sp_defense !== snapshot.ivs.spDefense ||
     capturedRow.iv_speed !== snapshot.ivs.speed
   ) {
-    throw new Error(`Captured Pokemon did not preserve pinned wild identity/state: ${JSON.stringify(capturedRow)}`);
+    throw new Error(
+      `Captured Pokemon did not preserve pinned wild identity/state: ${JSON.stringify(capturedRow)}`,
+    );
   }
 
   const capturedMoves = await pool.query<{ move_id: string; pp_current: number | null }>(
@@ -470,7 +487,8 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
   );
   const expectedMoves = snapshot.moves.map((source) => ({
     move_id: source.moveId,
-    pp_current: wild.moves.find((move) => move.moveId === source.moveId)?.ppCurrent ?? source.ppCurrent,
+    pp_current:
+      wild.moves.find((move) => move.moveId === source.moveId)?.ppCurrent ?? source.ppCurrent,
   }));
   if (JSON.stringify(capturedMoves.rows) !== JSON.stringify(expectedMoves)) {
     throw new Error(
@@ -501,7 +519,11 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
 }
 
 async function proveFailureReplay(pool: Pool, ballItemId: string): Promise<void> {
-  const fixture = await prepareEngagedEncounter(pool, "capture-failure", "phase10-failure-encounter");
+  const fixture = await prepareEngagedEncounter(
+    pool,
+    "capture-failure",
+    "phase10-failure-encounter",
+  );
   await setBallBalance(pool, fixture.playerId, ballItemId, 2);
   const service = () =>
     new CaptureService(
@@ -548,7 +570,12 @@ async function proveFailureReplay(pool: Pool, ballItemId: string): Promise<void>
        (SELECT status FROM encounters WHERE id = $4) AS encounter_status,
        (SELECT count(*)::text FROM pokemon_instances
          WHERE owner_player_id = $1 AND origin_type = 'CAPTURE') AS pokemon_rows`,
-    [fixture.playerId, ballItemId, `capture.result:${failed.captureAttemptId}`, fixture.encounterId],
+    [
+      fixture.playerId,
+      ballItemId,
+      `capture.result:${failed.captureAttemptId}`,
+      fixture.encounterId,
+    ],
   );
   const row = audit.rows[0];
   if (
@@ -583,7 +610,8 @@ async function proveCrashRollback(pool: Pool, ballItemId: string): Promise<void>
     causationId: null,
     explicitModifierBasisPoints: [100_000],
   });
-  if (result.ok) throw new Error("Injected post-Ball crash unexpectedly committed a capture result");
+  if (result.ok)
+    throw new Error("Injected post-Ball crash unexpectedly committed a capture result");
 
   const audit = await pool.query<{
     attempts: string;
