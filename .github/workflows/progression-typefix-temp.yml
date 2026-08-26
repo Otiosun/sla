@@ -1,0 +1,58 @@
+name: Progression Typefix Temp
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/progression-evolution-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout progression branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/progression-evolution-v1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply explicit Ability narrowing
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/platform/progression/postgres-progression-repository.ts')
+          text = p.read_text()
+          old = '    let currentFormId = row.form_id;\n    let currentAbilityId = row.ability_id;\n    let previousLevel = row.level;'
+          new = '    let currentFormId = row.form_id;\n    if (row.ability_id === null) {\n      throw new ProgressionStateViolation("Winning Pokemon has no persisted Ability");\n    }\n    let currentAbilityId: string = row.ability_id;\n    let previousLevel = row.level;'
+          if old not in text:
+              raise SystemExit('expected narrowing target not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          pnpm exec biome check --write src/platform/progression/postgres-progression-repository.ts
+          pnpm typecheck
+
+      - name: Commit type fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/platform/progression/postgres-progression-repository.ts
+          git commit -m "fix: narrow persisted progression ability"
+          git push origin HEAD:feat/progression-evolution-v1
