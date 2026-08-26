@@ -248,9 +248,9 @@ async function createEligiblePlayer(client: PoolClient, areaId: string): Promise
   const playerId = createPlayerId();
   await client.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
   await client.query(
-    `INSERT INTO onboarding_states(player_id, state, completed_at)
-     VALUES ($1, 'COMPLETE', now())`,
-    [playerId],
+    `INSERT INTO onboarding_states(player_id, state, starter_claim_key, completed_at)
+     VALUES ($1, 'COMPLETE', $2, now())`,
+    [playerId, `phase8-test:${playerId}`],
   );
   await client.query("INSERT INTO player_locations(player_id, area_id) VALUES ($1, $2)", [
     playerId,
