@@ -79,8 +79,11 @@ jobs:
       - name: Verify migrated schema
         run: pnpm db:verify
 
-      - name: Run capture formula invariants
+      - name: Run capture formula and RNG invariants
         run: pnpm exec vitest run tests/capture
 
       - name: Run transactional Capture PostgreSQL E2E
         run: node --import tsx db/proofs/phase10_capture_e2e.ts
+
+      - name: Prove delivery failure replays without mechanics
+        run: node --import tsx db/proofs/phase10_capture_outbox_replay.ts
