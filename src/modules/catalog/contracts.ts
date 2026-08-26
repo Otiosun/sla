@@ -7,6 +7,17 @@ export type ContentLifecycleStatus = z.infer<typeof ContentLifecycleStatusSchema
 const basisPointsSchema = z.number().int().min(0).max(100_000);
 const captureEncounterStatusSchema = z.enum(["ENGAGED", "IN_BATTLE"]);
 
+export const BattleMoveFlagsSchema = z.union([
+  z.object({}).strict(),
+  z
+    .object({
+      schemaVersion: z.literal(1),
+      makesContact: z.boolean(),
+    })
+    .strict(),
+]);
+export type BattleMoveFlags = z.infer<typeof BattleMoveFlagsSchema>;
+
 export const RulesetConfigSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -21,6 +32,10 @@ export const RulesetConfigSchema = z
         ppEnabled: z.boolean(),
         criticalMultiplierBasisPoints: basisPointsSchema.min(10_000),
         accuracyEvasionEnabled: z.boolean(),
+        stabMultiplierBasisPoints: basisPointsSchema.min(1).optional(),
+        damageRandomMinBasisPoints: z.number().int().min(1).max(10_000).optional(),
+        damageRandomMaxBasisPoints: z.number().int().min(1).max(10_000).optional(),
+        switchConsumesTurn: z.boolean().optional(),
       })
       .strict(),
     capture: z
@@ -51,7 +66,19 @@ export const RulesetConfigSchema = z
 export type RulesetConfig = z.infer<typeof RulesetConfigSchema>;
 
 const statusKeySchema = z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]);
-const statKeySchema = z.enum(["ATTACK", "DEFENSE", "SP_ATTACK", "SP_DEFENSE", "SPEED"]);
+const statKeySchema = z.enum([
+  "ATTACK",
+  "DEFENSE",
+  "SP_ATTACK",
+  "SP_DEFENSE",
+  "SPEED",
+  "ACCURACY",
+  "EVASION",
+]);
+
+const statusChanceSchema = z
+  .object({ status: statusKeySchema, chanceBasisPoints: basisPointsSchema.max(10_000) })
+  .strict();
 
 export const EffectConfigSchemas = {
   "heal-hp": z.object({ amount: z.number().int().positive().max(9_999) }).strict(),
@@ -60,9 +87,8 @@ export const EffectConfigSchemas = {
   "catch-modifier": z
     .object({ multiplierBasisPoints: z.number().int().min(1).max(100_000) })
     .strict(),
-  "apply-status": z
-    .object({ status: statusKeySchema, chanceBasisPoints: basisPointsSchema.max(10_000) })
-    .strict(),
+  "apply-status": statusChanceSchema,
+  "apply-status-on-contact-received": statusChanceSchema,
   "modify-stat-stage": z
     .object({
       stat: statKeySchema,
@@ -176,6 +202,7 @@ export interface CatalogSnapshot {
     readonly maxPp: number | null;
     readonly effectKey: string | null;
     readonly effectConfig: unknown;
+    readonly flags?: BattleMoveFlags;
     readonly active: boolean;
   }[];
   readonly abilities: readonly {
