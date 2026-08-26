@@ -460,8 +460,15 @@ function terminalWinner(state: BattleState): {
   return { playerId: playerSide.playerId, winner, defeated };
 }
 
+export interface ProgressionFaultInjector {
+  readonly afterRewardMutationsBeforeClaim?: () => void | Promise<void>;
+}
+
 export class PostgresProgressionRepository implements ProgressionRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly faultInjector: ProgressionFaultInjector = {},
+  ) {}
 
   public async applyBattleReward(
     input: ApplyBattleRewardInput,
@@ -587,6 +594,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           progression,
           correlationId: input.correlationId,
         });
+        await this.faultInjector.afterRewardMutationsBeforeClaim?.();
         const result = BattleRewardResultSchema.parse({
           battleId: input.battleId,
           playerId: terminal.playerId,
