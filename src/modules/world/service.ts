@@ -168,9 +168,11 @@ export class WorldService {
       const flow = await transaction.activeFlowState(input.playerId);
       const unlockKeys = new Set(await transaction.activeUnlockKeys(input.playerId));
       const missing =
-        connection === null ? [] : missingUnlockKeys(connection.accessRule.requiredUnlockKeys, unlockKeys);
+        connection === null
+          ? []
+          : missingUnlockKeys(connection.accessRule.requiredUnlockKeys, unlockKeys);
       const actionValid =
-        destination !== null && destination.active && connection !== null && connection.active && missing.length === 0;
+        destination?.active === true && connection?.active === true && missing.length === 0;
       const actionReason =
         destination === null
           ? "destination-missing"
