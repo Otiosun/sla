@@ -14,7 +14,8 @@ export class ProgressionService {
 
   public async applyBattleReward(input: unknown): Promise<ProgressionResult<BattleRewardResult>> {
     const parsed = ApplyBattleRewardInputSchema.safeParse(input);
-    if (!parsed.success) return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid battle reward request");
+    if (!parsed.success)
+      return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid battle reward request");
     const persisted = await this.repository.applyBattleReward(parsed.data);
     switch (persisted.kind) {
       case "APPLIED":
@@ -30,7 +31,10 @@ export class ProgressionService {
       case "UNSUPPORTED":
         return progressionFailure("BATTLE_REWARD_UNSUPPORTED", persisted.reason);
       case "RULES_MISSING":
-        return progressionFailure("PROGRESSION_RULES_MISSING", "Pinned ruleset has no progression policy");
+        return progressionFailure(
+          "PROGRESSION_RULES_MISSING",
+          "Pinned ruleset has no progression policy",
+        );
       case "STATE_INVALID":
         return progressionFailure("PROGRESSION_STATE_INVALID", persisted.reason);
       case "IDEMPOTENCY_CONFLICT":
@@ -43,7 +47,8 @@ export class ProgressionService {
 
   public async resolveMoveChoice(input: unknown): Promise<ProgressionResult<MoveChoiceResult>> {
     const parsed = ResolveMoveChoiceInputSchema.safeParse(input);
-    if (!parsed.success) return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid move choice request");
+    if (!parsed.success)
+      return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid move choice request");
     const persisted = await this.repository.resolveMoveChoice(parsed.data);
     switch (persisted.kind) {
       case "RESOLVED":
@@ -58,7 +63,8 @@ export class ProgressionService {
 
   public async evolvePokemon(input: unknown): Promise<ProgressionResult<EvolutionResult>> {
     const parsed = EvolvePokemonInputSchema.safeParse(input);
-    if (!parsed.success) return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid evolution request");
+    if (!parsed.success)
+      return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid evolution request");
     const persisted = await this.repository.evolvePokemon(parsed.data);
     switch (persisted.kind) {
       case "EVOLVED":
@@ -69,9 +75,15 @@ export class ProgressionService {
       case "NOT_ELIGIBLE":
         return progressionFailure("EVOLUTION_NOT_ELIGIBLE", persisted.reason);
       case "ITEM_MISSING":
-        return progressionFailure("EVOLUTION_ITEM_MISSING", "Required evolution item is unavailable");
+        return progressionFailure(
+          "EVOLUTION_ITEM_MISSING",
+          "Required evolution item is unavailable",
+        );
       case "RULES_MISSING":
-        return progressionFailure("PROGRESSION_RULES_MISSING", "Active ruleset has no progression policy");
+        return progressionFailure(
+          "PROGRESSION_RULES_MISSING",
+          "Active ruleset has no progression policy",
+        );
       case "IDEMPOTENCY_CONFLICT":
         return progressionFailure(
           "PROGRESSION_IDEMPOTENCY_CONFLICT",

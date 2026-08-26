@@ -28,21 +28,10 @@ export const EvolvePokemonInputSchema = z
     trigger: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("LEVEL") }).strict(),
       z.object({ kind: z.literal("ITEM"), itemId: uuid }).strict(),
-      z
-        .object({
-          kind: z.literal("CONDITION"),
-          conditionKey: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
-        })
-        .strict(),
     ]),
   })
   .strict();
-export type EvolvePokemonInput = Omit<z.infer<typeof EvolvePokemonInputSchema>, "trigger"> & {
-  readonly trigger:
-    | { readonly kind: "LEVEL" }
-    | { readonly kind: "ITEM"; readonly itemId: string }
-    | { readonly kind: "CONDITION"; readonly conditionKey: string };
-};
+export type EvolvePokemonInput = z.infer<typeof EvolvePokemonInputSchema>;
 
 export interface PokemonXpAwardResult {
   readonly pokemonInstanceId: string;

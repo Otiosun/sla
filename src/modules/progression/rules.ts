@@ -26,8 +26,10 @@ export function applyPokemonXp(input: {
   if (!Number.isInteger(input.level) || input.level < 1 || input.level > levelCap) {
     throw new Error("Pokemon level is outside the configured range");
   }
-  if (!Number.isSafeInteger(input.xp) || input.xp < 0) throw new Error("Pokemon XP must be non-negative");
-  if (!Number.isSafeInteger(input.gain) || input.gain < 0) throw new Error("XP gain must be non-negative");
+  if (!Number.isSafeInteger(input.xp) || input.xp < 0)
+    throw new Error("Pokemon XP must be non-negative");
+  if (!Number.isSafeInteger(input.gain) || input.gain < 0)
+    throw new Error("XP gain must be non-negative");
 
   if (input.level === levelCap) {
     return {
@@ -93,7 +95,8 @@ export function trainerPointsRequiredForLevel(level: number): number {
 }
 
 export function trainerLevelForPoints(points: number, levelCap = TRAINER_LEVEL_CAP): number {
-  if (!Number.isSafeInteger(points) || points < 0) throw new Error("Trainer points must be non-negative");
+  if (!Number.isSafeInteger(points) || points < 0)
+    throw new Error("Trainer points must be non-negative");
   for (let level = levelCap; level >= 1; level -= 1) {
     if (points >= trainerPointsRequiredForLevel(level)) return level;
   }

@@ -7,7 +7,8 @@ import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-c
 import { loadMigrations, verifyAppliedMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = process.env.DATABASE_URL;
-if (databaseUrl === undefined) throw new Error("DATABASE_URL is required for the Phase 11 progression seed");
+if (databaseUrl === undefined)
+  throw new Error("DATABASE_URL is required for the Phase 11 progression seed");
 
 const RULESET_KEY = "phase4-core-v1";
 const BASE_RULESET_VERSION = 1;
@@ -53,7 +54,8 @@ async function ensureRuleset(client: PoolClient): Promise<{ id: string; status: 
     [RULESET_KEY, BASE_RULESET_VERSION],
   );
   const baseRow = base.rows[0];
-  if (baseRow === undefined) throw new Error("Phase 11 requires the published Phase 4 base ruleset");
+  if (baseRow === undefined)
+    throw new Error("Phase 11 requires the published Phase 4 base ruleset");
   const parsedBase = RulesetConfigSchema.safeParse(baseRow.config);
   if (!parsedBase.success) throw new Error("Base ruleset config is invalid");
   const expectedConfig = { ...parsedBase.data, progression: PROGRESSION_CONFIG };
@@ -128,7 +130,8 @@ async function ensureRelease(
      WHERE id = $1 AND status = 'DRAFT'`,
     [newReleaseId, rulesetId],
   );
-  if (changed.rowCount !== 1) throw new Error("Failed to bind Phase 11 release to progression ruleset");
+  if (changed.rowCount !== 1)
+    throw new Error("Failed to bind Phase 11 release to progression ruleset");
   return { id: newReleaseId, status: "DRAFT" };
 }
 
