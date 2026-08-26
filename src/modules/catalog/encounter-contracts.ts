@@ -32,7 +32,11 @@ export const EncounterConditionsSchema = z
     }
   });
 
-export type EncounterConditions = z.infer<typeof EncounterConditionsSchema>;
+export interface EncounterConditions {
+  readonly schemaVersion: 1;
+  readonly requiredUnlockKeys: readonly string[];
+  readonly blockedUnlockKeys: readonly string[];
+}
 
 const OPEN_CONDITIONS: EncounterConditions = Object.freeze({
   schemaVersion: 1,
