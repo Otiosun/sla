@@ -54,6 +54,7 @@ export interface EncounterTransaction {
     readonly creationIdempotencyKey: string;
     readonly seed: EncryptedSeedEnvelope;
     readonly rngCounter: bigint;
+    readonly createdAt: Date;
     readonly expiresAt: Date;
     readonly snapshot: WildPokemonSnapshot;
   }): Promise<EncounterRecord>;
