@@ -56,6 +56,7 @@ export interface EconomyTransaction {
 
   activeContentReleaseId(): Promise<string | null>;
   loadPurchaseOffer(contentReleaseId: string, offerKey: string): Promise<PurchaseOffer | null>;
+  loadPurchaseOfferById(offerId: string): Promise<PurchaseOffer | null>;
 }
 
 export interface EconomyRepository {
