@@ -37,7 +37,8 @@ function playerAction(state: BattleState): BattleAction {
   const target = state.combatants.find(
     (entry) => entry.participantId === opponentSide.activeParticipantId,
   );
-  if (actor === undefined || target === undefined) throw new Error("Terminal proof combatant missing");
+  if (actor === undefined || target === undefined)
+    throw new Error("Terminal proof combatant missing");
   const move = actor.moves.find((entry) => entry.ppCurrent === null || entry.ppCurrent > 0);
   if (move === undefined) throw new Error("Terminal proof player has no usable move");
   return {
@@ -74,7 +75,14 @@ async function cloneActiveBattleForCancellation(
   if (root === undefined) throw new Error("Source battle root missing for cancellation clone");
 
   const battleId = randomUUID();
-  const participantIds = new Map(sourceState.combatants.map((entry) => [entry.participantId, randomUUID()]));
+  const participantIds = new Map(
+    sourceState.combatants.map((entry) => [entry.participantId, randomUUID()]),
+  );
+  const mappedParticipantId = (participantId: string): string => {
+    const mapped = participantIds.get(participantId);
+    if (mapped === undefined) throw new Error("Cancellation clone participant mapping missing");
+    return mapped;
+  };
   const state = structuredClone(sourceState);
   state.battleId = battleId;
   state.encounterId = null;
@@ -83,13 +91,13 @@ async function cloneActiveBattleForCancellation(
   state.version = 0;
   state.sides = state.sides.map((side) => ({
     ...side,
-    participantIds: side.participantIds.map((id) => participantIds.get(id)!),
-    activeParticipantId: participantIds.get(side.activeParticipantId)!,
+    participantIds: side.participantIds.map(mappedParticipantId),
+    activeParticipantId: mappedParticipantId(side.activeParticipantId),
     result: null,
   }));
   state.combatants = state.combatants.map((combatant) => ({
     ...combatant,
-    participantId: participantIds.get(combatant.participantId)!,
+    participantId: mappedParticipantId(combatant.participantId),
   }));
 
   await pool.query(
@@ -210,7 +218,10 @@ async function main(): Promise<void> {
         reason: "phase9 deterministic operator cancellation proof",
       }),
     );
-    if (!cancellationReplay.replayed || cancellationReplay.state.version !== cancelled.state.version) {
+    if (
+      !cancellationReplay.replayed ||
+      cancellationReplay.state.version !== cancelled.state.version
+    ) {
       throw new Error("Repeated cancellation did not replay the persisted terminal state");
     }
     const cancellationAudit = await pool.query<{
