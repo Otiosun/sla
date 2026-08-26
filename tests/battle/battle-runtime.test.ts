@@ -3,18 +3,28 @@ import type { BattleState } from "../../src/modules/battle/contracts.js";
 import { BattleRuntimeService } from "../../src/modules/battle/runtime.js";
 import { battleState } from "./fixtures.js";
 
+function playerSide(state: BattleState) {
+  const side = state.sides.find((entry) => entry.controllerKind === "PLAYER");
+  if (side === undefined || side.playerId === null) throw new Error("fixture player side is missing");
+  return side;
+}
+
 function lostState(): BattleState {
   const state = battleState();
+  const player = playerSide(state);
+  const opponent = state.sides.find((entry) => entry.sideNo !== player.sideNo);
+  if (opponent === undefined) throw new Error("fixture opponent side is missing");
   state.status = "LOST";
   state.version = 3;
-  state.sides[0]!.result = "LOST";
-  state.sides[1]!.result = "WON";
+  player.result = "LOST";
+  opponent.result = "WON";
   return state;
 }
 
 describe("BattleRuntimeService", () => {
   it("applies defeat aftermath even when the terminal turn is an idempotent replay", async () => {
     const state = lostState();
+    const player = playerSide(state);
     let aftermathCalls = 0;
     const runtime = new BattleRuntimeService(
       {
@@ -43,12 +53,12 @@ describe("BattleRuntimeService", () => {
 
     const result = await runtime.resolvePlayerTurn({
       battleId: state.battleId,
-      playerId: state.sides[0]!.playerId!,
+      playerId: player.playerId,
       expectedVersion: 2,
       idempotencyKey: "replayed-terminal-turn",
       action: {
         type: "FLEE",
-        actorParticipantId: state.sides[0]!.activeParticipantId,
+        actorParticipantId: player.activeParticipantId,
       },
     });
 
@@ -58,6 +68,7 @@ describe("BattleRuntimeService", () => {
 
   it("surfaces aftermath failure without hiding the already-resolved terminal state", async () => {
     const state = lostState();
+    const player = playerSide(state);
     const runtime = new BattleRuntimeService(
       {
         async initialize() {
@@ -84,12 +95,12 @@ describe("BattleRuntimeService", () => {
 
     const result = await runtime.resolvePlayerTurn({
       battleId: state.battleId,
-      playerId: state.sides[0]!.playerId!,
+      playerId: player.playerId,
       expectedVersion: 2,
       idempotencyKey: "terminal-turn",
       action: {
         type: "FLEE",
-        actorParticipantId: state.sides[0]!.activeParticipantId,
+        actorParticipantId: player.activeParticipantId,
       },
     });
 
