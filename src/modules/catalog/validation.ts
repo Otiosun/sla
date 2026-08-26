@@ -9,6 +9,7 @@ import {
   type ValidationReport,
   validateEffectConfig,
 } from "./contracts.js";
+import { parseEncounterConditions } from "./encounter-contracts.js";
 import { ConnectionAccessRuleSchema, WorldAreaConfigSchema } from "./world-contracts.js";
 
 export const EffectProgramSchema = z
@@ -651,6 +652,12 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
         ),
       );
     }
+    addZodIssues(
+      issues,
+      "ENCOUNTER_TABLE_CONDITIONS_INVALID",
+      `encounterTables.${tableIndex}.conditions`,
+      parseEncounterConditions(table.conditions),
+    );
     const activeEntries = table.entries.filter((entry) => entry.active);
     if (table.active && activeEntries.length === 0) {
       issues.push(
@@ -680,18 +687,27 @@ export function validateCatalogSnapshot(snapshot: CatalogSnapshotWithEffects): V
           ),
         );
       }
+      addZodIssues(
+        issues,
+        "ENCOUNTER_ENTRY_CONDITIONS_INVALID",
+        `encounterTables.${tableIndex}.entries.${entryIndex}.conditions`,
+        parseEncounterConditions(entry.conditions),
+      );
       const weight = Number(entry.weight);
       if (
         !Number.isSafeInteger(weight) ||
         weight <= 0 ||
+        !Number.isSafeInteger(entry.minLevel) ||
+        !Number.isSafeInteger(entry.maxLevel) ||
         entry.minLevel < 1 ||
-        entry.maxLevel < entry.minLevel
+        entry.maxLevel < entry.minLevel ||
+        entry.maxLevel > 100
       ) {
         issues.push(
           issue(
             "ENCOUNTER_RANGE_INVALID",
             `encounterTables.${tableIndex}.entries.${entryIndex}`,
-            "Encounter entry has invalid weight or level range",
+            "Encounter entry weight must be positive and levels must be safe integers in 1..100",
           ),
         );
       }
