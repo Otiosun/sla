@@ -1,0 +1,63 @@
+name: Progression Proof SQL Fix Temp
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/progression-evolution-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout progression branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/progression-evolution-v1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Make UUID-to-text proof comparisons explicit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('db/proofs/phase11_progression_e2e.ts')
+          text = p.read_text()
+          replacements = {
+              'destination_ref = $2) AS outbox': 'destination_ref = $2::text) AS outbox',
+              "idempotency_key = 'progression.reward:' || $1) AS outbox": "idempotency_key = 'progression.reward:' || $1::text) AS outbox",
+              "idempotency_key = 'progression.move-choice:' || $2) AS count": "idempotency_key = 'progression.move-choice:' || $2::text) AS count",
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one SQL target: {old!r}; got {text.count(old)}')
+              text = text.replace(old, new, 1)
+          p.write_text(text)
+          PY
+          pnpm exec biome check --write db/proofs/phase11_progression_e2e.ts
+          pnpm typecheck
+
+      - name: Commit SQL type fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/proofs/phase11_progression_e2e.ts
+          git commit -m "fix: make progression proof SQL text casts explicit"
+          git push origin HEAD:feat/progression-evolution-v1
