@@ -152,7 +152,10 @@ export class BattleRuntimeService {
           "BATTLE_VERSION_CONFLICT",
           "Battle version is stale",
           persisted.currentState,
-          { expectedVersion: input.expectedVersion, currentVersion: persisted.currentState.version },
+          {
+            expectedVersion: input.expectedVersion,
+            currentVersion: persisted.currentState.version,
+          },
         );
     }
   }
