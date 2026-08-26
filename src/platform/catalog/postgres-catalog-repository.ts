@@ -451,10 +451,7 @@ class PostgresCatalogTransaction implements CatalogTransaction {
             minLevel: entry.min_level,
             maxLevel: entry.max_level,
             active: entry.active,
-            conditions: requireEncounterConditions(
-              entry.conditions,
-              `Encounter entry ${entry.id}`,
-            ),
+            conditions: requireEncounterConditions(entry.conditions, `Encounter entry ${entry.id}`),
           })),
         };
       }),
