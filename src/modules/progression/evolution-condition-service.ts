@@ -8,6 +8,7 @@ import type { EvolutionConditionRepository } from "./evolution-condition-ports.j
 export type EvolutionConditionErrorCode =
   | "EVOLUTION_CONDITION_INPUT_INVALID"
   | "EVOLUTION_CONDITION_POKEMON_NOT_FOUND"
+  | "EVOLUTION_CONDITION_NOT_FOUND"
   | "EVOLUTION_CONDITION_SOURCE_CONFLICT"
   | "EVOLUTION_CONDITION_STALE_REVISION";
 
@@ -66,6 +67,14 @@ export class EvolutionConditionService {
           error: {
             code: "EVOLUTION_CONDITION_POKEMON_NOT_FOUND",
             message: "Pokemon was not found",
+          },
+        };
+      case "CONDITION_NOT_FOUND":
+        return {
+          ok: false,
+          error: {
+            code: "EVOLUTION_CONDITION_NOT_FOUND",
+            message: "Evolution condition state was not found",
           },
         };
       case "SOURCE_CONFLICT":
