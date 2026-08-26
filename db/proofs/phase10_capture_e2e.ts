@@ -507,13 +507,31 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
     throw new Error("Captured Pokemon persistent major status does not match battle snapshot");
   }
 
-  const pokedex = await pool.query<{ caught_count: string }>(
-    `SELECT caught_count::text FROM player_pokedex_species
+  const pokedex = await pool.query<{
+    seen_count: string;
+    caught_count: string;
+    first_seen_at: Date | null;
+    last_seen_at: Date | null;
+    first_caught_at: Date | null;
+    last_caught_at: Date | null;
+  }>(
+    `SELECT seen_count::text, caught_count::text,
+            first_seen_at, last_seen_at, first_caught_at, last_caught_at
+     FROM player_pokedex_species
      WHERE player_id = $1 AND species_id = $2`,
     [fixture.playerId, snapshot.speciesId],
   );
-  if (Number(pokedex.rows[0]?.caught_count ?? "0") < 1) {
-    throw new Error("Successful capture did not update Pokédex caught count");
+  const pokedexRow = pokedex.rows[0];
+  if (
+    pokedexRow === undefined ||
+    Number(pokedexRow.caught_count) < 1 ||
+    Number(pokedexRow.seen_count) < Number(pokedexRow.caught_count) ||
+    pokedexRow.first_seen_at === null ||
+    pokedexRow.last_seen_at === null ||
+    pokedexRow.first_caught_at === null ||
+    pokedexRow.last_caught_at === null
+  ) {
+    throw new Error(`Successful capture violated Pokédex invariant: ${JSON.stringify(pokedexRow)}`);
   }
 }
 

@@ -27,5 +27,8 @@ describe("progression public boundary", () => {
         trigger: { kind: "ITEM", itemId: "00000000-0000-4000-8000-000000000004" },
       }).success,
     ).toBe(true);
+    expect(
+      EvolvePokemonInputSchema.safeParse({ ...base, trigger: { kind: "CONDITION" } }).success,
+    ).toBe(true);
   });
 });

@@ -15,12 +15,13 @@ import type {
 } from "../../modules/encounter/ports.js";
 import { WildPokemonSnapshotSchema } from "../../modules/encounter/snapshot-schema.js";
 import {
-  parseEncounterId,
-  parsePlayerId,
   type EncounterId,
   type PlayerId,
+  parseEncounterId,
+  parsePlayerId,
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
+import { recordPokedexSeen } from "../pokedex/postgres-pokedex-writer.js";
 
 interface EncounterRow {
   readonly id: string;
@@ -492,7 +493,13 @@ class PostgresEncounterTransaction implements EncounterTransaction {
         input.closedAt,
       ],
     );
-    return result.rows[0] === undefined ? null : mapEncounter(result.rows[0]);
+    const row = result.rows[0];
+    if (row !== undefined && input.toStatus === "PRESENTED") {
+      const snapshot = await this.snapshot(input.encounterId);
+      if (snapshot === null) throw new Error("Presented encounter is missing its wild snapshot");
+      await recordPokedexSeen(this.client, input.playerId, snapshot.speciesId);
+    }
+    return row === undefined ? null : mapEncounter(row);
   }
 
   public async createBattle(input: {

@@ -24,6 +24,7 @@ interface Fixture {
   readonly regionId: string;
   readonly formId: string;
   readonly releaseId: string;
+  readonly speciesId: string;
 }
 
 function databaseUrlFor(name: string): string {
@@ -167,7 +168,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
     [releaseId],
   );
 
-  return { regionId, formId, releaseId };
+  return { regionId, formId, releaseId, speciesId };
 }
 
 async function advanceToStarterPending(
@@ -273,6 +274,25 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
       grant_count: "1",
       roster_count: "1",
     });
+    const starterPokedex = await pool.query<{
+      seen_count: string;
+      caught_count: string;
+      first_seen_at: Date | null;
+      last_seen_at: Date | null;
+      first_caught_at: Date | null;
+      last_caught_at: Date | null;
+    }>(
+      `SELECT seen_count::text, caught_count::text,
+              first_seen_at, last_seen_at, first_caught_at, last_caught_at
+       FROM player_pokedex_species
+       WHERE player_id = $1 AND species_id = $2`,
+      [first.playerId, fixture.speciesId],
+    );
+    expect(starterPokedex.rows[0]).toMatchObject({ seen_count: "1", caught_count: "1" });
+    expect(starterPokedex.rows[0]?.first_seen_at).toBeInstanceOf(Date);
+    expect(starterPokedex.rows[0]?.last_seen_at).toBeInstanceOf(Date);
+    expect(starterPokedex.rows[0]?.first_caught_at).toBeInstanceOf(Date);
+    expect(starterPokedex.rows[0]?.last_caught_at).toBeInstanceOf(Date);
 
     const immediateProfile = unwrap(await starter.getProfile(first.playerId));
     expect(immediateProfile.onboardingState).toBe("STARTER_GRANTED");
@@ -302,6 +322,21 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
     );
     expect(finalRetry.pokemonInstanceId).toBe(grantedA.pokemonInstanceId);
     expect(finalRetry.replayed).toBe(true);
+    const starterPokedexAfterRetry = await pool.query<{
+      seen_count: string;
+      caught_count: string;
+      first_seen_at: Date | null;
+      last_seen_at: Date | null;
+      first_caught_at: Date | null;
+      last_caught_at: Date | null;
+    }>(
+      `SELECT seen_count::text, caught_count::text,
+              first_seen_at, last_seen_at, first_caught_at, last_caught_at
+       FROM player_pokedex_species
+       WHERE player_id = $1 AND species_id = $2`,
+      [first.playerId, fixture.speciesId],
+    );
+    expect(starterPokedexAfterRetry.rows[0]).toEqual(starterPokedex.rows[0]);
   }, 20_000);
 
   it("sends the starter to Box when all six team slots are already occupied", async () => {
