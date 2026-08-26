@@ -19,7 +19,7 @@ CREATE TABLE pokemon_xp_ledger (
   actor_type TEXT NOT NULL,
   actor_id UUID NULL,
   idempotency_scope TEXT NOT NULL,
-  idempotency_key TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL CHECK (idempotency_key ~ '^[0-9a-f]{64}$'),
   correlation_id UUID NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (idempotency_scope, idempotency_key)
@@ -35,7 +35,7 @@ CREATE INDEX idx_pokemon_xp_ledger_correlation
 CREATE TABLE battle_reward_claims (
   battle_id UUID PRIMARY KEY REFERENCES battles(id),
   player_id UUID NOT NULL REFERENCES players(id),
-  idempotency_key TEXT NOT NULL UNIQUE,
+  idempotency_key TEXT NOT NULL UNIQUE CHECK (idempotency_key ~ '^[0-9a-f]{64}$'),
   request_fingerprint TEXT NOT NULL CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'),
   result JSONB NOT NULL CHECK (jsonb_typeof(result) = 'object'),
   correlation_id UUID NOT NULL,
@@ -53,6 +53,9 @@ CREATE TABLE pending_move_choices (
   content_release_id UUID NOT NULL REFERENCES content_releases(id),
   move_id UUID NOT NULL REFERENCES moves(id),
   learn_level SMALLINT NOT NULL CHECK (learn_level >= 1),
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  correlation_id UUID NOT NULL,
   status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'RESOLVED', 'SKIPPED')),
   replaced_slot_no SMALLINT NULL CHECK (replaced_slot_no IS NULL OR replaced_slot_no BETWEEN 1 AND 4),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -67,19 +70,25 @@ CREATE TABLE pending_move_choices (
 
 CREATE INDEX idx_pending_move_choices_instance_status
   ON pending_move_choices(pokemon_instance_id, status, created_at);
+CREATE INDEX idx_pending_move_choices_source
+  ON pending_move_choices(source_type, source_id);
+CREATE INDEX idx_pending_move_choices_correlation
+  ON pending_move_choices(correlation_id, created_at DESC);
 
 CREATE TABLE pokemon_evolution_claims (
   id UUID PRIMARY KEY,
   pokemon_instance_id UUID NOT NULL REFERENCES pokemon_instances(id),
   content_release_id UUID NOT NULL REFERENCES content_releases(id),
   ruleset_id UUID NOT NULL REFERENCES rulesets(id),
+  evolution_rule_id UUID NOT NULL REFERENCES evolution_rules(id),
   from_form_id UUID NOT NULL REFERENCES pokemon_forms(id),
   to_form_id UUID NOT NULL REFERENCES pokemon_forms(id),
   trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('LEVEL', 'ITEM', 'CONDITION')),
   source_type TEXT NOT NULL,
   source_id TEXT NOT NULL,
   idempotency_scope TEXT NOT NULL,
-  idempotency_key TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL CHECK (idempotency_key ~ '^[0-9a-f]{64}$'),
+  request_fingerprint TEXT NOT NULL CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'),
   correlation_id UUID NOT NULL,
   result JSONB NOT NULL CHECK (jsonb_typeof(result) = 'object'),
   evolved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -89,5 +98,7 @@ CREATE TABLE pokemon_evolution_claims (
 
 CREATE INDEX idx_pokemon_evolution_claims_instance_evolved
   ON pokemon_evolution_claims(pokemon_instance_id, evolved_at DESC);
+CREATE INDEX idx_pokemon_evolution_claims_rule
+  ON pokemon_evolution_claims(evolution_rule_id, evolved_at DESC);
 CREATE INDEX idx_pokemon_evolution_claims_correlation
   ON pokemon_evolution_claims(correlation_id, evolved_at DESC);

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { EvolutionTrigger } from "../pokemon/evolution.js";
 
 const uuid = z.string().uuid();
+const safeNonNegative = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const idempotencyKey = z.string().trim().min(1).max(512);
 
 export const ApplyBattleRewardInputSchema = z
@@ -33,53 +33,68 @@ export const EvolvePokemonInputSchema = z
   .strict();
 export type EvolvePokemonInput = z.infer<typeof EvolvePokemonInputSchema>;
 
-export interface PokemonXpAwardResult {
-  readonly pokemonInstanceId: string;
-  readonly offeredXp: number;
-  readonly awardedXp: number;
-  readonly discardedXp: number;
-  readonly beforeLevel: number;
-  readonly afterLevel: number;
-  readonly beforeXp: number;
-  readonly afterXp: number;
-  readonly learnedMoveIds: readonly string[];
-  readonly pendingMoveChoiceIds: readonly string[];
-  readonly evolution: EvolutionResult | null;
-}
+export const EvolutionResultSchema = z
+  .object({
+    pokemonInstanceId: uuid,
+    fromFormId: uuid,
+    toFormId: uuid,
+    triggerKind: z.enum(["LEVEL", "ITEM", "CONDITION"]),
+    beforeLevel: z.number().int().min(1).max(100),
+    afterLevel: z.number().int().min(1).max(100),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type EvolutionResult = z.infer<typeof EvolutionResultSchema>;
 
-export interface TrainerProgressResult {
-  readonly playerId: string;
-  readonly pointsGained: number;
-  readonly beforePoints: number;
-  readonly afterPoints: number;
-  readonly beforeLevel: number;
-  readonly afterLevel: number;
-  readonly unlockKeys: readonly string[];
-}
+export const PokemonXpAwardResultSchema = z
+  .object({
+    pokemonInstanceId: uuid,
+    offeredXp: safeNonNegative,
+    awardedXp: safeNonNegative,
+    discardedXp: safeNonNegative,
+    beforeLevel: z.number().int().min(1).max(100),
+    afterLevel: z.number().int().min(1).max(100),
+    beforeXp: safeNonNegative,
+    afterXp: safeNonNegative,
+    learnedMoveIds: z.array(uuid),
+    pendingMoveChoiceIds: z.array(uuid),
+    evolutions: z.array(EvolutionResultSchema),
+  })
+  .strict();
+export type PokemonXpAwardResult = z.infer<typeof PokemonXpAwardResultSchema>;
 
-export interface BattleRewardResult {
-  readonly battleId: string;
-  readonly playerId: string;
-  readonly pokemon: readonly PokemonXpAwardResult[];
-  readonly trainer: TrainerProgressResult;
-  readonly replayed: boolean;
-}
+export const TrainerProgressResultSchema = z
+  .object({
+    playerId: uuid,
+    pointsGained: safeNonNegative,
+    beforePoints: safeNonNegative,
+    afterPoints: safeNonNegative,
+    beforeLevel: z.number().int().min(1).max(100),
+    afterLevel: z.number().int().min(1).max(100),
+    unlockKeys: z.array(z.string().min(1).max(96)),
+  })
+  .strict();
+export type TrainerProgressResult = z.infer<typeof TrainerProgressResultSchema>;
 
-export interface MoveChoiceResult {
-  readonly choiceId: string;
-  readonly pokemonInstanceId: string;
-  readonly moveId: string;
-  readonly status: "RESOLVED" | "SKIPPED";
-  readonly replacedSlotNo: number | null;
-  readonly replayed: boolean;
-}
+export const BattleRewardResultSchema = z
+  .object({
+    battleId: uuid,
+    playerId: uuid,
+    pokemon: z.array(PokemonXpAwardResultSchema),
+    trainer: TrainerProgressResultSchema,
+    replayed: z.boolean(),
+  })
+  .strict();
+export type BattleRewardResult = z.infer<typeof BattleRewardResultSchema>;
 
-export interface EvolutionResult {
-  readonly pokemonInstanceId: string;
-  readonly fromFormId: string;
-  readonly toFormId: string;
-  readonly triggerKind: EvolutionTrigger["kind"];
-  readonly beforeLevel: number;
-  readonly afterLevel: number;
-  readonly replayed: boolean;
-}
+export const MoveChoiceResultSchema = z
+  .object({
+    choiceId: uuid,
+    pokemonInstanceId: uuid,
+    moveId: uuid,
+    status: z.enum(["RESOLVED", "SKIPPED"]),
+    replacedSlotNo: z.number().int().min(1).max(4).nullable(),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type MoveChoiceResult = z.infer<typeof MoveChoiceResultSchema>;
