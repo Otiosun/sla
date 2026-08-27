@@ -1,6 +1,4 @@
 import {
-  AdminEncounterCloseInputSchema,
-  AdminEncounterInspectInputSchema,
   AdminInventoryAdjustInputSchema,
   AdminPokemonArchiveInputSchema,
   AdminPokemonCreateInputSchema,
@@ -11,8 +9,6 @@ import {
   AdminPokemonRosterMoveInputSchema,
   AdminPokemonStatusCorrectInputSchema,
   AdminTrainerProgressAdjustInputSchema,
-  type AdminEncounterCloseInput,
-  type AdminEncounterInspectInput,
   type AdminInventoryAdjustInput,
   type AdminPokemonArchiveInput,
   type AdminPokemonCreateInput,
@@ -28,15 +24,6 @@ import {
 } from "./domain-contracts.js";
 import type { AdminDomainOperationPort } from "./domain-ports.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
-
-const encounterInspectPolicy = {
-  version: 1,
-  requiresReason: false,
-  requiresExpectedRevision: false,
-  requiresSimulation: false,
-  requiresConfirmation: false,
-  requiredApprovals: 0,
-} as const;
 
 const deltaPolicy = {
   version: 1,
@@ -74,32 +61,10 @@ const pokemonMechanicalPolicy = {
   requiredApprovals: 0,
 } as const;
 
-const encounterClosePolicy = {
-  version: 1,
-  requiresReason: true,
-  requiresExpectedRevision: true,
-  requiresSimulation: false,
-  requiresConfirmation: true,
-  requiredApprovals: 0,
-} as const;
-
 export function registerPhase12CDomainAdminOperations(
   registry: AdminOperationRegistry,
   port: AdminDomainOperationPort,
 ): AdminOperationRegistry {
-  registry.register(
-    defineAdminOperation<AdminEncounterInspectInput>({
-      kind: "READ",
-      operationType: "encounter.inspect",
-      capabilityKey: "encounter.support",
-      riskTier: 1,
-      authorizationMode: "SUBJECT",
-      policy: encounterInspectPolicy,
-      inputSchema: AdminEncounterInspectInputSchema,
-      target: (input) => ({ type: "PLAYER", id: input.playerId }),
-    }),
-  );
-
   registry.register(
     defineAdminOperation<AdminInventoryAdjustInput>({
       kind: "MUTATION",
@@ -262,21 +227,6 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyPokemonArchive(context.operation, context.actorPrincipalId, input),
-    }),
-  );
-
-  registry.register(
-    defineAdminOperation<AdminEncounterCloseInput>({
-      kind: "MUTATION",
-      operationType: "encounter.close",
-      capabilityKey: "encounter.force_close",
-      riskTier: 3,
-      authorizationMode: "SUBJECT",
-      policy: encounterClosePolicy,
-      inputSchema: AdminEncounterCloseInputSchema,
-      target: (input) => ({ type: "PLAYER", id: input.playerId }),
-      apply: (context, input) =>
-        port.applyEncounterClose(context.operation, context.actorPrincipalId, input),
     }),
   );
 
