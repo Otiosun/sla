@@ -36,4 +36,10 @@ new = '''  const domain = new AdminDomainOperationService(
   );'''
 if old not in text:
     raise SystemExit("domain proof constructor anchor missing")
-proof.write_text(text.replace(old, new, 1))
+text = text.replace(old, new, 1)
+text = text.replace(
+    "JOIN admin_operation_changes change ON change.admin_operation_id = $2\n     WHERE progression.player_id = $1`,\n    [playerId, crashTrainer.operation.id],",
+    "JOIN admin_operation_changes change ON change.admin_operation_id = $3\n     WHERE progression.player_id = $1`,\n    [playerId, crashTrainer.operation.id, crashTrainer.operation.id],",
+    1,
+)
+proof.write_text(text)
