@@ -46,7 +46,10 @@ function ownerError(error: AppError): AdminError {
 
 function requiredReason(operation: AdminOperationRecord): string {
   if (operation.reason === null || operation.reason.trim().length === 0) {
-    throw new AdminError(ADMIN_ERROR_CODES.REASON_REQUIRED, "Catalog draft mutation requires reason");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.REASON_REQUIRED,
+      "Catalog draft mutation requires reason",
+    );
   }
   return operation.reason;
 }
@@ -80,7 +83,10 @@ export class AdminCatalogDraftOperationService implements AdminCatalogDraftOpera
   public async inspect(rawRequest: unknown) {
     const parsed = CatalogDraftInspectRequestSchema.safeParse(rawRequest);
     if (!parsed.success) {
-      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid catalog draft inspect request");
+      throw new AdminError(
+        ADMIN_ERROR_CODES.INVALID_INPUT,
+        "Invalid catalog draft inspect request",
+      );
     }
     const input = {
       releaseId: parsed.data.releaseId,
