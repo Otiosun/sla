@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { ContentLifecycleStatusSchema } from "../../modules/catalog/contracts.js";
 import type {
   CatalogDraftInspectInput,
+  CatalogDraftResourceKind,
   CatalogDraftResourceView,
 } from "../../modules/catalog/draft-contracts.js";
 import { parseEncounterConditions } from "../../modules/catalog/encounter-contracts.js";
@@ -9,6 +10,14 @@ import { parseEncounterConditions } from "../../modules/catalog/encounter-contra
 export interface CatalogReleaseAdminRow {
   readonly status: string;
   readonly revision: string;
+}
+
+interface CatalogDraftResourceViewBase {
+  readonly releaseId: string;
+  readonly releaseRevision: string;
+  readonly releaseStatus: "DRAFT" | "VALIDATED" | "PUBLISHED" | "ARCHIVED";
+  readonly resourceKind: CatalogDraftResourceKind;
+  readonly resourceId: string;
 }
 
 export function jsonRecord(value: unknown): Readonly<Record<string, unknown>> {
@@ -36,7 +45,7 @@ export async function loadCatalogReleaseAdminRow(
 function viewBase(
   input: CatalogDraftInspectInput,
   release: CatalogReleaseAdminRow,
-): Omit<CatalogDraftResourceView, "active" | "data"> {
+): CatalogDraftResourceViewBase {
   return {
     releaseId: input.releaseId,
     releaseRevision: release.revision,
