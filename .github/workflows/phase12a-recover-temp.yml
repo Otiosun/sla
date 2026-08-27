@@ -30,7 +30,7 @@ jobs:
       - name: Install exact pnpm
         run: npm install --global pnpm@11.23.0
 
-      - name: Recover candidate files from failed materializer
+      - name: Recover and patch candidate files
         shell: bash
         run: |
           python3 - <<'PY'
@@ -41,13 +41,25 @@ jobs:
           source = Path('.github/workflows/phase12a-materialize-temp.yml').read_text(encoding='utf-8')
           start = source.index('          files = {')
           end = source.index('\n\n          for name, content in files.items():', start)
-          snippet = source[start:end]
-          expression = snippet[snippet.index('{'):]
-          files = ast.literal_eval(expression)
+          expression = source[start:end]
+          files = ast.literal_eval(expression[expression.index('{'):])
           for name, content in files.items():
               path = Path(name)
               path.parent.mkdir(parents=True, exist_ok=True)
               path.write_text(content, encoding='utf-8')
+
+          registry_path = Path('src/modules/admin/operation-registry.ts')
+          registry = registry_path.read_text(encoding='utf-8')
+          old = '''    simulate:\n      input.simulate === undefined\n        ? undefined\n        : async (raw: unknown) => input.simulate?.(raw as T) as Promise<AdminSimulationResult>,\n    apply:\n      input.apply === undefined\n        ? undefined\n        : async (context: AdminOperationApplyContext, raw: unknown) =>\n            input.apply?.(context, raw as T) as Promise<AdminOperationRecord>,\n'''
+          new = '''    ...(input.simulate === undefined\n      ? {}\n      : {\n          simulate: async (raw: unknown) =>\n            input.simulate?.(raw as T) as Promise<AdminSimulationResult>,\n        }),\n    ...(input.apply === undefined\n      ? {}\n      : {\n          apply: async (context: AdminOperationApplyContext, raw: unknown) =>\n            input.apply?.(context, raw as T) as Promise<AdminOperationRecord>,\n        }),\n'''
+          if old not in registry:
+              raise SystemExit('operation registry optional-property anchor changed unexpectedly')
+          registry_path.write_text(registry.replace(old, new), encoding='utf-8')
+
+          service_path = Path('src/modules/admin/service.ts')
+          service = service_path.read_text(encoding='utf-8')
+          service = service.replace('  AdminOperationRegistry,\n', '  type AdminOperationRegistry,\n')
+          service_path.write_text(service, encoding='utf-8')
 
           package_path = Path('package.json')
           package = json.loads(package_path.read_text(encoding='utf-8'))
