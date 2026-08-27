@@ -47,7 +47,7 @@ const safeSignedProgressDeltaSchema = z
     } catch {
       return false;
     }
-  }, "trainer progression delta must fit the safe integer range and be non-zero");
+  }, "progression delta must fit the safe integer range and be non-zero");
 
 export const AdminTrainerProgressAdjustInputSchema = z
   .object({ playerId: uuidSchema, delta: safeSignedProgressDeltaSchema })
@@ -58,6 +58,44 @@ const pokemonTargetFields = {
   playerId: uuidSchema,
   pokemonInstanceId: uuidSchema,
 } as const;
+
+const pokemonIvsSchema = z
+  .object({
+    hp: z.number().int().min(0).max(31),
+    attack: z.number().int().min(0).max(31),
+    defense: z.number().int().min(0).max(31),
+    spAttack: z.number().int().min(0).max(31),
+    spDefense: z.number().int().min(0).max(31),
+    speed: z.number().int().min(0).max(31),
+  })
+  .strict();
+
+export const AdminPokemonCreateInputSchema = z
+  .object({
+    playerId: uuidSchema,
+    formId: uuidSchema,
+    level: z.number().int().min(1).max(100),
+    natureId: uuidSchema,
+    abilityId: uuidSchema,
+    ivs: pokemonIvsSchema,
+    moveIds: z.array(uuidSchema).min(1).max(4),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (new Set(value.moveIds).size !== value.moveIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["moveIds"],
+        message: "Pokemon creation moves must be unique",
+      });
+    }
+  });
+export type AdminPokemonCreateInput = z.infer<typeof AdminPokemonCreateInputSchema>;
+
+export const AdminPokemonProgressCorrectInputSchema = z
+  .object({ ...pokemonTargetFields, deltaXp: safeSignedProgressDeltaSchema })
+  .strict();
+export type AdminPokemonProgressCorrectInput = z.infer<typeof AdminPokemonProgressCorrectInputSchema>;
 
 export const AdminPokemonRosterMoveInputSchema = z
   .object({ ...pokemonTargetFields, target: PokemonRosterPlacementSchema })
