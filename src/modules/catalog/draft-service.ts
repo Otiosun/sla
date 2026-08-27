@@ -86,10 +86,7 @@ function persistenceResult(
     );
   }
   return err(
-    appError(
-      result.kind === "RESOURCE_CONFLICT" ? "CONFLICT" : "VALIDATION_FAILED",
-      result.reason,
-    ),
+    appError(result.kind === "RESOURCE_CONFLICT" ? "ACTION_INVALID" : "VALIDATION_FAILED", result.reason),
   );
 }
 
