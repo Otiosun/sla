@@ -1,8 +1,4 @@
-import {
-  RewardProgramSchema,
-  type ValidationIssue,
-  type ValidationReport,
-} from "./contracts.js";
+import { RewardProgramSchema, type ValidationIssue, type ValidationReport } from "./contracts.js";
 import type { CatalogSnapshotWithEffects } from "./validation.js";
 
 function issue(code: string, path: string, message: string): ValidationIssue {
