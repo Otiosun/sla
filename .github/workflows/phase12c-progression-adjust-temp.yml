@@ -1,0 +1,603 @@
+name: Phase 12C Progression Adjust Temp
+
+on:
+  push:
+    branches:
+      - feat/phase12c-domain-admin-operations-v1
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/phase12c-domain-admin-operations-v1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile
+      - name: Patch trainer progression owner and Admin operation
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # 0013 is not merged yet; extend the candidate migration rather than minting 0014.
+          migration = Path('db/migrations/0013_domain_admin_operation_integrity.sql')
+          text = migration.read_text()
+          if 'trainer_progress_ledger' not in text:
+              text += '''\nALTER TABLE trainer_progress_ledger\n  ADD COLUMN ruleset_id UUID NULL REFERENCES rulesets(id),\n  ADD COLUMN result JSONB NULL CHECK (result IS NULL OR jsonb_typeof(result) = 'object');\n\nCOMMENT ON COLUMN trainer_progress_ledger.ruleset_id IS\n  'Ruleset used to derive trainer level/unlocks for an operational progression adjustment; legacy rows may be NULL.';\nCOMMENT ON COLUMN trainer_progress_ledger.result IS\n  'Durable result snapshot for exact idempotent replay of trainer progression mutations; legacy rows may be NULL.';\n'''
+              migration.write_text(text)
+
+          contracts = Path('src/modules/progression/contracts.ts')
+          text = contracts.read_text()
+          if 'AdjustTrainerProgressInputSchema' not in text:
+              anchor = 'export const ApplyBattleRewardInputSchema = z\n'
+              block = '''const signedSafeDelta = z\n  .number()\n  .int()\n  .min(-Number.MAX_SAFE_INTEGER)\n  .max(Number.MAX_SAFE_INTEGER)\n  .refine((value) => value !== 0, "delta must be non-zero");\nconst progressionSourceToken = z\n  .string()\n  .trim()\n  .min(1)\n  .max(128)\n  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);\n\nexport const AdjustTrainerProgressInputSchema = z\n  .object({\n    playerId: uuid,\n    delta: signedSafeDelta,\n    idempotencyKey,\n    correlationId: uuid,\n    metadata: z\n      .object({\n        sourceType: progressionSourceToken,\n        sourceId: z.string().trim().min(1).max(255),\n        reason: z.string().trim().min(1).max(512),\n        actorType: z.enum(["SYSTEM", "ADMIN"]),\n        actorId: uuid.nullable(),\n      })\n      .strict()\n      .superRefine((value, context) => {\n        if (value.actorType === "SYSTEM" && value.actorId !== null) {\n          context.addIssue({ code: "custom", path: ["actorId"], message: "SYSTEM adjustment must not carry actorId" });\n        }\n        if (value.actorType === "ADMIN" && value.actorId === null) {\n          context.addIssue({ code: "custom", path: ["actorId"], message: "ADMIN adjustment requires actorId" });\n        }\n      }),\n  })\n  .strict();\nexport type AdjustTrainerProgressInput = z.infer<typeof AdjustTrainerProgressInputSchema>;\n\nexport const TrainerProgressAdjustmentResultSchema = z\n  .object({\n    playerId: uuid,\n    delta: signedSafeDelta,\n    beforePoints: safeNonNegative,\n    afterPoints: safeNonNegative,\n    beforeLevel: z.number().int().min(1).max(100),\n    afterLevel: z.number().int().min(1).max(100),\n    rulesetId: uuid,\n    activatedUnlockKeys: z.array(z.string().min(1).max(96)),\n    revokedUnlockKeys: z.array(z.string().min(1).max(96)),\n    replayed: z.boolean(),\n  })\n  .strict();\nexport type TrainerProgressAdjustmentResult = z.infer<typeof TrainerProgressAdjustmentResultSchema>;\n\n'''
+              if anchor not in text: raise SystemExit('progression contracts anchor missing')
+              contracts.write_text(text.replace(anchor, block + anchor, 1))
+
+          errors = Path('src/modules/progression/errors.ts')
+          text = errors.read_text()
+          if 'TRAINER_PROGRESSION_NOT_FOUND' not in text:
+              text = text.replace(
+                  '  | "PROGRESSION_IDEMPOTENCY_CONFLICT"\n',
+                  '  | "PROGRESSION_IDEMPOTENCY_CONFLICT"\n  | "TRAINER_PROGRESSION_NOT_FOUND"\n  | "TRAINER_PROGRESSION_UNDERFLOW"\n',
+                  1,
+              )
+              errors.write_text(text)
+
+          ports = Path('src/modules/progression/ports.ts')
+          text = ports.read_text()
+          if 'AdjustTrainerProgressInput' not in text:
+              text = text.replace(
+                  '  ApplyBattleRewardInput,\n',
+                  '  AdjustTrainerProgressInput,\n  ApplyBattleRewardInput,\n',
+                  1,
+              )
+              text = text.replace(
+                  '  ResolveMoveChoiceInput,\n',
+                  '  ResolveMoveChoiceInput,\n  TrainerProgressAdjustmentResult,\n',
+                  1,
+              )
+              union_anchor = 'export type BattleRewardPersistenceResult =\n'
+              union = '''export type TrainerProgressAdjustmentPersistenceResult =\n  | { readonly kind: "APPLIED"; readonly result: TrainerProgressAdjustmentResult }\n  | { readonly kind: "REPLAYED"; readonly result: TrainerProgressAdjustmentResult }\n  | { readonly kind: "NOT_FOUND" }\n  | { readonly kind: "UNDERFLOW" }\n  | { readonly kind: "RULES_MISSING" }\n  | { readonly kind: "STATE_INVALID"; readonly reason: string }\n  | { readonly kind: "IDEMPOTENCY_CONFLICT" };\n\n'''
+              text = text.replace(union_anchor, union + union_anchor, 1)
+              text = text.replace(
+                  'export interface ProgressionRepository {\n',
+                  'export interface ProgressionRepository {\n  adjustTrainerProgress(input: AdjustTrainerProgressInput): Promise<TrainerProgressAdjustmentPersistenceResult>;\n',
+                  1,
+              )
+              ports.write_text(text)
+
+          service = Path('src/modules/progression/service.ts')
+          text = service.read_text()
+          if 'adjustTrainerProgress(input: unknown)' not in text:
+              text = text.replace(
+                  '  ApplyBattleRewardInputSchema,\n',
+                  '  AdjustTrainerProgressInputSchema,\n  ApplyBattleRewardInputSchema,\n',
+                  1,
+              )
+              text = text.replace(
+                  '  type MoveChoiceResult,\n',
+                  '  type MoveChoiceResult,\n  type TrainerProgressAdjustmentResult,\n',
+                  1,
+              )
+              anchor = '  public async resolveMoveChoice(input: unknown): Promise<ProgressionResult<MoveChoiceResult>> {\n'
+              method = '''  public async adjustTrainerProgress(\n    input: unknown,\n  ): Promise<ProgressionResult<TrainerProgressAdjustmentResult>> {\n    const parsed = AdjustTrainerProgressInputSchema.safeParse(input);\n    if (!parsed.success)\n      return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid trainer progression adjustment");\n    const persisted = await this.repository.adjustTrainerProgress(parsed.data);\n    switch (persisted.kind) {\n      case "APPLIED":\n        return { ok: true, value: persisted.result };\n      case "REPLAYED":\n        return { ok: true, value: { ...persisted.result, replayed: true } };\n      case "NOT_FOUND":\n        return progressionFailure("TRAINER_PROGRESSION_NOT_FOUND", "Player was not found");\n      case "UNDERFLOW":\n        return progressionFailure(\n          "TRAINER_PROGRESSION_UNDERFLOW",\n          "Trainer progression points cannot become negative",\n        );\n      case "RULES_MISSING":\n        return progressionFailure(\n          "PROGRESSION_RULES_MISSING",\n          "Active ruleset has no trainer progression policy",\n        );\n      case "STATE_INVALID":\n        return progressionFailure("PROGRESSION_STATE_INVALID", persisted.reason);\n      case "IDEMPOTENCY_CONFLICT":\n        return progressionFailure(\n          "PROGRESSION_IDEMPOTENCY_CONFLICT",\n          "Idempotency key is already bound to another trainer progression adjustment",\n        );\n    }\n  }\n\n'''
+              if anchor not in text: raise SystemExit('progression service anchor missing')
+              service.write_text(text.replace(anchor, method + anchor, 1))
+
+          repo = Path('src/platform/progression/postgres-progression-repository.ts')
+          text = repo.read_text()
+          if 'adjustTrainerProgress(' not in text:
+              text = text.replace(
+                  '  type ApplyBattleRewardInput,\n',
+                  '  type AdjustTrainerProgressInput,\n  type ApplyBattleRewardInput,\n',
+                  1,
+              )
+              text = text.replace(
+                  '  type TrainerProgressResult,\n',
+                  '  TrainerProgressAdjustmentResultSchema,\n  type TrainerProgressResult,\n',
+                  1,
+              )
+              text = text.replace(
+                  '  ProgressionRepository,\n',
+                  '  ProgressionRepository,\n  TrainerProgressAdjustmentPersistenceResult,\n',
+                  1,
+              )
+              anchor = '  public async resolveMoveChoice(\n'
+              method = r'''  public async adjustTrainerProgress(
+    input: AdjustTrainerProgressInput,
+  ): Promise<TrainerProgressAdjustmentPersistenceResult> {
+    const storageKey = hashParts("progression.trainer-adjust", input.idempotencyKey.trim());
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        await acquireLocks(client, [
+          `progression:trainer-adjust-key:${storageKey}`,
+          `progression:trainer:${input.playerId}`,
+        ]);
+
+        const existing = await client.query<{
+          player_id: string;
+          delta: string;
+          source_type: string;
+          source_id: string;
+          reason: string | null;
+          actor_type: string;
+          actor_id: string | null;
+          ruleset_id: string | null;
+          result: unknown;
+        }>(
+          `SELECT player_id, delta::text, source_type, source_id, reason, actor_type, actor_id,
+                  ruleset_id, result
+           FROM trainer_progress_ledger
+           WHERE idempotency_scope = 'progression.trainer-adjust' AND idempotency_key = $1
+           FOR UPDATE`,
+          [storageKey],
+        );
+        const replay = existing.rows[0];
+        if (replay !== undefined) {
+          const compatible =
+            replay.player_id === input.playerId &&
+            safeInteger(replay.delta, "trainer progress ledger delta") === input.delta &&
+            replay.source_type === input.metadata.sourceType &&
+            replay.source_id === input.metadata.sourceId &&
+            replay.reason === input.metadata.reason &&
+            replay.actor_type === input.metadata.actorType &&
+            replay.actor_id === input.metadata.actorId;
+          if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
+          if (replay.ruleset_id === null || replay.result === null) {
+            return { kind: "STATE_INVALID", reason: "Trainer adjustment replay lacks durable result metadata" };
+          }
+          const parsed = TrainerProgressAdjustmentResultSchema.parse(replay.result);
+          if (parsed.rulesetId !== replay.ruleset_id) {
+            return { kind: "STATE_INVALID", reason: "Trainer adjustment result ruleset drifted from ledger" };
+          }
+          return { kind: "REPLAYED", result: { ...parsed, replayed: true } };
+        }
+
+        const player = await client.query<{ status: string }>(
+          `SELECT status FROM players WHERE id = $1`,
+          [input.playerId],
+        );
+        const playerRow = player.rows[0];
+        if (playerRow === undefined) return { kind: "NOT_FOUND" };
+        if (playerRow.status !== "ACTIVE") {
+          return { kind: "STATE_INVALID", reason: `Player status ${playerRow.status} cannot receive progression adjustment` };
+        }
+
+        const activeRules = await client.query<{ ruleset_id: string; config: unknown }>(
+          `SELECT release.default_ruleset_id AS ruleset_id, ruleset.config
+           FROM content_release_pointers pointer
+           JOIN content_releases release ON release.id = pointer.content_release_id
+           JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
+           WHERE pointer.pointer_key = 'ACTIVE'
+             AND release.status = 'PUBLISHED'
+             AND ruleset.status = 'PUBLISHED'
+           FOR SHARE OF pointer, release, ruleset`,
+        );
+        const activeRow = activeRules.rows[0];
+        if (activeRow === undefined) {
+          return { kind: "RULES_MISSING" };
+        }
+        const config = parseRulesetConfig(activeRow.config);
+        const progression = config.progression;
+        if (progression === undefined) return { kind: "RULES_MISSING" };
+
+        await client.query(
+          `INSERT INTO trainer_progression(player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`,
+          [input.playerId],
+        );
+        const current = await client.query<{
+          level: number;
+          progression_points: string;
+        }>(
+          `SELECT level, progression_points::text
+           FROM trainer_progression WHERE player_id = $1 FOR UPDATE`,
+          [input.playerId],
+        );
+        const currentRow = current.rows[0];
+        if (currentRow === undefined) {
+          throw new ProgressionStateViolation("Trainer progression row is unavailable");
+        }
+        const beforePoints = safeInteger(currentRow.progression_points, "trainer progression_points");
+        const afterPoints = beforePoints + input.delta;
+        if (!Number.isSafeInteger(afterPoints)) {
+          return { kind: "STATE_INVALID", reason: "Trainer progression points overflow JS safe range" };
+        }
+        if (afterPoints < 0) return { kind: "UNDERFLOW" };
+        const afterLevel = trainerLevelForPoints(
+          afterPoints,
+          progression.trainer.levelCap,
+          progression.trainer.levelCurve,
+        );
+        const updated = await client.query(
+          `UPDATE trainer_progression
+           SET progression_points = $2, level = $3, revision = revision + 1, updated_at = now()
+           WHERE player_id = $1`,
+          [input.playerId, afterPoints, afterLevel],
+        );
+        if (updated.rowCount !== 1) {
+          throw new ProgressionStateViolation("Trainer progression adjustment update failed");
+        }
+
+        const activatedUnlockKeys: string[] = [];
+        const revokedUnlockKeys: string[] = [];
+        for (const unlock of progression.trainer.unlocks) {
+          const currentUnlock = await client.query<{ status: string }>(
+            `SELECT status FROM trainer_unlocks
+             WHERE player_id = $1 AND unlock_key = $2 FOR UPDATE`,
+            [input.playerId, unlock.unlockKey],
+          );
+          const unlockRow = currentUnlock.rows[0];
+          if (afterLevel >= unlock.level) {
+            if (unlockRow === undefined) {
+              await client.query(
+                `INSERT INTO trainer_unlocks(
+                   player_id, unlock_key, source_type, source_id, status, unlocked_at, revoked_at
+                 ) VALUES ($1, $2, 'TRAINER_PROGRESSION', $3, 'ACTIVE', now(), NULL)`,
+                [input.playerId, unlock.unlockKey, input.sourceId ?? input.metadata.sourceId],
+              );
+              activatedUnlockKeys.push(unlock.unlockKey);
+            } else if (unlockRow.status === "REVOKED") {
+              await client.query(
+                `UPDATE trainer_unlocks
+                 SET status = 'ACTIVE', source_type = 'TRAINER_PROGRESSION', source_id = $3,
+                     unlocked_at = now(), revoked_at = NULL, revision = revision + 1
+                 WHERE player_id = $1 AND unlock_key = $2 AND status = 'REVOKED'`,
+                [input.playerId, unlock.unlockKey, input.metadata.sourceId],
+              );
+              activatedUnlockKeys.push(unlock.unlockKey);
+            }
+          } else if (unlockRow?.status === "ACTIVE") {
+            await client.query(
+              `UPDATE trainer_unlocks
+               SET status = 'REVOKED', source_type = 'TRAINER_PROGRESSION', source_id = $3,
+                   revoked_at = now(), revision = revision + 1
+               WHERE player_id = $1 AND unlock_key = $2 AND status = 'ACTIVE'`,
+              [input.playerId, unlock.unlockKey, input.metadata.sourceId],
+            );
+            revokedUnlockKeys.push(unlock.unlockKey);
+          }
+        }
+
+        const result = TrainerProgressAdjustmentResultSchema.parse({
+          playerId: input.playerId,
+          delta: input.delta,
+          beforePoints,
+          afterPoints,
+          beforeLevel: currentRow.level,
+          afterLevel,
+          rulesetId: activeRow.ruleset_id,
+          activatedUnlockKeys,
+          revokedUnlockKeys,
+          replayed: false,
+        });
+        const ledger = await client.query(
+          `INSERT INTO trainer_progress_ledger(
+             id, player_id, delta, source_type, source_id, reason, actor_type, actor_id,
+             idempotency_scope, idempotency_key, correlation_id, ruleset_id, result
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                     'progression.trainer-adjust', $9, $10, $11, $12::jsonb)`,
+          [
+            randomUUID(), input.playerId, input.delta, input.metadata.sourceType,
+            input.metadata.sourceId, input.metadata.reason, input.metadata.actorType,
+            input.metadata.actorId, storageKey, input.correlationId, activeRow.ruleset_id,
+            JSON.stringify(result),
+          ],
+        );
+        if (ledger.rowCount !== 1) {
+          throw new ProgressionStateViolation("Trainer progression adjustment ledger claim failed");
+        }
+        return { kind: "APPLIED", result };
+      });
+    } catch (error) {
+      if (error instanceof ProgressionStateViolation) {
+        return { kind: "STATE_INVALID", reason: error.message };
+      }
+      throw error;
+    }
+  }
+
+'''
+              if anchor not in text: raise SystemExit('postgres progression insertion anchor missing')
+              repo.write_text(text.replace(anchor, method + anchor, 1))
+
+          admin_contracts = Path('src/modules/admin/domain-contracts.ts')
+          text = admin_contracts.read_text()
+          if 'AdminTrainerProgressAdjustInputSchema' not in text:
+              block = '''\nconst safeSignedProgressDeltaSchema = z\n  .string()\n  .regex(/^-?[1-9][0-9]*$/)\n  .refine((value) => {\n    try {\n      const parsed = BigInt(value);\n      return parsed >= BigInt(-Number.MAX_SAFE_INTEGER) && parsed <= BigInt(Number.MAX_SAFE_INTEGER);\n    } catch {\n      return false;\n    }\n  }, "trainer progression delta must fit the safe integer range and be non-zero");\n\nexport const AdminTrainerProgressAdjustInputSchema = z\n  .object({ playerId: uuidSchema, delta: safeSignedProgressDeltaSchema })\n  .strict();\nexport type AdminTrainerProgressAdjustInput = z.infer<typeof AdminTrainerProgressAdjustInputSchema>;\n'''
+              admin_contracts.write_text(text + block)
+
+          admin_ports = Path('src/modules/admin/domain-ports.ts')
+          text = admin_ports.read_text()
+          if 'AdminTrainerProgressAdjustInput' not in text:
+              text = text.replace(
+                  'import type { AdminInventoryAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";',
+                  'import type { AdminInventoryAdjustInput, AdminTrainerProgressAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";',
+              )
+              text = text.replace(
+                  '  applyWalletAdjustment(\n',
+                  '  applyTrainerProgressAdjustment(\n    operation: AdminOperationRecord,\n    actorPrincipalId: string,\n    input: AdminTrainerProgressAdjustInput,\n  ): Promise<AdminOperationRecord>;\n  applyWalletAdjustment(\n',
+                  1,
+              )
+              admin_ports.write_text(text)
+
+          definitions = Path('src/modules/admin/domain-definitions.ts')
+          text = definitions.read_text()
+          if 'progression.trainer.adjust' not in text:
+              text = text.replace(
+                  '  AdminInventoryAdjustInputSchema,\n',
+                  '  AdminInventoryAdjustInputSchema,\n  AdminTrainerProgressAdjustInputSchema,\n',
+                  1,
+              )
+              text = text.replace(
+                  '  type AdminInventoryAdjustInput,\n',
+                  '  type AdminInventoryAdjustInput,\n  type AdminTrainerProgressAdjustInput,\n',
+                  1,
+              )
+              anchor = '  registry.register(\n    defineAdminOperation<AdminWalletAdjustInput>({\n'
+              block = '''  registry.register(\n    defineAdminOperation<AdminTrainerProgressAdjustInput>({\n      kind: "MUTATION",\n      operationType: "progression.trainer.adjust",\n      capabilityKey: "progression.adjust",\n      riskTier: 2,\n      authorizationMode: "SUBJECT",\n      policy: deltaPolicy,\n      inputSchema: AdminTrainerProgressAdjustInputSchema,\n      target: (input) => ({ type: "PLAYER", id: input.playerId }),\n      apply: (context, input) =>\n        port.applyTrainerProgressAdjustment(context.operation, context.actorPrincipalId, input),\n    }),\n  );\n\n'''
+              if anchor not in text: raise SystemExit('admin definitions anchor missing')
+              definitions.write_text(text.replace(anchor, block + anchor, 1))
+
+          domain_service = Path('src/modules/admin/domain-service.ts')
+          text = domain_service.read_text()
+          if 'applyTrainerProgressAdjustment' not in text:
+              text = text.replace(
+                  'import type { EconomyService } from "../economy/service.js";\n',
+                  'import type { EconomyService } from "../economy/service.js";\nimport type { ProgressionService } from "../progression/service.js";\n',
+                  1,
+              )
+              text = text.replace(
+                  'import type { AdminInventoryAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";',
+                  'import type { AdminInventoryAdjustInput, AdminTrainerProgressAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";',
+              )
+              text = text.replace(
+                  '    private readonly economy: EconomyService,\n    private readonly completion: AdminOperationCompletionPort,\n',
+                  '    private readonly economy: EconomyService,\n    private readonly progression: ProgressionService,\n    private readonly completion: AdminOperationCompletionPort,\n',
+                  1,
+              )
+              anchor = '  public async applyWalletAdjustment(\n'
+              method = '''  public async applyTrainerProgressAdjustment(\n    operation: AdminOperationRecord,\n    actorPrincipalId: string,\n    input: AdminTrainerProgressAdjustInput,\n  ): Promise<AdminOperationRecord> {\n    assertPlayerTarget(operation, input.playerId);\n    const delta = Number(BigInt(input.delta));\n    const result = await this.progression.adjustTrainerProgress({\n      playerId: input.playerId,\n      delta,\n      idempotencyKey: operation.id,\n      correlationId: operation.correlationId,\n      metadata: {\n        sourceType: "ADMIN_OPERATION",\n        sourceId: operation.id,\n        reason: requiredReason(operation),\n        actorType: "ADMIN",\n        actorId: operation.principalId,\n      },\n    });\n    if (!result.ok) {\n      if (result.error.code === "PROGRESSION_IDEMPOTENCY_CONFLICT") {\n        throw new AdminError(ADMIN_ERROR_CODES.IDEMPOTENCY_CONFLICT, result.error.message);\n      }\n      if (result.error.code === "TRAINER_PROGRESSION_NOT_FOUND") {\n        throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, result.error.message);\n      }\n      if (result.error.code === "PROGRESSION_INPUT_INVALID") {\n        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, result.error.message);\n      }\n      throw new AdminError(ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED, result.error.message, {\n        ownerCode: result.error.code,\n      });\n    }\n    const value = result.value;\n    return this.completion.completeAppliedOperation({\n      operation,\n      actorPrincipalId,\n      resourceType: "TRAINER_PROGRESSION",\n      resourceId: input.playerId,\n      beforeData: {\n        playerId: input.playerId,\n        progressionPoints: value.beforePoints.toString(),\n        level: value.beforeLevel,\n      },\n      afterData: {\n        playerId: input.playerId,\n        progressionPoints: value.afterPoints.toString(),\n        level: value.afterLevel,\n      },\n      result: {\n        delta: value.delta.toString(),\n        rulesetId: value.rulesetId,\n        activatedUnlockKeys: value.activatedUnlockKeys,\n        revokedUnlockKeys: value.revokedUnlockKeys,\n        ownerReplayed: value.replayed,\n      },\n    });\n  }\n\n'''
+              if anchor not in text: raise SystemExit('admin domain service anchor missing')
+              domain_service.write_text(text.replace(anchor, method + anchor, 1))
+
+          # Update E2E construction and add trainer adjustment scenarios.
+          proof = Path('db/proofs/phase12_domain_admin_e2e.ts')
+          text = proof.read_text()
+          if 'progression.trainer.adjust' not in text:
+              text = text.replace(
+                  'import { EconomyService } from "../../src/modules/economy/service.js";\n',
+                  'import { EconomyService } from "../../src/modules/economy/service.js";\nimport { ProgressionService } from "../../src/modules/progression/service.js";\n',
+                  1,
+              )
+              text = text.replace(
+                  'import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";\n',
+                  'import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";\nimport { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";\n',
+                  1,
+              )
+              text = text.replace(
+                  '  const economy = new EconomyService(new PostgresEconomyRepository(pool));\n',
+                  '  const economy = new EconomyService(new PostgresEconomyRepository(pool));\n  const progression = new ProgressionService(new PostgresProgressionRepository(pool));\n',
+                  1,
+              )
+              text = text.replace(
+                  '    new AdminDomainOperationService(economy, completion),\n',
+                  '    new AdminDomainOperationService(economy, progression, completion),\n',
+                  1,
+              )
+              marker = '  console.log(\n    "Phase 12C domain admin proof complete:'
+              idx = text.find(marker)
+              if idx < 0: raise SystemExit('domain proof completion marker missing')
+              scenarios = r'''  const trainerUp = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "900" },
+    reason: "Restore missing trainer progression",
+    idempotencyKey: `phase12c-trainer-up-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  const trainerApplied = await admin.apply(trainerUp.operation.id, principalId);
+  if (trainerApplied.status !== "APPLIED") throw new Error("Trainer progression admin adjustment failed");
+  const trainerState = await pool.query<{ level: number; progression_points: string }>(
+    `SELECT level, progression_points::text FROM trainer_progression WHERE player_id = $1`,
+    [playerId],
+  );
+  const tournament = await pool.query<{ status: string }>(
+    `SELECT status FROM trainer_unlocks WHERE player_id = $1 AND unlock_key = 'tournament.eligible'`,
+    [playerId],
+  );
+  if (trainerState.rows[0]?.progression_points !== "900" || trainerState.rows[0]?.level !== 10 || tournament.rows[0]?.status !== "ACTIVE") {
+    throw new Error("Trainer progression threshold activation is inconsistent");
+  }
+  const trainerReplay = await admin.apply(trainerUp.operation.id, principalId);
+  if (trainerReplay.result?.ownerReplayed !== false) {
+    // Admin completion itself replays without calling the owner again once APPLIED.
+    throw new Error("Applied trainer admin operation changed on direct replay");
+  }
+
+  const trainerDown = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "-200" },
+    reason: "Correct excess trainer progression",
+    idempotencyKey: `phase12c-trainer-down-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  await admin.apply(trainerDown.operation.id, principalId);
+  const trainerAfterDown = await pool.query<{ level: number; progression_points: string }>(
+    `SELECT level, progression_points::text FROM trainer_progression WHERE player_id = $1`,
+    [playerId],
+  );
+  const tournamentAfterDown = await pool.query<{ status: string; revoked_at: Date | null }>(
+    `SELECT status, revoked_at FROM trainer_unlocks WHERE player_id = $1 AND unlock_key = 'tournament.eligible'`,
+    [playerId],
+  );
+  if (trainerAfterDown.rows[0]?.progression_points !== "700" || trainerAfterDown.rows[0]?.level !== 8 || tournamentAfterDown.rows[0]?.status !== "REVOKED" || tournamentAfterDown.rows[0]?.revoked_at === null) {
+    throw new Error("Trainer progression downward correction did not revoke derived unlock");
+  }
+
+  const underflow = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "-800" },
+    reason: "Invalid underflow probe",
+    idempotencyKey: `phase12c-trainer-underflow-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  let underflowRejected = false;
+  try {
+    await admin.apply(underflow.operation.id, principalId);
+  } catch (error) {
+    underflowRejected = error instanceof AdminError && error.code === "ADMIN_DOMAIN_OPERATION_REJECTED";
+  }
+  if (!underflowRejected) throw new Error("Trainer progression underflow was not rejected");
+  const underflowLedger = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM trainer_progress_ledger
+     WHERE idempotency_scope = 'progression.trainer-adjust' AND source_id = $1`,
+    [underflow.operation.id],
+  );
+  if (underflowLedger.rows[0]?.count !== "0") throw new Error("Rejected trainer underflow wrote a ledger row");
+
+  const crashTrainer = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "200" },
+    reason: "Crash-window trainer adjustment",
+    idempotencyKey: `phase12c-trainer-crash-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  const ownerCrash = await progression.adjustTrainerProgress({
+    playerId,
+    delta: 200,
+    idempotencyKey: crashTrainer.operation.id,
+    correlationId: crashTrainer.operation.correlationId,
+    metadata: {
+      sourceType: "ADMIN_OPERATION",
+      sourceId: crashTrainer.operation.id,
+      reason: crashTrainer.operation.reason,
+      actorType: "ADMIN",
+      actorId: crashTrainer.operation.principalId,
+    },
+  });
+  if (!ownerCrash.ok || ownerCrash.value.afterPoints !== 900 || ownerCrash.value.afterLevel !== 10) {
+    throw new Error("Trainer crash-window owner mutation failed");
+  }
+  const interveningTrainer = await progression.adjustTrainerProgress({
+    playerId,
+    delta: 100,
+    idempotencyKey: `intervening-${randomUUID()}`,
+    correlationId: randomUUID(),
+    metadata: {
+      sourceType: "SYSTEM",
+      sourceId: `phase12c-intervening-${playerId}`,
+      reason: "Intervening progression mutation",
+      actorType: "SYSTEM",
+      actorId: null,
+    },
+  });
+  if (!interveningTrainer.ok || interveningTrainer.value.afterPoints !== 1000) {
+    throw new Error("Intervening trainer progression mutation failed");
+  }
+  const recoveredTrainer = await admin.apply(crashTrainer.operation.id, principalId);
+  if (
+    recoveredTrainer.status !== "APPLIED" ||
+    recoveredTrainer.result?.ownerReplayed !== true ||
+    recoveredTrainer.afterData !== undefined
+  ) {
+    // AdminOperationRecord exposes result, while before/after live in admin_operation_changes.
+    if (recoveredTrainer.status !== "APPLIED" || recoveredTrainer.result?.ownerReplayed !== true) {
+      throw new Error("Trainer crash-window recovery did not replay owner result");
+    }
+  }
+  const trainerEvidence = await pool.query<{
+    current_points: string;
+    ledger_result: unknown;
+    before_points: string | null;
+    after_points: string | null;
+  }>(
+    `SELECT progression.progression_points::text AS current_points,
+            ledger.result AS ledger_result,
+            change.before_data ->> 'progressionPoints' AS before_points,
+            change.after_data ->> 'progressionPoints' AS after_points
+     FROM trainer_progression progression
+     JOIN trainer_progress_ledger ledger
+       ON ledger.source_id = $2::text AND ledger.idempotency_scope = 'progression.trainer-adjust'
+     JOIN admin_operation_changes change ON change.admin_operation_id = $2
+     WHERE progression.player_id = $1`,
+    [playerId, crashTrainer.operation.id],
+  );
+  const trainerEvidenceRow = trainerEvidence.rows[0];
+  const durableTrainerResult = trainerEvidenceRow?.ledger_result as { afterPoints?: number } | undefined;
+  if (
+    trainerEvidenceRow?.current_points !== "1000" ||
+    durableTrainerResult?.afterPoints !== 900 ||
+    trainerEvidenceRow.before_points !== "700" ||
+    trainerEvidenceRow.after_points !== "900"
+  ) {
+    throw new Error("Trainer crash-window evidence is not stable");
+  }
+
+'''
+              text = text[:idx] + scenarios + text[idx:]
+              proof.write_text(text)
+
+          workflow = Path('.github/workflows/admin-proof.yml')
+          text = workflow.read_text()
+          if 'Seed canonical progression rules for domain operations' not in text:
+              anchor = '      - name: Run PostgreSQL Phase 12C Domain Admin E2E\n'
+              block = '''      - name: Seed canonical progression rules for domain operations\n        run: |\n          pnpm db:seed:phase4\n          pnpm db:seed:phase5\n          pnpm db:seed:phase6\n          pnpm db:seed:phase7\n          pnpm db:seed:phase11\n\n'''
+              if anchor not in text: raise SystemExit('admin workflow domain proof anchor missing')
+              workflow.write_text(text.replace(anchor, block + anchor, 1))
+      - run: pnpm exec biome format --write db/migrations/0013_domain_admin_operation_integrity.sql src/modules/progression/contracts.ts src/modules/progression/errors.ts src/modules/progression/ports.ts src/modules/progression/service.ts src/platform/progression/postgres-progression-repository.ts src/modules/admin/domain-contracts.ts src/modules/admin/domain-ports.ts src/modules/admin/domain-definitions.ts src/modules/admin/domain-service.ts db/proofs/phase12_domain_admin_e2e.ts .github/workflows/admin-proof.yml
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+      - run: pnpm db:migrate
+      - run: pnpm db:verify
+      - run: pnpm exec vitest run tests/progression tests/admin tests/economy
+      - run: |
+          pnpm db:seed:phase12
+          node --import tsx db/proofs/phase12_admin_registry_e2e.ts
+          node --import tsx db/proofs/phase12_player360_e2e.ts
+      - run: |
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:seed:phase11
+          node --import tsx db/proofs/phase12_domain_admin_e2e.ts
+      - name: Commit validated progression adjustment
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add db/migrations/0013_domain_admin_operation_integrity.sql src/modules/progression/contracts.ts src/modules/progression/errors.ts src/modules/progression/ports.ts src/modules/progression/service.ts src/platform/progression/postgres-progression-repository.ts src/modules/admin/domain-contracts.ts src/modules/admin/domain-ports.ts src/modules/admin/domain-definitions.ts src/modules/admin/domain-service.ts db/proofs/phase12_domain_admin_e2e.ts .github/workflows/admin-proof.yml
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'feat: add trainer progression admin adjustment'
+          git push origin HEAD:feat/phase12c-domain-admin-operations-v1
