@@ -8,7 +8,7 @@ export interface BattleAdminMetadata {
   readonly actorId: string;
 }
 
-export interface BattleAdminStateView {
+export interface BattleAdminStateView extends Readonly<Record<string, unknown>> {
   readonly battleId: string;
   readonly playerId: string;
   readonly battleType: BattleType;
