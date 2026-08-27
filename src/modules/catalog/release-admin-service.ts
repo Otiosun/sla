@@ -208,13 +208,7 @@ export class CatalogReleaseAdminService {
       async (transaction) => {
         const existing = await transaction.loadClaim(input.idempotencyKey);
         if (existing !== null) {
-          return replay(
-            existing,
-            fingerprint,
-            "VALIDATE",
-            input.releaseId,
-            input.expectedRevision,
-          );
+          return replay(existing, fingerprint, "VALIDATE", input.releaseId, input.expectedRevision);
         }
         const release = await transaction.loadRelease(input.releaseId, true);
         if (release === null) return err(notFound("Content release", input.releaseId));
@@ -287,13 +281,7 @@ export class CatalogReleaseAdminService {
       async (transaction) => {
         const existing = await transaction.loadClaim(input.idempotencyKey);
         if (existing !== null) {
-          return replay(
-            existing,
-            fingerprint,
-            "PUBLISH",
-            input.releaseId,
-            input.expectedRevision,
-          );
+          return replay(existing, fingerprint, "PUBLISH", input.releaseId, input.expectedRevision);
         }
         const release = await transaction.loadRelease(input.releaseId, true);
         if (release === null) return err(notFound("Content release", input.releaseId));
