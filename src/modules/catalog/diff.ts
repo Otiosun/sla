@@ -54,6 +54,7 @@ function snapshotRecords(
     items: snapshot.items.map((entry) => ({ key: entry.itemId, value: entry })),
     natures: snapshot.natures.map((entry) => ({ key: entry.natureId, value: entry })),
     effects: snapshot.effects.map((entry) => ({ key: entry.effectId, value: entry })),
+    rewards: (snapshot.rewards ?? []).map((entry) => ({ key: entry.rewardId, value: entry })),
     regions: snapshot.regions.map((entry) => ({ key: entry.regionId, value: entry })),
     areas: snapshot.areas.map((entry) => ({ key: entry.areaId, value: entry })),
     connections: snapshot.connections.map((entry) => ({ key: entry.connectionId, value: entry })),
