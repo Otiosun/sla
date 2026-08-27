@@ -7,9 +7,11 @@ import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,
   AdminPokemonArchiveInput,
+  AdminPokemonCreateInput,
   AdminPokemonEffectApplyInput,
   AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
+  AdminPokemonProgressCorrectInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
   AdminTrainerProgressAdjustInput,
@@ -323,6 +325,39 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     };
   }
 
+  public async applyPokemonCreate(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonCreateInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().createPokemon({
+      ...input,
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: this.pokemonMetadata(operation),
+    });
+    if (!result.ok) throw ownerError(result.error);
+    const value = result.value;
+    return this.completion.completeAppliedOperation({
+      operation,
+      actorPrincipalId,
+      resourceType: "POKEMON_INSTANCE",
+      resourceId: value.pokemonInstanceId,
+      beforeData: { playerId: input.playerId, pokemonInstanceId: null },
+      afterData: {
+        playerId: input.playerId,
+        pokemonInstanceId: value.pokemonInstanceId,
+        formId: value.formId,
+        level: value.level,
+        placement: value.placement,
+        contentReleaseId: value.contentReleaseId,
+        rulesetId: value.rulesetId,
+      },
+      result: { operationKind: "CREATE", ownerReplayed: value.replayed },
+    });
+  }
+
   public async applyPokemonRosterMove(
     operation: AdminOperationRecord,
     actorPrincipalId: string,
@@ -330,6 +365,28 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
   ): Promise<AdminOperationRecord> {
     assertPlayerTarget(operation, input.playerId);
     const result = await this.pokemonOwner().moveRoster({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: this.pokemonMetadata(operation),
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async applyPokemonProgressCorrection(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonProgressCorrectInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().correctProgress({
       ...input,
       expectedRevision: requiredExpectedRevision(operation),
       idempotencyKey: operation.id,

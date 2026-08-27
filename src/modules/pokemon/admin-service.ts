@@ -2,13 +2,20 @@ import {
   ApplyPokemonEffectInputSchema,
   ArchivePokemonInputSchema,
   CorrectPokemonHpInputSchema,
+  CorrectPokemonProgressInputSchema,
   CorrectPokemonStatusInputSchema,
+  CreatePokemonInputSchema,
   MovePokemonRosterInputSchema,
+  type PokemonCreateResult,
   type PokemonOwnerMutationResult,
   RemovePokemonEffectInputSchema,
 } from "./admin-contracts.js";
 import type { PokemonAdminPersistenceResult, PokemonAdminRepository } from "./admin-ports.js";
 import type { PokemonEffectAdminRepository } from "./effect-admin-ports.js";
+import type {
+  PokemonCreatePersistenceResult,
+  PokemonLifecycleAdminRepository,
+} from "./lifecycle-admin-ports.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 function translatePersistence(
@@ -48,20 +55,72 @@ function translatePersistence(
   }
 }
 
+function translateCreate(persisted: PokemonCreatePersistenceResult): Result<PokemonCreateResult> {
+  switch (persisted.kind) {
+    case "APPLIED":
+      return ok(persisted.result);
+    case "REPLAYED":
+      return ok({ ...persisted.result, replayed: true });
+    case "NOT_FOUND":
+      return err(appError("NOT_FOUND", "Pokemon creation target or active content was not found"));
+    case "INVALID_STATE":
+      return err(appError("ACTION_INVALID", persisted.reason));
+    case "IDEMPOTENCY_CONFLICT":
+      return err(
+        appError(
+          "FINGERPRINT_MISMATCH",
+          "Pokemon create idempotency key is bound to another request",
+        ),
+      );
+  }
+}
+
 export class PokemonAdminService {
   public constructor(
     private readonly repository: PokemonAdminRepository,
     private readonly effectRepository?: PokemonEffectAdminRepository,
+    private readonly lifecycleRepository?: PokemonLifecycleAdminRepository,
   ) {}
 
   private effects(): PokemonEffectAdminRepository | null {
     return this.effectRepository ?? null;
   }
 
+  private lifecycle(): PokemonLifecycleAdminRepository | null {
+    return this.lifecycleRepository ?? null;
+  }
+
+  public async createPokemon(input: unknown): Promise<Result<PokemonCreateResult>> {
+    const parsed = CreatePokemonInputSchema.safeParse(input);
+    if (!parsed.success)
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon create request"));
+    const repository = this.lifecycle();
+    if (repository === null) {
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"),
+      );
+    }
+    return translateCreate(await repository.createPokemon(parsed.data));
+  }
+
   public async moveRoster(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
     const parsed = MovePokemonRosterInputSchema.safeParse(input);
     if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon roster move"));
     return translatePersistence(await this.repository.moveRoster(parsed.data));
+  }
+
+  public async correctProgress(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
+    const parsed = CorrectPokemonProgressInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon progression correction"));
+    }
+    const repository = this.lifecycle();
+    if (repository === null) {
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"),
+      );
+    }
+    return translatePersistence(await repository.correctProgress(parsed.data));
   }
 
   public async correctHp(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {

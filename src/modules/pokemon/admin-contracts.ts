@@ -36,13 +36,17 @@ const mutationMetadataSchema = z
     }
   });
 
-const commonMutationFields = {
+const createMutationFields = {
   playerId: uuid,
-  pokemonInstanceId: uuid,
-  expectedRevision,
   idempotencyKey,
   correlationId: uuid,
   metadata: mutationMetadataSchema,
+} as const;
+
+const commonMutationFields = {
+  ...createMutationFields,
+  pokemonInstanceId: uuid,
+  expectedRevision,
 } as const;
 
 export const PokemonRosterPlacementSchema = z.discriminatedUnion("placementKind", [
@@ -63,10 +67,28 @@ export const PokemonRosterPlacementSchema = z.discriminatedUnion("placementKind"
 ]);
 export type PokemonRosterPlacement = z.infer<typeof PokemonRosterPlacementSchema>;
 
+export const CreatePokemonInputSchema = z
+  .object({
+    ...createMutationFields,
+    formId: uuid,
+    level: z.number().int().min(1).max(100),
+  })
+  .strict();
+export type CreatePokemonInput = z.infer<typeof CreatePokemonInputSchema>;
+
 export const MovePokemonRosterInputSchema = z
   .object({ ...commonMutationFields, target: PokemonRosterPlacementSchema })
   .strict();
 export type MovePokemonRosterInput = z.infer<typeof MovePokemonRosterInputSchema>;
+
+export const CorrectPokemonProgressInputSchema = z
+  .object({
+    ...commonMutationFields,
+    level: z.number().int().min(1).max(100),
+    xp: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+export type CorrectPokemonProgressInput = z.infer<typeof CorrectPokemonProgressInputSchema>;
 
 export const CorrectPokemonHpInputSchema = z
   .object({
@@ -112,6 +134,7 @@ export type ArchivePokemonInput = z.infer<typeof ArchivePokemonInputSchema>;
 
 export const PokemonOwnerOperationKindSchema = z.enum([
   "ROSTER_MOVE",
+  "PROGRESSION_CORRECT",
   "HP_CORRECT",
   "STATUS_CORRECT",
   "EFFECT_APPLY",
@@ -132,3 +155,17 @@ export const PokemonOwnerMutationResultSchema = z
   })
   .strict();
 export type PokemonOwnerMutationResult = z.infer<typeof PokemonOwnerMutationResultSchema>;
+
+export const PokemonCreateResultSchema = z
+  .object({
+    pokemonInstanceId: uuid,
+    operationKind: z.literal("CREATE"),
+    contentReleaseId: uuid,
+    rulesetId: uuid,
+    formId: uuid,
+    level: z.number().int().min(1).max(100),
+    placement: PokemonRosterPlacementSchema,
+    replayed: z.boolean(),
+  })
+  .strict();
+export type PokemonCreateResult = z.infer<typeof PokemonCreateResultSchema>;
