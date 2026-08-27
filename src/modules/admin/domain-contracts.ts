@@ -59,10 +59,28 @@ const pokemonTargetFields = {
   pokemonInstanceId: uuidSchema,
 } as const;
 
+export const AdminPokemonCreateInputSchema = z
+  .object({
+    playerId: uuidSchema,
+    formId: uuidSchema,
+    level: z.number().int().min(1).max(100),
+  })
+  .strict();
+export type AdminPokemonCreateInput = z.infer<typeof AdminPokemonCreateInputSchema>;
+
 export const AdminPokemonRosterMoveInputSchema = z
   .object({ ...pokemonTargetFields, target: PokemonRosterPlacementSchema })
   .strict();
 export type AdminPokemonRosterMoveInput = z.infer<typeof AdminPokemonRosterMoveInputSchema>;
+
+export const AdminPokemonProgressCorrectInputSchema = z
+  .object({
+    ...pokemonTargetFields,
+    level: z.number().int().min(1).max(100),
+    xp: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+export type AdminPokemonProgressCorrectInput = z.infer<typeof AdminPokemonProgressCorrectInputSchema>;
 
 export const AdminPokemonHpCorrectInputSchema = z
   .object({
