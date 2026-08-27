@@ -1,17 +1,21 @@
 import {
   AdminInventoryAdjustInputSchema,
   AdminPokemonArchiveInputSchema,
+  AdminPokemonCreateInputSchema,
   AdminPokemonEffectApplyInputSchema,
   AdminPokemonEffectRemoveInputSchema,
   AdminPokemonHpCorrectInputSchema,
+  AdminPokemonProgressionCorrectInputSchema,
   AdminPokemonRosterMoveInputSchema,
   AdminPokemonStatusCorrectInputSchema,
   AdminTrainerProgressAdjustInputSchema,
   type AdminInventoryAdjustInput,
   type AdminPokemonArchiveInput,
+  type AdminPokemonCreateInput,
   type AdminPokemonEffectApplyInput,
   type AdminPokemonEffectRemoveInput,
   type AdminPokemonHpCorrectInput,
+  type AdminPokemonProgressionCorrectInput,
   type AdminPokemonRosterMoveInput,
   type AdminPokemonStatusCorrectInput,
   type AdminTrainerProgressAdjustInput,
@@ -36,6 +40,15 @@ const rosterMutationPolicy = {
   requiresExpectedRevision: true,
   requiresSimulation: false,
   requiresConfirmation: false,
+  requiredApprovals: 0,
+} as const;
+
+const pokemonCreationPolicy = {
+  version: 1,
+  requiresReason: true,
+  requiresExpectedRevision: false,
+  requiresSimulation: false,
+  requiresConfirmation: true,
   requiredApprovals: 0,
 } as const;
 
@@ -94,6 +107,36 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyWalletAdjustment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokemonCreateInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.create",
+      capabilityKey: "pokemon.create",
+      riskTier: 3,
+      authorizationMode: "SUBJECT",
+      policy: pokemonCreationPolicy,
+      inputSchema: AdminPokemonCreateInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokemonCreate(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokemonProgressionCorrectInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.progression.correct",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 3,
+      authorizationMode: "SUBJECT",
+      policy: pokemonMechanicalPolicy,
+      inputSchema: AdminPokemonProgressionCorrectInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokemonProgressionCorrection(context.operation, context.actorPrincipalId, input),
     }),
   );
 
