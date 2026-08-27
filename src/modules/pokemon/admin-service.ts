@@ -70,7 +70,8 @@ export class PokemonAdminService {
 
   public async archivePokemon(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
     const parsed = ArchivePokemonInputSchema.safeParse(input);
-    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon archive request"));
+    if (!parsed.success)
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon archive request"));
     return translatePersistence(await this.repository.archivePokemon(parsed.data));
   }
 }
