@@ -1,11 +1,14 @@
 import {
+  ApplyPokemonEffectInputSchema,
   ArchivePokemonInputSchema,
   CorrectPokemonHpInputSchema,
   CorrectPokemonStatusInputSchema,
   MovePokemonRosterInputSchema,
   type PokemonOwnerMutationResult,
+  RemovePokemonEffectInputSchema,
 } from "./admin-contracts.js";
 import type { PokemonAdminPersistenceResult, PokemonAdminRepository } from "./admin-ports.js";
+import type { PokemonEffectAdminRepository } from "./effect-admin-ports.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 function translatePersistence(
@@ -17,7 +20,7 @@ function translatePersistence(
     case "REPLAYED":
       return ok({ ...persisted.result, replayed: true });
     case "NOT_FOUND":
-      return err(appError("NOT_FOUND", "Pokemon instance was not found for this player"));
+      return err(appError("NOT_FOUND", "Pokemon administrative target was not found"));
     case "REVISION_CONFLICT":
       return err(
         appError("REVISION_CONFLICT", "Pokemon aggregate revision changed", {
@@ -46,7 +49,14 @@ function translatePersistence(
 }
 
 export class PokemonAdminService {
-  public constructor(private readonly repository: PokemonAdminRepository) {}
+  public constructor(
+    private readonly repository: PokemonAdminRepository,
+    private readonly effectRepository?: PokemonEffectAdminRepository,
+  ) {}
+
+  private effects(): PokemonEffectAdminRepository | null {
+    return this.effectRepository ?? null;
+  }
 
   public async moveRoster(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
     const parsed = MovePokemonRosterInputSchema.safeParse(input);
@@ -66,6 +76,26 @@ export class PokemonAdminService {
       return err(appError("VALIDATION_FAILED", "Invalid Pokemon status correction"));
     }
     return translatePersistence(await this.repository.correctStatus(parsed.data));
+  }
+
+  public async applyEffect(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
+    const parsed = ApplyPokemonEffectInputSchema.safeParse(input);
+    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon effect apply"));
+    const repository = this.effects();
+    if (repository === null) {
+      return err(appError("FEATURE_UNAVAILABLE", "Pokemon effect administration is unavailable"));
+    }
+    return translatePersistence(await repository.applyEffect(parsed.data));
+  }
+
+  public async removeEffect(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
+    const parsed = RemovePokemonEffectInputSchema.safeParse(input);
+    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon effect removal"));
+    const repository = this.effects();
+    if (repository === null) {
+      return err(appError("FEATURE_UNAVAILABLE", "Pokemon effect administration is unavailable"));
+    }
+    return translatePersistence(await repository.removeEffect(parsed.data));
   }
 
   public async archivePokemon(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
