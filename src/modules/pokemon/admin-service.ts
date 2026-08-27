@@ -55,9 +55,7 @@ function translatePersistence(
   }
 }
 
-function translateCreate(
-  persisted: PokemonCreatePersistenceResult,
-): Result<PokemonCreateResult> {
+function translateCreate(persisted: PokemonCreatePersistenceResult): Result<PokemonCreateResult> {
   switch (persisted.kind) {
     case "APPLIED":
       return ok(persisted.result);
@@ -94,10 +92,13 @@ export class PokemonAdminService {
 
   public async createPokemon(input: unknown): Promise<Result<PokemonCreateResult>> {
     const parsed = CreatePokemonInputSchema.safeParse(input);
-    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon create request"));
+    if (!parsed.success)
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon create request"));
     const repository = this.lifecycle();
     if (repository === null) {
-      return err(appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"));
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"),
+      );
     }
     return translateCreate(await repository.createPokemon(parsed.data));
   }
@@ -115,7 +116,9 @@ export class PokemonAdminService {
     }
     const repository = this.lifecycle();
     if (repository === null) {
-      return err(appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"));
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"),
+      );
     }
     return translatePersistence(await repository.correctProgress(parsed.data));
   }
