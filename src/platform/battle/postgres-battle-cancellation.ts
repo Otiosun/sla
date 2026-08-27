@@ -17,6 +17,10 @@ interface RootRow {
   readonly version: string;
 }
 
+interface AdminCancellationEvidenceRow {
+  readonly payload: unknown;
+}
+
 function safeVersion(value: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
@@ -33,10 +37,25 @@ function cancelledState(source: BattleState): BattleState {
   return BattleStateSchema.parse(state);
 }
 
+function adminEvidenceMatches(payload: unknown, requestFingerprint: string): boolean {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const record = payload as Record<string, unknown>;
+  return (
+    record.operationKind === "FORCE_CANCEL" && record.requestFingerprint === requestFingerprint
+  );
+}
+
 export class PostgresBattleCancellation implements BattleCancellationPort {
   public constructor(private readonly pool: Pool) {}
 
   public async cancel(input: CancelBattleInput): Promise<BattleCancellationPersistenceResult> {
+    const adminCausation = input.causationId;
+    const adminFingerprint = input.requestFingerprint;
+    const hasAdminEvidence = adminCausation !== undefined || adminFingerprint !== undefined;
+    if (hasAdminEvidence && (adminCausation === undefined || adminFingerprint === undefined)) {
+      return { kind: "IDEMPOTENCY_CONFLICT" };
+    }
+
     return withTransaction(
       this.pool,
       async (client) => {
@@ -68,6 +87,25 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
           if (currentState.status !== "CANCELLED") {
             throw new Error("Cancelled battle root points to a non-cancelled snapshot");
           }
+          if (adminCausation !== undefined && adminFingerprint !== undefined) {
+            const evidence = await client.query<AdminCancellationEvidenceRow>(
+              `SELECT payload
+               FROM battle_events
+               WHERE battle_id = $1
+                 AND causation_id = $2
+                 AND event_type = 'BattleEnded'
+               ORDER BY seq DESC
+               LIMIT 1`,
+              [input.battleId, adminCausation],
+            );
+            const evidenceRow = evidence.rows[0];
+            if (evidenceRow === undefined) {
+              return { kind: "NOT_ACTIVE", currentState };
+            }
+            if (!adminEvidenceMatches(evidenceRow.payload, adminFingerprint)) {
+              return { kind: "IDEMPOTENCY_CONFLICT" };
+            }
+          }
           return { kind: "REPLAYED", state: currentState };
         }
         if (rootVersion !== input.expectedVersion) {
@@ -97,12 +135,14 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
           [input.battleId, nextState.version, JSON.stringify(nextState)],
         );
 
-        const events: BattleEvent[] = [
-          {
-            type: "BattleEnded",
-            payload: { status: "CANCELLED", reason: input.reason },
-          },
-        ];
+        const payload: Readonly<Record<string, unknown>> = {
+          status: "CANCELLED",
+          reason: input.reason,
+          ...(adminFingerprint === undefined
+            ? {}
+            : { operationKind: "FORCE_CANCEL", requestFingerprint: adminFingerprint }),
+        };
+        const events: BattleEvent[] = [{ type: "BattleEnded", payload }];
         const seq = await client.query<{ next_seq: string }>(
           `SELECT (COALESCE(MAX(seq), 0) + 1)::text AS next_seq
            FROM battle_events
@@ -110,13 +150,13 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
           [input.battleId],
         );
         let nextSeq = BigInt(seq.rows[0]?.next_seq ?? "1");
-        const correlationId = randomUUID();
+        const correlationId = input.correlationId ?? randomUUID();
         for (const event of events) {
           await client.query(
             `INSERT INTO battle_events(
                id, battle_id, seq, battle_version, event_type, payload,
                causation_id, correlation_id
-             ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULL, $7)`,
+             ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
             [
               randomUUID(),
               input.battleId,
@@ -124,6 +164,7 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
               nextState.version,
               event.type,
               JSON.stringify(event.payload),
+              adminCausation ?? null,
               correlationId,
             ],
           );
