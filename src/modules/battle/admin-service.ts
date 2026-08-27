@@ -60,17 +60,26 @@ export class BattleAdminOwnerService {
       requestFingerprint,
     );
     if (prior.kind === "CONFLICT") {
-      return err(appError("FINGERPRINT_MISMATCH", "Battle admin request conflicts with stored evidence"));
+      return err(
+        appError("FINGERPRINT_MISMATCH", "Battle admin request conflicts with stored evidence"),
+      );
     }
     if (prior.kind === "REPLAYED") return ok(prior.result);
 
     const before = await this.repository.inspect(input.playerId, input.battleId);
-    if (before === null) return err(appError("NOT_FOUND", "Battle administrative target was not found"));
+    if (before === null)
+      return err(appError("NOT_FOUND", "Battle administrative target was not found"));
     if (before.battleType === "PVP") {
-      return err(appError("ACTION_INVALID", "Subject-scoped Battle cancellation is not allowed for PVP"));
+      return err(
+        appError("ACTION_INVALID", "Subject-scoped Battle cancellation is not allowed for PVP"),
+      );
     }
     if (before.version !== input.expectedVersion) {
-      return err(appError("REVISION_CONFLICT", "Battle version changed", { actualRevision: String(before.version) }));
+      return err(
+        appError("REVISION_CONFLICT", "Battle version changed", {
+          actualRevision: String(before.version),
+        }),
+      );
     }
     if (before.status !== "ACTIVE" || before.state?.status !== "ACTIVE") {
       return err(appError("INVALID_STATE_TRANSITION", "Only an ACTIVE Battle can be cancelled"));
@@ -86,13 +95,21 @@ export class BattleAdminOwnerService {
     });
 
     if (persisted.kind === "IDEMPOTENCY_CONFLICT") {
-      return err(appError("FINGERPRINT_MISMATCH", "Battle cancellation evidence conflicts with request"));
+      return err(
+        appError("FINGERPRINT_MISMATCH", "Battle cancellation evidence conflicts with request"),
+      );
     }
     if (persisted.kind === "NOT_FOUND") return err(appError("NOT_FOUND", "Battle was not found"));
-    if (persisted.kind === "NOT_INITIALIZED") return err(appError("ACTION_INVALID", "Battle has no initialized snapshot"));
-    if (persisted.kind === "NOT_ACTIVE") return err(appError("INVALID_STATE_TRANSITION", "Battle is no longer ACTIVE"));
+    if (persisted.kind === "NOT_INITIALIZED")
+      return err(appError("ACTION_INVALID", "Battle has no initialized snapshot"));
+    if (persisted.kind === "NOT_ACTIVE")
+      return err(appError("INVALID_STATE_TRANSITION", "Battle is no longer ACTIVE"));
     if (persisted.kind === "VERSION_CONFLICT") {
-      return err(appError("REVISION_CONFLICT", "Battle version changed", { actualRevision: String(persisted.currentState.version) }));
+      return err(
+        appError("REVISION_CONFLICT", "Battle version changed", {
+          actualRevision: String(persisted.currentState.version),
+        }),
+      );
     }
     if (persisted.kind === "REPLAYED") {
       const replay = await this.repository.replayMutation(
@@ -102,8 +119,13 @@ export class BattleAdminOwnerService {
         requestFingerprint,
       );
       if (replay.kind === "REPLAYED") return ok(replay.result);
-      if (replay.kind === "CONFLICT") return err(appError("FINGERPRINT_MISMATCH", "Battle cancellation evidence conflicts with request"));
-      return err(appError("ACTION_INVALID", "Cancelled Battle is missing administrative replay evidence"));
+      if (replay.kind === "CONFLICT")
+        return err(
+          appError("FINGERPRINT_MISMATCH", "Battle cancellation evidence conflicts with request"),
+        );
+      return err(
+        appError("ACTION_INVALID", "Cancelled Battle is missing administrative replay evidence"),
+      );
     }
 
     const after = await this.repository.inspect(input.playerId, input.battleId);
@@ -116,7 +138,9 @@ export class BattleAdminOwnerService {
       afterState: after,
       replayed: false,
       encounterNeedsClose:
-        after.encounterId !== null && after.encounterStatus === "IN_BATTLE" && after.status === "CANCELLED",
+        after.encounterId !== null &&
+        after.encounterStatus === "IN_BATTLE" &&
+        after.status === "CANCELLED",
     });
   }
 
@@ -125,12 +149,22 @@ export class BattleAdminOwnerService {
   ): Promise<Result<BattleAdminMutationResult>> {
     const requestFingerprint = correctionHash(input);
     const persisted = await this.repository.correctState({ ...input, requestFingerprint });
-    if (persisted.kind === "PERSISTED" || persisted.kind === "REPLAYED") return ok(persisted.result);
-    if (persisted.kind === "IDEMPOTENCY_CONFLICT") return err(appError("FINGERPRINT_MISMATCH", "Battle admin request conflicts with stored evidence"));
-    if (persisted.kind === "NOT_FOUND") return err(appError("NOT_FOUND", "Battle administrative target was not found"));
-    if (persisted.kind === "NOT_ACTIVE") return err(appError("INVALID_STATE_TRANSITION", "Only an ACTIVE Battle can be corrected"));
+    if (persisted.kind === "PERSISTED" || persisted.kind === "REPLAYED")
+      return ok(persisted.result);
+    if (persisted.kind === "IDEMPOTENCY_CONFLICT")
+      return err(
+        appError("FINGERPRINT_MISMATCH", "Battle admin request conflicts with stored evidence"),
+      );
+    if (persisted.kind === "NOT_FOUND")
+      return err(appError("NOT_FOUND", "Battle administrative target was not found"));
+    if (persisted.kind === "NOT_ACTIVE")
+      return err(appError("INVALID_STATE_TRANSITION", "Only an ACTIVE Battle can be corrected"));
     if (persisted.kind === "VERSION_CONFLICT") {
-      return err(appError("REVISION_CONFLICT", "Battle version changed", { actualRevision: String(persisted.current.version) }));
+      return err(
+        appError("REVISION_CONFLICT", "Battle version changed", {
+          actualRevision: String(persisted.current.version),
+        }),
+      );
     }
     return err(appError("ACTION_INVALID", persisted.reason));
   }
