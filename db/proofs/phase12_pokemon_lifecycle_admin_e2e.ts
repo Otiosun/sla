@@ -216,7 +216,8 @@ try {
     `SELECT id FROM admin_roles WHERE slug = 'POKEMON_ADMIN'`,
   );
   const roleId = role.rows[0]?.id;
-  if (roleId === undefined) throw new Error("POKEMON_ADMIN role must be seeded before lifecycle proof");
+  if (roleId === undefined)
+    throw new Error("POKEMON_ADMIN role must be seeded before lifecycle proof");
   await pool.query(
     `INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')`,
     [principalId, `phase12:lifecycle:${principalId}`],
@@ -287,7 +288,8 @@ try {
     [createPrepared.operation.id],
   );
   const pokemonInstanceId = createdClaim.rows[0]?.pokemon_instance_id;
-  if (pokemonInstanceId === undefined) throw new Error("Pokemon create claim did not persist instance id");
+  if (pokemonInstanceId === undefined)
+    throw new Error("Pokemon create claim did not persist instance id");
 
   const createdState = await pool.query<{
     status: string;
@@ -340,13 +342,15 @@ try {
   }
 
   const createReplay = await admin.apply(createPrepared.operation.id, principalId);
-  if (createReplay.id !== createApplied.id) throw new Error("Applied Pokemon create did not replay");
+  if (createReplay.id !== createApplied.id)
+    throw new Error("Applied Pokemon create did not replay");
   const createCount = await pool.query<{ count: string }>(
     `SELECT count(*)::text AS count FROM pokemon_instances
      WHERE owner_player_id = $1 AND origin_type = 'ADMIN_OPERATION' AND origin_id = $2`,
     [playerId, createPrepared.operation.id],
   );
-  if (createCount.rows[0]?.count !== "1") throw new Error("Pokemon create replay duplicated instance");
+  if (createCount.rows[0]?.count !== "1")
+    throw new Error("Pokemon create replay duplicated instance");
 
   await expectRejected(
     admin.prepareMutation({
