@@ -1,9 +1,19 @@
-import { AdminRoleAssignInputSchema, type AdminRoleAssignInput } from "./contracts.js";
-import type { AdminRoleAssignmentPort } from "./ports.js";
-import { AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
 import { z } from "zod";
+import { AdminRoleAssignInputSchema, type AdminRoleAssignInput } from "./contracts.js";
+import { AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
+import type { AdminRoleAssignmentPort } from "./ports.js";
 
 const playerReadSchema = z.object({ playerId: z.string().uuid() }).strict();
+const playerCollectionReadSchema = z.object({}).strict();
+
+const readPolicy = {
+  version: 1,
+  requiresReason: false,
+  requiresExpectedRevision: false,
+  requiresSimulation: false,
+  requiresConfirmation: false,
+  requiredApprovals: 0,
+} as const;
 
 export function createPhase12AdminOperationRegistry(
   roleAssignmentPort: AdminRoleAssignmentPort,
@@ -17,16 +27,48 @@ export function createPhase12AdminOperationRegistry(
       capabilityKey: "player.read",
       riskTier: 0,
       authorizationMode: "SUBJECT",
-      policy: {
-        version: 1,
-        requiresReason: false,
-        requiresExpectedRevision: false,
-        requiresSimulation: false,
-        requiresConfirmation: false,
-        requiredApprovals: 0,
-      },
+      policy: readPolicy,
       inputSchema: playerReadSchema,
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "player.read_sensitive",
+      capabilityKey: "player.read_sensitive",
+      riskTier: 0,
+      authorizationMode: "SUBJECT",
+      policy: readPolicy,
+      inputSchema: playerReadSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "player.search",
+      capabilityKey: "player.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "PLAYER_COLLECTION", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "player.search_sensitive",
+      capabilityKey: "player.read_sensitive",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "PLAYER_COLLECTION", id: null }),
     }),
   );
 
