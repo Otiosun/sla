@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BattleAdminMutationResult } from "../battle/admin-contracts.js";
 import type { BattleAdminOwnerService } from "../battle/admin-service.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type {
@@ -94,11 +95,7 @@ export class AdminBattleOperationService implements AdminBattleOperationPort {
     operation: AdminOperationRecord,
     actorPrincipalId: string,
     battleId: string,
-    value: Awaited<ReturnType<BattleAdminOwnerService["forceCancel"]>> extends infer ResultType
-      ? ResultType extends { ok: true; value: infer Value }
-        ? Value
-        : never
-      : never,
+    value: BattleAdminMutationResult,
   ): Promise<AdminOperationRecord> {
     return this.completion.completeAppliedOperation({
       operation,
