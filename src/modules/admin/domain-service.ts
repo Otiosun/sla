@@ -2,10 +2,7 @@ import type { EconomyService } from "../economy/service.js";
 import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { AdminOperationRecord } from "./contracts.js";
-import type {
-  AdminInventoryAdjustInput,
-  AdminWalletAdjustInput,
-} from "./domain-contracts.js";
+import type { AdminInventoryAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";
 import type { AdminDomainOperationPort } from "./domain-ports.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 import type { AdminOperationCompletionPort } from "./ports.js";
@@ -20,7 +17,10 @@ function playerId(value: string): PlayerId {
 
 function requiredReason(operation: AdminOperationRecord): string {
   if (operation.reason === null || operation.reason.trim().length === 0) {
-    throw new AdminError(ADMIN_ERROR_CODES.REASON_REQUIRED, "Admin domain mutation requires reason");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.REASON_REQUIRED,
+      "Admin domain mutation requires reason",
+    );
   }
   return operation.reason;
 }

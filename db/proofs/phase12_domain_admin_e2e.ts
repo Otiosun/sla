@@ -59,10 +59,10 @@ try {
     `INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')`,
     [principalId, `phase12c:economy:${principalId}`],
   );
-  await pool.query(
-    `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`,
-    [principalId, roleId],
-  );
+  await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [
+    principalId,
+    roleId,
+  ]);
   await pool.query(
     `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
      VALUES ($1, $2, 'PLAYER', $3)`,
@@ -230,13 +230,19 @@ try {
             ledger.balance_after::text AS ledger_balance_after,
             change.before_data ->> 'quantity' AS before_quantity,
             change.after_data ->> 'quantity' AS after_quantity,
-            (SELECT count(*)::text FROM admin_operation_changes WHERE admin_operation_id = $3) AS change_count,
-            (SELECT count(*)::text FROM audit_events WHERE causation_id = $3) AS audit_count
+            (SELECT count(*)::text FROM admin_operation_changes WHERE admin_operation_id = $4) AS change_count,
+            (SELECT count(*)::text FROM audit_events WHERE causation_id = $5) AS audit_count
      FROM inventory_balances balance
-     JOIN inventory_ledger ledger ON ledger.source_id = $3
-     JOIN admin_operation_changes change ON change.admin_operation_id = $3
+     JOIN inventory_ledger ledger ON ledger.source_id = $3::text
+     JOIN admin_operation_changes change ON change.admin_operation_id = $4
      WHERE balance.player_id = $1 AND balance.item_id = $2`,
-    [playerId, itemId, crashWindow.operation.id],
+    [
+      playerId,
+      itemId,
+      crashWindow.operation.id,
+      crashWindow.operation.id,
+      crashWindow.operation.id,
+    ],
   );
   const reconstructionRow = reconstruction.rows[0];
   if (

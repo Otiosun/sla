@@ -5,7 +5,7 @@ import {
   type AdminWalletAdjustInput,
 } from "./domain-contracts.js";
 import type { AdminDomainOperationPort } from "./domain-ports.js";
-import { AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
+import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
 
 const deltaPolicy = {
   version: 1,
