@@ -1,6 +1,5 @@
 import type { AdminOperationRecord } from "./contracts.js";
 import type {
-  AdminEncounterCloseInput,
   AdminInventoryAdjustInput,
   AdminPokemonArchiveInput,
   AdminPokemonCreateInput,
@@ -69,10 +68,5 @@ export interface AdminDomainOperationPort {
     operation: AdminOperationRecord,
     actorPrincipalId: string,
     input: AdminPokemonArchiveInput,
-  ): Promise<AdminOperationRecord>;
-  applyEncounterClose(
-    operation: AdminOperationRecord,
-    actorPrincipalId: string,
-    input: AdminEncounterCloseInput,
   ): Promise<AdminOperationRecord>;
 }
