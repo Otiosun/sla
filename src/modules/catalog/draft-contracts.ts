@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { BattleMoveFlagsSchema, validateEffectConfig } from "./contracts.js";
+import {
+  BattleMoveFlagsSchema,
+  RewardProgramSchema,
+  validateEffectConfig,
+} from "./contracts.js";
 import { EncounterConditionsSchema } from "./encounter-contracts.js";
 import { EffectProgramSchema } from "./validation.js";
 
@@ -97,39 +101,6 @@ const encounterBodyShape = {
   conditions: EncounterConditionsSchema,
   entries: z.array(CatalogDraftEncounterEntrySchema).min(1).max(512),
 } as const;
-
-export const RewardProgramSchema = z
-  .object({
-    version: z.literal(1),
-    grants: z
-      .array(
-        z.discriminatedUnion("kind", [
-          z
-            .object({
-              kind: z.literal("ITEM"),
-              itemId: z.string().uuid(),
-              quantity: z.number().int().positive().max(1_000_000_000),
-            })
-            .strict(),
-          z
-            .object({
-              kind: z.literal("CURRENCY"),
-              currencyId: z.string().uuid(),
-              amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-            })
-            .strict(),
-          z
-            .object({
-              kind: z.literal("TRAINER_POINTS"),
-              amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-            })
-            .strict(),
-        ]),
-      )
-      .min(1)
-      .max(32),
-  })
-  .strict();
 
 const rewardBodyShape = {
   displayName: displayNameSchema,
