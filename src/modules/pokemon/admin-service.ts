@@ -2,13 +2,16 @@ import {
   ApplyPokemonEffectInputSchema,
   ArchivePokemonInputSchema,
   CorrectPokemonHpInputSchema,
+  CorrectPokemonProgressInputSchema,
   CorrectPokemonStatusInputSchema,
+  CreatePokemonInputSchema,
   MovePokemonRosterInputSchema,
   type PokemonOwnerMutationResult,
   RemovePokemonEffectInputSchema,
 } from "./admin-contracts.js";
 import type { PokemonAdminPersistenceResult, PokemonAdminRepository } from "./admin-ports.js";
 import type { PokemonEffectAdminRepository } from "./effect-admin-ports.js";
+import type { PokemonLifecycleAdminRepository } from "./lifecycle-admin-ports.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 function translatePersistence(
@@ -52,10 +55,37 @@ export class PokemonAdminService {
   public constructor(
     private readonly repository: PokemonAdminRepository,
     private readonly effectRepository?: PokemonEffectAdminRepository,
+    private readonly lifecycleRepository?: PokemonLifecycleAdminRepository,
   ) {}
 
   private effects(): PokemonEffectAdminRepository | null {
     return this.effectRepository ?? null;
+  }
+
+  private lifecycle(): PokemonLifecycleAdminRepository | null {
+    return this.lifecycleRepository ?? null;
+  }
+
+  public async createPokemon(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
+    const parsed = CreatePokemonInputSchema.safeParse(input);
+    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon create request"));
+    const repository = this.lifecycle();
+    if (repository === null) {
+      return err(appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"));
+    }
+    return translatePersistence(await repository.createPokemon(parsed.data));
+  }
+
+  public async correctProgress(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
+    const parsed = CorrectPokemonProgressInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon progress correction"));
+    }
+    const repository = this.lifecycle();
+    if (repository === null) {
+      return err(appError("FEATURE_UNAVAILABLE", "Pokemon lifecycle administration is unavailable"));
+    }
+    return translatePersistence(await repository.correctProgress(parsed.data));
   }
 
   public async moveRoster(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
