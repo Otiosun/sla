@@ -112,7 +112,9 @@ export class PostgresEncounterAdminRepository implements EncounterAdminRepositor
     );
   }
 
-  public async close(input: EncounterAdminCloseInput): Promise<EncounterAdminClosePersistenceResult> {
+  public async close(
+    input: EncounterAdminCloseInput,
+  ): Promise<EncounterAdminClosePersistenceResult> {
     const requestFingerprint = fingerprint({
       playerId: input.playerId,
       encounterId: input.encounterId,
@@ -148,10 +150,10 @@ export class PostgresEncounterAdminRepository implements EncounterAdminRepositor
         };
       }
 
-      const inspected = await client.query<EncounterAdminRow>(`${INSPECT_SQL} FOR UPDATE OF encounter`, [
-        input.playerId,
-        input.encounterId,
-      ]);
+      const inspected = await client.query<EncounterAdminRow>(
+        `${INSPECT_SQL} FOR UPDATE OF encounter`,
+        [input.playerId, input.encounterId],
+      );
       const row = inspected.rows[0];
       if (row === undefined) return { kind: "NOT_FOUND" };
       const beforeState = mapState(row);
@@ -177,12 +179,7 @@ export class PostgresEncounterAdminRepository implements EncounterAdminRepositor
              closed_at = COALESCE(closed_at, now())
          WHERE id = $1 AND player_id = $2 AND revision = $3::bigint AND status = $4
          RETURNING revision::text, closed_at`,
-        [
-          input.encounterId,
-          input.playerId,
-          input.expectedRevision.toString(),
-          beforeState.status,
-        ],
+        [input.encounterId, input.playerId, input.expectedRevision.toString(), beforeState.status],
       );
       const updatedRow = updated.rows[0];
       if (updatedRow === undefined) {
