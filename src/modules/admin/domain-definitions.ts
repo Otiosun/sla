@@ -1,17 +1,21 @@
 import {
   AdminInventoryAdjustInputSchema,
   AdminPokemonArchiveInputSchema,
+  AdminPokemonCreateInputSchema,
   AdminPokemonEffectApplyInputSchema,
   AdminPokemonEffectRemoveInputSchema,
   AdminPokemonHpCorrectInputSchema,
+  AdminPokemonProgressCorrectInputSchema,
   AdminPokemonRosterMoveInputSchema,
   AdminPokemonStatusCorrectInputSchema,
   AdminTrainerProgressAdjustInputSchema,
   type AdminInventoryAdjustInput,
   type AdminPokemonArchiveInput,
+  type AdminPokemonCreateInput,
   type AdminPokemonEffectApplyInput,
   type AdminPokemonEffectRemoveInput,
   type AdminPokemonHpCorrectInput,
+  type AdminPokemonProgressCorrectInput,
   type AdminPokemonRosterMoveInput,
   type AdminPokemonStatusCorrectInput,
   type AdminTrainerProgressAdjustInput,
@@ -36,6 +40,15 @@ const rosterMutationPolicy = {
   requiresExpectedRevision: true,
   requiresSimulation: false,
   requiresConfirmation: false,
+  requiredApprovals: 0,
+} as const;
+
+const pokemonCreatePolicy = {
+  version: 1,
+  requiresReason: true,
+  requiresExpectedRevision: false,
+  requiresSimulation: false,
+  requiresConfirmation: true,
   requiredApprovals: 0,
 } as const;
 
@@ -98,6 +111,21 @@ export function registerPhase12CDomainAdminOperations(
   );
 
   registry.register(
+    defineAdminOperation<AdminPokemonCreateInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.create",
+      capabilityKey: "pokemon.create",
+      riskTier: 3,
+      authorizationMode: "SUBJECT",
+      policy: pokemonCreatePolicy,
+      inputSchema: AdminPokemonCreateInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokemonCreate(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
     defineAdminOperation<AdminPokemonRosterMoveInput>({
       kind: "MUTATION",
       operationType: "pokemon.roster.move",
@@ -109,6 +137,21 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyPokemonRosterMove(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokemonProgressCorrectInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.progress.correct",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 3,
+      authorizationMode: "SUBJECT",
+      policy: pokemonMechanicalPolicy,
+      inputSchema: AdminPokemonProgressCorrectInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokemonProgressCorrection(context.operation, context.actorPrincipalId, input),
     }),
   );
 
