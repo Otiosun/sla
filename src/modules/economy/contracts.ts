@@ -63,6 +63,7 @@ export interface InventoryLedgerRecord {
   readonly idempotencyScope: string;
   readonly idempotencyKey: string;
   readonly correlationId: string;
+  readonly balanceAfter: bigint | null;
 }
 
 export interface WalletLedgerRecord {
@@ -78,6 +79,7 @@ export interface WalletLedgerRecord {
   readonly idempotencyScope: string;
   readonly idempotencyKey: string;
   readonly correlationId: string;
+  readonly balanceAfter: bigint | null;
 }
 
 export interface InventoryMutationResult {

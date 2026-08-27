@@ -380,6 +380,7 @@ export class EconomyService {
               : insufficientInventory(item.value, quantity.value),
           );
         }
+        await transaction.finalizeInventoryLedgerBalance({ ledgerId, balanceAfter: balance });
 
         return ok({
           playerId: input.playerId,
@@ -471,6 +472,7 @@ export class EconomyService {
               : insufficientWallet(currency.value, amount.value),
           );
         }
+        await transaction.finalizeWalletLedgerBalance({ ledgerId, balanceAfter: balance });
 
         return ok({
           playerId: input.playerId,
@@ -504,7 +506,7 @@ export class EconomyService {
       playerId,
       itemId,
       delta,
-      quantity: await transaction.inventoryBalance(playerId, itemId),
+      quantity: existing.balanceAfter ?? (await transaction.inventoryBalance(playerId, itemId)),
       ledgerId: existing.id,
       replayed: true,
     });
@@ -530,7 +532,7 @@ export class EconomyService {
       playerId,
       currencyId,
       delta,
-      amount: await transaction.walletBalance(playerId, currencyId),
+      amount: existing.balanceAfter ?? (await transaction.walletBalance(playerId, currencyId)),
       ledgerId: existing.id,
       replayed: true,
     });

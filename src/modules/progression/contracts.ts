@@ -4,6 +4,70 @@ const uuid = z.string().uuid();
 const safeNonNegative = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const idempotencyKey = z.string().trim().min(1).max(512);
 
+const signedSafeDelta = z
+  .number()
+  .int()
+  .min(-Number.MAX_SAFE_INTEGER)
+  .max(Number.MAX_SAFE_INTEGER)
+  .refine((value) => value !== 0, "delta must be non-zero");
+const progressionSourceToken = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+
+export const AdjustTrainerProgressInputSchema = z
+  .object({
+    playerId: uuid,
+    delta: signedSafeDelta,
+    idempotencyKey,
+    correlationId: uuid,
+    metadata: z
+      .object({
+        sourceType: progressionSourceToken,
+        sourceId: z.string().trim().min(1).max(255),
+        reason: z.string().trim().min(1).max(512),
+        actorType: z.enum(["SYSTEM", "ADMIN"]),
+        actorId: uuid.nullable(),
+      })
+      .strict()
+      .superRefine((value, context) => {
+        if (value.actorType === "SYSTEM" && value.actorId !== null) {
+          context.addIssue({
+            code: "custom",
+            path: ["actorId"],
+            message: "SYSTEM adjustment must not carry actorId",
+          });
+        }
+        if (value.actorType === "ADMIN" && value.actorId === null) {
+          context.addIssue({
+            code: "custom",
+            path: ["actorId"],
+            message: "ADMIN adjustment requires actorId",
+          });
+        }
+      }),
+  })
+  .strict();
+export type AdjustTrainerProgressInput = z.infer<typeof AdjustTrainerProgressInputSchema>;
+
+export const TrainerProgressAdjustmentResultSchema = z
+  .object({
+    playerId: uuid,
+    delta: signedSafeDelta,
+    beforePoints: safeNonNegative,
+    afterPoints: safeNonNegative,
+    beforeLevel: z.number().int().min(1).max(100),
+    afterLevel: z.number().int().min(1).max(100),
+    rulesetId: uuid,
+    activatedUnlockKeys: z.array(z.string().min(1).max(96)),
+    revokedUnlockKeys: z.array(z.string().min(1).max(96)),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type TrainerProgressAdjustmentResult = z.infer<typeof TrainerProgressAdjustmentResultSchema>;
+
 export const ApplyBattleRewardInputSchema = z
   .object({ battleId: uuid, idempotencyKey, correlationId: uuid })
   .strict();

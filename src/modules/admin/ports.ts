@@ -30,6 +30,16 @@ export interface CreateAdminOperationInput {
   readonly requiredApprovals: number;
 }
 
+export interface CompleteAdminOperationInput {
+  readonly operation: AdminOperationRecord;
+  readonly actorPrincipalId: string;
+  readonly resourceType: string;
+  readonly resourceId: string | null;
+  readonly beforeData: Readonly<Record<string, unknown>>;
+  readonly afterData: Readonly<Record<string, unknown>>;
+  readonly result: Readonly<Record<string, unknown>>;
+}
+
 export interface AdminOperationRepository {
   getAuthorizationSnapshot(principalId: string): Promise<AdminAuthorizationSnapshot | null>;
   createOrReplayOperation(
@@ -54,6 +64,10 @@ export interface AdminOperationRepository {
     requestFingerprint: string,
     reason: string,
   ): Promise<AdminOperationRecord>;
+}
+
+export interface AdminOperationCompletionPort {
+  completeAppliedOperation(input: CompleteAdminOperationInput): Promise<AdminOperationRecord>;
 }
 
 export interface AdminRoleAssignmentPort {
