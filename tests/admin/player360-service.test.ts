@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { AdminError } from "../../src/modules/admin/errors.js";
-import type { Player360ReadRepository, Player360SearchQuery } from "../../src/modules/admin/player360-ports.js";
+import type {
+  Player360ReadRepository,
+  Player360SearchQuery,
+} from "../../src/modules/admin/player360-ports.js";
 import { Player360Service } from "../../src/modules/admin/player360-service.js";
 
 const principalId = "11111111-1111-4111-8111-111111111111";
@@ -63,9 +66,9 @@ describe("Player360Service", () => {
 
   it("requires the dedicated sensitive capability before a sensitive read", async () => {
     const { operations, service } = harness();
-    await expect(service.get({ principalId, playerId, includeSensitive: true })).rejects.toBeInstanceOf(
-      AdminError,
-    );
+    await expect(
+      service.get({ principalId, playerId, includeSensitive: true }),
+    ).rejects.toBeInstanceOf(AdminError);
     expect(operations).toEqual(["player.read", "player.read_sensitive"]);
   });
 
@@ -97,8 +100,8 @@ describe("Player360Service", () => {
 
   it("rejects malformed cursors", async () => {
     const { service } = harness();
-    await expect(service.search({ principalId, cursor: "not-a-valid-cursor" })).rejects.toBeInstanceOf(
-      AdminError,
-    );
+    await expect(
+      service.search({ principalId, cursor: "not-a-valid-cursor" }),
+    ).rejects.toBeInstanceOf(AdminError);
   });
 });

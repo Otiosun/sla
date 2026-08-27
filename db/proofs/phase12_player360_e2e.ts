@@ -140,10 +140,10 @@ try {
      ) VALUES ($1, 'TOURNAMENT_BRACKET', 'PROOF', 'player360', 'ACTIVE')`,
     [targetPlayerId],
   );
-  await pool.query(
-    `INSERT INTO player_locations(player_id, area_id) VALUES ($1, $2)`,
-    [targetPlayerId, areaId],
-  );
+  await pool.query(`INSERT INTO player_locations(player_id, area_id) VALUES ($1, $2)`, [
+    targetPlayerId,
+    areaId,
+  ]);
   await pool.query(
     `INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 777)`,
     [targetPlayerId, currencyId],
@@ -289,15 +289,15 @@ try {
     );
   }
   for (const id of [globalSupportId, scopedSupportId]) {
-    await pool.query(
-      `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`,
-      [id, supportRoleId],
-    );
+    await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [
+      id,
+      supportRoleId,
+    ]);
   }
-  await pool.query(
-    `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`,
-    [ownerId, ownerRoleId],
-  );
+  await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [
+    ownerId,
+    ownerRoleId,
+  ]);
   for (const id of [globalSupportId, ownerId]) {
     await pool.query(
       `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
@@ -341,9 +341,7 @@ try {
   ) {
     throw new Error("Player 360 aggregate is missing one or more canonical sections");
   }
-  if (
-    redacted.unsupportedSections.join(",") !== "COOLDOWNS,PUNISHMENTS_FLAGS"
-  ) {
+  if (redacted.unsupportedSections.join(",") !== "COOLDOWNS,PUNISHMENTS_FLAGS") {
     throw new Error("Unmodeled Player 360 sections were not explicitly reported");
   }
 
@@ -373,7 +371,9 @@ try {
   if (firstPage.items.length !== 2 || firstPage.nextCursor === null) {
     throw new Error("Player 360 first cursor page is invalid");
   }
-  if (firstPage.items.some((item) => item.identities.some((identity) => identity.externalId !== null))) {
+  if (
+    firstPage.items.some((item) => item.identities.some((identity) => identity.externalId !== null))
+  ) {
     throw new Error("Player 360 search leaked external identities without sensitive capability");
   }
   const secondPage = await service.search({
@@ -434,7 +434,11 @@ try {
     expectAdminCode(error, ADMIN_ERROR_CODES.INVALID_INPUT);
   }
 
-  const indexes = await pool.query<{ created: string | null; status: string | null; name: string | null }>(
+  const indexes = await pool.query<{
+    created: string | null;
+    status: string | null;
+    name: string | null;
+  }>(
     `SELECT to_regclass('idx_players_created_id')::text AS created,
             to_regclass('idx_players_status_created_id')::text AS status,
             to_regclass('idx_player_profiles_trainer_name_lower_pattern')::text AS name`,

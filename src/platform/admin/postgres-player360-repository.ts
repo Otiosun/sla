@@ -1,6 +1,22 @@
 import type { Pool, PoolClient } from "pg";
-import { PlayerStatusSchema, type Player360ActivityView, type Player360BattleView, type Player360EffectView, type Player360EncounterView, type Player360IdentityView, type Player360InventoryView, type Player360PokedexEntryView, type Player360PokemonView, type Player360SearchItemView, type Player360View, type Player360WalletView } from "../../modules/admin/player360-contracts.js";
-import type { Player360ReadRepository, Player360SearchQuery } from "../../modules/admin/player360-ports.js";
+import {
+  PlayerStatusSchema,
+  type Player360ActivityView,
+  type Player360BattleView,
+  type Player360EffectView,
+  type Player360EncounterView,
+  type Player360IdentityView,
+  type Player360InventoryView,
+  type Player360PokedexEntryView,
+  type Player360PokemonView,
+  type Player360SearchItemView,
+  type Player360View,
+  type Player360WalletView,
+} from "../../modules/admin/player360-contracts.js";
+import type {
+  Player360ReadRepository,
+  Player360SearchQuery,
+} from "../../modules/admin/player360-ports.js";
 import { withTransaction } from "../db/transaction.js";
 
 function iso(value: Date): string {
@@ -682,7 +698,9 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
           conditions.push(`player.status = ${bind(query.status)}`);
         }
         if (query.trainerNamePrefix !== null) {
-          conditions.push(`lower(profile.trainer_name) LIKE lower(${bind(query.trainerNamePrefix)}) || '%'`);
+          conditions.push(
+            `lower(profile.trainer_name) LIKE lower(${bind(query.trainerNamePrefix)}) || '%'`,
+          );
         }
         if (query.originRegionId !== null) {
           conditions.push(`profile.origin_region_id = ${bind(query.originRegionId)}::uuid`);
