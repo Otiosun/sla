@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { ReleaseDiff } from "./diff.js";
 
 export const CatalogReleaseLifecycleOperationSchema = z.enum(["VALIDATE", "PUBLISH"]);
-export type CatalogReleaseLifecycleOperation = z.infer<typeof CatalogReleaseLifecycleOperationSchema>;
+export type CatalogReleaseLifecycleOperation = z.infer<
+  typeof CatalogReleaseLifecycleOperationSchema
+>;
 
 export const CatalogReleaseDiffInputSchema = z
   .object({

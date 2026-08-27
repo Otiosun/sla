@@ -109,7 +109,10 @@ function replay(
     claim.expectedRevision !== expectedRevision
   ) {
     return err(
-      appError("IDEMPOTENCY_KEY_INVALID", "Catalog release lifecycle replay conflicts with request"),
+      appError(
+        "IDEMPOTENCY_KEY_INVALID",
+        "Catalog release lifecycle replay conflicts with request",
+      ),
     );
   }
   return ok({ ...claim.result, replayed: true });
@@ -137,7 +140,10 @@ function notFound(resource: string, id: string) {
 export class CatalogReleaseAdminService {
   public constructor(private readonly repository: CatalogReleaseAdminRepository) {}
 
-  public async diffReleases(fromReleaseId: string, toReleaseId: string): Promise<Result<ReleaseDiff>> {
+  public async diffReleases(
+    fromReleaseId: string,
+    toReleaseId: string,
+  ): Promise<Result<ReleaseDiff>> {
     const [from, to] = await Promise.all([
       this.repository.loadSnapshot(fromReleaseId),
       this.repository.loadSnapshot(toReleaseId),
@@ -147,7 +153,9 @@ export class CatalogReleaseAdminService {
     return ok(diffCatalogSnapshots(from, to));
   }
 
-  public async previewPublishRelease(releaseId: string): Promise<Result<CatalogReleasePublishPreview>> {
+  public async previewPublishRelease(
+    releaseId: string,
+  ): Promise<Result<CatalogReleasePublishPreview>> {
     const release = await this.repository.readRelease(releaseId);
     if (release === null) return err(notFound("Content release", releaseId));
     if (release.status !== "VALIDATED") {
@@ -194,63 +202,75 @@ export class CatalogReleaseAdminService {
       releaseId: input.releaseId,
       context: input,
     });
-    return this.repository.transaction(input.releaseId, input.idempotencyKey, async (transaction) => {
-      const existing = await transaction.loadClaim(input.idempotencyKey);
-      if (existing !== null) {
-        return replay(existing, fingerprint, "VALIDATE", input.releaseId, input.expectedRevision);
-      }
-      const release = await transaction.loadRelease(input.releaseId, true);
-      if (release === null) return err(notFound("Content release", input.releaseId));
-      if (release.revision !== input.expectedRevision) {
-        return err(revisionConflict(input.expectedRevision, release.revision));
-      }
-      if (release.status !== "DRAFT") {
-        return err(invalidState("Content release", release.status, "DRAFT"));
-      }
-      const snapshot = await transaction.loadSnapshot(input.releaseId);
-      if (snapshot === null) return err(notFound("Content release snapshot", input.releaseId));
-      const validation = validateReleaseSnapshot(snapshot);
-      if (!validation.valid) {
-        return err(
-          appError("VALIDATION_FAILED", "Content release validation failed", {
-            issues: validation.issues,
-          }),
-        );
-      }
-      const contentFingerprint = fingerprintCatalog(snapshot);
-      const beforeData = releaseState(release);
-      await transaction.setValidated(input.releaseId, validation, contentFingerprint);
-      const afterData: CatalogReleaseLifecycleState = {
-        ...beforeData,
-        status: "VALIDATED",
-        contentFingerprint,
-      };
-      const result: CatalogReleaseLifecycleMutationResult = {
-        operationKind: "VALIDATE",
-        releaseId: input.releaseId,
-        revision: release.revision.toString(),
-        beforeStatus: "DRAFT",
-        afterStatus: "VALIDATED",
-        fingerprint: contentFingerprint,
-        beforeData,
-        afterData,
-        replayed: false,
-      };
-      await transaction.insertClaim({
-        operationKind: "VALIDATE",
-        releaseId: input.releaseId,
-        requestFingerprint: fingerprint,
-        expectedRevision: input.expectedRevision,
-        beforeStatus: "DRAFT",
-        afterStatus: "VALIDATED",
-        beforeData,
-        afterData,
-        result,
-        idempotencyKey: input.idempotencyKey,
-        correlationId: input.correlationId,
-      });
-      return ok(result);
-    });
+    return this.repository.transaction(
+      input.releaseId,
+      input.idempotencyKey,
+      async (transaction) => {
+        const existing = await transaction.loadClaim(input.idempotencyKey);
+        if (existing !== null) {
+          return replay(
+            existing,
+            fingerprint,
+            "VALIDATE",
+            input.releaseId,
+            input.expectedRevision,
+          );
+        }
+        const release = await transaction.loadRelease(input.releaseId, true);
+        if (release === null) return err(notFound("Content release", input.releaseId));
+        if (release.revision !== input.expectedRevision) {
+          return err(revisionConflict(input.expectedRevision, release.revision));
+        }
+        if (release.status !== "DRAFT") {
+          return err(invalidState("Content release", release.status, "DRAFT"));
+        }
+        const snapshot = await transaction.loadSnapshot(input.releaseId);
+        if (snapshot === null) {
+          return err(notFound("Content release snapshot", input.releaseId));
+        }
+        const validation = validateReleaseSnapshot(snapshot);
+        if (!validation.valid) {
+          return err(
+            appError("VALIDATION_FAILED", "Content release validation failed", {
+              issues: validation.issues,
+            }),
+          );
+        }
+        const contentFingerprint = fingerprintCatalog(snapshot);
+        const beforeData = releaseState(release);
+        await transaction.setValidated(input.releaseId, validation, contentFingerprint);
+        const afterData: CatalogReleaseLifecycleState = {
+          ...beforeData,
+          status: "VALIDATED",
+          contentFingerprint,
+        };
+        const result: CatalogReleaseLifecycleMutationResult = {
+          operationKind: "VALIDATE",
+          releaseId: input.releaseId,
+          revision: release.revision.toString(),
+          beforeStatus: "DRAFT",
+          afterStatus: "VALIDATED",
+          fingerprint: contentFingerprint,
+          beforeData,
+          afterData,
+          replayed: false,
+        };
+        await transaction.insertClaim({
+          operationKind: "VALIDATE",
+          releaseId: input.releaseId,
+          requestFingerprint: fingerprint,
+          expectedRevision: input.expectedRevision,
+          beforeStatus: "DRAFT",
+          afterStatus: "VALIDATED",
+          beforeData,
+          afterData,
+          result,
+          idempotencyKey: input.idempotencyKey,
+          correlationId: input.correlationId,
+        });
+        return ok(result);
+      },
+    );
   }
 
   public async publish(
@@ -261,64 +281,79 @@ export class CatalogReleaseAdminService {
       releaseId: input.releaseId,
       context: input,
     });
-    return this.repository.transaction(input.releaseId, input.idempotencyKey, async (transaction) => {
-      const existing = await transaction.loadClaim(input.idempotencyKey);
-      if (existing !== null) {
-        return replay(existing, fingerprint, "PUBLISH", input.releaseId, input.expectedRevision);
-      }
-      const release = await transaction.loadRelease(input.releaseId, true);
-      if (release === null) return err(notFound("Content release", input.releaseId));
-      if (release.revision !== input.expectedRevision) {
-        return err(revisionConflict(input.expectedRevision, release.revision));
-      }
-      if (release.status !== "VALIDATED") {
-        return err(invalidState("Content release", release.status, "VALIDATED"));
-      }
-      const snapshot = await transaction.loadSnapshot(input.releaseId);
-      if (snapshot === null) return err(notFound("Content release snapshot", input.releaseId));
-      if (snapshot.ruleset.status !== "PUBLISHED") {
-        return err(invalidState("Default ruleset", snapshot.ruleset.status, "PUBLISHED"));
-      }
-      const contentFingerprint = fingerprintCatalog(snapshot);
-      if (
-        release.contentFingerprint === null ||
-        release.contentFingerprint !== contentFingerprint
-      ) {
-        return err(
-          appError("FINGERPRINT_MISMATCH", "Content release changed after validation", {
-            expected: release.contentFingerprint,
-            actual: contentFingerprint,
-          }),
-        );
-      }
-      const beforeData = releaseState(release);
-      await transaction.setPublished(input.releaseId);
-      const afterData: CatalogReleaseLifecycleState = { ...beforeData, status: "PUBLISHED" };
-      const result: CatalogReleaseLifecycleMutationResult = {
-        operationKind: "PUBLISH",
-        releaseId: input.releaseId,
-        revision: release.revision.toString(),
-        beforeStatus: "VALIDATED",
-        afterStatus: "PUBLISHED",
-        fingerprint: contentFingerprint,
-        beforeData,
-        afterData,
-        replayed: false,
-      };
-      await transaction.insertClaim({
-        operationKind: "PUBLISH",
-        releaseId: input.releaseId,
-        requestFingerprint: fingerprint,
-        expectedRevision: input.expectedRevision,
-        beforeStatus: "VALIDATED",
-        afterStatus: "PUBLISHED",
-        beforeData,
-        afterData,
-        result,
-        idempotencyKey: input.idempotencyKey,
-        correlationId: input.correlationId,
-      });
-      return ok(result);
-    });
+    return this.repository.transaction(
+      input.releaseId,
+      input.idempotencyKey,
+      async (transaction) => {
+        const existing = await transaction.loadClaim(input.idempotencyKey);
+        if (existing !== null) {
+          return replay(
+            existing,
+            fingerprint,
+            "PUBLISH",
+            input.releaseId,
+            input.expectedRevision,
+          );
+        }
+        const release = await transaction.loadRelease(input.releaseId, true);
+        if (release === null) return err(notFound("Content release", input.releaseId));
+        if (release.revision !== input.expectedRevision) {
+          return err(revisionConflict(input.expectedRevision, release.revision));
+        }
+        if (release.status !== "VALIDATED") {
+          return err(invalidState("Content release", release.status, "VALIDATED"));
+        }
+        const snapshot = await transaction.loadSnapshot(input.releaseId);
+        if (snapshot === null) {
+          return err(notFound("Content release snapshot", input.releaseId));
+        }
+        if (snapshot.ruleset.status !== "PUBLISHED") {
+          return err(invalidState("Default ruleset", snapshot.ruleset.status, "PUBLISHED"));
+        }
+        const contentFingerprint = fingerprintCatalog(snapshot);
+        if (
+          release.contentFingerprint === null ||
+          release.contentFingerprint !== contentFingerprint
+        ) {
+          return err(
+            appError("FINGERPRINT_MISMATCH", "Content release changed after validation", {
+              expected: release.contentFingerprint,
+              actual: contentFingerprint,
+            }),
+          );
+        }
+        const beforeData = releaseState(release);
+        await transaction.setPublished(input.releaseId);
+        const afterData: CatalogReleaseLifecycleState = {
+          ...beforeData,
+          status: "PUBLISHED",
+        };
+        const result: CatalogReleaseLifecycleMutationResult = {
+          operationKind: "PUBLISH",
+          releaseId: input.releaseId,
+          revision: release.revision.toString(),
+          beforeStatus: "VALIDATED",
+          afterStatus: "PUBLISHED",
+          fingerprint: contentFingerprint,
+          beforeData,
+          afterData,
+          replayed: false,
+        };
+        await transaction.insertClaim({
+          operationKind: "PUBLISH",
+          releaseId: input.releaseId,
+          requestFingerprint: fingerprint,
+          expectedRevision: input.expectedRevision,
+          beforeStatus: "VALIDATED",
+          afterStatus: "PUBLISHED",
+          beforeData,
+          afterData,
+          result,
+          idempotencyKey: input.idempotencyKey,
+          correlationId: input.correlationId,
+        });
+        return ok(result);
+      },
+    );
   }
 }

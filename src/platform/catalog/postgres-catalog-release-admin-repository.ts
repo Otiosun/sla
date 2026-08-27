@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { ContentLifecycleStatusSchema, type ValidationReport } from "../../modules/catalog/contracts.js";
+import {
+  ContentLifecycleStatusSchema,
+  type ValidationReport,
+} from "../../modules/catalog/contracts.js";
 import type {
   CatalogReleaseAdminClaim,
   CatalogReleaseAdminClaimInsert,
@@ -251,7 +254,10 @@ export class PostgresCatalogReleaseAdminRepository implements CatalogReleaseAdmi
     return withTransaction(
       this.pool,
       async (client) => {
-        for (const key of [`catalog-release:${releaseId}`, `catalog-release-admin:${idempotencyKey}`].sort()) {
+        for (const key of [
+          `catalog-release:${releaseId}`,
+          `catalog-release-admin:${idempotencyKey}`,
+        ].sort()) {
           await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [key]);
         }
         return work(new PostgresCatalogReleaseAdminTransaction(client, this.snapshotReader));

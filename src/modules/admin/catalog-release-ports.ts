@@ -7,7 +7,9 @@ import type { AdminOperationRecord, AdminSimulationResult } from "./contracts.js
 
 export interface AdminCatalogReleaseOperationPort {
   diff(input: CatalogReleaseDiffInput & { readonly principalId: string }): Promise<ReleaseDiff>;
-  simulateCatalogReleasePublish(input: CatalogReleaseLifecycleInput): Promise<AdminSimulationResult>;
+  simulateCatalogReleasePublish(
+    input: CatalogReleaseLifecycleInput,
+  ): Promise<AdminSimulationResult>;
   applyCatalogReleaseValidate(
     operation: AdminOperationRecord,
     actorPrincipalId: string,

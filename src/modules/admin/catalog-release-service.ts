@@ -81,7 +81,10 @@ export class AdminCatalogReleaseOperationService implements AdminCatalogReleaseO
       operationType: "content.release.diff",
       input: parsed.data,
     });
-    const result = await this.owner.diffReleases(parsed.data.fromReleaseId, parsed.data.toReleaseId);
+    const result = await this.owner.diffReleases(
+      parsed.data.fromReleaseId,
+      parsed.data.toReleaseId,
+    );
     if (!result.ok) throw ownerError(result.error);
     return result.value;
   }
