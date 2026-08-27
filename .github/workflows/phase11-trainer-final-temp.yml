@@ -1,0 +1,503 @@
+name: Phase 11 Trainer Finalizer Temp
+
+on:
+  push:
+    branches:
+      - work/phase11-trainer-insignia-final-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout work branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/phase11-trainer-insignia-final-v1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Patch canonical trainer progression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one target, found {count}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "src/modules/catalog/contracts.ts",
+              '        visiblePointsName: z.literal("XP de Treinador"),\n        levelCurve: z.literal("QUADRATIC_100_V1"),',
+              '        visiblePointsName: z.enum(["XP de Treinador", "Insígnia"]),\n        levelCurve: z.enum(["QUADRATIC_100_V1", "LINEAR_100_V1"]),',
+          )
+          replace_once(
+              "src/modules/catalog/contracts.ts",
+              '      .superRefine((trainer, context) => {\n        const levels = new Set<number>();',
+              '''      .superRefine((trainer, context) => {\n        const expectedName =\n          trainer.levelCurve === "LINEAR_100_V1" ? "Insígnia" : "XP de Treinador";\n        if (trainer.visiblePointsName !== expectedName) {\n          context.addIssue({\n            code: "custom",\n            path: ["visiblePointsName"],\n            message: "trainer progression label must match the versioned level curve",\n          });\n        }\n        const levels = new Set<number>();''',
+          )
+
+          replace_once(
+              "src/modules/progression/rules.ts",
+              'export const TRAINER_LEVEL_CAP = 100;\n',
+              'export const TRAINER_LEVEL_CAP = 100;\nexport type TrainerLevelCurve = "QUADRATIC_100_V1" | "LINEAR_100_V1";\n',
+          )
+          replace_once(
+              "src/modules/progression/rules.ts",
+              '''export function trainerPointsRequiredForLevel(level: number): number {\n  if (!Number.isInteger(level) || level < 1 || level > TRAINER_LEVEL_CAP) {\n    throw new Error("Trainer level is outside the configured range");\n  }\n  return 100 * (level - 1) ** 2;\n}\n\nexport function trainerLevelForPoints(points: number, levelCap = TRAINER_LEVEL_CAP): number {\n  if (!Number.isSafeInteger(points) || points < 0)\n    throw new Error("Trainer points must be non-negative");\n  for (let level = levelCap; level >= 1; level -= 1) {\n    if (points >= trainerPointsRequiredForLevel(level)) return level;\n  }\n  return 1;\n}\n''',
+              '''export function trainerPointsRequiredForLevel(\n  level: number,\n  curve: TrainerLevelCurve = "QUADRATIC_100_V1",\n): number {\n  if (!Number.isInteger(level) || level < 1 || level > TRAINER_LEVEL_CAP) {\n    throw new Error("Trainer level is outside the configured range");\n  }\n  if (curve === "LINEAR_100_V1") return 100 * (level - 1);\n  return 100 * (level - 1) ** 2;\n}\n\nexport function trainerLevelForPoints(\n  points: number,\n  levelCap = TRAINER_LEVEL_CAP,\n  curve: TrainerLevelCurve = "QUADRATIC_100_V1",\n): number {\n  if (!Number.isSafeInteger(points) || points < 0)\n    throw new Error("Trainer points must be non-negative");\n  for (let level = levelCap; level >= 1; level -= 1) {\n    if (points >= trainerPointsRequiredForLevel(level, curve)) return level;\n  }\n  return 1;\n}\n''',
+          )
+          replace_once(
+              "src/platform/progression/postgres-progression-repository.ts",
+              '    const afterLevel = trainerLevelForPoints(afterPoints, input.progression.trainer.levelCap);',
+              '''    const afterLevel = trainerLevelForPoints(\n      afterPoints,\n      input.progression.trainer.levelCap,\n      input.progression.trainer.levelCurve,\n    );''',
+          )
+
+          replace_once(
+              "package.json",
+              '    "db:seed:phase11": "node --env-file-if-exists=.env --import tsx db/seeds/phase11_progression_slice.ts",',
+              '''    "db:seed:phase11:provisional": "node --env-file-if-exists=.env --import tsx db/seeds/phase11_progression_slice.ts",\n    "db:seed:phase11:final": "node --env-file-if-exists=.env --import tsx db/seeds/phase11_trainer_final_slice.ts",\n    "db:seed:phase11": "pnpm db:seed:phase11:provisional && pnpm db:seed:phase11:final",''',
+          )
+          PY
+
+          cat > db/seeds/phase11_trainer_final_slice.ts <<'EOF'
+          import { randomUUID } from "node:crypto";
+          import { isDeepStrictEqual } from "node:util";
+          import { Pool, type PoolClient } from "pg";
+          import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
+          import { CatalogService } from "../../src/modules/catalog/service.js";
+          import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
+          import { loadMigrations, verifyAppliedMigrations } from "../../src/platform/db/migrations.js";
+
+          const databaseUrl = process.env.DATABASE_URL;
+          if (databaseUrl === undefined) {
+            throw new Error("DATABASE_URL is required for the Phase 11 trainer final seed");
+          }
+
+          const RULESET_KEY = "phase4-core-v1";
+          const BASE_RULESET_VERSION = 2;
+          const RULESET_VERSION = 3;
+          const RELEASE_NO = 6n;
+          const RELEASE_NAME = "Phase 11 Trainer Progression Final v1";
+
+          function unwrap<T>(
+            label: string,
+            result:
+              | { readonly ok: true; readonly value: T }
+              | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } },
+          ): T {
+            if (result.ok) return result.value;
+            throw new Error(`${label} failed [${result.error.code}]: ${result.error.message}`);
+          }
+
+          async function ensureRuleset(client: PoolClient): Promise<{ id: string; status: string }> {
+            const base = await client.query<{ id: string; config: unknown }>(
+              `SELECT id, config FROM rulesets WHERE key = $1 AND version = $2`,
+              [RULESET_KEY, BASE_RULESET_VERSION],
+            );
+            const baseRow = base.rows[0];
+            if (baseRow === undefined) {
+              throw new Error("Final trainer progression requires the published Phase 11 provisional ruleset");
+            }
+            const parsedBase = RulesetConfigSchema.safeParse(baseRow.config);
+            if (!parsedBase.success || parsedBase.data.progression === undefined) {
+              throw new Error("Phase 11 provisional progression config is invalid");
+            }
+            const baseProgression = parsedBase.data.progression;
+            const expectedConfig = {
+              ...parsedBase.data,
+              progression: {
+                ...baseProgression,
+                trainer: {
+                  ...baseProgression.trainer,
+                  visiblePointsName: "Insígnia",
+                  levelCurve: "LINEAR_100_V1",
+                  unlocks: [{ level: 10, unlockKey: "tournament.eligible" }],
+                },
+              },
+            } as const;
+            RulesetConfigSchema.parse(expectedConfig);
+
+            await client.query(
+              `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+               VALUES ($1, $2, $3, 1, $4::jsonb, 'DRAFT')
+               ON CONFLICT (key, version) DO NOTHING`,
+              [randomUUID(), RULESET_KEY, RULESET_VERSION, JSON.stringify(expectedConfig)],
+            );
+            const result = await client.query<{ id: string; status: string; config: unknown }>(
+              `SELECT id, status, config FROM rulesets WHERE key = $1 AND version = $2`,
+              [RULESET_KEY, RULESET_VERSION],
+            );
+            const row = result.rows[0];
+            if (row === undefined) throw new Error("Failed to resolve final trainer progression ruleset");
+            if (!isDeepStrictEqual(row.config, expectedConfig)) {
+              throw new Error("Existing final trainer ruleset differs from canonical Insígnia config");
+            }
+
+            if (row.status === "DRAFT") {
+              await client.query(
+                `INSERT INTO type_matchups(ruleset_id, attacking_type_id, defending_type_id, multiplier_basis_points)
+                 SELECT $1, attacking_type_id, defending_type_id, multiplier_basis_points
+                 FROM type_matchups WHERE ruleset_id = $2
+                 ON CONFLICT DO NOTHING`,
+                [row.id, baseRow.id],
+              );
+            }
+            return { id: row.id, status: row.status };
+          }
+
+          async function ensureRelease(
+            pool: Pool,
+            catalog: CatalogService,
+            rulesetId: string,
+          ): Promise<{ id: string; status: string }> {
+            const existing = await pool.query<{
+              id: string;
+              status: string;
+              name: string;
+              default_ruleset_id: string;
+            }>(
+              `SELECT id, status, name, default_ruleset_id
+               FROM content_releases WHERE release_no = $1`,
+              [RELEASE_NO.toString()],
+            );
+            const existingRow = existing.rows[0];
+            if (existingRow !== undefined) {
+              if (existingRow.name !== RELEASE_NAME || existingRow.default_ruleset_id !== rulesetId) {
+                throw new Error("Release 6 is already bound to unexpected trainer progression content");
+              }
+              return { id: existingRow.id, status: existingRow.status };
+            }
+
+            const active = await pool.query<{ content_release_id: string; release_no: string }>(
+              `SELECT release.id AS content_release_id, release.release_no::text
+               FROM content_release_pointers pointer
+               JOIN content_releases release ON release.id = pointer.content_release_id
+               WHERE pointer.pointer_key = 'ACTIVE'`,
+            );
+            const parent = active.rows[0];
+            if (parent === undefined || parent.release_no !== "5") {
+              throw new Error("Final trainer progression expects Phase 11 release 5 as active parent");
+            }
+            const newReleaseId = randomUUID();
+            unwrap(
+              "clone final trainer progression release",
+              await catalog.clonePublishedRelease({
+                parentReleaseId: parent.content_release_id,
+                newReleaseId,
+                releaseNo: RELEASE_NO,
+                name: RELEASE_NAME,
+              }),
+            );
+            const changed = await pool.query(
+              `UPDATE content_releases
+               SET default_ruleset_id = $2
+               WHERE id = $1 AND status = 'DRAFT'`,
+              [newReleaseId, rulesetId],
+            );
+            if (changed.rowCount !== 1) {
+              throw new Error("Failed to bind release 6 to final trainer progression ruleset");
+            }
+            return { id: newReleaseId, status: "DRAFT" };
+          }
+
+          async function main(): Promise<void> {
+            const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+            try {
+              const migrations = await loadMigrations();
+              const verifyClient = await pool.connect();
+              try {
+                await verifyAppliedMigrations(verifyClient, migrations, true);
+              } finally {
+                verifyClient.release();
+              }
+
+              const ruleset = await (async () => {
+                const client = await pool.connect();
+                try {
+                  await client.query("BEGIN");
+                  const result = await ensureRuleset(client);
+                  await client.query("COMMIT");
+                  return result;
+                } catch (error) {
+                  await client.query("ROLLBACK");
+                  throw error;
+                } finally {
+                  client.release();
+                }
+              })();
+
+              const catalog = new CatalogService(new PostgresCatalogRepository(pool));
+              if (ruleset.status === "DRAFT") {
+                unwrap("validate final trainer ruleset", await catalog.validateRuleset(ruleset.id));
+                unwrap("publish final trainer ruleset", await catalog.publishRuleset(ruleset.id));
+              } else if (ruleset.status === "VALIDATED") {
+                unwrap("publish final trainer ruleset", await catalog.publishRuleset(ruleset.id));
+              } else if (ruleset.status !== "PUBLISHED") {
+                throw new Error(`Final trainer ruleset is not usable from status ${ruleset.status}`);
+              }
+
+              const release = await ensureRelease(pool, catalog, ruleset.id);
+              if (release.status === "DRAFT") {
+                unwrap("validate final trainer release", await catalog.validateRelease(release.id));
+                unwrap("publish final trainer release", await catalog.publishRelease(release.id));
+              } else if (release.status === "VALIDATED") {
+                unwrap("publish final trainer release", await catalog.publishRelease(release.id));
+              } else if (release.status !== "PUBLISHED") {
+                throw new Error(`Final trainer release is not usable from status ${release.status}`);
+              }
+              unwrap("activate final trainer release", await catalog.activateRelease(release.id));
+              console.log(
+                `Final trainer progression ready: release ${release.id}, ruleset ${ruleset.id}`,
+              );
+            } finally {
+              await pool.end();
+            }
+          }
+
+          await main();
+          EOF
+
+          cat > db/proofs/phase11_trainer_final_e2e.ts <<'EOF'
+          import { Pool } from "pg";
+          import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
+          import {
+            trainerLevelForPoints,
+            trainerPointsRequiredForLevel,
+          } from "../../src/modules/progression/rules.js";
+
+          const databaseUrl = process.env.DATABASE_URL;
+          if (databaseUrl === undefined) {
+            throw new Error("DATABASE_URL is required for the Phase 11 trainer final proof");
+          }
+
+          const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+          try {
+            const active = await pool.query<{
+              release_no: string;
+              ruleset_id: string;
+              ruleset_version: number;
+              config: unknown;
+            }>(
+              `SELECT release.release_no::text, release.default_ruleset_id AS ruleset_id,
+                      ruleset.version AS ruleset_version, ruleset.config
+               FROM content_release_pointers pointer
+               JOIN content_releases release ON release.id = pointer.content_release_id
+               JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
+               WHERE pointer.pointer_key = 'ACTIVE' AND release.status = 'PUBLISHED'`,
+            );
+            const row = active.rows[0];
+            if (row === undefined || row.release_no !== "6" || row.ruleset_version !== 3) {
+              throw new Error(`Final trainer release/ruleset is not active: ${JSON.stringify(row)}`);
+            }
+            const config = RulesetConfigSchema.parse(row.config);
+            const trainer = config.progression?.trainer;
+            if (
+              trainer === undefined ||
+              trainer.visiblePointsName !== "Insígnia" ||
+              trainer.levelCurve !== "LINEAR_100_V1" ||
+              trainer.unlocks.length !== 1 ||
+              trainer.unlocks[0]?.level !== 10 ||
+              trainer.unlocks[0]?.unlockKey !== "tournament.eligible"
+            ) {
+              throw new Error(`Final trainer config is not canonical: ${JSON.stringify(trainer)}`);
+            }
+
+            if (
+              trainerPointsRequiredForLevel(1, trainer.levelCurve) !== 0 ||
+              trainerPointsRequiredForLevel(2, trainer.levelCurve) !== 100 ||
+              trainerPointsRequiredForLevel(10, trainer.levelCurve) !== 900 ||
+              trainerPointsRequiredForLevel(100, trainer.levelCurve) !== 9_900 ||
+              trainerLevelForPoints(899, trainer.levelCap, trainer.levelCurve) !== 9 ||
+              trainerLevelForPoints(900, trainer.levelCap, trainer.levelCurve) !== 10 ||
+              trainerLevelForPoints(999, trainer.levelCap, trainer.levelCurve) !== 10 ||
+              trainerLevelForPoints(1_000, trainer.levelCap, trainer.levelCurve) !== 11
+            ) {
+              throw new Error("LINEAR_100_V1 does not grant exactly one trainer level per 100 Insígnias");
+            }
+
+            const historical = await pool.query<{ config: unknown }>(
+              `SELECT config FROM rulesets WHERE key = 'phase4-core-v1' AND version = 2`,
+            );
+            const historicalConfig = RulesetConfigSchema.parse(historical.rows[0]?.config);
+            if (
+              historicalConfig.progression?.trainer.levelCurve !== "QUADRATIC_100_V1" ||
+              trainerPointsRequiredForLevel(10, "QUADRATIC_100_V1") !== 8_100
+            ) {
+              throw new Error("Historical trainer progression was not preserved");
+            }
+
+            console.log(
+              "Phase 11 final trainer proof complete: Insígnia, LINEAR_100_V1, level-10 tournament eligibility and historical ruleset preservation verified",
+            );
+          } finally {
+            await pool.end();
+          }
+          EOF
+
+          cat > tests/progression/trainer-final.test.ts <<'EOF'
+          import { describe, expect, it } from "vitest";
+          import { ProgressionRulesSchema } from "../../src/modules/catalog/contracts.js";
+          import {
+            trainerLevelForPoints,
+            trainerPointsRequiredForLevel,
+          } from "../../src/modules/progression/rules.js";
+
+          const pokemonRules = {
+            xpCurve: "CUBIC_DELTA_V1",
+            battleRewardModel: "BASE_EXP_LEVEL_DIV_7_V1",
+            rewardRecipient: "ACTIVE_WINNER_V1",
+            levelCap: 100,
+            hpOnLevelUp: "ADD_MAX_HP_DELTA_IF_ALIVE_V1",
+            fullMoveSlotsPolicy: "PENDING_CHOICE_V1",
+            autoLevelEvolution: true,
+          } as const;
+
+          describe("canonical trainer progression", () => {
+            it("grants exactly one trainer level per 100 Insígnias", () => {
+              expect(trainerPointsRequiredForLevel(1, "LINEAR_100_V1")).toBe(0);
+              expect(trainerPointsRequiredForLevel(2, "LINEAR_100_V1")).toBe(100);
+              expect(trainerPointsRequiredForLevel(10, "LINEAR_100_V1")).toBe(900);
+              expect(trainerPointsRequiredForLevel(100, "LINEAR_100_V1")).toBe(9_900);
+              expect(trainerLevelForPoints(99, 100, "LINEAR_100_V1")).toBe(1);
+              expect(trainerLevelForPoints(100, 100, "LINEAR_100_V1")).toBe(2);
+              expect(trainerLevelForPoints(899, 100, "LINEAR_100_V1")).toBe(9);
+              expect(trainerLevelForPoints(900, 100, "LINEAR_100_V1")).toBe(10);
+            });
+
+            it("preserves the historical quadratic curve for pinned rulesets", () => {
+              expect(trainerPointsRequiredForLevel(10, "QUADRATIC_100_V1")).toBe(8_100);
+              expect(trainerLevelForPoints(8_099, 100, "QUADRATIC_100_V1")).toBe(9);
+              expect(trainerLevelForPoints(8_100, 100, "QUADRATIC_100_V1")).toBe(10);
+            });
+
+            it("binds the visible label to the versioned curve", () => {
+              const common = {
+                pokemon: pokemonRules,
+                trainer: {
+                  levelCap: 100,
+                  pointsPerWonBattle: 100,
+                  unlocks: [{ level: 10, unlockKey: "tournament.eligible" }],
+                },
+              };
+              expect(
+                ProgressionRulesSchema.safeParse({
+                  ...common,
+                  trainer: {
+                    ...common.trainer,
+                    visiblePointsName: "Insígnia",
+                    levelCurve: "LINEAR_100_V1",
+                  },
+                }).success,
+              ).toBe(true);
+              expect(
+                ProgressionRulesSchema.safeParse({
+                  ...common,
+                  trainer: {
+                    ...common.trainer,
+                    visiblePointsName: "XP de Treinador",
+                    levelCurve: "QUADRATIC_100_V1",
+                  },
+                }).success,
+              ).toBe(true);
+              expect(
+                ProgressionRulesSchema.safeParse({
+                  ...common,
+                  trainer: {
+                    ...common.trainer,
+                    visiblePointsName: "Insígnia",
+                    levelCurve: "QUADRATIC_100_V1",
+                  },
+                }).success,
+              ).toBe(false);
+            });
+          });
+          EOF
+
+          pnpm exec biome check --write \
+            src/modules/catalog/contracts.ts \
+            src/modules/progression/rules.ts \
+            src/platform/progression/postgres-progression-repository.ts \
+            db/seeds/phase11_trainer_final_slice.ts \
+            db/proofs/phase11_trainer_final_e2e.ts \
+            tests/progression/trainer-final.test.ts \
+            package.json
+          pnpm typecheck
+          pnpm exec vitest run tests/progression
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Validate historical and final progression releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm db:migrate
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:seed:phase11:provisional
+          node --import tsx db/proofs/phase11_progression_e2e.ts
+          pnpm db:seed:phase11:final
+          pnpm db:seed:phase11:final
+          node --import tsx db/proofs/phase11_trainer_final_e2e.ts
+          pnpm db:verify
+
+      - name: Commit validated domain changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/modules/catalog/contracts.ts \
+            src/modules/progression/rules.ts \
+            src/platform/progression/postgres-progression-repository.ts \
+            db/seeds/phase11_trainer_final_slice.ts \
+            db/proofs/phase11_trainer_final_e2e.ts \
+            tests/progression/trainer-final.test.ts \
+            package.json
+          git commit -m "fix: finalize trainer Insígnia progression"
+          git push origin HEAD:work/phase11-trainer-insignia-final-v1
