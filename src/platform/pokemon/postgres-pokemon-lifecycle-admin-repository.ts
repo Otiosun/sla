@@ -80,7 +80,8 @@ async function loadClaim(
   if (
     row.operation_kind !== input.operationKind ||
     row.player_id !== input.playerId ||
-    (input.pokemonInstanceId !== undefined && row.pokemon_instance_id !== input.pokemonInstanceId) ||
+    (input.pokemonInstanceId !== undefined &&
+      row.pokemon_instance_id !== input.pokemonInstanceId) ||
     row.request_fingerprint !== input.requestFingerprint
   ) {
     return { kind: "IDEMPOTENCY_CONFLICT" };
@@ -171,7 +172,10 @@ function mutationResult(input: {
   });
 }
 
-async function hasUnsafeBattleReference(client: PoolClient, pokemonInstanceId: string): Promise<boolean> {
+async function hasUnsafeBattleReference(
+  client: PoolClient,
+  pokemonInstanceId: string,
+): Promise<boolean> {
   const result = await client.query(
     `SELECT 1
      FROM battle_participants participant
@@ -456,18 +460,27 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
 
       const build = await loadCreateContent(client, input.formId, input.natureId);
       if (build === null) {
-        return { kind: "INVALID_STATE", reason: "Active content does not expose the requested form" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Active content does not expose the requested form",
+        };
       }
       const parsedRules = RulesetConfigSchema.safeParse(build.rulesetConfig);
       if (!parsedRules.success || parsedRules.data.progression === undefined) {
-        return { kind: "INVALID_STATE", reason: "Active ruleset has no valid Pokemon progression policy" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Active ruleset has no valid Pokemon progression policy",
+        };
       }
       const battle = parsedRules.data.battle;
       const progression = parsedRules.data.progression.pokemon;
       const levelXp = validateLevelXp(input.level, input.xp, progression.levelCap);
       if (!levelXp.ok) return { kind: "INVALID_STATE", reason: levelXp.reason };
       if (!battle.ivEnabled && !allZeroIvs(input.ivs)) {
-        return { kind: "INVALID_STATE", reason: "Disabled IV rules require zeroed administrative IVs" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Disabled IV rules require zeroed administrative IVs",
+        };
       }
       if (battle.natureEnabled && input.natureId === null) {
         return { kind: "INVALID_STATE", reason: "Active ruleset requires a Nature" };
@@ -475,7 +488,11 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
       if (!battle.natureEnabled && input.natureId !== null) {
         return { kind: "INVALID_STATE", reason: "Disabled Nature rules require natureId=null" };
       }
-      if (battle.natureEnabled && build.nature.increasedStat === null && build.nature.decreasedStat === null) {
+      if (
+        battle.natureEnabled &&
+        build.nature.increasedStat === null &&
+        build.nature.decreasedStat === null
+      ) {
         const neutralNature = await client.query(
           `SELECT 1 FROM nature_revisions
            WHERE content_release_id = $1 AND nature_id = $2 AND active = TRUE
@@ -483,7 +500,10 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
           [build.contentReleaseId, input.natureId],
         );
         if (neutralNature.rowCount !== 1) {
-          return { kind: "INVALID_STATE", reason: "Requested Nature is not active in current content" };
+          return {
+            kind: "INVALID_STATE",
+            reason: "Requested Nature is not active in current content",
+          };
         }
       }
 
@@ -682,13 +702,20 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         return { kind: "REVISION_CONFLICT", actualRevision: beforeRevision };
       }
       if (pokemon.status !== "ACTIVE") {
-        return { kind: "INVALID_STATE", reason: "Archived Pokemon progression cannot be corrected" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Archived Pokemon progression cannot be corrected",
+        };
       }
       if (await hasUnsafeBattleReference(client, input.pokemonInstanceId)) {
         return { kind: "ACTIVE_BATTLE" };
       }
 
-      const build = await loadActiveBuildForPokemon(client, input.playerId, input.pokemonInstanceId);
+      const build = await loadActiveBuildForPokemon(
+        client,
+        input.playerId,
+        input.pokemonInstanceId,
+      );
       if (build === null) {
         return {
           kind: "INVALID_STATE",
@@ -697,7 +724,10 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
       }
       const parsedRules = RulesetConfigSchema.safeParse(build.rulesetConfig);
       if (!parsedRules.success || parsedRules.data.progression === undefined) {
-        return { kind: "INVALID_STATE", reason: "Active ruleset has no valid Pokemon progression policy" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Active ruleset has no valid Pokemon progression policy",
+        };
       }
       const battle = parsedRules.data.battle;
       const progression = parsedRules.data.progression.pokemon;
@@ -706,10 +736,16 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
 
       const beforeXp = Number(pokemon.xp);
       if (!Number.isSafeInteger(beforeXp)) {
-        return { kind: "INVALID_STATE", reason: "Persisted Pokemon XP is outside the safe runtime range" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Persisted Pokemon XP is outside the safe runtime range",
+        };
       }
       if (pokemon.level === input.targetLevel && beforeXp === input.targetXp) {
-        return { kind: "INVALID_STATE", reason: "Pokemon already has the requested progression state" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Pokemon already has the requested progression state",
+        };
       }
       if (input.targetLevel < pokemon.level) {
         const pending = await client.query(
@@ -721,13 +757,19 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         if (pending.rowCount === 1) {
           return {
             kind: "INVALID_STATE",
-            reason: "Resolve or skip pending move choices above the target level before lowering level",
+            reason:
+              "Resolve or skip pending move choices above the target level before lowering level",
           };
         }
       }
 
       const oldMaxHp = derivedMaxHp(build, pokemon.level, battle.ivEnabled, battle.natureEnabled);
-      const newMaxHp = derivedMaxHp(build, input.targetLevel, battle.ivEnabled, battle.natureEnabled);
+      const newMaxHp = derivedMaxHp(
+        build,
+        input.targetLevel,
+        battle.ivEnabled,
+        battle.natureEnabled,
+      );
       const correctedHp = adjustCurrentHpAfterStatChange({
         currentHp: pokemon.current_hp,
         oldMaxHp,

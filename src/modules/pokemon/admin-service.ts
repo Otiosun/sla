@@ -68,7 +68,8 @@ export class PokemonAdminService {
 
   public async createPokemon(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
     const parsed = CreatePokemonInputSchema.safeParse(input);
-    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon create request"));
+    if (!parsed.success)
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon create request"));
     const repository = this.lifecycle();
     if (repository === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Pokemon creation administration is unavailable"));
@@ -83,7 +84,9 @@ export class PokemonAdminService {
     }
     const repository = this.lifecycle();
     if (repository === null) {
-      return err(appError("FEATURE_UNAVAILABLE", "Pokemon progression administration is unavailable"));
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Pokemon progression administration is unavailable"),
+      );
     }
     return translatePersistence(await repository.correctProgression(parsed.data));
   }
