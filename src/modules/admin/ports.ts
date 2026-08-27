@@ -64,6 +64,9 @@ export interface AdminOperationRepository {
     requestFingerprint: string,
     reason: string,
   ): Promise<AdminOperationRecord>;
+}
+
+export interface AdminOperationCompletionPort {
   completeAppliedOperation(input: CompleteAdminOperationInput): Promise<AdminOperationRecord>;
 }
 
