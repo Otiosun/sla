@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   proof:
-    name: authorization / registry / Player 360 evidence
+    name: authorization / registry / Player 360 / domain operations evidence
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -82,3 +82,6 @@ jobs:
 
       - name: Run PostgreSQL Player 360 E2E
         run: node --import tsx db/proofs/phase12_player360_e2e.ts
+
+      - name: Run PostgreSQL Phase 12C Domain Admin E2E
+        run: node --import tsx db/proofs/phase12_domain_admin_e2e.ts
