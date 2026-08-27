@@ -336,12 +336,11 @@ try {
   if (simulated.status !== "PENDING_CONFIRMATION") {
     throw new Error("Release publish simulation did not require proposer confirmation");
   }
-  const simulationRow = await pool.query<{ simulation: Record<string, unknown> }>(
-    `SELECT simulation FROM admin_operations WHERE id = $1`,
-    [publishPrepared.operation.id],
-  );
-  const simulation = simulationRow.rows[0]?.simulation;
-  const summary = simulation?.summary;
+  const simulation = simulated.result?.simulation;
+  if (simulation === null || typeof simulation !== "object") {
+    throw new Error("Release publish simulation was not persisted on the operation result");
+  }
+  const summary = (simulation as Record<string, unknown>).summary;
   if (
     summary === null ||
     typeof summary !== "object" ||
