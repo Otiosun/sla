@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  MajorPokemonStatusSchema,
+  PokemonRosterPlacementSchema,
+} from "../pokemon/admin-contracts.js";
 
 const uuidSchema = z.string().uuid();
 const signedDeltaSchema = z
@@ -49,3 +53,42 @@ export const AdminTrainerProgressAdjustInputSchema = z
   .object({ playerId: uuidSchema, delta: safeSignedProgressDeltaSchema })
   .strict();
 export type AdminTrainerProgressAdjustInput = z.infer<typeof AdminTrainerProgressAdjustInputSchema>;
+
+const pokemonTargetFields = {
+  playerId: uuidSchema,
+  pokemonInstanceId: uuidSchema,
+} as const;
+
+export const AdminPokemonRosterMoveInputSchema = z
+  .object({ ...pokemonTargetFields, target: PokemonRosterPlacementSchema })
+  .strict();
+export type AdminPokemonRosterMoveInput = z.infer<typeof AdminPokemonRosterMoveInputSchema>;
+
+export const AdminPokemonHpCorrectInputSchema = z
+  .object({
+    ...pokemonTargetFields,
+    currentHp: z.number().int().min(0).max(65_535),
+  })
+  .strict();
+export type AdminPokemonHpCorrectInput = z.infer<typeof AdminPokemonHpCorrectInputSchema>;
+
+export const AdminPokemonStatusCorrectInputSchema = z
+  .object({
+    ...pokemonTargetFields,
+    status: MajorPokemonStatusSchema.nullable(),
+    counter: z.number().int().min(0).max(10).nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === null && value.counter !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["counter"],
+        message: "Clearing Pokemon status cannot keep a counter",
+      });
+    }
+  });
+export type AdminPokemonStatusCorrectInput = z.infer<typeof AdminPokemonStatusCorrectInputSchema>;
+
+export const AdminPokemonArchiveInputSchema = z.object(pokemonTargetFields).strict();
+export type AdminPokemonArchiveInput = z.infer<typeof AdminPokemonArchiveInputSchema>;
