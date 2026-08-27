@@ -282,16 +282,7 @@ try {
          rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version,
          rng_counter, revision
        ) VALUES ($1, $2, $3, 'IN_BATTLE', $4, $5, $6, $7, $8, 1, 0, 0)`,
-      [
-        encounterId,
-        playerId,
-        areaId,
-        releaseId,
-        rulesetId,
-        seedCiphertext,
-        seedIv,
-        seedAuthTag,
-      ],
+      [encounterId, playerId, areaId, releaseId, rulesetId, seedCiphertext, seedIv, seedAuthTag],
     );
   }
 
@@ -439,10 +430,7 @@ try {
   const registry = createPhase12AdminOperationRegistry(adminRepository);
   const admin = new AdminService(registry, adminRepository);
   const battleRepository = new PostgresBattleAdminRepository(pool);
-  const owner = new BattleAdminOwnerService(
-    battleRepository,
-    new PostgresBattleCancellation(pool),
-  );
+  const owner = new BattleAdminOwnerService(battleRepository, new PostgresBattleCancellation(pool));
   const battleAdmin = new AdminBattleOperationService(
     admin,
     owner,
