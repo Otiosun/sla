@@ -82,7 +82,9 @@ FROM (VALUES
   ('battle_state_snapshots'),
   ('battle_events'),
   ('audit_events'),
-  ('admin_operation_changes')
+  ('admin_operation_changes'),
+  ('admin_operation_confirmations'),
+  ('admin_operation_approvals')
 ) AS protected(protected_table)
 WHERE to_regclass('public.' || protected_table) IS NOT NULL
 \gexec
@@ -145,7 +147,9 @@ SELECT format(
         'battle_state_snapshots',
         'battle_events',
         'audit_events',
-        'admin_operation_changes'
+        'admin_operation_changes',
+        'admin_operation_confirmations',
+        'admin_operation_approvals'
       ]) AS protected(table_name)
       WHERE to_regclass('public.' || table_name) IS NOT NULL
         AND (
