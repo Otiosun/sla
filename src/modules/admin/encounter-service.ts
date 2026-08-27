@@ -38,7 +38,10 @@ function ownerError(error: AppError): AdminError {
 
 function requiredReason(operation: AdminOperationRecord): string {
   if (operation.reason === null || operation.reason.trim().length === 0) {
-    throw new AdminError(ADMIN_ERROR_CODES.REASON_REQUIRED, "Encounter admin close requires reason");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.REASON_REQUIRED,
+      "Encounter admin close requires reason",
+    );
   }
   return operation.reason;
 }
