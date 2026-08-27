@@ -64,10 +64,7 @@ try {
       criticalMultiplierBasisPoints: 15_000,
       accuracyEvasionEnabled: true,
     },
-    capture: {
-      model: "POKEMON_INSPIRED_V1",
-      maxProbabilityBasisPoints: 10_000,
-    },
+    capture: { model: "POKEMON_INSPIRED_V1", maxProbabilityBasisPoints: 10_000 },
     defeat: { automaticMoneyLoss: false },
     narrative: { authority: "N0_FLAVOR_ONLY" },
   });
@@ -126,8 +123,7 @@ try {
     `phase12-type-${typeId}`,
   ]);
   await pool.query(
-    `INSERT INTO pokemon_species(id, national_dex, slug)
-     VALUES ($1, 32000, $2)`,
+    `INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 32000, $2)`,
     [speciesId, `phase12-species-${speciesId}`],
   );
   await pool.query(`INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`, [
@@ -161,7 +157,6 @@ try {
     playerId,
     otherPlayerId,
   ]);
-
   const pokemonRows = [
     [pokemonRosterId, playerId, 10],
     [pokemonOccupiedId, playerId, 19],
@@ -184,7 +179,6 @@ try {
       [pokemonId],
     );
   }
-
   await pool.query(
     `INSERT INTO pokemon_roster_slots(pokemon_instance_id, player_id, placement_kind, box_no, slot_no)
      VALUES
@@ -205,18 +199,17 @@ try {
       otherPlayerId,
     ],
   );
-
   await pool.query(
     `INSERT INTO active_effects(
        id, effect_id, content_release_id, pokemon_instance_id, source_type, source_id
      ) VALUES ($1, $2, $3, $4, 'ADMIN_PROOF', $5)`,
-    [randomUUID(), effectId, releaseId, pokemonArchiveId, randomUUID().toString()],
+    [randomUUID(), effectId, releaseId, pokemonArchiveId, randomUUID()],
   );
 
-  const pokemonRole = await pool.query<{ id: string }>(
+  const role = await pool.query<{ id: string }>(
     `SELECT id FROM admin_roles WHERE slug = 'POKEMON_ADMIN'`,
   );
-  const roleId = pokemonRole.rows[0]?.id;
+  const roleId = role.rows[0]?.id;
   if (roleId === undefined) throw new Error("POKEMON_ADMIN role must be seeded before proof");
   await pool.query(
     `INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')`,
@@ -246,7 +239,6 @@ try {
   );
   const admin = new AdminService(registry, adminRepository);
 
-  // R1 roster movement: CAS + durable owner claim + Admin completion.
   const rosterCorrelationId = randomUUID();
   const rosterPrepared = await admin.prepareMutation({
     principalId,
@@ -320,7 +312,6 @@ try {
   if (!ownerReplay.ok || !ownerReplay.value.replayed) {
     throw new Error("Pokemon owner did not replay its durable claim");
   }
-
   const semanticConflict = await pokemonOwner.moveRoster({
     playerId,
     pokemonInstanceId: pokemonRosterId,
@@ -376,7 +367,6 @@ try {
     ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
   );
 
-  // Object-level authorization: scoped Pokemon admin cannot operate another player.
   await expectRejected(
     admin.prepareMutation({
       principalId,
@@ -394,7 +384,6 @@ try {
     ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
   );
 
-  // R3 HP correction: confirmation gate + derived max HP + aggregate revision.
   const hpPrepared = await admin.prepareMutation({
     principalId,
     operationType: "pokemon.hp.correct",
@@ -445,7 +434,6 @@ try {
     throw new Error("Rejected HP correction left partial state");
   }
 
-  // R3 major status correction preserves exactly one persistent battle status.
   const statusPrepared = await admin.prepareMutation({
     principalId,
     operationType: "pokemon.status.correct",
@@ -475,22 +463,8 @@ try {
     throw new Error("Status correction persisted an invalid major-status set");
   }
 
-  // Battle safety: owner rejects mutation while instance is in an active battle.
   const battleId = randomUUID();
   const battleSideId = randomUUID();
-  await pool.query(
-    `INSERT INTO battles(
-       id, battle_type, status, content_release_id, ruleset_id,
-       rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version
-     ) VALUES ($1, 'WILD', 'ACTIVE', $2, $3, $4, $5, $6, 1)`,
-    [releaseId, rulesetId, Buffer.alloc(32, 1), Buffer.alloc(12, 2), Buffer.alloc(16, 3)],
-  ).catch(async (error: unknown) => {
-    // Preserve the actual SQL error while keeping the insert arguments explicit below.
-    throw error;
-  });
-
-  // The first placeholder is battle id; issue separately to keep positional arguments obvious.
-  await pool.query(`DELETE FROM battles WHERE id = $1`, [battleId]);
   await pool.query(
     `INSERT INTO battles(
        id, battle_type, status, content_release_id, ruleset_id,
@@ -548,7 +522,6 @@ try {
     throw new Error("Battle-blocked Pokemon mutation left partial state");
   }
 
-  // R3 archive is soft removal: no physical Pokemon DELETE; roster/effects are detached atomically.
   const archivePrepared = await admin.prepareMutation({
     principalId,
     operationType: "pokemon.archive",
@@ -592,7 +565,6 @@ try {
     throw new Error("Pokemon archive did not preserve soft-delete invariants");
   }
 
-  // Claims are DB-immutable even if application code regresses.
   await pool
     .query(
       `UPDATE pokemon_admin_operation_claims SET result = '{}'::jsonb
