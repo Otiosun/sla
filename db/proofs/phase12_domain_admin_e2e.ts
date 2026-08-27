@@ -1,0 +1,513 @@
+import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import { registerPhase12CDomainAdminOperations } from "../../src/modules/admin/domain-definitions.js";
+import { AdminDomainOperationService } from "../../src/modules/admin/domain-service.js";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
+import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
+import { AdminService } from "../../src/modules/admin/service.js";
+import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
+import { ProgressionService } from "../../src/modules/progression/service.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
+import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
+import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
+import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
+import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
+
+const databaseUrl = process.env.DATABASE_URL;
+if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
+
+function expectAdminCode(error: unknown, code: string): void {
+  if (!(error instanceof AdminError) || error.code !== code) {
+    throw error instanceof Error ? error : new Error(`Expected ${code}`);
+  }
+}
+
+const pool = new Pool({ connectionString: databaseUrl, max: 8 });
+try {
+  const trainerRulesetId = randomUUID();
+  const trainerReleaseId = randomUUID();
+  const trainerRulesConfig = RulesetConfigSchema.parse({
+    schemaVersion: 1,
+    battle: {
+      statModel: "SIX_STATS",
+      physicalSpecialByMove: true,
+      ivEnabled: true,
+      evEnabled: true,
+      natureEnabled: true,
+      maxMoves: 4,
+      ppEnabled: true,
+      criticalMultiplierBasisPoints: 15_000,
+      accuracyEvasionEnabled: true,
+    },
+    capture: {
+      model: "POKEMON_INSPIRED_V1",
+      maxProbabilityBasisPoints: 10_000,
+    },
+    defeat: { automaticMoneyLoss: false },
+    narrative: { authority: "N0_FLAVOR_ONLY" },
+    progression: {
+      pokemon: {
+        xpCurve: "CUBIC_DELTA_V1",
+        battleRewardModel: "BASE_EXP_LEVEL_DIV_7_V1",
+        rewardRecipient: "ACTIVE_WINNER_V1",
+        levelCap: 100,
+        hpOnLevelUp: "ADD_MAX_HP_DELTA_IF_ALIVE_V1",
+        fullMoveSlotsPolicy: "PENDING_CHOICE_V1",
+        autoLevelEvolution: true,
+      },
+      trainer: {
+        visiblePointsName: "Insígnia",
+        levelCurve: "LINEAR_100_V1",
+        levelCap: 100,
+        pointsPerWonBattle: 100,
+        unlocks: [{ level: 10, unlockKey: "tournament.eligible" }],
+      },
+    },
+  });
+  await pool.query(
+    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+     VALUES ($1, $2, 1, 1, $3::jsonb, 'DRAFT')`,
+    [
+      trainerRulesetId,
+      `phase12c-trainer-rules-${trainerRulesetId}`,
+      JSON.stringify(trainerRulesConfig),
+    ],
+  );
+  await pool.query(
+    `UPDATE rulesets
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         config_fingerprint = repeat('c', 64)
+     WHERE id = $1`,
+    [trainerRulesetId],
+  );
+  await pool.query(`UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`, [
+    trainerRulesetId,
+  ]);
+  await pool.query(
+    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+     VALUES ($1, 900002, 'Phase 12C trainer proof', 'DRAFT', $2)`,
+    [trainerReleaseId, trainerRulesetId],
+  );
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         content_fingerprint = repeat('d', 64)
+     WHERE id = $1`,
+    [trainerReleaseId],
+  );
+  await pool.query(
+    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [trainerReleaseId],
+  );
+  await pool.query(
+    `INSERT INTO content_release_pointers(pointer_key, content_release_id)
+     VALUES ('ACTIVE', $1)
+     ON CONFLICT (pointer_key) DO UPDATE
+     SET content_release_id = EXCLUDED.content_release_id,
+         revision = content_release_pointers.revision + 1,
+         updated_at = now()`,
+    [trainerReleaseId],
+  );
+  const economyRole = await pool.query<{ id: string }>(
+    `SELECT id FROM admin_roles WHERE slug = 'ECONOMY_ADMIN'`,
+  );
+  const roleId = economyRole.rows[0]?.id;
+  if (roleId === undefined) throw new Error("Phase 12 ECONOMY_ADMIN role must be seeded");
+
+  const playerId = randomUUID();
+  const otherPlayerId = randomUUID();
+  const itemId = randomUUID();
+  const currencyId = randomUUID();
+  const principalId = randomUUID();
+
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
+    playerId,
+    otherPlayerId,
+  ]);
+  await pool.query(`INSERT INTO items(id, slug) VALUES ($1, $2)`, [
+    itemId,
+    `phase12c-item-${itemId}`,
+  ]);
+  await pool.query(
+    `INSERT INTO currency_definitions(id, slug, display_name, allows_negative)
+     VALUES ($1, $2, 'Phase 12C Coins', FALSE)`,
+    [currencyId, `phase12c-currency-${currencyId}`],
+  );
+  await pool.query(
+    `INSERT INTO inventory_balances(player_id, item_id, quantity) VALUES ($1, $2, 10)`,
+    [playerId, itemId],
+  );
+  await pool.query(
+    `INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 100)`,
+    [playerId, currencyId],
+  );
+  await pool.query(
+    `INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')`,
+    [principalId, `phase12c:economy:${principalId}`],
+  );
+  await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [
+    principalId,
+    roleId,
+  ]);
+  await pool.query(
+    `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
+     VALUES ($1, $2, 'PLAYER', $3)`,
+    [randomUUID(), principalId, playerId],
+  );
+
+  const adminRepository = new PostgresAdminRepository(pool);
+  const economy = new EconomyService(new PostgresEconomyRepository(pool));
+  const progression = new ProgressionService(new PostgresProgressionRepository(pool));
+  const domain = new AdminDomainOperationService(
+    economy,
+    progression,
+    new PostgresAdminOperationCompletion(pool),
+  );
+  const registry = registerPhase12CDomainAdminOperations(
+    createPhase12AdminOperationRegistry(adminRepository),
+    domain,
+  );
+  const admin = new AdminService(registry, adminRepository);
+
+  const walletPrepared = await admin.prepareMutation({
+    principalId,
+    operationType: "wallet.adjust",
+    input: { playerId, currencyId, delta: "-30" },
+    reason: "Correct duplicate support credit",
+    idempotencyKey: `wallet-adjust-${randomUUID()}`,
+    correlationId: randomUUID(),
+  });
+  if (walletPrepared.operation.status !== "READY") {
+    throw new Error("R2 wallet adjustment should be READY after validation");
+  }
+  const walletApplied = await admin.apply(walletPrepared.operation.id, principalId);
+  if (walletApplied.status !== "APPLIED" || walletApplied.result?.balanceAfter !== "70") {
+    throw new Error("Wallet adjustment did not persist the expected admin result");
+  }
+  const walletReplay = await admin.apply(walletPrepared.operation.id, principalId);
+  if (walletReplay.id !== walletApplied.id || walletReplay.result?.balanceAfter !== "70") {
+    throw new Error("Applied admin wallet operation did not replay deterministically");
+  }
+  const walletBalance = await pool.query<{ amount: string }>(
+    `SELECT amount::text FROM wallet_balances WHERE player_id = $1 AND currency_id = $2`,
+    [playerId, currencyId],
+  );
+  if (walletBalance.rows[0]?.amount !== "70") {
+    throw new Error("Wallet admin operation mutated balance more than once");
+  }
+
+  const underflow = await admin.prepareMutation({
+    principalId,
+    operationType: "wallet.adjust",
+    input: { playerId, currencyId, delta: "-1000" },
+    reason: "Underflow rejection proof",
+    idempotencyKey: `wallet-underflow-${randomUUID()}`,
+    correlationId: randomUUID(),
+  });
+  await admin.apply(underflow.operation.id, principalId).then(
+    () => {
+      throw new Error("Wallet underflow should have been rejected");
+    },
+    (error: unknown) => expectAdminCode(error, ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED),
+  );
+  const underflowState = await pool.query<{ amount: string; ledger_count: string }>(
+    `SELECT balance.amount::text AS amount,
+            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $3) AS ledger_count
+     FROM wallet_balances balance
+     WHERE balance.player_id = $1 AND balance.currency_id = $2`,
+    [playerId, currencyId, underflow.operation.id],
+  );
+  if (underflowState.rows[0]?.amount !== "70" || underflowState.rows[0]?.ledger_count !== "0") {
+    throw new Error("Rejected wallet underflow left partial economy state");
+  }
+
+  await admin
+    .prepareMutation({
+      principalId,
+      operationType: "inventory.adjust",
+      input: { playerId: otherPlayerId, itemId, delta: "1" },
+      reason: "BOLA scope proof",
+      idempotencyKey: `inventory-bola-${randomUUID()}`,
+      correlationId: randomUUID(),
+    })
+    .then(
+      () => {
+        throw new Error("Subject-scoped economy admin must not enumerate another player");
+      },
+      (error: unknown) => expectAdminCode(error, ADMIN_ERROR_CODES.AUTHORIZATION_DENIED),
+    );
+
+  await admin
+    .prepareMutation({
+      principalId,
+      operationType: "inventory.adjust",
+      input: { playerId, itemId, delta: "1", quantity: "999" },
+      reason: "Mass assignment proof",
+      idempotencyKey: `inventory-mass-${randomUUID()}`,
+      correlationId: randomUUID(),
+    })
+    .then(
+      () => {
+        throw new Error("Strict admin schema accepted an unallowlisted property");
+      },
+      (error: unknown) => expectAdminCode(error, ADMIN_ERROR_CODES.INVALID_INPUT),
+    );
+
+  const crashWindow = await admin.prepareMutation({
+    principalId,
+    operationType: "inventory.adjust",
+    input: { playerId, itemId, delta: "5" },
+    reason: "Crash-window reconstruction proof",
+    idempotencyKey: `inventory-crash-${randomUUID()}`,
+    correlationId: randomUUID(),
+  });
+  const parsedPlayerId = parsePlayerId(playerId);
+  if (!parsedPlayerId.ok) throw new Error("Generated player id failed parser");
+  const ownerFirst = await economy.addItem({
+    playerId: parsedPlayerId.value,
+    itemId,
+    quantity: 5n,
+    idempotencyKey: crashWindow.operation.id,
+    metadata: {
+      sourceType: "ADMIN_OPERATION",
+      sourceId: crashWindow.operation.id,
+      reason: crashWindow.operation.reason ?? "",
+      actorType: "ADMIN",
+      actorId: crashWindow.operation.principalId,
+      correlationId: crashWindow.operation.correlationId,
+    },
+  });
+  if (!ownerFirst.ok || ownerFirst.value.quantity !== 15n || ownerFirst.value.replayed) {
+    throw new Error("Owner-side crash-window setup failed");
+  }
+  const intervening = await economy.addItem({
+    playerId: parsedPlayerId.value,
+    itemId,
+    quantity: 2n,
+    idempotencyKey: `intervening-${randomUUID()}`,
+    metadata: {
+      sourceType: "PROOF",
+      sourceId: randomUUID(),
+      reason: "Intervening economy mutation",
+      actorType: "SYSTEM",
+      actorId: null,
+      correlationId: randomUUID(),
+    },
+  });
+  if (!intervening.ok || intervening.value.quantity !== 17n) {
+    throw new Error("Intervening economy mutation failed");
+  }
+
+  const recovered = await admin.apply(crashWindow.operation.id, principalId);
+  if (
+    recovered.status !== "APPLIED" ||
+    recovered.result?.balanceAfter !== "15" ||
+    recovered.result?.ownerReplayed !== true
+  ) {
+    throw new Error("Admin recovery did not use the original durable owner result");
+  }
+  const reconstruction = await pool.query<{
+    current_quantity: string;
+    ledger_balance_after: string | null;
+    before_quantity: string | null;
+    after_quantity: string | null;
+    change_count: string;
+    audit_count: string;
+  }>(
+    `SELECT balance.quantity::text AS current_quantity,
+            ledger.balance_after::text AS ledger_balance_after,
+            change.before_data ->> 'quantity' AS before_quantity,
+            change.after_data ->> 'quantity' AS after_quantity,
+            (SELECT count(*)::text FROM admin_operation_changes WHERE admin_operation_id = $4) AS change_count,
+            (SELECT count(*)::text FROM audit_events WHERE causation_id = $5) AS audit_count
+     FROM inventory_balances balance
+     JOIN inventory_ledger ledger ON ledger.source_id = $3::text
+     JOIN admin_operation_changes change ON change.admin_operation_id = $4
+     WHERE balance.player_id = $1 AND balance.item_id = $2`,
+    [
+      playerId,
+      itemId,
+      crashWindow.operation.id,
+      crashWindow.operation.id,
+      crashWindow.operation.id,
+    ],
+  );
+  const reconstructionRow = reconstruction.rows[0];
+  if (
+    reconstructionRow?.current_quantity !== "17" ||
+    reconstructionRow.ledger_balance_after !== "15" ||
+    reconstructionRow.before_quantity !== "10" ||
+    reconstructionRow.after_quantity !== "15" ||
+    reconstructionRow.change_count !== "1" ||
+    reconstructionRow.audit_count !== "1"
+  ) {
+    throw new Error("Crash-window evidence reconstruction is not stable");
+  }
+
+  const trainerUp = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "900" },
+    reason: "Restore missing trainer progression",
+    idempotencyKey: `phase12c-trainer-up-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  const trainerApplied = await admin.apply(trainerUp.operation.id, principalId);
+  if (trainerApplied.status !== "APPLIED")
+    throw new Error("Trainer progression admin adjustment failed");
+  const trainerState = await pool.query<{ level: number; progression_points: string }>(
+    `SELECT level, progression_points::text FROM trainer_progression WHERE player_id = $1`,
+    [playerId],
+  );
+  const tournament = await pool.query<{ status: string }>(
+    `SELECT status FROM trainer_unlocks WHERE player_id = $1 AND unlock_key = 'tournament.eligible'`,
+    [playerId],
+  );
+  if (
+    trainerState.rows[0]?.progression_points !== "900" ||
+    trainerState.rows[0]?.level !== 10 ||
+    tournament.rows[0]?.status !== "ACTIVE"
+  ) {
+    throw new Error("Trainer progression threshold activation is inconsistent");
+  }
+
+  const trainerDown = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "-200" },
+    reason: "Correct excess trainer progression",
+    idempotencyKey: `phase12c-trainer-down-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  await admin.apply(trainerDown.operation.id, principalId);
+  const trainerAfterDown = await pool.query<{ level: number; progression_points: string }>(
+    `SELECT level, progression_points::text FROM trainer_progression WHERE player_id = $1`,
+    [playerId],
+  );
+  const tournamentAfterDown = await pool.query<{ status: string; revoked_at: Date | null }>(
+    `SELECT status, revoked_at FROM trainer_unlocks WHERE player_id = $1 AND unlock_key = 'tournament.eligible'`,
+    [playerId],
+  );
+  if (
+    trainerAfterDown.rows[0]?.progression_points !== "700" ||
+    trainerAfterDown.rows[0]?.level !== 8 ||
+    tournamentAfterDown.rows[0]?.status !== "REVOKED" ||
+    tournamentAfterDown.rows[0]?.revoked_at === null
+  ) {
+    throw new Error("Trainer progression downward correction did not revoke derived unlock");
+  }
+
+  const trainerUnderflow = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "-800" },
+    reason: "Invalid underflow probe",
+    idempotencyKey: `phase12c-trainer-underflow-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  let underflowRejected = false;
+  try {
+    await admin.apply(trainerUnderflow.operation.id, principalId);
+  } catch (error) {
+    underflowRejected =
+      error instanceof AdminError && error.code === "ADMIN_DOMAIN_OPERATION_REJECTED";
+  }
+  if (!underflowRejected) throw new Error("Trainer progression underflow was not rejected");
+  const underflowLedger = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM trainer_progress_ledger
+     WHERE idempotency_scope = 'progression.trainer-adjust' AND source_id = $1`,
+    [trainerUnderflow.operation.id],
+  );
+  if (underflowLedger.rows[0]?.count !== "0") {
+    throw new Error("Rejected trainer underflow wrote a ledger row");
+  }
+
+  const crashTrainer = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "200" },
+    reason: "Crash-window trainer adjustment",
+    idempotencyKey: `phase12c-trainer-crash-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  const ownerCrash = await progression.adjustTrainerProgress({
+    playerId,
+    delta: 200,
+    idempotencyKey: crashTrainer.operation.id,
+    correlationId: crashTrainer.operation.correlationId,
+    metadata: {
+      sourceType: "ADMIN_OPERATION",
+      sourceId: crashTrainer.operation.id,
+      reason: "Crash-window trainer adjustment",
+      actorType: "ADMIN",
+      actorId: crashTrainer.operation.principalId,
+    },
+  });
+  if (
+    !ownerCrash.ok ||
+    ownerCrash.value.afterPoints !== 900 ||
+    ownerCrash.value.afterLevel !== 10
+  ) {
+    throw new Error("Trainer crash-window owner mutation failed");
+  }
+  const interveningTrainer = await progression.adjustTrainerProgress({
+    playerId,
+    delta: 100,
+    idempotencyKey: `intervening-${randomUUID()}`,
+    correlationId: randomUUID(),
+    metadata: {
+      sourceType: "SYSTEM",
+      sourceId: `phase12c-intervening-${playerId}`,
+      reason: "Intervening progression mutation",
+      actorType: "SYSTEM",
+      actorId: null,
+    },
+  });
+  if (!interveningTrainer.ok || interveningTrainer.value.afterPoints !== 1000) {
+    throw new Error("Intervening trainer progression mutation failed");
+  }
+  const recoveredTrainer = await admin.apply(crashTrainer.operation.id, principalId);
+  if (recoveredTrainer.status !== "APPLIED" || recoveredTrainer.result?.ownerReplayed !== true) {
+    throw new Error("Trainer crash-window recovery did not replay owner result");
+  }
+  const trainerEvidence = await pool.query<{
+    current_points: string;
+    ledger_result: unknown;
+    before_points: string | null;
+    after_points: string | null;
+  }>(
+    `SELECT progression.progression_points::text AS current_points,
+            ledger.result AS ledger_result,
+            change.before_data ->> 'progressionPoints' AS before_points,
+            change.after_data ->> 'progressionPoints' AS after_points
+     FROM trainer_progression progression
+     JOIN trainer_progress_ledger ledger
+       ON ledger.source_id = $2::text AND ledger.idempotency_scope = 'progression.trainer-adjust'
+     JOIN admin_operation_changes change ON change.admin_operation_id = $3
+     WHERE progression.player_id = $1`,
+    [playerId, crashTrainer.operation.id, crashTrainer.operation.id],
+  );
+  const trainerEvidenceRow = trainerEvidence.rows[0];
+  const durableTrainerResult = trainerEvidenceRow?.ledger_result as
+    | { afterPoints?: number }
+    | undefined;
+  if (
+    trainerEvidenceRow?.current_points !== "1000" ||
+    durableTrainerResult?.afterPoints !== 900 ||
+    trainerEvidenceRow.before_points !== "700" ||
+    trainerEvidenceRow.after_points !== "900"
+  ) {
+    throw new Error("Trainer crash-window evidence is not stable");
+  }
+
+  console.log(
+    "Phase 12C economy admin proof complete: owner delegation, R2 policy, strict scope/schema, underflow rollback, idempotent replay and crash-window evidence verified",
+  );
+} finally {
+  await pool.end();
+}

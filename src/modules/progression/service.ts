@@ -1,10 +1,12 @@
 import {
+  AdjustTrainerProgressInputSchema,
   ApplyBattleRewardInputSchema,
   EvolvePokemonInputSchema,
   ResolveMoveChoiceInputSchema,
   type BattleRewardResult,
   type EvolutionResult,
   type MoveChoiceResult,
+  type TrainerProgressAdjustmentResult,
 } from "./contracts.js";
 import { progressionFailure, type ProgressionResult } from "./errors.js";
 import type { ProgressionRepository } from "./ports.js";
@@ -41,6 +43,43 @@ export class ProgressionService {
         return progressionFailure(
           "PROGRESSION_IDEMPOTENCY_CONFLICT",
           "Idempotency key is already bound to another reward",
+        );
+    }
+  }
+
+  public async adjustTrainerProgress(
+    input: unknown,
+  ): Promise<ProgressionResult<TrainerProgressAdjustmentResult>> {
+    const parsed = AdjustTrainerProgressInputSchema.safeParse(input);
+    if (!parsed.success)
+      return progressionFailure(
+        "PROGRESSION_INPUT_INVALID",
+        "Invalid trainer progression adjustment",
+      );
+    const persisted = await this.repository.adjustTrainerProgress(parsed.data);
+    switch (persisted.kind) {
+      case "APPLIED":
+        return { ok: true, value: persisted.result };
+      case "REPLAYED":
+        return { ok: true, value: { ...persisted.result, replayed: true } };
+      case "NOT_FOUND":
+        return progressionFailure("TRAINER_PROGRESSION_NOT_FOUND", "Player was not found");
+      case "UNDERFLOW":
+        return progressionFailure(
+          "TRAINER_PROGRESSION_UNDERFLOW",
+          "Trainer progression points cannot become negative",
+        );
+      case "RULES_MISSING":
+        return progressionFailure(
+          "PROGRESSION_RULES_MISSING",
+          "Active ruleset has no trainer progression policy",
+        );
+      case "STATE_INVALID":
+        return progressionFailure("PROGRESSION_STATE_INVALID", persisted.reason);
+      case "IDEMPOTENCY_CONFLICT":
+        return progressionFailure(
+          "PROGRESSION_IDEMPOTENCY_CONFLICT",
+          "Idempotency key is already bound to another trainer progression adjustment",
         );
     }
   }
