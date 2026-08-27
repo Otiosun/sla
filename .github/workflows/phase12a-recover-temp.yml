@@ -73,11 +73,20 @@ jobs:
       - name: Install dependencies from lockfile
         run: pnpm install --frozen-lockfile
 
-      - name: Format
+      - name: Format candidate
         run: pnpm format
 
-      - name: Full static and unit gate
-        run: pnpm check
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit and integration tests
+        run: pnpm test
 
       - name: Start PostgreSQL 18.6
         shell: bash
