@@ -1,0 +1,120 @@
+name: Phase 12A Recover Temp
+
+on:
+  push:
+    branches:
+      - work/phase12a-admin-registry-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Recover candidate files from failed materializer
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          import json
+
+          source = Path('.github/workflows/phase12a-materialize-temp.yml').read_text(encoding='utf-8')
+          start = source.index('          files = {')
+          end = source.index('\n\n          for name, content in files.items():', start)
+          snippet = source[start:end]
+          expression = snippet[snippet.index('{'):]
+          files = ast.literal_eval(expression)
+          for name, content in files.items():
+              path = Path(name)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content, encoding='utf-8')
+
+          package_path = Path('package.json')
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          package['scripts']['db:seed:phase12'] = 'node --env-file-if-exists=.env --import tsx db/seeds/phase12_admin_registry_slice.ts'
+          package_path.write_text(json.dumps(package, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+          grants_path = Path('db/bootstrap/runtime_grants.sql')
+          grants = grants_path.read_text(encoding='utf-8')
+          needle = "  ('admin_operation_changes')"
+          replacement = "  ('admin_operation_changes'),\n  ('admin_operation_confirmations'),\n  ('admin_operation_approvals')"
+          if grants.count(needle) != 2:
+              raise SystemExit(f'expected 2 admin_operation_changes entries, found {grants.count(needle)}')
+          grants_path.write_text(grants.replace(needle, replacement), encoding='utf-8')
+
+          Path('.github/workflows/phase12a-materialize-temp.yml').unlink()
+          Path('.github/workflows/phase12a-recover-temp.yml').unlink()
+          PY
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Format
+        run: pnpm format
+
+      - name: Full static and unit gate
+        run: pnpm check
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Migrate and verify
+        run: |
+          pnpm db:migrate
+          pnpm db:verify
+
+      - name: Seed Phase 12 twice
+        run: |
+          pnpm db:seed:phase12
+          pnpm db:seed:phase12
+
+      - name: PostgreSQL Admin Registry proof
+        run: node --import tsx db/proofs/phase12_admin_registry_e2e.ts
+
+      - name: Commit validated candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: admin operation registry authorization v1"
+          git push origin HEAD:work/phase12a-admin-registry-v1
