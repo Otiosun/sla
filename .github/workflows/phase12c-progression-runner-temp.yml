@@ -60,6 +60,6 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add db/migrations/0013_domain_admin_operation_integrity.sql src/modules/progression/contracts.ts src/modules/progression/errors.ts src/modules/progression/ports.ts src/modules/progression/service.ts src/platform/progression/postgres-progression-repository.ts src/modules/admin/domain-contracts.ts src/modules/admin/domain-ports.ts src/modules/admin/domain-definitions.ts src/modules/admin/domain-service.ts db/proofs/phase12_domain_admin_e2e.ts .github/workflows/admin-proof.yml
+          git add db/migrations/0013_domain_admin_operation_integrity.sql src/modules/progression/contracts.ts src/modules/progression/errors.ts src/modules/progression/ports.ts src/modules/progression/service.ts src/platform/progression/postgres-progression-repository.ts src/modules/admin/domain-contracts.ts src/modules/admin/domain-ports.ts src/modules/admin/domain-definitions.ts src/modules/admin/domain-service.ts db/proofs/phase12_domain_admin_e2e.ts
           git commit -m 'feat: add trainer progression admin adjustment'
           git push origin HEAD:feat/phase12c-domain-admin-operations-v1
