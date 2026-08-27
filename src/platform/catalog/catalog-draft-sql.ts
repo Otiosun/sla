@@ -57,10 +57,9 @@ async function assertRewardReferences(
       }
     }
     if (grant.kind === "CURRENCY") {
-      const currency = await client.query(
-        `SELECT 1 FROM currency_definitions WHERE id = $1`,
-        [grant.currencyId],
-      );
+      const currency = await client.query(`SELECT 1 FROM currency_definitions WHERE id = $1`, [
+        grant.currencyId,
+      ]);
       if (currency.rowCount !== 1) {
         throw new CatalogReferenceError("Reward CURRENCY must reference an existing currency");
       }
@@ -76,10 +75,11 @@ export async function createCatalogDraftResource(
   const revisionId = randomUUID();
   const resource = input.resource;
   if (resource.kind === "SPECIES") {
-    await client.query(
-      `INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, $2, $3)`,
-      [resourceId, resource.nationalDex, resource.slug],
-    );
+    await client.query(`INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, $2, $3)`, [
+      resourceId,
+      resource.nationalDex,
+      resource.slug,
+    ]);
     await client.query(
       `INSERT INTO pokemon_species_revisions(
          id, content_release_id, species_id, display_name, catch_rate, base_exp, active, data
@@ -97,10 +97,7 @@ export async function createCatalogDraftResource(
     return;
   }
   if (resource.kind === "MOVE") {
-    await client.query(`INSERT INTO moves(id, slug) VALUES ($1, $2)`, [
-      resourceId,
-      resource.slug,
-    ]);
+    await client.query(`INSERT INTO moves(id, slug) VALUES ($1, $2)`, [resourceId, resource.slug]);
     await client.query(
       `INSERT INTO move_revisions(
          id, content_release_id, move_id, display_name, type_id, category, power, accuracy,
@@ -125,10 +122,7 @@ export async function createCatalogDraftResource(
     return;
   }
   if (resource.kind === "ITEM") {
-    await client.query(`INSERT INTO items(id, slug) VALUES ($1, $2)`, [
-      resourceId,
-      resource.slug,
-    ]);
+    await client.query(`INSERT INTO items(id, slug) VALUES ($1, $2)`, [resourceId, resource.slug]);
     await client.query(
       `INSERT INTO item_revisions(
          id, content_release_id, item_id, display_name, item_kind, effect_key, effect_config, active
@@ -165,10 +159,11 @@ export async function createCatalogDraftResource(
     return;
   }
   if (resource.kind === "ENCOUNTER_TABLE") {
-    await client.query(
-      `INSERT INTO encounter_tables(id, area_id, slug) VALUES ($1, $2, $3)`,
-      [resourceId, resource.areaId, resource.slug],
-    );
+    await client.query(`INSERT INTO encounter_tables(id, area_id, slug) VALUES ($1, $2, $3)`, [
+      resourceId,
+      resource.areaId,
+      resource.slug,
+    ]);
     await client.query(
       `INSERT INTO encounter_table_revisions(
          id, content_release_id, encounter_table_id, active, conditions
@@ -198,10 +193,7 @@ export async function createCatalogDraftResource(
     );
     return;
   }
-  await client.query(`INSERT INTO effects(id, slug) VALUES ($1, $2)`, [
-    resourceId,
-    resource.slug,
-  ]);
+  await client.query(`INSERT INTO effects(id, slug) VALUES ($1, $2)`, [resourceId, resource.slug]);
   await client.query(
     `INSERT INTO effect_revisions(
        id, content_release_id, effect_id, scope, stacking_policy, duration_model, rules, active
@@ -311,12 +303,7 @@ export async function replaceCatalogDraftResource(
       `UPDATE reward_revisions
        SET display_name = $3, program = $4::jsonb, active = TRUE
        WHERE content_release_id = $1 AND reward_id = $2`,
-      [
-        input.releaseId,
-        input.resourceId,
-        resource.displayName,
-        JSON.stringify(resource.program),
-      ],
+      [input.releaseId, input.resourceId, resource.displayName, JSON.stringify(resource.program)],
     );
     return result.rowCount === 1;
   }
