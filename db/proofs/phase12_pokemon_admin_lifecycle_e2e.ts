@@ -287,7 +287,8 @@ try {
     request_fingerprint: string;
   }>(
     `SELECT pokemon_instance_id, request_fingerprint
-     FROM pokemon_admin_create_claims WHERE idempotency_key = $1`,
+     FROM pokemon_admin_operation_claims
+     WHERE idempotency_key = $1 AND operation_kind = 'CREATE'`,
     [createPrepared.operation.id],
   );
   const pokemonInstanceId = createClaim.rows[0]?.pokemon_instance_id;
@@ -414,8 +415,9 @@ try {
     `SELECT instance.level, instance.xp::text, instance.current_hp, instance.revision::text,
             instance.form_id,
             (SELECT count(*)::text FROM pokemon_move_slots WHERE pokemon_instance_id = instance.id) AS move_count,
-            (SELECT count(*)::text FROM pokemon_admin_progress_corrections
-             WHERE pokemon_instance_id = instance.id) AS correction_count,
+            (SELECT count(*)::text FROM pokemon_admin_operation_claims
+             WHERE pokemon_instance_id = instance.id
+               AND operation_kind = 'PROGRESSION_CORRECT') AS correction_count,
             (SELECT count(*)::text FROM pokemon_xp_ledger
              WHERE pokemon_instance_id = instance.id) AS xp_ledger_count
      FROM pokemon_instances instance WHERE instance.id = $1`,
@@ -498,8 +500,9 @@ try {
             (SELECT count(*)::text FROM pokemon_move_slots WHERE pokemon_instance_id = instance.id) AS move_count,
             (SELECT count(*)::text FROM pokemon_evolution_claims
              WHERE pokemon_instance_id = instance.id) AS evolution_claim_count,
-            (SELECT count(*)::text FROM pokemon_admin_progress_corrections
-             WHERE pokemon_instance_id = instance.id) AS correction_count
+            (SELECT count(*)::text FROM pokemon_admin_operation_claims
+             WHERE pokemon_instance_id = instance.id
+               AND operation_kind = 'PROGRESSION_CORRECT') AS correction_count
      FROM pokemon_instances instance WHERE instance.id = $1`,
     [pokemonInstanceId],
   );
@@ -531,15 +534,15 @@ try {
     ADMIN_ERROR_CODES.REVISION_CONFLICT,
   );
 
-  for (const [table, key] of [
-    ["pokemon_admin_create_claims", createPrepared.operation.id],
-    ["pokemon_admin_progress_corrections", downPrepared.operation.id],
-  ] as const) {
+  for (const key of [createPrepared.operation.id, downPrepared.operation.id]) {
     await pool
-      .query(`UPDATE ${table} SET result = '{}'::jsonb WHERE idempotency_key = $1`, [key])
+      .query(
+        `UPDATE pokemon_admin_operation_claims SET result = '{}'::jsonb WHERE idempotency_key = $1`,
+        [key],
+      )
       .then(
         () => {
-          throw new Error(`${table} must be append-only`);
+          throw new Error("pokemon_admin_operation_claims must be append-only");
         },
         () => undefined,
       );
