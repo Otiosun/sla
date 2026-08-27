@@ -5,6 +5,7 @@ import { AdminDomainOperationService } from "../../src/modules/admin/domain-serv
 import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
+import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
 import { parsePlayerId } from "../../src/shared-kernel/ids.js";
@@ -24,6 +25,94 @@ function expectAdminCode(error: unknown, code: string): void {
 
 const pool = new Pool({ connectionString: databaseUrl, max: 8 });
 try {
+  const trainerRulesetId = randomUUID();
+  const trainerReleaseId = randomUUID();
+  const trainerRulesConfig = RulesetConfigSchema.parse({
+    schemaVersion: 1,
+    battle: {
+      statModel: "SIX_STATS",
+      physicalSpecialByMove: true,
+      ivEnabled: true,
+      evEnabled: true,
+      natureEnabled: true,
+      maxMoves: 4,
+      ppEnabled: true,
+      criticalMultiplierBasisPoints: 15_000,
+      accuracyEvasionEnabled: true,
+    },
+    capture: {
+      model: "POKEMON_INSPIRED_V1",
+      maxProbabilityBasisPoints: 10_000,
+    },
+    defeat: { automaticMoneyLoss: false },
+    narrative: { authority: "N0_FLAVOR_ONLY" },
+    progression: {
+      pokemon: {
+        xpCurve: "CUBIC_DELTA_V1",
+        battleRewardModel: "BASE_EXP_LEVEL_DIV_7_V1",
+        rewardRecipient: "ACTIVE_WINNER_V1",
+        levelCap: 100,
+        hpOnLevelUp: "ADD_MAX_HP_DELTA_IF_ALIVE_V1",
+        fullMoveSlotsPolicy: "PENDING_CHOICE_V1",
+        autoLevelEvolution: true,
+      },
+      trainer: {
+        visiblePointsName: "Insígnia",
+        levelCurve: "LINEAR_100_V1",
+        levelCap: 100,
+        pointsPerWonBattle: 100,
+        unlocks: [{ level: 10, unlockKey: "tournament.eligible" }],
+      },
+    },
+  });
+  await pool.query(
+    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+     VALUES ($1, $2, 1, 1, $3::jsonb, 'DRAFT')`,
+    [
+      trainerRulesetId,
+      `phase12c-trainer-rules-${trainerRulesetId}`,
+      JSON.stringify(trainerRulesConfig),
+    ],
+  );
+  await pool.query(
+    `UPDATE rulesets
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         config_fingerprint = repeat('c', 64)
+     WHERE id = $1`,
+    [trainerRulesetId],
+  );
+  await pool.query(`UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`, [
+    trainerRulesetId,
+  ]);
+  await pool.query(
+    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+     VALUES ($1, 900002, 'Phase 12C trainer proof', 'DRAFT', $2)`,
+    [trainerReleaseId, trainerRulesetId],
+  );
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         content_fingerprint = repeat('d', 64)
+     WHERE id = $1`,
+    [trainerReleaseId],
+  );
+  await pool.query(
+    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [trainerReleaseId],
+  );
+  await pool.query(
+    `INSERT INTO content_release_pointers(pointer_key, content_release_id)
+     VALUES ('ACTIVE', $1)
+     ON CONFLICT (pointer_key) DO UPDATE
+     SET content_release_id = EXCLUDED.content_release_id,
+         revision = content_release_pointers.revision + 1,
+         updated_at = now()`,
+    [trainerReleaseId],
+  );
   const economyRole = await pool.query<{ id: string }>(
     `SELECT id FROM admin_roles WHERE slug = 'ECONOMY_ADMIN'`,
   );
