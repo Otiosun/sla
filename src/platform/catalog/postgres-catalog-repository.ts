@@ -142,6 +142,8 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       abilities,
       items,
       natures,
+      effects,
+      rewards,
       regions,
       areas,
       connections,
@@ -154,6 +156,8 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       this.ids("ability_revisions", "ability_id", releaseId),
       this.ids("item_revisions", "item_id", releaseId),
       this.ids("nature_revisions", "nature_id", releaseId),
+      this.ids("effect_revisions", "effect_id", releaseId),
+      this.ids("reward_revisions", "reward_id", releaseId),
       this.ids("region_revisions", "region_id", releaseId),
       this.ids("area_revisions", "area_id", releaseId),
       this.ids("area_connection_revisions", "connection_id", releaseId),
@@ -167,6 +171,8 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       abilities,
       items,
       natures,
+      effects,
+      rewards,
       regions,
       areas,
       connections,
@@ -183,6 +189,8 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       "ability_revisions:ability_id",
       "item_revisions:item_id",
       "nature_revisions:nature_id",
+      "effect_revisions:effect_id",
+      "reward_revisions:reward_id",
       "region_revisions:region_id",
       "area_revisions:area_id",
       "area_connection_revisions:connection_id",
@@ -218,6 +226,7 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       items,
       natures,
       effects,
+      rewards,
       regions,
       areas,
       connections,
@@ -311,6 +320,16 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       }>(
         `SELECT effect_id, scope, stacking_policy, duration_model, rules, active
          FROM effect_revisions WHERE content_release_id = $1 ORDER BY effect_id`,
+        [releaseId],
+      ),
+      this.client.query<{
+        reward_id: string;
+        display_name: string;
+        program: unknown;
+        active: boolean;
+      }>(
+        `SELECT reward_id, display_name, program, active
+         FROM reward_revisions WHERE content_release_id = $1 ORDER BY reward_id`,
         [releaseId],
       ),
       this.client.query<{
@@ -530,6 +549,12 @@ class PostgresCatalogTransaction implements CatalogTransaction {
         rules: entry.rules,
         active: entry.active,
       })),
+      rewards: rewards.rows.map((entry) => ({
+        rewardId: entry.reward_id,
+        displayName: entry.display_name,
+        program: entry.program,
+        active: entry.active,
+      })),
       regions: regions.rows.map((entry) => ({
         regionId: entry.region_id,
         displayName: entry.display_name,
@@ -719,6 +744,10 @@ class PostgresCatalogTransaction implements CatalogTransaction {
       {
         table: "effect_revisions",
         columns: ["effect_id", "scope", "stacking_policy", "duration_model", "rules", "active"],
+      },
+      {
+        table: "reward_revisions",
+        columns: ["reward_id", "display_name", "program", "active"],
       },
       {
         table: "region_revisions",
