@@ -45,6 +45,54 @@ const commonMutationFields = {
   metadata: mutationMetadataSchema,
 } as const;
 
+const ivsSchema = z
+  .object({
+    hp: z.number().int().min(0).max(31),
+    attack: z.number().int().min(0).max(31),
+    defense: z.number().int().min(0).max(31),
+    spAttack: z.number().int().min(0).max(31),
+    spDefense: z.number().int().min(0).max(31),
+    speed: z.number().int().min(0).max(31),
+  })
+  .strict();
+
+const signedSafeDeltaSchema = z
+  .number()
+  .int()
+  .min(-Number.MAX_SAFE_INTEGER)
+  .max(Number.MAX_SAFE_INTEGER)
+  .refine((value) => value !== 0, "XP correction delta must be non-zero");
+
+export const CreatePokemonInputSchema = z
+  .object({
+    playerId: uuid,
+    formId: uuid,
+    level: z.number().int().min(1).max(100),
+    natureId: uuid,
+    abilityId: uuid,
+    ivs: ivsSchema,
+    moveIds: z.array(uuid).min(1).max(4),
+    idempotencyKey,
+    correlationId: uuid,
+    metadata: mutationMetadataSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (new Set(value.moveIds).size !== value.moveIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["moveIds"],
+        message: "Pokemon creation moves must be unique",
+      });
+    }
+  });
+export type CreatePokemonInput = z.infer<typeof CreatePokemonInputSchema>;
+
+export const CorrectPokemonProgressInputSchema = z
+  .object({ ...commonMutationFields, deltaXp: signedSafeDeltaSchema })
+  .strict();
+export type CorrectPokemonProgressInput = z.infer<typeof CorrectPokemonProgressInputSchema>;
+
 export const PokemonRosterPlacementSchema = z.discriminatedUnion("placementKind", [
   z
     .object({
@@ -111,6 +159,8 @@ export const ArchivePokemonInputSchema = z.object(commonMutationFields).strict()
 export type ArchivePokemonInput = z.infer<typeof ArchivePokemonInputSchema>;
 
 export const PokemonOwnerOperationKindSchema = z.enum([
+  "CREATE",
+  "PROGRESS_CORRECT",
   "ROSTER_MOVE",
   "HP_CORRECT",
   "STATUS_CORRECT",
@@ -124,7 +174,7 @@ export const PokemonOwnerMutationResultSchema = z
   .object({
     pokemonInstanceId: uuid,
     operationKind: PokemonOwnerOperationKindSchema,
-    beforeRevision: z.string().regex(/^[0-9]+$/),
+    beforeRevision: z.string().regex(/^[0-9]+$/).nullable(),
     afterRevision: z.string().regex(/^[0-9]+$/),
     beforeData: z.record(z.string(), z.unknown()),
     afterData: z.record(z.string(), z.unknown()),
