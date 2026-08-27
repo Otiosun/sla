@@ -90,5 +90,15 @@ export const AdminPokemonStatusCorrectInputSchema = z
   });
 export type AdminPokemonStatusCorrectInput = z.infer<typeof AdminPokemonStatusCorrectInputSchema>;
 
+export const AdminPokemonEffectApplyInputSchema = z
+  .object({ ...pokemonTargetFields, effectId: uuidSchema })
+  .strict();
+export type AdminPokemonEffectApplyInput = z.infer<typeof AdminPokemonEffectApplyInputSchema>;
+
+export const AdminPokemonEffectRemoveInputSchema = z
+  .object({ ...pokemonTargetFields, activeEffectId: uuidSchema })
+  .strict();
+export type AdminPokemonEffectRemoveInput = z.infer<typeof AdminPokemonEffectRemoveInputSchema>;
+
 export const AdminPokemonArchiveInputSchema = z.object(pokemonTargetFields).strict();
 export type AdminPokemonArchiveInput = z.infer<typeof AdminPokemonArchiveInputSchema>;
