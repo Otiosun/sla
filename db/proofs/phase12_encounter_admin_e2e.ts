@@ -165,14 +165,28 @@ try {
   await pool.query(
     `INSERT INTO capture_attempts(
        id, player_id, encounter_id, ball_item_id, idempotency_key,
-       status, probability_basis_points, roll_basis_points
-     ) VALUES ($1, $2, $3, $4, $5, 'PENDING', 5000, 4999)`,
+       status, probability_basis_points, roll_basis_points,
+       request_fingerprint, source_encounter_status, correlation_id,
+       rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version, rng_counter,
+       breakdown
+     ) VALUES (
+       $1, $2, $3, $4, $5,
+       'PENDING', 5000, 4999,
+       $6, 'ENGAGED', $7,
+       $8, $9, $10, 1, 1,
+       '{}'::jsonb
+     )`,
     [
       randomUUID(),
       capturePlayerId,
       captureEncounterId,
       ballItemId,
       `phase12-encounter-capture-${randomUUID()}`,
+      "c".repeat(64),
+      randomUUID(),
+      seedCiphertext,
+      seedIv,
+      seedAuthTag,
     ],
   );
 
