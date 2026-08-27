@@ -313,13 +313,13 @@ try {
     `SELECT encounter.status,
             encounter.revision::text,
             (SELECT count(*)::text FROM encounter_admin_operation_claims
-             WHERE idempotency_key = $2) AS claim_count,
+             WHERE idempotency_key = $2::text) AS claim_count,
             (SELECT count(*)::text FROM admin_operation_changes
-             WHERE admin_operation_id = $2) AS change_count,
+             WHERE admin_operation_id = $2::uuid) AS change_count,
             (SELECT count(*)::text FROM audit_events
-             WHERE causation_id = $2) AS audit_count
+             WHERE causation_id = $2::uuid) AS audit_count
      FROM encounters encounter
-     WHERE encounter.id = $1`,
+     WHERE encounter.id = $1::uuid`,
     [validEncounterId, closePrepared.operation.id],
   );
   const recoveredRow = recoveredEvidence.rows[0];
