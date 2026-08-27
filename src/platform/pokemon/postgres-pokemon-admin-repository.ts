@@ -90,13 +90,12 @@ async function insertClaim(
     readonly result: PokemonOwnerMutationResult;
     readonly correlationId: string;
   },
-): Promise<boolean> {
-  const inserted = await client.query(
+): Promise<void> {
+  await client.query(
     `INSERT INTO pokemon_admin_operation_claims(
        id, operation_kind, player_id, pokemon_instance_id, idempotency_key,
        request_fingerprint, before_data, after_data, result, correlation_id
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10)
-     ON CONFLICT (idempotency_key) DO NOTHING`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10)`,
     [
       randomUUID(),
       input.operationKind,
@@ -110,7 +109,6 @@ async function insertClaim(
       input.correlationId,
     ],
   );
-  return inserted.rowCount === 1;
 }
 
 async function insertHistory(
@@ -155,7 +153,10 @@ async function loadPokemon(
   return query.rows[0] ?? null;
 }
 
-async function hasUnsafeBattleReference(client: PoolClient, pokemonInstanceId: string): Promise<boolean> {
+async function hasUnsafeBattleReference(
+  client: PoolClient,
+  pokemonInstanceId: string,
+): Promise<boolean> {
   const result = await client.query(
     `SELECT 1
      FROM battle_participants participant
@@ -177,11 +178,13 @@ async function hasUnsafeBattleReference(client: PoolClient, pokemonInstanceId: s
   return result.rowCount === 1;
 }
 
-function rosterData(row: {
-  readonly placement_kind: "TEAM" | "BOX";
-  readonly box_no: number | null;
-  readonly slot_no: number;
-} | null): PokemonRosterPlacement | null {
+function rosterData(
+  row: {
+    readonly placement_kind: "TEAM" | "BOX";
+    readonly box_no: number | null;
+    readonly slot_no: number;
+  } | null,
+): PokemonRosterPlacement | null {
   if (row === null) return null;
   return row.placement_kind === "TEAM"
     ? { placementKind: "TEAM", boxNo: null, slotNo: row.slot_no }
@@ -206,7 +209,10 @@ async function loadRoster(
   return rosterData(result.rows[0] ?? null);
 }
 
-function samePlacement(left: PokemonRosterPlacement | null, right: PokemonRosterPlacement): boolean {
+function samePlacement(
+  left: PokemonRosterPlacement | null,
+  right: PokemonRosterPlacement,
+): boolean {
   return (
     left !== null &&
     left.placementKind === right.placementKind &&
@@ -292,7 +298,8 @@ async function calculateActiveMaxHp(
   if (!parsedRules.success) return null;
   const battle = parsedRules.data.battle;
   if (battle.evEnabled) return null;
-  if (battle.natureEnabled && (row.nature_id === null || row.increased_stat === undefined)) return null;
+  if (battle.natureEnabled && (row.nature_id === null || row.increased_stat === undefined))
+    return null;
   const ivValues = [
     row.iv_hp,
     row.iv_attack,
@@ -359,6 +366,8 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
       pokemonInstanceId: input.pokemonInstanceId,
       expectedRevision: input.expectedRevision.toString(),
       target: input.target,
+      correlationId: input.correlationId,
+      metadata: input.metadata,
     });
     return withTransaction(this.pool, async (client) => {
       const slotKey = `${input.target.placementKind}:${input.target.boxNo ?? "team"}:${input.target.slotNo}`;
@@ -382,7 +391,10 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
         return { kind: "REVISION_CONFLICT", actualRevision: beforeRevision };
       }
       if (pokemon.status !== "ACTIVE") {
-        return { kind: "INVALID_STATE", reason: "Archived Pokemon cannot move between roster slots" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Archived Pokemon cannot move between roster slots",
+        };
       }
       if (await hasUnsafeBattleReference(client, input.pokemonInstanceId)) {
         return { kind: "ACTIVE_BATTLE" };
@@ -443,21 +455,17 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
         beforeData,
         afterData,
       });
-      if (
-        !(await insertClaim(client, {
-          operationKind: "ROSTER_MOVE",
-          playerId: input.playerId,
-          pokemonInstanceId: input.pokemonInstanceId,
-          idempotencyKey: input.idempotencyKey,
-          requestFingerprint,
-          beforeData,
-          afterData,
-          result,
-          correlationId: input.correlationId,
-        }))
-      ) {
-        return { kind: "IDEMPOTENCY_CONFLICT" };
-      }
+      await insertClaim(client, {
+        operationKind: "ROSTER_MOVE",
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint,
+        beforeData,
+        afterData,
+        result,
+        correlationId: input.correlationId,
+      });
       return { kind: "APPLIED", result };
     });
   }
@@ -469,6 +477,8 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
       pokemonInstanceId: input.pokemonInstanceId,
       expectedRevision: input.expectedRevision.toString(),
       currentHp: input.currentHp,
+      correlationId: input.correlationId,
+      metadata: input.metadata,
     });
     return withTransaction(this.pool, async (client) => {
       await acquireLocks(client, [
@@ -513,7 +523,12 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
          SET current_hp = $4, revision = revision + 1, updated_at = now()
          WHERE id = $1 AND owner_player_id = $2 AND status = 'ACTIVE' AND revision = $3
          RETURNING revision::text`,
-        [input.pokemonInstanceId, input.playerId, input.expectedRevision.toString(), input.currentHp],
+        [
+          input.pokemonInstanceId,
+          input.playerId,
+          input.expectedRevision.toString(),
+          input.currentHp,
+        ],
       );
       const afterRevisionRaw = updated.rows[0]?.revision;
       if (afterRevisionRaw === undefined) {
@@ -533,7 +548,12 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
       await insertHistory(client, {
         pokemonInstanceId: input.pokemonInstanceId,
         eventType: "ADMIN_HP_CORRECTED",
-        payload: { beforeHp: pokemon.current_hp, afterHp: input.currentHp, maxHp: derived.maxHp, reason: input.metadata.reason },
+        payload: {
+          beforeHp: pokemon.current_hp,
+          afterHp: input.currentHp,
+          maxHp: derived.maxHp,
+          reason: input.metadata.reason,
+        },
         actorType: input.metadata.actorType,
         actorId: input.metadata.actorId,
         correlationId: input.correlationId,
@@ -546,21 +566,17 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
         beforeData,
         afterData,
       });
-      if (
-        !(await insertClaim(client, {
-          operationKind: "HP_CORRECT",
-          playerId: input.playerId,
-          pokemonInstanceId: input.pokemonInstanceId,
-          idempotencyKey: input.idempotencyKey,
-          requestFingerprint,
-          beforeData,
-          afterData,
-          result,
-          correlationId: input.correlationId,
-        }))
-      ) {
-        return { kind: "IDEMPOTENCY_CONFLICT" };
-      }
+      await insertClaim(client, {
+        operationKind: "HP_CORRECT",
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint,
+        beforeData,
+        afterData,
+        result,
+        correlationId: input.correlationId,
+      });
       return { kind: "APPLIED", result };
     });
   }
@@ -575,6 +591,8 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
       expectedRevision: input.expectedRevision.toString(),
       status: input.status,
       counter: input.counter,
+      correlationId: input.correlationId,
+      metadata: input.metadata,
     });
     return withTransaction(this.pool, async (client) => {
       await acquireLocks(client, [
@@ -661,7 +679,11 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
       await insertHistory(client, {
         pokemonInstanceId: input.pokemonInstanceId,
         eventType: "ADMIN_STATUS_CORRECTED",
-        payload: { before: beforeData.majorStatuses, after: afterData.majorStatus, reason: input.metadata.reason },
+        payload: {
+          before: beforeData.majorStatuses,
+          after: afterData.majorStatus,
+          reason: input.metadata.reason,
+        },
         actorType: input.metadata.actorType,
         actorId: input.metadata.actorId,
         correlationId: input.correlationId,
@@ -674,21 +696,17 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
         beforeData,
         afterData,
       });
-      if (
-        !(await insertClaim(client, {
-          operationKind: "STATUS_CORRECT",
-          playerId: input.playerId,
-          pokemonInstanceId: input.pokemonInstanceId,
-          idempotencyKey: input.idempotencyKey,
-          requestFingerprint,
-          beforeData,
-          afterData,
-          result,
-          correlationId: input.correlationId,
-        }))
-      ) {
-        return { kind: "IDEMPOTENCY_CONFLICT" };
-      }
+      await insertClaim(client, {
+        operationKind: "STATUS_CORRECT",
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint,
+        beforeData,
+        afterData,
+        result,
+        correlationId: input.correlationId,
+      });
       return { kind: "APPLIED", result };
     });
   }
@@ -699,6 +717,8 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
       playerId: input.playerId,
       pokemonInstanceId: input.pokemonInstanceId,
       expectedRevision: input.expectedRevision.toString(),
+      correlationId: input.correlationId,
+      metadata: input.metadata,
     });
     return withTransaction(this.pool, async (client) => {
       await acquireLocks(client, [
@@ -784,21 +804,17 @@ export class PostgresPokemonAdminRepository implements PokemonAdminRepository {
         beforeData,
         afterData,
       });
-      if (
-        !(await insertClaim(client, {
-          operationKind: "ARCHIVE",
-          playerId: input.playerId,
-          pokemonInstanceId: input.pokemonInstanceId,
-          idempotencyKey: input.idempotencyKey,
-          requestFingerprint,
-          beforeData,
-          afterData,
-          result,
-          correlationId: input.correlationId,
-        }))
-      ) {
-        return { kind: "IDEMPOTENCY_CONFLICT" };
-      }
+      await insertClaim(client, {
+        operationKind: "ARCHIVE",
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint,
+        beforeData,
+        afterData,
+        result,
+        correlationId: input.correlationId,
+      });
       return { kind: "APPLIED", result };
     });
   }
