@@ -156,6 +156,14 @@ try {
     ]);
     const roleId = role.rows[0]?.id;
     if (roleId === undefined) throw new Error(`Role missing after seed: ${slug}`);
+    await pool.query(
+      `DELETE FROM admin_role_capabilities relation
+       USING capabilities capability
+       WHERE relation.role_id = $1
+         AND relation.capability_id = capability.id
+         AND NOT (capability.key = ANY($2::text[]))`,
+      [roleId, capabilityKeys],
+    );
     for (const capabilityKey of capabilityKeys) {
       await pool.query(
         `INSERT INTO admin_role_capabilities(role_id, capability_id)

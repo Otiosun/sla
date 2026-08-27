@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { AdminRoleAssignInputSchema } from "../../src/modules/admin/contracts.js";
@@ -19,6 +20,17 @@ function expectAdminCode(error: unknown, code: string): void {
   }
 }
 
+function expectCheckViolation(error: unknown): void {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    (error as { readonly code?: unknown }).code !== "23514"
+  ) {
+    throw error instanceof Error ? error : new Error("Expected PostgreSQL check violation");
+  }
+}
+
 const pool = new Pool({ connectionString: databaseUrl, max: 6 });
 try {
   const ownerRole = await pool.query<{ id: string }>(
@@ -31,6 +43,31 @@ try {
   const supportRoleId = supportRole.rows[0]?.id;
   if (ownerRoleId === undefined || supportRoleId === undefined)
     throw new Error("Phase 12 roles are not seeded");
+
+  const roleAssignCapability = await pool.query<{ id: string }>(
+    `SELECT id FROM capabilities WHERE key = 'admin.role.assign'`,
+  );
+  const roleAssignCapabilityId = roleAssignCapability.rows[0]?.id;
+  if (roleAssignCapabilityId === undefined) throw new Error("admin.role.assign capability missing");
+  await pool.query(
+    `INSERT INTO admin_role_capabilities(role_id, capability_id) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [supportRoleId, roleAssignCapabilityId],
+  );
+  execFileSync(process.execPath, ["--import", "tsx", "db/seeds/phase12_admin_registry_slice.ts"], {
+    env: process.env,
+    stdio: "pipe",
+  });
+  const staleSupportGrant = await pool.query(
+    `SELECT 1
+     FROM admin_role_capabilities relation
+     JOIN capabilities capability ON capability.id = relation.capability_id
+     WHERE relation.role_id = $1 AND capability.key = 'admin.role.assign'`,
+    [supportRoleId],
+  );
+  if (staleSupportGrant.rowCount !== 0) {
+    throw new Error("Phase 12 role seed failed to remove stale SUPPORT capability");
+  }
 
   const proposerId = randomUUID();
   const approverId = randomUUID();
@@ -74,6 +111,53 @@ try {
      VALUES ($1, $2, 'PLAYER', $3)`,
     [randomUUID(), scopedSupportId, allowedPlayerId],
   );
+
+  try {
+    await pool.query(
+      `INSERT INTO admin_operations(
+         id, principal_id, capability_key, operation_type, target_type, target_id, risk_tier,
+         status, reason, expected_revision, idempotency_key, request_fingerprint, input,
+         correlation_id, authorization_mode, requires_reason, requires_expected_revision
+       ) VALUES (
+         $1, $2, 'player.profile.edit', 'proof.invalid.reason', 'PLAYER', $3, 1,
+         'DRAFT', NULL, NULL, $4, $5, '{}'::jsonb, $6, 'SUBJECT', TRUE, FALSE
+       )`,
+      [
+        randomUUID(),
+        proposerId,
+        allowedPlayerId,
+        `bad-reason-${randomUUID()}`,
+        randomUUID(),
+        randomUUID(),
+      ],
+    );
+    throw new Error("Malformed requires_reason snapshot unexpectedly persisted");
+  } catch (error) {
+    expectCheckViolation(error);
+  }
+  try {
+    await pool.query(
+      `INSERT INTO admin_operations(
+         id, principal_id, capability_key, operation_type, target_type, target_id, risk_tier,
+         status, reason, expected_revision, idempotency_key, request_fingerprint, input,
+         correlation_id, authorization_mode, requires_reason, requires_expected_revision
+       ) VALUES (
+         $1, $2, 'player.profile.edit', 'proof.invalid.revision', 'PLAYER', $3, 1,
+         'DRAFT', 'proof reason', NULL, $4, $5, '{}'::jsonb, $6, 'SUBJECT', TRUE, TRUE
+       )`,
+      [
+        randomUUID(),
+        proposerId,
+        allowedPlayerId,
+        `bad-revision-${randomUUID()}`,
+        randomUUID(),
+        randomUUID(),
+      ],
+    );
+    throw new Error("Malformed requires_expected_revision snapshot unexpectedly persisted");
+  } catch (error) {
+    expectCheckViolation(error);
+  }
 
   const repository = new PostgresAdminRepository(pool);
   const service = new AdminService(createPhase12AdminOperationRegistry(repository), repository);
@@ -347,7 +431,7 @@ try {
     throw new Error("Stale operation mutated target despite CAS conflict");
 
   console.log(
-    "Phase 12A admin registry proof complete: capability + object/property auth, full policy snapshot drift lock, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",
+    "Phase 12A admin registry proof complete: capability + object/property auth, full policy snapshot drift lock, convergent RBAC bundles, DB snapshot constraints, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",
   );
 } finally {
   await pool.end();

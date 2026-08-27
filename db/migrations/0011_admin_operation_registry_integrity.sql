@@ -42,6 +42,10 @@ ALTER TABLE admin_operations
   ALTER COLUMN request_fingerprint SET NOT NULL,
   ADD CONSTRAINT admin_operations_sensitive_reason_check
     CHECK (risk_tier < 2 OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),
+  ADD CONSTRAINT admin_operations_policy_reason_check
+    CHECK (NOT requires_reason OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),
+  ADD CONSTRAINT admin_operations_policy_revision_check
+    CHECK (NOT requires_expected_revision OR expected_revision IS NOT NULL),
   ADD CONSTRAINT admin_operations_applied_at_check
     CHECK (
       (status IN ('APPLIED', 'COMPENSATED') AND applied_at IS NOT NULL)
