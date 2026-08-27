@@ -16,12 +16,14 @@ import type {
 } from "../../modules/catalog/draft-service.js";
 import { withTransaction } from "../db/transaction.js";
 import {
-  CatalogReferenceError,
-  createCatalogDraftResource,
-  deactivateCatalogDraftResource,
   inspectCatalogDraftResource,
   jsonRecord,
   loadCatalogReleaseAdminRow,
+} from "./catalog-draft-read.js";
+import {
+  CatalogReferenceError,
+  createCatalogDraftResource,
+  deactivateCatalogDraftResource,
   replaceCatalogDraftResource,
 } from "./catalog-draft-sql.js";
 
@@ -175,8 +177,9 @@ export class PostgresCatalogDraftRepository implements CatalogDraftRepository {
         input.resourceKind,
         input.resourceId,
         async (client) => {
-          if (!(await deactivateCatalogDraftResource(client, input)))
+          if (!(await deactivateCatalogDraftResource(client, input))) {
             throw new ResourceMissingError();
+          }
         },
       );
     } catch (error) {
