@@ -96,10 +96,10 @@ try {
     itemId,
     `phase12-batch-item-${itemId}`,
   ]);
-  await pool.query(
-    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`,
-    [playerA, playerB],
-  );
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
+    playerA,
+    playerB,
+  ]);
   await pool.query(
     `INSERT INTO player_profiles(player_id, trainer_name, origin_region_id)
      VALUES ($1, 'Batch A', $3), ($2, 'Batch B', $3)`,
@@ -139,10 +139,10 @@ try {
     [randomUUID(), principalId, randomUUID(), scopedPrincipalId, playerA],
   );
 
-  await pool.query(
-    `INSERT INTO admin_roles(id, slug, name) VALUES ($1, $2, 'Batch Only Proof')`,
-    [batchOnlyRoleId, `BATCH_ONLY_${batchOnlyRoleId.replaceAll("-", "")}`],
-  );
+  await pool.query(`INSERT INTO admin_roles(id, slug, name) VALUES ($1, $2, 'Batch Only Proof')`, [
+    batchOnlyRoleId,
+    `BATCH_ONLY_${batchOnlyRoleId.replaceAll("-", "")}`,
+  ]);
   await pool.query(
     `INSERT INTO admin_role_capabilities(role_id, capability_id)
      SELECT $1, id FROM capabilities
@@ -170,7 +170,13 @@ try {
   );
   const admin = new AdminService(registry, adminRepository);
   const batchRepository = new PostgresAdminBatchRepository(pool);
-  const batch = new AdminBatchService(admin, registry, adminRepository, batchRepository, completion);
+  const batch = new AdminBatchService(
+    admin,
+    registry,
+    adminRepository,
+    batchRepository,
+    completion,
+  );
   registerPhase12DBatchAdminOperations(registry, batch);
 
   await expectRejected(
@@ -230,7 +236,8 @@ try {
     idempotencyKey: `batch-preview-${randomUUID()}`,
     correlationId: randomUUID(),
   });
-  if (previewPrepared.operation.status !== "READY") throw new Error("Batch preview is not R2 READY");
+  if (previewPrepared.operation.status !== "READY")
+    throw new Error("Batch preview is not R2 READY");
   const previewApplied = await admin.apply(previewPrepared.operation.id, principalId);
   if (previewApplied.status !== "APPLIED") throw new Error("Batch preview did not apply");
   const batchId = resultString(previewApplied.result, "batchId");
@@ -312,7 +319,8 @@ try {
     executeAdminOperationId: executePrepared.operation.id,
     expectedRevision: 0n,
   });
-  if (claimed.batch.status !== "RUNNING") throw new Error("Batch crash proof did not claim RUNNING");
+  if (claimed.batch.status !== "RUNNING")
+    throw new Error("Batch crash proof did not claim RUNNING");
   const firstTarget = (await batchRepository.loadPendingTargets(batchId, 1))[0];
   if (firstTarget === undefined) throw new Error("Batch crash proof has no pending target");
   await batchRepository.recordAttempt(batchId, firstTarget.ordinal);
@@ -335,7 +343,9 @@ try {
     resultNumber(executeApplied.result, "successCount") !== 2 ||
     resultNumber(executeApplied.result, "failureCount") !== 0
   ) {
-    throw new Error(`Resumed batch did not complete cleanly: ${JSON.stringify(executeApplied.result)}`);
+    throw new Error(
+      `Resumed batch did not complete cleanly: ${JSON.stringify(executeApplied.result)}`,
+    );
   }
 
   const balances = await pool.query<{ player_id: string; amount: string }>(
@@ -350,7 +360,9 @@ try {
     amountByPlayer.get(playerB) !== "110" ||
     amountByPlayer.get(latePlayer) !== "100"
   ) {
-    throw new Error(`Frozen batch balances are wrong: ${JSON.stringify(Object.fromEntries(amountByPlayer))}`);
+    throw new Error(
+      `Frozen batch balances are wrong: ${JSON.stringify(Object.fromEntries(amountByPlayer))}`,
+    );
   }
   const walletLedger = await pool.query<{ count: string }>(
     `SELECT count(*)::text AS count FROM wallet_ledger
@@ -411,7 +423,9 @@ try {
     resultNumber(partialApplied.result, "successCount") !== 1 ||
     resultNumber(partialApplied.result, "failureCount") !== 1
   ) {
-    throw new Error(`Partial batch did not report per-target failure: ${JSON.stringify(partialApplied.result)}`);
+    throw new Error(
+      `Partial batch did not report per-target failure: ${JSON.stringify(partialApplied.result)}`,
+    );
   }
 
   const inventoryPreview = await admin.prepareMutation({
@@ -426,7 +440,10 @@ try {
     idempotencyKey: `batch-inventory-preview-${randomUUID()}`,
     correlationId: randomUUID(),
   });
-  const inventoryBatchId = resultString((await admin.apply(inventoryPreview.operation.id, principalId)).result, "batchId");
+  const inventoryBatchId = resultString(
+    (await admin.apply(inventoryPreview.operation.id, principalId)).result,
+    "batchId",
+  );
   const inventoryExecute = await admin.prepareMutation({
     principalId,
     operationType: "batch.execute.low_risk",
@@ -443,7 +460,8 @@ try {
      WHERE player_id = ANY($1::uuid[]) AND item_id = $2 AND quantity = 2`,
     [[playerA, playerB], itemId],
   );
-  if (inventory.rows[0]?.count !== "2") throw new Error("Inventory batch did not hit both frozen targets");
+  if (inventory.rows[0]?.count !== "2")
+    throw new Error("Inventory batch did not hit both frozen targets");
 
   const progressionPreview = await admin.prepareMutation({
     principalId,
@@ -457,7 +475,10 @@ try {
     idempotencyKey: `batch-progression-preview-${randomUUID()}`,
     correlationId: randomUUID(),
   });
-  const progressionBatchId = resultString((await admin.apply(progressionPreview.operation.id, principalId)).result, "batchId");
+  const progressionBatchId = resultString(
+    (await admin.apply(progressionPreview.operation.id, principalId)).result,
+    "batchId",
+  );
   const progressionExecute = await admin.prepareMutation({
     principalId,
     operationType: "batch.execute.low_risk",
