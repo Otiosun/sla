@@ -96,28 +96,8 @@ try {
      VALUES ($1, $2, 'Phase 12 Pokemon Admin Proof', 'DRAFT', $3)`,
     [releaseId, releaseNo, rulesetId],
   );
-  await pool.query(
-    `UPDATE content_releases
-     SET status = 'VALIDATED', validated_at = now(),
-         validation_report = '{"proof":true}'::jsonb,
-         content_fingerprint = repeat('f', 64)
-     WHERE id = $1`,
-    [releaseId],
-  );
-  await pool.query(
-    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
-    [releaseId],
-  );
-  await pool.query(
-    `INSERT INTO content_release_pointers(pointer_key, content_release_id)
-     VALUES ('ACTIVE', $1)
-     ON CONFLICT (pointer_key) DO UPDATE
-     SET content_release_id = EXCLUDED.content_release_id,
-         revision = content_release_pointers.revision + 1,
-         updated_at = now()`,
-    [releaseId],
-  );
 
+  // Content-release children must be materialized while the release is still DRAFT.
   await pool.query(`INSERT INTO pokemon_types(id, slug) VALUES ($1, $2)`, [
     typeId,
     `phase12-type-${typeId}`,
@@ -152,6 +132,28 @@ try {
     effectId,
     `phase12-effect-${effectId}`,
   ]);
+
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'VALIDATED', validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         content_fingerprint = repeat('f', 64)
+     WHERE id = $1`,
+    [releaseId],
+  );
+  await pool.query(
+    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [releaseId],
+  );
+  await pool.query(
+    `INSERT INTO content_release_pointers(pointer_key, content_release_id)
+     VALUES ('ACTIVE', $1)
+     ON CONFLICT (pointer_key) DO UPDATE
+     SET content_release_id = EXCLUDED.content_release_id,
+         revision = content_release_pointers.revision + 1,
+         updated_at = now()`,
+    [releaseId],
+  );
 
   await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
     playerId,
