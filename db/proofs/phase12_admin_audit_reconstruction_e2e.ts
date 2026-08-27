@@ -242,7 +242,9 @@ try {
     recoveredLedger.length !== 1 ||
     recoveredTrail.operation.result?.ownerReplayed !== true
   ) {
-    throw new Error("Recovered wallet operation trail did not converge to one reconstructable history");
+    throw new Error(
+      "Recovered wallet operation trail did not converge to one reconstructable history",
+    );
   }
   const walletState = await pool.query<{ amount: string; ledgers: string }>(
     `SELECT balance.amount::text,
