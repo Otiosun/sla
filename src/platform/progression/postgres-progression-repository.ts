@@ -953,7 +953,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
 
     const unlockKeys: string[] = [];
     for (const unlock of input.progression.trainer.unlocks) {
-      if (unlock.level <= row.level || unlock.level > afterLevel) continue;
+      if (unlock.level > afterLevel) continue;
       const inserted = await client.query(
         `INSERT INTO trainer_unlocks(player_id, unlock_key, source_type, source_id)
          VALUES ($1, $2, 'BATTLE_REWARD', $3)
