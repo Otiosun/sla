@@ -69,9 +69,11 @@ class PostgresEconomyTransaction implements EconomyTransaction {
       idempotency_scope: string;
       idempotency_key: string;
       correlation_id: string;
+      balance_after: string | null;
     }>(
       `SELECT id, player_id, item_id, delta::text, source_type, source_id, reason,
-              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id
+              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id,
+              balance_after::text
        FROM inventory_ledger
        WHERE idempotency_scope = $1 AND idempotency_key = $2`,
       [scope, storageKey],
@@ -91,6 +93,7 @@ class PostgresEconomyTransaction implements EconomyTransaction {
       idempotencyScope: row.idempotency_scope,
       idempotencyKey: row.idempotency_key,
       correlationId: row.correlation_id,
+      balanceAfter: row.balance_after === null ? null : toBigInt(row.balance_after),
     };
   }
 
@@ -111,9 +114,11 @@ class PostgresEconomyTransaction implements EconomyTransaction {
       idempotency_scope: string;
       idempotency_key: string;
       correlation_id: string;
+      balance_after: string | null;
     }>(
       `SELECT id, player_id, currency_id, delta::text, source_type, source_id, reason,
-              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id
+              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id,
+              balance_after::text
        FROM wallet_ledger
        WHERE idempotency_scope = $1 AND idempotency_key = $2`,
       [scope, storageKey],
@@ -133,6 +138,7 @@ class PostgresEconomyTransaction implements EconomyTransaction {
       idempotencyScope: row.idempotency_scope,
       idempotencyKey: row.idempotency_key,
       correlationId: row.correlation_id,
+      balanceAfter: row.balance_after === null ? null : toBigInt(row.balance_after),
     };
   }
 
@@ -184,6 +190,48 @@ class PostgresEconomyTransaction implements EconomyTransaction {
       ],
     );
     return result.rowCount === 1;
+  }
+
+  public async finalizeInventoryLedgerBalance(input: {
+    readonly ledgerId: string;
+    readonly balanceAfter: bigint;
+  }): Promise<void> {
+    const result = await this.client.query(
+      `UPDATE inventory_ledger
+       SET balance_after = $2
+       WHERE id = $1 AND balance_after IS NULL`,
+      [input.ledgerId, input.balanceAfter.toString()],
+    );
+    if (result.rowCount !== 1) {
+      const existing = await this.client.query<{ balance_after: string | null }>(
+        `SELECT balance_after::text FROM inventory_ledger WHERE id = $1`,
+        [input.ledgerId],
+      );
+      if (existing.rows[0]?.balance_after !== input.balanceAfter.toString()) {
+        throw new Error("Inventory ledger durable result conflict");
+      }
+    }
+  }
+
+  public async finalizeWalletLedgerBalance(input: {
+    readonly ledgerId: string;
+    readonly balanceAfter: bigint;
+  }): Promise<void> {
+    const result = await this.client.query(
+      `UPDATE wallet_ledger
+       SET balance_after = $2
+       WHERE id = $1 AND balance_after IS NULL`,
+      [input.ledgerId, input.balanceAfter.toString()],
+    );
+    if (result.rowCount !== 1) {
+      const existing = await this.client.query<{ balance_after: string | null }>(
+        `SELECT balance_after::text FROM wallet_ledger WHERE id = $1`,
+        [input.ledgerId],
+      );
+      if (existing.rows[0]?.balance_after !== input.balanceAfter.toString()) {
+        throw new Error("Wallet ledger durable result conflict");
+      }
+    }
   }
 
   public async addInventory(input: {

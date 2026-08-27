@@ -29,6 +29,15 @@ export interface EconomyTransaction {
   claimInventoryLedger(input: InventoryLedgerWrite): Promise<boolean>;
   claimWalletLedger(input: WalletLedgerWrite): Promise<boolean>;
 
+  finalizeInventoryLedgerBalance(input: {
+    readonly ledgerId: string;
+    readonly balanceAfter: bigint;
+  }): Promise<void>;
+  finalizeWalletLedgerBalance(input: {
+    readonly ledgerId: string;
+    readonly balanceAfter: bigint;
+  }): Promise<void>;
+
   addInventory(input: {
     readonly playerId: PlayerId;
     readonly itemId: string;
