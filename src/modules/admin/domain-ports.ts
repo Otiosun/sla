@@ -2,9 +2,11 @@ import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,
   AdminPokemonArchiveInput,
+  AdminPokemonCreateInput,
   AdminPokemonEffectApplyInput,
   AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
+  AdminPokemonProgressCorrectInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
   AdminTrainerProgressAdjustInput,
@@ -27,10 +29,20 @@ export interface AdminDomainOperationPort {
     actorPrincipalId: string,
     input: AdminWalletAdjustInput,
   ): Promise<AdminOperationRecord>;
+  applyPokemonCreate(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonCreateInput,
+  ): Promise<AdminOperationRecord>;
   applyPokemonRosterMove(
     operation: AdminOperationRecord,
     actorPrincipalId: string,
     input: AdminPokemonRosterMoveInput,
+  ): Promise<AdminOperationRecord>;
+  applyPokemonProgressCorrection(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonProgressCorrectInput,
   ): Promise<AdminOperationRecord>;
   applyPokemonHpCorrection(
     operation: AdminOperationRecord,
