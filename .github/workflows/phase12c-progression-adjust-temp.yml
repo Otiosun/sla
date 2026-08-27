@@ -30,6 +30,18 @@ jobs:
       - name: Apply staged progression patch
         run: |
           sed -i 's/Phase 12C domain admin proof complete:/Phase 12C economy admin proof complete:/' scripts/phase12c_progression_patch.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/phase12c_progression_patch.py')
+          t = p.read_text()
+          t = t.replace(
+              'const underflow = await admin.prepareMutation({\n    principalId,\n    operationType: "progression.trainer.adjust",',
+              'const trainerUnderflow = await admin.prepareMutation({\n    principalId,\n    operationType: "progression.trainer.adjust",',
+          )
+          t = t.replace('admin.apply(underflow.operation.id, principalId)', 'admin.apply(trainerUnderflow.operation.id, principalId)')
+          t = t.replace('[underflow.operation.id],', '[trainerUnderflow.operation.id],')
+          p.write_text(t)
+          PY
           python scripts/phase12c_progression_patch.py
       - run: pnpm exec biome format --write db/migrations/0013_domain_admin_operation_integrity.sql src/modules/progression/contracts.ts src/modules/progression/errors.ts src/modules/progression/ports.ts src/modules/progression/service.ts src/platform/progression/postgres-progression-repository.ts src/modules/admin/domain-contracts.ts src/modules/admin/domain-ports.ts src/modules/admin/domain-definitions.ts src/modules/admin/domain-service.ts db/proofs/phase12_domain_admin_e2e.ts .github/workflows/admin-proof.yml
       - run: pnpm lint
