@@ -1,5 +1,6 @@
 export const POKEMON_LEVEL_CAP = 100;
 export const TRAINER_LEVEL_CAP = 100;
+export type TrainerLevelCurve = "QUADRATIC_100_V1" | "LINEAR_100_V1";
 
 export interface PokemonXpProgress {
   readonly beforeLevel: number;
@@ -87,18 +88,26 @@ export function battlePokemonXp(baseExp: number, defeatedLevel: number): number 
   return Math.max(1, Math.floor((baseExp * defeatedLevel) / 7));
 }
 
-export function trainerPointsRequiredForLevel(level: number): number {
+export function trainerPointsRequiredForLevel(
+  level: number,
+  curve: TrainerLevelCurve = "QUADRATIC_100_V1",
+): number {
   if (!Number.isInteger(level) || level < 1 || level > TRAINER_LEVEL_CAP) {
     throw new Error("Trainer level is outside the configured range");
   }
+  if (curve === "LINEAR_100_V1") return 100 * (level - 1);
   return 100 * (level - 1) ** 2;
 }
 
-export function trainerLevelForPoints(points: number, levelCap = TRAINER_LEVEL_CAP): number {
+export function trainerLevelForPoints(
+  points: number,
+  levelCap = TRAINER_LEVEL_CAP,
+  curve: TrainerLevelCurve = "QUADRATIC_100_V1",
+): number {
   if (!Number.isSafeInteger(points) || points < 0)
     throw new Error("Trainer points must be non-negative");
   for (let level = levelCap; level >= 1; level -= 1) {
-    if (points >= trainerPointsRequiredForLevel(level)) return level;
+    if (points >= trainerPointsRequiredForLevel(level, curve)) return level;
   }
   return 1;
 }

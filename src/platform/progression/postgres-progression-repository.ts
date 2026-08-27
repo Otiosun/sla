@@ -922,7 +922,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     if (!Number.isSafeInteger(afterPoints)) {
       throw new ProgressionStateViolation("Trainer progression points overflow JS safe range");
     }
-    const afterLevel = trainerLevelForPoints(afterPoints, input.progression.trainer.levelCap);
+    const afterLevel = trainerLevelForPoints(
+      afterPoints,
+      input.progression.trainer.levelCap,
+      input.progression.trainer.levelCurve,
+    );
     const updated = await client.query(
       `UPDATE trainer_progression
        SET progression_points = $2, level = $3, revision = revision + 1, updated_at = now()
@@ -949,7 +953,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
 
     const unlockKeys: string[] = [];
     for (const unlock of input.progression.trainer.unlocks) {
-      if (unlock.level <= row.level || unlock.level > afterLevel) continue;
+      if (unlock.level > afterLevel) continue;
       const inserted = await client.query(
         `INSERT INTO trainer_unlocks(player_id, unlock_key, source_type, source_id)
          VALUES ($1, $2, 'BATTLE_REWARD', $3)

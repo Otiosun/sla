@@ -40,14 +40,23 @@ export const ProgressionRulesSchema = z
       .strict(),
     trainer: z
       .object({
-        visiblePointsName: z.literal("XP de Treinador"),
-        levelCurve: z.literal("QUADRATIC_100_V1"),
+        visiblePointsName: z.enum(["XP de Treinador", "Insígnia"]),
+        levelCurve: z.enum(["QUADRATIC_100_V1", "LINEAR_100_V1"]),
         levelCap: z.literal(100),
         pointsPerWonBattle: z.number().int().min(1).max(1_000_000),
         unlocks: z.array(trainerUnlockSchema).max(64),
       })
       .strict()
       .superRefine((trainer, context) => {
+        const expectedName =
+          trainer.levelCurve === "LINEAR_100_V1" ? "Insígnia" : "XP de Treinador";
+        if (trainer.visiblePointsName !== expectedName) {
+          context.addIssue({
+            code: "custom",
+            path: ["visiblePointsName"],
+            message: "trainer progression label must match the versioned level curve",
+          });
+        }
         const levels = new Set<number>();
         const keys = new Set<string>();
         for (const [index, unlock] of trainer.unlocks.entries()) {
