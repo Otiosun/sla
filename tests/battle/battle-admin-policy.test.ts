@@ -7,7 +7,9 @@ describe("Battle admin correction policy", () => {
     const source = battleState();
     const participant = source.combatants[0];
     if (participant === undefined) throw new Error("Battle fixture has no combatant");
-    const move = participant.moves.find((entry) => entry.maxPp !== null && entry.ppCurrent !== null);
+    const move = participant.moves.find(
+      (entry) => entry.maxPp !== null && entry.ppCurrent !== null,
+    );
     if (move === undefined || move.maxPp === null) throw new Error("Battle fixture has no PP move");
     const correctedPp = Math.max(0, move.maxPp - 1);
     const result = correctActiveBattleState(source, {
