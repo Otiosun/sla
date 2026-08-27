@@ -83,7 +83,7 @@ export const CorrectPokemonStatusInputSchema = z
   .object({
     ...commonMutationFields,
     status: MajorPokemonStatusSchema.nullable(),
-    counter: z.number().int().min(0).max(255).nullable(),
+    counter: z.number().int().min(0).max(10).nullable(),
   })
   .strict()
   .superRefine((value, context) => {
