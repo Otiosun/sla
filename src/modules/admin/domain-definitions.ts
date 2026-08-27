@@ -1,12 +1,16 @@
 import {
   AdminInventoryAdjustInputSchema,
   AdminPokemonArchiveInputSchema,
+  AdminPokemonEffectApplyInputSchema,
+  AdminPokemonEffectRemoveInputSchema,
   AdminPokemonHpCorrectInputSchema,
   AdminPokemonRosterMoveInputSchema,
   AdminPokemonStatusCorrectInputSchema,
   AdminTrainerProgressAdjustInputSchema,
   type AdminInventoryAdjustInput,
   type AdminPokemonArchiveInput,
+  type AdminPokemonEffectApplyInput,
+  type AdminPokemonEffectRemoveInput,
   type AdminPokemonHpCorrectInput,
   type AdminPokemonRosterMoveInput,
   type AdminPokemonStatusCorrectInput,
@@ -135,6 +139,36 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyPokemonStatusCorrection(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokemonEffectApplyInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.effect.apply",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 3,
+      authorizationMode: "SUBJECT",
+      policy: pokemonMechanicalPolicy,
+      inputSchema: AdminPokemonEffectApplyInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokemonEffect(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokemonEffectRemoveInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.effect.remove",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 3,
+      authorizationMode: "SUBJECT",
+      policy: pokemonMechanicalPolicy,
+      inputSchema: AdminPokemonEffectRemoveInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.removePokemonEffect(context.operation, context.actorPrincipalId, input),
     }),
   );
 
