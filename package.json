@@ -28,7 +28,8 @@
     "test": "vitest run",
     "test:db": "vitest run tests/db",
     "test:watch": "vitest",
-    "check": "biome ci . && pnpm typecheck && pnpm test"
+    "check": "biome ci . && pnpm typecheck && pnpm test",
+    "db:seed:phase12": "node --env-file-if-exists=.env --import tsx db/seeds/phase12_admin_registry_slice.ts"
   },
   "dependencies": {
     "pg": "8.23.0",
