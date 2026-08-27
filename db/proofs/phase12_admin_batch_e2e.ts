@@ -130,8 +130,8 @@ try {
   );
   await pool.query(
     `INSERT INTO admin_principal_roles(principal_id, role_id)
-     VALUES ($1, $4), ($2, $4)`,
-    [principalId, scopedPrincipalId, batchOnlyPrincipalId, economyRoleId],
+     VALUES ($1, $3), ($2, $3)`,
+    [principalId, scopedPrincipalId, economyRoleId],
   );
   await pool.query(
     `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
