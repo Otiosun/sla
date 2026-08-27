@@ -1,14 +1,14 @@
 import type { Pool } from "pg";
-import {
-  type AdminOperationAuditApproval,
-  type AdminOperationAuditBundle,
-  type AdminOperationAuditChange,
-  type AdminOperationAuditConfirmation,
-  type AdminOperationAuditEvent,
-  type AdminOperationAuditOperation,
-  type AdminOperationBatchEvidence,
-  type AdminOperationOwnerEvidence,
-  type AdminOwnerEvidenceSource,
+import type {
+  AdminOperationAuditApproval,
+  AdminOperationAuditBundle,
+  AdminOperationAuditChange,
+  AdminOperationAuditConfirmation,
+  AdminOperationAuditEvent,
+  AdminOperationAuditOperation,
+  AdminOperationBatchEvidence,
+  AdminOperationOwnerEvidence,
+  AdminOwnerEvidenceSource,
 } from "../../modules/admin/audit-contracts.js";
 import type { AdminOperationAuditRepository } from "../../modules/admin/audit-ports.js";
 import {
