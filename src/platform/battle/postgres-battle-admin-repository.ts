@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import {
-  type BattleAdminActionView,
-  type BattleAdminCorrectStateInput,
-  type BattleAdminEventView,
-  type BattleAdminInspection,
-  type BattleAdminMutationResult,
-  type BattleAdminStateView,
+import type {
+  BattleAdminActionView,
+  BattleAdminCorrectStateInput,
+  BattleAdminEventView,
+  BattleAdminInspection,
+  BattleAdminMutationResult,
+  BattleAdminStateView,
 } from "../../modules/battle/admin-contracts.js";
 import type {
   BattleAdminCorrectionPersistenceResult,
@@ -212,9 +212,7 @@ function payloadRecord(payload: unknown): Record<string, unknown> | null {
 
 function needsEncounterClose(view: BattleAdminStateView): boolean {
   return (
-    view.encounterId !== null &&
-    view.encounterStatus === "IN_BATTLE" &&
-    terminalStatus(view.status)
+    view.encounterId !== null && view.encounterStatus === "IN_BATTLE" && terminalStatus(view.status)
   );
 }
 
@@ -313,7 +311,8 @@ export class PostgresBattleAdminRepository implements BattleAdminRepository {
   ): Promise<BattleAdminReplayResult> {
     return withTransaction(
       this.pool,
-      (client) => replayWithClient(client, battleId, causationId, operationKind, requestFingerprint),
+      (client) =>
+        replayWithClient(client, battleId, causationId, operationKind, requestFingerprint),
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );
   }
