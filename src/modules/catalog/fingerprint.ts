@@ -47,6 +47,7 @@ export function fingerprintCatalog(snapshot: CatalogSnapshotWithEffects): string
     items: sortByCanonical(snapshot.items),
     natures: sortByCanonical(snapshot.natures),
     effects: sortByCanonical(snapshot.effects),
+    rewards: sortByCanonical(snapshot.rewards ?? []),
     regions: sortByCanonical(snapshot.regions),
     areas: sortByCanonical(snapshot.areas),
     connections: sortByCanonical(snapshot.connections),
