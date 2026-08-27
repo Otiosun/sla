@@ -6,10 +6,12 @@ import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/def
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
+import { ProgressionService } from "../../src/modules/progression/service.js";
 import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
+import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
@@ -71,8 +73,10 @@ try {
 
   const adminRepository = new PostgresAdminRepository(pool);
   const economy = new EconomyService(new PostgresEconomyRepository(pool));
+  const progression = new ProgressionService(new PostgresProgressionRepository(pool));
   const domain = new AdminDomainOperationService(
     economy,
+    progression,
     new PostgresAdminOperationCompletion(pool),
   );
   const registry = registerPhase12CDomainAdminOperations(
@@ -254,6 +258,162 @@ try {
     reconstructionRow.audit_count !== "1"
   ) {
     throw new Error("Crash-window evidence reconstruction is not stable");
+  }
+
+  const trainerUp = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "900" },
+    reason: "Restore missing trainer progression",
+    idempotencyKey: `phase12c-trainer-up-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  const trainerApplied = await admin.apply(trainerUp.operation.id, principalId);
+  if (trainerApplied.status !== "APPLIED")
+    throw new Error("Trainer progression admin adjustment failed");
+  const trainerState = await pool.query<{ level: number; progression_points: string }>(
+    `SELECT level, progression_points::text FROM trainer_progression WHERE player_id = $1`,
+    [playerId],
+  );
+  const tournament = await pool.query<{ status: string }>(
+    `SELECT status FROM trainer_unlocks WHERE player_id = $1 AND unlock_key = 'tournament.eligible'`,
+    [playerId],
+  );
+  if (
+    trainerState.rows[0]?.progression_points !== "900" ||
+    trainerState.rows[0]?.level !== 10 ||
+    tournament.rows[0]?.status !== "ACTIVE"
+  ) {
+    throw new Error("Trainer progression threshold activation is inconsistent");
+  }
+
+  const trainerDown = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "-200" },
+    reason: "Correct excess trainer progression",
+    idempotencyKey: `phase12c-trainer-down-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  await admin.apply(trainerDown.operation.id, principalId);
+  const trainerAfterDown = await pool.query<{ level: number; progression_points: string }>(
+    `SELECT level, progression_points::text FROM trainer_progression WHERE player_id = $1`,
+    [playerId],
+  );
+  const tournamentAfterDown = await pool.query<{ status: string; revoked_at: Date | null }>(
+    `SELECT status, revoked_at FROM trainer_unlocks WHERE player_id = $1 AND unlock_key = 'tournament.eligible'`,
+    [playerId],
+  );
+  if (
+    trainerAfterDown.rows[0]?.progression_points !== "700" ||
+    trainerAfterDown.rows[0]?.level !== 8 ||
+    tournamentAfterDown.rows[0]?.status !== "REVOKED" ||
+    tournamentAfterDown.rows[0]?.revoked_at === null
+  ) {
+    throw new Error("Trainer progression downward correction did not revoke derived unlock");
+  }
+
+  const trainerUnderflow = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "-800" },
+    reason: "Invalid underflow probe",
+    idempotencyKey: `phase12c-trainer-underflow-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  let underflowRejected = false;
+  try {
+    await admin.apply(trainerUnderflow.operation.id, principalId);
+  } catch (error) {
+    underflowRejected =
+      error instanceof AdminError && error.code === "ADMIN_DOMAIN_OPERATION_REJECTED";
+  }
+  if (!underflowRejected) throw new Error("Trainer progression underflow was not rejected");
+  const underflowLedger = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM trainer_progress_ledger
+     WHERE idempotency_scope = 'progression.trainer-adjust' AND source_id = $1`,
+    [trainerUnderflow.operation.id],
+  );
+  if (underflowLedger.rows[0]?.count !== "0") {
+    throw new Error("Rejected trainer underflow wrote a ledger row");
+  }
+
+  const crashTrainer = await admin.prepareMutation({
+    principalId,
+    operationType: "progression.trainer.adjust",
+    input: { playerId, delta: "200" },
+    reason: "Crash-window trainer adjustment",
+    idempotencyKey: `phase12c-trainer-crash-${playerId}`,
+    correlationId: randomUUID(),
+  });
+  const ownerCrash = await progression.adjustTrainerProgress({
+    playerId,
+    delta: 200,
+    idempotencyKey: crashTrainer.operation.id,
+    correlationId: crashTrainer.operation.correlationId,
+    metadata: {
+      sourceType: "ADMIN_OPERATION",
+      sourceId: crashTrainer.operation.id,
+      reason: "Crash-window trainer adjustment",
+      actorType: "ADMIN",
+      actorId: crashTrainer.operation.principalId,
+    },
+  });
+  if (
+    !ownerCrash.ok ||
+    ownerCrash.value.afterPoints !== 900 ||
+    ownerCrash.value.afterLevel !== 10
+  ) {
+    throw new Error("Trainer crash-window owner mutation failed");
+  }
+  const interveningTrainer = await progression.adjustTrainerProgress({
+    playerId,
+    delta: 100,
+    idempotencyKey: `intervening-${randomUUID()}`,
+    correlationId: randomUUID(),
+    metadata: {
+      sourceType: "SYSTEM",
+      sourceId: `phase12c-intervening-${playerId}`,
+      reason: "Intervening progression mutation",
+      actorType: "SYSTEM",
+      actorId: null,
+    },
+  });
+  if (!interveningTrainer.ok || interveningTrainer.value.afterPoints !== 1000) {
+    throw new Error("Intervening trainer progression mutation failed");
+  }
+  const recoveredTrainer = await admin.apply(crashTrainer.operation.id, principalId);
+  if (recoveredTrainer.status !== "APPLIED" || recoveredTrainer.result?.ownerReplayed !== true) {
+    throw new Error("Trainer crash-window recovery did not replay owner result");
+  }
+  const trainerEvidence = await pool.query<{
+    current_points: string;
+    ledger_result: unknown;
+    before_points: string | null;
+    after_points: string | null;
+  }>(
+    `SELECT progression.progression_points::text AS current_points,
+            ledger.result AS ledger_result,
+            change.before_data ->> 'progressionPoints' AS before_points,
+            change.after_data ->> 'progressionPoints' AS after_points
+     FROM trainer_progression progression
+     JOIN trainer_progress_ledger ledger
+       ON ledger.source_id = $2::text AND ledger.idempotency_scope = 'progression.trainer-adjust'
+     JOIN admin_operation_changes change ON change.admin_operation_id = $3
+     WHERE progression.player_id = $1`,
+    [playerId, crashTrainer.operation.id, crashTrainer.operation.id],
+  );
+  const trainerEvidenceRow = trainerEvidence.rows[0];
+  const durableTrainerResult = trainerEvidenceRow?.ledger_result as
+    | { afterPoints?: number }
+    | undefined;
+  if (
+    trainerEvidenceRow?.current_points !== "1000" ||
+    durableTrainerResult?.afterPoints !== 900 ||
+    trainerEvidenceRow.before_points !== "700" ||
+    trainerEvidenceRow.after_points !== "900"
+  ) {
+    throw new Error("Trainer crash-window evidence is not stable");
   }
 
   console.log(

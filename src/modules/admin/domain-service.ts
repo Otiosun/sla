@@ -1,8 +1,13 @@
 import type { EconomyService } from "../economy/service.js";
+import type { ProgressionService } from "../progression/service.js";
 import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { AdminOperationRecord } from "./contracts.js";
-import type { AdminInventoryAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";
+import type {
+  AdminInventoryAdjustInput,
+  AdminTrainerProgressAdjustInput,
+  AdminWalletAdjustInput,
+} from "./domain-contracts.js";
 import type { AdminDomainOperationPort } from "./domain-ports.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 import type { AdminOperationCompletionPort } from "./ports.js";
@@ -53,6 +58,7 @@ function assertPlayerTarget(operation: AdminOperationRecord, targetPlayerId: str
 export class AdminDomainOperationService implements AdminDomainOperationPort {
   public constructor(
     private readonly economy: EconomyService,
+    private readonly progression: ProgressionService,
     private readonly completion: AdminOperationCompletionPort,
   ) {}
 
@@ -118,6 +124,65 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
         balanceAfter: after.toString(),
         ledgerId: result.value.ledgerId,
         ownerReplayed: result.value.replayed,
+      },
+    });
+  }
+
+  public async applyTrainerProgressAdjustment(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminTrainerProgressAdjustInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.progression.adjustTrainerProgress({
+      playerId: input.playerId,
+      delta: Number(BigInt(input.delta)),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: {
+        sourceType: "ADMIN_OPERATION",
+        sourceId: operation.id,
+        reason: requiredReason(operation),
+        actorType: "ADMIN",
+        actorId: operation.principalId,
+      },
+    });
+    if (!result.ok) {
+      if (result.error.code === "PROGRESSION_IDEMPOTENCY_CONFLICT") {
+        throw new AdminError(ADMIN_ERROR_CODES.IDEMPOTENCY_CONFLICT, result.error.message);
+      }
+      if (result.error.code === "TRAINER_PROGRESSION_NOT_FOUND") {
+        throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, result.error.message);
+      }
+      if (result.error.code === "PROGRESSION_INPUT_INVALID") {
+        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, result.error.message);
+      }
+      throw new AdminError(ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED, result.error.message, {
+        ownerCode: result.error.code,
+      });
+    }
+    const value = result.value;
+    return this.completion.completeAppliedOperation({
+      operation,
+      actorPrincipalId,
+      resourceType: "TRAINER_PROGRESSION",
+      resourceId: input.playerId,
+      beforeData: {
+        playerId: input.playerId,
+        progressionPoints: value.beforePoints.toString(),
+        level: value.beforeLevel,
+      },
+      afterData: {
+        playerId: input.playerId,
+        progressionPoints: value.afterPoints.toString(),
+        level: value.afterLevel,
+      },
+      result: {
+        delta: value.delta.toString(),
+        rulesetId: value.rulesetId,
+        activatedUnlockKeys: value.activatedUnlockKeys,
+        revokedUnlockKeys: value.revokedUnlockKeys,
+        ownerReplayed: value.replayed,
       },
     });
   }

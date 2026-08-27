@@ -1,6 +1,8 @@
 import {
   AdminInventoryAdjustInputSchema,
+  AdminTrainerProgressAdjustInputSchema,
   type AdminInventoryAdjustInput,
+  type AdminTrainerProgressAdjustInput,
   AdminWalletAdjustInputSchema,
   type AdminWalletAdjustInput,
 } from "./domain-contracts.js";
@@ -32,6 +34,21 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyInventoryAdjustment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminTrainerProgressAdjustInput>({
+      kind: "MUTATION",
+      operationType: "progression.trainer.adjust",
+      capabilityKey: "progression.adjust",
+      riskTier: 2,
+      authorizationMode: "SUBJECT",
+      policy: deltaPolicy,
+      inputSchema: AdminTrainerProgressAdjustInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyTrainerProgressAdjustment(context.operation, context.actorPrincipalId, input),
     }),
   );
 

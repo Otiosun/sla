@@ -30,3 +30,22 @@ export const AdminWalletAdjustInputSchema = z
   })
   .strict();
 export type AdminWalletAdjustInput = z.infer<typeof AdminWalletAdjustInputSchema>;
+
+const safeSignedProgressDeltaSchema = z
+  .string()
+  .regex(/^-?[1-9][0-9]*$/)
+  .refine((value) => {
+    try {
+      const parsed = BigInt(value);
+      return (
+        parsed >= BigInt(-Number.MAX_SAFE_INTEGER) && parsed <= BigInt(Number.MAX_SAFE_INTEGER)
+      );
+    } catch {
+      return false;
+    }
+  }, "trainer progression delta must fit the safe integer range and be non-zero");
+
+export const AdminTrainerProgressAdjustInputSchema = z
+  .object({ playerId: uuidSchema, delta: safeSignedProgressDeltaSchema })
+  .strict();
+export type AdminTrainerProgressAdjustInput = z.infer<typeof AdminTrainerProgressAdjustInputSchema>;
