@@ -1,7 +1,8 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import { diffCatalogSnapshots, type ReleaseDiff } from "./diff.js";
-import { fingerprintCatalog, fingerprintRuleset } from "./fingerprint.js";
 import type { CatalogSnapshot, RulesetSnapshot, ValidationReport } from "./contracts.js";
+import { diffCatalogSnapshots, type ReleaseDiff } from "./diff.js";
+import { validateCatalogDraftExtensions } from "./draft-extension-validation.js";
+import { fingerprintCatalog, fingerprintRuleset } from "./fingerprint.js";
 import {
   validateCatalogSnapshot,
   validateRulesetSnapshot,
@@ -72,6 +73,13 @@ function invalidState(resource: string, status: string, expected: string) {
   );
 }
 
+function validateReleaseSnapshot(snapshot: CatalogSnapshotWithEffects): ValidationReport {
+  const base = validateCatalogSnapshot(snapshot);
+  const extensions = validateCatalogDraftExtensions(snapshot);
+  const issues = [...base.issues, ...extensions.issues];
+  return { valid: issues.length === 0, issues };
+}
+
 export class CatalogService {
   public constructor(private readonly repository: CatalogRepository) {}
 
@@ -129,7 +137,7 @@ export class CatalogService {
 
       const snapshot = await transaction.loadCatalogSnapshot(releaseId);
       if (snapshot === null) return err(notFound("Content release snapshot", releaseId));
-      const validation = validateCatalogSnapshot(snapshot);
+      const validation = validateReleaseSnapshot(snapshot);
       if (!validation.valid) {
         return err(
           appError("VALIDATION_FAILED", "Content release validation failed", {

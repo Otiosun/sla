@@ -47,7 +47,10 @@ FROM (VALUES
   ('pokemon_move_slots'),
   ('pokemon_roster_slots'),
   ('pokemon_persistent_conditions'),
-  ('active_effects')
+  ('active_effects'),
+  -- Encounter entries are revision-local DRAFT details. The database trigger still rejects
+  -- DELETE whenever the owning content release is not DRAFT.
+  ('encounter_entries')
 ) AS deletable(deletable_table)
 WHERE to_regclass('public.' || deletable_table) IS NOT NULL
 \gexec
@@ -76,6 +79,7 @@ FROM (VALUES
   ('battle_reward_claims'),
   ('pokemon_admin_operation_claims'),
   ('encounter_admin_operation_claims'),
+  ('catalog_admin_operation_claims'),
   ('starter_grants'),
   ('player_onboarding_context'),
   ('inventory_ledger'),
@@ -110,7 +114,8 @@ SELECT format(
           'pokemon_move_slots',
           'pokemon_roster_slots',
           'pokemon_persistent_conditions',
-          'active_effects'
+          'active_effects',
+          'encounter_entries'
         ])
         AND has_table_privilege(runtime_name, format('%%I.%%I', n.nspname, c.relname), 'DELETE')
     ) THEN
@@ -125,7 +130,8 @@ SELECT format(
         'pokemon_move_slots',
         'pokemon_roster_slots',
         'pokemon_persistent_conditions',
-        'active_effects'
+        'active_effects',
+        'encounter_entries'
       ]) AS allowed(table_name)
       WHERE to_regclass('public.' || table_name) IS NOT NULL
         AND NOT has_table_privilege(runtime_name, 'public.' || table_name, 'DELETE')
@@ -143,6 +149,7 @@ SELECT format(
         'battle_reward_claims',
         'pokemon_admin_operation_claims',
         'encounter_admin_operation_claims',
+        'catalog_admin_operation_claims',
         'starter_grants',
         'player_onboarding_context',
         'inventory_ledger',
