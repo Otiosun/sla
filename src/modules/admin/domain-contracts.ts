@@ -80,7 +80,9 @@ export const AdminPokemonProgressCorrectInputSchema = z
     xp: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   })
   .strict();
-export type AdminPokemonProgressCorrectInput = z.infer<typeof AdminPokemonProgressCorrectInputSchema>;
+export type AdminPokemonProgressCorrectInput = z.infer<
+  typeof AdminPokemonProgressCorrectInputSchema
+>;
 
 export const AdminPokemonHpCorrectInputSchema = z
   .object({
