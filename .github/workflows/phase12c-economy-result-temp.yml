@@ -1,0 +1,151 @@
+name: Phase 12C Economy Result Temp
+
+on:
+  push:
+    branches:
+      - feat/phase12c-domain-admin-operations-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/phase12c-domain-admin-operations-v1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile
+      - name: Patch Economy durable replay results
+        shell: python
+        run: |
+          from pathlib import Path
+
+          contracts = Path('src/modules/economy/contracts.ts')
+          text = contracts.read_text()
+          if 'readonly balanceAfter: bigint | null;' not in text:
+              text = text.replace(
+                  '  readonly correlationId: string;\n}\n\nexport interface WalletLedgerRecord',
+                  '  readonly correlationId: string;\n  readonly balanceAfter: bigint | null;\n}\n\nexport interface WalletLedgerRecord',
+                  1,
+              )
+              second = text.find('  readonly correlationId: string;\n}', text.find('export interface WalletLedgerRecord'))
+              if second < 0:
+                  raise SystemExit('wallet ledger anchor missing')
+              text = text[:second] + text[second:].replace(
+                  '  readonly correlationId: string;\n}',
+                  '  readonly correlationId: string;\n  readonly balanceAfter: bigint | null;\n}',
+                  1,
+              )
+              contracts.write_text(text)
+
+          ports = Path('src/modules/economy/ports.ts')
+          text = ports.read_text()
+          if 'finalizeInventoryLedgerBalance' not in text:
+              anchor = '  claimWalletLedger(input: WalletLedgerWrite): Promise<boolean>;\n\n'
+              replacement = '''  claimWalletLedger(input: WalletLedgerWrite): Promise<boolean>;\n\n  finalizeInventoryLedgerBalance(input: {\n    readonly ledgerId: string;\n    readonly balanceAfter: bigint;\n  }): Promise<void>;\n  finalizeWalletLedgerBalance(input: {\n    readonly ledgerId: string;\n    readonly balanceAfter: bigint;\n  }): Promise<void>;\n\n'''
+              if anchor not in text:
+                  raise SystemExit('economy ports anchor missing')
+              ports.write_text(text.replace(anchor, replacement, 1))
+
+          repo = Path('src/platform/economy/postgres-economy-repository.ts')
+          text = repo.read_text()
+          if 'balance_after: string | null;' not in text:
+              text = text.replace(
+                  '      correlation_id: string;\n    }>(\n      `SELECT id, player_id, item_id, delta::text, source_type, source_id, reason,\n              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id\n',
+                  '      correlation_id: string;\n      balance_after: string | null;\n    }>(\n      `SELECT id, player_id, item_id, delta::text, source_type, source_id, reason,\n              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id,\n              balance_after::text\n',
+                  1,
+              )
+              text = text.replace(
+                  '      correlationId: row.correlation_id,\n    };\n  }\n\n  public async findWalletLedger',
+                  '      correlationId: row.correlation_id,\n      balanceAfter: row.balance_after === null ? null : toBigInt(row.balance_after),\n    };\n  }\n\n  public async findWalletLedger',
+                  1,
+              )
+              wallet_start = text.find('  public async findWalletLedger')
+              before = text[:wallet_start]
+              tail = text[wallet_start:]
+              tail = tail.replace(
+                  '      correlation_id: string;\n    }>(\n      `SELECT id, player_id, currency_id, delta::text, source_type, source_id, reason,\n              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id\n',
+                  '      correlation_id: string;\n      balance_after: string | null;\n    }>(\n      `SELECT id, player_id, currency_id, delta::text, source_type, source_id, reason,\n              actor_type, actor_id, idempotency_scope, idempotency_key, correlation_id,\n              balance_after::text\n',
+                  1,
+              )
+              tail = tail.replace(
+                  '      correlationId: row.correlation_id,\n    };\n  }\n\n  public async claimInventoryLedger',
+                  '      correlationId: row.correlation_id,\n      balanceAfter: row.balance_after === null ? null : toBigInt(row.balance_after),\n    };\n  }\n\n  public async claimInventoryLedger',
+                  1,
+              )
+              text = before + tail
+
+          if 'public async finalizeInventoryLedgerBalance' not in text:
+              anchor = '  public async addInventory(input: {\n'
+              methods = '''  public async finalizeInventoryLedgerBalance(input: {\n    readonly ledgerId: string;\n    readonly balanceAfter: bigint;\n  }): Promise<void> {\n    const result = await this.client.query(\n      `UPDATE inventory_ledger\n       SET balance_after = $2\n       WHERE id = $1 AND balance_after IS NULL`,\n      [input.ledgerId, input.balanceAfter.toString()],\n    );\n    if (result.rowCount !== 1) {\n      const existing = await this.client.query<{ balance_after: string | null }>(\n        `SELECT balance_after::text FROM inventory_ledger WHERE id = $1`,\n        [input.ledgerId],\n      );\n      if (existing.rows[0]?.balance_after !== input.balanceAfter.toString()) {\n        throw new Error("Inventory ledger durable result conflict");\n      }\n    }\n  }\n\n  public async finalizeWalletLedgerBalance(input: {\n    readonly ledgerId: string;\n    readonly balanceAfter: bigint;\n  }): Promise<void> {\n    const result = await this.client.query(\n      `UPDATE wallet_ledger\n       SET balance_after = $2\n       WHERE id = $1 AND balance_after IS NULL`,\n      [input.ledgerId, input.balanceAfter.toString()],\n    );\n    if (result.rowCount !== 1) {\n      const existing = await this.client.query<{ balance_after: string | null }>(\n        `SELECT balance_after::text FROM wallet_ledger WHERE id = $1`,\n        [input.ledgerId],\n      );\n      if (existing.rows[0]?.balance_after !== input.balanceAfter.toString()) {\n        throw new Error("Wallet ledger durable result conflict");\n      }\n    }\n  }\n\n'''
+              if anchor not in text:
+                  raise SystemExit('economy repository insertion anchor missing')
+              text = text.replace(anchor, methods + anchor, 1)
+          repo.write_text(text)
+
+          service = Path('src/modules/economy/service.ts')
+          text = service.read_text()
+          if 'finalizeInventoryLedgerBalance' not in text:
+              anchor = '''        if (balance === null) {\n          throw new EconomyRollback(\n            operation === "ADD"\n              ? economyBalanceOverflow("inventory")\n              : insufficientInventory(item.value, quantity.value),\n          );\n        }\n\n        return ok({\n'''
+              replacement = '''        if (balance === null) {\n          throw new EconomyRollback(\n            operation === "ADD"\n              ? economyBalanceOverflow("inventory")\n              : insufficientInventory(item.value, quantity.value),\n          );\n        }\n        await transaction.finalizeInventoryLedgerBalance({ ledgerId, balanceAfter: balance });\n\n        return ok({\n'''
+              if anchor not in text:
+                  raise SystemExit('inventory service anchor missing')
+              text = text.replace(anchor, replacement, 1)
+
+              anchor = '''        if (balance === null) {\n          throw new EconomyRollback(\n            operation === "CREDIT"\n              ? economyBalanceOverflow("wallet")\n              : insufficientWallet(currency.value, amount.value),\n          );\n        }\n\n        return ok({\n'''
+              replacement = '''        if (balance === null) {\n          throw new EconomyRollback(\n            operation === "CREDIT"\n              ? economyBalanceOverflow("wallet")\n              : insufficientWallet(currency.value, amount.value),\n          );\n        }\n        await transaction.finalizeWalletLedgerBalance({ ledgerId, balanceAfter: balance });\n\n        return ok({\n'''
+              if anchor not in text:
+                  raise SystemExit('wallet service anchor missing')
+              text = text.replace(anchor, replacement, 1)
+
+              text = text.replace(
+                  '      quantity: await transaction.inventoryBalance(playerId, itemId),\n',
+                  '      quantity:\n        existing.balanceAfter ?? (await transaction.inventoryBalance(playerId, itemId)),\n',
+                  1,
+              )
+              text = text.replace(
+                  '      amount: await transaction.walletBalance(playerId, currencyId),\n',
+                  '      amount:\n        existing.balanceAfter ?? (await transaction.walletBalance(playerId, currencyId)),\n',
+                  1,
+              )
+              service.write_text(text)
+      - run: pnpm exec biome format --write src/modules/economy/contracts.ts src/modules/economy/ports.ts src/modules/economy/service.ts src/platform/economy/postgres-economy-repository.ts
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+      - run: pnpm db:migrate
+      - run: pnpm db:verify
+      - run: pnpm exec vitest run tests/economy
+      - name: Commit owner hardening
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modules/economy/contracts.ts src/modules/economy/ports.ts src/modules/economy/service.ts src/platform/economy/postgres-economy-repository.ts
+          git commit -m 'feat: persist economy mutation result snapshots'
+          git push origin HEAD:feat/phase12c-domain-admin-operations-v1
