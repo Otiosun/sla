@@ -142,8 +142,9 @@ try {
     await pool.query(
       `INSERT INTO battles(
          id, battle_type, status, content_release_id, ruleset_id, encounter_id,
-         rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version, rng_counter
-       ) VALUES ($1, 'WILD', $2, $3, $4, $5, $6, $7, $8, 1, 0)`,
+         rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version, rng_counter,
+         ended_at
+       ) VALUES ($1, 'WILD', $2, $3, $4, $5, $6, $7, $8, 1, 0, $9)`,
       [
         battleId,
         status,
@@ -153,6 +154,7 @@ try {
         seedCiphertext,
         seedIv,
         seedAuthTag,
+        status === "WON" ? new Date() : null,
       ],
     );
   }
@@ -417,13 +419,7 @@ try {
     `INSERT INTO battle_reward_claims(
        battle_id, player_id, idempotency_key, request_fingerprint, result, correlation_id
      ) VALUES ($1, $2, $3, $4, '{}'::jsonb, $5)`,
-    [
-      unsettledBattleId,
-      unsettledPlayerId,
-      "a".repeat(64),
-      "b".repeat(64),
-      randomUUID(),
-    ],
+    [unsettledBattleId, unsettledPlayerId, "a".repeat(64), "b".repeat(64), randomUUID()],
   );
   const settledApplied = await admin.apply(unsettledPrepared.operation.id, globalPrincipalId);
   if (
