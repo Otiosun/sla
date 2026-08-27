@@ -102,10 +102,10 @@ try {
     typeId,
     `phase12-type-${typeId}`,
   ]);
-  await pool.query(
-    `INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 32000, $2)`,
-    [speciesId, `phase12-species-${speciesId}`],
-  );
+  await pool.query(`INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 32000, $2)`, [
+    speciesId,
+    `phase12-species-${speciesId}`,
+  ]);
   await pool.query(`INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`, [
     formId,
     speciesId,
@@ -332,6 +332,24 @@ try {
   if (semanticConflict.ok || semanticConflict.error.code !== "FINGERPRINT_MISMATCH") {
     throw new Error("Pokemon owner accepted semantic idempotency drift");
   }
+  const auditConflict = await pokemonOwner.moveRoster({
+    playerId,
+    pokemonInstanceId: pokemonRosterId,
+    expectedRevision: 0n,
+    idempotencyKey: rosterPrepared.operation.id,
+    correlationId: rosterCorrelationId,
+    target: { placementKind: "BOX", boxNo: 1, slotNo: 1 },
+    metadata: {
+      sourceType: "ADMIN_OPERATION",
+      sourceId: rosterPrepared.operation.id,
+      reason: "Different audit reason must not replay",
+      actorType: "ADMIN",
+      actorId: principalId,
+    },
+  });
+  if (auditConflict.ok || auditConflict.error.code !== "FINGERPRINT_MISMATCH") {
+    throw new Error("Pokemon owner accepted idempotency replay with audit drift");
+  }
 
   const stalePrepared = await admin.prepareMutation({
     principalId,
@@ -403,7 +421,8 @@ try {
     ADMIN_ERROR_CODES.INVALID_OPERATION_STATE,
   );
   const hpConfirmed = await admin.confirm(hpPrepared.operation.id, principalId);
-  if (hpConfirmed.status !== "READY") throw new Error("Confirmed HP correction should become READY");
+  if (hpConfirmed.status !== "READY")
+    throw new Error("Confirmed HP correction should become READY");
   const hpApplied = await admin.apply(hpPrepared.operation.id, principalId);
   if (hpApplied.result?.afterRevision !== "1") throw new Error("HP correction did not advance CAS");
   const hpRow = await pool.query<{ current_hp: number; revision: string }>(
@@ -472,14 +491,7 @@ try {
        id, battle_type, status, content_release_id, ruleset_id,
        rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version
      ) VALUES ($1, 'WILD', 'ACTIVE', $2, $3, $4, $5, $6, 1)`,
-    [
-      battleId,
-      releaseId,
-      rulesetId,
-      Buffer.alloc(32, 1),
-      Buffer.alloc(12, 2),
-      Buffer.alloc(16, 3),
-    ],
+    [battleId, releaseId, rulesetId, Buffer.alloc(32, 1), Buffer.alloc(12, 2), Buffer.alloc(16, 3)],
   );
   await pool.query(
     `INSERT INTO battle_sides(id, battle_id, side_no, controller_kind, player_id)
