@@ -33,13 +33,14 @@ interface ActiveContent {
 }
 
 interface CreateClaimRow {
+  readonly operation_kind: string;
   readonly player_id: string;
-  readonly form_id: string;
   readonly request_fingerprint: string;
   readonly result: unknown;
 }
 
 interface ProgressClaimRow {
+  readonly operation_kind: string;
   readonly player_id: string;
   readonly pokemon_instance_id: string;
   readonly request_fingerprint: string;
@@ -114,7 +115,10 @@ async function loadActiveContent(client: PoolClient): Promise<ActiveContent | nu
   return { releaseId: row.release_id, rulesetId: row.ruleset_id, rulesetConfig: parsed.data };
 }
 
-async function hasUnsafeBattleReference(client: PoolClient, pokemonInstanceId: string): Promise<boolean> {
+async function hasUnsafeBattleReference(
+  client: PoolClient,
+  pokemonInstanceId: string,
+): Promise<boolean> {
   const result = await client.query(
     `SELECT 1
      FROM battle_participants participant
@@ -279,6 +283,40 @@ async function insertHistory(
   );
 }
 
+async function insertClaim(
+  client: PoolClient,
+  input: {
+    readonly operationKind: "CREATE" | "PROGRESSION_CORRECT";
+    readonly playerId: string;
+    readonly pokemonInstanceId: string;
+    readonly idempotencyKey: string;
+    readonly requestFingerprint: string;
+    readonly beforeData: Readonly<Record<string, unknown>>;
+    readonly afterData: Readonly<Record<string, unknown>>;
+    readonly result: PokemonCreateResult | PokemonOwnerMutationResult;
+    readonly correlationId: string;
+  },
+): Promise<void> {
+  await client.query(
+    `INSERT INTO pokemon_admin_operation_claims(
+       id, operation_kind, player_id, pokemon_instance_id, idempotency_key,
+       request_fingerprint, before_data, after_data, result, correlation_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10)`,
+    [
+      randomUUID(),
+      input.operationKind,
+      input.playerId,
+      input.pokemonInstanceId,
+      input.idempotencyKey,
+      input.requestFingerprint,
+      JSON.stringify(input.beforeData),
+      JSON.stringify(input.afterData),
+      JSON.stringify(input.result),
+      input.correlationId,
+    ],
+  );
+}
+
 function progressResult(input: {
   readonly pokemonInstanceId: string;
   readonly beforeRevision: bigint;
@@ -314,16 +352,16 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         `pokemon-roster:${input.playerId}`,
       ]);
       const replay = await client.query<CreateClaimRow>(
-        `SELECT player_id, form_id, request_fingerprint, result
-         FROM pokemon_admin_create_claims
+        `SELECT operation_kind, player_id, request_fingerprint, result
+         FROM pokemon_admin_operation_claims
          WHERE idempotency_key = $1`,
         [input.idempotencyKey],
       );
       const replayRow = replay.rows[0];
       if (replayRow !== undefined) {
         if (
+          replayRow.operation_kind !== "CREATE" ||
           replayRow.player_id !== input.playerId ||
-          replayRow.form_id !== input.formId ||
           replayRow.request_fingerprint !== requestFingerprint
         ) {
           return { kind: "IDEMPOTENCY_CONFLICT" };
@@ -347,7 +385,10 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
       const content = await loadActiveContent(client);
       const progression = content?.rulesetConfig.progression?.pokemon;
       if (content === null || progression === undefined) {
-        return { kind: "INVALID_STATE", reason: "Active Pokemon progression rules are unavailable" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Active Pokemon progression rules are unavailable",
+        };
       }
       if (input.level > progression.levelCap) {
         return {
@@ -479,26 +520,24 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         placement,
         replayed: false,
       });
-      const claim = await client.query(
-        `INSERT INTO pokemon_admin_create_claims(
-           id, player_id, form_id, pokemon_instance_id, content_release_id, ruleset_id,
-           idempotency_key, request_fingerprint, result, correlation_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-        [
-          randomUUID(),
-          input.playerId,
-          input.formId,
-          pokemonInstanceId,
-          content.releaseId,
-          content.rulesetId,
-          input.idempotencyKey,
-          requestFingerprint,
-          JSON.stringify(result),
-          input.correlationId,
-        ],
-      );
-      if (claim.rowCount !== 1) return { kind: "IDEMPOTENCY_CONFLICT" };
+      await insertClaim(client, {
+        operationKind: "CREATE",
+        playerId: input.playerId,
+        pokemonInstanceId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint,
+        beforeData: { exists: false },
+        afterData: {
+          formId: input.formId,
+          level: input.level,
+          contentReleaseId: content.releaseId,
+          rulesetId: content.rulesetId,
+          placement,
+          revision: "0",
+        },
+        result,
+        correlationId: input.correlationId,
+      });
       return { kind: "APPLIED", result };
     });
   }
@@ -521,14 +560,15 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         `pokemon-admin-progress:${input.idempotencyKey}`,
       ]);
       const replay = await client.query<ProgressClaimRow>(
-        `SELECT player_id, pokemon_instance_id, request_fingerprint, result
-         FROM pokemon_admin_progress_corrections
+        `SELECT operation_kind, player_id, pokemon_instance_id, request_fingerprint, result
+         FROM pokemon_admin_operation_claims
          WHERE idempotency_key = $1`,
         [input.idempotencyKey],
       );
       const replayRow = replay.rows[0];
       if (replayRow !== undefined) {
         if (
+          replayRow.operation_kind !== "PROGRESSION_CORRECT" ||
           replayRow.player_id !== input.playerId ||
           replayRow.pokemon_instance_id !== input.pokemonInstanceId ||
           replayRow.request_fingerprint !== requestFingerprint
@@ -559,14 +599,20 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         return { kind: "REVISION_CONFLICT", actualRevision: beforeRevision };
       }
       if (row.status !== "ACTIVE") {
-        return { kind: "INVALID_STATE", reason: "Archived Pokemon progression cannot be corrected" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Archived Pokemon progression cannot be corrected",
+        };
       }
       if (await hasUnsafeBattleReference(client, input.pokemonInstanceId)) {
         return { kind: "ACTIVE_BATTLE" };
       }
       const beforeXp = Number(row.xp);
       if (!Number.isSafeInteger(beforeXp)) {
-        return { kind: "INVALID_STATE", reason: "Stored Pokemon XP is outside the safe integer range" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Stored Pokemon XP is outside the safe integer range",
+        };
       }
       if (row.level === input.level && beforeXp === input.xp) {
         return { kind: "INVALID_STATE", reason: "Pokemon progression correction would be a no-op" };
@@ -575,7 +621,10 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
       const content = await loadActiveContent(client);
       const progression = content?.rulesetConfig.progression?.pokemon;
       if (content === null || progression === undefined) {
-        return { kind: "INVALID_STATE", reason: "Active Pokemon progression rules are unavailable" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Active Pokemon progression rules are unavailable",
+        };
       }
       if (input.level > progression.levelCap) {
         return {
@@ -614,14 +663,14 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
       const nature =
         row.nature_id === null
           ? null
-          : (
+          : ((
               await client.query<NatureRow>(
                 `SELECT nature_id, increased_stat, decreased_stat
                  FROM nature_revisions
                  WHERE content_release_id = $1 AND nature_id = $2 AND active = TRUE`,
                 [content.releaseId, row.nature_id],
               )
-            ).rows[0] ?? null;
+            ).rows[0] ?? null);
       if (battleRules.natureEnabled && nature === null) {
         return { kind: "INVALID_STATE", reason: "Active content cannot resolve Pokemon Nature" };
       }
@@ -713,45 +762,17 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         beforeData,
         afterData,
       });
-      await client.query(
-        `INSERT INTO pokemon_admin_progress_corrections(
-           id, pokemon_instance_id, player_id,
-           before_level, before_xp, after_level, after_xp,
-           before_hp, after_hp, old_max_hp, new_max_hp,
-           content_release_id, ruleset_id, source_type, source_id, reason,
-           actor_type, actor_id, idempotency_key, request_fingerprint, correlation_id, result
-         ) VALUES (
-           $1, $2, $3,
-           $4, $5, $6, $7,
-           $8, $9, $10, $11,
-           $12, $13, $14, $15, $16,
-           $17, $18, $19, $20, $21, $22::jsonb
-         )`,
-        [
-          randomUUID(),
-          input.pokemonInstanceId,
-          input.playerId,
-          row.level,
-          beforeXp,
-          input.level,
-          input.xp,
-          row.current_hp,
-          afterHp,
-          oldStats.hp,
-          newStats.hp,
-          content.releaseId,
-          content.rulesetId,
-          input.metadata.sourceType,
-          input.metadata.sourceId,
-          input.metadata.reason,
-          input.metadata.actorType,
-          input.metadata.actorId,
-          input.idempotencyKey,
-          requestFingerprint,
-          input.correlationId,
-          JSON.stringify(result),
-        ],
-      );
+      await insertClaim(client, {
+        operationKind: "PROGRESSION_CORRECT",
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint,
+        beforeData,
+        afterData,
+        result,
+        correlationId: input.correlationId,
+      });
       await insertHistory(client, {
         pokemonInstanceId: input.pokemonInstanceId,
         eventType: "ADMIN_PROGRESSION_CORRECTED",
