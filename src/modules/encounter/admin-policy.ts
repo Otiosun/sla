@@ -1,6 +1,11 @@
+import type { BattleStatus } from "../battle/contracts.js";
 import type { EncounterAdminState } from "./admin-contracts.js";
 
-const ACTIVE_BATTLE_STATUSES = new Set(["CREATED", "ACTIVE", "RESOLVING_TURN"] as const);
+const ACTIVE_BATTLE_STATUSES: ReadonlySet<BattleStatus> = new Set([
+  "CREATED",
+  "ACTIVE",
+  "RESOLVING_TURN",
+]);
 
 export function encounterAdminCloseUnsafeReason(state: EncounterAdminState): string | null {
   if (state.status === "CLOSED") return "Encounter is already CLOSED";
@@ -10,7 +15,7 @@ export function encounterAdminCloseUnsafeReason(state: EncounterAdminState): str
   if (state.status === "IN_BATTLE" && state.battle === null) {
     return "Encounter IN_BATTLE has no linked Battle; repair the inconsistent flow before closing";
   }
-  if (state.battle !== null && ACTIVE_BATTLE_STATUSES.has(state.battle.status as never)) {
+  if (state.battle !== null && ACTIVE_BATTLE_STATUSES.has(state.battle.status)) {
     return "Encounter cannot be administratively closed while its linked Battle is active";
   }
   if (
