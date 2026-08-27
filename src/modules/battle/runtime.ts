@@ -27,6 +27,9 @@ export interface CancelBattleInput {
   readonly battleId: string;
   readonly expectedVersion: number;
   readonly reason: string;
+  readonly causationId?: string;
+  readonly correlationId?: string;
+  readonly requestFingerprint?: string;
 }
 
 export interface CancelBattleOutput {
@@ -42,6 +45,7 @@ export type BattleCancellationPersistenceResult =
       readonly events: readonly BattleEvent[];
     }
   | { readonly kind: "REPLAYED"; readonly state: BattleState }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "NOT_FOUND" }
   | { readonly kind: "NOT_INITIALIZED" }
   | { readonly kind: "NOT_ACTIVE"; readonly currentState: BattleState }
@@ -136,6 +140,11 @@ export class BattleRuntimeService {
         };
       case "REPLAYED":
         return { ok: true, value: { state: persisted.state, events: [], replayed: true } };
+      case "IDEMPOTENCY_CONFLICT":
+        return runtimeFailure(
+          "BATTLE_ACTION_INVALID",
+          "Battle cancellation idempotency evidence conflicts with the request",
+        );
       case "NOT_FOUND":
         return runtimeFailure("BATTLE_NOT_FOUND", "Battle was not found");
       case "NOT_INITIALIZED":
