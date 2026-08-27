@@ -1,0 +1,265 @@
+name: Phase 12A Policy Snapshot Temp
+
+on:
+  push:
+    branches:
+      - work/phase12a-policy-snapshot-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Apply policy snapshot hardening
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_str, old, new):
+              path = Path(path_str)
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path_str}: expected 1 anchor, found {count}: {old[:80]!r}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_once(
+              'db/migrations/0011_admin_operation_registry_integrity.sql',
+              '''  ADD COLUMN request_fingerprint TEXT,\n  ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 1 CHECK (policy_version > 0),\n  ADD COLUMN requires_simulation BOOLEAN NOT NULL DEFAULT FALSE,\n  ADD COLUMN requires_confirmation BOOLEAN NOT NULL DEFAULT FALSE,\n  ADD COLUMN required_approvals SMALLINT NOT NULL DEFAULT 0 CHECK (required_approvals BETWEEN 0 AND 2),\n''',
+              '''  ADD COLUMN request_fingerprint TEXT,\n  ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 1 CHECK (policy_version > 0),\n  ADD COLUMN authorization_mode TEXT NOT NULL DEFAULT 'SUBJECT'\n    CHECK (authorization_mode IN ('GLOBAL_ONLY', 'SUBJECT')),\n  ADD COLUMN requires_reason BOOLEAN NOT NULL DEFAULT FALSE,\n  ADD COLUMN requires_expected_revision BOOLEAN NOT NULL DEFAULT FALSE,\n  ADD COLUMN requires_simulation BOOLEAN NOT NULL DEFAULT FALSE,\n  ADD COLUMN requires_confirmation BOOLEAN NOT NULL DEFAULT FALSE,\n  ADD COLUMN required_approvals SMALLINT NOT NULL DEFAULT 0 CHECK (required_approvals BETWEEN 0 AND 2),\n''',
+          )
+
+          replace_once(
+              'src/modules/admin/contracts.ts',
+              '''  readonly riskTier: AdminRiskTier;\n  readonly status: AdminOperationStatus;\n''',
+              '''  readonly riskTier: AdminRiskTier;\n  readonly authorizationMode: AdminAuthorizationMode;\n  readonly status: AdminOperationStatus;\n''',
+          )
+
+          replace_once(
+              'src/modules/admin/errors.ts',
+              '''  CAPABILITY_POLICY_DRIFT: "ADMIN_CAPABILITY_POLICY_DRIFT",\n''',
+              '''  CAPABILITY_POLICY_DRIFT: "ADMIN_CAPABILITY_POLICY_DRIFT",\n  OPERATION_POLICY_DRIFT: "ADMIN_OPERATION_POLICY_DRIFT",\n''',
+          )
+
+          replace_once(
+              'src/modules/admin/ports.ts',
+              '''  readonly policyVersion: number;\n  readonly requiresSimulation: boolean;\n''',
+              '''  readonly policyVersion: number;\n  readonly authorizationMode: "GLOBAL_ONLY" | "SUBJECT";\n  readonly requiresReason: boolean;\n  readonly requiresExpectedRevision: boolean;\n  readonly requiresSimulation: boolean;\n''',
+          )
+
+          replace_once(
+              'src/modules/admin/operation-registry.ts',
+              '''    capabilityKey: input.definition.capabilityKey,\n    riskTier: input.definition.riskTier,\n    input: input.parsedInput,\n''',
+              '''    capabilityKey: input.definition.capabilityKey,\n    riskTier: input.definition.riskTier,\n    authorizationMode: input.definition.authorizationMode,\n    input: input.parsedInput,\n''',
+          )
+
+          service_path = Path('src/modules/admin/service.ts')
+          service = service_path.read_text(encoding='utf-8')
+          service = service.replace(
+              '''  type AdminOperationRecord,\n  type AdminOperationStatus,\n''',
+              '''  type AdminOperationPolicy,\n  type AdminOperationRecord,\n  type AdminOperationStatus,\n''',
+              1,
+          )
+          old_helpers = '''function nextStatusAfterValidation(definition: AdminOperationDefinition): AdminOperationStatus {\n  if (definition.policy.requiresSimulation) return "VALIDATED";\n  if (definition.policy.requiresConfirmation) return "PENDING_CONFIRMATION";\n  if (definition.policy.requiredApprovals > 0) return "PENDING_APPROVAL";\n  return "READY";\n}\n\nfunction nextStatusAfterSimulation(definition: AdminOperationDefinition): AdminOperationStatus {\n  if (definition.policy.requiresConfirmation) return "PENDING_CONFIRMATION";\n  if (definition.policy.requiredApprovals > 0) return "PENDING_APPROVAL";\n  return "READY";\n}\n'''
+          new_helpers = '''function nextStatusAfterValidation(policy: AdminOperationPolicy): AdminOperationStatus {\n  if (policy.requiresSimulation) return "VALIDATED";\n  if (policy.requiresConfirmation) return "PENDING_CONFIRMATION";\n  if (policy.requiredApprovals > 0) return "PENDING_APPROVAL";\n  return "READY";\n}\n\nfunction nextStatusAfterSimulation(policy: AdminOperationPolicy): AdminOperationStatus {\n  if (policy.requiresConfirmation) return "PENDING_CONFIRMATION";\n  if (policy.requiredApprovals > 0) return "PENDING_APPROVAL";\n  return "READY";\n}\n\nfunction policySnapshotsEqual(\n  persisted: AdminOperationPolicy,\n  current: AdminOperationPolicy,\n): boolean {\n  return (\n    persisted.version === current.version &&\n    persisted.requiresReason === current.requiresReason &&\n    persisted.requiresExpectedRevision === current.requiresExpectedRevision &&\n    persisted.requiresSimulation === current.requiresSimulation &&\n    persisted.requiresConfirmation === current.requiresConfirmation &&\n    persisted.requiredApprovals === current.requiredApprovals\n  );\n}\n\nfunction requireOperationDefinitionSnapshot(\n  operation: AdminOperationRecord,\n  definition: AdminOperationDefinition,\n  parsedInput: unknown,\n): AdminTarget {\n  const target = definition.target(parsedInput);\n  const fingerprint = adminRequestFingerprint({\n    principalId: operation.principalId,\n    definition,\n    parsedInput,\n    target,\n    reason: operation.reason,\n    expectedRevision: operation.expectedRevision,\n  });\n  const drifted =\n    operation.capabilityKey !== definition.capabilityKey ||\n    operation.riskTier !== definition.riskTier ||\n    operation.authorizationMode !== definition.authorizationMode ||\n    !policySnapshotsEqual(operation.policy, definition.policy) ||\n    operation.targetType !== target.type ||\n    operation.targetId !== target.id ||\n    operation.requestFingerprint !== fingerprint;\n  if (drifted) {\n    throw new AdminError(\n      ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT,\n      "Stored admin operation snapshot differs from the current Registry definition",\n      { operationType: operation.operationType, policyVersion: operation.policy.version },\n    );\n  }\n  return target;\n}\n'''
+          if service.count(old_helpers) != 1:
+              raise SystemExit('service helpers anchor changed unexpectedly')
+          service = service.replace(old_helpers, new_helpers)
+          service = service.replace(
+              'status: nextStatusAfterValidation(definition),',
+              'status: nextStatusAfterValidation(definition.policy),',
+              1,
+          )
+          service = service.replace(
+              '''      policyVersion: definition.policy.version,\n      requiresSimulation: definition.policy.requiresSimulation,\n''',
+              '''      policyVersion: definition.policy.version,\n      authorizationMode: definition.authorizationMode,\n      requiresReason: definition.policy.requiresReason,\n      requiresExpectedRevision: definition.policy.requiresExpectedRevision,\n      requiresSimulation: definition.policy.requiresSimulation,\n''',
+              1,
+          )
+          service = service.replace(
+              '''    const input = definition.parseInput(operation.input);\n    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));\n    if (operation.status !== "VALIDATED" || definition.simulate === undefined) {\n''',
+              '''    const input = definition.parseInput(operation.input);\n    const target = requireOperationDefinitionSnapshot(operation, definition, input);\n    await this.requireAuthorized(actorPrincipalId, definition, target);\n    if (operation.status !== "VALIDATED" || definition.simulate === undefined) {\n''',
+              1,
+          )
+          service = service.replace(
+              '      nextStatusAfterSimulation(definition),',
+              '      nextStatusAfterSimulation(operation.policy),',
+              1,
+          )
+          service = service.replace(
+              '''    const input = definition.parseInput(operation.input);\n    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));\n    const nextStatus = definition.policy.requiredApprovals > 0 ? "PENDING_APPROVAL" : "READY";\n''',
+              '''    const input = definition.parseInput(operation.input);\n    const target = requireOperationDefinitionSnapshot(operation, definition, input);\n    await this.requireAuthorized(actorPrincipalId, definition, target);\n    const nextStatus = operation.policy.requiredApprovals > 0 ? "PENDING_APPROVAL" : "READY";\n''',
+              1,
+          )
+          # approve occurrence
+          approve_old = '''    const input = definition.parseInput(operation.input);\n    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));\n    if (reason.trim().length === 0) {\n'''
+          approve_new = '''    const input = definition.parseInput(operation.input);\n    const target = requireOperationDefinitionSnapshot(operation, definition, input);\n    await this.requireAuthorized(actorPrincipalId, definition, target);\n    if (reason.trim().length === 0) {\n'''
+          if service.count(approve_old) != 1:
+              raise SystemExit('approve lifecycle anchor changed unexpectedly')
+          service = service.replace(approve_old, approve_new)
+          apply_old = '''    const definition = this.registry.require(operation.operationType);\n    const input = definition.parseInput(operation.input);\n    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));\n    if (operation.status !== "READY" || definition.apply === undefined) {\n'''
+          apply_new = '''    const definition = this.registry.require(operation.operationType);\n    const input = definition.parseInput(operation.input);\n    const target = requireOperationDefinitionSnapshot(operation, definition, input);\n    await this.requireAuthorized(actorPrincipalId, definition, target);\n    if (operation.status !== "READY" || definition.apply === undefined) {\n'''
+          if service.count(apply_old) != 1:
+              raise SystemExit('apply lifecycle anchor changed unexpectedly')
+          service = service.replace(apply_old, apply_new)
+          service_path.write_text(service, encoding='utf-8')
+
+          repo_path = Path('src/platform/admin/postgres-admin-repository.ts')
+          repo = repo_path.read_text(encoding='utf-8')
+          repo = repo.replace(
+              '''  AdminOperationPolicySchema,\n  AdminOperationStatusSchema,\n''',
+              '''  AdminAuthorizationModeSchema,\n  AdminOperationPolicySchema,\n  AdminOperationStatusSchema,\n''',
+              1,
+          )
+          repo = repo.replace(
+              '''  policy_version: number;\n  requires_simulation: boolean;\n''',
+              '''  policy_version: number;\n  authorization_mode: string;\n  requires_reason: boolean;\n  requires_expected_revision: boolean;\n  requires_simulation: boolean;\n''',
+              1,
+          )
+          repo = repo.replace(
+              '''         request_fingerprint, input, result, correlation_id, policy_version,\n         requires_simulation, requires_confirmation, required_approvals,\n''',
+              '''         request_fingerprint, input, result, correlation_id, policy_version,\n         authorization_mode, requires_reason, requires_expected_revision,\n         requires_simulation, requires_confirmation, required_approvals,\n''',
+              1,
+          )
+          repo = repo.replace(
+              '''    riskTier: AdminRiskTierSchema.parse(row.risk_tier),\n    status: AdminOperationStatusSchema.parse(row.status),\n''',
+              '''    riskTier: AdminRiskTierSchema.parse(row.risk_tier),\n    authorizationMode: AdminAuthorizationModeSchema.parse(row.authorization_mode),\n    status: AdminOperationStatusSchema.parse(row.status),\n''',
+              1,
+          )
+          repo = repo.replace(
+              '''      version: row.policy_version,\n      requiresReason: row.risk_tier >= 2,\n      requiresExpectedRevision: row.expected_revision !== null,\n      requiresSimulation: row.requires_simulation,\n''',
+              '''      version: row.policy_version,\n      requiresReason: row.requires_reason,\n      requiresExpectedRevision: row.requires_expected_revision,\n      requiresSimulation: row.requires_simulation,\n''',
+              1,
+          )
+          repo = repo.replace(
+              '''           request_fingerprint, input, correlation_id, policy_version,\n           requires_simulation, requires_confirmation, required_approvals\n         ) VALUES (\n           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb,\n           $14, $15, $16, $17, $18\n''',
+              '''           request_fingerprint, input, correlation_id, policy_version,\n           authorization_mode, requires_reason, requires_expected_revision,\n           requires_simulation, requires_confirmation, required_approvals\n         ) VALUES (\n           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb,\n           $14, $15, $16, $17, $18, $19, $20, $21\n''',
+              1,
+          )
+          repo = repo.replace(
+              '''          input.policyVersion,\n          input.requiresSimulation,\n          input.requiresConfirmation,\n          input.requiredApprovals,\n''',
+              '''          input.policyVersion,\n          input.authorizationMode,\n          input.requiresReason,\n          input.requiresExpectedRevision,\n          input.requiresSimulation,\n          input.requiresConfirmation,\n          input.requiredApprovals,\n''',
+              1,
+          )
+          repo_path.write_text(repo, encoding='utf-8')
+
+          proof_path = Path('db/proofs/phase12_admin_registry_e2e.ts')
+          proof = proof_path.read_text(encoding='utf-8')
+          proof = proof.replace(
+              '''import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";\n''',
+              '''import { AdminRoleAssignInputSchema } from "../../src/modules/admin/contracts.js";\nimport { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";\n''',
+              1,
+          )
+          proof = proof.replace(
+              '''import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";\nimport { AdminService } from "../../src/modules/admin/service.js";\n''',
+              '''import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";\nimport {\n  AdminOperationRegistry,\n  defineAdminOperation,\n} from "../../src/modules/admin/operation-registry.js";\nimport { AdminService } from "../../src/modules/admin/service.js";\n''',
+              1,
+          )
+          proof = proof.replace(
+              '''  const staleTargetId = randomUUID();\n  const allowedPlayerId = randomUUID();\n''',
+              '''  const staleTargetId = randomUUID();\n  const driftTargetId = randomUUID();\n  const allowedPlayerId = randomUUID();\n''',
+              1,
+          )
+          proof = proof.replace(
+              '''    [staleTargetId, "proof:stale-target"],\n  ]) {\n''',
+              '''    [staleTargetId, "proof:stale-target"],\n    [driftTargetId, "proof:drift-target"],\n  ]) {\n''',
+              1,
+          )
+          drift_anchor = '''  const simulated = await service.simulate(prepared.operation.id, proposerId);\n'''
+          drift_block = '''  const persistedSnapshot = await pool.query<{\n    authorization_mode: string;\n    requires_reason: boolean;\n    requires_expected_revision: boolean;\n    requires_simulation: boolean;\n    requires_confirmation: boolean;\n    required_approvals: number;\n  }>(\n    `SELECT authorization_mode, requires_reason, requires_expected_revision,\n            requires_simulation, requires_confirmation, required_approvals\n     FROM admin_operations WHERE id = $1`,\n    [prepared.operation.id],\n  );\n  const snapshotRow = persistedSnapshot.rows[0];\n  if (\n    snapshotRow?.authorization_mode !== "GLOBAL_ONLY" ||\n    snapshotRow.requires_reason !== true ||\n    snapshotRow.requires_expected_revision !== true ||\n    snapshotRow.requires_simulation !== true ||\n    snapshotRow.requires_confirmation !== true ||\n    snapshotRow.required_approvals !== 1\n  ) {\n    throw new Error(`Admin policy snapshot was not fully persisted: ${JSON.stringify(snapshotRow)}`);\n  }\n\n  const driftPrepared = await service.prepareMutation({\n    principalId: proposerId,\n    operationType: "admin.role.assign",\n    input: { principalId: driftTargetId, roleId: supportRoleId },\n    reason: "policy drift proof",\n    expectedRevision: 0,\n    idempotencyKey: "phase12-proof-policy-drift-001",\n    correlationId: randomUUID(),\n  });\n  const changedPolicyRegistry = new AdminOperationRegistry().register(\n    defineAdminOperation({\n      kind: "MUTATION",\n      operationType: "admin.role.assign",\n      capabilityKey: "admin.role.assign",\n      riskTier: 4,\n      authorizationMode: "GLOBAL_ONLY",\n      policy: {\n        version: 2,\n        requiresReason: true,\n        requiresExpectedRevision: true,\n        requiresSimulation: true,\n        requiresConfirmation: true,\n        requiredApprovals: 2,\n      },\n      inputSchema: AdminRoleAssignInputSchema,\n      target: (input) => ({ type: "ADMIN_PRINCIPAL", id: input.principalId }),\n      simulate: (input) => repository.simulateRoleAssignment(input),\n      apply: (context, input) =>\n        repository.applyRoleAssignment(context.operation, context.actorPrincipalId, input),\n    }),\n  );\n  try {\n    await new AdminService(changedPolicyRegistry, repository).simulate(\n      driftPrepared.operation.id,\n      proposerId,\n    );\n    throw new Error("Policy drift unexpectedly changed an in-flight admin operation");\n  } catch (error) {\n    expectAdminCode(error, ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT);\n  }\n\n  const changedAuthorizationRegistry = new AdminOperationRegistry().register(\n    defineAdminOperation({\n      kind: "MUTATION",\n      operationType: "admin.role.assign",\n      capabilityKey: "admin.role.assign",\n      riskTier: 4,\n      authorizationMode: "SUBJECT",\n      policy: {\n        version: 1,\n        requiresReason: true,\n        requiresExpectedRevision: true,\n        requiresSimulation: true,\n        requiresConfirmation: true,\n        requiredApprovals: 1,\n      },\n      inputSchema: AdminRoleAssignInputSchema,\n      target: (input) => ({ type: "ADMIN_PRINCIPAL", id: input.principalId }),\n      simulate: (input) => repository.simulateRoleAssignment(input),\n      apply: (context, input) =>\n        repository.applyRoleAssignment(context.operation, context.actorPrincipalId, input),\n    }),\n  );\n  try {\n    await new AdminService(changedAuthorizationRegistry, repository).simulate(\n      driftPrepared.operation.id,\n      proposerId,\n    );\n    throw new Error("Authorization-mode drift unexpectedly changed an in-flight operation");\n  } catch (error) {\n    expectAdminCode(error, ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT);\n  }\n\n  const simulated = await service.simulate(prepared.operation.id, proposerId);\n'''
+          if proof.count(drift_anchor) != 1:
+              raise SystemExit('proof drift insertion anchor changed unexpectedly')
+          proof = proof.replace(drift_anchor, drift_block)
+          proof = proof.replace(
+              '''    "Phase 12A admin registry proof complete: capability + object/property auth, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",\n''',
+              '''    "Phase 12A admin registry proof complete: capability + object/property auth, full policy snapshot drift lock, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",\n''',
+              1,
+          )
+          proof_path.write_text(proof, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format candidate
+        run: pnpm format
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Full test suite
+        run: pnpm test
+
+      - name: Migrate and verify
+        run: |
+          pnpm db:migrate
+          pnpm db:verify
+
+      - name: Seed Phase 12 twice
+        run: |
+          pnpm db:seed:phase12
+          pnpm db:seed:phase12
+
+      - name: Admin Registry proof
+        run: node --import tsx db/proofs/phase12_admin_registry_e2e.ts
+
+      - name: Commit validated functional changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/migrations/0011_admin_operation_registry_integrity.sql \
+            src/modules/admin/contracts.ts src/modules/admin/errors.ts src/modules/admin/ports.ts \
+            src/modules/admin/operation-registry.ts src/modules/admin/service.ts \
+            src/platform/admin/postgres-admin-repository.ts db/proofs/phase12_admin_registry_e2e.ts
+          git commit -m "fix: freeze admin operation policy snapshots"
+          git push origin HEAD:work/phase12a-policy-snapshot-v1
