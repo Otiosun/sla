@@ -58,7 +58,9 @@ function normalize(value: unknown): unknown {
 }
 
 function fingerprint(value: Readonly<Record<string, unknown>>): string {
-  return createHash("sha256").update(JSON.stringify(normalize(value))).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify(normalize(value)))
+    .digest("hex");
 }
 
 function persistenceResult(
@@ -66,16 +68,22 @@ function persistenceResult(
 ): Result<CatalogDraftMutationResult> {
   if (result.kind === "PERSISTED" || result.kind === "REPLAYED") return ok(result.result);
   if (result.kind === "IDEMPOTENCY_CONFLICT") {
-    return err(appError("FINGERPRINT_MISMATCH", "Catalog draft replay evidence conflicts with request"));
+    return err(
+      appError("FINGERPRINT_MISMATCH", "Catalog draft replay evidence conflicts with request"),
+    );
   }
   if (result.kind === "NOT_FOUND") {
     return err(appError("NOT_FOUND", "Catalog draft target was not found"));
   }
   if (result.kind === "NOT_DRAFT") {
     return err(
-      appError("INVALID_STATE_TRANSITION", "Catalog content may be edited only in a DRAFT release", {
-        status: result.status,
-      }),
+      appError(
+        "INVALID_STATE_TRANSITION",
+        "Catalog content may be edited only in a DRAFT release",
+        {
+          status: result.status,
+        },
+      ),
     );
   }
   if (result.kind === "REVISION_CONFLICT") {
@@ -86,7 +94,10 @@ function persistenceResult(
     );
   }
   return err(
-    appError(result.kind === "RESOURCE_CONFLICT" ? "ACTION_INVALID" : "VALIDATION_FAILED", result.reason),
+    appError(
+      result.kind === "RESOURCE_CONFLICT" ? "ACTION_INVALID" : "VALIDATION_FAILED",
+      result.reason,
+    ),
   );
 }
 
