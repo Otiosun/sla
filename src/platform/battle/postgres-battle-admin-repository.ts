@@ -42,7 +42,7 @@ interface EventRow {
   readonly payload: unknown;
   readonly causation_id: string | null;
   readonly correlation_id: string;
-  readonly created_at: Date;
+  readonly occurred_at: Date;
 }
 
 interface ActionRow {
@@ -185,7 +185,7 @@ function eventView(row: EventRow): BattleAdminEventView {
     payload: row.payload,
     causationId: row.causation_id,
     correlationId: row.correlation_id,
-    createdAt: row.created_at.toISOString(),
+    createdAt: row.occurred_at.toISOString(),
   };
 }
 
@@ -225,7 +225,7 @@ async function replayWithClient(
 ): Promise<BattleAdminReplayResult> {
   const eventResult = await client.query<EventRow>(
     `SELECT seq::text, battle_version::text, event_type, payload,
-            causation_id, correlation_id, created_at
+            causation_id, correlation_id, occurred_at
      FROM battle_events
      WHERE battle_id = $1 AND causation_id = $2
      ORDER BY seq DESC
@@ -277,7 +277,7 @@ export class PostgresBattleAdminRepository implements BattleAdminRepository {
         const state = await loadSnapshot(client, battleId, version);
         const events = await client.query<EventRow>(
           `SELECT seq::text, battle_version::text, event_type, payload,
-                  causation_id, correlation_id, created_at
+                  causation_id, correlation_id, occurred_at
            FROM battle_events
            WHERE battle_id = $1
            ORDER BY seq DESC
