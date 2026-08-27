@@ -5,6 +5,7 @@ import type { AdminRoleAssignmentPort } from "./ports.js";
 
 const playerReadSchema = z.object({ playerId: z.string().uuid() }).strict();
 const playerCollectionReadSchema = z.object({}).strict();
+const adminOperationAuditReadSchema = z.object({ operationId: z.string().uuid() }).strict();
 
 const readPolicy = {
   version: 1,
@@ -69,6 +70,19 @@ export function createPhase12AdminOperationRegistry(
       policy: readPolicy,
       inputSchema: playerCollectionReadSchema,
       target: () => ({ type: "PLAYER_COLLECTION", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "admin.operation.audit",
+      capabilityKey: "audit.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: adminOperationAuditReadSchema,
+      target: (input) => ({ type: "ADMIN_OPERATION", id: input.operationId }),
     }),
   );
 
