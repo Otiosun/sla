@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  BattleMoveFlagsSchema,
-  RewardProgramSchema,
-  validateEffectConfig,
-} from "./contracts.js";
+import { BattleMoveFlagsSchema, RewardProgramSchema, validateEffectConfig } from "./contracts.js";
 import { EncounterConditionsSchema } from "./encounter-contracts.js";
 import { EffectProgramSchema } from "./validation.js";
 
