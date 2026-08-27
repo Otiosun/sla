@@ -1,0 +1,158 @@
+name: Phase 12A RBAC Reconcile Temp
+
+on:
+  push:
+    branches:
+      - work/phase12a-rbac-reconcile-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Apply RBAC convergence hardening
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_str, old, new):
+              path = Path(path_str)
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path_str}: expected 1 anchor, found {count}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_once(
+              'db/migrations/0011_admin_operation_registry_integrity.sql',
+              '''  ADD CONSTRAINT admin_operations_sensitive_reason_check\n    CHECK (risk_tier < 2 OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),\n  ADD CONSTRAINT admin_operations_applied_at_check\n''',
+              '''  ADD CONSTRAINT admin_operations_sensitive_reason_check\n    CHECK (risk_tier < 2 OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),\n  ADD CONSTRAINT admin_operations_policy_reason_check\n    CHECK (NOT requires_reason OR (reason IS NOT NULL AND length(btrim(reason)) > 0)),\n  ADD CONSTRAINT admin_operations_policy_revision_check\n    CHECK (NOT requires_expected_revision OR expected_revision IS NOT NULL),\n  ADD CONSTRAINT admin_operations_applied_at_check\n''',
+          )
+
+          replace_once(
+              'db/seeds/phase12_admin_registry_slice.ts',
+              '''    const roleId = role.rows[0]?.id;\n    if (roleId === undefined) throw new Error(`Role missing after seed: ${slug}`);\n    for (const capabilityKey of capabilityKeys) {\n''',
+              '''    const roleId = role.rows[0]?.id;\n    if (roleId === undefined) throw new Error(`Role missing after seed: ${slug}`);\n    await pool.query(\n      `DELETE FROM admin_role_capabilities relation\n       USING capabilities capability\n       WHERE relation.role_id = $1\n         AND relation.capability_id = capability.id\n         AND NOT (capability.key = ANY($2::text[]))`,\n      [roleId, capabilityKeys],\n    );\n    for (const capabilityKey of capabilityKeys) {\n''',
+          )
+
+          proof_path = Path('db/proofs/phase12_admin_registry_e2e.ts')
+          proof = proof_path.read_text(encoding='utf-8')
+          proof = proof.replace(
+              'import { randomUUID } from "node:crypto";\n',
+              'import { execFileSync } from "node:child_process";\nimport { randomUUID } from "node:crypto";\n',
+              1,
+          )
+          helper_anchor = '''function expectAdminCode(error: unknown, code: string): void {\n  if (!(error instanceof AdminError) || error.code !== code) {\n    throw error instanceof Error ? error : new Error(`Expected ${code}`);\n  }\n}\n'''
+          helper_new = helper_anchor + '''\nfunction expectCheckViolation(error: unknown): void {\n  if (\n    typeof error !== "object" ||\n    error === null ||\n    !("code" in error) ||\n    (error as { readonly code?: unknown }).code !== "23514"\n  ) {\n    throw error instanceof Error ? error : new Error("Expected PostgreSQL check violation");\n  }\n}\n'''
+          if proof.count(helper_anchor) != 1:
+              raise SystemExit('proof helper anchor changed')
+          proof = proof.replace(helper_anchor, helper_new)
+
+          roles_anchor = '''  if (ownerRoleId === undefined || supportRoleId === undefined)\n    throw new Error("Phase 12 roles are not seeded");\n\n  const proposerId = randomUUID();\n'''
+          roles_new = '''  if (ownerRoleId === undefined || supportRoleId === undefined)\n    throw new Error("Phase 12 roles are not seeded");\n\n  const roleAssignCapability = await pool.query<{ id: string }>(\n    `SELECT id FROM capabilities WHERE key = 'admin.role.assign'`,\n  );\n  const roleAssignCapabilityId = roleAssignCapability.rows[0]?.id;\n  if (roleAssignCapabilityId === undefined) throw new Error("admin.role.assign capability missing");\n  await pool.query(\n    `INSERT INTO admin_role_capabilities(role_id, capability_id) VALUES ($1, $2)\n     ON CONFLICT DO NOTHING`,\n    [supportRoleId, roleAssignCapabilityId],\n  );\n  execFileSync(process.execPath, ["--import", "tsx", "db/seeds/phase12_admin_registry_slice.ts"], {\n    env: process.env,\n    stdio: "pipe",\n  });\n  const staleSupportGrant = await pool.query(\n    `SELECT 1\n     FROM admin_role_capabilities relation\n     JOIN capabilities capability ON capability.id = relation.capability_id\n     WHERE relation.role_id = $1 AND capability.key = 'admin.role.assign'`,\n    [supportRoleId],\n  );\n  if (staleSupportGrant.rowCount !== 0) {\n    throw new Error("Phase 12 role seed failed to remove stale SUPPORT capability");\n  }\n\n  const proposerId = randomUUID();\n'''
+          if proof.count(roles_anchor) != 1:
+              raise SystemExit('proof roles anchor changed')
+          proof = proof.replace(roles_anchor, roles_new)
+
+          principal_loop_anchor = '''  for (const id of [proposerId, approverId]) {\n    await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [\n      id,\n      ownerRoleId,\n    ]);\n'''
+          constraints_block = '''  try {\n    await pool.query(\n      `INSERT INTO admin_operations(\n         id, principal_id, capability_key, operation_type, target_type, target_id, risk_tier,\n         status, reason, expected_revision, idempotency_key, request_fingerprint, input,\n         correlation_id, authorization_mode, requires_reason, requires_expected_revision\n       ) VALUES (\n         $1, $2, 'player.profile.edit', 'proof.invalid.reason', 'PLAYER', $3, 1,\n         'DRAFT', NULL, NULL, $4, $5, '{}'::jsonb, $6, 'SUBJECT', TRUE, FALSE\n       )`,\n      [randomUUID(), proposerId, allowedPlayerId, `bad-reason-${randomUUID()}`, randomUUID(), randomUUID()],\n    );\n    throw new Error("Malformed requires_reason snapshot unexpectedly persisted");\n  } catch (error) {\n    expectCheckViolation(error);\n  }\n  try {\n    await pool.query(\n      `INSERT INTO admin_operations(\n         id, principal_id, capability_key, operation_type, target_type, target_id, risk_tier,\n         status, reason, expected_revision, idempotency_key, request_fingerprint, input,\n         correlation_id, authorization_mode, requires_reason, requires_expected_revision\n       ) VALUES (\n         $1, $2, 'player.profile.edit', 'proof.invalid.revision', 'PLAYER', $3, 1,\n         'DRAFT', 'proof reason', NULL, $4, $5, '{}'::jsonb, $6, 'SUBJECT', TRUE, TRUE\n       )`,\n      [randomUUID(), proposerId, allowedPlayerId, `bad-revision-${randomUUID()}`, randomUUID(), randomUUID()],\n    );\n    throw new Error("Malformed requires_expected_revision snapshot unexpectedly persisted");\n  } catch (error) {\n    expectCheckViolation(error);\n  }\n\n'''
+          if proof.count(principal_loop_anchor) != 1:
+              raise SystemExit('proof principal loop anchor changed')
+          # constraints must run after proposer exists; insert block after owner/global-scope setup instead.
+          scope_anchor = '''  await pool.query(\n    `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)\n     VALUES ($1, $2, 'PLAYER', $3)`,\n    [randomUUID(), scopedSupportId, allowedPlayerId],\n  );\n\n  const repository = new PostgresAdminRepository(pool);\n'''
+          scope_new = '''  await pool.query(\n    `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)\n     VALUES ($1, $2, 'PLAYER', $3)`,\n    [randomUUID(), scopedSupportId, allowedPlayerId],\n  );\n\n''' + constraints_block + '''  const repository = new PostgresAdminRepository(pool);\n'''
+          if proof.count(scope_anchor) != 1:
+              raise SystemExit('proof scope anchor changed')
+          proof = proof.replace(scope_anchor, scope_new)
+          proof = proof.replace(
+              'full policy snapshot drift lock, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified',
+              'full policy snapshot drift lock, convergent RBAC bundles, DB snapshot constraints, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified',
+              1,
+          )
+          proof_path.write_text(proof, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format candidate
+        run: pnpm format
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql --username pokemon --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 --tuples-only --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Full test suite
+        run: pnpm test
+
+      - name: Migrate and verify
+        run: |
+          pnpm db:migrate
+          pnpm db:verify
+
+      - name: Seed Phase 12 twice
+        run: |
+          pnpm db:seed:phase12
+          pnpm db:seed:phase12
+
+      - name: Admin Registry proof
+        run: node --import tsx db/proofs/phase12_admin_registry_e2e.ts
+
+      - name: Commit validated functional changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/migrations/0011_admin_operation_registry_integrity.sql \
+            db/seeds/phase12_admin_registry_slice.ts db/proofs/phase12_admin_registry_e2e.ts
+          git commit -m "fix: reconcile RBAC bundles and snapshot constraints"
+          git push origin HEAD:work/phase12a-rbac-reconcile-v1
