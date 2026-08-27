@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   MajorPokemonStatusSchema,
+  PokemonAdminIvsSchema,
   PokemonRosterPlacementSchema,
 } from "../pokemon/admin-contracts.js";
 
@@ -58,6 +59,39 @@ const pokemonTargetFields = {
   playerId: uuidSchema,
   pokemonInstanceId: uuidSchema,
 } as const;
+
+const uniqueMoveIds = z
+  .array(uuidSchema)
+  .min(1)
+  .max(4)
+  .refine((value) => new Set(value).size === value.length, "Pokemon create moveIds must be unique");
+
+export const AdminPokemonCreateInputSchema = z
+  .object({
+    playerId: uuidSchema,
+    formId: uuidSchema,
+    level: z.number().int().min(1).max(100),
+    xp: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    abilityId: uuidSchema,
+    natureId: uuidSchema.nullable(),
+    ivs: PokemonAdminIvsSchema,
+    moveIds: uniqueMoveIds,
+    nickname: z.string().trim().min(1).max(64).nullable(),
+    shiny: z.boolean(),
+  })
+  .strict();
+export type AdminPokemonCreateInput = z.infer<typeof AdminPokemonCreateInputSchema>;
+
+export const AdminPokemonProgressionCorrectInputSchema = z
+  .object({
+    ...pokemonTargetFields,
+    targetLevel: z.number().int().min(1).max(100),
+    targetXp: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+export type AdminPokemonProgressionCorrectInput = z.infer<
+  typeof AdminPokemonProgressionCorrectInputSchema
+>;
 
 export const AdminPokemonRosterMoveInputSchema = z
   .object({ ...pokemonTargetFields, target: PokemonRosterPlacementSchema })
