@@ -133,7 +133,14 @@ try {
      ) VALUES
        ($1, $2, $3, 'POKEMON', 'REFRESH', 'PERSISTENT', $4::jsonb),
        ($5, $2, $6, 'POKEMON', 'REFRESH', 'INSTANT', $4::jsonb)`,
-    [randomUUID(), releaseId, persistentEffectId, JSON.stringify(rules), randomUUID(), instantEffectId],
+    [
+      randomUUID(),
+      releaseId,
+      persistentEffectId,
+      JSON.stringify(rules),
+      randomUUID(),
+      instantEffectId,
+    ],
   );
 
   await pool.query(
@@ -326,7 +333,11 @@ try {
   if (removed.result?.operationKind !== "EFFECT_REMOVE" || removed.result?.afterRevision !== "3") {
     throw new Error("Persistent effect remove did not complete through Pokemon owner");
   }
-  const finalState = await pool.query<{ effect_count: string; revision: string; history_count: string }>(
+  const finalState = await pool.query<{
+    effect_count: string;
+    revision: string;
+    history_count: string;
+  }>(
     `SELECT
        (SELECT count(*)::text FROM active_effects WHERE id = $2) AS effect_count,
        pokemon.revision::text AS revision,

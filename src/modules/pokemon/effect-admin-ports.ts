@@ -1,7 +1,4 @@
-import type {
-  ApplyPokemonEffectInput,
-  RemovePokemonEffectInput,
-} from "./admin-contracts.js";
+import type { ApplyPokemonEffectInput, RemovePokemonEffectInput } from "./admin-contracts.js";
 import type { PokemonAdminPersistenceResult } from "./admin-ports.js";
 
 export interface PokemonEffectAdminRepository {

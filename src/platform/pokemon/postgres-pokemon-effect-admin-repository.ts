@@ -253,7 +253,11 @@ export class PostgresPokemonEffectAdminRepository implements PokemonEffectAdminR
           reason: "Only persistent REFRESH Pokemon effects can be applied administratively",
         };
       }
-      if (effect.rules === null || typeof effect.rules !== "object" || Array.isArray(effect.rules)) {
+      if (
+        effect.rules === null ||
+        typeof effect.rules !== "object" ||
+        Array.isArray(effect.rules)
+      ) {
         return { kind: "INVALID_STATE", reason: "Published effect rules are invalid" };
       }
 
@@ -443,10 +447,10 @@ export class PostgresPokemonEffectAdminRepository implements PokemonEffectAdminR
       const row = effect.rows[0];
       if (row === undefined) return { kind: "NOT_FOUND" };
 
-      await client.query(
-        `DELETE FROM active_effects WHERE id = $1 AND pokemon_instance_id = $2`,
-        [input.activeEffectId, input.pokemonInstanceId],
-      );
+      await client.query(`DELETE FROM active_effects WHERE id = $1 AND pokemon_instance_id = $2`, [
+        input.activeEffectId,
+        input.pokemonInstanceId,
+      ]);
       const updated = await client.query<{ revision: string }>(
         `UPDATE pokemon_instances
          SET revision = revision + 1, updated_at = now()

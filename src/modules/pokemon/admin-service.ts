@@ -90,7 +90,8 @@ export class PokemonAdminService {
 
   public async removeEffect(input: unknown): Promise<Result<PokemonOwnerMutationResult>> {
     const parsed = RemovePokemonEffectInputSchema.safeParse(input);
-    if (!parsed.success) return err(appError("VALIDATION_FAILED", "Invalid Pokemon effect removal"));
+    if (!parsed.success)
+      return err(appError("VALIDATION_FAILED", "Invalid Pokemon effect removal"));
     const repository = this.effects();
     if (repository === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Pokemon effect administration is unavailable"));
