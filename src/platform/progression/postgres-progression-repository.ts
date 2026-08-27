@@ -922,7 +922,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     if (!Number.isSafeInteger(afterPoints)) {
       throw new ProgressionStateViolation("Trainer progression points overflow JS safe range");
     }
-    const afterLevel = trainerLevelForPoints(afterPoints, input.progression.trainer.levelCap);
+    const afterLevel = trainerLevelForPoints(
+      afterPoints,
+      input.progression.trainer.levelCap,
+      input.progression.trainer.levelCurve,
+    );
     const updated = await client.query(
       `UPDATE trainer_progression
        SET progression_points = $2, level = $3, revision = revision + 1, updated_at = now()
