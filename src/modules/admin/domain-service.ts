@@ -1,10 +1,15 @@
 import type { EconomyService } from "../economy/service.js";
+import type { PokemonAdminService } from "../pokemon/admin-service.js";
 import type { ProgressionService } from "../progression/service.js";
 import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,
+  AdminPokemonArchiveInput,
+  AdminPokemonHpCorrectInput,
+  AdminPokemonRosterMoveInput,
+  AdminPokemonStatusCorrectInput,
   AdminTrainerProgressAdjustInput,
   AdminWalletAdjustInput,
 } from "./domain-contracts.js";
@@ -30,9 +35,22 @@ function requiredReason(operation: AdminOperationRecord): string {
   return operation.reason;
 }
 
+function requiredExpectedRevision(operation: AdminOperationRecord): bigint {
+  if (operation.expectedRevision === null) {
+    throw new AdminError(
+      ADMIN_ERROR_CODES.EXPECTED_REVISION_REQUIRED,
+      "Pokemon admin mutation requires expected revision",
+    );
+  }
+  return operation.expectedRevision;
+}
+
 function ownerError(error: AppError): AdminError {
-  if (error.code === "IDEMPOTENCY_KEY_INVALID") {
+  if (error.code === "IDEMPOTENCY_KEY_INVALID" || error.code === "FINGERPRINT_MISMATCH") {
     return new AdminError(ADMIN_ERROR_CODES.IDEMPOTENCY_CONFLICT, error.message, error.details);
+  }
+  if (error.code === "REVISION_CONFLICT") {
+    return new AdminError(ADMIN_ERROR_CODES.REVISION_CONFLICT, error.message, error.details);
   }
   if (error.code === "NOT_FOUND") {
     return new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, error.message, error.details);
@@ -60,7 +78,47 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     private readonly economy: EconomyService,
     private readonly progression: ProgressionService,
     private readonly completion: AdminOperationCompletionPort,
+    private readonly pokemon?: PokemonAdminService,
   ) {}
+
+  private pokemonOwner(): PokemonAdminService {
+    if (this.pokemon === undefined) {
+      throw new AdminError(
+        ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+        "Pokemon administrative owner is unavailable",
+      );
+    }
+    return this.pokemon;
+  }
+
+  private async completePokemonMutation(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    pokemonInstanceId: string,
+    value: {
+      readonly operationKind: string;
+      readonly beforeRevision: string;
+      readonly afterRevision: string;
+      readonly beforeData: Readonly<Record<string, unknown>>;
+      readonly afterData: Readonly<Record<string, unknown>>;
+      readonly replayed: boolean;
+    },
+  ): Promise<AdminOperationRecord> {
+    return this.completion.completeAppliedOperation({
+      operation,
+      actorPrincipalId,
+      resourceType: "POKEMON_INSTANCE",
+      resourceId: pokemonInstanceId,
+      beforeData: value.beforeData,
+      afterData: value.afterData,
+      result: {
+        operationKind: value.operationKind,
+        beforeRevision: value.beforeRevision,
+        afterRevision: value.afterRevision,
+        ownerReplayed: value.replayed,
+      },
+    });
+  }
 
   public async applyInventoryAdjustment(
     operation: AdminOperationRecord,
@@ -251,5 +309,117 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
         ownerReplayed: result.value.replayed,
       },
     });
+  }
+
+  public async applyPokemonRosterMove(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonRosterMoveInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().moveRoster({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: {
+        sourceType: "ADMIN_OPERATION",
+        sourceId: operation.id,
+        reason: requiredReason(operation),
+        actorType: "ADMIN",
+        actorId: operation.principalId,
+      },
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async applyPokemonHpCorrection(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonHpCorrectInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().correctHp({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: {
+        sourceType: "ADMIN_OPERATION",
+        sourceId: operation.id,
+        reason: requiredReason(operation),
+        actorType: "ADMIN",
+        actorId: operation.principalId,
+      },
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async applyPokemonStatusCorrection(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonStatusCorrectInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().correctStatus({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: {
+        sourceType: "ADMIN_OPERATION",
+        sourceId: operation.id,
+        reason: requiredReason(operation),
+        actorType: "ADMIN",
+        actorId: operation.principalId,
+      },
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async applyPokemonArchive(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonArchiveInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().archivePokemon({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: {
+        sourceType: "ADMIN_OPERATION",
+        sourceId: operation.id,
+        reason: requiredReason(operation),
+        actorType: "ADMIN",
+        actorId: operation.principalId,
+      },
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
   }
 }
