@@ -97,6 +97,16 @@ export const CorrectPokemonStatusInputSchema = z
   });
 export type CorrectPokemonStatusInput = z.infer<typeof CorrectPokemonStatusInputSchema>;
 
+export const ApplyPokemonEffectInputSchema = z
+  .object({ ...commonMutationFields, effectId: uuid })
+  .strict();
+export type ApplyPokemonEffectInput = z.infer<typeof ApplyPokemonEffectInputSchema>;
+
+export const RemovePokemonEffectInputSchema = z
+  .object({ ...commonMutationFields, activeEffectId: uuid })
+  .strict();
+export type RemovePokemonEffectInput = z.infer<typeof RemovePokemonEffectInputSchema>;
+
 export const ArchivePokemonInputSchema = z.object(commonMutationFields).strict();
 export type ArchivePokemonInput = z.infer<typeof ArchivePokemonInputSchema>;
 
@@ -104,6 +114,8 @@ export const PokemonOwnerOperationKindSchema = z.enum([
   "ROSTER_MOVE",
   "HP_CORRECT",
   "STATUS_CORRECT",
+  "EFFECT_APPLY",
+  "EFFECT_REMOVE",
   "ARCHIVE",
 ]);
 export type PokemonOwnerOperationKind = z.infer<typeof PokemonOwnerOperationKindSchema>;
