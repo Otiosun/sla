@@ -19,22 +19,19 @@ const tokenSchema = z
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 const effectKeySchema = z.string().trim().min(1).max(64).nullable();
 
-function withEffectValidation<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
-  return schema.superRefine((value, context) => {
-    const record = value as Record<string, unknown>;
-    const effectKey = record.effectKey;
-    const effectConfig = record.effectConfig;
-    const parsed = validateEffectConfig(typeof effectKey === "string" ? effectKey : null, effectConfig);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        context.addIssue({
-          code: "custom",
-          path: ["effectConfig", ...issue.path],
-          message: issue.message,
-        });
-      }
-    }
-  });
+function addEffectIssues(
+  value: { readonly effectKey: string | null; readonly effectConfig: unknown },
+  context: z.core.$RefinementCtx<unknown>,
+): void {
+  const parsed = validateEffectConfig(value.effectKey, value.effectConfig);
+  if (parsed.success) return;
+  for (const issue of parsed.error.issues) {
+    context.addIssue({
+      code: "custom",
+      path: ["effectConfig", ...issue.path],
+      message: issue.message,
+    });
+  }
 }
 
 export const CatalogDraftResourceKindSchema = z.enum([
@@ -48,49 +45,37 @@ export const CatalogDraftResourceKindSchema = z.enum([
 ]);
 export type CatalogDraftResourceKind = z.infer<typeof CatalogDraftResourceKindSchema>;
 
-const speciesBodySchema = z
-  .object({
-    displayName: displayNameSchema,
-    catchRate: z.number().int().nonnegative().max(1_000_000).nullable(),
-    baseExp: z.number().int().nonnegative().max(1_000_000).nullable(),
-    data: jsonObjectSchema,
-  })
-  .strict();
+const speciesBodyShape = {
+  displayName: displayNameSchema,
+  catchRate: z.number().int().nonnegative().max(1_000_000).nullable(),
+  baseExp: z.number().int().nonnegative().max(1_000_000).nullable(),
+  data: jsonObjectSchema,
+} as const;
 
-const moveBodySchema = withEffectValidation(
-  z
-    .object({
-      displayName: displayNameSchema,
-      typeId: z.string().uuid(),
-      category: z.enum(["PHYSICAL", "SPECIAL", "STATUS"]),
-      power: z.number().int().nonnegative().max(1_000_000).nullable(),
-      accuracy: z.number().int().min(0).max(100).nullable(),
-      priority: z.number().int().min(-32).max(32),
-      maxPp: z.number().int().positive().max(255).nullable(),
-      effectKey: effectKeySchema,
-      effectConfig: jsonObjectSchema,
-      flags: BattleMoveFlagsSchema,
-    })
-    .strict(),
-);
+const moveBodyShape = {
+  displayName: displayNameSchema,
+  typeId: z.string().uuid(),
+  category: z.enum(["PHYSICAL", "SPECIAL", "STATUS"]),
+  power: z.number().int().nonnegative().max(1_000_000).nullable(),
+  accuracy: z.number().int().min(0).max(100).nullable(),
+  priority: z.number().int().min(-32).max(32),
+  maxPp: z.number().int().positive().max(255).nullable(),
+  effectKey: effectKeySchema,
+  effectConfig: jsonObjectSchema,
+  flags: BattleMoveFlagsSchema,
+} as const;
 
-const itemBodySchema = withEffectValidation(
-  z
-    .object({
-      displayName: displayNameSchema,
-      itemKind: tokenSchema,
-      effectKey: effectKeySchema,
-      effectConfig: jsonObjectSchema,
-    })
-    .strict(),
-);
+const itemBodyShape = {
+  displayName: displayNameSchema,
+  itemKind: tokenSchema,
+  effectKey: effectKeySchema,
+  effectConfig: jsonObjectSchema,
+} as const;
 
-const areaBodySchema = z
-  .object({
-    displayName: displayNameSchema,
-    data: jsonObjectSchema,
-  })
-  .strict();
+const areaBodyShape = {
+  displayName: displayNameSchema,
+  data: jsonObjectSchema,
+} as const;
 
 export const CatalogDraftEncounterEntrySchema = z
   .object({
@@ -106,13 +91,12 @@ export const CatalogDraftEncounterEntrySchema = z
     message: "minLevel must be <= maxLevel",
     path: ["maxLevel"],
   });
+export type CatalogDraftEncounterEntry = z.infer<typeof CatalogDraftEncounterEntrySchema>;
 
-const encounterBodySchema = z
-  .object({
-    conditions: EncounterConditionsSchema,
-    entries: z.array(CatalogDraftEncounterEntrySchema).min(1).max(512),
-  })
-  .strict();
+const encounterBodyShape = {
+  conditions: EncounterConditionsSchema,
+  entries: z.array(CatalogDraftEncounterEntrySchema).min(1).max(512),
+} as const;
 
 export const RewardProgramSchema = z
   .object({
@@ -147,122 +131,92 @@ export const RewardProgramSchema = z
   })
   .strict();
 
-const rewardBodySchema = z
+const rewardBodyShape = {
+  displayName: displayNameSchema,
+  program: RewardProgramSchema,
+} as const;
+
+const effectBodyShape = {
+  scope: z.enum(["PLAYER", "POKEMON", "BATTLE_PARTICIPANT", "AREA"]),
+  stackingPolicy: tokenSchema,
+  durationModel: tokenSchema,
+  rules: EffectProgramSchema,
+} as const;
+
+const createSpeciesSchema = z
   .object({
-    displayName: displayNameSchema,
-    program: RewardProgramSchema,
+    kind: z.literal("SPECIES"),
+    slug: slugSchema,
+    nationalDex: z.number().int().min(1).max(65535),
+    ...speciesBodyShape,
   })
   .strict();
-
-const effectBodySchema = z
+const createMoveSchema = z
+  .object({ kind: z.literal("MOVE"), slug: slugSchema, ...moveBodyShape })
+  .strict()
+  .superRefine((value, context) => addEffectIssues(value, context));
+const createItemSchema = z
+  .object({ kind: z.literal("ITEM"), slug: slugSchema, ...itemBodyShape })
+  .strict()
+  .superRefine((value, context) => addEffectIssues(value, context));
+const createAreaSchema = z
   .object({
-    scope: z.enum(["PLAYER", "POKEMON", "BATTLE_PARTICIPANT", "AREA"]),
-    stackingPolicy: tokenSchema,
-    durationModel: tokenSchema,
-    rules: EffectProgramSchema,
+    kind: z.literal("AREA"),
+    regionId: z.string().uuid(),
+    slug: slugSchema,
+    ...areaBodyShape,
   })
+  .strict();
+const createEncounterSchema = z
+  .object({
+    kind: z.literal("ENCOUNTER_TABLE"),
+    areaId: z.string().uuid(),
+    slug: slugSchema,
+    ...encounterBodyShape,
+  })
+  .strict();
+const createRewardSchema = z
+  .object({ kind: z.literal("REWARD"), slug: slugSchema, ...rewardBodyShape })
+  .strict();
+const createEffectSchema = z
+  .object({ kind: z.literal("EFFECT"), slug: slugSchema, ...effectBodyShape })
   .strict();
 
 export const CatalogDraftCreateResourceSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("SPECIES"),
-      slug: slugSchema,
-      nationalDex: z.number().int().min(1).max(65535),
-      ...speciesBodySchema.shape,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("MOVE"),
-      slug: slugSchema,
-      ...moveBodySchema.shape,
-    })
-    .strict()
-    .superRefine((value, context) => {
-      const parsed = moveBodySchema.safeParse(value);
-      if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-          context.addIssue({ code: "custom", path: issue.path, message: issue.message });
-        }
-      }
-    }),
-  z
-    .object({
-      kind: z.literal("ITEM"),
-      slug: slugSchema,
-      ...itemBodySchema.shape,
-    })
-    .strict()
-    .superRefine((value, context) => {
-      const parsed = itemBodySchema.safeParse(value);
-      if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-          context.addIssue({ code: "custom", path: issue.path, message: issue.message });
-        }
-      }
-    }),
-  z
-    .object({
-      kind: z.literal("AREA"),
-      regionId: z.string().uuid(),
-      slug: slugSchema,
-      ...areaBodySchema.shape,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("ENCOUNTER_TABLE"),
-      areaId: z.string().uuid(),
-      slug: slugSchema,
-      ...encounterBodySchema.shape,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("REWARD"),
-      slug: slugSchema,
-      ...rewardBodySchema.shape,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("EFFECT"),
-      slug: slugSchema,
-      ...effectBodySchema.shape,
-    })
-    .strict(),
+  createSpeciesSchema,
+  createMoveSchema,
+  createItemSchema,
+  createAreaSchema,
+  createEncounterSchema,
+  createRewardSchema,
+  createEffectSchema,
 ]);
 export type CatalogDraftCreateResource = z.infer<typeof CatalogDraftCreateResourceSchema>;
 
+const replaceSpeciesSchema = z.object({ kind: z.literal("SPECIES"), ...speciesBodyShape }).strict();
+const replaceMoveSchema = z
+  .object({ kind: z.literal("MOVE"), ...moveBodyShape })
+  .strict()
+  .superRefine((value, context) => addEffectIssues(value, context));
+const replaceItemSchema = z
+  .object({ kind: z.literal("ITEM"), ...itemBodyShape })
+  .strict()
+  .superRefine((value, context) => addEffectIssues(value, context));
+const replaceAreaSchema = z.object({ kind: z.literal("AREA"), ...areaBodyShape }).strict();
+const replaceEncounterSchema = z
+  .object({ kind: z.literal("ENCOUNTER_TABLE"), ...encounterBodyShape })
+  .strict();
+const replaceRewardSchema = z.object({ kind: z.literal("REWARD"), ...rewardBodyShape }).strict();
+const replaceEffectSchema = z.object({ kind: z.literal("EFFECT"), ...effectBodyShape }).strict();
+
 export const CatalogDraftReplaceResourceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("SPECIES"), ...speciesBodySchema.shape }).strict(),
-  z
-    .object({ kind: z.literal("MOVE"), ...moveBodySchema.shape })
-    .strict()
-    .superRefine((value, context) => {
-      const parsed = moveBodySchema.safeParse(value);
-      if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-          context.addIssue({ code: "custom", path: issue.path, message: issue.message });
-        }
-      }
-    }),
-  z
-    .object({ kind: z.literal("ITEM"), ...itemBodySchema.shape })
-    .strict()
-    .superRefine((value, context) => {
-      const parsed = itemBodySchema.safeParse(value);
-      if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-          context.addIssue({ code: "custom", path: issue.path, message: issue.message });
-        }
-      }
-    }),
-  z.object({ kind: z.literal("AREA"), ...areaBodySchema.shape }).strict(),
-  z.object({ kind: z.literal("ENCOUNTER_TABLE"), ...encounterBodySchema.shape }).strict(),
-  z.object({ kind: z.literal("REWARD"), ...rewardBodySchema.shape }).strict(),
-  z.object({ kind: z.literal("EFFECT"), ...effectBodySchema.shape }).strict(),
+  replaceSpeciesSchema,
+  replaceMoveSchema,
+  replaceItemSchema,
+  replaceAreaSchema,
+  replaceEncounterSchema,
+  replaceRewardSchema,
+  replaceEffectSchema,
 ]);
 export type CatalogDraftReplaceResource = z.infer<typeof CatalogDraftReplaceResourceSchema>;
 
