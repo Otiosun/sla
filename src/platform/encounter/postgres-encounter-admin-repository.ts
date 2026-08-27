@@ -12,6 +12,7 @@ import type {
   EncounterAdminClosePersistenceResult,
   EncounterAdminRepository,
 } from "../../modules/encounter/admin-ports.js";
+import { encounterAdminCloseUnsafeReason } from "../../modules/encounter/admin-policy.js";
 import { EncounterStatusSchema } from "../../modules/encounter/contracts.js";
 import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
@@ -93,35 +94,13 @@ function mapState(row: EncounterAdminRow): EncounterAdminState {
   });
 }
 
-function unsafeReason(state: EncounterAdminState): string | null {
-  if (state.status === "CLOSED") return "Encounter is already CLOSED";
-  if (state.status === "CAPTURE_RESOLVING" || state.pendingCaptureAttemptId !== null) {
-    return "Encounter cannot be administratively closed while capture resolution is in flight";
-  }
-  if (state.status === "IN_BATTLE" && state.battle === null) {
-    return "Encounter IN_BATTLE has no linked Battle; repair the inconsistent flow before closing";
-  }
-  if (
-    state.battle !== null &&
-    (["CREATED", "ACTIVE", "RESOLVING_TURN"] as const).includes(state.battle.status as never)
-  ) {
-    return "Encounter cannot be administratively closed while its linked Battle is active";
-  }
-  if (
-    state.battle !== null &&
-    state.battle.status === "WON" &&
-    (state.battle.battleType === "WILD" || state.battle.battleType === "NPC") &&
-    !state.battle.rewardClaimed
-  ) {
-    return "Encounter cannot be administratively closed before terminal PvE Battle reward settlement";
-  }
-  return null;
-}
-
 export class PostgresEncounterAdminRepository implements EncounterAdminRepository {
   public constructor(private readonly pool: Pool) {}
 
-  public async inspect(playerId: PlayerId, encounterId: EncounterId): Promise<EncounterAdminState | null> {
+  public async inspect(
+    playerId: PlayerId,
+    encounterId: EncounterId,
+  ): Promise<EncounterAdminState | null> {
     return withTransaction(
       this.pool,
       async (client) => {
@@ -180,7 +159,7 @@ export class PostgresEncounterAdminRepository implements EncounterAdminRepositor
       if (beforeRevision !== input.expectedRevision) {
         return { kind: "REVISION_CONFLICT", actualRevision: beforeRevision };
       }
-      const unsafe = unsafeReason(beforeState);
+      const unsafe = encounterAdminCloseUnsafeReason(beforeState);
       if (unsafe !== null) {
         return beforeState.status === "CLOSED"
           ? { kind: "INVALID_STATE", reason: unsafe }
