@@ -41,7 +41,10 @@ function ownerError(error: AppError): AdminError {
 
 function requiredReason(operation: AdminOperationRecord): string {
   if (operation.reason === null || operation.reason.trim().length === 0) {
-    throw new AdminError(ADMIN_ERROR_CODES.REASON_REQUIRED, "Battle admin mutation requires reason");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.REASON_REQUIRED,
+      "Battle admin mutation requires reason",
+    );
   }
   return operation.reason;
 }
@@ -55,7 +58,10 @@ function requiredExpectedVersion(operation: AdminOperationRecord): number {
   }
   const version = Number(operation.expectedRevision);
   if (!Number.isSafeInteger(version) || version < 0) {
-    throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Battle version is outside JS safe range");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.INVALID_INPUT,
+      "Battle version is outside JS safe range",
+    );
   }
   return version;
 }
