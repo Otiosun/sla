@@ -1,4 +1,8 @@
-import type { CorrectPokemonProgressInput, CreatePokemonInput, PokemonCreateResult } from "./admin-contracts.js";
+import type {
+  CorrectPokemonProgressInput,
+  CreatePokemonInput,
+  PokemonCreateResult,
+} from "./admin-contracts.js";
 import type { PokemonAdminPersistenceResult } from "./admin-ports.js";
 
 export type PokemonCreatePersistenceResult =
