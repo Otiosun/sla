@@ -7,9 +7,11 @@ import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,
   AdminPokemonArchiveInput,
+  AdminPokemonCreateInput,
   AdminPokemonEffectApplyInput,
   AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
+  AdminPokemonProgressCorrectInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
   AdminTrainerProgressAdjustInput,
@@ -99,7 +101,7 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     pokemonInstanceId: string,
     value: {
       readonly operationKind: string;
-      readonly beforeRevision: string;
+      readonly beforeRevision: string | null;
       readonly afterRevision: string;
       readonly beforeData: Readonly<Record<string, unknown>>;
       readonly afterData: Readonly<Record<string, unknown>>;
@@ -321,6 +323,51 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       actorType: "ADMIN" as const,
       actorId: operation.principalId,
     };
+  }
+
+  public async applyPokemonCreate(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonCreateInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().createPokemon({
+      ...input,
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: this.pokemonMetadata(operation),
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      result.value.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async applyPokemonProgressCorrection(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonProgressCorrectInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().correctProgress({
+      playerId: input.playerId,
+      pokemonInstanceId: input.pokemonInstanceId,
+      deltaXp: Number(BigInt(input.deltaXp)),
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: this.pokemonMetadata(operation),
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
   }
 
   public async applyPokemonRosterMove(
