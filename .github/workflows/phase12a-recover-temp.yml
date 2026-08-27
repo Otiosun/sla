@@ -134,10 +134,11 @@ jobs:
       - name: PostgreSQL Admin Registry proof
         run: node --import tsx db/proofs/phase12_admin_registry_e2e.ts
 
-      - name: Commit validated candidate
+      - name: Commit validated functional tree
         shell: bash
         run: |
           set -euo pipefail
+          rm .github/workflows/admin-proof.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
