@@ -166,8 +166,14 @@ try {
   const r4Event = r4Trail.auditEvents[0];
   if (
     r4Trail.changes.length !== 1 ||
-    r4Change?.resourceType !== "ADMIN_PRINCIPAL" ||
+    r4Change?.resourceType !== "ADMIN_PRINCIPAL_ROLE" ||
     r4Change.resourceId !== targetAdminId ||
+    r4Change.beforeData?.principalId !== targetAdminId ||
+    r4Change.beforeData?.roleId !== supportRoleId ||
+    r4Change.beforeData?.roleAssigned !== false ||
+    r4Change.afterData?.principalId !== targetAdminId ||
+    r4Change.afterData?.roleId !== supportRoleId ||
+    r4Change.afterData?.roleAssigned !== true ||
     r4Trail.auditEvents.length !== 1 ||
     r4Event?.actorId !== proposerId ||
     r4Event.action !== "admin.role.assign" ||
