@@ -35,7 +35,9 @@ const inventoryActionSchema = AdminInventoryAdjustInputSchema.omit({ playerId: t
 const walletActionSchema = AdminWalletAdjustInputSchema.omit({ playerId: true }).extend({
   kind: z.literal("WALLET_ADJUST"),
 });
-const progressionActionSchema = AdminTrainerProgressAdjustInputSchema.omit({ playerId: true }).extend({
+const progressionActionSchema = AdminTrainerProgressAdjustInputSchema.omit({
+  playerId: true,
+}).extend({
   kind: z.literal("TRAINER_PROGRESSION_ADJUST"),
 });
 

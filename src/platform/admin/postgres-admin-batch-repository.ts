@@ -264,10 +264,14 @@ export class PostgresAdminBatchRepository implements AdminBatchRepository {
           return { batch: current, replayedTerminal: true };
         }
         if (current.revision !== input.expectedRevision) {
-          throw new AdminError(ADMIN_ERROR_CODES.REVISION_CONFLICT, "Admin batch revision changed", {
-            expectedRevision: input.expectedRevision.toString(),
-            actualRevision: current.revision.toString(),
-          });
+          throw new AdminError(
+            ADMIN_ERROR_CODES.REVISION_CONFLICT,
+            "Admin batch revision changed",
+            {
+              expectedRevision: input.expectedRevision.toString(),
+              actualRevision: current.revision.toString(),
+            },
+          );
         }
         if (
           current.executeAdminOperationId !== null &&
@@ -279,17 +283,12 @@ export class PostgresAdminBatchRepository implements AdminBatchRepository {
           );
         }
         if (current.status === "PREVIEWED") {
-          const claimed = await client.query<BatchRow>(
-            `${BATCH_SELECT.replace("FROM admin_batches", "FROM admin_batches")} WHERE id = $1`,
-            [input.batchId],
-          );
           await client.query(
             `UPDATE admin_batches
              SET execute_admin_operation_id = $2, status = 'RUNNING', started_at = now()
              WHERE id = $1 AND status = 'PREVIEWED' AND execute_admin_operation_id IS NULL`,
             [input.batchId, input.executeAdminOperationId],
           );
-          void claimed;
         }
         const after = await loadBatch(client, input.batchId);
         if (after === null) throw new Error("Admin batch disappeared after execution claim");
@@ -390,7 +389,8 @@ export class PostgresAdminBatchRepository implements AdminBatchRepository {
         );
         const counts = aggregate.rows[0];
         if (counts === undefined) throw new Error("Admin batch result aggregate is missing");
-        const checkpoint = counts.pending_count === 0 ? current.targetCount - 1 : (counts.first_pending ?? 0) - 1;
+        const checkpoint =
+          counts.pending_count === 0 ? current.targetCount - 1 : (counts.first_pending ?? 0) - 1;
         const terminal = counts.pending_count === 0;
         const terminalStatus = counts.failure_count === 0 ? "COMPLETED" : "COMPLETED_WITH_ERRORS";
         await client.query(

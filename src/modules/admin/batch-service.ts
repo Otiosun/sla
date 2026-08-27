@@ -56,7 +56,10 @@ export interface AdminBatchRepository {
 function requiredReason(operation: AdminOperationRecord): string {
   const reason = operation.reason?.trim();
   if (reason === undefined || reason.length === 0) {
-    throw new AdminError(ADMIN_ERROR_CODES.REASON_REQUIRED, "Admin batch operation requires reason");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.REASON_REQUIRED,
+      "Admin batch operation requires reason",
+    );
   }
   return reason;
 }
@@ -119,9 +122,13 @@ export class AdminBatchService {
     }
     const capability = snapshot.capabilities.find((grant) => grant.key === mapped.capabilityKey);
     if (capability === undefined) {
-      throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Batch child capability denied", {
-        capabilityKey: mapped.capabilityKey,
-      });
+      throw new AdminError(
+        ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
+        "Batch child capability denied",
+        {
+          capabilityKey: mapped.capabilityKey,
+        },
+      );
     }
     if (capability.riskTier !== definition.riskTier) {
       throw new AdminError(
@@ -216,7 +223,7 @@ export class AdminBatchService {
       expectedRevision: requiredExpectedRevision(operation),
     });
     if (!claimed.replayedTerminal) {
-      await this.runPendingTargets(claimed.batch, action);
+      await this.runPendingTargets(claimed.batch);
     }
     const finalBatch = await this.repository.refreshProgress(input.batchId);
     if (finalBatch.status !== "COMPLETED" && finalBatch.status !== "COMPLETED_WITH_ERRORS") {
@@ -258,7 +265,7 @@ export class AdminBatchService {
     });
   }
 
-  private async runPendingTargets(batch: AdminBatchRecord, action: AdminBatchAction): Promise<void> {
+  private async runPendingTargets(batch: AdminBatchRecord): Promise<void> {
     const chunkSizeValue = batch.sharedInput.chunkSize;
     const chunkSize =
       typeof chunkSizeValue === "number" && Number.isInteger(chunkSizeValue)

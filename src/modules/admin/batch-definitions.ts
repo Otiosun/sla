@@ -52,8 +52,7 @@ export function registerPhase12DBatchAdminOperations(
       policy: previewPolicy,
       inputSchema: AdminBatchPreviewInputSchema,
       target: () => ({ type: "ADMIN_BATCH_COLLECTION", id: null }),
-      apply: (context, input) =>
-        port.preview(context.operation, context.actorPrincipalId, input),
+      apply: (context, input) => port.preview(context.operation, context.actorPrincipalId, input),
     }),
   );
 
@@ -67,8 +66,7 @@ export function registerPhase12DBatchAdminOperations(
       policy: executeLowRiskPolicy,
       inputSchema: AdminBatchExecuteInputSchema,
       target: (input) => ({ type: "ADMIN_BATCH", id: input.batchId }),
-      apply: (context, input) =>
-        port.execute(context.operation, context.actorPrincipalId, input),
+      apply: (context, input) => port.execute(context.operation, context.actorPrincipalId, input),
     }),
   );
 
