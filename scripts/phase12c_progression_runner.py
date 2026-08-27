@@ -97,24 +97,40 @@ if fixture_marker not in text:
     },
   });
   await pool.query(
-    `INSERT INTO rulesets(
-       id, key, version, engine_contract_version, config, status,
-       validated_at, validation_report, config_fingerprint, published_at
-     ) VALUES (
-       $1, $2, 1, 1, $3::jsonb, 'PUBLISHED',
-       now(), '{"proof":true}'::jsonb, repeat('c', 64), now()
-     )`,
+    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+     VALUES ($1, $2, 1, 1, $3::jsonb, 'DRAFT')`,
     [trainerRulesetId, `phase12c-trainer-rules-${trainerRulesetId}`, JSON.stringify(trainerRulesConfig)],
   );
   await pool.query(
-    `INSERT INTO content_releases(
-       id, release_no, name, status, default_ruleset_id,
-       validated_at, validation_report, content_fingerprint, published_at
-     ) VALUES (
-       $1, 900002, 'Phase 12C trainer proof', 'PUBLISHED', $2,
-       now(), '{"proof":true}'::jsonb, repeat('d', 64), now()
-     )`,
+    `UPDATE rulesets
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         config_fingerprint = repeat('c', 64)
+     WHERE id = $1`,
+    [trainerRulesetId],
+  );
+  await pool.query(
+    `UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [trainerRulesetId],
+  );
+  await pool.query(
+    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+     VALUES ($1, 900002, 'Phase 12C trainer proof', 'DRAFT', $2)`,
     [trainerReleaseId, trainerRulesetId],
+  );
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"proof":true}'::jsonb,
+         content_fingerprint = repeat('d', 64)
+     WHERE id = $1`,
+    [trainerReleaseId],
+  );
+  await pool.query(
+    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [trainerReleaseId],
   );
   await pool.query(
     `INSERT INTO content_release_pointers(pointer_key, content_release_id)
