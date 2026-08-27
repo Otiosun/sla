@@ -45,6 +45,62 @@ const commonMutationFields = {
   metadata: mutationMetadataSchema,
 } as const;
 
+const ivSchema = z.number().int().min(0).max(31);
+export const PokemonAdminIvsSchema = z
+  .object({
+    hp: ivSchema,
+    attack: ivSchema,
+    defense: ivSchema,
+    spAttack: ivSchema,
+    spDefense: ivSchema,
+    speed: ivSchema,
+  })
+  .strict();
+export type PokemonAdminIvs = z.infer<typeof PokemonAdminIvsSchema>;
+
+const uniqueMoveIds = z
+  .array(uuid)
+  .min(1)
+  .max(4)
+  .refine((value) => new Set(value).size === value.length, "Pokemon create moveIds must be unique");
+
+export const CreatePokemonInputSchema = z
+  .object({
+    playerId: uuid,
+    formId: uuid,
+    level: z.number().int().min(1).max(100),
+    xp: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    abilityId: uuid,
+    natureId: uuid.nullable(),
+    ivs: PokemonAdminIvsSchema,
+    moveIds: uniqueMoveIds,
+    nickname: z.string().trim().min(1).max(64).nullable(),
+    shiny: z.boolean(),
+    idempotencyKey,
+    correlationId: uuid,
+    metadata: mutationMetadataSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.metadata.actorType === "ADMIN" && !uuid.safeParse(value.metadata.sourceId).success) {
+      context.addIssue({
+        code: "custom",
+        path: ["metadata", "sourceId"],
+        message: "ADMIN Pokemon creation requires a UUID sourceId",
+      });
+    }
+  });
+export type CreatePokemonInput = z.infer<typeof CreatePokemonInputSchema>;
+
+export const CorrectPokemonProgressionInputSchema = z
+  .object({
+    ...commonMutationFields,
+    targetLevel: z.number().int().min(1).max(100),
+    targetXp: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+export type CorrectPokemonProgressionInput = z.infer<typeof CorrectPokemonProgressionInputSchema>;
+
 export const PokemonRosterPlacementSchema = z.discriminatedUnion("placementKind", [
   z
     .object({
@@ -111,6 +167,8 @@ export const ArchivePokemonInputSchema = z.object(commonMutationFields).strict()
 export type ArchivePokemonInput = z.infer<typeof ArchivePokemonInputSchema>;
 
 export const PokemonOwnerOperationKindSchema = z.enum([
+  "CREATE",
+  "PROGRESSION_CORRECT",
   "ROSTER_MOVE",
   "HP_CORRECT",
   "STATUS_CORRECT",
