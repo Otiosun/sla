@@ -1,8 +1,12 @@
-import { BattleStateSchema, type BattleState } from "./contracts.js";
 import type { BattleAdminCorrectionPatch } from "./admin-contracts.js";
+import { BattleStateSchema, type BattleState } from "./contracts.js";
 
 export type BattleAdminCorrectionResult =
-  | { readonly ok: true; readonly state: BattleState; readonly changes: Readonly<Record<string, unknown>> }
+  | {
+      readonly ok: true;
+      readonly state: BattleState;
+      readonly changes: Readonly<Record<string, unknown>>;
+    }
   | { readonly ok: false; readonly reason: string };
 
 export function correctActiveBattleState(
