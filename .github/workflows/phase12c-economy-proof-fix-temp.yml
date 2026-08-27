@@ -31,9 +31,29 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+
           proof = Path('db/proofs/phase12_domain_admin_e2e.ts')
           text = proof.read_text()
-          text = text.replace('JOIN inventory_ledger ledger ON ledger.source_id = $3\n', 'JOIN inventory_ledger ledger ON ledger.source_id = $3::text\n')
+          text = text.replace(
+              "(SELECT count(*)::text FROM admin_operation_changes WHERE admin_operation_id = $3) AS change_count,",
+              "(SELECT count(*)::text FROM admin_operation_changes WHERE admin_operation_id = $4) AS change_count,",
+          )
+          text = text.replace(
+              "(SELECT count(*)::text FROM audit_events WHERE causation_id = $3) AS audit_count",
+              "(SELECT count(*)::text FROM audit_events WHERE causation_id = $5) AS audit_count",
+          )
+          text = text.replace(
+              'JOIN inventory_ledger ledger ON ledger.source_id = $3\n',
+              'JOIN inventory_ledger ledger ON ledger.source_id = $3::text\n',
+          )
+          text = text.replace(
+              'JOIN admin_operation_changes change ON change.admin_operation_id = $3\n',
+              'JOIN admin_operation_changes change ON change.admin_operation_id = $4\n',
+          )
+          text = text.replace(
+              '[playerId, itemId, crashWindow.operation.id],\n  );\n  const reconstructionRow',
+              '[\n      playerId,\n      itemId,\n      crashWindow.operation.id,\n      crashWindow.operation.id,\n      crashWindow.operation.id,\n    ],\n  );\n  const reconstructionRow',
+          )
           proof.write_text(text)
 
           definitions = Path('src/modules/admin/domain-definitions.ts')
