@@ -7,6 +7,8 @@ import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,
   AdminPokemonArchiveInput,
+  AdminPokemonEffectApplyInput,
+  AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
@@ -311,6 +313,16 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     });
   }
 
+  private pokemonMetadata(operation: AdminOperationRecord) {
+    return {
+      sourceType: "ADMIN_OPERATION" as const,
+      sourceId: operation.id,
+      reason: requiredReason(operation),
+      actorType: "ADMIN" as const,
+      actorId: operation.principalId,
+    };
+  }
+
   public async applyPokemonRosterMove(
     operation: AdminOperationRecord,
     actorPrincipalId: string,
@@ -322,13 +334,7 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       expectedRevision: requiredExpectedRevision(operation),
       idempotencyKey: operation.id,
       correlationId: operation.correlationId,
-      metadata: {
-        sourceType: "ADMIN_OPERATION",
-        sourceId: operation.id,
-        reason: requiredReason(operation),
-        actorType: "ADMIN",
-        actorId: operation.principalId,
-      },
+      metadata: this.pokemonMetadata(operation),
     });
     if (!result.ok) throw ownerError(result.error);
     return this.completePokemonMutation(
@@ -350,13 +356,7 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       expectedRevision: requiredExpectedRevision(operation),
       idempotencyKey: operation.id,
       correlationId: operation.correlationId,
-      metadata: {
-        sourceType: "ADMIN_OPERATION",
-        sourceId: operation.id,
-        reason: requiredReason(operation),
-        actorType: "ADMIN",
-        actorId: operation.principalId,
-      },
+      metadata: this.pokemonMetadata(operation),
     });
     if (!result.ok) throw ownerError(result.error);
     return this.completePokemonMutation(
@@ -378,13 +378,51 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       expectedRevision: requiredExpectedRevision(operation),
       idempotencyKey: operation.id,
       correlationId: operation.correlationId,
-      metadata: {
-        sourceType: "ADMIN_OPERATION",
-        sourceId: operation.id,
-        reason: requiredReason(operation),
-        actorType: "ADMIN",
-        actorId: operation.principalId,
-      },
+      metadata: this.pokemonMetadata(operation),
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async applyPokemonEffect(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonEffectApplyInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().applyEffect({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: this.pokemonMetadata(operation),
+    });
+    if (!result.ok) throw ownerError(result.error);
+    return this.completePokemonMutation(
+      operation,
+      actorPrincipalId,
+      input.pokemonInstanceId,
+      result.value,
+    );
+  }
+
+  public async removePokemonEffect(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonEffectRemoveInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const result = await this.pokemonOwner().removeEffect({
+      ...input,
+      expectedRevision: requiredExpectedRevision(operation),
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: this.pokemonMetadata(operation),
     });
     if (!result.ok) throw ownerError(result.error);
     return this.completePokemonMutation(
@@ -406,13 +444,7 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       expectedRevision: requiredExpectedRevision(operation),
       idempotencyKey: operation.id,
       correlationId: operation.correlationId,
-      metadata: {
-        sourceType: "ADMIN_OPERATION",
-        sourceId: operation.id,
-        reason: requiredReason(operation),
-        actorType: "ADMIN",
-        actorId: operation.principalId,
-      },
+      metadata: this.pokemonMetadata(operation),
     });
     if (!result.ok) throw ownerError(result.error);
     return this.completePokemonMutation(
