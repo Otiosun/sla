@@ -137,12 +137,8 @@ export class PostgresCatalogDraftRepository implements CatalogDraftRepository {
   ): Promise<CatalogDraftPersistenceResult> {
     const resourceId = randomUUID();
     try {
-      return await this.mutate(
-        input,
-        "CREATE",
-        input.resource.kind,
-        resourceId,
-        (client) => createCatalogDraftResource(client, input, resourceId),
+      return await this.mutate(input, "CREATE", input.resource.kind, resourceId, (client) =>
+        createCatalogDraftResource(client, input, resourceId),
       );
     } catch (error) {
       return this.mapPersistenceError(error, "Catalog resource could not be created");
@@ -179,7 +175,8 @@ export class PostgresCatalogDraftRepository implements CatalogDraftRepository {
         input.resourceKind,
         input.resourceId,
         async (client) => {
-          if (!(await deactivateCatalogDraftResource(client, input))) throw new ResourceMissingError();
+          if (!(await deactivateCatalogDraftResource(client, input)))
+            throw new ResourceMissingError();
         },
       );
     } catch (error) {
