@@ -106,3 +106,6 @@ jobs:
 
       - name: Run PostgreSQL Catalog Release Admin E2E
         run: node --import tsx db/proofs/phase12_catalog_release_admin_e2e.ts
+
+      - name: Run PostgreSQL Server-side Admin Batch E2E
+        run: node --import tsx db/proofs/phase12_admin_batch_e2e.ts
