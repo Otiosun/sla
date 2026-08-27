@@ -159,6 +159,7 @@ export function adminRequestFingerprint(input: {
     operationType: input.definition.operationType,
     capabilityKey: input.definition.capabilityKey,
     riskTier: input.definition.riskTier,
+    authorizationMode: input.definition.authorizationMode,
     input: input.parsedInput,
     target: input.target,
     reason: input.reason,

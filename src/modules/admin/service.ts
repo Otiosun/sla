@@ -3,6 +3,7 @@ import {
   AdminMutationRequestSchema,
   AdminReadAuthorizationRequestSchema,
   type AdminAuthorizationSnapshot,
+  type AdminOperationPolicy,
   type AdminOperationRecord,
   type AdminOperationStatus,
   type AdminPreparedOperation,
@@ -28,17 +29,63 @@ function hasSubjectScope(scopes: readonly AdminScope[], target: AdminTarget): bo
   return scopes.some((scope) => scope.scopeType === target.type && scope.scopeId === target.id);
 }
 
-function nextStatusAfterValidation(definition: AdminOperationDefinition): AdminOperationStatus {
-  if (definition.policy.requiresSimulation) return "VALIDATED";
-  if (definition.policy.requiresConfirmation) return "PENDING_CONFIRMATION";
-  if (definition.policy.requiredApprovals > 0) return "PENDING_APPROVAL";
+function nextStatusAfterValidation(policy: AdminOperationPolicy): AdminOperationStatus {
+  if (policy.requiresSimulation) return "VALIDATED";
+  if (policy.requiresConfirmation) return "PENDING_CONFIRMATION";
+  if (policy.requiredApprovals > 0) return "PENDING_APPROVAL";
   return "READY";
 }
 
-function nextStatusAfterSimulation(definition: AdminOperationDefinition): AdminOperationStatus {
-  if (definition.policy.requiresConfirmation) return "PENDING_CONFIRMATION";
-  if (definition.policy.requiredApprovals > 0) return "PENDING_APPROVAL";
+function nextStatusAfterSimulation(policy: AdminOperationPolicy): AdminOperationStatus {
+  if (policy.requiresConfirmation) return "PENDING_CONFIRMATION";
+  if (policy.requiredApprovals > 0) return "PENDING_APPROVAL";
   return "READY";
+}
+
+function policySnapshotsEqual(
+  persisted: AdminOperationPolicy,
+  current: AdminOperationPolicy,
+): boolean {
+  return (
+    persisted.version === current.version &&
+    persisted.requiresReason === current.requiresReason &&
+    persisted.requiresExpectedRevision === current.requiresExpectedRevision &&
+    persisted.requiresSimulation === current.requiresSimulation &&
+    persisted.requiresConfirmation === current.requiresConfirmation &&
+    persisted.requiredApprovals === current.requiredApprovals
+  );
+}
+
+function requireOperationDefinitionSnapshot(
+  operation: AdminOperationRecord,
+  definition: AdminOperationDefinition,
+  parsedInput: unknown,
+): AdminTarget {
+  const target = definition.target(parsedInput);
+  const fingerprint = adminRequestFingerprint({
+    principalId: operation.principalId,
+    definition,
+    parsedInput,
+    target,
+    reason: operation.reason,
+    expectedRevision: operation.expectedRevision,
+  });
+  const drifted =
+    operation.capabilityKey !== definition.capabilityKey ||
+    operation.riskTier !== definition.riskTier ||
+    operation.authorizationMode !== definition.authorizationMode ||
+    !policySnapshotsEqual(operation.policy, definition.policy) ||
+    operation.targetType !== target.type ||
+    operation.targetId !== target.id ||
+    operation.requestFingerprint !== fingerprint;
+  if (drifted) {
+    throw new AdminError(
+      ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT,
+      "Stored admin operation snapshot differs from the current Registry definition",
+      { operationType: operation.operationType, policyVersion: operation.policy.version },
+    );
+  }
+  return target;
 }
 
 export class AdminService {
@@ -148,7 +195,7 @@ export class AdminService {
       operationType: definition.operationType,
       target,
       riskTier: definition.riskTier,
-      status: nextStatusAfterValidation(definition),
+      status: nextStatusAfterValidation(definition.policy),
       reason,
       expectedRevision,
       idempotencyKey: parsed.data.idempotencyKey,
@@ -156,6 +203,9 @@ export class AdminService {
       input: input as Readonly<Record<string, unknown>>,
       correlationId: parsed.data.correlationId,
       policyVersion: definition.policy.version,
+      authorizationMode: definition.authorizationMode,
+      requiresReason: definition.policy.requiresReason,
+      requiresExpectedRevision: definition.policy.requiresExpectedRevision,
       requiresSimulation: definition.policy.requiresSimulation,
       requiresConfirmation: definition.policy.requiresConfirmation,
       requiredApprovals: definition.policy.requiredApprovals,
@@ -182,7 +232,8 @@ export class AdminService {
       );
     }
     const input = definition.parseInput(operation.input);
-    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));
+    const target = requireOperationDefinitionSnapshot(operation, definition, input);
+    await this.requireAuthorized(actorPrincipalId, definition, target);
     if (operation.status !== "VALIDATED" || definition.simulate === undefined) {
       throw new AdminError(
         ADMIN_ERROR_CODES.INVALID_OPERATION_STATE,
@@ -194,7 +245,7 @@ export class AdminService {
       operation.id,
       operation.revision,
       simulation,
-      nextStatusAfterSimulation(definition),
+      nextStatusAfterSimulation(operation.policy),
     );
   }
 
@@ -211,8 +262,9 @@ export class AdminService {
       );
     }
     const input = definition.parseInput(operation.input);
-    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));
-    const nextStatus = definition.policy.requiredApprovals > 0 ? "PENDING_APPROVAL" : "READY";
+    const target = requireOperationDefinitionSnapshot(operation, definition, input);
+    await this.requireAuthorized(actorPrincipalId, definition, target);
+    const nextStatus = operation.policy.requiredApprovals > 0 ? "PENDING_APPROVAL" : "READY";
     return this.repository.recordConfirmation(
       operation.id,
       actorPrincipalId,
@@ -235,7 +287,8 @@ export class AdminService {
       );
     }
     const input = definition.parseInput(operation.input);
-    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));
+    const target = requireOperationDefinitionSnapshot(operation, definition, input);
+    await this.requireAuthorized(actorPrincipalId, definition, target);
     if (reason.trim().length === 0) {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Approval reason is required");
     }
@@ -252,7 +305,8 @@ export class AdminService {
     if (operation.status === "APPLIED") return operation;
     const definition = this.registry.require(operation.operationType);
     const input = definition.parseInput(operation.input);
-    await this.requireAuthorized(actorPrincipalId, definition, definition.target(input));
+    const target = requireOperationDefinitionSnapshot(operation, definition, input);
+    await this.requireAuthorized(actorPrincipalId, definition, target);
     if (operation.status !== "READY" || definition.apply === undefined) {
       throw new AdminError(
         ADMIN_ERROR_CODES.INVALID_OPERATION_STATE,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
+  AdminAuthorizationModeSchema,
   AdminOperationPolicySchema,
   AdminOperationStatusSchema,
   AdminRiskTierSchema,
@@ -36,6 +37,9 @@ interface AdminOperationRow {
   result: Record<string, unknown> | null;
   correlation_id: string;
   policy_version: number;
+  authorization_mode: string;
+  requires_reason: boolean;
+  requires_expected_revision: boolean;
   requires_simulation: boolean;
   requires_confirmation: boolean;
   required_approvals: number;
@@ -47,6 +51,7 @@ const OPERATION_SELECT = `
   SELECT id, principal_id, capability_key, operation_type, target_type, target_id,
          risk_tier, status, reason, expected_revision::text, idempotency_key,
          request_fingerprint, input, result, correlation_id, policy_version,
+         authorization_mode, requires_reason, requires_expected_revision,
          requires_simulation, requires_confirmation, required_approvals,
          revision::text, applied_at
   FROM admin_operations`;
@@ -60,6 +65,7 @@ function toOperation(row: AdminOperationRow): AdminOperationRecord {
     targetType: row.target_type,
     targetId: row.target_id,
     riskTier: AdminRiskTierSchema.parse(row.risk_tier),
+    authorizationMode: AdminAuthorizationModeSchema.parse(row.authorization_mode),
     status: AdminOperationStatusSchema.parse(row.status),
     reason: row.reason,
     expectedRevision: row.expected_revision === null ? null : BigInt(row.expected_revision),
@@ -70,8 +76,8 @@ function toOperation(row: AdminOperationRow): AdminOperationRecord {
     correlationId: row.correlation_id,
     policy: AdminOperationPolicySchema.parse({
       version: row.policy_version,
-      requiresReason: row.risk_tier >= 2,
-      requiresExpectedRevision: row.expected_revision !== null,
+      requiresReason: row.requires_reason,
+      requiresExpectedRevision: row.requires_expected_revision,
       requiresSimulation: row.requires_simulation,
       requiresConfirmation: row.requires_confirmation,
       requiredApprovals: row.required_approvals,
@@ -145,10 +151,11 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
            id, principal_id, capability_key, operation_type, target_type, target_id,
            risk_tier, status, reason, expected_revision, idempotency_key,
            request_fingerprint, input, correlation_id, policy_version,
+           authorization_mode, requires_reason, requires_expected_revision,
            requires_simulation, requires_confirmation, required_approvals
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb,
-           $14, $15, $16, $17, $18
+           $14, $15, $16, $17, $18, $19, $20, $21
          )
          ON CONFLICT (idempotency_key) DO NOTHING
          RETURNING id`,
@@ -168,6 +175,9 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
           JSON.stringify(input.input),
           input.correlationId,
           input.policyVersion,
+          input.authorizationMode,
+          input.requiresReason,
+          input.requiresExpectedRevision,
           input.requiresSimulation,
           input.requiresConfirmation,
           input.requiredApprovals,

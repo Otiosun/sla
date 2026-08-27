@@ -22,6 +22,9 @@ export interface CreateAdminOperationInput {
   readonly input: Readonly<Record<string, unknown>>;
   readonly correlationId: string;
   readonly policyVersion: number;
+  readonly authorizationMode: "GLOBAL_ONLY" | "SUBJECT";
+  readonly requiresReason: boolean;
+  readonly requiresExpectedRevision: boolean;
   readonly requiresSimulation: boolean;
   readonly requiresConfirmation: boolean;
   readonly requiredApprovals: number;

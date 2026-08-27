@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { AdminRoleAssignInputSchema } from "../../src/modules/admin/contracts.js";
 import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
+import {
+  AdminOperationRegistry,
+  defineAdminOperation,
+} from "../../src/modules/admin/operation-registry.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 
@@ -32,6 +37,7 @@ try {
   const scopedSupportId = randomUUID();
   const targetAdminId = randomUUID();
   const staleTargetId = randomUUID();
+  const driftTargetId = randomUUID();
   const allowedPlayerId = randomUUID();
   const otherPlayerId = randomUUID();
 
@@ -41,6 +47,7 @@ try {
     [scopedSupportId, "proof:scoped-support"],
     [targetAdminId, "proof:target"],
     [staleTargetId, "proof:stale-target"],
+    [driftTargetId, "proof:drift-target"],
   ]) {
     await pool.query(
       `INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')`,
@@ -145,6 +152,106 @@ try {
     expectAdminCode(error, ADMIN_ERROR_CODES.IDEMPOTENCY_CONFLICT);
   }
 
+  const persistedSnapshot = await pool.query<{
+    authorization_mode: string;
+    requires_reason: boolean;
+    requires_expected_revision: boolean;
+    requires_simulation: boolean;
+    requires_confirmation: boolean;
+    required_approvals: number;
+  }>(
+    `SELECT authorization_mode, requires_reason, requires_expected_revision,
+            requires_simulation, requires_confirmation, required_approvals
+     FROM admin_operations WHERE id = $1`,
+    [prepared.operation.id],
+  );
+  const snapshotRow = persistedSnapshot.rows[0];
+  if (
+    snapshotRow?.authorization_mode !== "GLOBAL_ONLY" ||
+    snapshotRow.requires_reason !== true ||
+    snapshotRow.requires_expected_revision !== true ||
+    snapshotRow.requires_simulation !== true ||
+    snapshotRow.requires_confirmation !== true ||
+    snapshotRow.required_approvals !== 1
+  ) {
+    throw new Error(
+      `Admin policy snapshot was not fully persisted: ${JSON.stringify(snapshotRow)}`,
+    );
+  }
+
+  const driftPrepared = await service.prepareMutation({
+    principalId: proposerId,
+    operationType: "admin.role.assign",
+    input: { principalId: driftTargetId, roleId: supportRoleId },
+    reason: "policy drift proof",
+    expectedRevision: 0,
+    idempotencyKey: "phase12-proof-policy-drift-001",
+    correlationId: randomUUID(),
+  });
+  const changedPolicyRegistry = new AdminOperationRegistry().register(
+    defineAdminOperation({
+      kind: "MUTATION",
+      operationType: "admin.role.assign",
+      capabilityKey: "admin.role.assign",
+      riskTier: 4,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: {
+        version: 2,
+        requiresReason: true,
+        requiresExpectedRevision: true,
+        requiresSimulation: true,
+        requiresConfirmation: true,
+        requiredApprovals: 2,
+      },
+      inputSchema: AdminRoleAssignInputSchema,
+      target: (input) => ({ type: "ADMIN_PRINCIPAL", id: input.principalId }),
+      simulate: (input) => repository.simulateRoleAssignment(input),
+      apply: (context, input) =>
+        repository.applyRoleAssignment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+  try {
+    await new AdminService(changedPolicyRegistry, repository).simulate(
+      driftPrepared.operation.id,
+      proposerId,
+    );
+    throw new Error("Policy drift unexpectedly changed an in-flight admin operation");
+  } catch (error) {
+    expectAdminCode(error, ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT);
+  }
+
+  const changedAuthorizationRegistry = new AdminOperationRegistry().register(
+    defineAdminOperation({
+      kind: "MUTATION",
+      operationType: "admin.role.assign",
+      capabilityKey: "admin.role.assign",
+      riskTier: 4,
+      authorizationMode: "SUBJECT",
+      policy: {
+        version: 1,
+        requiresReason: true,
+        requiresExpectedRevision: true,
+        requiresSimulation: true,
+        requiresConfirmation: true,
+        requiredApprovals: 1,
+      },
+      inputSchema: AdminRoleAssignInputSchema,
+      target: (input) => ({ type: "ADMIN_PRINCIPAL", id: input.principalId }),
+      simulate: (input) => repository.simulateRoleAssignment(input),
+      apply: (context, input) =>
+        repository.applyRoleAssignment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+  try {
+    await new AdminService(changedAuthorizationRegistry, repository).simulate(
+      driftPrepared.operation.id,
+      proposerId,
+    );
+    throw new Error("Authorization-mode drift unexpectedly changed an in-flight operation");
+  } catch (error) {
+    expectAdminCode(error, ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT);
+  }
+
   const simulated = await service.simulate(prepared.operation.id, proposerId);
   if (simulated.status !== "PENDING_CONFIRMATION")
     throw new Error("Simulation did not enter confirmation gate");
@@ -240,7 +347,7 @@ try {
     throw new Error("Stale operation mutated target despite CAS conflict");
 
   console.log(
-    "Phase 12A admin registry proof complete: capability + object/property auth, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",
+    "Phase 12A admin registry proof complete: capability + object/property auth, full policy snapshot drift lock, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",
   );
 } finally {
   await pool.end();

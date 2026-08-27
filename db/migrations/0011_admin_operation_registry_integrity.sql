@@ -24,6 +24,10 @@ ALTER TABLE admin_operations
   ALTER COLUMN reason DROP NOT NULL,
   ADD COLUMN request_fingerprint TEXT,
   ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 1 CHECK (policy_version > 0),
+  ADD COLUMN authorization_mode TEXT NOT NULL DEFAULT 'SUBJECT'
+    CHECK (authorization_mode IN ('GLOBAL_ONLY', 'SUBJECT')),
+  ADD COLUMN requires_reason BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN requires_expected_revision BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN requires_simulation BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN requires_confirmation BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN required_approvals SMALLINT NOT NULL DEFAULT 0 CHECK (required_approvals BETWEEN 0 AND 2),

@@ -117,6 +117,7 @@ export interface AdminOperationRecord {
   readonly targetType: string;
   readonly targetId: string | null;
   readonly riskTier: AdminRiskTier;
+  readonly authorizationMode: AdminAuthorizationMode;
   readonly status: AdminOperationStatus;
   readonly reason: string | null;
   readonly expectedRevision: bigint | null;
