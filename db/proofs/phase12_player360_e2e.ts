@@ -44,15 +44,38 @@ try {
   const currencyId = randomUUID();
 
   await pool.query(
-    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status, published_at)
-     VALUES ($1, $2, 1, 1, '{}'::jsonb, 'PUBLISHED', now())`,
+    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+   VALUES ($1, $2, 1, 1, '{}'::jsonb, 'DRAFT')`,
     [rulesetId, `player360-proof-${rulesetId}`],
   );
   await pool.query(
+    `UPDATE rulesets
+   SET status = 'VALIDATED', validated_at = now(),
+       validation_report = '{"proof":true}'::jsonb,
+       config_fingerprint = repeat('a', 64)
+   WHERE id = $1`,
+    [rulesetId],
+  );
+  await pool.query(`UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`, [
+    rulesetId,
+  ]);
+  await pool.query(
     `INSERT INTO content_releases(
-       id, release_no, name, status, default_ruleset_id, published_at
-     ) VALUES ($1, 900001, 'Player 360 proof', 'PUBLISHED', $2, now())`,
+     id, release_no, name, status, default_ruleset_id
+   ) VALUES ($1, 900001, 'Player 360 proof', 'DRAFT', $2)`,
     [releaseId, rulesetId],
+  );
+  await pool.query(
+    `UPDATE content_releases
+   SET status = 'VALIDATED', validated_at = now(),
+       validation_report = '{"proof":true}'::jsonb,
+       content_fingerprint = repeat('b', 64)
+   WHERE id = $1`,
+    [releaseId],
+  );
+  await pool.query(
+    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [releaseId],
   );
   await pool.query(`INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9001, $2)`, [
     speciesId,
@@ -188,7 +211,7 @@ try {
   await pool.query(
     `INSERT INTO pokemon_evolution_condition_flags(
        pokemon_instance_id, condition_key, status, source_type, source_id, correlation_id
-     ) VALUES ($1, 'FRIENDSHIP_READY', 'ACTIVE', 'PROOF', 'evolution', $2)`,
+     ) VALUES ($1, 'friendship-ready', 'ACTIVE', 'PROOF', 'evolution', $2)`,
     [pokemonId, randomUUID()],
   );
   await pool.query(
