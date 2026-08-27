@@ -56,11 +56,15 @@ jobs:
 
           grants_path = Path('db/bootstrap/runtime_grants.sql')
           grants = grants_path.read_text(encoding='utf-8')
-          needle = "  ('admin_operation_changes')"
-          replacement = "  ('admin_operation_changes'),\n  ('admin_operation_confirmations'),\n  ('admin_operation_approvals')"
-          if grants.count(needle) != 2:
-              raise SystemExit(f'expected 2 admin_operation_changes entries, found {grants.count(needle)}')
-          grants_path.write_text(grants.replace(needle, replacement), encoding='utf-8')
+          values_needle = "  ('admin_operation_changes')"
+          values_replacement = "  ('admin_operation_changes'),\n  ('admin_operation_confirmations'),\n  ('admin_operation_approvals')"
+          verify_needle = "        'admin_operation_changes'\n      ]) AS protected(table_name)"
+          verify_replacement = "        'admin_operation_changes',\n        'admin_operation_confirmations',\n        'admin_operation_approvals'\n      ]) AS protected(table_name)"
+          if grants.count(values_needle) != 1 or grants.count(verify_needle) != 1:
+              raise SystemExit('runtime grants append-only anchors changed unexpectedly')
+          grants = grants.replace(values_needle, values_replacement)
+          grants = grants.replace(verify_needle, verify_replacement)
+          grants_path.write_text(grants, encoding='utf-8')
 
           Path('.github/workflows/phase12a-materialize-temp.yml').unlink()
           Path('.github/workflows/phase12a-recover-temp.yml').unlink()
