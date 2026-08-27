@@ -122,3 +122,14 @@ export type AdminPokemonEffectRemoveInput = z.infer<typeof AdminPokemonEffectRem
 
 export const AdminPokemonArchiveInputSchema = z.object(pokemonTargetFields).strict();
 export type AdminPokemonArchiveInput = z.infer<typeof AdminPokemonArchiveInputSchema>;
+
+const encounterTargetFields = {
+  playerId: uuidSchema,
+  encounterId: uuidSchema,
+} as const;
+
+export const AdminEncounterInspectInputSchema = z.object(encounterTargetFields).strict();
+export type AdminEncounterInspectInput = z.infer<typeof AdminEncounterInspectInputSchema>;
+
+export const AdminEncounterCloseInputSchema = z.object(encounterTargetFields).strict();
+export type AdminEncounterCloseInput = z.infer<typeof AdminEncounterCloseInputSchema>;

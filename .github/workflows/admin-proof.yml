@@ -91,3 +91,6 @@ jobs:
 
       - name: Run PostgreSQL Pokemon Lifecycle Admin E2E
         run: node --import tsx db/proofs/phase12_pokemon_admin_lifecycle_e2e.ts
+
+      - name: Run PostgreSQL Encounter Admin E2E
+        run: node --import tsx db/proofs/phase12_encounter_admin_e2e.ts
