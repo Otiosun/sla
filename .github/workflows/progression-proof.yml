@@ -70,13 +70,13 @@ jobs:
       - name: Apply immutable migrations
         run: pnpm db:migrate
 
-      - name: Seed content through Phase 11
+      - name: Seed historical Phase 11 content
         run: |
           pnpm db:seed:phase4
           pnpm db:seed:phase5
           pnpm db:seed:phase6
           pnpm db:seed:phase7
-          pnpm db:seed:phase11
+          pnpm db:seed:phase11:provisional
 
       - name: Verify migrated schema
         run: pnpm db:verify
@@ -84,5 +84,13 @@ jobs:
       - name: Run progression domain invariants
         run: pnpm exec vitest run tests/progression
 
-      - name: Run transactional Progression PostgreSQL E2E
+      - name: Run historical transactional Progression PostgreSQL E2E
         run: node --import tsx db/proofs/phase11_progression_e2e.ts
+
+      - name: Seed canonical trainer progression twice
+        run: |
+          pnpm db:seed:phase11:final
+          pnpm db:seed:phase11:final
+
+      - name: Run canonical trainer progression PostgreSQL E2E
+        run: node --import tsx db/proofs/phase11_trainer_final_e2e.ts
