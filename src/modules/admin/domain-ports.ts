@@ -1,8 +1,5 @@
 import type { AdminOperationRecord } from "./contracts.js";
-import type {
-  AdminInventoryAdjustInput,
-  AdminWalletAdjustInput,
-} from "./domain-contracts.js";
+import type { AdminInventoryAdjustInput, AdminWalletAdjustInput } from "./domain-contracts.js";
 
 export interface AdminDomainOperationPort {
   applyInventoryAdjustment(
