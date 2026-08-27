@@ -22,6 +22,11 @@ const OPEN_CONDITIONS = {
   blockedUnlockKeys: [] as string[],
 };
 
+const effectRules = (amount: number) => ({
+  version: 1 as const,
+  steps: [{ effectKey: "heal-hp", config: { amount } }],
+});
+
 function expectAdminCode(error: unknown, code: string): void {
   if (!(error instanceof AdminError) || error.code !== code) {
     throw error instanceof Error ? error : new Error(`Expected admin error ${code}`);
@@ -48,7 +53,11 @@ function expectOwnerCode(
   }
 }
 
-async function expectSqlState(promise: Promise<unknown>, code: string, label: string): Promise<void> {
+async function expectSqlState(
+  promise: Promise<unknown>,
+  code: string,
+  label: string,
+): Promise<void> {
   await promise.then(
     () => {
       throw new Error(`${label} unexpectedly succeeded`);
@@ -65,9 +74,7 @@ async function expectSqlState(promise: Promise<unknown>, code: string, label: st
 
 function resultString(operation: AdminOperationRecord, key: string): string {
   const value = operation.result?.[key];
-  if (typeof value !== "string") {
-    throw new Error(`Admin result ${key} was not a string`);
-  }
+  if (typeof value !== "string") throw new Error(`Admin result ${key} was not a string`);
   return value;
 }
 
@@ -82,7 +89,8 @@ try {
   const scopedPrincipalId = randomUUID();
 
   const nextRelease = await pool.query<{ release_no: string }>(
-    `SELECT (COALESCE(MAX(release_no), 970000) + 1)::text AS release_no FROM content_releases`,
+    `SELECT (COALESCE(MAX(release_no), 970000) + 1)::text AS release_no
+     FROM content_releases`,
   );
   const releaseNo = nextRelease.rows[0]?.release_no;
   if (releaseNo === undefined) throw new Error("Could not allocate catalog admin proof release");
@@ -97,14 +105,14 @@ try {
      VALUES ($1, $2, 'Phase 12 Catalog Draft Admin Proof', 'DRAFT', $3)`,
     [releaseId, releaseNo, rulesetId],
   );
-
   await pool.query(`INSERT INTO pokemon_types(id, slug) VALUES ($1, $2)`, [
     typeId,
     `phase12-catalog-type-${typeId}`,
   ]);
   await pool.query(
-    `INSERT INTO pokemon_type_revisions(id, content_release_id, type_id, display_name, active, data)
-     VALUES ($1, $2, $3, 'Proof Type', TRUE, '{}'::jsonb)`,
+    `INSERT INTO pokemon_type_revisions(
+       id, content_release_id, type_id, display_name, active, data
+     ) VALUES ($1, $2, $3, 'Proof Type', TRUE, '{}'::jsonb)`,
     [randomUUID(), releaseId, typeId],
   );
   await pool.query(`INSERT INTO regions(id, slug) VALUES ($1, $2)`, [
@@ -112,8 +120,9 @@ try {
     `phase12-catalog-region-${regionId}`,
   ]);
   await pool.query(
-    `INSERT INTO region_revisions(id, content_release_id, region_id, display_name, active, data)
-     VALUES ($1, $2, $3, 'Proof Region', TRUE, '{}'::jsonb)`,
+    `INSERT INTO region_revisions(
+       id, content_release_id, region_id, display_name, active, data
+     ) VALUES ($1, $2, $3, 'Proof Region', TRUE, '{}'::jsonb)`,
     [randomUUID(), releaseId, regionId],
   );
   await pool.query(
@@ -122,10 +131,10 @@ try {
     [currencyId, `phase12-catalog-currency-${currencyId}`],
   );
 
-  const contentEditor = await pool.query<{ id: string }>(
+  const role = await pool.query<{ id: string }>(
     `SELECT id FROM admin_roles WHERE slug = 'CONTENT_EDITOR'`,
   );
-  const contentEditorRoleId = contentEditor.rows[0]?.id;
+  const contentEditorRoleId = role.rows[0]?.id;
   if (contentEditorRoleId === undefined) {
     throw new Error("Catalog admin proof requires seeded CONTENT_EDITOR role");
   }
@@ -209,6 +218,24 @@ try {
     return applied;
   }
 
+  async function createResource(resource: Readonly<Record<string, unknown>>): Promise<string> {
+    const applied = await applyMutation({
+      operationType: "content.draft.create",
+      payload: { releaseId, resource },
+    });
+    return resultString(applied, "resourceId");
+  }
+
+  async function replaceResource(
+    resourceId: string,
+    resource: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    await applyMutation({
+      operationType: "content.draft.replace",
+      payload: { releaseId, resourceId, resource },
+    });
+  }
+
   const nextDex = await pool.query<{ national_dex: number }>(
     `SELECT COALESCE(MAX(national_dex), 0)::int + 1 AS national_dex FROM pokemon_species`,
   );
@@ -267,122 +294,72 @@ try {
     `phase12-proof-form-${formId}`,
   ]);
 
-  const moveCreated = await applyMutation({
-    operationType: "content.draft.create",
-    payload: {
-      releaseId,
-      resource: {
-        kind: "MOVE",
-        slug: `phase12-proof-move-${randomUUID()}`,
-        displayName: "Proof Move",
-        typeId,
-        category: "PHYSICAL",
-        power: 40,
-        accuracy: 100,
-        priority: 0,
-        maxPp: 35,
-        effectKey: null,
-        effectConfig: {},
-        flags: {},
-      },
-    },
+  const moveId = await createResource({
+    kind: "MOVE",
+    slug: `phase12-proof-move-${randomUUID()}`,
+    displayName: "Proof Move",
+    typeId,
+    category: "PHYSICAL",
+    power: 40,
+    accuracy: 100,
+    priority: 0,
+    maxPp: 35,
+    effectKey: null,
+    effectConfig: {},
+    flags: {},
   });
-  const moveId = resultString(moveCreated, "resourceId");
-
-  const itemCreated = await applyMutation({
-    operationType: "content.draft.create",
-    payload: {
-      releaseId,
-      resource: {
-        kind: "ITEM",
-        slug: `phase12-proof-item-${randomUUID()}`,
-        displayName: "Proof Item",
-        itemKind: "HELD",
-        effectKey: null,
-        effectConfig: {},
-      },
-    },
+  const itemId = await createResource({
+    kind: "ITEM",
+    slug: `phase12-proof-item-${randomUUID()}`,
+    displayName: "Proof Item",
+    itemKind: "HELD",
+    effectKey: null,
+    effectConfig: {},
   });
-  const itemId = resultString(itemCreated, "resourceId");
-
-  const areaCreated = await applyMutation({
-    operationType: "content.draft.create",
-    payload: {
-      releaseId,
-      resource: {
-        kind: "AREA",
-        regionId,
-        slug: `phase12-proof-area-${randomUUID()}`,
-        displayName: "Proof Area",
-        data: {},
-      },
-    },
+  const areaId = await createResource({
+    kind: "AREA",
+    regionId,
+    slug: `phase12-proof-area-${randomUUID()}`,
+    displayName: "Proof Area",
+    data: {},
   });
-  const areaId = resultString(areaCreated, "resourceId");
-
-  const effectCreated = await applyMutation({
-    operationType: "content.draft.create",
-    payload: {
-      releaseId,
-      resource: {
-        kind: "EFFECT",
-        slug: `phase12-proof-effect-${randomUUID()}`,
-        scope: "POKEMON",
-        stackingPolicy: "REPLACE",
-        durationModel: "PERMANENT",
-        rules: {
-          version: 1,
-          steps: [{ effectKey: "heal-hp", config: { amount: 1 } }],
-        },
-      },
-    },
+  const effectId = await createResource({
+    kind: "EFFECT",
+    slug: `phase12-proof-effect-${randomUUID()}`,
+    scope: "POKEMON",
+    stackingPolicy: "REPLACE",
+    durationModel: "PERMANENT",
+    rules: effectRules(1),
   });
-  const effectId = resultString(effectCreated, "resourceId");
-
-  const encounterCreated = await applyMutation({
-    operationType: "content.draft.create",
-    payload: {
-      releaseId,
-      resource: {
-        kind: "ENCOUNTER_TABLE",
-        areaId,
-        slug: `phase12-proof-encounter-${randomUUID()}`,
+  const encounterTableId = await createResource({
+    kind: "ENCOUNTER_TABLE",
+    areaId,
+    slug: `phase12-proof-encounter-${randomUUID()}`,
+    conditions: OPEN_CONDITIONS,
+    entries: [
+      {
+        formId,
+        weight: "100",
+        minLevel: 2,
+        maxLevel: 4,
+        active: true,
         conditions: OPEN_CONDITIONS,
-        entries: [
-          {
-            formId,
-            weight: "100",
-            minLevel: 2,
-            maxLevel: 4,
-            active: true,
-            conditions: OPEN_CONDITIONS,
-          },
-        ],
       },
+    ],
+  });
+  const rewardId = await createResource({
+    kind: "REWARD",
+    slug: `phase12-proof-reward-${randomUUID()}`,
+    displayName: "Proof Reward",
+    program: {
+      version: 1,
+      grants: [
+        { kind: "ITEM", itemId, quantity: 1 },
+        { kind: "CURRENCY", currencyId, amount: 25 },
+        { kind: "TRAINER_POINTS", amount: 5 },
+      ],
     },
   });
-  const encounterTableId = resultString(encounterCreated, "resourceId");
-
-  const rewardCreated = await applyMutation({
-    operationType: "content.draft.create",
-    payload: {
-      releaseId,
-      resource: {
-        kind: "REWARD",
-        slug: `phase12-proof-reward-${randomUUID()}`,
-        displayName: "Proof Reward",
-        program: {
-          version: 1,
-          grants: [
-            { kind: "ITEM", itemId, quantity: 1 },
-            { kind: "CURRENCY", currencyId, amount: 25 },
-            { kind: "TRAINER_POINTS", amount: 5 },
-          ],
-        },
-      },
-    },
-  });
-  const rewardId = resultString(rewardCreated, "resourceId");
 
   if (releaseRevision !== 7n) {
     throw new Error(`Seven creates advanced release to ${releaseRevision.toString()} instead of 7`);
@@ -407,125 +384,75 @@ try {
     ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
   );
 
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: speciesId,
-      resource: {
-        kind: "SPECIES",
-        displayName: "Proof Species v2",
-        catchRate: 46,
-        baseExp: 65,
-        data: { proof: 2 },
-      },
-    },
+  await replaceResource(speciesId, {
+    kind: "SPECIES",
+    displayName: "Proof Species v2",
+    catchRate: 46,
+    baseExp: 65,
+    data: { proof: 2 },
   });
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: moveId,
-      resource: {
-        kind: "MOVE",
-        displayName: "Proof Move v2",
-        typeId,
-        category: "PHYSICAL",
-        power: 50,
-        accuracy: 95,
-        priority: 0,
-        maxPp: 30,
-        effectKey: null,
-        effectConfig: {},
-        flags: { schemaVersion: 1, makesContact: true },
-      },
-    },
+  await replaceResource(moveId, {
+    kind: "MOVE",
+    displayName: "Proof Move v2",
+    typeId,
+    category: "PHYSICAL",
+    power: 50,
+    accuracy: 95,
+    priority: 0,
+    maxPp: 30,
+    effectKey: null,
+    effectConfig: {},
+    flags: { schemaVersion: 1, makesContact: true },
   });
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: itemId,
-      resource: {
-        kind: "ITEM",
-        displayName: "Proof Item v2",
-        itemKind: "HELD",
-        effectKey: null,
-        effectConfig: {},
-      },
-    },
+  await replaceResource(itemId, {
+    kind: "ITEM",
+    displayName: "Proof Item v2",
+    itemKind: "HELD",
+    effectKey: null,
+    effectConfig: {},
   });
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: areaId,
-      resource: {
-        kind: "AREA",
-        displayName: "Proof Area v2",
-        data: { proof: 2 },
-      },
-    },
+  await replaceResource(areaId, {
+    kind: "AREA",
+    displayName: "Proof Area v2",
+    data: { proof: 2 },
   });
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: effectId,
-      resource: {
-        kind: "EFFECT",
-        scope: "POKEMON",
-        stackingPolicy: "REFRESH",
-        durationModel: "PERMANENT",
-        rules: {
-          version: 1,
-          steps: [{ effectKey: "heal-hp", config: { amount: 2 } }],
-        },
-      },
-    },
+  await replaceResource(effectId, {
+    kind: "EFFECT",
+    scope: "POKEMON",
+    stackingPolicy: "REFRESH",
+    durationModel: "PERMANENT",
+    rules: effectRules(2),
   });
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: encounterTableId,
-      resource: {
-        kind: "ENCOUNTER_TABLE",
+  await replaceResource(encounterTableId, {
+    kind: "ENCOUNTER_TABLE",
+    conditions: OPEN_CONDITIONS,
+    entries: [
+      {
+        formId,
+        weight: "250",
+        minLevel: 5,
+        maxLevel: 7,
+        active: true,
         conditions: OPEN_CONDITIONS,
-        entries: [
-          {
-            formId,
-            weight: "250",
-            minLevel: 5,
-            maxLevel: 7,
-            active: true,
-            conditions: OPEN_CONDITIONS,
-          },
-        ],
       },
-    },
+    ],
   });
-  await applyMutation({
-    operationType: "content.draft.replace",
-    payload: {
-      releaseId,
-      resourceId: rewardId,
-      resource: {
-        kind: "REWARD",
-        displayName: "Proof Reward v2",
-        program: {
-          version: 1,
-          grants: [
-            { kind: "ITEM", itemId, quantity: 2 },
-            { kind: "CURRENCY", currencyId, amount: 50 },
-          ],
-        },
-      },
+  await replaceResource(rewardId, {
+    kind: "REWARD",
+    displayName: "Proof Reward v2",
+    program: {
+      version: 1,
+      grants: [
+        { kind: "ITEM", itemId, quantity: 2 },
+        { kind: "CURRENCY", currencyId, amount: 50 },
+      ],
     },
   });
 
   if (releaseRevision !== 14n) {
-    throw new Error(`Seven replacements advanced release to ${releaseRevision.toString()} instead of 14`);
+    throw new Error(
+      `Seven replacements advanced release to ${releaseRevision.toString()} instead of 14`,
+    );
   }
 
   const replacedEntries = await pool.query<{ count: string; weight: string }>(
@@ -556,7 +483,9 @@ try {
   }
 
   if (releaseRevision !== 21n) {
-    throw new Error(`Seven deactivations advanced release to ${releaseRevision.toString()} instead of 21`);
+    throw new Error(
+      `Seven deactivations advanced release to ${releaseRevision.toString()} instead of 21`,
+    );
   }
 
   const catalogRepository = new PostgresCatalogRepository(pool);
@@ -569,8 +498,6 @@ try {
   }
 
   const replayKey = `catalog-owner-replay-${randomUUID()}`;
-  const replayCorrelationId = randomUUID();
-  const replaySourceId = randomUUID();
   const replayInput = {
     releaseId,
     resource: {
@@ -579,17 +506,14 @@ try {
       scope: "POKEMON" as const,
       stackingPolicy: "REPLACE",
       durationModel: "PERMANENT",
-      rules: {
-        version: 1 as const,
-        steps: [{ effectKey: "heal-hp", config: { amount: 3 } }],
-      },
+      rules: effectRules(3),
     },
     expectedRevision: releaseRevision,
     idempotencyKey: replayKey,
-    correlationId: replayCorrelationId,
+    correlationId: randomUUID(),
     metadata: {
       sourceType: "SYSTEM" as const,
-      sourceId: replaySourceId,
+      sourceId: randomUUID(),
       reason: "Catalog owner replay proof",
       actorType: "SYSTEM" as const,
       actorId: null,
@@ -601,6 +525,7 @@ try {
   }
   const replayResourceId = firstOwnerApply.value.resourceId;
   releaseRevision = BigInt(firstOwnerApply.value.afterRevision);
+
   const secondOwnerApply = await draftOwner.create(replayInput);
   if (
     !secondOwnerApply.ok ||
@@ -633,57 +558,37 @@ try {
   });
   expectOwnerCode(staleDeactivate, "REVISION_CONFLICT", "Catalog stale revision mutation");
 
-  const invalidRewardItem = await draftOwner.create({
-    releaseId,
-    resource: {
-      kind: "REWARD",
-      slug: `phase12-proof-invalid-item-reward-${randomUUID()}`,
-      displayName: "Invalid Item Reward",
-      program: {
-        version: 1,
-        grants: [{ kind: "ITEM", itemId: randomUUID(), quantity: 1 }],
+  for (const [slug, grant] of [
+    [
+      `phase12-proof-invalid-item-${randomUUID()}`,
+      { kind: "ITEM" as const, itemId: randomUUID(), quantity: 1 },
+    ],
+    [
+      `phase12-proof-invalid-currency-${randomUUID()}`,
+      { kind: "CURRENCY" as const, currencyId: randomUUID(), amount: 1 },
+    ],
+  ] as const) {
+    const invalidReward = await draftOwner.create({
+      releaseId,
+      resource: {
+        kind: "REWARD",
+        slug,
+        displayName: "Invalid Reward",
+        program: { version: 1, grants: [grant] },
       },
-    },
-    expectedRevision: releaseRevision,
-    idempotencyKey: `catalog-invalid-item-${randomUUID()}`,
-    correlationId: randomUUID(),
-    metadata: {
-      sourceType: "SYSTEM",
-      sourceId: randomUUID(),
-      reason: "Reject invalid reward item reference",
-      actorType: "SYSTEM",
-      actorId: null,
-    },
-  });
-  expectOwnerCode(invalidRewardItem, "VALIDATION_FAILED", "Invalid reward item reference");
-
-  const invalidRewardCurrency = await draftOwner.create({
-    releaseId,
-    resource: {
-      kind: "REWARD",
-      slug: `phase12-proof-invalid-currency-reward-${randomUUID()}`,
-      displayName: "Invalid Currency Reward",
-      program: {
-        version: 1,
-        grants: [{ kind: "CURRENCY", currencyId: randomUUID(), amount: 1 }],
+      expectedRevision: releaseRevision,
+      idempotencyKey: `catalog-invalid-reward-${randomUUID()}`,
+      correlationId: randomUUID(),
+      metadata: {
+        sourceType: "SYSTEM",
+        sourceId: randomUUID(),
+        reason: "Reject invalid reward reference",
+        actorType: "SYSTEM",
+        actorId: null,
       },
-    },
-    expectedRevision: releaseRevision,
-    idempotencyKey: `catalog-invalid-currency-${randomUUID()}`,
-    correlationId: randomUUID(),
-    metadata: {
-      sourceType: "SYSTEM",
-      sourceId: randomUUID(),
-      reason: "Reject invalid reward currency reference",
-      actorType: "SYSTEM",
-      actorId: null,
-    },
-  });
-  expectOwnerCode(
-    invalidRewardCurrency,
-    "VALIDATION_FAILED",
-    "Invalid reward currency reference",
-  );
+    });
+    expectOwnerCode(invalidReward, "VALIDATION_FAILED", "Invalid reward reference");
+  }
 
   const revisionEvidence = await pool.query<{ revision: string }>(
     `SELECT revision::text FROM content_releases WHERE id = $1`,
@@ -707,10 +612,9 @@ try {
     throw new Error("Catalog owner claim proof could not select evidence row");
   }
   await expectSqlState(
-    pool.query(
-      `UPDATE catalog_admin_operation_claims SET result = result WHERE id = $1`,
-      [firstClaimId],
-    ),
+    pool.query(`UPDATE catalog_admin_operation_claims SET result = result WHERE id = $1`, [
+      firstClaimId,
+    ]),
     "55000",
     "Catalog owner claim update",
   );
@@ -738,7 +642,9 @@ try {
        (SELECT count(*)::text
         FROM audit_events
         WHERE actor_id = $1
-          AND action IN ('content.draft.create', 'content.draft.replace', 'content.draft.deactivate')) AS audits`,
+          AND action IN (
+            'content.draft.create', 'content.draft.replace', 'content.draft.deactivate'
+          )) AS audits`,
     [globalPrincipalId],
   );
   if (
@@ -755,8 +661,6 @@ try {
   const childReleaseId = randomUUID();
   const parentItemId = randomUUID();
   const parentRewardId = randomUUID();
-  const parentReleaseNo = (BigInt(releaseNo) + 1n).toString();
-  const childReleaseNo = BigInt(releaseNo) + 2n;
   await pool.query(
     `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
      VALUES ($1, $2, 1, 1, '{}'::jsonb, 'DRAFT')`,
@@ -765,7 +669,7 @@ try {
   await pool.query(
     `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
      VALUES ($1, $2, 'Phase 12 Reward Clone Parent', 'DRAFT', $3)`,
-    [parentReleaseId, parentReleaseNo, parentRulesetId],
+    [parentReleaseId, (BigInt(releaseNo) + 1n).toString(), parentRulesetId],
   );
   await pool.query(`INSERT INTO items(id, slug) VALUES ($1, $2)`, [
     parentItemId,
@@ -812,10 +716,11 @@ try {
   const cloned = await catalog.clonePublishedRelease({
     parentReleaseId,
     newReleaseId: childReleaseId,
-    releaseNo: childReleaseNo,
+    releaseNo: BigInt(releaseNo) + 2n,
     name: "Phase 12 Reward Clone Child",
   });
   if (!cloned.ok) throw new Error(`Catalog reward clone failed: ${cloned.error.code}`);
+
   const childSnapshot = await catalogRepository.read((transaction) =>
     transaction.loadCatalogSnapshot(childReleaseId),
   );
@@ -854,10 +759,7 @@ try {
       scope: "POKEMON",
       stackingPolicy: "REPLACE",
       durationModel: "PERMANENT",
-      rules: {
-        version: 1,
-        steps: [{ effectKey: "heal-hp", config: { amount: 4 } }],
-      },
+      rules: effectRules(4),
     },
     expectedRevision: releaseRevision,
     idempotencyKey: `catalog-nondraft-${randomUUID()}`,
@@ -882,7 +784,9 @@ try {
     [releaseId, encounterTableId],
   );
   const encounterEntryId = encounterEntry.rows[0]?.id;
-  if (encounterEntryId === undefined) throw new Error("Encounter entry immutability fixture missing");
+  if (encounterEntryId === undefined) {
+    throw new Error("Encounter entry immutability fixture missing");
+  }
   await expectSqlState(
     pool.query(`DELETE FROM encounter_entries WHERE id = $1`, [encounterEntryId]),
     "55000",
