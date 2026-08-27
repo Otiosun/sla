@@ -69,10 +69,10 @@ async function attachRole(
   ]);
   const roleId = role.rows[0]?.id;
   if (roleId === undefined) throw new Error(`Missing seeded admin role ${roleSlug}`);
-  await pool.query(
-    `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`,
-    [principalId, roleId],
-  );
+  await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [
+    principalId,
+    roleId,
+  ]);
   await pool.query(
     `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
      VALUES ($1, $2, $3, $4)`,
@@ -284,7 +284,10 @@ try {
     throw new Error("Admin validate did not recover from committed owner claim by replay");
   }
   const validateAppliedAgain = await admin.apply(validatePrepared.operation.id, editorId);
-  if (validateAppliedAgain.id !== validateApplied.id || validateAppliedAgain.revision !== validateApplied.revision) {
+  if (
+    validateAppliedAgain.id !== validateApplied.id ||
+    validateAppliedAgain.revision !== validateApplied.revision
+  ) {
     throw new Error("Applied validate retry was not stable");
   }
 
@@ -485,10 +488,9 @@ try {
     "Catalog release claim UPDATE",
   );
   await expectSqlState(
-    pool.query(
-      `DELETE FROM catalog_release_admin_operation_claims WHERE idempotency_key = $1`,
-      [publishPrepared.operation.id],
-    ),
+    pool.query(`DELETE FROM catalog_release_admin_operation_claims WHERE idempotency_key = $1`, [
+      publishPrepared.operation.id,
+    ]),
     "55000",
     "Catalog release claim DELETE",
   );
