@@ -94,7 +94,8 @@ FROM (VALUES
   ('admin_operation_changes'),
   ('admin_operation_confirmations'),
   ('admin_operation_approvals'),
-  ('messaging_rate_limit_charges')
+  ('messaging_rate_limit_charges'),
+  ('world_travel_receipts')
 ) AS protected(protected_table)
 WHERE to_regclass('public.' || protected_table) IS NOT NULL
 \gexec
@@ -168,7 +169,8 @@ SELECT format(
         'admin_operation_changes',
         'admin_operation_confirmations',
         'admin_operation_approvals',
-        'messaging_rate_limit_charges'
+        'messaging_rate_limit_charges',
+        'world_travel_receipts'
       ]) AS protected(table_name)
       WHERE to_regclass('public.' || table_name) IS NOT NULL
         AND (

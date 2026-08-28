@@ -69,6 +69,19 @@ export interface WorldLocationView {
 export interface TravelResult {
   readonly from: WorldLocationView;
   readonly to: WorldLocationView;
+  readonly replayed: boolean;
+}
+
+export interface WorldTravelReceipt {
+  readonly idempotencyKey: string;
+  readonly playerId: PlayerId;
+  readonly contentReleaseId: string;
+  readonly fromAreaId: string;
+  readonly destinationAreaId: string;
+  readonly expectedRevision: bigint;
+  readonly resultingRevision: bigint;
+  readonly fromEnteredAt: Date;
+  readonly toEnteredAt: Date;
 }
 
 export interface EnsureInitialLocationInput {
@@ -79,6 +92,8 @@ export interface TravelInput {
   readonly playerId: PlayerId;
   readonly destinationAreaId: string;
   readonly expectedRevision: bigint;
+  /** Messaging must pass the Inbox-derived key. Other trusted callers get a semantic fallback. */
+  readonly idempotencyKey?: string;
 }
 
 export interface RelocateInput {

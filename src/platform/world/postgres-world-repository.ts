@@ -9,6 +9,7 @@ import type {
   WorldConnectionRecord,
   WorldFlowState,
   WorldPlayerEligibility,
+  WorldTravelReceipt,
 } from "../../modules/world/contracts.js";
 import type { WorldRepository, WorldTransaction } from "../../modules/world/ports.js";
 import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
@@ -186,6 +187,70 @@ class PostgresWorldTransaction implements WorldTransaction {
       enteredAt: row.entered_at,
       revision: BigInt(row.revision),
     };
+  }
+
+  public async acquireTravelIdempotencyLock(idempotencyKey: string): Promise<void> {
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      idempotencyKey,
+    ]);
+  }
+
+  public async travelReceipt(idempotencyKey: string): Promise<WorldTravelReceipt | null> {
+    const result = await this.client.query<{
+      idempotency_key: string;
+      player_id: string;
+      content_release_id: string;
+      from_area_id: string;
+      destination_area_id: string;
+      expected_revision: string;
+      resulting_revision: string;
+      from_entered_at: Date;
+      to_entered_at: Date;
+    }>(
+      `SELECT idempotency_key, player_id, content_release_id,
+              from_area_id, destination_area_id,
+              expected_revision::text, resulting_revision::text,
+              from_entered_at, to_entered_at
+       FROM world_travel_receipts
+       WHERE idempotency_key = $1`,
+      [idempotencyKey],
+    );
+    const row = result.rows[0];
+    return row === undefined
+      ? null
+      : {
+          idempotencyKey: row.idempotency_key,
+          playerId: playerId(row.player_id),
+          contentReleaseId: row.content_release_id,
+          fromAreaId: row.from_area_id,
+          destinationAreaId: row.destination_area_id,
+          expectedRevision: BigInt(row.expected_revision),
+          resultingRevision: BigInt(row.resulting_revision),
+          fromEnteredAt: row.from_entered_at,
+          toEnteredAt: row.to_entered_at,
+        };
+  }
+
+  public async insertTravelReceipt(receipt: WorldTravelReceipt): Promise<void> {
+    await this.client.query(
+      `INSERT INTO world_travel_receipts(
+         idempotency_key, player_id, content_release_id,
+         from_area_id, destination_area_id,
+         expected_revision, resulting_revision,
+         from_entered_at, to_entered_at
+       ) VALUES ($1, $2, $3, $4, $5, $6::bigint, $7::bigint, $8, $9)`,
+      [
+        receipt.idempotencyKey,
+        receipt.playerId,
+        receipt.contentReleaseId,
+        receipt.fromAreaId,
+        receipt.destinationAreaId,
+        receipt.expectedRevision.toString(),
+        receipt.resultingRevision.toString(),
+        receipt.fromEnteredAt,
+        receipt.toEnteredAt,
+      ],
+    );
   }
 
   public async area(contentReleaseId: string, areaId: string): Promise<WorldAreaRecord | null> {
