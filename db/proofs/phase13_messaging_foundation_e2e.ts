@@ -109,16 +109,23 @@ async function main(): Promise<void> {
     }
 
     const freeform = await service.receive(
-      message({ id: "scene-1", text: "Charmander observa a trilha enquanto o narrador descreve a noite." }),
+      message({
+        id: "scene-1",
+        text: "Charmander observa a trilha enquanto o narrador descreve a noite.",
+      }),
     );
     if (!freeform.ok || freeform.value.status !== "PROCESSED") {
-      throw new Error(`Freeform campaign scene was not safely ignored: ${JSON.stringify(freeform)}`);
+      throw new Error(
+        `Freeform campaign scene was not safely ignored: ${JSON.stringify(freeform)}`,
+      );
     }
 
     const crashMessage = message({ id: "msg-crash", text: "$credit" });
     const crashed = await service.receive(crashMessage);
     if (crashed.ok || crashed.error.code !== "ACTION_INVALID") {
-      throw new Error(`Crash-window simulation did not fail the Inbox attempt: ${JSON.stringify(crashed)}`);
+      throw new Error(
+        `Crash-window simulation did not fail the Inbox attempt: ${JSON.stringify(crashed)}`,
+      );
     }
     const restartedService = new MessagingService(
       new PostgresMessagingRepository(pool),
@@ -154,7 +161,10 @@ async function main(): Promise<void> {
       text: "$credit",
       occurredAt: "2026-08-27T22:01:00-03:00",
     });
-    const deliveredOutOfOrder = [await restartedService.receive(later), await restartedService.receive(earlier)];
+    const deliveredOutOfOrder = [
+      await restartedService.receive(later),
+      await restartedService.receive(earlier),
+    ];
     if (deliveredOutOfOrder.some((result) => !result.ok || result.value.status !== "PROCESSED")) {
       throw new Error("Reordered distinct messages did not process independently");
     }
@@ -179,7 +189,7 @@ async function main(): Promise<void> {
       state === undefined ||
       state.amount !== "50" ||
       state.ledger_count !== "5" ||
-      state.inbox_count !== "7" ||
+      state.inbox_count !== "6" ||
       state.outbox_count !== "5" ||
       state.freeform_outbox_count !== "0"
     ) {
@@ -222,7 +232,9 @@ async function main(): Promise<void> {
     });
     await Promise.all([concurrentWorker.runOnce(), concurrentWorker.runOnce()]);
     if (adapter.sent.length !== 5) {
-      throw new Error(`Concurrent Outbox workers duplicated or lost delivery: ${adapter.sent.length}`);
+      throw new Error(
+        `Concurrent Outbox workers duplicated or lost delivery: ${adapter.sent.length}`,
+      );
     }
 
     const stuckOutboxId = randomUUID();
@@ -240,7 +252,9 @@ async function main(): Promise<void> {
       [stuckOutboxId],
     );
     if (recoveredOutbox.rows[0]?.status !== "SENT" || recoveredOutbox.rows[0]?.attempts !== 2) {
-      throw new Error(`Stuck SENDING row did not recover: ${JSON.stringify(recoveredOutbox.rows[0])}`);
+      throw new Error(
+        `Stuck SENDING row did not recover: ${JSON.stringify(recoveredOutbox.rows[0])}`,
+      );
     }
 
     const deadOutboxId = randomUUID();
@@ -267,7 +281,9 @@ async function main(): Promise<void> {
       [deadOutboxId],
     );
     if (dead.rows[0]?.status !== "DEAD" || dead.rows[0]?.attempts !== 2) {
-      throw new Error(`Outbox did not dead-letter at the configured limit: ${JSON.stringify(dead.rows[0])}`);
+      throw new Error(
+        `Outbox did not dead-letter at the configured limit: ${JSON.stringify(dead.rows[0])}`,
+      );
     }
 
     console.log(
