@@ -49,6 +49,7 @@ const capabilities = [
   ["content.archive", 3],
   ["batch.preview", 2],
   ["batch.execute.low_risk", 3],
+  ["admin_operation.compensate", 3],
   ["player.reset.full", 4],
   ["content.publish", 4],
   ["content.rollback_release", 4],
