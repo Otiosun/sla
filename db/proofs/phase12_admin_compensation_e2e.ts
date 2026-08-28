@@ -233,8 +233,8 @@ try {
     relations: string;
   }>(
     `SELECT balance.amount::text AS amount,
-            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $3) AS source_ledgers,
-            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $4) AS compensation_ledgers,
+            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $3::text) AS source_ledgers,
+            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $4::text) AS compensation_ledgers,
             (SELECT count(*)::text FROM admin_operation_compensations
              WHERE source_admin_operation_id = $3::uuid
                AND compensation_admin_operation_id = $4::uuid) AS relations
@@ -328,7 +328,7 @@ try {
             compensation.status AS comp_status,
             (SELECT count(*)::text FROM admin_operation_compensations
              WHERE source_admin_operation_id = $3::uuid) AS relation_count,
-            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $4) AS compensation_ledgers
+            (SELECT count(*)::text FROM wallet_ledger WHERE source_id = $4::text) AS compensation_ledgers
      FROM wallet_balances balance
      JOIN admin_operations source ON source.id = $3::uuid
      JOIN admin_operations compensation ON compensation.id = $4::uuid
