@@ -39,9 +39,7 @@ export class MessageRouter implements MessageRouterPort {
     this.routes.set(command, definition.handler);
   }
 
-  async dispatch(
-    context: MessageHandlerContext,
-  ): Promise<Result<MessageHandlerResult | null>> {
+  async dispatch(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
     const command = commandFromText(context.message.text);
     if (command === null) {
       return ok(null);
