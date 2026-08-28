@@ -1,6 +1,10 @@
 import { Pool } from "pg";
-import { MessageRouter } from "../../src/modules/messaging/router.js";
+import {
+  IncomingMessageSchema,
+  type IncomingMessage,
+} from "../../src/modules/messaging/contracts.js";
 import { OnboardingMessageRouter } from "../../src/modules/messaging/onboarding-router.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { MessagingService } from "../../src/modules/messaging/service.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
@@ -8,7 +12,6 @@ import { ManualClock } from "../../src/platform/clock/index.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
-import { IncomingMessageSchema, type IncomingMessage } from "../../src/modules/messaging/contracts.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) {
@@ -70,11 +73,10 @@ async function main(): Promise<void> {
        JOIN content_releases release ON release.id = pointer.content_release_id
        WHERE pointer.pointer_key = 'ACTIVE'`,
     );
-    if (
-      activeRelease.rows[0]?.release_no !== "2" ||
-      activeRelease.rows[0]?.starter_count !== "3"
-    ) {
-      throw new Error(`Phase 5 onboarding catalog is not active: ${JSON.stringify(activeRelease.rows[0])}`);
+    if (activeRelease.rows[0]?.release_no !== "2" || activeRelease.rows[0]?.starter_count !== "3") {
+      throw new Error(
+        `Phase 5 onboarding catalog is not active: ${JSON.stringify(activeRelease.rows[0])}`,
+      );
     }
 
     let service = buildService(pool);
@@ -132,7 +134,11 @@ async function main(): Promise<void> {
       throw new Error("Direct first contact created a player before explicit consent");
     }
 
-    const startedMessage = message({ id: "direct-start", sender: "direct-player", text: "$começar" });
+    const startedMessage = message({
+      id: "direct-start",
+      sender: "direct-player",
+      text: "$começar",
+    });
     const started = await service.receive(startedMessage);
     const startedReplay = await service.receive(startedMessage);
     if (
@@ -180,8 +186,13 @@ async function main(): Promise<void> {
        WHERE onboarding.player_id = $1`,
       [playerId],
     );
-    if (afterName.rows[0]?.state !== "PROFILE_CREATED" || afterName.rows[0]?.trainer_name !== "Red") {
-      throw new Error(`Profile step did not persist correctly: ${JSON.stringify(afterName.rows[0])}`);
+    if (
+      afterName.rows[0]?.state !== "PROFILE_CREATED" ||
+      afterName.rows[0]?.trainer_name !== "Red"
+    ) {
+      throw new Error(
+        `Profile step did not persist correctly: ${JSON.stringify(afterName.rows[0])}`,
+      );
     }
 
     const invalidRegion = await service.receive(
@@ -287,7 +298,9 @@ async function main(): Promise<void> {
       completed.rows[0]?.team !== "1" ||
       completed.rows[0]?.caught !== "1"
     ) {
-      throw new Error(`Completed onboarding invariant mismatch: ${JSON.stringify(completed.rows[0])}`);
+      throw new Error(
+        `Completed onboarding invariant mismatch: ${JSON.stringify(completed.rows[0])}`,
+      );
     }
 
     const postCompleteFree = await service.receive(
@@ -317,7 +330,12 @@ async function main(): Promise<void> {
        WHERE identity.provider = 'phase13-onboarding' AND identity.external_id = 'second-player'`,
     );
     const incompleteGroup = await service.receive(
-      message({ id: "second-group-menu", sender: "second-player", chat: "second-group", text: "$menu" }),
+      message({
+        id: "second-group-menu",
+        sender: "second-player",
+        chat: "second-group",
+        text: "$menu",
+      }),
     );
     if (!incompleteGroup.ok || incompleteGroup.value.status !== "PROCESSED") {
       throw new Error("Incomplete player group handoff failed");
