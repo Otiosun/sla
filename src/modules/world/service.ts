@@ -34,12 +34,8 @@ if (!travelScopeResult.ok) throw new Error("Canonical world travel idempotency s
 const WORLD_TRAVEL_SCOPE = travelScopeResult.value;
 
 function playerGate(eligibility: WorldPlayerEligibility): PlayerEligibility {
-  if (!eligibility.playerActive) {
-    return { eligible: false, reason: "player-not-active" };
-  }
-  if (!eligibility.onboardingComplete) {
-    return { eligible: false, reason: "onboarding-incomplete" };
-  }
+  if (!eligibility.playerActive) return { eligible: false, reason: "player-not-active" };
+  if (!eligibility.onboardingComplete) return { eligible: false, reason: "onboarding-incomplete" };
   return { eligible: true, reason: null };
 }
 
@@ -54,10 +50,7 @@ function flowGate(encounterActive: boolean, battleActive: boolean): FlowState {
   return { state: "FREE", allowsAction: true, reason: null };
 }
 
-function missingUnlockKeys(
-  required: readonly string[],
-  owned: ReadonlySet<string>,
-): readonly string[] {
+function missingUnlockKeys(required: readonly string[], owned: ReadonlySet<string>): readonly string[] {
   return required.filter((key) => !owned.has(key));
 }
 
@@ -66,8 +59,7 @@ function chooseRelocationArea(areas: readonly WorldAreaRecord[]): WorldAreaRecor
     .filter((area) => area.active && area.config.safePoint)
     .sort(
       (left, right) =>
-        left.config.relocationPriority - right.config.relocationPriority ||
-        left.areaId.localeCompare(right.areaId),
+        left.config.relocationPriority - right.config.relocationPriority || left.areaId.localeCompare(right.areaId),
     );
   return candidates[0] ?? null;
 }
@@ -86,13 +78,10 @@ export class WorldService {
     private readonly feature: FeatureAvailability,
   ) {}
 
-  public async ensureInitialLocation(
-    input: EnsureInitialLocationInput,
-  ): Promise<Result<WorldLocationView>> {
+  public async ensureInitialLocation(input: EnsureInitialLocationInput): Promise<Result<WorldLocationView>> {
     return this.repository.transaction(async (transaction) => {
       const base = await this.loadBase(transaction, input.playerId);
       if (!base.ok) return base;
-
       const gate = evaluateActionGate({
         feature: this.feature,
         player: playerGate(base.value.eligibility),
@@ -103,24 +92,15 @@ export class WorldService {
         },
       });
       if (!gate.ok) return gate;
-
       const existing = await transaction.playerLocation(input.playerId, true);
-      if (existing !== null) {
-        return this.buildView(transaction, base.value.contentReleaseId, existing);
-      }
-
+      if (existing !== null) return this.buildView(transaction, base.value.contentReleaseId, existing);
       const regionId = base.value.eligibility.originRegionId;
       if (regionId === null) return err(worldNotReady("Player origin region is missing"));
       const areas = await transaction.areasInRegion(base.value.contentReleaseId, regionId);
       const starting = areas.filter((area) => area.active && area.config.startingArea);
       if (starting.length !== 1) {
-        return err(
-          worldNotReady(
-            "Active content release must define exactly one starting area for the region",
-          ),
-        );
+        return err(worldNotReady("Active content release must define exactly one starting area for the region"));
       }
-
       await transaction.insertInitialLocation(input.playerId, starting[0]?.areaId ?? "");
       const created = await transaction.playerLocation(input.playerId, true);
       if (created === null) return err(worldNotReady("Player location could not be initialized"));
@@ -139,7 +119,6 @@ export class WorldService {
         action: { valid: true, reason: null },
       });
       if (!gate.ok) return gate;
-
       const location = await transaction.playerLocation(playerId);
       if (location === null) return err(worldNotReady("Player location is not initialized"));
       return this.buildView(transaction, base.value.contentReleaseId, location);
@@ -153,7 +132,9 @@ export class WorldService {
     if (input.expectedRevision < 0n) {
       return err(worldValidationError("expectedRevision must be non-negative"));
     }
-    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, input.idempotencyKey);
+    const operationKey =
+      input.idempotencyKey ?? `${input.playerId}:${input.destinationAreaId}:${input.expectedRevision}`;
+    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, operationKey);
     if (!idempotency.ok) return idempotency;
 
     return this.repository.transaction(async (transaction) => {
@@ -161,12 +142,7 @@ export class WorldService {
       const receipt = await transaction.travelReceipt(idempotency.value.storageKey);
       if (receipt !== null) {
         if (!travelReceiptMatches(receipt, input)) {
-          return err(
-            appError(
-              "FINGERPRINT_MISMATCH",
-              "World travel idempotency key was already used for different input",
-            ),
-          );
+          return err(appError("FINGERPRINT_MISMATCH", "World travel idempotency key was already used for different input"));
         }
         const from = await this.buildView(transaction, receipt.contentReleaseId, {
           playerId: receipt.playerId,
@@ -189,25 +165,16 @@ export class WorldService {
       if (!base.ok) return base;
       const location = await transaction.playerLocation(input.playerId, true);
       if (location === null) return err(worldNotReady("Player location is not initialized"));
-      if (location.revision !== input.expectedRevision) {
-        return err(locationRevisionConflict(input.expectedRevision));
-      }
-
+      if (location.revision !== input.expectedRevision) return err(locationRevisionConflict(input.expectedRevision));
       const currentArea = await transaction.area(base.value.contentReleaseId, location.areaId);
-      if (currentArea === null) {
-        return err(worldNotReady("Current area is absent from the active content release"));
-      }
+      if (currentArea === null) return err(worldNotReady("Current area is absent from the active content release"));
       if (!currentArea.active) {
         const relocation = chooseRelocationArea(
           await transaction.areasInRegion(base.value.contentReleaseId, currentArea.regionId),
         );
         return err(relocationRequired(currentArea.areaId, relocation?.areaId ?? null));
       }
-
-      const destination = await transaction.area(
-        base.value.contentReleaseId,
-        input.destinationAreaId,
-      );
+      const destination = await transaction.area(base.value.contentReleaseId, input.destinationAreaId);
       const connection = await transaction.connectionBetween(
         base.value.contentReleaseId,
         currentArea.areaId,
@@ -215,12 +182,8 @@ export class WorldService {
       );
       const flow = await transaction.activeFlowState(input.playerId);
       const unlockKeys = new Set(await transaction.activeUnlockKeys(input.playerId));
-      const missing =
-        connection === null
-          ? []
-          : missingUnlockKeys(connection.accessRule.requiredUnlockKeys, unlockKeys);
-      const actionValid =
-        destination?.active === true && connection?.active === true && missing.length === 0;
+      const missing = connection === null ? [] : missingUnlockKeys(connection.accessRule.requiredUnlockKeys, unlockKeys);
+      const actionValid = destination?.active === true && connection?.active === true && missing.length === 0;
       const actionReason =
         destination === null
           ? "destination-missing"
@@ -233,7 +196,6 @@ export class WorldService {
                 : missing.length > 0
                   ? `missing-unlocks:${missing.join(",")}`
                   : null;
-
       const gate = evaluateActionGate({
         feature: this.feature,
         player: playerGate(base.value.eligibility),
@@ -241,7 +203,6 @@ export class WorldService {
         action: { valid: actionValid, reason: actionReason },
       });
       if (!gate.ok) return gate;
-
       const from = await this.buildView(transaction, base.value.contentReleaseId, location);
       if (!from.ok) return from;
       const moved = await transaction.moveLocation({
@@ -268,27 +229,16 @@ export class WorldService {
   }
 
   public async relocate(input: RelocateInput): Promise<Result<WorldLocationView>> {
-    if (input.expectedRevision < 0n) {
-      return err(worldValidationError("expectedRevision must be non-negative"));
-    }
-
+    if (input.expectedRevision < 0n) return err(worldValidationError("expectedRevision must be non-negative"));
     return this.repository.transaction(async (transaction) => {
       const base = await this.loadBase(transaction, input.playerId);
       if (!base.ok) return base;
       const location = await transaction.playerLocation(input.playerId, true);
       if (location === null) return err(worldNotReady("Player location is not initialized"));
-      if (location.revision !== input.expectedRevision) {
-        return err(locationRevisionConflict(input.expectedRevision));
-      }
-
+      if (location.revision !== input.expectedRevision) return err(locationRevisionConflict(input.expectedRevision));
       const currentArea = await transaction.area(base.value.contentReleaseId, location.areaId);
-      if (currentArea === null) {
-        return err(worldNotReady("Current area is absent from the active content release"));
-      }
-      if (currentArea.active) {
-        return err(worldValidationError("Relocation is allowed only from an inactive area"));
-      }
-
+      if (currentArea === null) return err(worldNotReady("Current area is absent from the active content release"));
+      if (currentArea.active) return err(worldValidationError("Relocation is allowed only from an inactive area"));
       const flow = await transaction.activeFlowState(input.playerId);
       const gate = evaluateActionGate({
         feature: this.feature,
@@ -297,13 +247,10 @@ export class WorldService {
         action: { valid: true, reason: null },
       });
       if (!gate.ok) return gate;
-
       const relocation = chooseRelocationArea(
         await transaction.areasInRegion(base.value.contentReleaseId, currentArea.regionId),
       );
-      if (relocation === null) {
-        return err(worldNotReady("No active safe relocation area exists in the current region"));
-      }
+      if (relocation === null) return err(worldNotReady("No active safe relocation area exists in the current region"));
       const moved = await transaction.moveLocation({
         playerId: input.playerId,
         destinationAreaId: relocation.areaId,
@@ -317,9 +264,7 @@ export class WorldService {
   private async loadBase(
     transaction: WorldTransaction,
     playerId: PlayerId,
-  ): Promise<
-    Result<{ readonly contentReleaseId: string; readonly eligibility: WorldPlayerEligibility }>
-  > {
+  ): Promise<Result<{ readonly contentReleaseId: string; readonly eligibility: WorldPlayerEligibility }>> {
     const contentReleaseId = await transaction.activeContentReleaseId();
     if (contentReleaseId === null) return err(worldNotReady("No active content release exists"));
     const eligibility = await transaction.playerEligibility(playerId);
@@ -333,10 +278,7 @@ export class WorldService {
     location: PlayerLocationRecord,
   ): Promise<Result<WorldLocationView>> {
     const area = await transaction.area(contentReleaseId, location.areaId);
-    if (area === null) {
-      return err(worldNotReady("Player area is absent from the active content release"));
-    }
-
+    if (area === null) return err(worldNotReady("Player area is absent from the active content release"));
     const regionAreas = await transaction.areasInRegion(contentReleaseId, area.regionId);
     const relocation = area.active ? null : chooseRelocationArea(regionAreas);
     const unlockKeys = new Set(await transaction.activeUnlockKeys(location.playerId));
@@ -359,7 +301,6 @@ export class WorldService {
         });
       }
     }
-
     return ok({
       playerId: location.playerId,
       contentReleaseId,
@@ -374,9 +315,7 @@ export class WorldService {
       enteredAt: location.enteredAt,
       requiresRelocation: !area.active,
       relocationAreaId: relocation?.areaId ?? null,
-      connections: views.sort((left, right) =>
-        left.connectionKey.localeCompare(right.connectionKey),
-      ),
+      connections: views.sort((left, right) => left.connectionKey.localeCompare(right.connectionKey)),
     });
   }
 }
