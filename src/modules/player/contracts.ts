@@ -62,6 +62,12 @@ export interface OnboardingRecord extends ContentContext {
   readonly originRegionId: string | null;
 }
 
+export interface RegionOption {
+  readonly regionId: string;
+  readonly slug: string;
+  readonly displayName: string;
+}
+
 export interface StarterOption {
   readonly formId: string;
   readonly displayName: string;
