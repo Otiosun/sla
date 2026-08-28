@@ -1,7 +1,4 @@
-import makeWASocket, {
-  DisconnectReason,
-  normalizeMessageContent,
-} from "@whiskeysockets/baileys";
+import makeWASocket, { DisconnectReason, normalizeMessageContent } from "@whiskeysockets/baileys";
 
 export const loggedOutStatusCode = DisconnectReason.loggedOut;
 export { normalizeMessageContent };
