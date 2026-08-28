@@ -177,6 +177,7 @@ jobs:
           ref: 7a7881d0d62e0ddbd82dcf10e7116807487ac651
           path: .phase15-crystal
           sparse-checkout: |
+            constants/map_constants.asm
             data/maps
             maps
           fetch-depth: 1
