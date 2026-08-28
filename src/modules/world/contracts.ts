@@ -75,6 +75,7 @@ export interface TravelResult {
 export interface WorldTravelReceipt {
   readonly idempotencyKey: string;
   readonly playerId: PlayerId;
+  readonly contentReleaseId: string;
   readonly fromAreaId: string;
   readonly destinationAreaId: string;
   readonly expectedRevision: bigint;
