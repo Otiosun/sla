@@ -1,8 +1,11 @@
+import { SystemClock } from "./platform/clock/index.js";
 import { loadConfig } from "./platform/config/env.js";
 import { closeDatabasePool, createDatabasePool } from "./platform/db/database.js";
 import { assertDatabaseSchemaCurrent } from "./platform/db/migrations.js";
+import { JsonLineStdoutSink, StructuredLogger } from "./platform/logging/index.js";
 
 const config = loadConfig();
+const logger = new StructuredLogger(new SystemClock(), new JsonLineStdoutSink());
 const pool = createDatabasePool({
   connectionString: config.databaseUrl,
   applicationName: "pokemon-rpg-runtime",
@@ -16,7 +19,7 @@ const pool = createDatabasePool({
 
 try {
   await assertDatabaseSchemaCurrent(pool);
-  process.stdout.write(`pokemon-rpg-engine ready (${config.appEnv})\n`);
+  logger.log("INFO", "runtime.ready", { appEnv: config.appEnv });
 } finally {
   await closeDatabasePool(pool);
 }

@@ -1,9 +1,12 @@
+import { SystemClock } from "../clock/index.js";
 import { loadConfig } from "../config/env.js";
+import { JsonLineStdoutSink, StructuredLogger } from "../logging/index.js";
 import { closeDatabasePool, createDatabasePool } from "./database.js";
 import { assertDatabaseSchemaCurrent, runMigrations } from "./migrations.js";
 
 const command = process.argv[2];
 const config = loadConfig();
+const logger = new StructuredLogger(new SystemClock(), new JsonLineStdoutSink());
 const migrationConnectionString = config.migratorDatabaseUrl ?? config.databaseUrl;
 const pool = createDatabasePool({
   connectionString: command === "migrate" ? migrationConnectionString : config.databaseUrl,
@@ -21,10 +24,10 @@ try {
     const migrations = await runMigrations(pool, {
       appliedBy: process.env.MIGRATION_APPLIED_BY ?? null,
     });
-    console.info(`Schema current at migration ${migrations.length.toString().padStart(4, "0")}.`);
+    logger.log("INFO", "database.migrations.current", { migrationCount: migrations.length });
   } else if (command === "verify") {
     await assertDatabaseSchemaCurrent(pool);
-    console.info("Database schema matches immutable migration files.");
+    logger.log("INFO", "database.schema.verified");
   } else {
     throw new Error("Usage: db:cli migrate|verify");
   }
