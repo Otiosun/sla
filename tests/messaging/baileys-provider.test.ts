@@ -239,7 +239,7 @@ describe("BaileysWhatsAppAdapter", () => {
     await adapter.stop();
   });
 
-  it("reconnects transient disconnects but never reconnects logged-out or stopped sessions", async () => {
+  it("reconnects transient disconnects but never reconnects logged-out sessions", async () => {
     const sockets: FakeBaileysSocket[] = [];
     const onLoggedOut = vi.fn(async () => {});
     const factory: BaileysSocketFactory = () => {
@@ -271,8 +271,33 @@ describe("BaileysWhatsAppAdapter", () => {
     expect(sockets).toHaveLength(2);
 
     await adapter.stop();
-    expect(sockets[1]?.ended).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(sockets).toHaveLength(2);
+  });
+
+  it("stop closes an active socket and prevents future reconnect", async () => {
+    const sockets: FakeBaileysSocket[] = [];
+    const factory: BaileysSocketFactory = () => {
+      const socket = new FakeBaileysSocket();
+      sockets.push(socket);
+      return socket;
+    };
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: factory,
+      reconnectDelayMs: 0,
+    });
+    await adapter.start(async () => {});
+    const activeSocket = sockets[0];
+    expect(activeSocket).toBeDefined();
+
+    await adapter.stop();
+    expect(activeSocket?.ended).toBe(true);
+    activeSocket?.emit("connection.update", {
+      connection: "close",
+      lastDisconnect: { error: { output: { statusCode: 500 } }, date: new Date() },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(sockets).toHaveLength(1);
   });
 });
