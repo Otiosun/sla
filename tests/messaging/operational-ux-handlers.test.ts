@@ -96,6 +96,7 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
           ],
         }),
       ),
+      replayTravelIfCommitted: vi.fn(async () => ok(null)),
       travel: vi.fn(async () =>
         ok({
           replayed: false,
@@ -259,7 +260,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
-  it("emits revision-bound travel commands and rejects stale text before calling the owner", async () => {
+  it("emits revision-bound travel commands and rejects stale text before calling the owner mutation", async () => {
     const deps = dependencies();
     const app = router(deps);
     const whereText = textOf(await app.dispatch(context("$onde", "where")));
@@ -268,6 +269,14 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const stale = await app.dispatch(context("$ir route-1 v6", "stale"));
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.error.code).toBe("REVISION_CONFLICT");
+    expect(deps.world.replayTravelIfCommitted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId: PLAYER_ID,
+        destinationSlug: "route-1",
+        expectedRevision: 6n,
+        idempotencyKey: "inbox:test:stale",
+      }),
+    );
     expect(deps.world.travel).not.toHaveBeenCalled();
 
     const valid = await app.dispatch(context("$ir route-1 v7", "travel"));
