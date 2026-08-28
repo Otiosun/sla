@@ -5,6 +5,7 @@ import type {
   WorldConnectionRecord,
   WorldFlowState,
   WorldPlayerEligibility,
+  WorldTravelReceipt,
 } from "./contracts.js";
 
 export interface WorldTransaction {
@@ -17,6 +18,9 @@ export interface WorldTransaction {
     readonly destinationAreaId: string;
     readonly expectedRevision: bigint;
   }): Promise<PlayerLocationRecord | null>;
+  acquireTravelIdempotencyLock(idempotencyKey: string): Promise<void>;
+  travelReceipt(idempotencyKey: string): Promise<WorldTravelReceipt | null>;
+  insertTravelReceipt(receipt: WorldTravelReceipt): Promise<void>;
   area(contentReleaseId: string, areaId: string): Promise<WorldAreaRecord | null>;
   areasInRegion(contentReleaseId: string, regionId: string): Promise<readonly WorldAreaRecord[]>;
   connectionsFrom(

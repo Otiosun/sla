@@ -6,7 +6,8 @@ import {
   type PlayerEligibility,
 } from "../../shared-kernel/gates.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { err, ok, type Result } from "../../shared-kernel/result.js";
+import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   EnsureInitialLocationInput,
   PlayerLocationRecord,
@@ -17,6 +18,7 @@ import type {
   WorldConnectionView,
   WorldLocationView,
   WorldPlayerEligibility,
+  WorldTravelReceipt,
 } from "./contracts.js";
 import {
   locationRevisionConflict,
@@ -27,14 +29,13 @@ import {
 import type { WorldRepository, WorldTransaction } from "./ports.js";
 
 const uuidSchema = z.string().uuid();
+const travelScopeResult = parseIdempotencyScope("world.travel");
+if (!travelScopeResult.ok) throw new Error("Canonical world travel idempotency scope is invalid");
+const WORLD_TRAVEL_SCOPE = travelScopeResult.value;
 
 function playerGate(eligibility: WorldPlayerEligibility): PlayerEligibility {
-  if (!eligibility.playerActive) {
-    return { eligible: false, reason: "player-not-active" };
-  }
-  if (!eligibility.onboardingComplete) {
-    return { eligible: false, reason: "onboarding-incomplete" };
-  }
+  if (!eligibility.playerActive) return { eligible: false, reason: "player-not-active" };
+  if (!eligibility.onboardingComplete) return { eligible: false, reason: "onboarding-incomplete" };
   return { eligible: true, reason: null };
 }
 
@@ -65,6 +66,14 @@ function chooseRelocationArea(areas: readonly WorldAreaRecord[]): WorldAreaRecor
         left.areaId.localeCompare(right.areaId),
     );
   return candidates[0] ?? null;
+}
+
+function travelReceiptMatches(receipt: WorldTravelReceipt, input: TravelInput): boolean {
+  return (
+    receipt.playerId === input.playerId &&
+    receipt.destinationAreaId === input.destinationAreaId &&
+    receipt.expectedRevision === input.expectedRevision
+  );
 }
 
 export class WorldService {
@@ -141,75 +150,78 @@ export class WorldService {
       return err(worldValidationError("expectedRevision must be non-negative"));
     }
 
+    if (input.idempotencyKey === undefined) {
+      return this.repository.transaction((transaction) => this.performTravel(transaction, input));
+    }
+
+    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, input.idempotencyKey);
+    if (!idempotency.ok) return idempotency;
+
     return this.repository.transaction(async (transaction) => {
-      const base = await this.loadBase(transaction, input.playerId);
-      if (!base.ok) return base;
-      const location = await transaction.playerLocation(input.playerId, true);
-      if (location === null) return err(worldNotReady("Player location is not initialized"));
-      if (location.revision !== input.expectedRevision) {
-        return err(locationRevisionConflict(input.expectedRevision));
+      await transaction.acquireTravelIdempotencyLock(idempotency.value.storageKey);
+      const receipt = await transaction.travelReceipt(idempotency.value.storageKey);
+      if (receipt !== null) {
+        if (!travelReceiptMatches(receipt, input)) {
+          return err(
+            appError(
+              "FINGERPRINT_MISMATCH",
+              "World travel idempotency key was already used for different input",
+            ),
+          );
+        }
+        return this.replayTravel(transaction, receipt);
       }
+      return this.performTravel(transaction, input, idempotency.value.storageKey);
+    });
+  }
 
-      const currentArea = await transaction.area(base.value.contentReleaseId, location.areaId);
-      if (currentArea === null) {
-        return err(worldNotReady("Current area is absent from the active content release"));
-      }
-      if (!currentArea.active) {
-        const relocation = chooseRelocationArea(
-          await transaction.areasInRegion(base.value.contentReleaseId, currentArea.regionId),
+  public async replayTravelIfCommitted(input: {
+    readonly playerId: PlayerId;
+    readonly destinationSlug: string;
+    readonly expectedRevision: bigint;
+    readonly idempotencyKey: string;
+  }): Promise<Result<TravelResult | null>> {
+    if (input.destinationSlug.trim().length === 0) {
+      return err(worldValidationError("destinationSlug must not be empty"));
+    }
+    if (input.expectedRevision < 0n) {
+      return err(worldValidationError("expectedRevision must be non-negative"));
+    }
+
+    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, input.idempotencyKey);
+    if (!idempotency.ok) return idempotency;
+
+    return this.repository.transaction(async (transaction) => {
+      await transaction.acquireTravelIdempotencyLock(idempotency.value.storageKey);
+      const receipt = await transaction.travelReceipt(idempotency.value.storageKey);
+      if (receipt === null) return ok(null);
+      if (
+        receipt.playerId !== input.playerId ||
+        receipt.expectedRevision !== input.expectedRevision
+      ) {
+        return err(
+          appError(
+            "FINGERPRINT_MISMATCH",
+            "World travel idempotency key was already used for different input",
+          ),
         );
-        return err(relocationRequired(currentArea.areaId, relocation?.areaId ?? null));
       }
-
       const destination = await transaction.area(
-        base.value.contentReleaseId,
-        input.destinationAreaId,
+        receipt.contentReleaseId,
+        receipt.destinationAreaId,
       );
-      const connection = await transaction.connectionBetween(
-        base.value.contentReleaseId,
-        currentArea.areaId,
-        input.destinationAreaId,
-      );
-      const flow = await transaction.activeFlowState(input.playerId);
-      const unlockKeys = new Set(await transaction.activeUnlockKeys(input.playerId));
-      const missing =
-        connection === null
-          ? []
-          : missingUnlockKeys(connection.accessRule.requiredUnlockKeys, unlockKeys);
-      const actionValid =
-        destination?.active === true && connection?.active === true && missing.length === 0;
-      const actionReason =
-        destination === null
-          ? "destination-missing"
-          : !destination.active
-            ? "destination-inactive"
-            : connection === null
-              ? "connection-missing"
-              : !connection.active
-                ? "connection-inactive"
-                : missing.length > 0
-                  ? `missing-unlocks:${missing.join(",")}`
-                  : null;
-
-      const gate = evaluateActionGate({
-        feature: this.feature,
-        player: playerGate(base.value.eligibility),
-        flow: flowGate(flow.encounterActive, flow.battleActive),
-        action: { valid: actionValid, reason: actionReason },
-      });
-      if (!gate.ok) return gate;
-
-      const from = await this.buildView(transaction, base.value.contentReleaseId, location);
-      if (!from.ok) return from;
-      const moved = await transaction.moveLocation({
-        playerId: input.playerId,
-        destinationAreaId: input.destinationAreaId,
-        expectedRevision: input.expectedRevision,
-      });
-      if (moved === null) return err(locationRevisionConflict(input.expectedRevision));
-      const to = await this.buildView(transaction, base.value.contentReleaseId, moved);
-      if (!to.ok) return to;
-      return ok({ from: from.value, to: to.value });
+      if (destination === null) {
+        return err(worldNotReady("Travel receipt destination is absent from its pinned release"));
+      }
+      if (destination.areaSlug !== input.destinationSlug) {
+        return err(
+          appError(
+            "FINGERPRINT_MISMATCH",
+            "World travel idempotency key was already used for different input",
+          ),
+        );
+      }
+      return this.replayTravel(transaction, receipt);
     });
   }
 
@@ -258,6 +270,116 @@ export class WorldService {
       if (moved === null) return err(locationRevisionConflict(input.expectedRevision));
       return this.buildView(transaction, base.value.contentReleaseId, moved);
     });
+  }
+
+  private async performTravel(
+    transaction: WorldTransaction,
+    input: TravelInput,
+    receiptKey: string | null = null,
+  ): Promise<Result<TravelResult>> {
+    const base = await this.loadBase(transaction, input.playerId);
+    if (!base.ok) return base;
+    const location = await transaction.playerLocation(input.playerId, true);
+    if (location === null) return err(worldNotReady("Player location is not initialized"));
+    if (location.revision !== input.expectedRevision) {
+      return err(locationRevisionConflict(input.expectedRevision));
+    }
+
+    const currentArea = await transaction.area(base.value.contentReleaseId, location.areaId);
+    if (currentArea === null) {
+      return err(worldNotReady("Current area is absent from the active content release"));
+    }
+    if (!currentArea.active) {
+      const relocation = chooseRelocationArea(
+        await transaction.areasInRegion(base.value.contentReleaseId, currentArea.regionId),
+      );
+      return err(relocationRequired(currentArea.areaId, relocation?.areaId ?? null));
+    }
+
+    const destination = await transaction.area(
+      base.value.contentReleaseId,
+      input.destinationAreaId,
+    );
+    const connection = await transaction.connectionBetween(
+      base.value.contentReleaseId,
+      currentArea.areaId,
+      input.destinationAreaId,
+    );
+    const flow = await transaction.activeFlowState(input.playerId);
+    const unlockKeys = new Set(await transaction.activeUnlockKeys(input.playerId));
+    const missing =
+      connection === null
+        ? []
+        : missingUnlockKeys(connection.accessRule.requiredUnlockKeys, unlockKeys);
+    const actionValid =
+      destination?.active === true && connection?.active === true && missing.length === 0;
+    const actionReason =
+      destination === null
+        ? "destination-missing"
+        : !destination.active
+          ? "destination-inactive"
+          : connection === null
+            ? "connection-missing"
+            : !connection.active
+              ? "connection-inactive"
+              : missing.length > 0
+                ? `missing-unlocks:${missing.join(",")}`
+                : null;
+
+    const gate = evaluateActionGate({
+      feature: this.feature,
+      player: playerGate(base.value.eligibility),
+      flow: flowGate(flow.encounterActive, flow.battleActive),
+      action: { valid: actionValid, reason: actionReason },
+    });
+    if (!gate.ok) return gate;
+
+    const from = await this.buildView(transaction, base.value.contentReleaseId, location);
+    if (!from.ok) return from;
+    const moved = await transaction.moveLocation({
+      playerId: input.playerId,
+      destinationAreaId: input.destinationAreaId,
+      expectedRevision: input.expectedRevision,
+    });
+    if (moved === null) return err(locationRevisionConflict(input.expectedRevision));
+    const to = await this.buildView(transaction, base.value.contentReleaseId, moved);
+    if (!to.ok) return to;
+
+    if (receiptKey !== null) {
+      await transaction.insertTravelReceipt({
+        idempotencyKey: receiptKey,
+        playerId: input.playerId,
+        contentReleaseId: base.value.contentReleaseId,
+        fromAreaId: location.areaId,
+        destinationAreaId: moved.areaId,
+        expectedRevision: input.expectedRevision,
+        resultingRevision: moved.revision,
+        fromEnteredAt: location.enteredAt,
+        toEnteredAt: moved.enteredAt,
+      });
+    }
+    return ok({ from: from.value, to: to.value, replayed: false });
+  }
+
+  private async replayTravel(
+    transaction: WorldTransaction,
+    receipt: WorldTravelReceipt,
+  ): Promise<Result<TravelResult>> {
+    const from = await this.buildView(transaction, receipt.contentReleaseId, {
+      playerId: receipt.playerId,
+      areaId: receipt.fromAreaId,
+      enteredAt: receipt.fromEnteredAt,
+      revision: receipt.expectedRevision,
+    });
+    if (!from.ok) return from;
+    const to = await this.buildView(transaction, receipt.contentReleaseId, {
+      playerId: receipt.playerId,
+      areaId: receipt.destinationAreaId,
+      enteredAt: receipt.toEnteredAt,
+      revision: receipt.resultingRevision,
+    });
+    if (!to.ok) return to;
+    return ok({ from: from.value, to: to.value, replayed: true });
   }
 
   private async loadBase(
