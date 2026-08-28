@@ -1,5 +1,4 @@
 import type {
-  OnboardingState,
   RegionOption,
   ResolvePlayerResult,
   StarterOption,
@@ -107,14 +106,17 @@ function startPrompt(context: MessageHandlerContext): MessageHandlerResult {
 function groupHandoff(context: MessageHandlerContext): MessageHandlerResult {
   return textReply(
     context,
-    [
-      "O cadastro é feito no privado.",
-      "Abra a conversa direta com o bot e envie COMEÇAR.",
-    ].join("\n"),
+    ["O cadastro é feito no privado.", "Abra a conversa direta com o bot e envie COMEÇAR."].join(
+      "\n",
+    ),
   );
 }
 
-function namePrompt(context: MessageHandlerContext, playerId: string, invalid = false): MessageHandlerResult {
+function namePrompt(
+  context: MessageHandlerContext,
+  playerId: string,
+  invalid = false,
+): MessageHandlerResult {
   return textReply(
     context,
     [
@@ -136,7 +138,9 @@ function regionPrompt(
   return textReply(
     context,
     [
-      invalid ? "Essa região não está disponível para este onboarding." : "Escolha sua região inicial.",
+      invalid
+        ? "Essa região não está disponível para este onboarding."
+        : "Escolha sua região inicial.",
       "",
       ...choices,
       "",
@@ -268,9 +272,7 @@ export class OnboardingMessageRouter implements MessageRouterPort {
         return this.handleStarter(context, player.playerId);
       case "STARTER_GRANTED": {
         const completed = await this.starter.completeOnboarding(player.playerId);
-        return completed.ok
-          ? ok(completedPrompt(context, player.playerId, null))
-          : completed;
+        return completed.ok ? ok(completedPrompt(context, player.playerId, null)) : completed;
       }
       case "COMPLETE":
         return ok(completedPrompt(context, player.playerId, null));
@@ -284,7 +286,12 @@ export class OnboardingMessageRouter implements MessageRouterPort {
     playerId: ResolvePlayerResult["playerId"],
   ): Promise<Result<MessageHandlerResult>> {
     const input = messageText(context.message);
-    if (input.length === 0 || isStartIntent(input) || isMenuIntent(input) || input.startsWith("$")) {
+    if (
+      input.length === 0 ||
+      isStartIntent(input) ||
+      isMenuIntent(input) ||
+      input.startsWith("$")
+    ) {
       return ok(namePrompt(context, playerId));
     }
 
