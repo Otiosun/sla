@@ -1,0 +1,109 @@
+name: WIP Phase 15 Encounter Conditions Fix
+
+on:
+  push:
+    branches:
+      - feat/phase15-gen123-import-wip
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/phase15-gen123-import-wip
+      - name: Patch encounter conditions and validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          open_conditions = 'JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], blockedUnlockKeys: [] })'
+
+          p = Path('db/imports/gen123/import.ts')
+          s = p.read_text()
+          old = 'JSON.stringify(sourceMetadata({ aggregatedVersions: "GEN_1_3" }))'
+          if s.count(old) != 1:
+            raise SystemExit(f'table condition marker count={s.count(old)}')
+          s = s.replace(old, open_conditions)
+          anchor = '''        true,
+        JSON.stringify(sourceMetadata()),
+      ];
+    }),
+    "",
+  );
+
+  return { ...ids, encounterTable };'''
+          replacement = f'''        true,
+        {open_conditions},
+      ];
+    }}),
+    "",
+  );
+
+  return {{ ...ids, encounterTable }};'''
+          if s.count(anchor) != 1:
+            raise SystemExit('entry condition anchor changed')
+          s = s.replace(anchor, replacement)
+          p.write_text(s)
+
+          p = Path('db/imports/gen123/validate.ts')
+          s = p.read_text()
+          import_anchor = 'import { Pool } from "pg";\n'
+          import_line = 'import { parseEncounterConditions } from "../../../src/modules/catalog/encounter-contracts.js";\n'
+          if import_line not in s:
+            if s.count(import_anchor) != 1:
+              raise SystemExit('validator import anchor changed')
+            s = s.replace(import_anchor, import_anchor + import_line)
+
+          anchor = '''    if ((brokenRefs.rows[0]?.total ?? 1) !== 0)
+      throw new Error(`Broken release references: ${brokenRefs.rows[0]?.total}`);
+
+    const ruleset = await pool.query<{ id: string }>('''
+          addition = '''    if ((brokenRefs.rows[0]?.total ?? 1) !== 0)
+      throw new Error(`Broken release references: ${brokenRefs.rows[0]?.total}`);
+
+    const encounterConditions = await pool.query<{ conditions: unknown }>(
+      `SELECT conditions FROM encounter_table_revisions WHERE content_release_id=$1
+       UNION ALL
+       SELECT entry.conditions FROM encounter_entries entry
+       JOIN encounter_table_revisions revision ON revision.id=entry.encounter_table_revision_id
+       WHERE revision.content_release_id=$1`,
+      [releaseId],
+    );
+    for (const [index, row] of encounterConditions.rows.entries()) {
+      const parsed = parseEncounterConditions(row.conditions);
+      if (!parsed.success) throw new Error(`Invalid runtime encounter conditions at row ${index}`);
+    }
+
+    const ruleset = await pool.query<{ id: string }>('''
+          if s.count(anchor) != 1:
+            raise SystemExit('validator broken-ref anchor changed')
+          s = s.replace(anchor, addition)
+          p.write_text(s)
+          PY
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile
+      - name: Canonical format
+        run: pnpm exec biome check --write --unsafe db/imports/gen123/import.ts db/imports/gen123/validate.ts
+      - name: Commit code fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/imports/gen123/import.ts db/imports/gen123/validate.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "wip: make imported encounter conditions runtime-valid"
+          git push origin HEAD:feat/phase15-gen123-import-wip
