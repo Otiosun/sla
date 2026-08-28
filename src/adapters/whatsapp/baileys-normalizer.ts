@@ -1,15 +1,16 @@
 import {
-  normalizeMessageContent,
-  type WAMessage,
-  type WAMessageContent,
-} from "@whiskeysockets/baileys";
-import {
   IncomingMessageSchema,
   type IncomingMessage,
   type MediaReference,
 } from "../../modules/messaging/contracts.js";
+import type {
+  BaileysMessageContentLike,
+  BaileysMessageLike,
+  BaileysTimestampLike,
+} from "./baileys-provider-contracts.js";
+import { normalizeMessageContent } from "./baileys-runtime.js";
 
-function timestampToIso(timestamp: WAMessage["messageTimestamp"]): string | null {
+function timestampToIso(timestamp: BaileysTimestampLike): string | null {
   if (timestamp === null || timestamp === undefined) return null;
 
   let seconds: number;
@@ -19,12 +20,8 @@ function timestampToIso(timestamp: WAMessage["messageTimestamp"]): string | null
     seconds = Number(timestamp);
   } else if (typeof timestamp === "bigint") {
     seconds = Number(timestamp);
-  } else if (typeof timestamp === "object" && "toNumber" in timestamp) {
-    const toNumber = timestamp.toNumber;
-    if (typeof toNumber !== "function") return null;
-    seconds = toNumber.call(timestamp);
   } else {
-    return null;
+    seconds = timestamp.toNumber();
   }
 
   if (!Number.isFinite(seconds) || seconds < 0) return null;
@@ -33,7 +30,7 @@ function timestampToIso(timestamp: WAMessage["messageTimestamp"]): string | null
   return new Date(milliseconds).toISOString();
 }
 
-function textFromContent(content: WAMessageContent): string | null {
+function textFromContent(content: BaileysMessageContentLike): string | null {
   const text =
     content.conversation ??
     content.extendedTextMessage?.text ??
@@ -59,7 +56,10 @@ function mediaReference(
   };
 }
 
-function mediaFromContent(content: WAMessageContent, externalMessageId: string): MediaReference[] {
+function mediaFromContent(
+  content: BaileysMessageContentLike,
+  externalMessageId: string,
+): MediaReference[] {
   const media: MediaReference[] = [];
   if (content.imageMessage) {
     media.push(mediaReference(externalMessageId, "IMAGE", content.imageMessage.mimetype));
@@ -86,7 +86,7 @@ function mediaFromContent(content: WAMessageContent, externalMessageId: string):
   return media;
 }
 
-function replyIdFromContent(content: WAMessageContent): string | null {
+function replyIdFromContent(content: BaileysMessageContentLike): string | null {
   const contextInfo =
     content.extendedTextMessage?.contextInfo ??
     content.imageMessage?.contextInfo ??
@@ -99,7 +99,7 @@ function replyIdFromContent(content: WAMessageContent): string | null {
   return typeof stanzaId === "string" && stanzaId.length > 0 ? stanzaId : null;
 }
 
-export function normalizeBaileysMessage(message: WAMessage): IncomingMessage | null {
+export function normalizeBaileysMessage(message: BaileysMessageLike): IncomingMessage | null {
   if (message.key.fromMe) return null;
 
   const externalMessageId = message.key.id;
