@@ -238,7 +238,7 @@ async function main(): Promise<void> {
       );
     }
     const recoveredText = await outgoingText(pool, travelMessage.externalMessageId);
-    if (!recoveredText.includes("Chegamos")) {
+    if (!recoveredText.includes("Você chegou a")) {
       throw new Error(`Recovered travel did not produce the canonical reply: ${recoveredText}`);
     }
 
