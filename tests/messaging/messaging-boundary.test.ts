@@ -1,0 +1,98 @@
+import { describe, expect, it } from "vitest";
+import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
+import {
+  IncomingMessageSchema,
+  incomingMessageFingerprint,
+  incomingMessageIdempotencyKey,
+  type IncomingMessage,
+  type PendingOutboxMessage,
+} from "../../src/modules/messaging/contracts.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
+import { ok } from "../../src/shared-kernel/result.js";
+
+const message: IncomingMessage = IncomingMessageSchema.parse({
+  provider: "baileys",
+  externalMessageId: "msg-1",
+  senderRef: "sender-1",
+  chatRef: "chat-1",
+  occurredAt: "2026-08-27T22:00:00-03:00",
+  text: "$ping hello",
+  mediaRefs: [],
+  replyToExternalMessageId: null,
+});
+
+describe("messaging boundary", () => {
+  it("normalizes a strict provider-neutral incoming message", () => {
+    expect(message.provider).toBe("baileys");
+    expect(message.mediaRefs).toEqual([]);
+    expect(incomingMessageFingerprint(message)).toHaveLength(64);
+    expect(incomingMessageIdempotencyKey(message)).toBe("inbox:baileys:msg-1");
+    expect(
+      IncomingMessageSchema.safeParse({ ...message, rawProviderPayload: { secret: true } }).success,
+    ).toBe(false);
+  });
+
+  it("routes only explicit commands and leaves freeform campaign text untouched", async () => {
+    let calls = 0;
+    const router = new MessageRouter([
+      {
+        command: "$ping",
+        handler: {
+          async handle(context) {
+            calls += 1;
+            expect(context.idempotencyKey).toBe("inbox:baileys:msg-1");
+            return ok({ resultRefType: null, resultRefId: null, outgoing: [] });
+          },
+        },
+      },
+    ]);
+    const context = {
+      inboxMessageId: "00000000-0000-4000-8000-000000000001",
+      correlationId: "00000000-0000-4000-8000-000000000002",
+      causationId: "00000000-0000-4000-8000-000000000001",
+      idempotencyKey: incomingMessageIdempotencyKey(message),
+      message,
+    };
+
+    const routed = await router.dispatch(context);
+    expect(routed.ok).toBe(true);
+    expect(calls).toBe(1);
+
+    const freeform = await router.dispatch({
+      ...context,
+      message: { ...message, text: "Charmander observa o mato em silêncio." },
+    });
+    expect(freeform).toEqual(ok(null));
+    expect(calls).toBe(1);
+  });
+});
+
+describe("fake whatsapp adapter", () => {
+  it("injects normalized incoming messages and simulates delivery failures", async () => {
+    const adapter = new FakeWhatsAppAdapter();
+    const received: IncomingMessage[] = [];
+    await adapter.start(async (incoming) => {
+      received.push(incoming);
+    });
+    await adapter.inject(message);
+    expect(received).toEqual([message]);
+
+    const outgoing: PendingOutboxMessage = {
+      id: "00000000-0000-4000-8000-000000000003",
+      channel: "whatsapp",
+      destinationRef: "chat-1",
+      messageType: "TEXT",
+      payload: { text: "pong" },
+      idempotencyKey: "reply:msg-1",
+      correlationId: "00000000-0000-4000-8000-000000000002",
+      causationId: "00000000-0000-4000-8000-000000000001",
+      attempts: 1,
+    };
+    adapter.failNext();
+    await expect(adapter.send(outgoing)).rejects.toThrow("Simulated WhatsApp delivery failure");
+    expect(adapter.sent).toHaveLength(0);
+    await adapter.send(outgoing);
+    expect(adapter.sent).toEqual([outgoing]);
+    await adapter.stop();
+  });
+});
