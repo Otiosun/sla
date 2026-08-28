@@ -1,0 +1,78 @@
+name: WIP Phase 15 Type Fix
+
+on:
+  push:
+    branches:
+      - feat/phase15-gen123-import-wip
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/phase15-gen123-import-wip
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile
+      - name: Include modern Fairy taxonomy for retroactively typed Gen I-III content
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('db/imports/gen123/model.ts')
+          text = p.read_text()
+          old = '''  const typeRows = typeRowsAll.filter(
+    (row) =>
+      requiredInt(row, "id") <= 17 &&
+      optionalInt(row, "generation_id") !== null &&
+      (optionalInt(row, "generation_id") ?? 99) <= GEN123_SOURCE.maxGeneration,
+  );'''
+          new = '''  // Ruleset v1 uses the modern 18-type taxonomy even though species/move identity scope is Gen I-III.
+  // This preserves official retroactive typings such as Clefairy -> Fairy instead of creating typeless forms.
+  const typeRows = typeRowsAll.filter((row) => requiredInt(row, "id") <= 18);'''
+          if text.count(old) != 1:
+              raise SystemExit('type filter marker changed')
+          p.write_text(text.replace(old, new))
+
+          p = Path('db/proofs/phase15_gen123_import_e2e.ts')
+          text = p.read_text()
+          marker = '''  if (candidateRuleset.rows[0]?.status !== "VALIDATED")
+    throw new Error(
+      `Candidate ruleset must stop at VALIDATED, got ${candidateRuleset.rows[0]?.status ?? "missing"}`,
+    );'''
+          addition = '''
+  const clefairyType = await pool.query<{ type_slug: string }>(
+    `SELECT type.slug AS type_slug
+     FROM pokemon_species species
+     JOIN pokemon_forms form ON form.species_id=species.id
+     JOIN pokemon_form_revisions revision ON revision.form_id=form.id AND revision.content_release_id=$1
+     JOIN pokemon_types type ON type.id=revision.type1_id
+     WHERE species.national_dex=35`,
+    [releaseId],
+  );
+  if (clefairyType.rows[0]?.type_slug !== "fairy")
+    throw new Error(`Modern v1 taxonomy lost Clefairy Fairy typing: ${clefairyType.rows[0]?.type_slug ?? "missing"}`);'''
+          if text.count(marker) != 1:
+              raise SystemExit('proof marker changed')
+          p.write_text(text.replace(marker, marker + addition))
+          PY
+      - run: pnpm exec biome check --write --unsafe db/imports/gen123/model.ts db/proofs/phase15_gen123_import_e2e.ts
+      - name: Commit code-only fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/imports/gen123/model.ts db/proofs/phase15_gen123_import_e2e.ts
+          git commit -m "wip: align Gen I-III catalog with v1 modern type taxonomy"
+          git push origin HEAD:feat/phase15-gen123-import-wip
