@@ -1,4 +1,6 @@
 engineStrict: true
 saveExact: true
 allowBuilds:
+  '@whiskeysockets/baileys': false
   esbuild: true
+  protobufjs: false
