@@ -87,8 +87,22 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Enforce production logging boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number -E 'console\.(log|info|warn|error|debug)|process\.(stdout|stderr)\.write' \
+            src --include='*.ts' --include='*.js' \
+            | grep -v '^src/platform/logging/index.ts:'; then
+            echo "Production code must emit logs only through the redacting structured logger boundary."
+            exit 1
+          fi
+
       - name: Unit and PostgreSQL integration tests
         run: pnpm test
+
+      - name: Run Phase 16 PostgreSQL transaction retry proof
+        run: node --import tsx db/proofs/phase16_postgres_retry_e2e.ts
 
       - name: Runtime schema verification
         run: pnpm db:verify
@@ -284,6 +298,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          restore_probe_id="00000000-0000-4000-8000-000000000016"
+          docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_test \
+            --set ON_ERROR_STOP=1 \
+            --command "INSERT INTO players(id, status) VALUES ('${restore_probe_id}', 'ACTIVE') ON CONFLICT (id) DO NOTHING;"
+
           source_migrations="$(docker exec pokemon-postgres psql \
             --username pokemon \
             --dbname pokemon_rpg_test \
@@ -291,6 +312,14 @@ jobs:
             --no-align \
             --command 'SELECT count(*) FROM schema_migrations;')"
           test "$source_migrations" -ge 1
+
+          source_migration_fingerprint="$(docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_test \
+            --tuples-only \
+            --no-align \
+            --command "SELECT md5(COALESCE(string_agg(version::text || ':' || name || ':' || checksum, '|' ORDER BY version), '')) FROM schema_migrations;")"
+          test -n "$source_migration_fingerprint"
 
           docker exec pokemon-postgres pg_dump \
             --username pokemon \
@@ -315,4 +344,20 @@ jobs:
             --no-align \
             --command 'SELECT count(*) FROM schema_migrations;')"
 
+          restored_migration_fingerprint="$(docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_restore_test \
+            --tuples-only \
+            --no-align \
+            --command "SELECT md5(COALESCE(string_agg(version::text || ':' || name || ':' || checksum, '|' ORDER BY version), '')) FROM schema_migrations;")"
+
+          restored_probe_status="$(docker exec pokemon-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_restore_test \
+            --tuples-only \
+            --no-align \
+            --command "SELECT status FROM players WHERE id = '${restore_probe_id}';")"
+
           test "$restored_migrations" = "$source_migrations"
+          test "$restored_migration_fingerprint" = "$source_migration_fingerprint"
+          test "$restored_probe_status" = "ACTIVE"
