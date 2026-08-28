@@ -853,7 +853,7 @@ async function importReleaseChildren(
       releaseId,
       encounterTable.get(locationId),
       true,
-      JSON.stringify(sourceMetadata({ aggregatedVersions: "GEN_1_3" })),
+      JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], blockedUnlockKeys: [] }),
     ]),
     "ON CONFLICT (content_release_id, encounter_table_id) DO UPDATE SET active=EXCLUDED.active,conditions=EXCLUDED.conditions",
   );
@@ -896,7 +896,7 @@ async function importReleaseChildren(
         entry.minLevel,
         entry.maxLevel,
         true,
-        JSON.stringify(sourceMetadata()),
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], blockedUnlockKeys: [] }),
       ];
     }),
     "",
