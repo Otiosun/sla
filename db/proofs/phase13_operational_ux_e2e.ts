@@ -300,7 +300,7 @@ async function main(): Promise<void> {
 
     const readOnlyIdentityCount = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
-       FROM player_external_identities
+       FROM player_identities
        WHERE provider = 'phase13-operational'`,
     );
     if (readOnlyIdentityCount.rows[0]?.count !== "1") {
