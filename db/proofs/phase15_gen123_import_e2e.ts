@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { parseEncounterConditions } from "../../src/modules/catalog/encounter-contracts.js";
 import { gen123Id } from "../imports/gen123/ids.js";
 import { importGen123 } from "../imports/gen123/import.js";
 import { GEN123_SOURCE } from "../imports/gen123/source.js";
@@ -90,6 +91,24 @@ try {
     throw new Error("Pinned source null-PP moves were unexpectedly fabricated or dropped");
   if ((nullPp.rows[0]?.learnsets ?? -1) !== 0)
     throw new Error("Executable learnsets must never reference a move with unknown PP");
+
+  const conditionRows = await pool.query<{ conditions: unknown }>(
+    `SELECT conditions FROM encounter_table_revisions WHERE content_release_id=$1
+     UNION ALL
+     SELECT entry.conditions
+       FROM encounter_entries entry
+       JOIN encounter_table_revisions revision
+         ON revision.id=entry.encounter_table_revision_id
+      WHERE revision.content_release_id=$1`,
+    [releaseId],
+  );
+  if (conditionRows.rows.length < 1)
+    throw new Error("Candidate contains no encounter conditions to validate");
+  for (const [index, row] of conditionRows.rows.entries()) {
+    const parsed = parseEncounterConditions(row.conditions);
+    if (!parsed.success)
+      throw new Error(`Imported encounter conditions are runtime-invalid at row ${index}`);
+  }
 
   const sourceCommit = await pool.query<{ source_commit: string | null }>(
     `SELECT validation_report #>> '{source,commit}' AS source_commit FROM content_releases WHERE id=$1`,
