@@ -8,7 +8,6 @@ import { registerPhase12CDomainAdminOperations } from "../../src/modules/admin/d
 import { AdminDomainOperationService } from "../../src/modules/admin/domain-service.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
-import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
 import { parsePlayerId } from "../../src/shared-kernel/ids.js";
@@ -39,81 +38,16 @@ async function expectRejected(promise: Promise<unknown>, code: string): Promise<
 
 const pool = new Pool({ connectionString: databaseUrl, max: 8 });
 try {
-  const rulesetId = randomUUID();
-  const releaseId = randomUUID();
-  const rulesConfig = RulesetConfigSchema.parse({
-    schemaVersion: 1,
-    battle: {
-      statModel: "SIX_STATS",
-      physicalSpecialByMove: true,
-      ivEnabled: true,
-      evEnabled: true,
-      natureEnabled: true,
-      maxMoves: 4,
-      ppEnabled: true,
-      criticalMultiplierBasisPoints: 15_000,
-      accuracyEvasionEnabled: true,
-    },
-    capture: { model: "POKEMON_INSPIRED_V1", maxProbabilityBasisPoints: 10_000 },
-    defeat: { automaticMoneyLoss: false },
-    narrative: { authority: "N0_FLAVOR_ONLY" },
-    progression: {
-      pokemon: {
-        xpCurve: "CUBIC_DELTA_V1",
-        battleRewardModel: "BASE_EXP_LEVEL_DIV_7_V1",
-        rewardRecipient: "ACTIVE_WINNER_V1",
-        levelCap: 100,
-        hpOnLevelUp: "ADD_MAX_HP_DELTA_IF_ALIVE_V1",
-        fullMoveSlotsPolicy: "PENDING_CHOICE_V1",
-        autoLevelEvolution: true,
-      },
-      trainer: {
-        visiblePointsName: "Insígnia",
-        levelCurve: "LINEAR_100_V1",
-        levelCap: 100,
-        pointsPerWonBattle: 100,
-        unlocks: [{ level: 10, unlockKey: "tournament.eligible" }],
-      },
-    },
-  });
-  await pool.query(
-    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
-     VALUES ($1, $2, 1, 1, $3::jsonb, 'DRAFT')`,
-    [rulesetId, `phase12-comp-rules-${rulesetId}`, JSON.stringify(rulesConfig)],
+  const activeProgression = await pool.query<{ ok: boolean }>(
+    `SELECT (ruleset.config ? 'progression') AS ok
+     FROM content_release_pointers pointer
+     JOIN content_releases release ON release.id = pointer.content_release_id
+     JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
+     WHERE pointer.pointer_key = 'ACTIVE'`,
   );
-  await pool.query(
-    `UPDATE rulesets SET status = 'VALIDATED', validated_at = now(),
-       validation_report = '{"proof":true}'::jsonb, config_fingerprint = repeat('e', 64)
-     WHERE id = $1`,
-    [rulesetId],
-  );
-  await pool.query(`UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`, [
-    rulesetId,
-  ]);
-  await pool.query(
-    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
-     VALUES ($1, 900019, 'Phase 12 compensation proof', 'DRAFT', $2)`,
-    [releaseId, rulesetId],
-  );
-  await pool.query(
-    `UPDATE content_releases SET status = 'VALIDATED', validated_at = now(),
-       validation_report = '{"proof":true}'::jsonb, content_fingerprint = repeat('f', 64)
-     WHERE id = $1`,
-    [releaseId],
-  );
-  await pool.query(
-    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
-    [releaseId],
-  );
-  await pool.query(
-    `INSERT INTO content_release_pointers(pointer_key, content_release_id)
-     VALUES ('ACTIVE', $1)
-     ON CONFLICT (pointer_key) DO UPDATE
-     SET content_release_id = EXCLUDED.content_release_id,
-         revision = content_release_pointers.revision + 1,
-         updated_at = now()`,
-    [releaseId],
-  );
+  if (activeProgression.rows[0]?.ok !== true) {
+    throw new Error("Compensation proof requires the preceding Phase 12C progression ruleset");
+  }
 
   const seniorRole = await pool.query<{ id: string }>(
     `SELECT id FROM admin_roles WHERE slug = 'SENIOR_ADMIN'`,
@@ -124,7 +58,7 @@ try {
   const seniorRoleId = seniorRole.rows[0]?.id;
   const economyRoleId = economyRole.rows[0]?.id;
   if (seniorRoleId === undefined || economyRoleId === undefined) {
-    throw new Error("Compensation proof requires seeded SENIOR_ADMIN and ECONOMY_ADMIN roles");
+    throw new Error("Compensation proof requires seeded admin roles");
   }
 
   const playerId = randomUUID();
@@ -208,7 +142,7 @@ try {
     new PostgresAdminOperationAuditRepository(pool),
   );
 
-  const prepareAndApplySource = async (
+  const applySource = async (
     operationType: "wallet.adjust" | "inventory.adjust" | "progression.trainer.adjust",
     input: Record<string, unknown>,
   ) => {
@@ -245,15 +179,14 @@ try {
     return prepared.operation;
   };
 
-  const walletSource = await prepareAndApplySource("wallet.adjust", {
+  const walletSource = await applySource("wallet.adjust", {
     playerId,
     currencyId,
     delta: "20",
   });
   const walletComp = await prepareCompensation(walletSource.id);
-
   const parsedPlayer = parsePlayerId(playerId);
-  if (!parsedPlayer.ok) throw new Error("Compensation proof player id failed parser");
+  if (!parsedPlayer.ok) throw new Error("Generated player id failed canonical parser");
   const ownerFirst = await economy.debitWallet({
     playerId: parsedPlayer.value,
     currencyId,
@@ -277,11 +210,11 @@ try {
     walletCompApplied.result?.ownerReplayed !== true ||
     walletCompApplied.result?.compensatesOperationId !== walletSource.id
   ) {
-    throw new Error("Compensation crash recovery did not replay the owner exactly once");
+    throw new Error("Compensation crash recovery did not replay owner evidence exactly once");
   }
   const walletSourceAfter = await adminRepository.getOperation(walletSource.id);
   if (walletSourceAfter?.status !== "COMPENSATED") {
-    throw new Error("Successful compensation did not mark the source COMPENSATED");
+    throw new Error("Successful compensation did not mark source COMPENSATED");
   }
   const walletEvidence = await pool.query<{
     amount: string;
@@ -311,10 +244,11 @@ try {
   const sourceTrail = await audit.inspect({ principalId: seniorId, operationId: walletSource.id });
   const compTrail = await audit.inspect({ principalId: seniorId, operationId: walletComp.id });
   if (
-    sourceTrail.ownerEvidence.filter((entry) => entry.source === "ADMIN_COMPENSATION").length !== 1 ||
+    sourceTrail.ownerEvidence.filter((entry) => entry.source === "ADMIN_COMPENSATION").length !==
+      1 ||
     compTrail.ownerEvidence.filter((entry) => entry.source === "ADMIN_COMPENSATION").length !== 1
   ) {
-    throw new Error("Compensation relation is not reconstructable from both audit directions");
+    throw new Error("Compensation relation is not reconstructable in both audit directions");
   }
 
   const secondComp = await prepareCompensation(walletSource.id);
@@ -328,7 +262,7 @@ try {
     ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
   );
 
-  const inventorySource = await prepareAndApplySource("inventory.adjust", {
+  const inventorySource = await applySource("inventory.adjust", {
     playerId,
     itemId,
     delta: "5",
@@ -340,10 +274,10 @@ try {
     [playerId, itemId],
   );
   if (inventoryState.rows[0]?.quantity !== "10") {
-    throw new Error("Inventory compensation did not restore the semantic prior quantity");
+    throw new Error("Inventory compensation did not restore prior quantity");
   }
 
-  const progressionSource = await prepareAndApplySource("progression.trainer.adjust", {
+  const progressionSource = await applySource("progression.trainer.adjust", {
     playerId,
     delta: "900",
   });
@@ -354,15 +288,15 @@ try {
     [playerId],
   );
   if (progressionState.rows[0]?.points !== "0") {
-    throw new Error("Trainer progression compensation did not restore points to zero");
+    throw new Error("Progression compensation did not restore points to zero");
   }
 
-  const unsafeSource = await prepareAndApplySource("wallet.adjust", {
+  const unsafeSource = await applySource("wallet.adjust", {
     playerId,
     currencyId: unsafeCurrencyId,
     delta: "10",
   });
-  await prepareAndApplySource("wallet.adjust", {
+  await applySource("wallet.adjust", {
     playerId,
     currencyId: unsafeCurrencyId,
     delta: "-10",
@@ -449,7 +383,7 @@ try {
     );
 
   console.log(
-    "phase12 admin compensation proof passed: explicit inverse deltas, R3/capability/scope, crash replay, unsafe inverse rejection, one-shot source relation and audit reconstruction verified",
+    "phase12 admin compensation proof passed: inverse deltas, R3/capability/scope, crash replay, unsafe inverse rejection, one-shot relation and audit reconstruction verified",
   );
 } finally {
   await pool.end();
