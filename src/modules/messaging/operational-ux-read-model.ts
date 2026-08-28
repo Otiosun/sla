@@ -38,4 +38,10 @@ export interface OperationalUxReadModel {
   listTeam(playerId: PlayerId): Promise<readonly OperationalTeamMemberView[]>;
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
+  activeBattleId(playerId: PlayerId): Promise<string | null>;
+  speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
+  moveDisplayNames(
+    contentReleaseId: string,
+    moveIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>>;
 }
