@@ -186,7 +186,10 @@ export class NarrativeN0Service {
     });
   }
 
-  public renderResolved(events: readonly ResolvedNarrativeEvent[], renderer: NarrativeRenderer): Result<string> {
+  public renderResolved(
+    events: readonly ResolvedNarrativeEvent[],
+    renderer: NarrativeRenderer,
+  ): Result<string> {
     try {
       return ok(renderer.render(events));
     } catch {
@@ -207,10 +210,12 @@ export class NarrativeN0Service {
         this.interpreter
           .interpret(request, controller.signal)
           .then((result) => ({ kind: "RESULT", result }) as const)
-          .catch(() => ({
-            kind: "RESULT",
-            result: { ok: false, reason: "PROVIDER_ERROR" } as const,
-          })),
+          .catch(
+            (): { readonly kind: "RESULT"; readonly result: NarrativeInterpreterResult } => ({
+              kind: "RESULT",
+              result: { ok: false, reason: "PROVIDER_ERROR" },
+            }),
+          ),
         new Promise<{ readonly kind: "TIMEOUT" }>((resolve) => {
           timer = setTimeout(() => {
             controller.abort();
