@@ -6,7 +6,8 @@ import {
   type PlayerEligibility,
 } from "../../shared-kernel/gates.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { err, ok, type Result } from "../../shared-kernel/result.js";
+import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   EnsureInitialLocationInput,
   PlayerLocationRecord,
@@ -17,6 +18,7 @@ import type {
   WorldConnectionView,
   WorldLocationView,
   WorldPlayerEligibility,
+  WorldTravelReceipt,
 } from "./contracts.js";
 import {
   locationRevisionConflict,
@@ -27,6 +29,9 @@ import {
 import type { WorldRepository, WorldTransaction } from "./ports.js";
 
 const uuidSchema = z.string().uuid();
+const travelScopeResult = parseIdempotencyScope("world.travel");
+if (!travelScopeResult.ok) throw new Error("Canonical world travel idempotency scope is invalid");
+const WORLD_TRAVEL_SCOPE = travelScopeResult.value;
 
 function playerGate(eligibility: WorldPlayerEligibility): PlayerEligibility {
   if (!eligibility.playerActive) {
@@ -65,6 +70,14 @@ function chooseRelocationArea(areas: readonly WorldAreaRecord[]): WorldAreaRecor
         left.areaId.localeCompare(right.areaId),
     );
   return candidates[0] ?? null;
+}
+
+function travelReceiptMatches(receipt: WorldTravelReceipt, input: TravelInput): boolean {
+  return (
+    receipt.playerId === input.playerId &&
+    receipt.destinationAreaId === input.destinationAreaId &&
+    receipt.expectedRevision === input.expectedRevision
+  );
 }
 
 export class WorldService {
@@ -140,8 +153,38 @@ export class WorldService {
     if (input.expectedRevision < 0n) {
       return err(worldValidationError("expectedRevision must be non-negative"));
     }
+    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, input.idempotencyKey);
+    if (!idempotency.ok) return idempotency;
 
     return this.repository.transaction(async (transaction) => {
+      await transaction.acquireTravelIdempotencyLock(idempotency.value.storageKey);
+      const receipt = await transaction.travelReceipt(idempotency.value.storageKey);
+      if (receipt !== null) {
+        if (!travelReceiptMatches(receipt, input)) {
+          return err(
+            appError(
+              "FINGERPRINT_MISMATCH",
+              "World travel idempotency key was already used for different input",
+            ),
+          );
+        }
+        const from = await this.buildView(transaction, receipt.contentReleaseId, {
+          playerId: receipt.playerId,
+          areaId: receipt.fromAreaId,
+          enteredAt: receipt.fromEnteredAt,
+          revision: receipt.expectedRevision,
+        });
+        if (!from.ok) return from;
+        const to = await this.buildView(transaction, receipt.contentReleaseId, {
+          playerId: receipt.playerId,
+          areaId: receipt.destinationAreaId,
+          enteredAt: receipt.toEnteredAt,
+          revision: receipt.resultingRevision,
+        });
+        if (!to.ok) return to;
+        return ok({ from: from.value, to: to.value, replayed: true });
+      }
+
       const base = await this.loadBase(transaction, input.playerId);
       if (!base.ok) return base;
       const location = await transaction.playerLocation(input.playerId, true);
@@ -209,7 +252,18 @@ export class WorldService {
       if (moved === null) return err(locationRevisionConflict(input.expectedRevision));
       const to = await this.buildView(transaction, base.value.contentReleaseId, moved);
       if (!to.ok) return to;
-      return ok({ from: from.value, to: to.value });
+      await transaction.insertTravelReceipt({
+        idempotencyKey: idempotency.value.storageKey,
+        playerId: input.playerId,
+        contentReleaseId: base.value.contentReleaseId,
+        fromAreaId: location.areaId,
+        destinationAreaId: moved.areaId,
+        expectedRevision: input.expectedRevision,
+        resultingRevision: moved.revision,
+        fromEnteredAt: location.enteredAt,
+        toEnteredAt: moved.enteredAt,
+      });
+      return ok({ from: from.value, to: to.value, replayed: false });
     });
   }
 
