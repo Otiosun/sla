@@ -30,7 +30,7 @@ export interface Gen123Move {
   readonly power: number | null;
   readonly accuracy: number | null;
   readonly priority: number;
-  readonly pp: number;
+  readonly pp: number | null;
   readonly effectId: number;
   readonly effectChance: number | null;
 }
@@ -289,13 +289,16 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
         power: optionalInt(row, "power"),
         accuracy: optionalInt(row, "accuracy"),
         priority: requiredInt(row, "priority"),
-        pp: requiredInt(row, "pp"),
+        pp: optionalInt(row, "pp"),
         effectId: requiredInt(row, "effect_id"),
         effectChance: optionalInt(row, "effect_chance"),
       }),
     )
     .filter((move) => allowedTypeIds.has(move.typeId));
-  const allowedMoveIds = new Set(moves.map((move) => move.sourceId));
+  // Moves with unknown PP remain catalogued, but cannot enter executable START/LEVEL learnsets.
+  const allowedMoveIds = new Set(
+    moves.filter((move) => move.pp !== null).map((move) => move.sourceId),
+  );
   const pokemonIdToSpeciesId = new Map(
     species.map((entry) => [entry.sourcePokemonId, entry.sourceSpeciesId] as const),
   );

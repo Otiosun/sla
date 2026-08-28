@@ -129,7 +129,7 @@ export async function validateGen123(markValidated = true): Promise<Gen123Valida
 
     const brokenRefs = await pool.query<{ total: number }>(
       `SELECT (
-        (SELECT count(*) FROM move_learnset_entries entry LEFT JOIN pokemon_form_revisions form ON form.content_release_id=entry.content_release_id AND form.form_id=entry.form_id LEFT JOIN move_revisions move ON move.content_release_id=entry.content_release_id AND move.move_id=entry.move_id WHERE entry.content_release_id=$1 AND (form.id IS NULL OR move.id IS NULL)) +
+        (SELECT count(*) FROM move_learnset_entries entry LEFT JOIN pokemon_form_revisions form ON form.content_release_id=entry.content_release_id AND form.form_id=entry.form_id LEFT JOIN move_revisions move ON move.content_release_id=entry.content_release_id AND move.move_id=entry.move_id WHERE entry.content_release_id=$1 AND (form.id IS NULL OR move.id IS NULL OR move.max_pp IS NULL)) +
         (SELECT count(*) FROM pokemon_form_ability_options option LEFT JOIN pokemon_form_revisions form ON form.content_release_id=option.content_release_id AND form.form_id=option.form_id LEFT JOIN ability_revisions ability ON ability.content_release_id=option.content_release_id AND ability.ability_id=option.ability_id WHERE option.content_release_id=$1 AND (form.id IS NULL OR ability.id IS NULL)) +
         (SELECT count(*) FROM evolution_rules rule LEFT JOIN pokemon_form_revisions from_form ON from_form.content_release_id=rule.content_release_id AND from_form.form_id=rule.from_form_id LEFT JOIN pokemon_form_revisions to_form ON to_form.content_release_id=rule.content_release_id AND to_form.form_id=rule.to_form_id WHERE rule.content_release_id=$1 AND (from_form.id IS NULL OR to_form.id IS NULL))
       )::int total`,
@@ -234,6 +234,7 @@ export async function validateGen123(markValidated = true): Promise<Gen123Valida
         "starters-kanto-johto-hoenn",
       ],
       partial: [
+        "moves-with-source-null-pp-preserved-but-excluded-from-executable-learnsets",
         "ability-mechanical-effects-explicitly-unsupported-unless-engine-keyed",
         "complex-evolution-mechanics-imported-but-disabled-until-owner-support",
       ],
