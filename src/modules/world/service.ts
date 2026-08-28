@@ -175,6 +175,56 @@ export class WorldService {
     });
   }
 
+  public async replayTravelIfCommitted(input: {
+    readonly playerId: PlayerId;
+    readonly destinationSlug: string;
+    readonly expectedRevision: bigint;
+    readonly idempotencyKey: string;
+  }): Promise<Result<TravelResult | null>> {
+    if (input.destinationSlug.trim().length === 0) {
+      return err(worldValidationError("destinationSlug must not be empty"));
+    }
+    if (input.expectedRevision < 0n) {
+      return err(worldValidationError("expectedRevision must be non-negative"));
+    }
+
+    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, input.idempotencyKey);
+    if (!idempotency.ok) return idempotency;
+
+    return this.repository.transaction(async (transaction) => {
+      await transaction.acquireTravelIdempotencyLock(idempotency.value.storageKey);
+      const receipt = await transaction.travelReceipt(idempotency.value.storageKey);
+      if (receipt === null) return ok(null);
+      if (
+        receipt.playerId !== input.playerId ||
+        receipt.expectedRevision !== input.expectedRevision
+      ) {
+        return err(
+          appError(
+            "FINGERPRINT_MISMATCH",
+            "World travel idempotency key was already used for different input",
+          ),
+        );
+      }
+      const destination = await transaction.area(
+        receipt.contentReleaseId,
+        receipt.destinationAreaId,
+      );
+      if (destination === null) {
+        return err(worldNotReady("Travel receipt destination is absent from its pinned release"));
+      }
+      if (destination.areaSlug !== input.destinationSlug) {
+        return err(
+          appError(
+            "FINGERPRINT_MISMATCH",
+            "World travel idempotency key was already used for different input",
+          ),
+        );
+      }
+      return this.replayTravel(transaction, receipt);
+    });
+  }
+
   public async relocate(input: RelocateInput): Promise<Result<WorldLocationView>> {
     if (input.expectedRevision < 0n) {
       return err(worldValidationError("expectedRevision must be non-negative"));
