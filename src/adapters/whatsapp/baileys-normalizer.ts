@@ -62,19 +62,13 @@ function mediaReference(
 function mediaFromContent(content: WAMessageContent, externalMessageId: string): MediaReference[] {
   const media: MediaReference[] = [];
   if (content.imageMessage) {
-    media.push(
-      mediaReference(externalMessageId, "IMAGE", content.imageMessage.mimetype),
-    );
+    media.push(mediaReference(externalMessageId, "IMAGE", content.imageMessage.mimetype));
   }
   if (content.videoMessage) {
-    media.push(
-      mediaReference(externalMessageId, "VIDEO", content.videoMessage.mimetype),
-    );
+    media.push(mediaReference(externalMessageId, "VIDEO", content.videoMessage.mimetype));
   }
   if (content.audioMessage) {
-    media.push(
-      mediaReference(externalMessageId, "AUDIO", content.audioMessage.mimetype),
-    );
+    media.push(mediaReference(externalMessageId, "AUDIO", content.audioMessage.mimetype));
   }
   if (content.documentMessage) {
     media.push(
@@ -87,9 +81,7 @@ function mediaFromContent(content: WAMessageContent, externalMessageId: string):
     );
   }
   if (content.stickerMessage) {
-    media.push(
-      mediaReference(externalMessageId, "STICKER", content.stickerMessage.mimetype),
-    );
+    media.push(mediaReference(externalMessageId, "STICKER", content.stickerMessage.mimetype));
   }
   return media;
 }
