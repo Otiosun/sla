@@ -124,6 +124,7 @@ export interface StarterGrantRecord {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string | null;
   readonly idempotencyKey: string;
+  readonly correlationId: CorrelationId | null;
 }
 
 export interface StarterGrantWrite extends ContentContext {
