@@ -21,11 +21,7 @@ if (
   )
 )
   throw new Error("World connection blocker must remain explicit");
-if (
-  !report.coverage.partial.includes(
-    "source-null-pp-never-fabricated-and-nonexecutable-if-in-scope",
-  )
-)
+if (!report.coverage.partial.includes("source-null-pp-never-fabricated-and-nonexecutable-if-in-scope"))
   throw new Error("Source-null PP invariant must remain explicit in coverage");
 
 const second = await importGen123();
