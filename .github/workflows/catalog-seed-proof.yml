@@ -161,7 +161,48 @@ jobs:
           sparse-checkout-cone-mode: false
           fetch-depth: 1
 
-      - name: Phase 15 Gen I-III import proof
+      - name: Checkout pinned FireRed topology
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pret/pokefirered
+          ref: c75f352304d529f6ba92d4f74b9cf8b5c3810788
+          path: .phase15-firered
+          sparse-checkout: data/maps
+          fetch-depth: 1
+
+      - name: Checkout pinned Crystal topology
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pret/pokecrystal
+          ref: 7a7881d0d62e0ddbd82dcf10e7116807487ac651
+          path: .phase15-crystal
+          sparse-checkout: |
+            data/maps
+            maps
+          fetch-depth: 1
+
+      - name: Checkout pinned Emerald topology
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pret/pokeemerald
+          ref: c65e93f20a5275ab03b07d6f6411096a82a60ffd
+          path: .phase15-emerald
+          sparse-checkout: data/maps
+          fetch-depth: 1
+
+      - name: Verify pinned external source SHAs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .phase15-pokeapi rev-parse HEAD)" = "7af36d9f3424366ffc46e90d94c8bc120df39cd0"
+          test "$(git -C .phase15-firered rev-parse HEAD)" = "c75f352304d529f6ba92d4f74b9cf8b5c3810788"
+          test "$(git -C .phase15-crystal rev-parse HEAD)" = "7a7881d0d62e0ddbd82dcf10e7116807487ac651"
+          test "$(git -C .phase15-emerald rev-parse HEAD)" = "c65e93f20a5275ab03b07d6f6411096a82a60ffd"
+
+      - name: Phase 15 final Gen I-III release proof
         env:
           POKEAPI_DATA_DIR: ${{ github.workspace }}/.phase15-pokeapi/data/v2/csv
-        run: pnpm tsx db/proofs/phase15_gen123_import_e2e.ts
+          POKEFIRERED_DIR: ${{ github.workspace }}/.phase15-firered
+          POKECRYSTAL_DIR: ${{ github.workspace }}/.phase15-crystal
+          POKEEMERALD_DIR: ${{ github.workspace }}/.phase15-emerald
+        run: pnpm tsx db/proofs/phase15_final_release_e2e.ts
