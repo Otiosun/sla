@@ -13,10 +13,7 @@ export interface MessageRouteHandler {
 
 export interface MessagingRepository {
   claimIncoming(message: IncomingMessage, leaseMs: number): Promise<Result<InboxClaim>>;
-  completeIncoming(
-    inboxMessageId: string,
-    result: MessageHandlerResult,
-  ): Promise<Result<void>>;
+  completeIncoming(inboxMessageId: string, result: MessageHandlerResult): Promise<Result<void>>;
   failIncoming(inboxMessageId: string, errorCode: string): Promise<void>;
   claimOutbox(input: {
     readonly limit: number;
