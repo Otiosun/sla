@@ -125,24 +125,43 @@ function onboardingMenu(state: string): string {
   }
 }
 
-function activeCombatant(state: { readonly sides: readonly { sideNo: number; activeParticipantId: string }[]; readonly combatants: readonly BattleCombatant[] }, sideNo: number): BattleCombatant | null {
+function activeCombatant(
+  state: {
+    readonly sides: readonly { sideNo: number; activeParticipantId: string }[];
+    readonly combatants: readonly BattleCombatant[];
+  },
+  sideNo: number,
+): BattleCombatant | null {
   const side = state.sides.find((candidate) => candidate.sideNo === sideNo);
   if (side === undefined) return null;
-  return state.combatants.find((candidate) => candidate.participantId === side.activeParticipantId) ?? null;
+  return (
+    state.combatants.find((candidate) => candidate.participantId === side.activeParticipantId) ??
+    null
+  );
 }
 
 function statusLabel(status: BattleCombatant["majorStatus"]): string {
   return status === null ? "—" : status.key;
 }
 
-function actionLabel(action: BattleAction, state: { readonly combatants: readonly BattleCombatant[] }, moveNames: ReadonlyMap<string, string>): string {
-  const actor = state.combatants.find((candidate) => candidate.participantId === action.actorParticipantId);
+function actionLabel(
+  action: BattleAction,
+  state: { readonly combatants: readonly BattleCombatant[] },
+  moveNames: ReadonlyMap<string, string>,
+): string {
+  const actor = state.combatants.find(
+    (candidate) => candidate.participantId === action.actorParticipantId,
+  );
   if (action.type === "USE_MOVE") {
     const move = actor?.moves.find((candidate) => candidate.slotNo === action.moveSlot);
-    return move === undefined ? `usar movimento do slot ${action.moveSlot}` : `usar ${moveNames.get(move.moveId) ?? `movimento ${action.moveSlot}`}`;
+    return move === undefined
+      ? `usar movimento do slot ${action.moveSlot}`
+      : `usar ${moveNames.get(move.moveId) ?? `movimento ${action.moveSlot}`}`;
   }
   if (action.type === "SWITCH") {
-    const target = state.combatants.find((candidate) => candidate.participantId === action.switchToParticipantId);
+    const target = state.combatants.find(
+      (candidate) => candidate.participantId === action.switchToParticipantId,
+    );
     return `trocar para ${target === undefined ? "reserva" : `reserva #${target.rosterPosition}`}`;
   }
   if (action.type === "USE_ITEM") return "usar item";
@@ -183,9 +202,13 @@ export function createOperationalUxRoutes(
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     const options = await dependencies.reads.listRegionOptions(player.value);
-    if (options.length === 0) return err(appError("ACTION_INVALID", "Nenhuma região está disponível para este treinador."));
+    if (options.length === 0)
+      return err(appError("ACTION_INVALID", "Nenhuma região está disponível para este treinador."));
     const lines = options.map((option, index) => `${index + 1}. ${option.displayName}`);
-    return textResult(context, `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`$regiao <número>\`.`);
+    return textResult(
+      context,
+      `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`$regiao <número>\`.`,
+    );
   };
 
   const selectRegion: Handler = async (context) => {
@@ -198,9 +221,14 @@ export function createOperationalUxRoutes(
     }
     const selected = options[index - 1];
     if (selected === undefined) return err(appError("ACTION_INVALID", "Região não encontrada."));
-    const result = await dependencies.registration.selectRegion(player.value, { regionId: selected.regionId });
+    const result = await dependencies.registration.selectRegion(player.value, {
+      regionId: selected.regionId,
+    });
     if (!result.ok) return result;
-    return textResult(context, `✅ Região definida: *${selected.displayName}*.\n\nUse \`$starters\` para ver seus iniciais.`);
+    return textResult(
+      context,
+      `✅ Região definida: *${selected.displayName}*.\n\nUse \`$starters\` para ver seus iniciais.`,
+    );
   };
 
   const starters: Handler = async (context) => {
@@ -208,8 +236,13 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const options = await dependencies.starter.listStarterOptions(player.value);
     if (!options.ok) return options;
-    const lines = options.value.map((option, index) => `${index + 1}. ${option.displayName} · Nv. ${option.starterLevel}`);
-    return textResult(context, `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`$starter <número>\`.`);
+    const lines = options.value.map(
+      (option, index) => `${index + 1}. ${option.displayName} · Nv. ${option.starterLevel}`,
+    );
+    return textResult(
+      context,
+      `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`$starter <número>\`.`,
+    );
   };
 
   const chooseStarter: Handler = async (context) => {
@@ -248,7 +281,10 @@ export function createOperationalUxRoutes(
     if (!completed.ok) return completed;
     const location = await dependencies.world.ensureInitialLocation({ playerId: player.value });
     if (!location.ok) return location;
-    return textResult(context, `✅ Entrada concluída.\n📍 *${location.value.areaDisplayName}*\n\nUse \`$menu\`.`);
+    return textResult(
+      context,
+      `✅ Entrada concluída.\n📍 *${location.value.areaDisplayName}*\n\nUse \`$menu\`.`,
+    );
   };
 
   const profile: Handler = async (context) => {
@@ -276,8 +312,14 @@ export function createOperationalUxRoutes(
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     const members = await dependencies.reads.listTeam(player.value);
-    const lines = members.map((member) => `${member.slotNo}. *${member.displayName}* · Nv. ${member.level} · HP ${member.currentHp}`);
-    return textResult(context, `⚡ *EQUIPE*\n\n${lines.length === 0 ? "Nenhum Pokémon na equipe." : lines.join("\n")}`);
+    const lines = members.map(
+      (member) =>
+        `${member.slotNo}. *${member.displayName}* · Nv. ${member.level} · HP ${member.currentHp}`,
+    );
+    return textResult(
+      context,
+      `⚡ *EQUIPE*\n\n${lines.length === 0 ? "Nenhum Pokémon na equipe." : lines.join("\n")}`,
+    );
   };
 
   const inventory: Handler = async (context) => {
@@ -287,9 +329,13 @@ export function createOperationalUxRoutes(
     if (!page.ok) return page;
     const items = await dependencies.reads.listInventory(player.value);
     const slice = pageSlice(items, page.value);
-    if (items.length > 0 && slice.length === 0) return err(appError("VALIDATION_FAILED", "Essa página do inventário não existe."));
+    if (items.length > 0 && slice.length === 0)
+      return err(appError("VALIDATION_FAILED", "Essa página do inventário não existe."));
     const lines = slice.map((item) => `• ${item.displayName} ×${item.quantity}`);
-    return textResult(context, `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "$inventario")}`);
+    return textResult(
+      context,
+      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "$inventario")}`,
+    );
   };
 
   const pokedex: Handler = async (context) => {
@@ -299,9 +345,16 @@ export function createOperationalUxRoutes(
     if (!page.ok) return page;
     const entries = await dependencies.reads.listPokedex(player.value);
     const slice = pageSlice(entries, page.value);
-    if (entries.length > 0 && slice.length === 0) return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
-    const lines = slice.map((entry) => `#${String(entry.nationalDex).padStart(4, "0")} ${entry.displayName} · vistos ${entry.seenCount} · capturados ${entry.caughtCount}`);
-    return textResult(context, `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "$pokedex")}`);
+    if (entries.length > 0 && slice.length === 0)
+      return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
+    const lines = slice.map(
+      (entry) =>
+        `#${String(entry.nationalDex).padStart(4, "0")} ${entry.displayName} · vistos ${entry.seenCount} · capturados ${entry.caughtCount}`,
+    );
+    return textResult(
+      context,
+      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "$pokedex")}`,
+    );
   };
 
   const where: Handler = async (context) => {
@@ -316,7 +369,13 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      [`📍 *${location.value.areaDisplayName}*`, location.value.regionDisplayName, "", "*Rotas:*", routes.length === 0 ? "Nenhuma saída disponível." : routes.join("\n")].join("\n"),
+      [
+        `📍 *${location.value.areaDisplayName}*`,
+        location.value.regionDisplayName,
+        "",
+        "*Rotas:*",
+        routes.length === 0 ? "Nenhuma saída disponível." : routes.join("\n"),
+      ].join("\n"),
     );
   };
 
@@ -326,19 +385,31 @@ export function createOperationalUxRoutes(
     const [destinationSlug, revisionToken] = commandArgs(context);
     const match = revisionToken?.match(/^v(\d+)$/i);
     if (destinationSlug === undefined || match === null || match === undefined) {
-      return err(appError("VALIDATION_FAILED", "Rota inválida ou expirada. Use $onde e escolha uma rota atual."));
+      return err(
+        appError(
+          "VALIDATION_FAILED",
+          "Rota inválida ou expirada. Use $onde e escolha uma rota atual.",
+        ),
+      );
     }
     const expectedRevision = BigInt(match[1] ?? "-1");
     const current = await dependencies.world.getLocation(player.value);
     if (!current.ok) return current;
     if (current.value.revision !== expectedRevision) {
-      return err(appError("REVISION_CONFLICT", "Essa rota expirou porque sua localização mudou. Use $onde novamente."));
+      return err(
+        appError(
+          "REVISION_CONFLICT",
+          "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
+        ),
+      );
     }
     const connection = current.value.connections.find(
       (candidate) => candidate.destinationSlug === destinationSlug && candidate.available,
     );
     if (connection === undefined) {
-      return err(appError("ACTION_INVALID", "Essa rota não está disponível agora. Use $onde novamente."));
+      return err(
+        appError("ACTION_INVALID", "Essa rota não está disponível agora. Use $onde novamente."),
+      );
     }
     const moved = await dependencies.world.travel({
       playerId: player.value,
@@ -347,7 +418,10 @@ export function createOperationalUxRoutes(
       idempotencyKey: context.idempotencyKey,
     });
     if (!moved.ok) return moved;
-    return textResult(context, `📍 Você chegou a *${moved.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`);
+    return textResult(
+      context,
+      `📍 Você chegou a *${moved.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
+    );
   };
 
   const encounter: Handler = async (context) => {
@@ -356,9 +430,14 @@ export function createOperationalUxRoutes(
     const active = await dependencies.encounter.activeForPlayer(player.value);
     if (!active.ok) return active;
     const name =
-      (await dependencies.reads.speciesDisplayName(active.value.contentReleaseId, active.value.snapshot.speciesId)) ??
-      "Pokémon selvagem";
-    const guidance = active.value.status === "IN_BATTLE" ? "A batalha já está ativa: use `$batalha`." : "A cena continua sob condução do narrador; o bot não inicia combate automaticamente.";
+      (await dependencies.reads.speciesDisplayName(
+        active.value.contentReleaseId,
+        active.value.snapshot.speciesId,
+      )) ?? "Pokémon selvagem";
+    const guidance =
+      active.value.status === "IN_BATTLE"
+        ? "A batalha já está ativa: use `$batalha`."
+        : "A cena continua sob condução do narrador; o bot não inicia combate automaticamente.";
     return textResult(
       context,
       [
@@ -383,22 +462,36 @@ export function createOperationalUxRoutes(
     if (!view.ok) return view;
     const state = view.value.state;
     const own = activeCombatant(state, view.value.playerSideNo);
-    const opponentSide = state.sides.find((side) => side.sideNo !== view.value.playerSideNo && side.result === null);
-    const opponent = opponentSide === undefined ? null : activeCombatant(state, opponentSide.sideNo);
-    if (own === null) return err(appError("ACTION_INVALID", "Batalha ativa sem Pokémon controlável."));
-    const moveNames = await dependencies.reads.moveDisplayNames(state.contentReleaseId, own.moves.map((move) => move.moveId));
+    const opponentSide = state.sides.find(
+      (side) => side.sideNo !== view.value.playerSideNo && side.result === null,
+    );
+    const opponent =
+      opponentSide === undefined ? null : activeCombatant(state, opponentSide.sideNo);
+    if (own === null)
+      return err(appError("ACTION_INVALID", "Batalha ativa sem Pokémon controlável."));
+    const moveNames = await dependencies.reads.moveDisplayNames(
+      state.contentReleaseId,
+      own.moves.map((move) => move.moveId),
+    );
     const moveLines = own.moves.map((move) => {
-      const pp = move.ppCurrent === null || move.maxPp === null ? "PP —" : `PP ${move.ppCurrent}/${move.maxPp}`;
+      const pp =
+        move.ppCurrent === null || move.maxPp === null
+          ? "PP —"
+          : `PP ${move.ppCurrent}/${move.maxPp}`;
       return `${move.slotNo}. ${moveNames.get(move.moveId) ?? `Movimento ${move.slotNo}`} · ${pp}`;
     });
-    const legal = view.value.legalActions.map((action) => `• ${actionLabel(action, state, moveNames)}`);
+    const legal = view.value.legalActions.map(
+      (action) => `• ${actionLabel(action, state, moveNames)}`,
+    );
     return textResult(
       context,
       [
         `⚔️ *BATALHA · Turno ${state.turnNumber} · v${state.version}*`,
         "",
         `Seu Pokémon · HP ${own.currentHp}/${own.maxHp} · status ${statusLabel(own.majorStatus)}`,
-        opponent === null ? "Oponente: —" : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
+        opponent === null
+          ? "Oponente: —"
+          : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
         "",
         "*Movimentos:*",
         moveLines.join("\n"),
@@ -415,9 +508,17 @@ export function createOperationalUxRoutes(
     { command: "menu", handler: new FunctionalHandler(menu) },
     { command: "registrar", handler: new FunctionalHandler(register), rateLimitClass: "SENSITIVE" },
     { command: "regioes", handler: new FunctionalHandler(regions) },
-    { command: "regiao", handler: new FunctionalHandler(selectRegion), rateLimitClass: "SENSITIVE" },
+    {
+      command: "regiao",
+      handler: new FunctionalHandler(selectRegion),
+      rateLimitClass: "SENSITIVE",
+    },
     { command: "starters", handler: new FunctionalHandler(starters) },
-    { command: "starter", handler: new FunctionalHandler(chooseStarter), rateLimitClass: "SENSITIVE" },
+    {
+      command: "starter",
+      handler: new FunctionalHandler(chooseStarter),
+      rateLimitClass: "SENSITIVE",
+    },
     { command: "concluir", handler: new FunctionalHandler(conclude), rateLimitClass: "SENSITIVE" },
     { command: "perfil", handler: new FunctionalHandler(profile) },
     { command: "equipe", handler: new FunctionalHandler(team) },

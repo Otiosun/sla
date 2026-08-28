@@ -55,7 +55,8 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
     );
     return result.rows.map((row) => {
       const parsed = parsePokemonInstanceId(row.pokemon_instance_id);
-      if (!parsed.ok) throw new Error("Operational team projection returned invalid PokemonInstanceId");
+      if (!parsed.ok)
+        throw new Error("Operational team projection returned invalid PokemonInstanceId");
       return {
         pokemonInstanceId: parsed.value,
         displayName: row.display_name,

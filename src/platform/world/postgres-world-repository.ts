@@ -190,7 +190,9 @@ class PostgresWorldTransaction implements WorldTransaction {
   }
 
   public async acquireTravelIdempotencyLock(idempotencyKey: string): Promise<void> {
-    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [idempotencyKey]);
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      idempotencyKey,
+    ]);
   }
 
   public async travelReceipt(idempotencyKey: string): Promise<WorldTravelReceipt | null> {
