@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export const NarrativeActionKindSchema = z.enum(["MOVE", "ITEM", "SWITCH", "FLEE", "WAIT", "OTHER"]);
+export const NarrativeActionKindSchema = z.enum([
+  "MOVE",
+  "ITEM",
+  "SWITCH",
+  "FLEE",
+  "WAIT",
+  "OTHER",
+]);
 export type NarrativeActionKind = z.infer<typeof NarrativeActionKindSchema>;
 
 export const NarrativeLegalActionSchema = z

@@ -99,16 +99,19 @@ class FakeInterpreter implements NarrativeInterpreter {
 }
 
 function service(interpreter: NarrativeInterpreter, custom: Partial<NarrativeN0Policy> = {}) {
-  return new NarrativeN0Service(
-    interpreter,
-    new ManualClock(new Date("2026-08-28T08:00:00Z")),
-    { ...policy, ...custom },
-  );
+  return new NarrativeN0Service(interpreter, new ManualClock(new Date("2026-08-28T08:00:00Z")), {
+    ...policy,
+    ...custom,
+  });
 }
 
 describe("Narrative AI N0 safety boundary", () => {
   it("uses a provider-neutral constrained envelope and keeps mechanical authority at NONE", async () => {
-    const structured = new FakeInterpreter(async () => ({ ok: true, output: intent() }), true, "cloud");
+    const structured = new FakeInterpreter(
+      async () => ({ ok: true, output: intent() }),
+      true,
+      "cloud",
+    );
     const first = await service(structured).interpret(baseInput);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -131,7 +134,12 @@ describe("Narrative AI N0 safety boundary", () => {
     for (const output of [
       "not-json",
       intent({ moveId: "hyper-beam" }),
-      intent({ actionId: "item-potion", moveId: null, itemId: "master-ball-not-owned", targetId: "player-1" }),
+      intent({
+        actionId: "item-potion",
+        moveId: null,
+        itemId: "master-ball-not-owned",
+        targetId: "player-1",
+      }),
       intent({ targetId: "enemy-999" }),
     ]) {
       const interpreter = new FakeInterpreter(async () => ({ ok: true, output }));

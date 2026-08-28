@@ -66,10 +66,7 @@ function decodeOutput(output: unknown): unknown {
   }
 }
 
-function intentMatchesAction(
-  intent: NarrativeIntentV1,
-  action: NarrativeLegalAction,
-): boolean {
+function intentMatchesAction(intent: NarrativeIntentV1, action: NarrativeLegalAction): boolean {
   if (intent.actorId !== action.actorId) return false;
   if (intent.moveId !== action.moveId) return false;
   if (intent.itemId !== action.itemId) return false;
@@ -77,10 +74,7 @@ function intentMatchesAction(
   return intent.targetId !== null && action.targetIds.includes(intent.targetId);
 }
 
-function legalIntent(
-  intent: NarrativeIntentV1,
-  actions: readonly NarrativeLegalAction[],
-): boolean {
+function legalIntent(intent: NarrativeIntentV1, actions: readonly NarrativeLegalAction[]): boolean {
   if (intent.actionId === null) {
     return (
       intent.actorId === null &&
@@ -210,12 +204,10 @@ export class NarrativeN0Service {
         this.interpreter
           .interpret(request, controller.signal)
           .then((result) => ({ kind: "RESULT", result }) as const)
-          .catch(
-            (): { readonly kind: "RESULT"; readonly result: NarrativeInterpreterResult } => ({
-              kind: "RESULT",
-              result: { ok: false, reason: "PROVIDER_ERROR" },
-            }),
-          ),
+          .catch((): { readonly kind: "RESULT"; readonly result: NarrativeInterpreterResult } => ({
+            kind: "RESULT",
+            result: { ok: false, reason: "PROVIDER_ERROR" },
+          })),
         new Promise<{ readonly kind: "TIMEOUT" }>((resolve) => {
           timer = setTimeout(() => {
             controller.abort();
