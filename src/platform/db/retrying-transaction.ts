@@ -1,13 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { CryptoRandomSource, type RandomSource } from "../rng/index.js";
-import {
-  type RetrySafety,
-  withSafeRetry,
-} from "../../shared-kernel/retry.js";
-import {
-  type TransactionOptions,
-  withTransaction,
-} from "./transaction.js";
+import { type RetrySafety, withSafeRetry } from "../../shared-kernel/retry.js";
+import { type TransactionOptions, withTransaction } from "./transaction.js";
 
 const RETRYABLE_TRANSACTION_SQLSTATES = new Set(["40001", "40P01"]);
 

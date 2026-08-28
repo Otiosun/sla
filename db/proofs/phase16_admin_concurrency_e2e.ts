@@ -29,10 +29,10 @@ async function attachGlobalContentEditor(pool: Pool, principalId: string): Promi
   const roleId = role.rows[0]?.id;
   if (roleId === undefined) throw new Error("CONTENT_EDITOR role must be seeded");
 
-  await pool.query(
-    `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`,
-    [principalId, roleId],
-  );
+  await pool.query(`INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`, [
+    principalId,
+    roleId,
+  ]);
   await pool.query(
     `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
      VALUES ($1, $2, 'GLOBAL', NULL)`,
@@ -155,7 +155,8 @@ try {
   expectAdminCode(rejected[0]?.reason, ADMIN_ERROR_CODES.REVISION_CONFLICT);
 
   const winnerId = fulfilled[0]?.value.id;
-  if (winnerId === undefined) throw new Error("Concurrent admin race produced no winner operation id");
+  if (winnerId === undefined)
+    throw new Error("Concurrent admin race produced no winner operation id");
   const loserId = winnerId === operationA.id ? operationB.id : operationA.id;
   const loserPrincipal = loserId === operationA.id ? principalA : principalB;
 
@@ -200,17 +201,17 @@ try {
     loser_status: "READY",
   });
 
-  const winnerReplay = await admin.apply(winnerId, winnerId === operationA.id ? principalA : principalB);
+  const winnerReplay = await admin.apply(
+    winnerId,
+    winnerId === operationA.id ? principalA : principalB,
+  );
   assert.equal(winnerReplay.id, winnerId);
   assert.equal(winnerReplay.status, "APPLIED");
 
-  await assert.rejects(
-    admin.apply(loserId, loserPrincipal),
-    (error: unknown) => {
-      expectAdminCode(error, ADMIN_ERROR_CODES.REVISION_CONFLICT);
-      return true;
-    },
-  );
+  await assert.rejects(admin.apply(loserId, loserPrincipal), (error: unknown) => {
+    expectAdminCode(error, ADMIN_ERROR_CODES.REVISION_CONFLICT);
+    return true;
+  });
 
   const finalEvidence = await pool.query<{ claims: string; changes: string; revision: string }>(
     `SELECT

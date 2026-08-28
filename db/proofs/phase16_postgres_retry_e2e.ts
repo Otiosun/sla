@@ -42,26 +42,18 @@ try {
   assert.equal(isRetryablePostgresTransactionError(new Error("unknown")), false);
 
   await assert.rejects(
-    withRetryingTransaction(
-      pool,
-      async (client) => client.query("SELECT 1"),
-      {
-        safety: { kind: "READ_ONLY" },
-        transaction: { readOnly: false },
-      },
-    ),
+    withRetryingTransaction(pool, async (client) => client.query("SELECT 1"), {
+      safety: { kind: "READ_ONLY" },
+      transaction: { readOnly: false },
+    }),
     /READ_ONLY retry safety requires a READ ONLY PostgreSQL transaction/,
   );
 
   await assert.rejects(
-    withRetryingTransaction(
-      pool,
-      async (client) => client.query("SELECT 1"),
-      {
-        safety: { kind: "IDEMPOTENT_MUTATION", idempotencyKey: "   " },
-        transaction: { isolationLevel: "READ COMMITTED" },
-      },
-    ),
+    withRetryingTransaction(pool, async (client) => client.query("SELECT 1"), {
+      safety: { kind: "IDEMPOTENT_MUTATION", idempotencyKey: "   " },
+      transaction: { isolationLevel: "READ COMMITTED" },
+    }),
     /idempotency key/,
   );
 
@@ -157,9 +149,7 @@ try {
        on_call boolean NOT NULL
      )`,
   );
-  await pool.query(
-    `INSERT INTO "${serializationTable}"(id, on_call) VALUES (1, TRUE), (2, TRUE)`,
-  );
+  await pool.query(`INSERT INTO "${serializationTable}"(id, on_call) VALUES (1, TRUE), (2, TRUE)`);
 
   const serializationBarrier = firstAttemptBarrier();
   let serializationCallsA = 0;
