@@ -36,107 +36,106 @@ jobs:
           python <<'PY'
           from pathlib import Path
 
-          import_path = Path('db/imports/gen123/import.ts')
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected exactly one match, got {count}")
+              return text.replace(old, new, 1)
+
+          import_path = Path("db/imports/gen123/import.ts")
           text = import_path.read_text()
-          old = '''import { createHash } from "node:crypto";
-          import { Pool, type PoolClient } from "pg";'''.replace('          ', '')
-          new = '''import { Pool, type PoolClient } from "pg";
-          import { fingerprintRuleset } from "../../../src/modules/catalog/fingerprint.js";'''.replace('          ', '')
-          assert old in text
-          text = text.replace(old, new, 1)
-
-          old = '''function fingerprint(value: unknown): string {
-            return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-          }
-
-          '''.replace('          ', '')
-          assert old in text
-          text = text.replace(old, '', 1)
-
-          old = '''  const matchups: (readonly unknown[])[] = [];
-            for (const attacking of typeRows) {
-              for (const defending of typeRows) {
-                const attackSource = requiredInt(attacking, "id");
-                const defendSource = requiredInt(defending, "id");
-                matchups.push([
-                  id,
-                  typeMap.get(attackSource),
-                  typeMap.get(defendSource),
-                  (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100,
-                ]);
-              }
-            }'''.replace('            ', '')
-          new = '''  const matchups: (readonly unknown[])[] = [];
-            const rulesetTypeMatchups: {
-              attackingTypeId: string;
-              defendingTypeId: string;
-              multiplierBasisPoints: number;
-            }[] = [];
-            for (const attacking of typeRows) {
-              for (const defending of typeRows) {
-                const attackSource = requiredInt(attacking, "id");
-                const defendSource = requiredInt(defending, "id");
-                const attackingTypeId = typeMap.get(attackSource);
-                const defendingTypeId = typeMap.get(defendSource);
-                if (attackingTypeId === undefined || defendingTypeId === undefined)
-                  throw new Error(`Ruleset type identity missing for ${attackSource}:${defendSource}`);
-                const multiplierBasisPoints =
-                  (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100;
-                matchups.push([id, attackingTypeId, defendingTypeId, multiplierBasisPoints]);
-                rulesetTypeMatchups.push({
-                  attackingTypeId,
-                  defendingTypeId,
-                  multiplierBasisPoints,
-                });
-              }
-            }'''.replace('            ', '')
-          assert old in text
-          text = text.replace(old, new, 1)
-
-          old = '''    [id, JSON.stringify(report), fingerprint(baseRow.config)],'''
-          new = '''    [
-              id,
-              JSON.stringify(report),
-              fingerprintRuleset({
+          text = replace_once(
+              text,
+              'import { createHash } from "node:crypto";\nimport { Pool, type PoolClient } from "pg";',
+              'import { Pool, type PoolClient } from "pg";\nimport { fingerprintRuleset } from "../../../src/modules/catalog/fingerprint.js";',
+              "import fingerprintRuleset",
+          )
+          text = replace_once(
+              text,
+              'function fingerprint(value: unknown): string {\n  return createHash("sha256").update(JSON.stringify(value)).digest("hex");\n}\n\n',
+              '',
+              "remove legacy fingerprint",
+          )
+          old_matchups = '''  const matchups: (readonly unknown[])[] = [];
+          for (const attacking of typeRows) {
+            for (const defending of typeRows) {
+              const attackSource = requiredInt(attacking, "id");
+              const defendSource = requiredInt(defending, "id");
+              matchups.push([
                 id,
-                status: "DRAFT",
-                config: baseRow.config,
-                typeMatchups: rulesetTypeMatchups,
-              }),
-            ],'''.replace('            ', '')
-          assert old in text
-          text = text.replace(old, new, 1)
+                typeMap.get(attackSource),
+                typeMap.get(defendSource),
+                (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100,
+              ]);
+            }
+          }
+          '''.replace("          ", "")
+          new_matchups = '''  const matchups: (readonly unknown[])[] = [];
+          const rulesetTypeMatchups: {
+            attackingTypeId: string;
+            defendingTypeId: string;
+            multiplierBasisPoints: number;
+          }[] = [];
+          for (const attacking of typeRows) {
+            for (const defending of typeRows) {
+              const attackSource = requiredInt(attacking, "id");
+              const defendSource = requiredInt(defending, "id");
+              const attackingTypeId = typeMap.get(attackSource);
+              const defendingTypeId = typeMap.get(defendSource);
+              if (attackingTypeId === undefined || defendingTypeId === undefined)
+                throw new Error(`Ruleset type identity missing for ${attackSource}:${defendSource}`);
+              const multiplierBasisPoints =
+                (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100;
+              matchups.push([id, attackingTypeId, defendingTypeId, multiplierBasisPoints]);
+              rulesetTypeMatchups.push({
+                attackingTypeId,
+                defendingTypeId,
+                multiplierBasisPoints,
+              });
+            }
+          }
+          '''.replace("          ", "")
+          text = replace_once(text, old_matchups, new_matchups, "canonical matchup snapshot")
+          text = replace_once(
+              text,
+              '[id, JSON.stringify(report), fingerprint(baseRow.config)],',
+              '''[
+                id,
+                JSON.stringify(report),
+                fingerprintRuleset({
+                  id,
+                  status: "DRAFT",
+                  config: baseRow.config,
+                  typeMatchups: rulesetTypeMatchups,
+                }),
+              ],''',
+              "canonical ruleset fingerprint",
+          )
           import_path.write_text(text)
 
-          validate_path = Path('db/imports/gen123/final-validate.ts')
+          validate_path = Path("db/imports/gen123/final-validate.ts")
           text = validate_path.read_text()
-          needle = '''    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
-          '''.replace('          ', '')
-          replacement = '''    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
-            const storedRulesetFingerprint = await pool.query<{ config_fingerprint: string | null }>(
-              "SELECT config_fingerprint FROM rulesets WHERE id=$1",
-              [release.default_ruleset_id],
-            );
-            if (storedRulesetFingerprint.rows[0]?.config_fingerprint !== rulesetFingerprint)
-              throw new Error("Gen I-III ruleset fingerprint does not match canonical snapshot");
-          '''.replace('          ', '')
-          assert needle in text
-          text = text.replace(needle, replacement, 1)
-
-          old = '''    if (markValidated && release.status === "DRAFT") {
-              const rulesetUpdate = await pool.query(
-                "UPDATE rulesets SET config_fingerprint=$2 WHERE id=$1 AND status='VALIDATED'",
-                [release.default_ruleset_id, rulesetFingerprint],
+          text = replace_once(
+              text,
+              '    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);\n',
+              '''    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
+              const storedRulesetFingerprint = await pool.query<{ config_fingerprint: string | null }>(
+                "SELECT config_fingerprint FROM rulesets WHERE id=$1",
+                [release.default_ruleset_id],
               );
-              if (rulesetUpdate.rowCount !== 1) throw new Error("Ruleset fingerprint update failed");
+              if (storedRulesetFingerprint.rows[0]?.config_fingerprint !== rulesetFingerprint)
+                throw new Error("Gen I-III ruleset fingerprint does not match canonical snapshot");
+              '''.replace("              ", ""),
+              "validate stored ruleset fingerprint",
+          )
+          legacy_update = '''      const rulesetUpdate = await pool.query(
+            "UPDATE rulesets SET config_fingerprint=$2 WHERE id=$1 AND status='VALIDATED'",
+            [release.default_ruleset_id, rulesetFingerprint],
+          );
+          if (rulesetUpdate.rowCount !== 1) throw new Error("Ruleset fingerprint update failed");
 
-              const catalogSnapshot = await repository.read((transaction) =>
-          '''.replace('          ', '')
-          new = '''    if (markValidated && release.status === "DRAFT") {
-              const catalogSnapshot = await repository.read((transaction) =>
-          '''.replace('          ', '')
-          assert old in text
-          text = text.replace(old, new, 1)
+          '''.replace("          ", "")
+          text = replace_once(text, legacy_update, '', "remove forbidden validated ruleset update")
           validate_path.write_text(text)
           PY
 
