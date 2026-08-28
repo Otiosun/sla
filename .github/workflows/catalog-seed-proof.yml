@@ -150,3 +150,18 @@ jobs:
             ")"
 
           test "$seed_ok" = "ok"
+
+      - name: Checkout pinned PokeAPI data snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: PokeAPI/pokeapi
+          ref: 7af36d9f3424366ffc46e90d94c8bc120df39cd0
+          path: .phase15-pokeapi
+          sparse-checkout: data/v2/csv
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: Phase 15 Gen I-III import proof
+        env:
+          POKEAPI_DATA_DIR: ${{ github.workspace }}/.phase15-pokeapi/data/v2/csv
+        run: pnpm tsx db/proofs/phase15_gen123_import_e2e.ts
