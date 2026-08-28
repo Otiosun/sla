@@ -101,6 +101,9 @@ jobs:
       - name: Run PostgreSQL Server-side Admin Batch E2E
         run: node --import tsx db/proofs/phase12_admin_batch_e2e.ts
 
+      - name: Run PostgreSQL Admin Compensation E2E
+        run: node --import tsx db/proofs/phase12_admin_compensation_e2e.ts
+
       - name: Run PostgreSQL Admin Audit Reconstruction E2E
         run: node --import tsx db/proofs/phase12_admin_audit_reconstruction_e2e.ts
 
