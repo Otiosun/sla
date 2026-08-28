@@ -32,6 +32,7 @@
     "db:seed:phase12": "node --env-file-if-exists=.env --import tsx db/seeds/phase12_admin_registry_slice.ts"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "pg": "8.23.0",
     "zod": "4.4.3"
   },
