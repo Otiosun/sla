@@ -92,7 +92,8 @@ export interface TravelInput {
   readonly playerId: PlayerId;
   readonly destinationAreaId: string;
   readonly expectedRevision: bigint;
-  readonly idempotencyKey: string;
+  /** Messaging must pass the Inbox-derived key. Other trusted callers get a semantic fallback. */
+  readonly idempotencyKey?: string;
 }
 
 export interface RelocateInput {
