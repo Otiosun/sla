@@ -131,4 +131,47 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
       caughtCount: BigInt(row.caught_count),
     }));
   }
+
+  public async activeBattleId(playerId: PlayerId): Promise<string | null> {
+    const result = await this.pool.query<{ battle_id: string }>(
+      `SELECT battle.id AS battle_id
+       FROM battle_sides side
+       JOIN battles battle ON battle.id = side.battle_id
+       WHERE side.player_id = $1
+         AND battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
+       ORDER BY battle.created_at DESC, battle.id DESC
+       LIMIT 1`,
+      [playerId],
+    );
+    return result.rows[0]?.battle_id ?? null;
+  }
+
+  public async speciesDisplayName(
+    contentReleaseId: string,
+    speciesId: string,
+  ): Promise<string | null> {
+    const result = await this.pool.query<{ display_name: string }>(
+      `SELECT display_name
+       FROM pokemon_species_revisions
+       WHERE content_release_id = $1 AND species_id = $2 AND active = TRUE`,
+      [contentReleaseId, speciesId],
+    );
+    return result.rows[0]?.display_name ?? null;
+  }
+
+  public async moveDisplayNames(
+    contentReleaseId: string,
+    moveIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>> {
+    if (moveIds.length === 0) return new Map();
+    const result = await this.pool.query<{ move_id: string; display_name: string }>(
+      `SELECT move_id, display_name
+       FROM move_revisions
+       WHERE content_release_id = $1
+         AND move_id = ANY($2::uuid[])
+         AND active = TRUE`,
+      [contentReleaseId, [...new Set(moveIds)]],
+    );
+    return new Map(result.rows.map((row) => [row.move_id, row.display_name] as const));
+  }
 }
