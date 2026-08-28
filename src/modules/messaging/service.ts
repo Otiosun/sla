@@ -108,9 +108,13 @@ function validateHandlerResult(
       )
     ) {
       return err(
-        appError("VALIDATION_FAILED", "Handler requested media that is not present in the message", {
-          correlationId: context.correlationId,
-        }),
+        appError(
+          "VALIDATION_FAILED",
+          "Handler requested media that is not present in the message",
+          {
+            correlationId: context.correlationId,
+          },
+        ),
       );
     }
   }
@@ -122,8 +126,7 @@ export class MessagingService {
     private readonly repository: MessagingRepository,
     private readonly router: MessageRouterPort,
     private readonly inboxLeaseMs = 30_000,
-    private readonly rateLimitPolicy: MessagingRateLimitPolicySet =
-      DEFAULT_MESSAGING_RATE_LIMIT_POLICY,
+    private readonly rateLimitPolicy: MessagingRateLimitPolicySet = DEFAULT_MESSAGING_RATE_LIMIT_POLICY,
   ) {}
 
   private async complete(
@@ -135,7 +138,10 @@ export class MessagingService {
       await this.repository.failIncoming(context.inboxMessageId, "INVALID_HANDLER_RESULT");
       return validated;
     }
-    const completed = await this.repository.completeIncoming(context.inboxMessageId, validated.value);
+    const completed = await this.repository.completeIncoming(
+      context.inboxMessageId,
+      validated.value,
+    );
     if (!completed.ok) return completed;
     return ok({
       status: "PROCESSED",
@@ -259,10 +265,7 @@ function retryAtForAttempt(input: {
 }): Date | null {
   if (input.attempts >= input.maxAttempts) return null;
   const exponent = Math.max(0, input.attempts - 1);
-  const delay = Math.min(
-    input.maxBackoffMs,
-    input.baseBackoffMs * 2 ** Math.min(exponent, 20),
-  );
+  const delay = Math.min(input.maxBackoffMs, input.baseBackoffMs * 2 ** Math.min(exponent, 20));
   return new Date(Date.now() + delay);
 }
 
@@ -322,7 +325,7 @@ export class OutboxWorker {
   }
 }
 
-export interface MediaWorkerOptions extends OutboxWorkerOptions {}
+export type MediaWorkerOptions = OutboxWorkerOptions;
 
 export interface MediaWorkerRunResult {
   readonly claimed: number;
