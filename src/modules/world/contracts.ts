@@ -75,11 +75,12 @@ export interface TravelResult {
 export interface WorldTravelReceipt {
   readonly idempotencyKey: string;
   readonly playerId: PlayerId;
+  readonly fromAreaId: string;
   readonly destinationAreaId: string;
   readonly expectedRevision: bigint;
   readonly resultingRevision: bigint;
-  readonly from: WorldLocationView;
-  readonly to: WorldLocationView;
+  readonly fromEnteredAt: Date;
+  readonly toEnteredAt: Date;
 }
 
 export interface EnsureInitialLocationInput {
