@@ -164,11 +164,15 @@ async function main(): Promise<void> {
       (status) => status === "IN_FLIGHT" || status === "REPLAYED",
     ).length;
     if (processedCount !== 1 || passiveCount !== 47) {
-      throw new Error(`Duplicate-message storm ownership mismatch: ${JSON.stringify(stormStatuses)}`);
+      throw new Error(
+        `Duplicate-message storm ownership mismatch: ${JSON.stringify(stormStatuses)}`,
+      );
     }
     const stormReplay = await stormService.receive(stormMessage);
     if (!stormReplay.ok || stormReplay.value.status !== "REPLAYED") {
-      throw new Error(`Duplicate-message storm did not converge to replay: ${JSON.stringify(stormReplay)}`);
+      throw new Error(
+        `Duplicate-message storm did not converge to replay: ${JSON.stringify(stormReplay)}`,
+      );
     }
     const stormEvidence = await pool.query<{
       inbox_count: string;
@@ -215,7 +219,11 @@ async function main(): Promise<void> {
           },
         });
         if (!credited.ok) return credited;
-        return ok({ resultRefType: "WALLET_LEDGER", resultRefId: credited.value.ledgerId, outgoing: [] });
+        return ok({
+          resultRefType: "WALLET_LEDGER",
+          resultRefId: credited.value.ledgerId,
+          outgoing: [],
+        });
       },
     };
     const simultaneousService = new MessagingService(
@@ -235,12 +243,10 @@ async function main(): Promise<void> {
     const simultaneousResults = await Promise.all(
       simultaneousMessages.map((incoming) => simultaneousService.receive(incoming)),
     );
-    if (
-      simultaneousResults.some(
-        (result) => !result.ok || result.value.status !== "PROCESSED",
-      )
-    ) {
-      throw new Error(`Same-player simultaneous commands failed: ${JSON.stringify(simultaneousResults)}`);
+    if (simultaneousResults.some((result) => !result.ok || result.value.status !== "PROCESSED")) {
+      throw new Error(
+        `Same-player simultaneous commands failed: ${JSON.stringify(simultaneousResults)}`,
+      );
     }
     const simultaneousState = await walletState(
       pool,
@@ -303,7 +309,9 @@ async function main(): Promise<void> {
     );
     const preCommitFailure = await preCommitService.receive(preCommitMessage);
     if (preCommitFailure.ok || preCommitFailure.error.code !== "ACTION_INVALID") {
-      throw new Error(`Pre-commit failure was not surfaced safely: ${JSON.stringify(preCommitFailure)}`);
+      throw new Error(
+        `Pre-commit failure was not surfaced safely: ${JSON.stringify(preCommitFailure)}`,
+      );
     }
     const afterPreCommitFailure = await walletState(
       pool,
@@ -337,7 +345,9 @@ async function main(): Promise<void> {
     }
     const preCommitReplay = await restartedPreCommitService.receive(preCommitMessage);
     if (!preCommitReplay.ok || preCommitReplay.value.status !== "REPLAYED") {
-      throw new Error(`Pre-commit recovery did not become replay-safe: ${JSON.stringify(preCommitReplay)}`);
+      throw new Error(
+        `Pre-commit recovery did not become replay-safe: ${JSON.stringify(preCommitReplay)}`,
+      );
     }
 
     // 16.7 — real PostgreSQL statement timeout must abort and roll back the entire transaction.
@@ -359,7 +369,11 @@ async function main(): Promise<void> {
     if (timeoutCode !== "57014") {
       throw new Error(`Expected PostgreSQL statement_timeout SQLSTATE 57014, got ${timeoutCode}`);
     }
-    const afterTimeout = await walletState(pool, preCommitFixture.playerId, preCommitFixture.currencyId);
+    const afterTimeout = await walletState(
+      pool,
+      preCommitFixture.playerId,
+      preCommitFixture.currencyId,
+    );
     if (afterTimeout.amount !== "13" || afterTimeout.ledgers !== "0") {
       throw new Error(`DB timeout leaked partial state: ${JSON.stringify(afterTimeout)}`);
     }
