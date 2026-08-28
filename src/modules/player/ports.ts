@@ -5,6 +5,7 @@ import type {
   OnboardingRecord,
   PlayerProfileView,
   ProfileInput,
+  RegionOption,
   RosterPlacement,
   StarterBuild,
   StarterGrantRecord,
@@ -36,6 +37,7 @@ export interface PlayerOnboardingTransaction {
     readonly profile: ProfileInput;
     readonly expectedRevision: bigint;
   }): Promise<boolean>;
+  listRegionOptions(contentReleaseId: string): Promise<readonly RegionOption[]>;
   regionIsActive(contentReleaseId: string, regionId: string): Promise<boolean>;
   selectRegion(input: {
     readonly playerId: PlayerId;

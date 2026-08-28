@@ -5,6 +5,7 @@ import {
   type OnboardingRecord,
   OnboardingStateSchema,
   type ProfileInput,
+  type RegionOption,
 } from "../../modules/player/contracts.js";
 import type { StoredProfile } from "../../modules/player/ports.js";
 import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
@@ -176,6 +177,34 @@ export class PostgresPlayerRegistrationTransaction {
       ],
     );
     return true;
+  }
+
+  public async listRegionOptions(contentReleaseId: string): Promise<readonly RegionOption[]> {
+    const result = await this.client.query<{
+      region_id: string;
+      slug: string;
+      display_name: string;
+    }>(
+      `SELECT revision.region_id, identity.slug, revision.display_name
+       FROM region_revisions revision
+       JOIN regions identity ON identity.id = revision.region_id
+       WHERE revision.content_release_id = $1
+         AND revision.active = TRUE
+         AND EXISTS (
+           SELECT 1
+           FROM starter_options starter
+           WHERE starter.content_release_id = revision.content_release_id
+             AND starter.region_id = revision.region_id
+             AND starter.active = TRUE
+         )
+       ORDER BY revision.display_name, identity.slug, revision.region_id`,
+      [contentReleaseId],
+    );
+    return result.rows.map((row) => ({
+      regionId: row.region_id,
+      slug: row.slug,
+      displayName: row.display_name,
+    }));
   }
 
   public async regionIsActive(contentReleaseId: string, regionId: string): Promise<boolean> {

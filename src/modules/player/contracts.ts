@@ -62,6 +62,12 @@ export interface OnboardingRecord extends ContentContext {
   readonly originRegionId: string | null;
 }
 
+export interface RegionOption {
+  readonly regionId: string;
+  readonly slug: string;
+  readonly displayName: string;
+}
+
 export interface StarterOption {
   readonly formId: string;
   readonly displayName: string;
@@ -118,6 +124,7 @@ export interface StarterGrantRecord {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string | null;
   readonly idempotencyKey: string;
+  readonly correlationId: CorrelationId | null;
 }
 
 export interface StarterGrantWrite extends ContentContext {
