@@ -6,7 +6,10 @@ import {
   type IncomingMessage,
   type PendingMediaJob,
 } from "../../src/modules/messaging/contracts.js";
-import type { MediaProcessorAdapter, MessageRouteHandler } from "../../src/modules/messaging/ports.js";
+import type {
+  MediaProcessorAdapter,
+  MessageRouteHandler,
+} from "../../src/modules/messaging/ports.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import {
   MediaWorker,
@@ -215,10 +218,20 @@ async function main(): Promise<void> {
       policy({ key: "proof.action", player: 100, chat: 100, sensitive: 1 }),
     );
     const actionFirst = await actionLimiter.receive(
-      message({ id: "action-limit-1", sender: "action-sender", chat: "action-chat", text: "$sensitive" }),
+      message({
+        id: "action-limit-1",
+        sender: "action-sender",
+        chat: "action-chat",
+        text: "$sensitive",
+      }),
     );
     const actionSecond = await actionLimiter.receive(
-      message({ id: "action-limit-2", sender: "action-sender", chat: "action-chat", text: "$sensitive" }),
+      message({
+        id: "action-limit-2",
+        sender: "action-sender",
+        chat: "action-chat",
+        text: "$sensitive",
+      }),
     );
     if (
       !actionFirst.ok ||
@@ -267,7 +280,11 @@ async function main(): Promise<void> {
     ) {
       throw new Error("Crash after admission did not recover safely");
     }
-    const crashRateState = await pool.query<{ charges: string; player_used: number; chat_used: number }>(
+    const crashRateState = await pool.query<{
+      charges: string;
+      player_used: number;
+      chat_used: number;
+    }>(
       `SELECT
          (SELECT count(*)::text FROM messaging_rate_limit_charges WHERE inbox_message_id = $1) AS charges,
          (SELECT used FROM messaging_rate_limit_buckets WHERE scope_kind = 'PLAYER' AND policy_key = 'proof.crash.player') AS player_used,
@@ -279,7 +296,9 @@ async function main(): Promise<void> {
       crashRateState.rows[0]?.player_used !== 1 ||
       crashRateState.rows[0]?.chat_used !== 1
     ) {
-      throw new Error(`Rate-limit crash replay double-charged: ${JSON.stringify(crashRateState.rows[0])}`);
+      throw new Error(
+        `Rate-limit crash replay double-charged: ${JSON.stringify(crashRateState.rows[0])}`,
+      );
     }
 
     const blockedHandler: MessageRouteHandler = {
@@ -298,10 +317,17 @@ async function main(): Promise<void> {
       policy({ key: "proof.error", player: 100, chat: 100, sensitive: 100 }),
     );
     const blocked = await errorService.receive(
-      message({ id: "friendly-error", sender: "error-sender", chat: "error-chat", text: "$blocked" }),
+      message({
+        id: "friendly-error",
+        sender: "error-sender",
+        chat: "error-chat",
+        text: "$blocked",
+      }),
     );
     if (!blocked.ok || blocked.value.resultRefType !== "MESSAGING_ERROR") {
-      throw new Error(`Typed domain error was not completed as a friendly reply: ${JSON.stringify(blocked)}`);
+      throw new Error(
+        `Typed domain error was not completed as a friendly reply: ${JSON.stringify(blocked)}`,
+      );
     }
     const errorOutbox = await pool.query<{ text: string; correlation_id: string }>(
       `SELECT payload->>'text' AS text, correlation_id::text
@@ -317,7 +343,9 @@ async function main(): Promise<void> {
       friendly.text.includes("secret-state") ||
       friendly.correlation_id !== blocked.value.correlationId
     ) {
-      throw new Error(`Friendly error leaked internals or lost correlation: ${JSON.stringify(friendly)}`);
+      throw new Error(
+        `Friendly error leaked internals or lost correlation: ${JSON.stringify(friendly)}`,
+      );
     }
 
     const economy = new EconomyService(new PostgresEconomyRepository(pool));
@@ -368,7 +396,9 @@ async function main(): Promise<void> {
     });
     const mediaReceived = await mediaService.receive(mediaMessage);
     if (!mediaReceived.ok || mediaReceived.value.status !== "PROCESSED") {
-      throw new Error(`Media-bearing message did not finish mechanics: ${JSON.stringify(mediaReceived)}`);
+      throw new Error(
+        `Media-bearing message did not finish mechanics: ${JSON.stringify(mediaReceived)}`,
+      );
     }
 
     const processor = new ProofMediaProcessor();
@@ -396,7 +426,9 @@ async function main(): Promise<void> {
       mediaState.job_count !== "1" ||
       processor.processed.length !== 0
     ) {
-      throw new Error(`Media work blocked or altered mechanical commit: ${JSON.stringify(mediaState)}`);
+      throw new Error(
+        `Media work blocked or altered mechanical commit: ${JSON.stringify(mediaState)}`,
+      );
     }
 
     const mediaWorker = new MediaWorker(repository, [processor], {
