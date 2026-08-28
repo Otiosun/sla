@@ -26,7 +26,10 @@ export interface OperationalUxDependencies {
     | "completeOnboarding"
     | "getProfile"
   >;
-  readonly world: Pick<WorldService, "ensureInitialLocation" | "getLocation" | "travel">;
+  readonly world: Pick<
+    WorldService,
+    "ensureInitialLocation" | "getLocation" | "travel" | "replayTravelIfCommitted"
+  >;
   readonly encounter: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly battle: Pick<BattleOperationalReadService, "forPlayer">;
   readonly reads: OperationalUxReadModel;
@@ -396,11 +399,24 @@ export function createOperationalUxRoutes(
     const current = await dependencies.world.getLocation(player.value);
     if (!current.ok) return current;
     if (current.value.revision !== expectedRevision) {
-      return err(
-        appError(
-          "REVISION_CONFLICT",
-          "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
-        ),
+      const replayed = await dependencies.world.replayTravelIfCommitted({
+        playerId: player.value,
+        destinationSlug,
+        expectedRevision,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!replayed.ok) return replayed;
+      if (replayed.value === null) {
+        return err(
+          appError(
+            "REVISION_CONFLICT",
+            "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
+          ),
+        );
+      }
+      return textResult(
+        context,
+        `📍 Você chegou a *${replayed.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
       );
     }
     const connection = current.value.connections.find(
@@ -417,7 +433,16 @@ export function createOperationalUxRoutes(
       expectedRevision,
       idempotencyKey: context.idempotencyKey,
     });
-    if (!moved.ok) return moved;
+    if (!moved.ok) {
+      return moved.error.code === "REVISION_CONFLICT"
+        ? err(
+            appError(
+              "REVISION_CONFLICT",
+              "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
+            ),
+          )
+        : moved;
+    }
     return textResult(
       context,
       `📍 Você chegou a *${moved.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
