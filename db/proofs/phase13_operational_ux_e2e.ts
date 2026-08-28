@@ -1,7 +1,10 @@
 import { Pool } from "pg";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
-import { IncomingMessageSchema, type IncomingMessage } from "../../src/modules/messaging/contracts.js";
+import {
+  IncomingMessageSchema,
+  type IncomingMessage,
+} from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import type { MessageRouterPort } from "../../src/modules/messaging/ports.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
@@ -23,7 +26,11 @@ if (databaseUrl === undefined) {
   throw new Error("DATABASE_URL is required for the Phase 13 operational UX proof");
 }
 
-function message(id: string, text: string, occurredAt = "2026-08-28T03:00:00-03:00"): IncomingMessage {
+function message(
+  id: string,
+  text: string,
+  occurredAt = "2026-08-28T03:00:00-03:00",
+): IncomingMessage {
   return IncomingMessageSchema.parse({
     provider: "phase13-operational",
     externalMessageId: id,
@@ -57,7 +64,9 @@ async function outgoingText(pool: Pool, externalMessageId: string): Promise<stri
 async function receiveProcessed(service: MessagingService, input: IncomingMessage): Promise<void> {
   const result = await service.receive(input);
   if (!result.ok || result.value.status !== "PROCESSED") {
-    throw new Error(`Message ${input.externalMessageId} did not process: ${JSON.stringify(result)}`);
+    throw new Error(
+      `Message ${input.externalMessageId} did not process: ${JSON.stringify(result)}`,
+    );
   }
 }
 
@@ -78,14 +87,25 @@ async function main(): Promise<void> {
     const encounter = new EncounterOperationalReadService(new PostgresEncounterRepository(pool));
     const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
     const reads = new PostgresOperationalUxReadModel(pool);
-    const routes = createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads });
+    const routes = createOperationalUxRoutes({
+      registration,
+      starter,
+      world,
+      encounter,
+      battle,
+      reads,
+    });
     const canonicalRouter = new MessageRouter(routes);
     const messagingRepository = new PostgresMessagingRepository(pool);
     const service = new MessagingService(messagingRepository, canonicalRouter, 30_000);
 
     const menu = message("ux-menu-new", "$menu");
     const menuResult = await service.receive(menu);
-    if (!menuResult.ok || menuResult.value.status !== "PROCESSED" || menuResult.value.resultRefId === null) {
+    if (
+      !menuResult.ok ||
+      menuResult.value.status !== "PROCESSED" ||
+      menuResult.value.resultRefId === null
+    ) {
       throw new Error(`Initial onboarding menu failed: ${JSON.stringify(menuResult)}`);
     }
     const playerId = menuResult.value.resultRefId;
@@ -113,7 +133,9 @@ async function main(): Promise<void> {
       [playerId],
     );
     if (onboarding.rows[0]?.state !== "COMPLETE") {
-      throw new Error(`WhatsApp onboarding did not reach COMPLETE: ${JSON.stringify(onboarding.rows[0])}`);
+      throw new Error(
+        `WhatsApp onboarding did not reach COMPLETE: ${JSON.stringify(onboarding.rows[0])}`,
+      );
     }
 
     await receiveProcessed(service, message("ux-menu-complete", "$menu"));
@@ -142,7 +164,8 @@ async function main(): Promise<void> {
     await receiveProcessed(service, message("ux-where", "$onde"));
     const whereText = await outgoingText(pool, "ux-where");
     const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
-    if (travelMatch === null) throw new Error(`$onde did not emit a revision-bound route: ${whereText}`);
+    if (travelMatch === null)
+      throw new Error(`$onde did not emit a revision-bound route: ${whereText}`);
     const destinationSlug = travelMatch[1];
     const emittedRevision = travelMatch[2];
     if (destinationSlug === undefined || emittedRevision === undefined) {
@@ -156,7 +179,11 @@ async function main(): Promise<void> {
       },
       async dispatch(context) {
         const routed = await canonicalRouter.dispatch(context);
-        if (!crashInjected && context.message.externalMessageId === "ux-travel-crash" && routed.ok) {
+        if (
+          !crashInjected &&
+          context.message.externalMessageId === "ux-travel-crash" &&
+          routed.ok
+        ) {
           crashInjected = true;
           throw new Error("simulated process crash after WorldService.travel commit");
         }
@@ -183,7 +210,10 @@ async function main(): Promise<void> {
       [playerId],
     );
     const movedState = afterCrash.rows[0];
-    if (movedState === undefined || movedState.revision !== (BigInt(emittedRevision) + 1n).toString()) {
+    if (
+      movedState === undefined ||
+      movedState.revision !== (BigInt(emittedRevision) + 1n).toString()
+    ) {
       throw new Error(`Owner did not commit before simulated crash: ${JSON.stringify(movedState)}`);
     }
     const receiptAfterCrash = await pool.query<{ count: string }>(
@@ -196,12 +226,16 @@ async function main(): Promise<void> {
 
     const restartedService = new MessagingService(
       new PostgresMessagingRepository(pool),
-      new MessageRouter(createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads })),
+      new MessageRouter(
+        createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads }),
+      ),
       30_000,
     );
     const recovered = await restartedService.receive(travelMessage);
     if (!recovered.ok || recovered.value.status !== "PROCESSED") {
-      throw new Error(`Restart did not replay committed travel safely: ${JSON.stringify(recovered)}`);
+      throw new Error(
+        `Restart did not replay committed travel safely: ${JSON.stringify(recovered)}`,
+      );
     }
     const recoveredText = await outgoingText(pool, travelMessage.externalMessageId);
     if (!recoveredText.includes("Chegamos")) {
@@ -210,7 +244,9 @@ async function main(): Promise<void> {
 
     const duplicate = await restartedService.receive(travelMessage);
     if (!duplicate.ok || duplicate.value.status !== "REPLAYED") {
-      throw new Error(`Duplicate travel message did not replay Inbox result: ${JSON.stringify(duplicate)}`);
+      throw new Error(
+        `Duplicate travel message did not replay Inbox result: ${JSON.stringify(duplicate)}`,
+      );
     }
     const afterReplay = await pool.query<{ area_id: string; revision: string; receipts: string }>(
       `SELECT location.area_id, location.revision::text,
@@ -234,7 +270,9 @@ async function main(): Promise<void> {
     );
     const stale = await restartedService.receive(staleOldText);
     if (!stale.ok || stale.value.status !== "PROCESSED") {
-      throw new Error(`Stale action was not converted to a safe friendly result: ${JSON.stringify(stale)}`);
+      throw new Error(
+        `Stale action was not converted to a safe friendly result: ${JSON.stringify(stale)}`,
+      );
     }
     const staleReply = await outgoingText(pool, staleOldText.externalMessageId);
     if (!staleReply.toLocaleLowerCase("pt-BR").includes("expir")) {
@@ -252,7 +290,9 @@ async function main(): Promise<void> {
       finalState.rows[0]?.revision !== movedState.revision ||
       finalState.rows[0]?.receipts !== "1"
     ) {
-      throw new Error(`Stale/reordered text executed mechanics: ${JSON.stringify(finalState.rows[0])}`);
+      throw new Error(
+        `Stale/reordered text executed mechanics: ${JSON.stringify(finalState.rows[0])}`,
+      );
     }
 
     const readOnlyIdentityCount = await pool.query<{ count: string }>(
