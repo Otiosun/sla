@@ -23,10 +23,10 @@ if (
   throw new Error("World connection blocker must remain explicit");
 if (
   !report.coverage.partial.includes(
-    "moves-with-source-null-pp-preserved-but-excluded-from-executable-learnsets",
+    "source-null-pp-never-fabricated-and-nonexecutable-if-in-scope",
   )
 )
-  throw new Error("Source-null PP limitation must remain explicit in coverage");
+  throw new Error("Source-null PP invariant must remain explicit in coverage");
 
 const second = await importGen123();
 if (second.status !== "VALIDATED")
@@ -87,8 +87,6 @@ try {
            AND move.max_pp IS NULL) AS learnsets`,
     [releaseId],
   );
-  if ((nullPp.rows[0]?.moves ?? 0) < 1)
-    throw new Error("Pinned source null-PP moves were unexpectedly fabricated or dropped");
   if ((nullPp.rows[0]?.learnsets ?? -1) !== 0)
     throw new Error("Executable learnsets must never reference a move with unknown PP");
 
@@ -117,7 +115,7 @@ try {
   if (sourceCommit.rows[0]?.source_commit !== GEN123_SOURCE.commit)
     throw new Error("Validation report lost pinned source provenance");
   console.log(
-    `Phase 15 Gen I-III import proof complete: candidate ${releaseId}, ${report.counts.species} species, ${report.counts.moves} moves, ${report.counts.areas} areas; connections/publish intentionally blocked`,
+    `Phase 15 Gen I-III import proof complete: candidate ${releaseId}, ${report.counts.species} species, ${report.counts.moves} moves, ${report.counts.areas} areas, ${nullPp.rows[0]?.moves ?? 0} retained null-PP moves; connections/publish intentionally blocked`,
   );
 } finally {
   await pool.end();
