@@ -251,7 +251,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const app = router(dependencies());
     expect(textOf(await app.dispatch(context("$perfil", "profile")))).toContain("Treinador: *Red*");
     expect(textOf(await app.dispatch(context("$equipe", "team")))).toContain(
-      "Charmander · Nv. 5 · HP 19",
+      "*Charmander* · Nv. 5 · HP 19",
     );
     expect(textOf(await app.dispatch(context("$inventario", "inventory")))).toContain("Potion ×3");
     expect(textOf(await app.dispatch(context("$pokedex", "pokedex")))).toContain(
