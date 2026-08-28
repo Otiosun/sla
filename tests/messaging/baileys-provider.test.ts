@@ -9,7 +9,10 @@ import {
   type BaileysSocketFactory,
 } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { normalizeBaileysMessage } from "../../src/adapters/whatsapp/baileys-normalizer.js";
-import type { IncomingMessage, PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
+import type {
+  IncomingMessage,
+  PendingOutboxMessage,
+} from "../../src/modules/messaging/contracts.js";
 
 class FakeBaileysSocket implements BaileysSocketLike {
   readonly sent: Array<{ jid: string; content: { readonly text: string } }> = [];
@@ -46,9 +49,9 @@ function authBinding(saveCredentials = vi.fn(async () => {})): BaileysAuthBindin
   };
 }
 
-function providerMessage(overrides: Readonly<Record<string, unknown>> = {}): Parameters<
-  typeof normalizeBaileysMessage
->[0] {
+function providerMessage(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Parameters<typeof normalizeBaileysMessage>[0] {
   const base = {
     key: {
       id: "wamid-1",
@@ -137,7 +140,9 @@ describe("Baileys provider boundary", () => {
         providerMessage({ key: { id: "own", remoteJid: "chat", fromMe: true } }),
       ),
     ).toBeNull();
-    expect(normalizeBaileysMessage(providerMessage({ message: { protocolMessage: {} } }))).toBeNull();
+    expect(
+      normalizeBaileysMessage(providerMessage({ message: { protocolMessage: {} } })),
+    ).toBeNull();
   });
 
   it("keeps the Baileys SDK import inside the WhatsApp adapter subtree", async () => {
@@ -212,7 +217,10 @@ describe("BaileysWhatsAppAdapter", () => {
 
   it("maps only validated TEXT outbox messages to provider sendMessage", async () => {
     const socket = new FakeBaileysSocket();
-    const adapter = new BaileysWhatsAppAdapter({ auth: authBinding(), socketFactory: () => socket });
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
     await adapter.start(async () => {});
 
     await adapter.send(outbox());
