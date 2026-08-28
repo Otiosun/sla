@@ -100,11 +100,7 @@ function routeCandidates(
   knownSlugs: ReadonlySet<string>,
 ): string[] {
   const regions =
-    source === "firered"
-      ? ["kanto"]
-      : source === "emerald"
-        ? ["hoenn"]
-        : ["johto", "kanto"];
+    source === "firered" ? ["kanto"] : source === "emerald" ? ["hoenn"] : ["johto", "kanto"];
   const candidates: string[] = [];
   for (const region of regions) {
     for (const middle of ["route", "sea-route"] as const) {
@@ -147,11 +143,7 @@ function resolveAuthority(
   if (knownSlugs.has(base)) return base;
 
   const regionPrefixes =
-    source === "firered"
-      ? ["kanto"]
-      : source === "emerald"
-        ? ["hoenn"]
-        : ["johto", "kanto"];
+    source === "firered" ? ["kanto"] : source === "emerald" ? ["hoenn"] : ["johto", "kanto"];
   const prefixed = regionPrefixes
     .map((region) => `${region}-${base}`)
     .filter((candidate) => knownSlugs.has(candidate));
@@ -335,10 +327,8 @@ function resolveCrystalMap(
   knownSlugs: ReadonlySet<string>,
 ): string | null {
   if (map === "SilverCaveOutside" && knownSlugs.has("mt-silver")) return "mt-silver";
-  if (map.startsWith("SilverCave") && knownSlugs.has("mt-silver-cave"))
-    return "mt-silver-cave";
-  if (map.startsWith("TeamRocketBase") && knownSlugs.has("team-rocket-hq"))
-    return "team-rocket-hq";
+  if (map.startsWith("SilverCave") && knownSlugs.has("mt-silver-cave")) return "mt-silver-cave";
+  if (map.startsWith("TeamRocketBase") && knownSlugs.has("team-rocket-hq")) return "team-rocket-hq";
   return resolveAuthority(authority, "crystal", knownSlugs);
 }
 
@@ -391,10 +381,7 @@ async function parseCrystal(
         .split(",")
         .map((value) => value.trim());
       const destinationConstant = parts[2];
-      if (
-        destinationConstant === undefined ||
-        new Set(["LAST_MAP", "-1"]).has(destinationConstant)
-      )
+      if (destinationConstant === undefined || new Set(["LAST_MAP", "-1"]).has(destinationConstant))
         continue;
       const toMap = mapByConstant.get(destinationConstant);
       if (toMap === undefined) continue;

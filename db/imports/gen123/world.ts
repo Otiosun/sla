@@ -175,10 +175,9 @@ export async function applyGen123World(): Promise<{
       idBySlug.set(row.slug, row.id);
     }
 
-    await client.query(
-      "DELETE FROM area_connection_revisions WHERE content_release_id=$1",
-      [releaseId],
-    );
+    await client.query("DELETE FROM area_connection_revisions WHERE content_release_id=$1", [
+      releaseId,
+    ]);
     for (const edge of topology.edges) {
       const fromAreaId = idBySlug.get(edge.fromSlug);
       const toAreaId = idBySlug.get(edge.toSlug);

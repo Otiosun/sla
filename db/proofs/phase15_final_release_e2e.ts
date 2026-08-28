@@ -11,8 +11,7 @@ const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
 
 const first = await importGen123();
-if (first.status !== "DRAFT")
-  throw new Error(`First import must be DRAFT, got ${first.status}`);
+if (first.status !== "DRAFT") throw new Error(`First import must be DRAFT, got ${first.status}`);
 
 const world = await applyGen123World();
 if (
@@ -38,10 +37,7 @@ if (JSON.stringify(report.encounterOnlyAreas) !== JSON.stringify(world.encounter
   throw new Error("World and final validator disagree on encounter-only areas");
 
 const published = await publishGen123();
-if (
-  published.releaseStatus !== "PUBLISHED" ||
-  published.rulesetStatus !== "PUBLISHED"
-)
+if (published.releaseStatus !== "PUBLISHED" || published.rulesetStatus !== "PUBLISHED")
   throw new Error("Phase 15 candidate did not publish");
 
 const releaseId = gen123Id("release:gen123-production-candidate-v1");
@@ -93,9 +89,7 @@ try {
   if (state.source_commit !== GEN123_SOURCE.commit)
     throw new Error("Final validation report lost PokeAPI provenance");
   if (JSON.stringify(state.blocked) !== "[]")
-    throw new Error(
-      `Final validation report still has blockers: ${JSON.stringify(state.blocked)}`,
-    );
+    throw new Error(`Final validation report still has blockers: ${JSON.stringify(state.blocked)}`);
   if (state.active_release_id === releaseId)
     throw new Error("Published candidate unexpectedly became ACTIVE");
 

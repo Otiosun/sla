@@ -10,12 +10,7 @@ import {
 import { PostgresCatalogRepository } from "../../../src/platform/catalog/postgres-catalog-repository.js";
 import { gen123Id } from "./ids.js";
 import { loadGen123Model, type Gen123Model } from "./model.js";
-import {
-  GEN123_SOURCE,
-  Gen123Source,
-  requiredInt,
-  requiredText,
-} from "./source.js";
+import { GEN123_SOURCE, Gen123Source, requiredInt, requiredText } from "./source.js";
 import {
   GEN123_WORLD_SOURCES,
   loadGen123WorldTopology,
@@ -107,14 +102,16 @@ export async function validateGen123Final(
       evolutions: "SELECT count(*)::int count FROM evolution_rules WHERE content_release_id=$1",
       regions:
         "SELECT count(*)::int count FROM region_revisions WHERE content_release_id=$1 AND active",
-      areas: "SELECT count(*)::int count FROM area_revisions WHERE content_release_id=$1 AND active",
+      areas:
+        "SELECT count(*)::int count FROM area_revisions WHERE content_release_id=$1 AND active",
       connections:
         "SELECT count(*)::int count FROM area_connection_revisions WHERE content_release_id=$1 AND active",
       encounterTables:
         "SELECT count(*)::int count FROM encounter_table_revisions WHERE content_release_id=$1 AND active",
       encounters:
         "SELECT count(*)::int count FROM encounter_entries entry JOIN encounter_table_revisions revision ON revision.id=entry.encounter_table_revision_id WHERE revision.content_release_id=$1 AND entry.active",
-      starters: "SELECT count(*)::int count FROM starter_options WHERE content_release_id=$1 AND active",
+      starters:
+        "SELECT count(*)::int count FROM starter_options WHERE content_release_id=$1 AND active",
     } as const;
     const counts = Object.fromEntries(
       await Promise.all(
@@ -178,7 +175,9 @@ export async function validateGen123Final(
     );
     const actualAreaSlugs = new Set(activeAreas.rows.map((row) => row.slug));
     if (actualAreaSlugs.size !== activeSlugs.size)
-      throw new Error(`Active area set size mismatch: ${actualAreaSlugs.size} vs ${activeSlugs.size}`);
+      throw new Error(
+        `Active area set size mismatch: ${actualAreaSlugs.size} vs ${activeSlugs.size}`,
+      );
     for (const slug of activeSlugs)
       if (!actualAreaSlugs.has(slug)) throw new Error(`Missing source-scoped active area ${slug}`);
     for (const row of activeAreas.rows) {
@@ -241,7 +240,9 @@ export async function validateGen123Final(
       if (!activeSlugs.has(row.slug))
         throw new Error(`Active encounter area ${row.slug} is outside source-scoped active areas`);
       if (!topology.locationSlugs.has(row.slug) && !encounterOnlySlugs.has(row.slug))
-        throw new Error(`Encounter area ${row.slug} is neither navigable nor an encounter-only bucket`);
+        throw new Error(
+          `Encounter area ${row.slug} is neither navigable nor an encounter-only bucket`,
+        );
     }
 
     const brokenRefs = await pool.query<{ total: number }>(
@@ -333,14 +334,14 @@ export async function validateGen123Final(
     if (rulesetSnapshot === null)
       throw new Error("Unable to load canonical ruleset snapshot for fingerprinting");
     const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
+    const storedRulesetFingerprint = await pool.query<{ config_fingerprint: string | null }>(
+      "SELECT config_fingerprint FROM rulesets WHERE id=$1",
+      [release.default_ruleset_id],
+    );
+    if (storedRulesetFingerprint.rows[0]?.config_fingerprint !== rulesetFingerprint)
+      throw new Error("Gen I-III ruleset fingerprint does not match canonical snapshot");
 
     if (markValidated && release.status === "DRAFT") {
-      const rulesetUpdate = await pool.query(
-        "UPDATE rulesets SET config_fingerprint=$2 WHERE id=$1 AND status='VALIDATED'",
-        [release.default_ruleset_id, rulesetFingerprint],
-      );
-      if (rulesetUpdate.rowCount !== 1) throw new Error("Ruleset fingerprint update failed");
-
       const catalogSnapshot = await repository.read((transaction) =>
         transaction.loadCatalogSnapshot(releaseId),
       );
@@ -354,7 +355,8 @@ export async function validateGen123Final(
           WHERE id=$1 AND status='DRAFT'`,
         [releaseId, JSON.stringify(report), contentFingerprint],
       );
-      if (releaseUpdate.rowCount !== 1) throw new Error("Final release validation transition failed");
+      if (releaseUpdate.rowCount !== 1)
+        throw new Error("Final release validation transition failed");
     }
 
     return report;
