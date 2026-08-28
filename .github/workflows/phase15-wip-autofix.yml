@@ -35,41 +35,25 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
+          import re
 
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
-              if count != 1:
-                  raise RuntimeError(f"{label}: expected exactly one match, got {count}")
-              return text.replace(old, new, 1)
-
-          import_path = Path("db/imports/gen123/import.ts")
-          text = import_path.read_text()
-          text = replace_once(
-              text,
-              'import { createHash } from "node:crypto";\nimport { Pool, type PoolClient } from "pg";',
+          p = Path("db/imports/gen123/import.ts")
+          s = p.read_text()
+          s, n = re.subn(
+              r'^import \{ createHash \} from "node:crypto";\nimport \{ Pool, type PoolClient \} from "pg";',
               'import { Pool, type PoolClient } from "pg";\nimport { fingerprintRuleset } from "../../../src/modules/catalog/fingerprint.js";',
-              "import fingerprintRuleset",
+              s,
+              count=1,
+              flags=re.M,
           )
-          text = replace_once(
-              text,
-              'function fingerprint(value: unknown): string {\n  return createHash("sha256").update(JSON.stringify(value)).digest("hex");\n}\n\n',
-              '',
-              "remove legacy fingerprint",
+          assert n == 1, f"import replacement count={n}"
+          s, n = re.subn(
+              r'\nfunction fingerprint\(value: unknown\): string \{\n  return createHash\("sha256"\)\.update\(JSON\.stringify\(value\)\)\.digest\("hex"\);\n\}\n',
+              '\n',
+              s,
+              count=1,
           )
-          old_matchups = '''  const matchups: (readonly unknown[])[] = [];
-          for (const attacking of typeRows) {
-            for (const defending of typeRows) {
-              const attackSource = requiredInt(attacking, "id");
-              const defendSource = requiredInt(defending, "id");
-              matchups.push([
-                id,
-                typeMap.get(attackSource),
-                typeMap.get(defendSource),
-                (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100,
-              ]);
-            }
-          }
-          '''.replace("          ", "")
+          assert n == 1, f"legacy fingerprint removal count={n}"
           new_matchups = '''  const matchups: (readonly unknown[])[] = [];
           const rulesetTypeMatchups: {
             attackingTypeId: string;
@@ -94,11 +78,17 @@ jobs:
               });
             }
           }
-          '''.replace("          ", "")
-          text = replace_once(text, old_matchups, new_matchups, "canonical matchup snapshot")
-          text = replace_once(
-              text,
-              '[id, JSON.stringify(report), fingerprint(baseRow.config)],',
+          await insertRows('''.replace("          ", "")
+          s, n = re.subn(
+              r'  const matchups: \(readonly unknown\[\]\)\[\] = \[\];\n  for \(const attacking of typeRows\) \{.*?\n  \}\n  await insertRows\(',
+              new_matchups,
+              s,
+              count=1,
+              flags=re.S,
+          )
+          assert n == 1, f"matchup block replacement count={n}"
+          s, n = re.subn(
+              r'\[id, JSON\.stringify\(report\), fingerprint\(baseRow\.config\)\],',
               '''[
                 id,
                 JSON.stringify(report),
@@ -108,35 +98,34 @@ jobs:
                   config: baseRow.config,
                   typeMatchups: rulesetTypeMatchups,
                 }),
-              ],''',
-              "canonical ruleset fingerprint",
+              ],'''.replace("              ", ""),
+              s,
+              count=1,
           )
-          import_path.write_text(text)
+          assert n == 1, f"ruleset fingerprint replacement count={n}"
+          p.write_text(s)
 
-          validate_path = Path("db/imports/gen123/final-validate.ts")
-          text = validate_path.read_text()
-          text = replace_once(
-              text,
-              '    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);\n',
-              '''    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
-              const storedRulesetFingerprint = await pool.query<{ config_fingerprint: string | null }>(
-                "SELECT config_fingerprint FROM rulesets WHERE id=$1",
-                [release.default_ruleset_id],
-              );
-              if (storedRulesetFingerprint.rows[0]?.config_fingerprint !== rulesetFingerprint)
-                throw new Error("Gen I-III ruleset fingerprint does not match canonical snapshot");
-              '''.replace("              ", ""),
-              "validate stored ruleset fingerprint",
-          )
-          legacy_update = '''      const rulesetUpdate = await pool.query(
-            "UPDATE rulesets SET config_fingerprint=$2 WHERE id=$1 AND status='VALIDATED'",
-            [release.default_ruleset_id, rulesetFingerprint],
+          p = Path("db/imports/gen123/final-validate.ts")
+          s = p.read_text()
+          replacement = '''    const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
+          const storedRulesetFingerprint = await pool.query<{ config_fingerprint: string | null }>(
+            "SELECT config_fingerprint FROM rulesets WHERE id=$1",
+            [release.default_ruleset_id],
           );
-          if (rulesetUpdate.rowCount !== 1) throw new Error("Ruleset fingerprint update failed");
+          if (storedRulesetFingerprint.rows[0]?.config_fingerprint !== rulesetFingerprint)
+            throw new Error("Gen I-III ruleset fingerprint does not match canonical snapshot");
 
-          '''.replace("          ", "")
-          text = replace_once(text, legacy_update, '', "remove forbidden validated ruleset update")
-          validate_path.write_text(text)
+          if (markValidated && release.status === "DRAFT") {
+            const catalogSnapshot = await repository.read((transaction) =>'''.replace("          ", "")
+          s, n = re.subn(
+              r'    const rulesetFingerprint = fingerprintRuleset\(rulesetSnapshot\);\n\n    if \(markValidated && release\.status === "DRAFT"\) \{\n      const rulesetUpdate = await pool\.query\(.*?\n\n      const catalogSnapshot = await repository\.read\(\(transaction\) =>',
+              replacement,
+              s,
+              count=1,
+              flags=re.S,
+          )
+          assert n == 1, f"validator lifecycle replacement count={n}"
+          p.write_text(s)
           PY
 
       - name: Format canonical files
@@ -167,9 +156,5 @@ jobs:
             db/imports/gen123/world-source.ts \
             db/imports/gen123/world.ts \
             db/proofs/phase15_final_release_e2e.ts
-          if git diff --cached --quiet; then
-            echo "No autofix changes required."
-            exit 0
-          fi
           git commit -m "fix: canonical Phase 15 lifecycle fingerprints"
           git push origin HEAD:feat/phase15-world-graph-publish-wip
