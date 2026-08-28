@@ -34,7 +34,11 @@ function ownerError(error: AppError): AdminError {
     return new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, error.message, error.details);
   }
   if (error.code === "VALIDATION_FAILED" || error.code === "INVALID_ID") {
-    return new AdminError(ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED, error.message, error.details);
+    return new AdminError(
+      ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+      error.message,
+      error.details,
+    );
   }
   return new AdminError(ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED, error.message, {
     ownerCode: error.code,
@@ -79,7 +83,10 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
     assertCompensationTarget(operation, input);
     const source = await this.repository.getOperation(input.sourceOperationId);
     if (source === null) {
-      throw new AdminError(ADMIN_ERROR_CODES.OPERATION_NOT_FOUND, "Source admin operation not found");
+      throw new AdminError(
+        ADMIN_ERROR_CODES.OPERATION_NOT_FOUND,
+        "Source admin operation not found",
+      );
     }
     assertSourceTarget(source, input);
     if (source.status !== "APPLIED") {
@@ -102,7 +109,10 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
     if (source.operationType === "inventory.adjust") {
       const parsed = AdminInventoryAdjustInputSchema.safeParse(source.input);
       if (!parsed.success || parsed.data.playerId !== input.playerId) {
-        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Persisted inventory source is invalid");
+        throw new AdminError(
+          ADMIN_ERROR_CODES.INVALID_INPUT,
+          "Persisted inventory source is invalid",
+        );
       }
       const inverseDelta = -BigInt(parsed.data.delta);
       const quantity = inverseDelta < 0n ? -inverseDelta : inverseDelta;
@@ -148,8 +158,16 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
         compensationKind: "INVERSE_DELTA_V1",
         resourceType: "PLAYER_INVENTORY_ITEM",
         resourceId: parsed.data.itemId,
-        beforeData: { playerId: input.playerId, itemId: parsed.data.itemId, quantity: before.toString() },
-        afterData: { playerId: input.playerId, itemId: parsed.data.itemId, quantity: after.toString() },
+        beforeData: {
+          playerId: input.playerId,
+          itemId: parsed.data.itemId,
+          quantity: before.toString(),
+        },
+        afterData: {
+          playerId: input.playerId,
+          itemId: parsed.data.itemId,
+          quantity: after.toString(),
+        },
         result: {
           compensatesOperationId: source.id,
           sourceOperationType: source.operationType,
@@ -163,7 +181,10 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
     if (source.operationType === "wallet.adjust") {
       const parsed = AdminWalletAdjustInputSchema.safeParse(source.input);
       if (!parsed.success || parsed.data.playerId !== input.playerId) {
-        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Persisted wallet source is invalid");
+        throw new AdminError(
+          ADMIN_ERROR_CODES.INVALID_INPUT,
+          "Persisted wallet source is invalid",
+        );
       }
       const inverseDelta = -BigInt(parsed.data.delta);
       const amount = inverseDelta < 0n ? -inverseDelta : inverseDelta;
@@ -209,8 +230,16 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
         compensationKind: "INVERSE_DELTA_V1",
         resourceType: "PLAYER_WALLET_CURRENCY",
         resourceId: parsed.data.currencyId,
-        beforeData: { playerId: input.playerId, currencyId: parsed.data.currencyId, amount: before.toString() },
-        afterData: { playerId: input.playerId, currencyId: parsed.data.currencyId, amount: after.toString() },
+        beforeData: {
+          playerId: input.playerId,
+          currencyId: parsed.data.currencyId,
+          amount: before.toString(),
+        },
+        afterData: {
+          playerId: input.playerId,
+          currencyId: parsed.data.currencyId,
+          amount: after.toString(),
+        },
         result: {
           compensatesOperationId: source.id,
           sourceOperationType: source.operationType,
@@ -223,7 +252,10 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
 
     const parsed = AdminTrainerProgressAdjustInputSchema.safeParse(source.input);
     if (!parsed.success || parsed.data.playerId !== input.playerId) {
-      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Persisted progression source is invalid");
+      throw new AdminError(
+        ADMIN_ERROR_CODES.INVALID_INPUT,
+        "Persisted progression source is invalid",
+      );
     }
     const inverseDelta = -BigInt(parsed.data.delta);
     const result = await this.progression.adjustTrainerProgress({
