@@ -19,6 +19,21 @@ import type { PlayerOnboardingRepository } from "./ports.js";
 export class PlayerRegistrationService {
   public constructor(private readonly repository: PlayerOnboardingRepository) {}
 
+  public async resolvePlayer(identityInput: unknown): Promise<Result<ResolvePlayerResult>> {
+    const parsed = ExternalIdentitySchema.safeParse(identityInput);
+    if (!parsed.success)
+      return err(playerValidationError("External identity", parsed.error.issues));
+    const identity = parsed.data;
+
+    return this.repository.read(async (transaction) => {
+      const playerId = await transaction.findPlayerByIdentity(identity);
+      if (playerId === null) return err(appError("NOT_FOUND", "Player was not found"));
+      const onboarding = await transaction.loadOnboarding(playerId);
+      if (onboarding === null) return err(playerNotFound(playerId));
+      return ok({ playerId, state: onboarding.state, created: false });
+    });
+  }
+
   public async resolveOrCreatePlayer(identityInput: unknown): Promise<Result<ResolvePlayerResult>> {
     const parsed = ExternalIdentitySchema.safeParse(identityInput);
     if (!parsed.success)
