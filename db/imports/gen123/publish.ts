@@ -1,11 +1,12 @@
 import { Pool } from "pg";
 import { CatalogService } from "../../../src/modules/catalog/service.js";
 import { PostgresCatalogRepository } from "../../../src/platform/catalog/postgres-catalog-repository.js";
-import { gen123Id } from "./ids.js";
 import { validateGen123Final } from "./final-validate.js";
+import { gen123Id } from "./ids.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
-if (DATABASE_URL === undefined) throw new Error("DATABASE_URL is required for Gen I-III publication");
+if (DATABASE_URL === undefined)
+  throw new Error("DATABASE_URL is required for Gen I-III publication");
 
 function unwrap<T>(
   label: string,
@@ -48,19 +49,24 @@ export async function publishGen123(): Promise<{
       [releaseId],
     );
     const current = before.rows[0];
-    if (current === undefined) throw new Error("Gen I-III release disappeared before publication");
+    if (current === undefined)
+      throw new Error("Gen I-III release disappeared before publication");
     if (current.active_release_id === releaseId)
       throw new Error("Gen I-III candidate must not be ACTIVE during publication proof");
 
     if (current.ruleset_status === "VALIDATED")
       unwrap("publish Gen I-III ruleset", await catalog.publishRuleset(current.ruleset_id));
     else if (current.ruleset_status !== "PUBLISHED")
-      throw new Error(`Unexpected ruleset status before publication: ${current.ruleset_status}`);
+      throw new Error(
+        `Unexpected ruleset status before publication: ${current.ruleset_status}`,
+      );
 
     if (current.release_status === "VALIDATED")
       unwrap("publish Gen I-III release", await catalog.publishRelease(releaseId));
     else if (current.release_status !== "PUBLISHED")
-      throw new Error(`Unexpected release status before publication: ${current.release_status}`);
+      throw new Error(
+        `Unexpected release status before publication: ${current.release_status}`,
+      );
 
     const after = await pool.query<{
       release_status: string;
@@ -76,7 +82,10 @@ export async function publishGen123(): Promise<{
       [releaseId],
     );
     const published = after.rows[0];
-    if (published?.release_status !== "PUBLISHED" || published.ruleset_status !== "PUBLISHED")
+    if (
+      published?.release_status !== "PUBLISHED" ||
+      published.ruleset_status !== "PUBLISHED"
+    )
       throw new Error("Gen I-III ruleset/release did not reach PUBLISHED");
     if (published.active_release_id !== current.active_release_id)
       throw new Error("Publication unexpectedly changed the ACTIVE content pointer");
