@@ -1,0 +1,43 @@
+name: WIP Phase 13 Autoformat
+
+on:
+  push:
+    branches:
+      - gate/phase13-operational-ux-wip
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: gate/phase13-operational-ux-wip
+          fetch-depth: 1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Format branch
+        run: pnpm format
+      - name: Commit formatter output
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No formatter changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "wip: apply canonical formatter"
+          git push origin HEAD:gate/phase13-operational-ux-wip
