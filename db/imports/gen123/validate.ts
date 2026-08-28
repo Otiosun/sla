@@ -234,7 +234,7 @@ export async function validateGen123(markValidated = true): Promise<Gen123Valida
         "starters-kanto-johto-hoenn",
       ],
       partial: [
-        "moves-with-source-null-pp-preserved-but-excluded-from-executable-learnsets",
+        "source-null-pp-never-fabricated-and-nonexecutable-if-in-scope",
         "ability-mechanical-effects-explicitly-unsupported-unless-engine-keyed",
         "complex-evolution-mechanics-imported-but-disabled-until-owner-support",
       ],
