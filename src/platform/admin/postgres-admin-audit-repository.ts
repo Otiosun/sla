@@ -292,6 +292,20 @@ export class PostgresAdminOperationAuditRepository implements AdminOperationAudi
                                    'afterData', after_data, 'result', result), created_at
          FROM catalog_release_admin_operation_claims WHERE idempotency_key = $1
          UNION ALL
+         SELECT 'ADMIN_COMPENSATION',
+                CASE WHEN source_admin_operation_id = $1::uuid THEN 'SOURCE' ELSE 'COMPENSATION' END,
+                source_admin_operation_id::text, compensation_admin_operation_id::text,
+                NULL::text, correlation_id::text,
+                jsonb_build_object(
+                  'sourceOperationId', source_admin_operation_id::text,
+                  'compensationOperationId', compensation_admin_operation_id::text,
+                  'compensationKind', compensation_kind,
+                  'createdByAdminPrincipalId', created_by_admin_principal_id::text
+                ), created_at
+         FROM admin_operation_compensations
+         WHERE source_admin_operation_id = $1::uuid
+            OR compensation_admin_operation_id = $1::uuid
+         UNION ALL
          SELECT 'INVENTORY_LEDGER', source_type, player_id::text, item_id::text, NULL, correlation_id::text,
                 jsonb_build_object('delta', delta::text, 'ledgerId', id::text, 'idempotencyScope', idempotency_scope,
                                    'idempotencyKey', idempotency_key, 'reason', reason), created_at
