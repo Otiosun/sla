@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
@@ -7,6 +7,9 @@ import {
   type InboxClaim,
   type IncomingMessage,
   type MessageHandlerResult,
+  type MessagingRateLimitDecision,
+  type MessagingRateLimitRule,
+  type PendingMediaJob,
   type PendingOutboxMessage,
 } from "../../modules/messaging/contracts.js";
 import type { MessagingRepository } from "../../modules/messaging/ports.js";
@@ -34,6 +37,30 @@ interface OutboxRow {
   readonly attempts: number;
 }
 
+interface MediaJobRow {
+  readonly id: string;
+  readonly inbox_message_id: string;
+  readonly provider: string;
+  readonly provider_media_id: string;
+  readonly media_kind: PendingMediaJob["mediaKind"];
+  readonly mime_type: string | null;
+  readonly file_name: string | null;
+  readonly processor_key: string;
+  readonly correlation_id: string;
+  readonly attempts: number;
+}
+
+interface RateBucketRow {
+  readonly window_started_at: Date;
+  readonly used: number;
+}
+
+interface ResolvedRateRule {
+  readonly rule: MessagingRateLimitRule;
+  readonly subjectHash: string;
+  readonly bucketKey: string;
+}
+
 async function rollbackQuietly(client: PoolClient): Promise<void> {
   try {
     await client.query("ROLLBACK");
@@ -46,6 +73,26 @@ function persistedMessage(row: InboxRow, fallback: IncomingMessage): IncomingMes
   if (row.normalized_payload === null) return fallback;
   const parsed = IncomingMessageSchema.safeParse(row.normalized_payload);
   return parsed.success ? parsed.data : fallback;
+}
+
+function subjectHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function validateRateRules(rules: readonly MessagingRateLimitRule[]): Result<void> {
+  for (const rule of rules) {
+    if (
+      rule.policyKey.trim().length === 0 ||
+      !Number.isSafeInteger(rule.maxEvents) ||
+      rule.maxEvents <= 0 ||
+      !Number.isSafeInteger(rule.windowMs) ||
+      rule.windowMs <= 0 ||
+      (rule.scope === "ACTION" && (rule.actionKey === null || rule.actionKey.trim().length === 0))
+    ) {
+      return err(appError("VALIDATION_FAILED", "Messaging rate-limit rule is invalid"));
+    }
+  }
+  return ok(undefined);
 }
 
 export class PostgresMessagingRepository implements MessagingRepository {
@@ -165,6 +212,154 @@ export class PostgresMessagingRepository implements MessagingRepository {
     }
   }
 
+  async consumeRateLimits(input: {
+    readonly inboxMessageId: string;
+    readonly message: IncomingMessage;
+    readonly rules: readonly MessagingRateLimitRule[];
+  }): Promise<Result<MessagingRateLimitDecision>> {
+    const validRules = validateRateRules(input.rules);
+    if (!validRules.ok) return validRules;
+    if (input.rules.length === 0) {
+      return ok({ allowed: true, replayed: false, limitedScope: null, retryAfterMs: 0 });
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existingCharges = await client.query<{ count: number }>(
+        `SELECT count(*)::integer AS count
+         FROM messaging_rate_limit_charges
+         WHERE inbox_message_id = $1`,
+        [input.inboxMessageId],
+      );
+      if ((existingCharges.rows[0]?.count ?? 0) > 0) {
+        await client.query("COMMIT");
+        return ok({ allowed: true, replayed: true, limitedScope: null, retryAfterMs: 0 });
+      }
+
+      const identity = await client.query<{ player_id: string }>(
+        `SELECT player_id
+         FROM player_identities
+         WHERE provider = $1 AND external_id = $2 AND status = 'ACTIVE'`,
+        [input.message.provider, input.message.senderRef],
+      );
+      const resolvedPlayerId = identity.rows[0]?.player_id ?? null;
+      if (resolvedPlayerId !== null) {
+        const bound = await client.query(
+          `UPDATE inbox_messages
+           SET player_id = $2
+           WHERE id = $1 AND (player_id IS NULL OR player_id = $2)`,
+          [input.inboxMessageId, resolvedPlayerId],
+        );
+        if (bound.rowCount !== 1) {
+          throw new Error("Inbox player identity changed during rate-limit admission");
+        }
+      }
+
+      const playerSubject =
+        resolvedPlayerId === null
+          ? `external:${input.message.provider}:${input.message.senderRef}`
+          : `player:${resolvedPlayerId}`;
+      const resolvedRules: ResolvedRateRule[] = input.rules.map((rule) => {
+        const material =
+          rule.scope === "CHAT"
+            ? `chat:${input.message.provider}:${input.message.chatRef}`
+            : rule.scope === "ACTION"
+              ? `${playerSubject}:action:${rule.actionKey ?? ""}`
+              : playerSubject;
+        const hash = subjectHash(material);
+        return {
+          rule,
+          subjectHash: hash,
+          bucketKey: `${rule.scope}:${hash}:${rule.policyKey}`,
+        };
+      });
+
+      for (const key of [...new Set(resolvedRules.map((resolved) => resolved.bucketKey))].sort()) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]);
+      }
+
+      const nowResult = await client.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+      const now = nowResult.rows[0]?.now;
+      if (now === undefined) throw new Error("Database clock did not return a timestamp");
+
+      const bucketStates = new Map<string, RateBucketRow | null>();
+      for (const resolved of resolvedRules) {
+        const bucket = await client.query<RateBucketRow>(
+          `SELECT window_started_at, used
+           FROM messaging_rate_limit_buckets
+           WHERE scope_kind = $1 AND subject_hash = $2 AND policy_key = $3
+           FOR UPDATE`,
+          [resolved.rule.scope, resolved.subjectHash, resolved.rule.policyKey],
+        );
+        const row = bucket.rows[0] ?? null;
+        bucketStates.set(resolved.bucketKey, row);
+        if (row === null) continue;
+        const elapsedMs = now.getTime() - row.window_started_at.getTime();
+        if (elapsedMs < resolved.rule.windowMs && row.used >= resolved.rule.maxEvents) {
+          await client.query("COMMIT");
+          return ok({
+            allowed: false,
+            replayed: false,
+            limitedScope: resolved.rule.scope,
+            retryAfterMs: Math.max(1, resolved.rule.windowMs - elapsedMs),
+          });
+        }
+      }
+
+      for (const resolved of resolvedRules) {
+        const current = bucketStates.get(resolved.bucketKey) ?? null;
+        const expired =
+          current !== null &&
+          now.getTime() - current.window_started_at.getTime() >= resolved.rule.windowMs;
+        const windowStartedAt = current === null || expired ? now : current.window_started_at;
+        if (current === null) {
+          await client.query(
+            `INSERT INTO messaging_rate_limit_buckets(
+               scope_kind, subject_hash, policy_key, window_started_at, used, updated_at
+             ) VALUES ($1, $2, $3, $4, 1, $4)`,
+            [resolved.rule.scope, resolved.subjectHash, resolved.rule.policyKey, windowStartedAt],
+          );
+        } else if (expired) {
+          await client.query(
+            `UPDATE messaging_rate_limit_buckets
+             SET window_started_at = $4, used = 1, updated_at = $4
+             WHERE scope_kind = $1 AND subject_hash = $2 AND policy_key = $3`,
+            [resolved.rule.scope, resolved.subjectHash, resolved.rule.policyKey, windowStartedAt],
+          );
+        } else {
+          await client.query(
+            `UPDATE messaging_rate_limit_buckets
+             SET used = used + 1, updated_at = $4
+             WHERE scope_kind = $1 AND subject_hash = $2 AND policy_key = $3`,
+            [resolved.rule.scope, resolved.subjectHash, resolved.rule.policyKey, now],
+          );
+        }
+        await client.query(
+          `INSERT INTO messaging_rate_limit_charges(
+             inbox_message_id, scope_kind, subject_hash, policy_key, window_started_at, charged_at
+           ) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            input.inboxMessageId,
+            resolved.rule.scope,
+            resolved.subjectHash,
+            resolved.rule.policyKey,
+            windowStartedAt,
+            now,
+          ],
+        );
+      }
+
+      await client.query("COMMIT");
+      return ok({ allowed: true, replayed: false, limitedScope: null, retryAfterMs: 0 });
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async completeIncoming(
     inboxMessageId: string,
     result: MessageHandlerResult,
@@ -172,8 +367,15 @@ export class PostgresMessagingRepository implements MessagingRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const inbox = await client.query<{ correlation_id: string; status: string }>(
-        `SELECT correlation_id, status FROM inbox_messages WHERE id = $1 FOR UPDATE`,
+      const inbox = await client.query<{
+        correlation_id: string;
+        status: string;
+        normalized_payload: unknown | null;
+      }>(
+        `SELECT correlation_id, status, normalized_payload
+         FROM inbox_messages
+         WHERE id = $1
+         FOR UPDATE`,
         [inboxMessageId],
       );
       const row = inbox.rows[0];
@@ -232,6 +434,43 @@ export class PostgresMessagingRepository implements MessagingRepository {
               ),
             );
           }
+        }
+      }
+
+      if ((result.mediaProcessing?.length ?? 0) > 0) {
+        const normalized = IncomingMessageSchema.safeParse(row.normalized_payload);
+        if (!normalized.success) {
+          await client.query("ROLLBACK");
+          return err(appError("VALIDATION_FAILED", "Inbox normalized payload is unavailable"));
+        }
+        for (const request of result.mediaProcessing ?? []) {
+          const reference = normalized.data.mediaRefs.find(
+            (candidate) => candidate.providerMediaId === request.providerMediaId,
+          );
+          if (reference === undefined) {
+            await client.query("ROLLBACK");
+            return err(
+              appError("VALIDATION_FAILED", "Requested media is not present in the Inbox payload"),
+            );
+          }
+          await client.query(
+            `INSERT INTO messaging_media_jobs(
+               id, inbox_message_id, provider, provider_media_id, media_kind, mime_type,
+               file_name, processor_key, status, attempts, next_attempt_at, correlation_id
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', 0, now(), $9)
+             ON CONFLICT (inbox_message_id, provider_media_id, processor_key) DO NOTHING`,
+            [
+              randomUUID(),
+              inboxMessageId,
+              normalized.data.provider,
+              reference.providerMediaId,
+              reference.kind,
+              reference.mimeType,
+              reference.fileName,
+              request.processorKey,
+              row.correlation_id,
+            ],
+          );
         }
       }
 
@@ -353,6 +592,98 @@ export class PostgresMessagingRepository implements MessagingRepository {
            last_error_code = $2
        WHERE id = $1 AND status = 'SENDING'`,
       [input.outboxMessageId, input.errorCode, input.retryAt, input.maxAttempts],
+    );
+  }
+
+  async claimMediaJobs(input: {
+    readonly limit: number;
+    readonly staleAfterMs: number;
+    readonly maxAttempts: number;
+  }): Promise<readonly PendingMediaJob[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE messaging_media_jobs
+         SET status = 'FAILED', next_attempt_at = now(), processing_started_at = NULL,
+             last_error_code = 'MEDIA_LEASE_EXPIRED'
+         WHERE status = 'PROCESSING'
+           AND processing_started_at IS NOT NULL
+           AND processing_started_at <= now() - ($1::bigint * interval '1 millisecond')`,
+        [input.staleAfterMs],
+      );
+      await client.query(
+        `UPDATE messaging_media_jobs
+         SET status = 'DEAD', next_attempt_at = NULL, processing_started_at = NULL
+         WHERE status IN ('PENDING', 'FAILED') AND attempts >= $1`,
+        [input.maxAttempts],
+      );
+      const claimed = await client.query<MediaJobRow>(
+        `WITH candidates AS (
+           SELECT id
+           FROM messaging_media_jobs
+           WHERE status IN ('PENDING', 'FAILED')
+             AND attempts < $1
+             AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+           ORDER BY created_at, id
+           FOR UPDATE SKIP LOCKED
+           LIMIT $2
+         )
+         UPDATE messaging_media_jobs AS job
+         SET status = 'PROCESSING', attempts = job.attempts + 1,
+             processing_started_at = now(), last_error_code = NULL
+         FROM candidates
+         WHERE job.id = candidates.id
+         RETURNING job.id, job.inbox_message_id, job.provider, job.provider_media_id,
+                   job.media_kind, job.mime_type, job.file_name, job.processor_key,
+                   job.correlation_id, job.attempts`,
+        [input.maxAttempts, input.limit],
+      );
+      await client.query("COMMIT");
+      return claimed.rows.map((row) => ({
+        id: row.id,
+        inboxMessageId: row.inbox_message_id,
+        provider: row.provider,
+        providerMediaId: row.provider_media_id,
+        mediaKind: row.media_kind,
+        mimeType: row.mime_type,
+        fileName: row.file_name,
+        processorKey: row.processor_key,
+        correlationId: row.correlation_id,
+        attempts: row.attempts,
+      }));
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async markMediaJobProcessed(mediaJobId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE messaging_media_jobs
+       SET status = 'PROCESSED', processed_at = now(), processing_started_at = NULL,
+           next_attempt_at = NULL, last_error_code = NULL
+       WHERE id = $1 AND status = 'PROCESSING'`,
+      [mediaJobId],
+    );
+  }
+
+  async markMediaJobFailed(input: {
+    readonly mediaJobId: string;
+    readonly errorCode: string;
+    readonly retryAt: Date | null;
+    readonly maxAttempts: number;
+  }): Promise<void> {
+    await this.pool.query(
+      `UPDATE messaging_media_jobs
+       SET status = CASE WHEN attempts >= $4 OR $3::timestamptz IS NULL THEN 'DEAD' ELSE 'FAILED' END,
+           next_attempt_at = CASE WHEN attempts >= $4 THEN NULL ELSE $3::timestamptz END,
+           processing_started_at = NULL,
+           last_error_code = $2
+       WHERE id = $1 AND status = 'PROCESSING'`,
+      [input.mediaJobId, input.errorCode, input.retryAt, input.maxAttempts],
     );
   }
 }

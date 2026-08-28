@@ -40,6 +40,20 @@ export const OutgoingMessageDraftSchema = z
 
 export type OutgoingMessageDraft = z.infer<typeof OutgoingMessageDraftSchema>;
 
+export const MediaProcessingRequestSchema = z
+  .object({
+    providerMediaId: boundedRef,
+    processorKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .regex(/^[a-z0-9][a-z0-9._-]*$/),
+  })
+  .strict();
+
+export type MediaProcessingRequest = z.infer<typeof MediaProcessingRequestSchema>;
+
 export interface MessageHandlerContext {
   readonly inboxMessageId: string;
   readonly correlationId: string;
@@ -52,6 +66,29 @@ export interface MessageHandlerResult {
   readonly resultRefType: string | null;
   readonly resultRefId: string | null;
   readonly outgoing: readonly OutgoingMessageDraft[];
+  readonly mediaProcessing?: readonly MediaProcessingRequest[];
+}
+
+export interface MessageRoutingMetadata {
+  readonly command: string | null;
+  readonly sensitiveActionKey: string | null;
+}
+
+export type MessagingRateLimitScope = "PLAYER" | "CHAT" | "ACTION";
+
+export interface MessagingRateLimitRule {
+  readonly scope: MessagingRateLimitScope;
+  readonly policyKey: string;
+  readonly maxEvents: number;
+  readonly windowMs: number;
+  readonly actionKey: string | null;
+}
+
+export interface MessagingRateLimitDecision {
+  readonly allowed: boolean;
+  readonly replayed: boolean;
+  readonly limitedScope: MessagingRateLimitScope | null;
+  readonly retryAfterMs: number;
 }
 
 export type InboxClaimStatus = "CLAIMED" | "REPLAYED" | "IN_FLIGHT";
@@ -74,6 +111,19 @@ export interface PendingOutboxMessage {
   readonly idempotencyKey: string;
   readonly correlationId: string;
   readonly causationId: string | null;
+  readonly attempts: number;
+}
+
+export interface PendingMediaJob {
+  readonly id: string;
+  readonly inboxMessageId: string;
+  readonly provider: string;
+  readonly providerMediaId: string;
+  readonly mediaKind: MediaReference["kind"];
+  readonly mimeType: string | null;
+  readonly fileName: string | null;
+  readonly processorKey: string;
+  readonly correlationId: string;
   readonly attempts: number;
 }
 
