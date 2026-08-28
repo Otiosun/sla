@@ -20,6 +20,12 @@ if (
   )
 )
   throw new Error("World connection blocker must remain explicit");
+if (
+  !report.coverage.partial.includes(
+    "moves-with-source-null-pp-preserved-but-excluded-from-executable-learnsets",
+  )
+)
+  throw new Error("Source-null PP limitation must remain explicit in coverage");
 
 const second = await importGen123();
 if (second.status !== "VALIDATED")
@@ -50,6 +56,41 @@ try {
     throw new Error(
       `Candidate ruleset must stop at VALIDATED, got ${candidateRuleset.rows[0]?.status ?? "missing"}`,
     );
+
+  const clefairyType = await pool.query<{ type_slug: string }>(
+    `SELECT type.slug AS type_slug
+     FROM pokemon_species species
+     JOIN pokemon_forms form ON form.species_id=species.id AND form.slug=species.slug
+     JOIN pokemon_form_revisions revision
+       ON revision.form_id=form.id AND revision.content_release_id=$1
+     JOIN pokemon_types type ON type.id=revision.type1_id
+     WHERE species.national_dex=35`,
+    [releaseId],
+  );
+  if (clefairyType.rows[0]?.type_slug !== "fairy")
+    throw new Error(
+      `Modern v1 taxonomy lost Clefairy Fairy typing: ${clefairyType.rows[0]?.type_slug ?? "missing"}`,
+    );
+
+  const nullPp = await pool.query<{ moves: number; learnsets: number }>(
+    `SELECT
+       (SELECT count(*)::int FROM move_revisions
+         WHERE content_release_id=$1 AND active AND max_pp IS NULL) AS moves,
+       (SELECT count(*)::int
+          FROM move_learnset_entries learnset
+          JOIN move_revisions move
+            ON move.content_release_id=learnset.content_release_id
+           AND move.move_id=learnset.move_id
+         WHERE learnset.content_release_id=$1
+           AND learnset.active
+           AND move.max_pp IS NULL) AS learnsets`,
+    [releaseId],
+  );
+  if ((nullPp.rows[0]?.moves ?? 0) < 1)
+    throw new Error("Pinned source null-PP moves were unexpectedly fabricated or dropped");
+  if ((nullPp.rows[0]?.learnsets ?? -1) !== 0)
+    throw new Error("Executable learnsets must never reference a move with unknown PP");
+
   const sourceCommit = await pool.query<{ source_commit: string | null }>(
     `SELECT validation_report #>> '{source,commit}' AS source_commit FROM content_releases WHERE id=$1`,
     [releaseId],
