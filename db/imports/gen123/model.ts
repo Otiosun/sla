@@ -229,12 +229,9 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
       requiredInt(row, "is_main_series") === 1,
   );
   const allowedAbilityIds = new Set(abilityRows.map((row) => requiredInt(row, "id")));
-  const typeRows = typeRowsAll.filter(
-    (row) =>
-      requiredInt(row, "id") <= 17 &&
-      optionalInt(row, "generation_id") !== null &&
-      (optionalInt(row, "generation_id") ?? 99) <= GEN123_SOURCE.maxGeneration,
-  );
+  // Ruleset v1 uses the modern 18-type taxonomy while species/move identity scope is Gen I-III.
+  // This preserves official retroactive typings such as Clefairy -> Fairy.
+  const typeRows = typeRowsAll.filter((row) => requiredInt(row, "id") <= 18);
   const allowedTypeIds = new Set(typeRows.map((row) => requiredInt(row, "id")));
 
   const species = pokemonSpeciesRows
