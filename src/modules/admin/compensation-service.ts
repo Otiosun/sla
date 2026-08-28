@@ -181,10 +181,7 @@ export class AdminCompensationService implements AdminCompensationOperationPort 
     if (source.operationType === "wallet.adjust") {
       const parsed = AdminWalletAdjustInputSchema.safeParse(source.input);
       if (!parsed.success || parsed.data.playerId !== input.playerId) {
-        throw new AdminError(
-          ADMIN_ERROR_CODES.INVALID_INPUT,
-          "Persisted wallet source is invalid",
-        );
+        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Persisted wallet source is invalid");
       }
       const inverseDelta = -BigInt(parsed.data.delta);
       const amount = inverseDelta < 0n ? -inverseDelta : inverseDelta;
