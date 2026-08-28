@@ -115,3 +115,6 @@ jobs:
 
       - name: Run PostgreSQL Catalog Release Admin E2E
         run: node --import tsx db/proofs/phase12_catalog_release_admin_e2e.ts
+
+      - name: Run Phase 16 concurrent admin release race proof
+        run: node --import tsx db/proofs/phase16_admin_concurrency_e2e.ts
