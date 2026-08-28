@@ -5,6 +5,7 @@ import {
   ExternalIdentitySchema,
   ProfileInputSchema,
   RegionSelectionSchema,
+  type RegionOption,
   type ResolvePlayerResult,
 } from "./contracts.js";
 import {
@@ -18,6 +19,24 @@ import type { PlayerOnboardingRepository } from "./ports.js";
 
 export class PlayerRegistrationService {
   public constructor(private readonly repository: PlayerOnboardingRepository) {}
+
+  public async findExistingPlayer(
+    identityInput: unknown,
+  ): Promise<Result<ResolvePlayerResult | null>> {
+    const parsed = ExternalIdentitySchema.safeParse(identityInput);
+    if (!parsed.success)
+      return err(playerValidationError("External identity", parsed.error.issues));
+    const identity = parsed.data;
+
+    return this.repository.read(async (transaction) => {
+      const playerId = await transaction.findPlayerByIdentity(identity);
+      if (playerId === null) return ok(null);
+      const onboarding = await transaction.loadOnboarding(playerId);
+      return onboarding === null
+        ? err(playerNotFound(playerId))
+        : ok({ playerId, state: onboarding.state, created: false });
+    });
+  }
 
   public async resolveOrCreatePlayer(identityInput: unknown): Promise<Result<ResolvePlayerResult>> {
     const parsed = ExternalIdentitySchema.safeParse(identityInput);
@@ -86,6 +105,14 @@ export class PlayerRegistrationService {
         return err(appError("ACTION_INVALID", "Trainer profile already has different values"));
       }
       return err(playerInvalidState(onboarding, "NEW"));
+    });
+  }
+
+  public async listRegionOptions(playerId: PlayerId): Promise<Result<readonly RegionOption[]>> {
+    return this.repository.read(async (transaction) => {
+      const onboarding = await transaction.loadOnboarding(playerId);
+      if (onboarding === null) return err(playerNotFound(playerId));
+      return ok(await transaction.listRegionOptions(onboarding.contentReleaseId));
     });
   }
 
