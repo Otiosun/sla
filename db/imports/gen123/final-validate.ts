@@ -1,11 +1,26 @@
 import { Pool } from "pg";
-import { fingerprintCatalog, fingerprintRuleset } from "../../../src/modules/catalog/fingerprint.js";
-import { ConnectionAccessRuleSchema, WorldAreaConfigSchema } from "../../../src/modules/catalog/world-contracts.js";
+import {
+  fingerprintCatalog,
+  fingerprintRuleset,
+} from "../../../src/modules/catalog/fingerprint.js";
+import {
+  ConnectionAccessRuleSchema,
+  WorldAreaConfigSchema,
+} from "../../../src/modules/catalog/world-contracts.js";
 import { PostgresCatalogRepository } from "../../../src/platform/catalog/postgres-catalog-repository.js";
 import { gen123Id } from "./ids.js";
-import { loadGen123Model } from "./model.js";
-import { GEN123_SOURCE, Gen123Source } from "./source.js";
-import { GEN123_WORLD_SOURCES, loadGen123WorldTopology } from "./world-source.js";
+import { loadGen123Model, type Gen123Model } from "./model.js";
+import {
+  GEN123_SOURCE,
+  Gen123Source,
+  requiredInt,
+  requiredText,
+} from "./source.js";
+import {
+  GEN123_WORLD_SOURCES,
+  loadGen123WorldTopology,
+  type Gen123WorldTopology,
+} from "./world-source.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (DATABASE_URL === undefined)
@@ -15,6 +30,8 @@ export interface Gen123FinalValidationReport {
   readonly ok: true;
   readonly releaseId: string;
   readonly counts: Readonly<Record<string, number>>;
+  readonly topologyAreaCount: number;
+  readonly encounterOnlyAreas: readonly string[];
   readonly coverage: {
     readonly full: readonly string[];
     readonly partial: readonly string[];
@@ -31,10 +48,33 @@ function assertEqual(actual: number, expected: number, label: string): void {
   if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}`);
 }
 
-export async function validateGen123Final(markValidated = true): Promise<Gen123FinalValidationReport> {
+function sourceScopedAreas(
+  model: Gen123Model,
+  topology: Gen123WorldTopology,
+): {
+  readonly activeSlugs: ReadonlySet<string>;
+  readonly encounterOnlySlugs: ReadonlySet<string>;
+} {
+  const encounterLocationIds = new Set(model.encounters.map((entry) => entry.locationId));
+  const encounterSlugs = new Set<string>();
+  for (const row of model.locationRows) {
+    const locationId = requiredInt(row, "id");
+    if (encounterLocationIds.has(locationId)) encounterSlugs.add(requiredText(row, "identifier"));
+  }
+  const activeSlugs = new Set([...topology.locationSlugs, ...encounterSlugs]);
+  const encounterOnlySlugs = new Set(
+    [...encounterSlugs].filter((slug) => !topology.locationSlugs.has(slug)),
+  );
+  return { activeSlugs, encounterOnlySlugs };
+}
+
+export async function validateGen123Final(
+  markValidated = true,
+): Promise<Gen123FinalValidationReport> {
   const source = Gen123Source.fromEnvironment();
   const model = await loadGen123Model(source);
   const topology = await loadGen123WorldTopology(model.locationRows);
+  const { activeSlugs, encounterOnlySlugs } = sourceScopedAreas(model, topology);
   const releaseId = gen123Id("release:gen123-production-candidate-v1");
   const pool = new Pool({ connectionString: DATABASE_URL, max: 5 });
   try {
@@ -48,21 +88,33 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
       throw new Error(`Unexpected candidate status ${release.status}`);
 
     const countQueries = {
-      species: `SELECT count(*)::int count FROM pokemon_species_revisions WHERE content_release_id=$1 AND active`,
-      forms: `SELECT count(*)::int count FROM pokemon_form_revisions WHERE content_release_id=$1 AND active`,
-      types: `SELECT count(*)::int count FROM pokemon_type_revisions WHERE content_release_id=$1 AND active`,
-      moves: `SELECT count(*)::int count FROM move_revisions WHERE content_release_id=$1 AND active`,
-      abilities: `SELECT count(*)::int count FROM ability_revisions WHERE content_release_id=$1 AND active`,
-      natures: `SELECT count(*)::int count FROM nature_revisions WHERE content_release_id=$1 AND active`,
-      items: `SELECT count(*)::int count FROM item_revisions WHERE content_release_id=$1 AND active`,
-      learnsets: `SELECT count(*)::int count FROM move_learnset_entries WHERE content_release_id=$1 AND active`,
-      evolutions: `SELECT count(*)::int count FROM evolution_rules WHERE content_release_id=$1`,
-      regions: `SELECT count(*)::int count FROM region_revisions WHERE content_release_id=$1 AND active`,
-      areas: `SELECT count(*)::int count FROM area_revisions WHERE content_release_id=$1 AND active`,
-      connections: `SELECT count(*)::int count FROM area_connection_revisions WHERE content_release_id=$1 AND active`,
-      encounterTables: `SELECT count(*)::int count FROM encounter_table_revisions WHERE content_release_id=$1 AND active`,
-      encounters: `SELECT count(*)::int count FROM encounter_entries entry JOIN encounter_table_revisions revision ON revision.id=entry.encounter_table_revision_id WHERE revision.content_release_id=$1 AND entry.active`,
-      starters: `SELECT count(*)::int count FROM starter_options WHERE content_release_id=$1 AND active`,
+      species:
+        "SELECT count(*)::int count FROM pokemon_species_revisions WHERE content_release_id=$1 AND active",
+      forms:
+        "SELECT count(*)::int count FROM pokemon_form_revisions WHERE content_release_id=$1 AND active",
+      types:
+        "SELECT count(*)::int count FROM pokemon_type_revisions WHERE content_release_id=$1 AND active",
+      moves:
+        "SELECT count(*)::int count FROM move_revisions WHERE content_release_id=$1 AND active",
+      abilities:
+        "SELECT count(*)::int count FROM ability_revisions WHERE content_release_id=$1 AND active",
+      natures:
+        "SELECT count(*)::int count FROM nature_revisions WHERE content_release_id=$1 AND active",
+      items:
+        "SELECT count(*)::int count FROM item_revisions WHERE content_release_id=$1 AND active",
+      learnsets:
+        "SELECT count(*)::int count FROM move_learnset_entries WHERE content_release_id=$1 AND active",
+      evolutions: "SELECT count(*)::int count FROM evolution_rules WHERE content_release_id=$1",
+      regions:
+        "SELECT count(*)::int count FROM region_revisions WHERE content_release_id=$1 AND active",
+      areas: "SELECT count(*)::int count FROM area_revisions WHERE content_release_id=$1 AND active",
+      connections:
+        "SELECT count(*)::int count FROM area_connection_revisions WHERE content_release_id=$1 AND active",
+      encounterTables:
+        "SELECT count(*)::int count FROM encounter_table_revisions WHERE content_release_id=$1 AND active",
+      encounters:
+        "SELECT count(*)::int count FROM encounter_entries entry JOIN encounter_table_revisions revision ON revision.id=entry.encounter_table_revision_id WHERE revision.content_release_id=$1 AND entry.active",
+      starters: "SELECT count(*)::int count FROM starter_options WHERE content_release_id=$1 AND active",
     } as const;
     const counts = Object.fromEntries(
       await Promise.all(
@@ -83,7 +135,7 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
     assertEqual(counts.learnsets ?? -1, model.learnsets.length, "learnsets");
     assertEqual(counts.evolutions ?? -1, model.evolutions.length, "evolutions");
     assertEqual(counts.regions ?? -1, 3, "regions");
-    assertEqual(counts.areas ?? -1, topology.locationSlugs.size, "source-scoped areas");
+    assertEqual(counts.areas ?? -1, activeSlugs.size, "source-scoped active areas");
     assertEqual(counts.connections ?? -1, topology.edges.length, "canonical world connections");
     assertEqual(
       counts.encounterTables ?? -1,
@@ -125,11 +177,14 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
       [releaseId],
     );
     const actualAreaSlugs = new Set(activeAreas.rows.map((row) => row.slug));
-    for (const slug of topology.locationSlugs)
-      if (!actualAreaSlugs.has(slug)) throw new Error(`Missing canonical active area ${slug}`);
+    if (actualAreaSlugs.size !== activeSlugs.size)
+      throw new Error(`Active area set size mismatch: ${actualAreaSlugs.size} vs ${activeSlugs.size}`);
+    for (const slug of activeSlugs)
+      if (!actualAreaSlugs.has(slug)) throw new Error(`Missing source-scoped active area ${slug}`);
     for (const row of activeAreas.rows) {
       const parsed = WorldAreaConfigSchema.safeParse(row.data);
-      if (!parsed.success) throw new Error(`Invalid world area config ${row.slug}: ${parsed.error.message}`);
+      if (!parsed.success)
+        throw new Error(`Invalid world area config ${row.slug}: ${parsed.error.message}`);
     }
 
     const actualEdges = await pool.query<{
@@ -155,7 +210,9 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
       actualEdges.rows.map((edge) => `${edge.from_slug}:${edge.to_slug}:${edge.connection_key}`),
     );
     if (actualEdgeKeys.size !== expectedEdgeKeys.size)
-      throw new Error(`World edge key count mismatch: ${actualEdgeKeys.size} vs ${expectedEdgeKeys.size}`);
+      throw new Error(
+        `World edge key count mismatch: ${actualEdgeKeys.size} vs ${expectedEdgeKeys.size}`,
+      );
     for (const key of expectedEdgeKeys)
       if (!actualEdgeKeys.has(key)) throw new Error(`Missing canonical world edge ${key}`);
     for (const edge of actualEdges.rows) {
@@ -181,10 +238,10 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
       [releaseId],
     );
     for (const row of encounterAreas.rows) {
-      if (!topology.locationSlugs.has(row.slug))
-        throw new Error(`Active encounter area ${row.slug} is outside source-scoped world`);
-      if ((degree.get(row.slug) ?? 0) === 0)
-        throw new Error(`Active encounter area ${row.slug} has no canonical world connection`);
+      if (!activeSlugs.has(row.slug))
+        throw new Error(`Active encounter area ${row.slug} is outside source-scoped active areas`);
+      if (!topology.locationSlugs.has(row.slug) && !encounterOnlySlugs.has(row.slug))
+        throw new Error(`Encounter area ${row.slug} is neither navigable nor an encounter-only bucket`);
     }
 
     const brokenRefs = await pool.query<{ total: number }>(
@@ -241,6 +298,7 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
         "regions-kanto-johto-hoenn",
         "areas-source-scoped-gen1-3",
         "area-connections-pinned-pret-topology-v1",
+        "encounter-only-source-buckets-preserved-without-fake-travel-edges",
         "encounter-tables-gen1-3-aggregate",
         "starters-kanto-johto-hoenn",
         "initial-release-ready-for-publication",
@@ -258,6 +316,8 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
       ok: true,
       releaseId,
       counts,
+      topologyAreaCount: topology.locationSlugs.size,
+      encounterOnlyAreas: [...encounterOnlySlugs].sort(),
       coverage,
       samples,
       source: GEN123_SOURCE,
@@ -267,36 +327,34 @@ export async function validateGen123Final(markValidated = true): Promise<Gen123F
     };
 
     const repository = new PostgresCatalogRepository(pool);
-    const [rulesetSnapshot, catalogSnapshot] = await Promise.all([
-      repository.read((transaction) => transaction.loadRuleset(release.default_ruleset_id)),
-      repository.read((transaction) => transaction.loadCatalogSnapshot(releaseId)),
-    ]);
-    if (rulesetSnapshot === null || catalogSnapshot === null)
-      throw new Error("Unable to load canonical catalog snapshots for fingerprinting");
+    const rulesetSnapshot = await repository.read((transaction) =>
+      transaction.loadRuleset(release.default_ruleset_id),
+    );
+    if (rulesetSnapshot === null)
+      throw new Error("Unable to load canonical ruleset snapshot for fingerprinting");
     const rulesetFingerprint = fingerprintRuleset(rulesetSnapshot);
-    const contentFingerprint = fingerprintCatalog(catalogSnapshot);
 
     if (markValidated && release.status === "DRAFT") {
-      await pool.query("BEGIN");
-      try {
-        const rulesetUpdate = await pool.query(
-          `UPDATE rulesets SET config_fingerprint=$2 WHERE id=$1 AND status='VALIDATED'`,
-          [release.default_ruleset_id, rulesetFingerprint],
-        );
-        if (rulesetUpdate.rowCount !== 1) throw new Error("Ruleset fingerprint update failed");
-        const releaseUpdate = await pool.query(
-          `UPDATE content_releases
-              SET status='VALIDATED', validated_at=now(), validation_report=$2::jsonb,
-                  content_fingerprint=$3
-            WHERE id=$1 AND status='DRAFT'`,
-          [releaseId, JSON.stringify(report), contentFingerprint],
-        );
-        if (releaseUpdate.rowCount !== 1) throw new Error("Final release validation transition failed");
-        await pool.query("COMMIT");
-      } catch (error) {
-        await pool.query("ROLLBACK");
-        throw error;
-      }
+      const rulesetUpdate = await pool.query(
+        "UPDATE rulesets SET config_fingerprint=$2 WHERE id=$1 AND status='VALIDATED'",
+        [release.default_ruleset_id, rulesetFingerprint],
+      );
+      if (rulesetUpdate.rowCount !== 1) throw new Error("Ruleset fingerprint update failed");
+
+      const catalogSnapshot = await repository.read((transaction) =>
+        transaction.loadCatalogSnapshot(releaseId),
+      );
+      if (catalogSnapshot === null)
+        throw new Error("Unable to load canonical catalog snapshot for fingerprinting");
+      const contentFingerprint = fingerprintCatalog(catalogSnapshot);
+      const releaseUpdate = await pool.query(
+        `UPDATE content_releases
+            SET status='VALIDATED', validated_at=now(), validation_report=$2::jsonb,
+                content_fingerprint=$3
+          WHERE id=$1 AND status='DRAFT'`,
+        [releaseId, JSON.stringify(report), contentFingerprint],
+      );
+      if (releaseUpdate.rowCount !== 1) throw new Error("Final release validation transition failed");
     }
 
     return report;
