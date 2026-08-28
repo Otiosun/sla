@@ -6,11 +6,7 @@ import {
   type IncomingMessage,
   type MessageHandlerResult,
 } from "./contracts.js";
-import type {
-  MessagingRepository,
-  MessageRouterPort,
-  OutboundMessageAdapter,
-} from "./ports.js";
+import type { MessagingRepository, MessageRouterPort, OutboundMessageAdapter } from "./ports.js";
 
 export interface ReceiveMessageResult {
   readonly status: "PROCESSED" | "REPLAYED" | "IN_FLIGHT";
