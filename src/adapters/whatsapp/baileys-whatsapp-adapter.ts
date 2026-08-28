@@ -169,7 +169,9 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       void this.auth.saveCredentials().catch((error) => this.onProviderError(error));
     });
     socket.ev.on("messages.upsert", (event) => {
-      void this.handleMessageUpsert(generation, event).catch((error) => this.onProviderError(error));
+      void this.handleMessageUpsert(generation, event).catch((error) =>
+        this.onProviderError(error),
+      );
     });
     socket.ev.on("connection.update", (update) => {
       void this.handleConnectionUpdate(generation, socket, update).catch((error) =>
