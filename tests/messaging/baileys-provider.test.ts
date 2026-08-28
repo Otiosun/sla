@@ -9,6 +9,7 @@ import {
   type BaileysSocketFactory,
 } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { normalizeBaileysMessage } from "../../src/adapters/whatsapp/baileys-normalizer.js";
+import type { BaileysSocketConfigLike } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
 import type {
   IncomingMessage,
   PendingOutboxMessage,
@@ -44,7 +45,7 @@ class FakeBaileysSocket implements BaileysSocketLike {
 
 function authBinding(saveCredentials = vi.fn(async () => {})): BaileysAuthBinding {
   return {
-    state: {} as BaileysAuthBinding["state"],
+    state: {},
     saveCredentials,
   };
 }
@@ -150,7 +151,9 @@ describe("Baileys provider boundary", () => {
     const whatsappRoot = path.join(srcRoot, "adapters", "whatsapp");
     const offenders: string[] = [];
     for (const file of await filesBelow(srcRoot)) {
-      if (!file.endsWith(".ts") || file.startsWith(whatsappRoot)) continue;
+      if ((!file.endsWith(".ts") && !file.endsWith(".js")) || file.startsWith(whatsappRoot)) {
+        continue;
+      }
       const source = await fs.readFile(file, "utf8");
       if (source.includes("@whiskeysockets/baileys")) offenders.push(path.relative(srcRoot, file));
     }
@@ -161,10 +164,10 @@ describe("Baileys provider boundary", () => {
 describe("BaileysWhatsAppAdapter", () => {
   it("uses hardened live-message socket options and ignores history/requestId/fromMe", async () => {
     const socket = new FakeBaileysSocket();
-    let capturedConfig: Parameters<BaileysSocketFactory>[0] | null = null;
+    const configs: BaileysSocketConfigLike[] = [];
     const received: IncomingMessage[] = [];
     const factory: BaileysSocketFactory = (config) => {
-      capturedConfig = config;
+      configs.push(config);
       return socket;
     };
     const adapter = new BaileysWhatsAppAdapter({ auth: authBinding(), socketFactory: factory });
@@ -172,9 +175,9 @@ describe("BaileysWhatsAppAdapter", () => {
       received.push(message);
     });
 
-    expect(capturedConfig?.markOnlineOnConnect).toBe(false);
-    expect(capturedConfig?.syncFullHistory).toBe(false);
-    expect(capturedConfig?.shouldSyncHistoryMessage({} as never)).toBe(false);
+    expect(configs[0]?.markOnlineOnConnect).toBe(false);
+    expect(configs[0]?.syncFullHistory).toBe(false);
+    expect(configs[0]?.shouldSyncHistoryMessage()).toBe(false);
 
     socket.emit("messages.upsert", {
       type: "append",
