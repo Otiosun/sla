@@ -275,7 +275,10 @@ async function main(): Promise<void> {
       );
     }
     const staleReply = await outgoingText(pool, staleOldText.externalMessageId);
-    if (!staleReply.toLocaleLowerCase("pt-BR").includes("expir")) {
+    if (
+      !staleReply.includes("Esse estado mudou antes da sua ação") ||
+      !staleReply.includes("Atualize e tente novamente")
+    ) {
       throw new Error(`Stale action did not explain recovery: ${staleReply}`);
     }
     const finalState = await pool.query<{ area_id: string; revision: string; receipts: string }>(
