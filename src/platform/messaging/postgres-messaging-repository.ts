@@ -310,7 +310,8 @@ export class PostgresMessagingRepository implements MessagingRepository {
       for (const resolved of resolvedRules) {
         const current = bucketStates.get(resolved.bucketKey) ?? null;
         const expired =
-          current !== null && now.getTime() - current.window_started_at.getTime() >= resolved.rule.windowMs;
+          current !== null &&
+          now.getTime() - current.window_started_at.getTime() >= resolved.rule.windowMs;
         const windowStartedAt = current === null || expired ? now : current.window_started_at;
         if (current === null) {
           await client.query(
