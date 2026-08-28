@@ -74,3 +74,6 @@ jobs:
 
       - name: Run PostgreSQL messaging duplicate/restart/retry E2E
         run: node --import tsx db/proofs/phase13_messaging_foundation_e2e.ts
+
+      - name: Run PostgreSQL messaging rate-limit/error/media E2E
+        run: node --import tsx db/proofs/phase13_messaging_hardening_e2e.ts
