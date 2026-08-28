@@ -55,9 +55,13 @@ try {
   const economyRole = await pool.query<{ id: string }>(
     `SELECT id FROM admin_roles WHERE slug = 'ECONOMY_ADMIN'`,
   );
+  const ownerRole = await pool.query<{ id: string }>(
+    `SELECT id FROM admin_roles WHERE slug = 'OWNER_SECURITY_ADMIN'`,
+  );
   const seniorRoleId = seniorRole.rows[0]?.id;
   const economyRoleId = economyRole.rows[0]?.id;
-  if (seniorRoleId === undefined || economyRoleId === undefined) {
+  const ownerRoleId = ownerRole.rows[0]?.id;
+  if (seniorRoleId === undefined || economyRoleId === undefined || ownerRoleId === undefined) {
     throw new Error("Compensation proof requires seeded admin roles");
   }
 
@@ -68,6 +72,7 @@ try {
   const unsafeCurrencyId = randomUUID();
   const seniorId = randomUUID();
   const economyOnlyId = randomUUID();
+  const auditorId = randomUUID();
 
   await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
     playerId,
@@ -99,22 +104,27 @@ try {
   );
   await pool.query(
     `INSERT INTO admin_principals(id, identity_ref, status)
-     VALUES ($1, $2, 'ACTIVE'), ($3, $4, 'ACTIVE')`,
+     VALUES ($1, $2, 'ACTIVE'), ($3, $4, 'ACTIVE'), ($5, $6, 'ACTIVE')`,
     [
       seniorId,
       `phase12:comp:senior:${seniorId}`,
       economyOnlyId,
       `phase12:comp:economy:${economyOnlyId}`,
+      auditorId,
+      `phase12:comp:auditor:${auditorId}`,
     ],
   );
   await pool.query(
-    `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2), ($3, $4)`,
-    [seniorId, seniorRoleId, economyOnlyId, economyRoleId],
+    `INSERT INTO admin_principal_roles(principal_id, role_id)
+     VALUES ($1, $2), ($3, $4), ($5, $6)`,
+    [seniorId, seniorRoleId, economyOnlyId, economyRoleId, auditorId, ownerRoleId],
   );
   await pool.query(
     `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
-     VALUES ($1, $2, 'PLAYER', $3), ($4, $5, 'PLAYER', $3)`,
-    [randomUUID(), seniorId, playerId, randomUUID(), economyOnlyId],
+     VALUES ($1, $2, 'PLAYER', $3),
+            ($4, $5, 'PLAYER', $3),
+            ($6, $7, 'GLOBAL', NULL)`,
+    [randomUUID(), seniorId, playerId, randomUUID(), economyOnlyId, randomUUID(), auditorId],
   );
 
   const adminRepository = new PostgresAdminRepository(pool);
@@ -241,8 +251,8 @@ try {
     throw new Error("Wallet compensation did not preserve exactly-once ledger/link evidence");
   }
 
-  const sourceTrail = await audit.inspect({ principalId: seniorId, operationId: walletSource.id });
-  const compTrail = await audit.inspect({ principalId: seniorId, operationId: walletComp.id });
+  const sourceTrail = await audit.inspect({ principalId: auditorId, operationId: walletSource.id });
+  const compTrail = await audit.inspect({ principalId: auditorId, operationId: walletComp.id });
   if (
     sourceTrail.ownerEvidence.filter((entry) => entry.source === "ADMIN_COMPENSATION").length !==
       1 ||
