@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { fingerprintRuleset } from "../../../src/modules/catalog/fingerprint.js";
 import { gen123Id, titleize } from "./ids.js";
 import { type Gen123Model, loadGen123Model } from "./model.js";
 import {
@@ -30,10 +30,6 @@ interface IdentityMaps {
   readonly region: ReadonlyMap<number, string>;
   readonly area: ReadonlyMap<number, string>;
   readonly encounterTable: ReadonlyMap<number, string>;
-}
-
-function fingerprint(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function chunks<T>(values: readonly T[], size = 300): readonly T[][] {
@@ -150,16 +146,26 @@ async function ensureRuleset(client: PoolClient, model: Gen123Model): Promise<st
     ),
   );
   const matchups: (readonly unknown[])[] = [];
+  const rulesetTypeMatchups: {
+    attackingTypeId: string;
+    defendingTypeId: string;
+    multiplierBasisPoints: number;
+  }[] = [];
   for (const attacking of typeRows) {
     for (const defending of typeRows) {
       const attackSource = requiredInt(attacking, "id");
       const defendSource = requiredInt(defending, "id");
-      matchups.push([
-        id,
-        typeMap.get(attackSource),
-        typeMap.get(defendSource),
-        (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100,
-      ]);
+      const attackingTypeId = typeMap.get(attackSource);
+      const defendingTypeId = typeMap.get(defendSource);
+      if (attackingTypeId === undefined || defendingTypeId === undefined)
+        throw new Error(`Ruleset type identity missing for ${attackSource}:${defendSource}`);
+      const multiplierBasisPoints = (efficacy.get(`${attackSource}:${defendSource}`) ?? 100) * 100;
+      matchups.push([id, attackingTypeId, defendingTypeId, multiplierBasisPoints]);
+      rulesetTypeMatchups.push({
+        attackingTypeId,
+        defendingTypeId,
+        multiplierBasisPoints,
+      });
     }
   }
   await insertRows(
@@ -182,7 +188,16 @@ async function ensureRuleset(client: PoolClient, model: Gen123Model): Promise<st
      SET status = 'VALIDATED', validated_at = now(), validation_report = $2::jsonb,
          config_fingerprint = $3
      WHERE id = $1 AND status = 'DRAFT'`,
-    [id, JSON.stringify(report), fingerprint(baseRow.config)],
+    [
+      id,
+      JSON.stringify(report),
+      fingerprintRuleset({
+        id,
+        status: "DRAFT",
+        config: baseRow.config,
+        typeMatchups: rulesetTypeMatchups,
+      }),
+    ],
   );
   return id;
 }
