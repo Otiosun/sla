@@ -1,10 +1,10 @@
 import {
+  type CsvRow,
   GEN123_SOURCE,
-  Gen123Source,
+  type Gen123Source,
   optionalInt,
   requiredInt,
   requiredText,
-  type CsvRow,
 } from "./source.js";
 
 export interface Gen123Species {
@@ -116,10 +116,15 @@ function groupByInt(rows: readonly CsvRow[], field: string): Map<number, CsvRow[
   return result;
 }
 
-function statTuple(rows: readonly CsvRow[]): readonly [number, number, number, number, number, number] {
-  const map = new Map(rows.map((row) => [requiredInt(row, "stat_id"), requiredInt(row, "base_stat")]));
+function statTuple(
+  rows: readonly CsvRow[],
+): readonly [number, number, number, number, number, number] {
+  const map = new Map(
+    rows.map((row) => [requiredInt(row, "stat_id"), requiredInt(row, "base_stat")]),
+  );
   const values = [1, 2, 3, 4, 5, 6].map((id) => map.get(id));
-  if (values.some((value) => value === undefined)) throw new Error("Pokemon is missing one of six base stats");
+  if (values.some((value) => value === undefined))
+    throw new Error("Pokemon is missing one of six base stats");
   return values as [number, number, number, number, number, number];
 }
 
@@ -241,14 +246,16 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
       const pokemonId = requiredInt(pokemon, "id");
       const form = pokemonFormRows.find(
         (candidate) =>
-          requiredInt(candidate, "pokemon_id") === pokemonId && requiredInt(candidate, "is_default") === 1,
+          requiredInt(candidate, "pokemon_id") === pokemonId &&
+          requiredInt(candidate, "is_default") === 1,
       );
       if (form === undefined) throw new Error(`Species ${speciesId} has no default form`);
       const typeIds = (pokemonTypesByPokemon.get(pokemonId) ?? [])
         .sort((a, b) => requiredInt(a, "slot") - requiredInt(b, "slot"))
         .map((candidate) => requiredInt(candidate, "type_id"))
         .filter((typeId) => allowedTypeIds.has(typeId));
-      if (typeIds.length < 1 || typeIds.length > 2) throw new Error(`Species ${speciesId} has invalid Gen I-III type set`);
+      if (typeIds.length < 1 || typeIds.length > 2)
+        throw new Error(`Species ${speciesId} has invalid Gen I-III type set`);
       const abilitySlots = (pokemonAbilitiesByPokemon.get(pokemonId) ?? [])
         .filter((candidate) => allowedAbilityIds.has(requiredInt(candidate, "ability_id")))
         .map((candidate) => ({
@@ -276,49 +283,73 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
 
   const moves = moveRowsAll
     .filter((row) => requiredInt(row, "generation_id") <= GEN123_SOURCE.maxGeneration)
-    .map((row): Gen123Move => ({
-      sourceId: requiredInt(row, "id"),
-      slug: requiredText(row, "identifier"),
-      typeId: requiredInt(row, "type_id"),
-      damageClassId: requiredInt(row, "damage_class_id"),
-      power: optionalInt(row, "power"),
-      accuracy: optionalInt(row, "accuracy"),
-      priority: requiredInt(row, "priority"),
-      pp: requiredInt(row, "pp"),
-      effectId: requiredInt(row, "effect_id"),
-      effectChance: optionalInt(row, "effect_chance"),
-    }))
+    .map(
+      (row): Gen123Move => ({
+        sourceId: requiredInt(row, "id"),
+        slug: requiredText(row, "identifier"),
+        typeId: requiredInt(row, "type_id"),
+        damageClassId: requiredInt(row, "damage_class_id"),
+        power: optionalInt(row, "power"),
+        accuracy: optionalInt(row, "accuracy"),
+        priority: requiredInt(row, "priority"),
+        pp: requiredInt(row, "pp"),
+        effectId: requiredInt(row, "effect_id"),
+        effectChance: optionalInt(row, "effect_chance"),
+      }),
+    )
     .filter((move) => allowedTypeIds.has(move.typeId));
   const allowedMoveIds = new Set(moves.map((move) => move.sourceId));
-  const pokemonIdToSpeciesId = new Map(species.map((entry) => [entry.sourcePokemonId, entry.sourceSpeciesId] as const));
+  const pokemonIdToSpeciesId = new Map(
+    species.map((entry) => [entry.sourcePokemonId, entry.sourceSpeciesId] as const),
+  );
 
-  const learnsetGroups = new Map<string, { speciesId: number; moveId: number; methodId: number; level: number; versions: Set<number> }>();
+  const learnsetGroups = new Map<
+    string,
+    { speciesId: number; moveId: number; methodId: number; level: number; versions: Set<number> }
+  >();
   for (const row of pokemonMoveRows) {
     const speciesId = pokemonIdToSpeciesId.get(requiredInt(row, "pokemon_id"));
     const moveId = requiredInt(row, "move_id");
     const versionGroupId = requiredInt(row, "version_group_id");
-    if (speciesId === undefined || !allowedMoveIds.has(moveId) || versionGroupId > GEN123_SOURCE.maxVersionGroupId) continue;
+    if (
+      speciesId === undefined ||
+      !allowedMoveIds.has(moveId) ||
+      versionGroupId > GEN123_SOURCE.maxVersionGroupId
+    )
+      continue;
     const methodId = requiredInt(row, "pokemon_move_method_id");
     const level = requiredInt(row, "level");
     const key = `${speciesId}:${moveId}:${methodId}:${level}`;
-    const current = learnsetGroups.get(key) ?? { speciesId, moveId, methodId, level, versions: new Set<number>() };
+    const current = learnsetGroups.get(key) ?? {
+      speciesId,
+      moveId,
+      methodId,
+      level,
+      versions: new Set<number>(),
+    };
     current.versions.add(versionGroupId);
     learnsetGroups.set(key, current);
   }
-  const learnsets = [...learnsetGroups.values()].map((entry): Gen123LearnsetEntry => ({
-    speciesId: entry.speciesId,
-    moveId: entry.moveId,
-    methodId: entry.methodId,
-    level: entry.level,
-    versionGroupIds: [...entry.versions].sort((a, b) => a - b),
-  }));
+  const learnsets = [...learnsetGroups.values()].map(
+    (entry): Gen123LearnsetEntry => ({
+      speciesId: entry.speciesId,
+      moveId: entry.moveId,
+      methodId: entry.methodId,
+      level: entry.level,
+      versionGroupIds: [...entry.versions].sort((a, b) => a - b),
+    }),
+  );
 
   const speciesRowsById = byInt(pokemonSpeciesRows);
   const evolutions: Gen123Evolution[] = [];
   for (const row of evolutionRows) {
     const toSpeciesId = requiredInt(row, "evolved_species_id");
     const versionGroupId = optionalInt(row, "version_group_id");
-    if (toSpeciesId > 386 || (versionGroupId !== null && versionGroupId > GEN123_SOURCE.maxVersionGroupId)) continue;
+    if (
+      toSpeciesId > 386 ||
+      (versionGroupId !== null && versionGroupId > GEN123_SOURCE.maxVersionGroupId)
+    )
+      continue;
     const toSpecies = speciesRowsById.get(toSpeciesId);
     if (toSpecies === undefined) continue;
     const fromSpeciesId = optionalInt(toSpecies, "evolves_from_species_id");
@@ -335,9 +366,11 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
 
   const requiredItemIds = new Set<number>();
   for (const row of itemRows) {
-    if (ESSENTIAL_ITEM_SLUGS.has(requiredText(row, "identifier"))) requiredItemIds.add(requiredInt(row, "id"));
+    if (ESSENTIAL_ITEM_SLUGS.has(requiredText(row, "identifier")))
+      requiredItemIds.add(requiredInt(row, "id"));
   }
-  for (const evolution of evolutions) if (evolution.itemId !== null) requiredItemIds.add(evolution.itemId);
+  for (const evolution of evolutions)
+    if (evolution.itemId !== null) requiredItemIds.add(evolution.itemId);
 
   const regionRows = regionRowsAll.filter((row) => requiredInt(row, "id") <= 3);
   const locationRows = locationRowsAll.filter((row) => {
@@ -358,7 +391,12 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
     const versionId = requiredInt(row, "version_id");
     const locationId = locationAreaToLocation.get(requiredInt(row, "location_area_id"));
     const speciesId = pokemonIdToSpeciesId.get(requiredInt(row, "pokemon_id"));
-    if (versionId > GEN123_SOURCE.maxVersionId || locationId === undefined || speciesId === undefined) continue;
+    if (
+      versionId > GEN123_SOURCE.maxVersionId ||
+      locationId === undefined ||
+      speciesId === undefined
+    )
+      continue;
     const minLevel = requiredInt(row, "min_level");
     const maxLevel = requiredInt(row, "max_level");
     const weight = slotRarity.get(requiredInt(row, "encounter_slot_id")) ?? 0;

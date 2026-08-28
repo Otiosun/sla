@@ -131,11 +131,14 @@ export function optionalInt(row: CsvRow, field: string): number | null {
 
 export function requiredText(row: CsvRow, field: string): string {
   const value = row[field];
-  if (value === undefined || value.trim().length === 0) throw new Error(`Missing text field ${field}`);
+  if (value === undefined || value.trim().length === 0)
+    throw new Error(`Missing text field ${field}`);
   return value.trim();
 }
 
-export function sourceMetadata(extra: Readonly<Record<string, unknown>> = {}): Readonly<Record<string, unknown>> {
+export function sourceMetadata(
+  extra: Readonly<Record<string, unknown>> = {},
+): Readonly<Record<string, unknown>> {
   return {
     sourceProvider: GEN123_SOURCE.provider,
     sourceCommit: GEN123_SOURCE.commit,
