@@ -10,6 +10,7 @@ export const ERROR_CODES = {
   ACTION_INVALID: "ACTION_INVALID",
   NOT_FOUND: "NOT_FOUND",
   FINGERPRINT_MISMATCH: "FINGERPRINT_MISMATCH",
+  RATE_LIMITED: "RATE_LIMITED",
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

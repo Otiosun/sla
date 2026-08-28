@@ -1,12 +1,21 @@
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
 import {
   IncomingMessageSchema,
   incomingMessageIdempotencyKey,
+  MediaProcessingRequestSchema,
   OutgoingMessageDraftSchema,
   type IncomingMessage,
+  type MessageHandlerContext,
   type MessageHandlerResult,
+  type MessagingRateLimitRule,
 } from "./contracts.js";
-import type { MessagingRepository, MessageRouterPort, OutboundMessageAdapter } from "./ports.js";
+import { presentMessagingError } from "./errors.js";
+import type {
+  MediaProcessorAdapter,
+  MessagingRepository,
+  MessageRouterPort,
+  OutboundMessageAdapter,
+} from "./ports.js";
 
 export interface ReceiveMessageResult {
   readonly status: "PROCESSED" | "REPLAYED" | "IN_FLIGHT";
@@ -16,12 +25,133 @@ export interface ReceiveMessageResult {
   readonly resultRefId: string | null;
 }
 
+export interface MessagingRateLimitPolicy {
+  readonly policyKey: string;
+  readonly maxEvents: number;
+  readonly windowMs: number;
+}
+
+export interface MessagingRateLimitPolicySet {
+  readonly player: MessagingRateLimitPolicy;
+  readonly chat: MessagingRateLimitPolicy;
+  readonly sensitiveAction: MessagingRateLimitPolicy;
+}
+
+export const DEFAULT_MESSAGING_RATE_LIMIT_POLICY: MessagingRateLimitPolicySet = {
+  player: { policyKey: "messaging.player.v1", maxEvents: 20, windowMs: 10_000 },
+  chat: { policyKey: "messaging.chat.v1", maxEvents: 100, windowMs: 10_000 },
+  sensitiveAction: {
+    policyKey: "messaging.sensitive-action.v1",
+    maxEvents: 5,
+    windowMs: 10_000,
+  },
+};
+
+function rateLimitRules(
+  sensitiveActionKey: string | null,
+  policy: MessagingRateLimitPolicySet,
+): readonly MessagingRateLimitRule[] {
+  const rules: MessagingRateLimitRule[] = [
+    {
+      scope: "PLAYER",
+      policyKey: policy.player.policyKey,
+      maxEvents: policy.player.maxEvents,
+      windowMs: policy.player.windowMs,
+      actionKey: null,
+    },
+    {
+      scope: "CHAT",
+      policyKey: policy.chat.policyKey,
+      maxEvents: policy.chat.maxEvents,
+      windowMs: policy.chat.windowMs,
+      actionKey: null,
+    },
+  ];
+  if (sensitiveActionKey !== null) {
+    rules.push({
+      scope: "ACTION",
+      policyKey: policy.sensitiveAction.policyKey,
+      maxEvents: policy.sensitiveAction.maxEvents,
+      windowMs: policy.sensitiveAction.windowMs,
+      actionKey: sensitiveActionKey,
+    });
+  }
+  return rules;
+}
+
+function validateHandlerResult(
+  context: MessageHandlerContext,
+  result: MessageHandlerResult,
+): Result<MessageHandlerResult> {
+  for (const outgoing of result.outgoing) {
+    const output = OutgoingMessageDraftSchema.safeParse(outgoing);
+    if (!output.success) {
+      return err(
+        appError("VALIDATION_FAILED", "Handler produced an invalid outgoing message", {
+          correlationId: context.correlationId,
+        }),
+      );
+    }
+  }
+  for (const mediaRequest of result.mediaProcessing ?? []) {
+    const request = MediaProcessingRequestSchema.safeParse(mediaRequest);
+    if (!request.success) {
+      return err(
+        appError("VALIDATION_FAILED", "Handler produced an invalid media processing request", {
+          correlationId: context.correlationId,
+        }),
+      );
+    }
+    if (
+      !context.message.mediaRefs.some(
+        (reference) => reference.providerMediaId === request.data.providerMediaId,
+      )
+    ) {
+      return err(
+        appError("VALIDATION_FAILED", "Handler requested media that is not present in the message", {
+          correlationId: context.correlationId,
+        }),
+      );
+    }
+  }
+  return ok(result);
+}
+
 export class MessagingService {
   constructor(
     private readonly repository: MessagingRepository,
     private readonly router: MessageRouterPort,
     private readonly inboxLeaseMs = 30_000,
+    private readonly rateLimitPolicy: MessagingRateLimitPolicySet =
+      DEFAULT_MESSAGING_RATE_LIMIT_POLICY,
   ) {}
+
+  private async complete(
+    context: MessageHandlerContext,
+    result: MessageHandlerResult,
+  ): Promise<Result<ReceiveMessageResult>> {
+    const validated = validateHandlerResult(context, result);
+    if (!validated.ok) {
+      await this.repository.failIncoming(context.inboxMessageId, "INVALID_HANDLER_RESULT");
+      return validated;
+    }
+    const completed = await this.repository.completeIncoming(context.inboxMessageId, validated.value);
+    if (!completed.ok) return completed;
+    return ok({
+      status: "PROCESSED",
+      inboxMessageId: context.inboxMessageId,
+      correlationId: context.correlationId,
+      resultRefType: validated.value.resultRefType,
+      resultRefId: validated.value.resultRefId,
+    });
+  }
+
+  private async completeFriendlyError(
+    context: MessageHandlerContext,
+    error: AppError,
+  ): Promise<Result<ReceiveMessageResult>> {
+    return this.complete(context, presentMessagingError(context, error));
+  }
 
   async receive(input: unknown): Promise<Result<ReceiveMessageResult>> {
     const parsed = IncomingMessageSchema.safeParse(input);
@@ -63,6 +193,26 @@ export class MessagingService {
       message: claim.value.message,
     } as const;
 
+    const routing = this.router.classify(context.message);
+    const admission = await this.repository.consumeRateLimits({
+      inboxMessageId: context.inboxMessageId,
+      message: context.message,
+      rules: rateLimitRules(routing.sensitiveActionKey, this.rateLimitPolicy),
+    });
+    if (!admission.ok) {
+      await this.repository.failIncoming(context.inboxMessageId, admission.error.code);
+      return admission;
+    }
+    if (!admission.value.allowed) {
+      return this.completeFriendlyError(
+        context,
+        appError("RATE_LIMITED", "Messaging rate limit exceeded", {
+          scope: admission.value.limitedScope,
+          retryAfterMs: admission.value.retryAfterMs,
+        }),
+      );
+    }
+
     let routed: Awaited<ReturnType<MessageRouterPort["dispatch"]>>;
     try {
       routed = await this.router.dispatch(context);
@@ -75,8 +225,7 @@ export class MessagingService {
       );
     }
     if (!routed.ok) {
-      await this.repository.failIncoming(claim.value.inboxMessageId, routed.error.code);
-      return routed;
+      return this.completeFriendlyError(context, routed.error);
     }
 
     const handlerResult: MessageHandlerResult = routed.value ?? {
@@ -84,31 +233,7 @@ export class MessagingService {
       resultRefId: null,
       outgoing: [],
     };
-    for (const outgoing of handlerResult.outgoing) {
-      const output = OutgoingMessageDraftSchema.safeParse(outgoing);
-      if (!output.success) {
-        await this.repository.failIncoming(claim.value.inboxMessageId, "INVALID_OUTBOX_DRAFT");
-        return err(
-          appError("VALIDATION_FAILED", "Handler produced an invalid outgoing message", {
-            correlationId: claim.value.correlationId,
-          }),
-        );
-      }
-    }
-
-    const completed = await this.repository.completeIncoming(
-      claim.value.inboxMessageId,
-      handlerResult,
-    );
-    if (!completed.ok) return completed;
-
-    return ok({
-      status: "PROCESSED",
-      inboxMessageId: claim.value.inboxMessageId,
-      correlationId: claim.value.correlationId,
-      resultRefType: handlerResult.resultRefType,
-      resultRefId: handlerResult.resultRefId,
-    });
+    return this.complete(context, handlerResult);
   }
 }
 
@@ -124,6 +249,21 @@ export interface OutboxWorkerRunResult {
   readonly claimed: number;
   readonly sent: number;
   readonly failed: number;
+}
+
+function retryAtForAttempt(input: {
+  readonly attempts: number;
+  readonly maxAttempts: number;
+  readonly baseBackoffMs: number;
+  readonly maxBackoffMs: number;
+}): Date | null {
+  if (input.attempts >= input.maxAttempts) return null;
+  const exponent = Math.max(0, input.attempts - 1);
+  const delay = Math.min(
+    input.maxBackoffMs,
+    input.baseBackoffMs * 2 ** Math.min(exponent, 20),
+  );
+  return new Date(Date.now() + delay);
 }
 
 export class OutboxWorker {
@@ -163,17 +303,15 @@ export class OutboxWorker {
         await this.repository.markOutboxSent(message.id);
         sent += 1;
       } catch {
-        const exponent = Math.max(0, message.attempts - 1);
-        const delay = Math.min(
-          this.options.maxBackoffMs,
-          this.options.baseBackoffMs * 2 ** Math.min(exponent, 20),
-        );
-        const retryAt =
-          message.attempts >= this.options.maxAttempts ? null : new Date(Date.now() + delay);
         await this.repository.markOutboxFailed({
           outboxMessageId: message.id,
           errorCode: "OUTBOX_DELIVERY_FAILED",
-          retryAt,
+          retryAt: retryAtForAttempt({
+            attempts: message.attempts,
+            maxAttempts: this.options.maxAttempts,
+            baseBackoffMs: this.options.baseBackoffMs,
+            maxBackoffMs: this.options.maxBackoffMs,
+          }),
           maxAttempts: this.options.maxAttempts,
         });
         failed += 1;
@@ -181,5 +319,69 @@ export class OutboxWorker {
     }
 
     return { claimed: messages.length, sent, failed };
+  }
+}
+
+export interface MediaWorkerOptions extends OutboxWorkerOptions {}
+
+export interface MediaWorkerRunResult {
+  readonly claimed: number;
+  readonly processed: number;
+  readonly failed: number;
+}
+
+export class MediaWorker {
+  private readonly processors: ReadonlyMap<string, MediaProcessorAdapter>;
+
+  constructor(
+    private readonly repository: MessagingRepository,
+    processors: readonly MediaProcessorAdapter[],
+    private readonly options: MediaWorkerOptions,
+  ) {
+    this.processors = new Map(processors.map((processor) => [processor.processorKey, processor]));
+  }
+
+  async runOnce(): Promise<MediaWorkerRunResult> {
+    const jobs = await this.repository.claimMediaJobs({
+      limit: this.options.batchSize,
+      staleAfterMs: this.options.staleAfterMs,
+      maxAttempts: this.options.maxAttempts,
+    });
+    let processed = 0;
+    let failed = 0;
+
+    for (const job of jobs) {
+      const processor = this.processors.get(job.processorKey);
+      if (processor === undefined) {
+        await this.repository.markMediaJobFailed({
+          mediaJobId: job.id,
+          errorCode: "MEDIA_PROCESSOR_UNAVAILABLE",
+          retryAt: null,
+          maxAttempts: 1,
+        });
+        failed += 1;
+        continue;
+      }
+      try {
+        await processor.process(job);
+        await this.repository.markMediaJobProcessed(job.id);
+        processed += 1;
+      } catch {
+        await this.repository.markMediaJobFailed({
+          mediaJobId: job.id,
+          errorCode: "MEDIA_PROCESSING_FAILED",
+          retryAt: retryAtForAttempt({
+            attempts: job.attempts,
+            maxAttempts: this.options.maxAttempts,
+            baseBackoffMs: this.options.baseBackoffMs,
+            maxBackoffMs: this.options.maxBackoffMs,
+          }),
+          maxAttempts: this.options.maxAttempts,
+        });
+        failed += 1;
+      }
+    }
+
+    return { claimed: jobs.length, processed, failed };
   }
 }
