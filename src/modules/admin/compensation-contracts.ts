@@ -14,8 +14,7 @@ export const COMPENSATABLE_ADMIN_OPERATION_TYPES = [
   "progression.trainer.adjust",
 ] as const;
 
-export type CompensatableAdminOperationType =
-  (typeof COMPENSATABLE_ADMIN_OPERATION_TYPES)[number];
+export type CompensatableAdminOperationType = (typeof COMPENSATABLE_ADMIN_OPERATION_TYPES)[number];
 
 export function isCompensatableAdminOperationType(
   value: string,
