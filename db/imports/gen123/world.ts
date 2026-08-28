@@ -1,12 +1,16 @@
 import { Pool, type PoolClient } from "pg";
-import type { ConnectionAccessRule, WorldAreaConfig } from "../../../src/modules/catalog/world-contracts.js";
+import type {
+  ConnectionAccessRule,
+  WorldAreaConfig,
+} from "../../../src/modules/catalog/world-contracts.js";
 import { gen123Id } from "./ids.js";
 import { loadGen123Model } from "./model.js";
-import { Gen123Source } from "./source.js";
-import { GEN123_WORLD_SOURCES, loadGen123WorldTopology } from "./world-source.js";
+import { Gen123Source, requiredInt, requiredText } from "./source.js";
+import { loadGen123WorldTopology } from "./world-source.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
-if (DATABASE_URL === undefined) throw new Error("DATABASE_URL is required for Gen I-III world import");
+if (DATABASE_URL === undefined)
+  throw new Error("DATABASE_URL is required for Gen I-III world import");
 
 const OPEN_ACCESS: ConnectionAccessRule = { schemaVersion: 1, requiredUnlockKeys: [] };
 const STARTING_AREAS = new Set(["pallet-town", "new-bark-town", "littleroot-town"]);
@@ -39,10 +43,30 @@ async function releaseStatus(client: PoolClient, releaseId: string): Promise<str
   return status;
 }
 
+function sourceScopedAreas(
+  locationRows: readonly Readonly<Record<string, string>>[],
+  encounterLocationIds: ReadonlySet<number>,
+  topologyLocations: ReadonlySet<string>,
+): {
+  readonly activeSlugs: ReadonlySet<string>;
+  readonly encounterOnlySlugs: ReadonlySet<string>;
+} {
+  const encounterSlugs = new Set<string>();
+  for (const row of locationRows) {
+    const locationId = requiredInt(row, "id");
+    if (encounterLocationIds.has(locationId)) encounterSlugs.add(requiredText(row, "identifier"));
+  }
+  const activeSlugs = new Set([...topologyLocations, ...encounterSlugs]);
+  const encounterOnlySlugs = new Set(
+    [...encounterSlugs].filter((slug) => !topologyLocations.has(slug)),
+  );
+  return { activeSlugs, encounterOnlySlugs };
+}
+
 async function verifyWorld(
   client: PoolClient,
   releaseId: string,
-  expectedLocations: ReadonlySet<string>,
+  expectedActiveLocations: ReadonlySet<string>,
   expectedConnections: number,
 ): Promise<void> {
   const activeAreas = await client.query<{ slug: string }>(
@@ -57,10 +81,12 @@ async function verifyWorld(
     [releaseId],
   );
   const actual = new Set(activeAreas.rows.map((row) => row.slug));
-  if (actual.size !== expectedLocations.size)
-    throw new Error(`World active area count mismatch: expected ${expectedLocations.size}, got ${actual.size}`);
-  for (const slug of expectedLocations)
-    if (!actual.has(slug)) throw new Error(`Canonical world area ${slug} is not active`);
+  if (actual.size !== expectedActiveLocations.size)
+    throw new Error(
+      `World active area count mismatch: expected ${expectedActiveLocations.size}, got ${actual.size}`,
+    );
+  for (const slug of expectedActiveLocations)
+    if (!actual.has(slug)) throw new Error(`Canonical source-scoped area ${slug} is not active`);
 
   const connections = await client.query<{ count: number }>(
     `SELECT count(*)::int AS count
@@ -78,6 +104,8 @@ export async function applyGen123World(): Promise<{
   readonly releaseId: string;
   readonly status: string;
   readonly activeAreas: number;
+  readonly topologyAreas: number;
+  readonly encounterOnlyAreas: readonly string[];
   readonly connections: number;
   readonly sourceLocationCounts: Readonly<Record<string, number>>;
   readonly sourceEdgeCounts: Readonly<Record<string, number>>;
@@ -85,6 +113,12 @@ export async function applyGen123World(): Promise<{
   const source = Gen123Source.fromEnvironment();
   const model = await loadGen123Model(source);
   const topology = await loadGen123WorldTopology(model.locationRows);
+  const encounterLocationIds = new Set(model.encounters.map((entry) => entry.locationId));
+  const { activeSlugs, encounterOnlySlugs } = sourceScopedAreas(
+    model.locationRows,
+    encounterLocationIds,
+    topology.locationSlugs,
+  );
   const releaseId = gen123Id("release:gen123-production-candidate-v1");
   const pool = new Pool({ connectionString: DATABASE_URL, max: 4 });
   const client = await pool.connect();
@@ -95,34 +129,19 @@ export async function applyGen123World(): Promise<{
       throw new Error(`Unexpected candidate status for world topology: ${status}`);
 
     if (status !== "DRAFT") {
-      await verifyWorld(client, releaseId, topology.locationSlugs, topology.edges.length);
+      await verifyWorld(client, releaseId, activeSlugs, topology.edges.length);
       await client.query("COMMIT");
       return {
         releaseId,
         status,
-        activeAreas: topology.locationSlugs.size,
+        activeAreas: activeSlugs.size,
+        topologyAreas: topology.locationSlugs.size,
+        encounterOnlyAreas: [...encounterOnlySlugs].sort(),
         connections: topology.edges.length,
         sourceLocationCounts: topology.sourceLocationCounts,
         sourceEdgeCounts: topology.sourceEdgeCounts,
       };
     }
-
-    const encounterOutsideScope = await client.query<{ slug: string }>(
-      `SELECT DISTINCT area.slug
-         FROM encounter_table_revisions table_revision
-         JOIN encounter_tables table_identity ON table_identity.id=table_revision.encounter_table_id
-         JOIN areas area ON area.id=table_identity.area_id
-        WHERE table_revision.content_release_id=$1
-          AND table_revision.active
-          AND NOT (area.slug = ANY($2::text[]))`,
-      [releaseId, [...topology.locationSlugs]],
-    );
-    if (encounterOutsideScope.rows.length > 0)
-      throw new Error(
-        `Pinned Gen I-III encounters reference locations absent from the canonical world sources: ${encounterOutsideScope.rows
-          .map((row) => row.slug)
-          .join(", ")}`,
-      );
 
     const revisions = await client.query<{ id: string; slug: string }>(
       `SELECT revision.id, area.slug
@@ -134,26 +153,13 @@ export async function applyGen123World(): Promise<{
       [releaseId],
     );
     for (const row of revisions.rows) {
-      const active = topology.locationSlugs.has(row.slug);
+      const active = activeSlugs.has(row.slug);
       await client.query(
         `UPDATE area_revisions
             SET active=$2,
                 data=$3::jsonb
           WHERE id=$1`,
-        [
-          row.id,
-          active,
-          JSON.stringify({
-            ...areaConfig(row.slug),
-            topology: active
-              ? {
-                  version: 1,
-                  sourcePolicy: "FRLG_KANTO_WITH_CRYSTAL_SUPPLEMENT__CRYSTAL_JOHTO__EMERALD_HOENN",
-                  sources: GEN123_WORLD_SOURCES,
-                }
-              : undefined,
-          }),
-        ],
+        [row.id, active, JSON.stringify(areaConfig(row.slug))],
       );
     }
 
@@ -169,7 +175,10 @@ export async function applyGen123World(): Promise<{
       idBySlug.set(row.slug, row.id);
     }
 
-    await client.query("DELETE FROM area_connection_revisions WHERE content_release_id=$1", [releaseId]);
+    await client.query(
+      "DELETE FROM area_connection_revisions WHERE content_release_id=$1",
+      [releaseId],
+    );
     for (const edge of topology.edges) {
       const fromAreaId = idBySlug.get(edge.fromSlug);
       const toAreaId = idBySlug.get(edge.toSlug);
@@ -206,12 +215,14 @@ export async function applyGen123World(): Promise<{
       );
     }
 
-    await verifyWorld(client, releaseId, topology.locationSlugs, topology.edges.length);
+    await verifyWorld(client, releaseId, activeSlugs, topology.edges.length);
     await client.query("COMMIT");
     return {
       releaseId,
       status: "DRAFT",
-      activeAreas: topology.locationSlugs.size,
+      activeAreas: activeSlugs.size,
+      topologyAreas: topology.locationSlugs.size,
+      encounterOnlyAreas: [...encounterOnlySlugs].sort(),
       connections: topology.edges.length,
       sourceLocationCounts: topology.sourceLocationCounts,
       sourceEdgeCounts: topology.sourceEdgeCounts,
