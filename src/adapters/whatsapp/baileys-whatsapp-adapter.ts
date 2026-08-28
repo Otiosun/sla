@@ -1,45 +1,36 @@
-import makeWASocket, {
-  DisconnectReason,
-  type AuthenticationState,
-  type BaileysEventMap,
-  type SocketConfig,
-  type UserFacingSocketConfig,
-} from "@whiskeysockets/baileys";
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { WhatsAppAdapter, WhatsAppIncomingHandler } from "./adapter.js";
 import { normalizeBaileysMessage } from "./baileys-normalizer.js";
+import type {
+  BaileysConnectionUpdateLike,
+  BaileysEventMapLike,
+  BaileysEventSourceLike,
+  BaileysLoggerLike,
+  BaileysMessagesUpsertLike,
+  BaileysSocketConfigLike,
+  BaileysSocketLike,
+} from "./baileys-provider-contracts.js";
+import { loggedOutStatusCode, makeSocket } from "./baileys-runtime.js";
 
 export interface BaileysAuthBinding {
-  readonly state: AuthenticationState;
+  readonly state: unknown;
   saveCredentials(): Promise<void>;
 }
 
-export interface BaileysEventSource {
-  on<EventName extends keyof BaileysEventMap>(
-    event: EventName,
-    listener: (value: BaileysEventMap[EventName]) => void,
-  ): void;
-}
-
-export interface BaileysSocketLike {
-  readonly ev: BaileysEventSource;
-  sendMessage(jid: string, content: { readonly text: string }): Promise<unknown>;
-  end(error: Error | undefined): void;
-}
-
-export type BaileysSocketFactory = (config: UserFacingSocketConfig) => BaileysSocketLike;
+export type { BaileysEventSourceLike as BaileysEventSource, BaileysSocketLike };
+export type BaileysSocketFactory = (config: BaileysSocketConfigLike) => BaileysSocketLike;
 
 export interface BaileysWhatsAppAdapterOptions {
   readonly auth: BaileysAuthBinding;
   readonly socketFactory?: BaileysSocketFactory;
   readonly reconnectDelayMs?: number;
-  readonly logger?: SocketConfig["logger"];
+  readonly logger?: BaileysLoggerLike;
   readonly onQr?: (qr: string) => Promise<void> | void;
   readonly onLoggedOut?: () => Promise<void> | void;
   readonly onProviderError?: (error: unknown) => void;
 }
 
-const silentLogger: SocketConfig["logger"] = {
+const silentLogger: BaileysLoggerLike = {
   level: "silent",
   child: () => silentLogger,
   trace: () => {},
@@ -49,7 +40,7 @@ const silentLogger: SocketConfig["logger"] = {
   error: () => {},
 };
 
-const productionSocketFactory: BaileysSocketFactory = (config) => makeWASocket(config);
+const productionSocketFactory: BaileysSocketFactory = (config) => makeSocket(config);
 
 function statusCodeFromError(error: unknown): number | null {
   if (typeof error !== "object" || error === null) return null;
@@ -89,7 +80,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private readonly auth: BaileysAuthBinding;
   private readonly socketFactory: BaileysSocketFactory;
   private readonly reconnectDelayMs: number;
-  private readonly logger: SocketConfig["logger"];
+  private readonly logger: BaileysLoggerLike;
   private readonly onQr: ((qr: string) => Promise<void> | void) | undefined;
   private readonly onLoggedOut: (() => Promise<void> | void) | undefined;
   private readonly onProviderError: (error: unknown) => void;
@@ -141,7 +132,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
     const socket = this.socket;
     this.socket = null;
-    socket?.end(undefined);
+    socket?.end();
   }
 
   async send(message: PendingOutboxMessage): Promise<void> {
@@ -182,7 +173,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
   private async handleMessageUpsert(
     generation: number,
-    event: BaileysEventMap["messages.upsert"],
+    event: BaileysMessagesUpsertLike,
   ): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
     if (event.type !== "notify" || event.requestId !== undefined) return;
@@ -201,7 +192,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private async handleConnectionUpdate(
     generation: number,
     socket: BaileysSocketLike,
-    update: BaileysEventMap["connection.update"],
+    update: BaileysConnectionUpdateLike,
   ): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
 
@@ -213,7 +204,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     if (this.socket === socket) this.socket = null;
 
     const statusCode = statusCodeFromError(update.lastDisconnect?.error);
-    if (statusCode === DisconnectReason.loggedOut) {
+    if (statusCode === loggedOutStatusCode) {
       if (this.onLoggedOut) await this.onLoggedOut();
       return;
     }
