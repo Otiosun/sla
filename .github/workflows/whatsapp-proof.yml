@@ -77,3 +77,13 @@ jobs:
 
       - name: Run PostgreSQL messaging rate-limit/error/media E2E
         run: node --import tsx db/proofs/phase13_messaging_hardening_e2e.ts
+
+      - name: Seed operational UX vertical slice
+        run: |
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+
+      - name: Run PostgreSQL operational UX stale/retry/restart E2E
+        run: node --import tsx db/proofs/phase13_operational_ux_e2e.ts
