@@ -3,7 +3,6 @@ import type { WhatsAppAdapter, WhatsAppIncomingHandler } from "./adapter.js";
 import { normalizeBaileysMessage } from "./baileys-normalizer.js";
 import type {
   BaileysConnectionUpdateLike,
-  BaileysEventMapLike,
   BaileysEventSourceLike,
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
