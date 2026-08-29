@@ -429,8 +429,8 @@ function terminalWinner(state: BattleState): {
   ) {
     return null;
   }
-  if (playerSide.participantIds.length !== 1 || defeatedSide.participantIds.length !== 1)
-    return null;
+  if (playerSide.participantIds.length < 1 || defeatedSide.participantIds.length !== 1) return null;
+  if (!playerSide.participantIds.includes(playerSide.activeParticipantId)) return null;
   const winner = state.combatants.find(
     (combatant) => combatant.participantId === playerSide.activeParticipantId,
   );
@@ -439,6 +439,8 @@ function terminalWinner(state: BattleState): {
   );
   if (winner === undefined || defeated === undefined || winner.pokemonInstanceId === null)
     return null;
+  // Reward v1 deliberately grants Pokemon XP only to the final active winner. Reserve
+  // participation is not durably tracked yet, so reserves cannot receive inferred XP.
   return { playerId: playerSide.playerId, winner, defeated };
 }
 
@@ -524,7 +526,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         if (terminal === null) {
           return {
             kind: "UNSUPPORTED",
-            reason: "Battle reward v1 requires one-player 1v1 terminal state",
+            reason:
+              "Battle reward v1 requires one player-owned side and exactly one defeated opponent",
           };
         }
 
@@ -1312,19 +1315,12 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         choiceId: row.id,
         pokemonInstanceId: row.pokemon_instance_id,
         moveId: row.move_id,
-        status: "RESOLVED",
-        replacedSlotNo: input.replaceSlotNo,
-        replayed: false,
+        status: row.status,
+        replacedSlotNo: row.replaced_slot_no,
+        replayed: true,
       });
-      await insertOutbox(client, {
-        playerId: input.playerId,
-        messageType: "MOVE_CHOICE_RESULT",
-        idempotencyKey: `progression.move-choice:${row.id}`,
-        correlationId: input.correlationId,
-        payload: result,
-      });
-      return { kind: "RESOLVED", result };
-    });
+      return { kind: "REPLAYED", result };
+    }
   }
 
   public async evolvePokemon(input: EvolvePokemonInput): Promise<EvolutionPersistenceResult> {
