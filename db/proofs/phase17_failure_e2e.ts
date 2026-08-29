@@ -75,7 +75,10 @@ async function receiveProcessed(service: MessagingService, input: IncomingMessag
   }
 }
 
-async function locationState(pool: Pool, playerId: string): Promise<{
+async function locationState(
+  pool: Pool,
+  playerId: string,
+): Promise<{
   readonly areaId: string;
   readonly revision: string;
   readonly receipts: string;
@@ -175,11 +178,7 @@ async function main(): Promise<void> {
       },
       async dispatch(context) {
         const routed = await canonicalRouter.dispatch(context);
-        if (
-          !crashInjected &&
-          context.message.externalMessageId === "f17-travel" &&
-          routed.ok
-        ) {
+        if (!crashInjected && context.message.externalMessageId === "f17-travel" && routed.ok) {
           crashInjected = true;
           throw new Error("simulated process crash after committed world travel");
         }
@@ -206,7 +205,9 @@ async function main(): Promise<void> {
       committedState.revision !== (BigInt(emittedRevision) + 1n).toString() ||
       committedState.receipts !== "1"
     ) {
-      throw new Error(`Travel owner commit is not atomic/idempotent: ${JSON.stringify(committedState)}`);
+      throw new Error(
+        `Travel owner commit is not atomic/idempotent: ${JSON.stringify(committedState)}`,
+      );
     }
 
     const restartedService = new MessagingService(
@@ -259,13 +260,17 @@ async function main(): Promise<void> {
     // a process restart before retry.
     const failingAdapter = new FakeWhatsAppAdapter();
     failingAdapter.failNext();
-    const failingWorker = new OutboxWorker(new PostgresMessagingRepository(pool), [failingAdapter], {
-      batchSize: 1,
-      staleAfterMs: 1_000,
-      maxAttempts: 3,
-      baseBackoffMs: 0,
-      maxBackoffMs: 0,
-    });
+    const failingWorker = new OutboxWorker(
+      new PostgresMessagingRepository(pool),
+      [failingAdapter],
+      {
+        batchSize: 1,
+        staleAfterMs: 1_000,
+        maxAttempts: 3,
+        baseBackoffMs: 0,
+        maxBackoffMs: 0,
+      },
+    );
     const failedSend = await failingWorker.runOnce();
     if (failedSend.failed !== 1 || failingAdapter.sent.length !== 0) {
       throw new Error(`Injected send failure was not isolated: ${JSON.stringify(failedSend)}`);
@@ -293,7 +298,9 @@ async function main(): Promise<void> {
     );
     const retriedSend = await restartedWorker.runOnce();
     if (retriedSend.sent !== 1 || retriedSend.failed !== 0 || retryAdapter.sent.length !== 1) {
-      throw new Error(`Outbox restart did not deliver exactly once: ${JSON.stringify(retriedSend)}`);
+      throw new Error(
+        `Outbox restart did not deliver exactly once: ${JSON.stringify(retriedSend)}`,
+      );
     }
     const deliveredText = retryAdapter.sent[0]?.payload.text;
     if (typeof deliveredText !== "string" || !deliveredText.includes("Você chegou a")) {
