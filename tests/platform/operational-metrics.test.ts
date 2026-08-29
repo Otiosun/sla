@@ -7,10 +7,7 @@ import {
   ObservedAsyncResultOperation,
   ObservedQueueRunner,
 } from "../../src/platform/metrics/instrumentation.js";
-import {
-  InMemoryMetricSink,
-  JsonLineMetricSink,
-} from "../../src/platform/metrics/index.js";
+import { InMemoryMetricSink, JsonLineMetricSink } from "../../src/platform/metrics/index.js";
 
 describe("operational metrics", () => {
   it("emits stable JSON metric lines without implicit application context", () => {
@@ -20,7 +17,10 @@ describe("operational metrics", () => {
       () => new Date("2026-08-29T12:00:00.000Z"),
     );
 
-    metrics.increment("runtime.operation.errors_total", 1, { operation: "message", result: "error" });
+    metrics.increment("runtime.operation.errors_total", 1, {
+      operation: "message",
+      result: "error",
+    });
 
     expect(JSON.parse(lines[0] ?? "{}")).toEqual({
       type: "metric",
@@ -109,9 +109,7 @@ describe("operational alert thresholds", () => {
   });
 
   it("treats a failed backup as critical independently of backup age", () => {
-    expect(
-      evaluateOperationalAlerts({ ...healthy, backupLastRunSucceeded: false }),
-    ).toContainEqual(
+    expect(evaluateOperationalAlerts({ ...healthy, backupLastRunSucceeded: false })).toContainEqual(
       expect.objectContaining({ key: "backup.failed", severity: "CRITICAL" }),
     );
   });
