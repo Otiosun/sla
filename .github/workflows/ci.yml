@@ -361,3 +361,18 @@ jobs:
           test "$restored_migrations" = "$source_migrations"
           test "$restored_migration_fingerprint" = "$source_migration_fingerprint"
           test "$restored_probe_status" = "ACTIVE"
+
+      - name: Previous-version forward migration proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          recovery_db="pokemon_rpg_phase16_forward_test"
+          docker exec pokemon-postgres createdb \
+            --username pokemon \
+            "$recovery_db"
+          PHASE16_RECOVERY_DATABASE_URL="postgresql://pokemon:test-only-password@localhost:5432/${recovery_db}" \
+            node --import tsx db/proofs/phase16_recovery_migration_e2e.ts
+
+      - name: Logical rollback to known-good state proof
+        shell: bash
+        run: bash db/proofs/phase16_logical_rollback_restore.sh
