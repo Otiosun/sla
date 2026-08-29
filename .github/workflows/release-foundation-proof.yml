@@ -1,0 +1,181 @@
+name: Release Foundation Proof
+
+on:
+  push:
+    branches:
+      - main
+      - "gate/**"
+      - "release/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-foundation-proof-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-foundation:
+    name: environments / controlled migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres-release-proof \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=postgres \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres-release-proof psql \
+              --username pokemon \
+              --dbname postgres \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs pokemon-postgres-release-proof
+          exit 1
+
+      - name: Prove separated staging roles and controlled migration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          database="pokemon_rpg_release_foundation"
+          migrator_role="pokemon_release_migrator"
+          runtime_role="pokemon_release_runtime"
+          migrator_password="release-migrator-password"
+          runtime_password="release-runtime-password"
+          migrator_url="postgresql://${migrator_role}:${migrator_password}@localhost:5432/${database}"
+          runtime_url="postgresql://${runtime_role}:${runtime_password}@localhost:5432/${database}"
+
+          docker exec pokemon-postgres-release-proof createdb \
+            --username pokemon \
+            "$database"
+
+          docker exec -i pokemon-postgres-release-proof psql \
+            --username pokemon \
+            --dbname "$database" \
+            --set ON_ERROR_STOP=1 \
+            --set "migrator_role=${migrator_role}" \
+            --set "migrator_password=${migrator_password}" \
+            --set "runtime_role=${runtime_role}" \
+            --set "runtime_password=${runtime_password}" \
+            < db/bootstrap/roles.sql
+
+          APP_ENV=staging \
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+          DEPLOY_REVISION="$GITHUB_SHA" \
+            bash scripts/operations/release-migrate.sh
+
+          docker exec -i \
+            --env "PGPASSWORD=${migrator_password}" \
+            pokemon-postgres-release-proof psql \
+            --host 127.0.0.1 \
+            --username "$migrator_role" \
+            --dbname "$database" \
+            --set ON_ERROR_STOP=1 \
+            --set "migrator_role=${migrator_role}" \
+            --set "runtime_role=${runtime_role}" \
+            < db/bootstrap/runtime_grants.sql
+
+          APP_ENV=staging \
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+            pnpm db:verify
+
+          expected_applied_by="release:staging:${GITHUB_SHA}"
+          actual_applied_by="$(docker exec \
+            --env "PGPASSWORD=${migrator_password}" \
+            pokemon-postgres-release-proof psql \
+            --host 127.0.0.1 \
+            --username "$migrator_role" \
+            --dbname "$database" \
+            --tuples-only \
+            --no-align \
+            --command "SELECT applied_by FROM schema_migrations ORDER BY version DESC LIMIT 1;")"
+          test "$actual_applied_by" = "$expected_applied_by"
+
+          runtime_user="$(docker exec \
+            --env "PGPASSWORD=${runtime_password}" \
+            pokemon-postgres-release-proof psql \
+            --host 127.0.0.1 \
+            --username "$runtime_role" \
+            --dbname "$database" \
+            --tuples-only \
+            --no-align \
+            --command "SELECT current_user;")"
+          test "$runtime_user" = "$runtime_role"
+
+      - name: Reject non-release environments before mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          before="$(docker exec pokemon-postgres-release-proof psql \
+            --username pokemon \
+            --dbname pokemon_rpg_release_foundation \
+            --tuples-only \
+            --no-align \
+            --command "SELECT count(*) FROM schema_migrations;")"
+
+          if APP_ENV=test \
+            DATABASE_URL="postgresql://pokemon_release_runtime:release-runtime-password@localhost:5432/pokemon_rpg_release_foundation" \
+            MIGRATOR_DATABASE_URL="postgresql://pokemon_release_migrator:release-migrator-password@localhost:5432/pokemon_rpg_release_foundation" \
+            DEPLOY_REVISION="$GITHUB_SHA" \
+              bash scripts/operations/release-migrate.sh; then
+            echo "release migration unexpectedly accepted APP_ENV=test"
+            exit 1
+          fi
+
+          after="$(docker exec pokemon-postgres-release-proof psql \
+            --username pokemon \
+            --dbname pokemon_rpg_release_foundation \
+            --tuples-only \
+            --no-align \
+            --command "SELECT count(*) FROM schema_migrations;")"
+          test "$after" = "$before"
+
+      - name: Reject shared staging runtime/migrator role
+        shell: bash
+        run: |
+          set -euo pipefail
+          shared_url="postgresql://pokemon_release_migrator:release-migrator-password@localhost:5432/pokemon_rpg_release_foundation"
+          if APP_ENV=staging \
+            DATABASE_URL="$shared_url" \
+            MIGRATOR_DATABASE_URL="$shared_url" \
+            DEPLOY_REVISION="$GITHUB_SHA" \
+              bash scripts/operations/release-migrate.sh; then
+            echo "release migration unexpectedly accepted a shared staging database role"
+            exit 1
+          fi
