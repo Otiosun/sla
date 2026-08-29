@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   release-foundation:
-    name: environments / controlled migration
+    name: environments / controlled migration / initial admin bootstrap
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -148,6 +148,23 @@ jobs:
             --no-align \
             --command "SELECT current_user;")"
           test "$runtime_user" = "$runtime_role"
+
+      - name: Prove secure one-shot initial admin bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          database="pokemon_rpg_release_foundation"
+          migrator_url="postgresql://pokemon_release_migrator:release-migrator-password@localhost:5432/${database}"
+          runtime_url="postgresql://pokemon_release_runtime:release-runtime-password@localhost:5432/${database}"
+          confirmation="bootstrap-initial-admin:staging:${PROOF_REVISION}"
+
+          APP_ENV=staging \
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+          DEPLOY_REVISION="$PROOF_REVISION" \
+          ADMIN_BOOTSTRAP_IDENTITY_REF="proof:release-owner" \
+          ADMIN_BOOTSTRAP_CONFIRMATION="$confirmation" \
+            node --import tsx db/proofs/phase17_initial_admin_bootstrap_e2e.ts
 
       - name: Reject non-release environments before mutation
         shell: bash

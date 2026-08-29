@@ -47,20 +47,27 @@ Production uses `APP_ENV=production` and production-scoped credentials. The scri
 5. derives `MIGRATION_APPLIED_BY` as `release:<environment>:<revision>` unless an explicit audit identity is supplied;
 6. invokes the canonical `pnpm db:migrate` runner, which verifies migration sequence/checksums, serializes migrators with a PostgreSQL advisory lock, wraps each pending migration in a transaction and verifies the final migration history.
 
-The remaining deployment order is unchanged:
+## Initial administrative bootstrap
 
-1. bootstrap/rotate roles with `db/bootstrap/roles.sql` when required;
+A newly created staging/production database has no authorized admin principal. The first principal cannot be created through the ordinary Tier 4 `admin.role.assign` workflow because that workflow itself requires an already-authorized proposer and independent approval.
+
+For a genuinely new environment only, run the one-time `pnpm ops:bootstrap:admin` ceremony documented in `docs/operations/initial-admin-bootstrap.md`. It uses the schema-owning migrator credential, creates one `OWNER_SECURITY_ADMIN` principal with a GLOBAL scope, appends audit evidence and leaves an immutable bootstrap marker. Exact replay is idempotent; conflicting identity/release/environment state fails closed. After this marker exists, later admin role changes return to the normal governed admin operation surface.
+
+The remaining deployment order is:
+
+1. bootstrap/rotate PostgreSQL roles with `db/bootstrap/roles.sql` when required;
 2. run `scripts/operations/release-migrate.sh` while runtime traffic is stopped for schema-changing releases;
 3. reconcile runtime grants with `db/bootstrap/runtime_grants.sql` as the migrator role;
-4. run `pnpm db:verify` using the runtime credential;
-5. execute post-deploy smoke tests;
-6. only then admit normal traffic.
+4. on a genuinely new environment only, execute the initial administrative bootstrap ceremony;
+5. run `pnpm db:verify` using the runtime credential;
+6. execute post-deploy smoke tests;
+7. only then admit normal traffic.
 
 ## CI evidence
 
-Permanent CI exercises the controlled migration command against a real disposable PostgreSQL database using `APP_ENV=staging`, distinct migrator/runtime roles and the exact CI commit SHA. The same proof then reconciles runtime grants and verifies the schema through the restricted runtime role.
+Permanent CI exercises the controlled migration command against a real disposable PostgreSQL database using `APP_ENV=staging`, distinct migrator/runtime roles and the exact CI commit SHA. The same proof reconciles runtime grants, verifies the schema through the restricted runtime role and exercises the one-shot initial admin bootstrap with exact replay/conflict/privilege checks.
 
-This provides repository evidence for the environment boundary and controlled migration step without pretending that an external staging or production host exists.
+This provides repository evidence for the environment boundary, controlled migration step and bootstrap mechanism without pretending that an external staging or production host exists.
 
 ## Deliberately still open
 
