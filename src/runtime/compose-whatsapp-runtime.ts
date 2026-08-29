@@ -1,5 +1,8 @@
 import type { Pool } from "pg";
-import { BaileysWhatsAppAdapter, type BaileysAuthBinding } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
+import {
+  BaileysWhatsAppAdapter,
+  type BaileysAuthBinding,
+} from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";

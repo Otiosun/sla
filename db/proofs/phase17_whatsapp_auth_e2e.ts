@@ -14,7 +14,10 @@ if (databaseUrl === undefined) {
 const KEY = Buffer.alloc(32, 0x51);
 const SESSION = "phase17-proof";
 
-async function expectReject<T>(promise: Promise<T>, errorType: new (...args: never[]) => Error): Promise<void> {
+async function expectReject<T>(
+  promise: Promise<T>,
+  errorType: new (...args: never[]) => Error,
+): Promise<void> {
   try {
     await promise;
   } catch (error) {

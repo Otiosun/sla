@@ -32,7 +32,9 @@ interface AuthKeyRow {
 
 export interface BaileysSignalKeyStoreLike {
   get(type: string, ids: readonly string[]): Promise<Record<string, unknown>>;
-  set(data: Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>): Promise<void>;
+  set(
+    data: Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>,
+  ): Promise<void>;
 }
 
 export interface BaileysAuthStateLike {
@@ -384,21 +386,11 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
   }
 
   private enqueueValue<T>(work: () => Promise<T>): Promise<T> {
-    let resolveValue!: (value: T | PromiseLike<T>) => void;
-    let rejectValue!: (reason?: unknown) => void;
-    const result = new Promise<T>((resolve, reject) => {
-      resolveValue = resolve;
-      rejectValue = reject;
-    });
-    const task = async (): Promise<void> => {
-      try {
-        resolveValue(await work());
-      } catch (error) {
-        rejectValue(error);
-      }
-    };
-    const next = this.queue.then(task, task);
-    this.queue = next.catch(() => {});
-    return result;
+    const next = this.queue.then(work, work);
+    this.queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 }
