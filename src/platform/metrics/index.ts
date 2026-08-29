@@ -83,9 +83,11 @@ export interface JsonMetricLine {
   readonly labels: MetricLabels;
 }
 
+export type MetricLineWriter = (line: string) => void;
+
 export class JsonLineMetricSink implements MetricSink {
   constructor(
-    private readonly write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
+    private readonly write: MetricLineWriter,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
