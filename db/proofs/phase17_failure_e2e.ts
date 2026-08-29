@@ -235,8 +235,8 @@ async function main(): Promise<void> {
 
     const travelOutbox = await pool.query<{ count: string; status: string; attempts: number }>(
       `SELECT count(*)::text AS count,
-              min(status) AS status,
-              min(attempts)::integer AS attempts
+              min(outbox.status) AS status,
+              min(outbox.attempts)::integer AS attempts
        FROM outbox_messages outbox
        JOIN inbox_messages inbox ON inbox.id = outbox.causation_id
        WHERE inbox.provider = $1
@@ -348,11 +348,11 @@ async function main(): Promise<void> {
           FROM outbox_messages outbox
           JOIN inbox_messages inbox ON inbox.id = outbox.causation_id
           WHERE inbox.provider = $1 AND inbox.external_message_id = 'f17-travel') AS travel_outbox_count,
-         (SELECT status
+         (SELECT outbox.status
           FROM outbox_messages outbox
           JOIN inbox_messages inbox ON inbox.id = outbox.causation_id
           WHERE inbox.provider = $1 AND inbox.external_message_id = 'f17-travel') AS travel_outbox_status,
-         (SELECT attempts
+         (SELECT outbox.attempts
           FROM outbox_messages outbox
           JOIN inbox_messages inbox ON inbox.id = outbox.causation_id
           WHERE inbox.provider = $1 AND inbox.external_message_id = 'f17-travel') AS travel_outbox_attempts,
