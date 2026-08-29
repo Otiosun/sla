@@ -15,7 +15,8 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const CURRENT_EXPECTED_LATEST = "0022_world_travel_idempotency.sql";
+const EXPECTED_PREVIOUS_LATEST = "0022_world_travel_idempotency.sql";
+const EXPECTED_CURRENT_LATEST = "0023_whatsapp_auth_integrity.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -28,16 +29,22 @@ const previousMigrationsDirectory = await mkdtemp(join(tmpdir(), "pokemon-phase1
 try {
   const migrations = await loadMigrations();
   if (migrations.length < 2) {
-    throw new Error("Phase 16 forward-migration proof requires at least two migrations");
+    throw new Error("Forward-migration proof requires at least two migrations");
   }
 
+  const previousLatest = migrations.at(-2);
   const latest = migrations.at(-1);
-  if (latest === undefined) {
-    throw new Error("Latest migration could not be resolved");
+  if (previousLatest === undefined || latest === undefined) {
+    throw new Error("Migration baseline could not be resolved");
   }
-  if (latest.fileName !== CURRENT_EXPECTED_LATEST) {
+  if (previousLatest.fileName !== EXPECTED_PREVIOUS_LATEST) {
     throw new Error(
-      `Forward-migration proof baseline is stale: expected ${CURRENT_EXPECTED_LATEST}, found ${latest.fileName}`,
+      `Forward-migration previous baseline is stale: expected ${EXPECTED_PREVIOUS_LATEST}, found ${previousLatest.fileName}`,
+    );
+  }
+  if (latest.fileName !== EXPECTED_CURRENT_LATEST) {
+    throw new Error(
+      `Forward-migration current baseline is stale: expected ${EXPECTED_CURRENT_LATEST}, found ${latest.fileName}`,
     );
   }
 
@@ -68,6 +75,21 @@ try {
     throw new Error("Previous-version migration history does not match N-1");
   }
 
+  const previousLatestApplied = await pool.query<{ name: string; checksum: string }>(
+    `SELECT name, checksum
+     FROM schema_migrations
+     WHERE version = $1::bigint`,
+    [previousLatest.version.toString()],
+  );
+  const previousLatestRow = previousLatestApplied.rows[0];
+  if (
+    previousLatestRow === undefined ||
+    previousLatestRow.name !== previousLatest.name ||
+    previousLatestRow.checksum !== previousLatest.checksum
+  ) {
+    throw new Error("N-1 database is not pinned to the exact previous migration baseline");
+  }
+
   const latestBefore = await pool.query(
     "SELECT 1 FROM schema_migrations WHERE version = $1::bigint",
     [latest.version.toString()],
@@ -77,7 +99,7 @@ try {
   }
 
   const latestRelationBefore = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.world_travel_receipts')::text AS relation",
+    "SELECT to_regclass('public.whatsapp_auth_sessions')::text AS relation",
   );
   if (latestRelationBefore.rows[0]?.relation !== null) {
     throw new Error("Latest-version relation unexpectedly exists before forward migration");
@@ -110,8 +132,8 @@ try {
     throw new Error("Forward migration did not converge to the current migration count");
   }
 
-  const appliedLatest = await pool.query<{ name: string; checksum: string }>(
-    `SELECT name, checksum
+  const appliedLatest = await pool.query<{ name: string; checksum: string; applied_by: string }>(
+    `SELECT name, checksum, applied_by
      FROM schema_migrations
      WHERE version = $1::bigint`,
     [latest.version.toString()],
@@ -123,11 +145,14 @@ try {
   if (latestRow.name !== latest.name || latestRow.checksum !== latest.checksum) {
     throw new Error("Latest migration history does not match the exact current migration file");
   }
+  if (latestRow.applied_by !== "phase16-forward-proof") {
+    throw new Error("Latest migration was not attributed to the controlled forward step");
+  }
 
   const latestRelationAfter = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.world_travel_receipts')::text AS relation",
+    "SELECT to_regclass('public.whatsapp_auth_sessions')::text AS relation",
   );
-  if (latestRelationAfter.rows[0]?.relation !== "world_travel_receipts") {
+  if (latestRelationAfter.rows[0]?.relation !== "whatsapp_auth_sessions") {
     throw new Error("Latest migration schema effect is missing after forward migration");
   }
 
@@ -144,11 +169,22 @@ try {
   await runMigrations(pool, { appliedBy: "phase16-forward-idempotency-proof" });
   await assertDatabaseSchemaCurrent(pool);
 
+  const latestAfterRerun = await pool.query<{ applied_by: string }>(
+    `SELECT applied_by
+     FROM schema_migrations
+     WHERE version = $1::bigint`,
+    [latest.version.toString()],
+  );
+  if (latestAfterRerun.rows[0]?.applied_by !== "phase16-forward-proof") {
+    throw new Error("Idempotent rerun rewrote latest migration history");
+  }
+
   console.log(
     JSON.stringify({
       proof: "phase16-recovery-migration",
       previousMigrationCount: previousMigrations.length,
       currentMigrationCount: migrations.length,
+      previousLatestMigration: previousLatest.fileName,
       latestMigration: latest.fileName,
       durableStatePreserved: true,
       rerunConverged: true,
