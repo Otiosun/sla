@@ -1,4 +1,8 @@
-import type { MessagingService, OutboxWorker } from "../../modules/messaging/service.js";
+import type {
+  MessagingService,
+  OutboxWorker,
+  OutboxWorkerRunResult,
+} from "../../modules/messaging/service.js";
 import type { WhatsAppAdapter } from "./adapter.js";
 
 export class WhatsAppMessagingRuntime {
@@ -18,7 +22,7 @@ export class WhatsAppMessagingRuntime {
     await this.adapter.stop();
   }
 
-  async flushOutbox(): Promise<void> {
-    await this.outboxWorker.runOnce();
+  async flushOutbox(): Promise<OutboxWorkerRunResult> {
+    return this.outboxWorker.runOnce();
   }
 }
