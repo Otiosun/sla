@@ -1315,12 +1315,19 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         choiceId: row.id,
         pokemonInstanceId: row.pokemon_instance_id,
         moveId: row.move_id,
-        status: row.status,
-        replacedSlotNo: row.replaced_slot_no,
-        replayed: true,
+        status: "RESOLVED",
+        replacedSlotNo: input.replaceSlotNo,
+        replayed: false,
       });
-      return { kind: "REPLAYED", result };
-    }
+      await insertOutbox(client, {
+        playerId: input.playerId,
+        messageType: "MOVE_CHOICE_RESULT",
+        idempotencyKey: `progression.move-choice:${row.id}`,
+        correlationId: input.correlationId,
+        payload: result,
+      });
+      return { kind: "RESOLVED", result };
+    });
   }
 
   public async evolvePokemon(input: EvolvePokemonInput): Promise<EvolutionPersistenceResult> {
