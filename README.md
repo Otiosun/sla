@@ -1,8 +1,8 @@
-# RPG Pokémon — Engine Narrativa e Mecânica
+# RPG Pokémon
 
-Repositório canônico de implementação do novo RPG Pokémon para WhatsApp.
+Repositório canônico de implementação de um RPG Pokémon para WhatsApp.
 
-Este projeto nasce **do zero**. Clover e Pokestor são referências de auditoria; nenhuma dívida legada é copiada automaticamente.
+Este projeto nasce **do zero**.
 
 ## Stack base
 
@@ -11,13 +11,13 @@ Node.js 24.19.0 LTS · TypeScript 7.0.2 strict · pnpm 11.23.0 · Biome 2.5.10 �
 ## Fontes de verdade
 
 - **GitHub:** código, migrations, testes, seeds/importers, CI/CD e releases.
-- **Google Drive canônico:** arquitetura, decisões, auditorias, checklist, checkpoints, QA e handoffs.
+- **Google Drive:** arquitetura, decisões, auditorias, checklist, checkpoints, QA e handoffs.
 
-O nome atual do repositório (`sla`) é provisório; a identidade canônica é repository ID `1342507339`.
+O nome atual do repositório é provisório; a identidade canônica é repository ID `1342507339`.
 
 ## Bootstrap local
 
-Ambiente local/teste pode usar uma única credencial PostgreSQL para reduzir atrito:
+Ambiente local/teste usa uma única credencial PostgreSQL para reduzir atrito:
 
 ```bash
 cp .env.example .env
