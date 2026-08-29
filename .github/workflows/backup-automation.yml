@@ -1,0 +1,45 @@
+name: PostgreSQL Backup Automation
+
+on:
+  schedule:
+    - cron: "20 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-postgres-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: daily PostgreSQL backup / 30-day retention
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+      BACKUP_S3_PREFIX: pokemon-rpg/postgres
+      BACKUP_RETENTION_DAYS: "30"
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.BACKUP_AWS_SESSION_TOKEN }}
+      AWS_REGION: ${{ secrets.BACKUP_AWS_REGION }}
+      AWS_ENDPOINT_URL: ${{ secrets.BACKUP_S3_ENDPOINT_URL }}
+
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Preflight backup dependencies and shell contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker --version
+          aws --version
+          bash -n scripts/operations/postgres-backup.sh
+
+      - name: Dump, checksum, upload and enforce retention
+        shell: bash
+        run: bash scripts/operations/postgres-backup.sh
