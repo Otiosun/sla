@@ -69,9 +69,14 @@ async function assertMigratorOwnsBootstrapObjects(client: PoolClient): Promise<v
     ],
   );
   const row = result.rows[0];
-  if (row === undefined || row.mismatched.length > 0) {
+  if (row === undefined) {
     throw new InitialAdminBootstrapPrivilegeError(
-      "Initial admin bootstrap must run as the schema-owning migrator role",
+      "Initial admin bootstrap could not verify schema ownership",
+    );
+  }
+  if (row.mismatched.length > 0) {
+    throw new InitialAdminBootstrapPrivilegeError(
+      `Initial admin bootstrap current role does not own required objects: ${row.mismatched.join(", ")}`,
     );
   }
 }
