@@ -17,6 +17,23 @@ function requireTokens(path: string, content: string, tokens: readonly string[])
   }
 }
 
+function requireExactAdminRoleTable(content: string): void {
+  const documented = [...content.matchAll(/^\| `([A-Z][A-Z0-9_]*)` \|/gm)]
+    .map((match) => match[1])
+    .filter((role): role is string => role !== undefined)
+    .sort();
+  const expected = Object.keys(ADMIN_ROLE_CAPABILITIES).sort();
+
+  const duplicates = documented.filter((role, index) => documented.indexOf(role) !== index);
+  const missing = expected.filter((role) => !documented.includes(role));
+  const unknown = documented.filter((role) => !expected.includes(role));
+  if (duplicates.length > 0 || missing.length > 0 || unknown.length > 0) {
+    throw new Error(
+      `${MANUAL} role table differs from ADMIN_ROLE_CAPABILITIES: missing=[${missing.join(", ")}], unknown=[${unknown.join(", ")}], duplicates=[${[...new Set(duplicates)].join(", ")}]`,
+    );
+  }
+}
+
 async function requirePath(path: string): Promise<void> {
   await access(resolve(ROOT, path));
 }
@@ -30,8 +47,8 @@ async function verifyLinkedOperationalDocs(content: string): Promise<void> {
 async function main(): Promise<void> {
   const [manual, runbook] = await Promise.all([read(MANUAL), read(RUNBOOK)]);
 
+  requireExactAdminRoleTable(manual);
   requireTokens(MANUAL, manual, [
-    ...Object.keys(ADMIN_ROLE_CAPABILITIES),
     "GLOBAL",
     "PLAYER",
     "REGION",
