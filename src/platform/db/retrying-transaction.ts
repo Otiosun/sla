@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../metrics/index.js";
 import { CryptoRandomSource, type RandomSource } from "../rng/index.js";
 import { type RetrySafety, withSafeRetry } from "../../shared-kernel/retry.js";
 import { type TransactionOptions, withTransaction } from "./transaction.js";
@@ -14,6 +15,7 @@ export interface RetryingTransactionOptions {
   readonly jitterRatio?: number;
   readonly rng?: RandomSource;
   readonly sleep?: (delayMs: number) => Promise<void>;
+  readonly metrics?: MetricSink;
 }
 
 function postgresSqlState(error: unknown): string | null {
@@ -50,19 +52,50 @@ export async function withRetryingTransaction<T>(
 ): Promise<T> {
   assertRetryBoundary(options);
 
-  return withSafeRetry(
-    () => withTransaction(pool, work, options.transaction),
-    {
-      safety: options.safety,
-      maxAttempts: options.maxAttempts ?? 3,
-      baseDelayMs: options.baseDelayMs ?? 10,
-      maxDelayMs: options.maxDelayMs ?? 250,
-      jitterRatio: options.jitterRatio ?? 0.2,
-      isRetryable: isRetryablePostgresTransactionError,
-    },
-    {
-      rng: options.rng ?? new CryptoRandomSource(),
-      sleep: options.sleep ?? defaultSleep,
-    },
-  );
+  const metrics = options.metrics ?? NOOP_METRICS;
+  const startedAtMs = monotonicNowMs();
+  let attempts = 0;
+  let failed = false;
+
+  try {
+    return await withSafeRetry(
+      () => {
+        attempts += 1;
+        return withTransaction(pool, work, options.transaction);
+      },
+      {
+        safety: options.safety,
+        maxAttempts: options.maxAttempts ?? 3,
+        baseDelayMs: options.baseDelayMs ?? 10,
+        maxDelayMs: options.maxDelayMs ?? 250,
+        jitterRatio: options.jitterRatio ?? 0.2,
+        isRetryable: isRetryablePostgresTransactionError,
+      },
+      {
+        rng: options.rng ?? new CryptoRandomSource(),
+        sleep: options.sleep ?? defaultSleep,
+      },
+    );
+  } catch (error) {
+    failed = true;
+    metrics.increment("db.transaction.errors_total", 1, {
+      safety: options.safety.kind,
+      sqlstate: postgresSqlState(error) ?? "unknown",
+    });
+    throw error;
+  } finally {
+    metrics.observe("db.transaction.duration_ms", monotonicNowMs() - startedAtMs, {
+      result: failed ? "error" : "success",
+      safety: options.safety.kind,
+    });
+    metrics.observe("db.transaction.attempts", attempts, {
+      result: failed ? "error" : "success",
+      safety: options.safety.kind,
+    });
+    if (attempts > 1) {
+      metrics.increment("db.transaction.retries_total", attempts - 1, {
+        safety: options.safety.kind,
+      });
+    }
+  }
 }
