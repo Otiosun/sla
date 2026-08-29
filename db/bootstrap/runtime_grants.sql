@@ -63,6 +63,15 @@ SELECT format('GRANT SELECT ON TABLE schema_migrations TO %I', :'runtime_role')
 WHERE to_regclass('public.schema_migrations') IS NOT NULL
 \gexec
 
+-- The one-time initial admin bootstrap marker is readable for diagnostics but is never
+-- writable by ordinary runtime. Only the schema-owning migrator bootstrap ceremony may create it.
+SELECT format(
+  'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE admin_initial_bootstrap_state FROM %I',
+  :'runtime_role'
+)
+WHERE to_regclass('public.admin_initial_bootstrap_state') IS NOT NULL
+\gexec
+
 -- Append-only/immutable runtime records. INSERT is allowed where the application must append;
 -- UPDATE/DELETE/TRUNCATE are denied. Corrections happen through compensating records or
 -- explicit future maintenance/admin capabilities, never by rewriting history.
@@ -189,6 +198,16 @@ SELECT format(
       OR has_table_privilege(runtime_name, 'public.schema_migrations', 'DELETE')
     ) THEN
       RAISE EXCEPTION 'schema_migrations must be SELECT-only for runtime';
+    END IF;
+
+    IF to_regclass('public.admin_initial_bootstrap_state') IS NOT NULL AND (
+      NOT has_table_privilege(runtime_name, 'public.admin_initial_bootstrap_state', 'SELECT')
+      OR has_table_privilege(runtime_name, 'public.admin_initial_bootstrap_state', 'INSERT')
+      OR has_table_privilege(runtime_name, 'public.admin_initial_bootstrap_state', 'UPDATE')
+      OR has_table_privilege(runtime_name, 'public.admin_initial_bootstrap_state', 'DELETE')
+      OR has_table_privilege(runtime_name, 'public.admin_initial_bootstrap_state', 'TRUNCATE')
+    ) THEN
+      RAISE EXCEPTION 'admin_initial_bootstrap_state must be SELECT-only for runtime';
     END IF;
   END
   $block$;

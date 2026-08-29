@@ -15,8 +15,8 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const EXPECTED_PREVIOUS_LATEST = "0022_world_travel_idempotency.sql";
-const EXPECTED_CURRENT_LATEST = "0023_whatsapp_auth_integrity.sql";
+const EXPECTED_PREVIOUS_LATEST = "0023_whatsapp_auth_integrity.sql";
+const EXPECTED_CURRENT_LATEST = "0024_initial_admin_bootstrap_state.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -99,7 +99,7 @@ try {
   }
 
   const latestRelationBefore = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.whatsapp_auth_sessions')::text AS relation",
+    "SELECT to_regclass('public.admin_initial_bootstrap_state')::text AS relation",
   );
   if (latestRelationBefore.rows[0]?.relation !== null) {
     throw new Error("Latest-version relation unexpectedly exists before forward migration");
@@ -150,9 +150,9 @@ try {
   }
 
   const latestRelationAfter = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.whatsapp_auth_sessions')::text AS relation",
+    "SELECT to_regclass('public.admin_initial_bootstrap_state')::text AS relation",
   );
-  if (latestRelationAfter.rows[0]?.relation !== "whatsapp_auth_sessions") {
+  if (latestRelationAfter.rows[0]?.relation !== "admin_initial_bootstrap_state") {
     throw new Error("Latest migration schema effect is missing after forward migration");
   }
 

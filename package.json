@@ -21,6 +21,8 @@
     "db:seed:phase11:provisional": "node --env-file-if-exists=.env --import tsx db/seeds/phase11_progression_slice.ts",
     "db:seed:phase11:final": "node --env-file-if-exists=.env --import tsx db/seeds/phase11_trainer_final_slice.ts",
     "db:seed:phase11": "pnpm db:seed:phase11:provisional && pnpm db:seed:phase11:final",
+    "db:seed:phase12": "node --env-file-if-exists=.env --import tsx db/seeds/phase12_admin_registry_slice.ts",
+    "ops:bootstrap:admin": "node --env-file-if-exists=.env --import tsx scripts/operations/bootstrap-initial-admin.ts",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
@@ -28,8 +30,7 @@
     "test": "vitest run",
     "test:db": "vitest run tests/db",
     "test:watch": "vitest",
-    "check": "biome ci . && pnpm typecheck && pnpm test",
-    "db:seed:phase12": "node --env-file-if-exists=.env --import tsx db/seeds/phase12_admin_registry_slice.ts"
+    "check": "biome ci . && pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",
