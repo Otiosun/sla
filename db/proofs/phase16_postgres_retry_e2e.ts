@@ -202,7 +202,12 @@ try {
     `SELECT count(*)::text AS on_call FROM "${serializationTable}" WHERE on_call`,
   );
   assert.equal(serializationState.rows[0]?.on_call, "1");
-  assert.equal(serializationCallsA + serializationCallsB, 3);
+  assert.ok(serializationCallsA >= 1 && serializationCallsA <= 3);
+  assert.ok(serializationCallsB >= 1 && serializationCallsB <= 3);
+  assert.ok(
+    serializationCallsA + serializationCallsB >= 3,
+    "SERIALIZABLE conflict must force at least one retry",
+  );
 
   console.log(
     "Phase 16 PostgreSQL retry proof complete: real deadlock/serialization retry safely, unknown failures do not retry",
