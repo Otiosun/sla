@@ -22,10 +22,13 @@ import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
 
+export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
+
 export interface OperationalWhatsAppRuntimeOptions {
   readonly pool: Pool;
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
+  readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
 }
 
 function errorKind(error: unknown): string {
@@ -63,9 +66,11 @@ export function createOperationalWhatsAppRuntime(
       options.logger.log("ERROR", "whatsapp.auth.pairing_required", {
         action: "run-explicit-auth-bootstrap",
       });
+      options.onSessionInvalidated?.("PAIRING_REQUIRED");
     },
     onLoggedOut: () => {
       options.logger.log("ERROR", "whatsapp.auth.logged_out");
+      options.onSessionInvalidated?.("LOGGED_OUT");
     },
     onProviderError: (error) => {
       options.logger.log("ERROR", "whatsapp.provider.error", { errorKind: errorKind(error) });

@@ -37,7 +37,12 @@ try {
       encryptionKeyVersion: runtimeConfig.authEncryptionKeyVersion,
       allowCreate: false,
     });
-    const runtime = createOperationalWhatsAppRuntime({ pool, auth, logger });
+    const runtime = createOperationalWhatsAppRuntime({
+      pool,
+      auth,
+      logger,
+      onSessionInvalidated: requestShutdown,
+    });
     const supervisor = new WhatsAppRuntimeSupervisor(runtime, {
       pollIntervalMs: runtimeConfig.outboxPollMs,
       logger,

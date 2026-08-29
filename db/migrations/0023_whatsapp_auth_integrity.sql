@@ -1,4 +1,4 @@
--- 0022_whatsapp_auth_integrity.sql
+-- 0023_whatsapp_auth_integrity.sql
 -- Phase 17 runtime foundation: durable encrypted WhatsApp auth state.
 -- Auth material is encrypted by the application; plaintext credentials never belong in PostgreSQL.
 
