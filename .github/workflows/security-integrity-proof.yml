@@ -85,6 +85,10 @@ jobs:
       - name: Verify migrated schema
         run: pnpm db:verify
 
+      - name: Prove scheduled backup dump, upload contract and retention
+        shell: bash
+        run: bash db/proofs/phase16_backup_automation_e2e.sh
+
       - name: Seed administrative authorization policy twice
         run: |
           pnpm db:seed:phase12
