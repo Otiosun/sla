@@ -39,7 +39,10 @@ async function seedOperationalFixtures(pool: Pool): Promise<{
      LIMIT 400`,
   );
   const playerIds = players.rows.map((row) => row.id);
-  assert(playerIds.length === 400, `Expected 400 existing performance players, got ${playerIds.length}`);
+  assert(
+    playerIds.length === 400,
+    `Expected 400 existing performance players, got ${playerIds.length}`,
+  );
 
   const rulesetId = randomUUID();
   const releaseId = randomUUID();
@@ -72,10 +75,10 @@ async function seedOperationalFixtures(pool: Pool): Promise<{
     itemId,
     `phase16-performance-${itemId}`,
   ]);
-  await pool.query(
-    "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 32000, $2)",
-    [speciesId, `phase16-performance-${speciesId}`],
-  );
+  await pool.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 32000, $2)", [
+    speciesId,
+    `phase16-performance-${speciesId}`,
+  ]);
   await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
     formId,
     speciesId,
@@ -291,7 +294,11 @@ async function runMainPathLoad(pool: Pool, playerIds: readonly string[]): Promis
   let claimedTotal = 0;
   const startedOutboxAt = performance.now();
   for (;;) {
-    const claimed = await messaging.claimOutbox({ limit: 50, staleAfterMs: 30_000, maxAttempts: 5 });
+    const claimed = await messaging.claimOutbox({
+      limit: 50,
+      staleAfterMs: 30_000,
+      maxAttempts: 5,
+    });
     if (claimed.length === 0) break;
     claimedTotal += claimed.length;
     await Promise.all(claimed.map((message) => messaging.markOutboxSent(message.id)));
@@ -307,7 +314,10 @@ async function runMainPathLoad(pool: Pool, playerIds: readonly string[]): Promis
      WHERE channel = 'phase16-performance'`,
   );
   const row = outboxState.rows[0];
-  assert(row?.pending === "0" && row.sent === "1000", `Outbox drain mismatch: ${JSON.stringify(row)}`);
+  assert(
+    row?.pending === "0" && row.sent === "1000",
+    `Outbox drain mismatch: ${JSON.stringify(row)}`,
+  );
   assert(pool.waitingCount === 0, `Load left ${pool.waitingCount} queued DB requests`);
   assert(pool.totalCount <= 8, `Load exceeded pool max: ${pool.totalCount}`);
 
