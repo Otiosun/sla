@@ -39,12 +39,12 @@ export async function reconcileCanonicalAdminRegistry(
        ON CONFLICT (slug) DO NOTHING`,
       [randomUUID(), slug, slug.replaceAll("_", " ")],
     );
-    const role = await client.query<{ id: string }>(
-      `SELECT id FROM admin_roles WHERE slug = $1`,
-      [slug],
-    );
+    const role = await client.query<{ id: string }>(`SELECT id FROM admin_roles WHERE slug = $1`, [
+      slug,
+    ]);
     const roleId = role.rows[0]?.id;
-    if (roleId === undefined) throw new Error(`Canonical admin role missing after reconciliation: ${slug}`);
+    if (roleId === undefined)
+      throw new Error(`Canonical admin role missing after reconciliation: ${slug}`);
 
     await client.query(
       `DELETE FROM admin_role_capabilities relation
@@ -88,7 +88,9 @@ export async function reconcileCanonicalAdminRegistry(
     const expected = [...capabilityKeys].sort();
     const actualKeys = actual.rows.map((row) => row.key);
     if (JSON.stringify(actualKeys) !== JSON.stringify(expected)) {
-      throw new Error(`Canonical admin role capability drift remains after reconciliation: ${slug}`);
+      throw new Error(
+        `Canonical admin role capability drift remains after reconciliation: ${slug}`,
+      );
     }
     if (slug === OWNER_SECURITY_ADMIN_ROLE) ownerRoleId = roleId;
   }

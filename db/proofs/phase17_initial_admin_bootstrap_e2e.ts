@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { Pool } from "pg";
-import { ADMIN_CAPABILITIES, OWNER_SECURITY_ADMIN_ROLE } from "../../src/modules/admin/registry-catalog.js";
+import {
+  ADMIN_CAPABILITIES,
+  OWNER_SECURITY_ADMIN_ROLE,
+} from "../../src/modules/admin/registry-catalog.js";
 import { loadInitialAdminBootstrapConfig } from "../../src/operations/initial-admin-bootstrap-config.js";
 import {
   bootstrapInitialAdmin,
@@ -33,8 +36,14 @@ function runCli(env: NodeJS.ProcessEnv): CliResult {
   return JSON.parse(line) as CliResult;
 }
 
-async function deleteBootstrapEvidence(pool: Pool, principalId: string, correlationId: string): Promise<void> {
-  await pool.query("DELETE FROM admin_initial_bootstrap_state WHERE singleton_key = 'INITIAL_ADMIN'");
+async function deleteBootstrapEvidence(
+  pool: Pool,
+  principalId: string,
+  correlationId: string,
+): Promise<void> {
+  await pool.query(
+    "DELETE FROM admin_initial_bootstrap_state WHERE singleton_key = 'INITIAL_ADMIN'",
+  );
   await pool.query("DELETE FROM audit_events WHERE correlation_id = $1", [correlationId]);
   await pool.query("DELETE FROM admin_principal_scopes WHERE principal_id = $1", [principalId]);
   await pool.query("DELETE FROM admin_principal_roles WHERE principal_id = $1", [principalId]);
@@ -137,7 +146,9 @@ try {
     authorization.scopes[0]?.scopeType !== "GLOBAL" ||
     authorization.scopes[0]?.scopeId !== null
   ) {
-    throw new Error("Restricted runtime cannot resolve the bootstrapped owner authorization snapshot");
+    throw new Error(
+      "Restricted runtime cannot resolve the bootstrapped owner authorization snapshot",
+    );
   }
 
   const runtimePrivileges = await runtimePool.query<{
@@ -178,7 +189,9 @@ try {
       environment: config.appEnv,
       deploymentRevision: config.deploymentRevision,
     });
-    throw new Error("Initial admin bootstrap unexpectedly adopted a pre-existing unmarked principal");
+    throw new Error(
+      "Initial admin bootstrap unexpectedly adopted a pre-existing unmarked principal",
+    );
   } catch (error) {
     if (!(error instanceof InitialAdminBootstrapExistingPrincipalError)) throw error;
   } finally {
@@ -186,7 +199,8 @@ try {
   }
 
   const final = runCli(process.env);
-  if (final.replayed) throw new Error("Final bootstrap reconstruction unexpectedly replayed missing state");
+  if (final.replayed)
+    throw new Error("Final bootstrap reconstruction unexpectedly replayed missing state");
 
   process.stdout.write(
     `${JSON.stringify({

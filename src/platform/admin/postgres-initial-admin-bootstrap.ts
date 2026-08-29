@@ -55,16 +55,18 @@ async function assertMigratorOwnsBootstrapObjects(client: PoolClient): Promise<v
                 AND pg_get_userbyid(c.relowner) <> current_user
               ORDER BY c.relname
             ) AS mismatched`,
-    [[
-      "admin_principals",
-      "admin_roles",
-      "capabilities",
-      "admin_role_capabilities",
-      "admin_principal_roles",
-      "admin_principal_scopes",
-      "admin_initial_bootstrap_state",
-      "audit_events",
-    ]],
+    [
+      [
+        "admin_principals",
+        "admin_roles",
+        "capabilities",
+        "admin_role_capabilities",
+        "admin_principal_roles",
+        "admin_principal_scopes",
+        "admin_initial_bootstrap_state",
+        "audit_events",
+      ],
+    ],
   );
   const row = result.rows[0];
   if (row === undefined || row.mismatched.length > 0) {

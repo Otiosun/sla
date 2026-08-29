@@ -11,8 +11,7 @@ function validEnv(): NodeJS.ProcessEnv {
   return {
     APP_ENV: "staging",
     DATABASE_URL: "postgresql://runtime:runtime-password@localhost:5432/pokemon_rpg",
-    MIGRATOR_DATABASE_URL:
-      "postgresql://migrator:migrator-password@localhost:5432/pokemon_rpg",
+    MIGRATOR_DATABASE_URL: "postgresql://migrator:migrator-password@localhost:5432/pokemon_rpg",
     DEPLOY_REVISION: REVISION,
     ADMIN_BOOTSTRAP_IDENTITY_REF: "proof:owner",
     ADMIN_BOOTSTRAP_CONFIRMATION: expectedInitialAdminBootstrapConfirmation("staging", REVISION),

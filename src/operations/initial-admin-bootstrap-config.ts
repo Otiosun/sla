@@ -65,14 +65,13 @@ export function loadInitialAdminBootstrapConfig(
     const issues = parsed.error.issues
       .map((issue) => `${issue.path.join(".") || "environment"}: ${issue.message}`)
       .join("; ");
-    throw new InitialAdminBootstrapConfigError(`Invalid initial admin bootstrap configuration: ${issues}`);
+    throw new InitialAdminBootstrapConfigError(
+      `Invalid initial admin bootstrap configuration: ${issues}`,
+    );
   }
 
   const runtimeUrl = parseDatabaseUrl(parsed.data.DATABASE_URL, "DATABASE_URL");
-  const migratorUrl = parseDatabaseUrl(
-    parsed.data.MIGRATOR_DATABASE_URL,
-    "MIGRATOR_DATABASE_URL",
-  );
+  const migratorUrl = parseDatabaseUrl(parsed.data.MIGRATOR_DATABASE_URL, "MIGRATOR_DATABASE_URL");
   if (databaseTarget(runtimeUrl) !== databaseTarget(migratorUrl)) {
     throw new InitialAdminBootstrapConfigError(
       "Runtime and migrator credentials must target the same database",
