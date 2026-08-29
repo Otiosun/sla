@@ -1,0 +1,86 @@
+name: Performance Proof
+
+on:
+  push:
+    branches:
+      - main
+      - "gate/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  performance:
+    name: postgres load / explain / pool / soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_performance
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_performance
+      DATABASE_POOL_MAX: 8
+      DATABASE_CONNECT_TIMEOUT_MS: 5000
+      DATABASE_IDLE_TIMEOUT_MS: 30000
+      DATABASE_QUERY_TIMEOUT_MS: 10000
+      DATABASE_STATEMENT_TIMEOUT_MS: 10000
+      DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: 15000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres-performance \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_performance \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres-performance psql \
+              --username pokemon \
+              --dbname pokemon_rpg_performance \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              echo "PostgreSQL performance database is ready."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs pokemon-postgres-performance
+          exit 1
+
+      - name: Apply immutable migrations
+        run: pnpm db:migrate
+
+      - name: Verify migrated schema
+        run: pnpm db:verify
+
+      - name: Run Phase 16 performance E2E
+        run: node --expose-gc --import tsx db/proofs/phase16_performance_e2e.ts
