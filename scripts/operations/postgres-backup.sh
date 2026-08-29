@@ -23,6 +23,7 @@ require_command docker
 require_command aws
 require_command sha256sum
 require_command date
+require_command id
 
 require_env DATABASE_URL
 require_env BACKUP_S3_BUCKET
@@ -50,6 +51,12 @@ stamp="$(date -u -d "$started_at" +%Y%m%dT%H%M%SZ)"
 source_sha="${GITHUB_SHA:-unknown}"
 [[ "$source_sha" =~ ^([0-9a-f]{40}|unknown)$ ]] || fail "GITHUB_SHA must be a 40-character lowercase hex SHA when provided"
 
+network_args=()
+if [[ -n "${BACKUP_DOCKER_NETWORK:-}" ]]; then
+  [[ "$BACKUP_DOCKER_NETWORK" =~ ^[A-Za-z0-9._:/-]+$ ]] || fail "BACKUP_DOCKER_NETWORK contains unsupported characters"
+  network_args=(--network "$BACKUP_DOCKER_NETWORK")
+fi
+
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
@@ -60,6 +67,9 @@ manifest_path="$dump_path.json"
 
 # Keep the PostgreSQL client pinned to the same major/server image used by permanent CI proofs.
 docker run --rm \
+  "${network_args[@]}" \
+  --user "$(id -u):$(id -g)" \
+  --env HOME=/tmp \
   --env DATABASE_URL \
   --volume "$workdir:/backup" \
   "$POSTGRES_DUMP_IMAGE" \
@@ -68,7 +78,7 @@ docker run --rm \
 [[ -s "$dump_path" ]] || fail "pg_dump produced an empty backup"
 (
   cd "$workdir"
-  sha256sum "$dump_name" > "$(basename "$checksum_path")"
+  sha256sum "$dump_name" >"$(basename "$checksum_path")"
 )
 
 cat >"$manifest_path" <<EOF
@@ -80,7 +90,7 @@ for path in "$dump_path" "$checksum_path" "$manifest_path"; do
   aws s3 cp "$path" "$base_uri/$(basename "$path")" \
     --only-show-errors \
     --sse AES256
- done
+done
 
 cutoff="$(date -u -d "$retention_days days ago" +%Y-%m-%dT%H:%M:%SZ)"
 expired_keys="$(
