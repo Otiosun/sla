@@ -1,9 +1,5 @@
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
-import {
-  type MetricSink,
-  monotonicNowMs,
-  NOOP_METRICS,
-} from "../../platform/metrics/index.js";
+import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
 import type { WhatsAppAdapter, WhatsAppIncomingHandler } from "./adapter.js";
 import { normalizeBaileysMessage } from "./baileys-normalizer.js";
 import type {
