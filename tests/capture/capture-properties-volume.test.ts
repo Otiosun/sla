@@ -61,34 +61,30 @@ function assertValidResult(input: CaptureProbabilityInput): void {
 }
 
 describe("Capture probability volume properties", () => {
-  it(
-    "fuzzes 25,000 valid capture states without impossible probability",
-    () => {
-      const random = new DeterministicRandom();
-      const samples = 25_000;
+  it("fuzzes 25,000 valid capture states without impossible probability", () => {
+    const random = new DeterministicRandom();
+    const samples = 25_000;
 
-      for (let sample = 0; sample < samples; sample += 1) {
-        const maxHp = random.int(1, 999_999);
-        const modifierCount = random.int(0, 6);
-        const modifiers = Array.from({ length: modifierCount }, () => random.int(1, 100_000));
-        const input: CaptureProbabilityInput = {
-          catchRate: random.int(0, 255),
-          currentHp: random.int(1, maxHp),
-          maxHp,
-          ballMultiplierBasisPoints: random.int(1, 100_000),
-          status: STATUSES[random.int(0, STATUSES.length - 1)] ?? null,
-          explicitModifierBasisPoints: modifiers,
-          ruleset: {
-            model: "POKEMON_INSPIRED_V1",
-            maxProbabilityBasisPoints: random.int(1, 10_000),
-          },
-        };
+    for (let sample = 0; sample < samples; sample += 1) {
+      const maxHp = random.int(1, 999_999);
+      const modifierCount = random.int(0, 6);
+      const modifiers = Array.from({ length: modifierCount }, () => random.int(1, 100_000));
+      const input: CaptureProbabilityInput = {
+        catchRate: random.int(0, 255),
+        currentHp: random.int(1, maxHp),
+        maxHp,
+        ballMultiplierBasisPoints: random.int(1, 100_000),
+        status: STATUSES[random.int(0, STATUSES.length - 1)] ?? null,
+        explicitModifierBasisPoints: modifiers,
+        ruleset: {
+          model: "POKEMON_INSPIRED_V1",
+          maxProbabilityBasisPoints: random.int(1, 10_000),
+        },
+      };
 
-        assertValidResult(input);
-      }
+      assertValidResult(input);
+    }
 
-      expect(samples).toBe(25_000);
-    },
-    20_000,
-  );
+    expect(samples).toBe(25_000);
+  }, 20_000);
 });
