@@ -1,0 +1,97 @@
+name: Security Integrity Proof
+
+on:
+  push:
+    branches:
+      - main
+      - "gate/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-integrity-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: dependencies / fuzz / audit trace / admin boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies for high or critical advisories
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Run 25k Capture property fuzz samples
+        run: pnpm exec vitest run tests/capture/capture-properties-volume.test.ts
+
+      - name: Run administrative boundary unit security invariants
+        run: pnpm exec vitest run tests/admin
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-postgres psql \
+              --username pokemon \
+              --dbname pokemon_rpg_test \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs pokemon-postgres
+          exit 1
+
+      - name: Apply immutable migrations
+        run: pnpm db:migrate
+
+      - name: Verify migrated schema
+        run: pnpm db:verify
+
+      - name: Seed administrative authorization policy twice
+        run: |
+          pnpm db:seed:phase12
+          pnpm db:seed:phase12
+
+      - name: Run 1k PostgreSQL Economy mutation fuzz proof
+        run: node --import tsx db/proofs/phase16_economy_fuzz_e2e.ts
+
+      - name: Reconstruct correlation and causation audit trail
+        run: node --import tsx db/proofs/phase12_admin_audit_reconstruction_e2e.ts
