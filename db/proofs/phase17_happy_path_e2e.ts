@@ -288,7 +288,9 @@ async function main(): Promise<void> {
       [playerId],
     );
     if (onboarding.rows[0]?.state !== "COMPLETE") {
-      throw new Error(`Happy-path onboarding did not complete: ${JSON.stringify(onboarding.rows[0])}`);
+      throw new Error(
+        `Happy-path onboarding did not complete: ${JSON.stringify(onboarding.rows[0])}`,
+      );
     }
 
     // perfil: prove the post-starter user-facing projection, not a second profile mutation.
@@ -298,7 +300,8 @@ async function main(): Promise<void> {
       throw new Error(`Post-starter profile is not readable: ${profileText}`);
     }
     const team = await reads.listTeam(playerId);
-    if (team.length !== 1) throw new Error(`Starter team projection expected 1 member, got ${team.length}`);
+    if (team.length !== 1)
+      throw new Error(`Starter team projection expected 1 member, got ${team.length}`);
 
     // viajar
     await receiveProcessed(messaging, "f17-happy-where", "$onde", 7);
@@ -309,12 +312,7 @@ async function main(): Promise<void> {
     if (destinationSlug !== "route-1" || revision === undefined) {
       throw new Error(`Happy-path route command was not Route 1: ${whereText}`);
     }
-    await receiveProcessed(
-      messaging,
-      "f17-happy-travel",
-      `$ir ${destinationSlug} v${revision}`,
-      8,
-    );
+    await receiveProcessed(messaging, "f17-happy-travel", `$ir ${destinationSlug} v${revision}`, 8);
     const location = await pool.query<{ slug: string }>(
       `SELECT area.slug
        FROM player_locations location
@@ -322,7 +320,8 @@ async function main(): Promise<void> {
        WHERE location.player_id = $1`,
       [playerId],
     );
-    if (location.rows[0]?.slug !== "route-1") throw new Error("Happy-path travel did not reach Route 1");
+    if (location.rows[0]?.slug !== "route-1")
+      throw new Error("Happy-path travel did not reach Route 1");
 
     // encontro → battle
     const encounter = new EncounterService(
@@ -378,11 +377,14 @@ async function main(): Promise<void> {
       }),
     );
     if (itemGrant.quantity !== 1n || itemGrant.replayed) {
-      throw new Error(`Economy item grant was not first-write quantity 1: ${JSON.stringify(itemGrant)}`);
+      throw new Error(
+        `Economy item grant was not first-write quantity 1: ${JSON.stringify(itemGrant)}`,
+      );
     }
     const inventory = await reads.listInventory(playerId);
     const ballView = inventory.find((entry) => entry.itemId === ballItemId);
-    if (ballView?.quantity !== 1n) throw new Error("Poké Ball is not visible in operational inventory");
+    if (ballView?.quantity !== 1n)
+      throw new Error("Poké Ball is not visible in operational inventory");
     await receiveProcessed(messaging, "f17-happy-inventory", "$inventario", 9);
     const inventoryText = await outgoingText(pool, "f17-happy-inventory");
     if (!inventoryText.includes("INVENTÁRIO") || !inventoryText.includes(ballView.displayName)) {
@@ -408,7 +410,9 @@ async function main(): Promise<void> {
       }),
     );
     if (captured.status !== "CAPTURED" || captured.pokemonInstanceId === null) {
-      throw new Error(`Deterministic happy-path capture did not succeed: ${JSON.stringify(captured)}`);
+      throw new Error(
+        `Deterministic happy-path capture did not succeed: ${JSON.stringify(captured)}`,
+      );
     }
     const ballAfterCapture = await pool.query<{ quantity: string; consume_ledgers: string }>(
       `SELECT balance.quantity::text AS quantity,
@@ -423,12 +427,15 @@ async function main(): Promise<void> {
       ballAfterCapture.rows[0]?.quantity !== "0" ||
       ballAfterCapture.rows[0]?.consume_ledgers !== "1"
     ) {
-      throw new Error(`Capture did not consume exactly one item: ${JSON.stringify(ballAfterCapture.rows[0])}`);
+      throw new Error(
+        `Capture did not consume exactly one item: ${JSON.stringify(ballAfterCapture.rows[0])}`,
+      );
     }
 
     const pokedex = await reads.listPokedex(playerId);
     const caughtSpecies = pokedex.find((entry) => entry.caughtCount > 0n);
-    if (caughtSpecies === undefined) throw new Error("Capture did not establish a caught Pokédex entry");
+    if (caughtSpecies === undefined)
+      throw new Error("Capture did not establish a caught Pokédex entry");
     await receiveProcessed(messaging, "f17-happy-pokedex", "$pokedex", 10);
     const pokedexText = await outgoingText(pool, "f17-happy-pokedex");
     if (!pokedexText.includes("POKÉDEX") || !pokedexText.includes(caughtSpecies.displayName)) {
@@ -461,7 +468,9 @@ async function main(): Promise<void> {
       !reward.pokemon.some((entry) => entry.awardedXp > 0) ||
       reward.trainer.pointsGained <= 0
     ) {
-      throw new Error(`Battle reward did not grant Pokemon/trainer progress: ${JSON.stringify(reward)}`);
+      throw new Error(
+        `Battle reward did not grant Pokemon/trainer progress: ${JSON.stringify(reward)}`,
+      );
     }
 
     // admin inspect/edit: one scoped ECONOMY_ADMIN may read this player and apply an auditable R2 edit.
@@ -475,10 +484,10 @@ async function main(): Promise<void> {
       "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
       [principalId, `phase17:happy-admin:${principalId}`],
     );
-    await pool.query(
-      "INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)",
-      [principalId, roleId],
-    );
+    await pool.query("INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)", [
+      principalId,
+      roleId,
+    ]);
     await pool.query(
       `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
        VALUES ($1, $2, 'PLAYER', $3)`,
@@ -503,7 +512,8 @@ async function main(): Promise<void> {
       operationType: "player.read",
       input: { playerId },
     });
-    if (inspected.id !== playerId) throw new Error("Admin inspect did not resolve the target player");
+    if (inspected.id !== playerId)
+      throw new Error("Admin inspect did not resolve the target player");
 
     const prepared = await admin.prepareMutation({
       principalId,
