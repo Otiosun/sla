@@ -84,3 +84,6 @@ jobs:
 
       - name: Run Phase 16 performance E2E
         run: node --expose-gc --import tsx db/proofs/phase16_performance_e2e.ts
+
+      - name: Run Phase 16 canonical performance coverage E2E
+        run: node --import tsx db/proofs/phase16_performance_coverage_e2e.ts
