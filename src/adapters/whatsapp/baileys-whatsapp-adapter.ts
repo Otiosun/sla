@@ -1,4 +1,5 @@
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
+import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
 import type { WhatsAppAdapter, WhatsAppIncomingHandler } from "./adapter.js";
 import { normalizeBaileysMessage } from "./baileys-normalizer.js";
 import type {
@@ -24,6 +25,7 @@ export interface BaileysWhatsAppAdapterOptions {
   readonly socketFactory?: BaileysSocketFactory;
   readonly reconnectDelayMs?: number;
   readonly logger?: BaileysLoggerLike;
+  readonly metrics?: MetricSink;
   readonly onQr?: (qr: string) => Promise<void> | void;
   readonly onLoggedOut?: () => Promise<void> | void;
   readonly onProviderError?: (error: unknown) => void;
@@ -80,6 +82,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private readonly socketFactory: BaileysSocketFactory;
   private readonly reconnectDelayMs: number;
   private readonly logger: BaileysLoggerLike;
+  private readonly metrics: MetricSink;
   private readonly onQr: ((qr: string) => Promise<void> | void) | undefined;
   private readonly onLoggedOut: (() => Promise<void> | void) | undefined;
   private readonly onProviderError: (error: unknown) => void;
@@ -95,6 +98,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     this.socketFactory = options.socketFactory ?? productionSocketFactory;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_500;
     this.logger = options.logger ?? silentLogger;
+    this.metrics = options.metrics ?? NOOP_METRICS;
     this.onQr = options.onQr;
     this.onLoggedOut = options.onLoggedOut;
     this.onProviderError = options.onProviderError ?? (() => {});
@@ -135,11 +139,24 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   }
 
   async send(message: PendingOutboxMessage): Promise<void> {
-    const socket = this.socket;
-    if (socket === null || this.stopped) {
-      throw new Error("Baileys WhatsApp adapter is not connected");
+    const startedAtMs = monotonicNowMs();
+    let result: "success" | "error" = "success";
+    try {
+      const socket = this.socket;
+      if (socket === null || this.stopped) {
+        throw new Error("Baileys WhatsApp adapter is not connected");
+      }
+      await socket.sendMessage(message.destinationRef, { text: textPayload(message) });
+      this.metrics.increment("whatsapp.outgoing.total");
+    } catch (error) {
+      result = "error";
+      this.metrics.increment("whatsapp.outgoing.errors_total");
+      throw error;
+    } finally {
+      this.metrics.observe("whatsapp.outgoing.duration_ms", monotonicNowMs() - startedAtMs, {
+        result,
+      });
     }
-    await socket.sendMessage(message.destinationRef, { text: textPayload(message) });
   }
 
   private connect(): void {
@@ -159,9 +176,10 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       void this.auth.saveCredentials().catch((error) => this.onProviderError(error));
     });
     socket.ev.on("messages.upsert", (event) => {
-      void this.handleMessageUpsert(generation, event).catch((error) =>
-        this.onProviderError(error),
-      );
+      void this.handleMessageUpsert(generation, event).catch((error) => {
+        this.metrics.increment("whatsapp.incoming.errors_total");
+        this.onProviderError(error);
+      });
     });
     socket.ev.on("connection.update", (update) => {
       void this.handleConnectionUpdate(generation, socket, update).catch((error) =>
@@ -183,6 +201,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     for (const message of event.messages) {
       const normalized = normalizeBaileysMessage(message);
       if (normalized !== null) {
+        this.metrics.increment("whatsapp.incoming.total");
         await handler(normalized);
       }
     }
@@ -199,11 +218,18 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       await this.onQr(update.qr);
     }
 
+    if (update.connection === "open") {
+      this.metrics.increment("whatsapp.connection.open_total");
+      return;
+    }
     if (update.connection !== "close") return;
+
+    this.metrics.increment("whatsapp.connection.close_total");
     if (this.socket === socket) this.socket = null;
 
     const statusCode = statusCodeFromError(update.lastDisconnect?.error);
     if (statusCode === loggedOutStatusCode) {
+      this.metrics.increment("whatsapp.connection.logged_out_total");
       if (this.onLoggedOut) await this.onLoggedOut();
       return;
     }
@@ -214,6 +240,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private scheduleReconnect(generation: number): void {
     if (this.stopped || generation !== this.generation || this.reconnectTimer !== null) return;
 
+    this.metrics.increment("whatsapp.reconnect.scheduled_total");
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (this.stopped || generation !== this.generation) return;
