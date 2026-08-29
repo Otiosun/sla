@@ -35,7 +35,9 @@ function assertMetricValue(value: number): void {
 
 function stableLabels(labels: MetricLabels | undefined): MetricLabels {
   if (labels === undefined) return {};
-  return Object.fromEntries(Object.entries(labels).sort(([left], [right]) => left.localeCompare(right)));
+  return Object.fromEntries(
+    Object.entries(labels).sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 export class NoopMetricSink implements MetricSink {
