@@ -44,17 +44,14 @@ interface BootstrapStateRow {
 }
 
 async function assertMigratorOwnsBootstrapObjects(client: PoolClient): Promise<void> {
-  const result = await client.query<{ current_user: string; mismatched: string[] }>(
-    `SELECT current_user,
-            ARRAY(
-              SELECT c.relname
-              FROM pg_class c
-              JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE n.nspname = 'public'
-                AND c.relname = ANY($1::text[])
-                AND pg_get_userbyid(c.relowner) <> current_user
-              ORDER BY c.relname
-            ) AS mismatched`,
+  const result = await client.query<{ mismatch_count: number; mismatched_names: string }>(
+    `SELECT count(*)::integer AS mismatch_count,
+            COALESCE(string_agg(c.relname, ', ' ORDER BY c.relname), '') AS mismatched_names
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = ANY($1::text[])
+       AND pg_get_userbyid(c.relowner) <> current_user`,
     [
       [
         "admin_principals",
@@ -74,9 +71,9 @@ async function assertMigratorOwnsBootstrapObjects(client: PoolClient): Promise<v
       "Initial admin bootstrap could not verify schema ownership",
     );
   }
-  if (row.mismatched.length > 0) {
+  if (row.mismatch_count > 0) {
     throw new InitialAdminBootstrapPrivilegeError(
-      `Initial admin bootstrap current role does not own required objects: ${row.mismatched.join(", ")}`,
+      `Initial admin bootstrap current role does not own required objects: ${row.mismatched_names}`,
     );
   }
 }
