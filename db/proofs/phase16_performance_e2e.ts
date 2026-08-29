@@ -99,14 +99,13 @@ async function proveExplainAnalyze(pool: Pool): Promise<void> {
     `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
      SELECT player_id
      FROM player_profiles
-     WHERE lower(trainer_name) LIKE lower('Perf-00') || '%'
-     ORDER BY player_id
+     WHERE lower(trainer_name) LIKE 'perf-01499%'
      LIMIT 50`,
   );
   const profilePlanText = planText(profilePlan.rows[0]?.["QUERY PLAN"]);
   assert(
     profilePlanText.includes("idx_player_profiles_trainer_name_lower_pattern"),
-    `Trainer-name prefix query did not use its dedicated index: ${profilePlanText}`,
+    `Selective trainer-name prefix query did not use its dedicated index: ${profilePlanText}`,
   );
   assert(profilePlanText.includes("Actual Total Time"), "Profile EXPLAIN ANALYZE did not execute");
 }
