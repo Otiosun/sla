@@ -76,6 +76,14 @@ docker run --rm \
   sh -ceu 'pg_dump --dbname "$DATABASE_URL" --format custom --no-owner --no-acl --file "/backup/'"$dump_name"'"'
 
 [[ -s "$dump_path" ]] || fail "pg_dump produced an empty backup"
+
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  --env HOME=/tmp \
+  --volume "$workdir:/backup:ro" \
+  "$POSTGRES_DUMP_IMAGE" \
+  pg_restore --list "/backup/$dump_name" >/dev/null
+
 (
   cd "$workdir"
   sha256sum "$dump_name" >"$(basename "$checksum_path")"
