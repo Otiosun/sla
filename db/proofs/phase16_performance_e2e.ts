@@ -132,11 +132,18 @@ async function proveNoNPlusOne(pool: Pool): Promise<void> {
 }
 
 async function provePoolSaturationAndBackpressure(): Promise<void> {
-  const smallPool = new Pool({ connectionString: databaseUrl, max: 2, connectionTimeoutMillis: 2_000 });
+  const smallPool = new Pool({
+    connectionString: databaseUrl,
+    max: 2,
+    connectionTimeoutMillis: 2_000,
+  });
   try {
     const first = await smallPool.connect();
     const second = await smallPool.connect();
-    assert(smallPool.totalCount === 2, `Pool created beyond configured max: ${smallPool.totalCount}`);
+    assert(
+      smallPool.totalCount === 2,
+      `Pool created beyond configured max: ${smallPool.totalCount}`,
+    );
 
     let thirdResolved = false;
     const thirdPromise = smallPool.connect().then((client) => {
@@ -146,7 +153,10 @@ async function provePoolSaturationAndBackpressure(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 75));
 
     assert(!thirdResolved, "Pool did not apply backpressure while saturated");
-    assert(smallPool.waitingCount === 1, `Expected one queued waiter, got ${smallPool.waitingCount}`);
+    assert(
+      smallPool.waitingCount === 1,
+      `Expected one queued waiter, got ${smallPool.waitingCount}`,
+    );
     assert(smallPool.totalCount === 2, `Backpressure escaped pool max: ${smallPool.totalCount}`);
 
     first.release();
@@ -156,8 +166,14 @@ async function provePoolSaturationAndBackpressure(): Promise<void> {
     second.release();
 
     await new Promise((resolve) => setTimeout(resolve, 25));
-    assert(smallPool.waitingCount === 0, `Pool waiter leaked after drain: ${smallPool.waitingCount}`);
-    assert(smallPool.totalCount <= 2, `Pool remained above configured max: ${smallPool.totalCount}`);
+    assert(
+      smallPool.waitingCount === 0,
+      `Pool waiter leaked after drain: ${smallPool.waitingCount}`,
+    );
+    assert(
+      smallPool.totalCount <= 2,
+      `Pool remained above configured max: ${smallPool.totalCount}`,
+    );
   } finally {
     await smallPool.end();
   }
@@ -183,7 +199,10 @@ async function proveRealisticLoad(pool: Pool, playerIds: readonly string[]): Pro
   assert(failures.length === 0, `Realistic mixed load had ${failures.length} rejected operations`);
   const elapsedMs = performance.now() - startedAt;
   const throughputPerSecond = operations.length / (elapsedMs / 1_000);
-  assert(Number.isFinite(throughputPerSecond) && throughputPerSecond > 0, "Invalid measured throughput");
+  assert(
+    Number.isFinite(throughputPerSecond) && throughputPerSecond > 0,
+    "Invalid measured throughput",
+  );
   assert(pool.waitingCount === 0, `Main load pool did not drain: ${pool.waitingCount} waiters`);
   assert(pool.totalCount <= 8, `Main load pool exceeded configured max: ${pool.totalCount}`);
 
@@ -205,7 +224,10 @@ async function proveSoakAndMemory(pool: Pool): Promise<void> {
 
   for (let round = 0; round < 25; round += 1) {
     await Promise.all(Array.from({ length: 20 }, () => repository.searchPlayers(SEARCH_QUERY)));
-    assert(pool.totalCount <= 8, `Soak pool exceeded max during round ${round}: ${pool.totalCount}`);
+    assert(
+      pool.totalCount <= 8,
+      `Soak pool exceeded max during round ${round}: ${pool.totalCount}`,
+    );
   }
 
   gc();
