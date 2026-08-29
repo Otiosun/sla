@@ -1,9 +1,4 @@
-import {
-  type MetricLabels,
-  type MetricSink,
-  monotonicNowMs,
-  NOOP_METRICS,
-} from "./index.js";
+import { type MetricLabels, type MetricSink, monotonicNowMs, NOOP_METRICS } from "./index.js";
 
 export interface ResultLike {
   readonly ok: boolean;
