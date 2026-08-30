@@ -1,3 +1,4 @@
+import type { BaileysWaWebVersion } from "../adapters/whatsapp/baileys-provider-contracts.js";
 import { loadConfig } from "../platform/config/env.js";
 import {
   assertWhatsAppPairingProviderVersionSupported,
@@ -18,6 +19,7 @@ export type TerminalQrRenderer = (payload: string, callback: (rendered: string) 
 export type PairingCliExecutor = (
   config: WhatsAppPairingBootstrapConfig,
   providerVersion: string,
+  waWebVersion: BaileysWaWebVersion,
   qrSink: SensitivePairingQrSink,
 ) => Promise<void>;
 
@@ -27,6 +29,7 @@ export interface WhatsAppPairingBootstrapCliOptions {
   readonly stdoutIsTTY: boolean;
   readonly isCI: boolean;
   readonly resolveProviderVersion: () => Promise<string>;
+  readonly resolveWaWebVersion: () => Promise<BaileysWaWebVersion>;
   readonly executePairing: PairingCliExecutor;
   readonly renderQr: TerminalQrRenderer;
   readonly writeStdout: (chunk: string) => void;
@@ -86,9 +89,12 @@ export async function runWhatsAppPairingBootstrapCli(
   assertWhatsAppPairingProviderVersionSupported(providerVersion);
   assertInteractiveTerminal(options);
 
+  const waWebVersion = await options.resolveWaWebVersion();
+
   await options.executePairing(
     config,
     providerVersion,
+    waWebVersion,
     createTerminalPairingQrSink(options.renderQr, options.writeStdout),
   );
 }
