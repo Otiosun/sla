@@ -167,7 +167,11 @@ export function assertWhatsAppPairingProviderVersionSupported(
         ? PRODUCTION_APPROVED_PROVIDER_VERSIONS
         : null;
 
-  if (providerVersion.length === 0 || eligibleVersions === null || !eligibleVersions.has(providerVersion)) {
+  if (
+    providerVersion.length === 0 ||
+    eligibleVersions === null ||
+    !eligibleVersions.has(providerVersion)
+  ) {
     throw new WhatsAppPairingProviderVersionBlockedError(
       `WhatsApp first pairing is blocked for Baileys ${providerVersion || "unknown"} in ${appEnv}`,
     );
