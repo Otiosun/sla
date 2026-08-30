@@ -3,7 +3,11 @@ import type {
   ResolvePlayerTurnInput,
   ResolvePlayerTurnOutput,
 } from "../battle/service.js";
-import { DEFAULT_MUTATION_ADMISSION_POLICIES, type MutationAdmissionPort } from "./contracts.js";
+import {
+  DEFAULT_MUTATION_ADMISSION_POLICIES,
+  type MutationAdmissionPort,
+  type MutationRatePolicy,
+} from "./contracts.js";
 import { admitProtectedMutation } from "./admission-helper.js";
 
 export interface BattleActionOwner {
@@ -16,6 +20,7 @@ export class ProtectedBattleGateway {
   public constructor(
     private readonly owner: BattleActionOwner,
     private readonly admission: MutationAdmissionPort,
+    private readonly policy: MutationRatePolicy = DEFAULT_MUTATION_ADMISSION_POLICIES.battle,
   ) {}
 
   public async resolvePlayerTurn(input: ResolvePlayerTurnInput) {
@@ -30,7 +35,7 @@ export class ProtectedBattleGateway {
         expectedVersion: input.expectedVersion,
         action: input.action,
       },
-      policy: DEFAULT_MUTATION_ADMISSION_POLICIES.battle,
+      policy: this.policy,
     });
     if (!admitted.ok) {
       return {
