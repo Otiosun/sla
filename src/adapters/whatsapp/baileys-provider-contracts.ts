@@ -75,12 +75,15 @@ export interface BaileysLoggerLike {
   error(...args: unknown[]): void;
 }
 
+export type BaileysWaWebVersion = readonly [number, number, number];
+
 export interface BaileysSocketConfigLike {
   readonly auth: unknown;
   readonly logger: BaileysLoggerLike;
   readonly markOnlineOnConnect: boolean;
   readonly shouldSyncHistoryMessage: (...args: unknown[]) => boolean;
   readonly syncFullHistory: boolean;
+  readonly version?: BaileysWaWebVersion;
 }
 
 export interface BaileysEventMapLike {
