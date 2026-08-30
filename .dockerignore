@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+node_modules
+dist
+tests
+docs
+db/proofs
+db/seeds
+db/imports
+db/bootstrap
+scripts/operations
+*.log
+*.zip
