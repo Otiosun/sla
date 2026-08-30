@@ -82,6 +82,14 @@ function applyResponseBoundary(reply: FastifyReply, correlationId: string): void
   reply.header("vary", "Origin");
 }
 
+function trustedReadContext(identity: ResolvedAdminIdentityContext, request: FastifyRequest) {
+  return {
+    principalId: identity.principalId,
+    environment: identity.environment,
+    correlationId: request.id,
+  };
+}
+
 async function authenticateAndLimit(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -157,7 +165,7 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     const identity = await authenticateAndLimit(request, reply, dependencies, "player.search");
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
-    return dependencies.readFacade.searchPlayers(identity, query);
+    return dependencies.readFacade.searchPlayers(trustedReadContext(identity, request), query);
   });
 
   server.get("/admin/v1/players/:playerId", async (request, reply) => {
@@ -165,7 +173,11 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (identity === null) return reply;
     const params = parseTransport(PlayerParamsSchema, request.params);
     const query = parseTransport(PlayerGetTransportSchema, request.query);
-    return dependencies.readFacade.getPlayer(identity, params.playerId, query);
+    return dependencies.readFacade.getPlayer(
+      trustedReadContext(identity, request),
+      params.playerId,
+      query,
+    );
   });
 
   return server;
