@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import type { MutationRatePolicy, MutationSurface } from "../../src/modules/anti-abuse/contracts.js";
+import type {
+  MutationRatePolicy,
+  MutationSurface,
+} from "../../src/modules/anti-abuse/contracts.js";
 import { mutationFingerprint } from "../../src/modules/anti-abuse/fingerprint.js";
 import { PostgresMutationAdmission } from "../../src/platform/anti-abuse/postgres-mutation-admission.js";
 
@@ -19,7 +22,12 @@ try {
   await pool.query("TRUNCATE mutation_rate_limit_charges, mutation_rate_limit_buckets");
   const admission = new PostgresMutationAdmission(pool);
 
-  for (const surface of ["CAPTURE", "BATTLE", "ECONOMY", "ADMIN"] as const satisfies readonly MutationSurface[]) {
+  for (const surface of [
+    "CAPTURE",
+    "BATTLE",
+    "ECONOMY",
+    "ADMIN",
+  ] as const satisfies readonly MutationSurface[]) {
     const surfacePolicy = policy(`proof.${surface.toLowerCase()}.v1`, 1);
     const base = {
       subjectKind: surface === "ADMIN" ? ("ADMIN_PRINCIPAL" as const) : ("PLAYER" as const),
@@ -65,10 +73,7 @@ try {
      WHERE policy_key LIKE 'proof.%'
      GROUP BY surface`,
   );
-  if (
-    surfaceEvidence.rows.length !== 4 ||
-    surfaceEvidence.rows.some((row) => row.count !== "1")
-  ) {
+  if (surfaceEvidence.rows.length !== 4 || surfaceEvidence.rows.some((row) => row.count !== "1")) {
     throw new Error("Blocked/replayed mutations created unexpected durable charges");
   }
 
@@ -129,7 +134,11 @@ try {
     requestFingerprint: mutationFingerprint({ index: 0 }),
     policy: racePolicy,
   });
-  if (!replayAfterRestart.ok || !replayAfterRestart.value.allowed || !replayAfterRestart.value.replayed) {
+  if (
+    !replayAfterRestart.ok ||
+    !replayAfterRestart.value.allowed ||
+    !replayAfterRestart.value.replayed
+  ) {
     throw new Error("Exact replay after restart lost its original admission");
   }
 
