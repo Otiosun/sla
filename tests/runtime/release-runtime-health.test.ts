@@ -39,11 +39,7 @@ describe("ReleaseRuntimeHealth", () => {
     expect(healthStore.markConnected).toHaveBeenCalledWith(registration.instanceId);
 
     await health.stop("STOPPED", "SIGTERM");
-    expect(healthStore.stop).toHaveBeenCalledWith(
-      registration.instanceId,
-      "STOPPED",
-      "SIGTERM",
-    );
+    expect(healthStore.stop).toHaveBeenCalledWith(registration.instanceId, "STOPPED", "SIGTERM");
   });
 
   it("fails startup closed when durable registration cannot be written", async () => {
