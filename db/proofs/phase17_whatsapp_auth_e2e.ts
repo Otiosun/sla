@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import {
   PostgresBaileysAuthBinding,
+  WhatsAppAuthAlreadyBootstrappedError,
   WhatsAppAuthKeyVersionError,
   WhatsAppAuthLeaseUnavailableError,
   WhatsAppAuthNotBootstrappedError,
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
       encryptionKey: KEY,
       encryptionKeyVersion: 1,
       allowCreate: true,
+      requireCreate: true,
     });
     auth.state.creds.proofMarker = Buffer.from("durable-credentials");
     await auth.saveCredentials();
@@ -68,11 +70,24 @@ async function main(): Promise<void> {
         sessionKey: SESSION,
         encryptionKey: KEY,
         encryptionKeyVersion: 1,
+        allowCreate: true,
+        requireCreate: true,
       }),
       WhatsAppAuthLeaseUnavailableError,
     );
 
     await auth.close();
+
+    await expectReject(
+      PostgresBaileysAuthBinding.open(pool, {
+        sessionKey: SESSION,
+        encryptionKey: KEY,
+        encryptionKeyVersion: 1,
+        allowCreate: true,
+        requireCreate: true,
+      }),
+      WhatsAppAuthAlreadyBootstrappedError,
+    );
 
     const reopened = await PostgresBaileysAuthBinding.open(pool, {
       sessionKey: SESSION,
