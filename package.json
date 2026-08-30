@@ -10,8 +10,10 @@
     "pnpm": "11.23.0"
   },
   "scripts": {
+    "build": "node scripts/build-runtime.mjs",
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "start": "node --env-file=.env --import tsx src/main.ts",
+    "start:prod": "node dist/src/main.js",
     "db:migrate": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts migrate",
     "db:verify": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts verify",
     "db:seed:phase4": "node --env-file-if-exists=.env --import tsx db/seeds/phase4_vertical_slice.ts",
