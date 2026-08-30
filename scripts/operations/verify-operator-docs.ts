@@ -5,6 +5,7 @@ import { ADMIN_ROLE_CAPABILITIES } from "../../src/modules/admin/registry-catalo
 const ROOT = process.cwd();
 const MANUAL = "docs/operations/admin-operator-manual.md";
 const RUNBOOK = "docs/operations/release-recovery-runbook.md";
+const WHATSAPP_PAIRING = "docs/operations/whatsapp-first-pairing.md";
 
 async function read(path: string): Promise<string> {
   return readFile(resolve(ROOT, path), "utf8");
@@ -45,7 +46,11 @@ async function verifyLinkedOperationalDocs(content: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const [manual, runbook] = await Promise.all([read(MANUAL), read(RUNBOOK)]);
+  const [manual, runbook, whatsappPairing] = await Promise.all([
+    read(MANUAL),
+    read(RUNBOOK),
+    read(WHATSAPP_PAIRING),
+  ]);
 
   requireExactAdminRoleTable(manual);
   requireTokens(MANUAL, manual, [
@@ -75,6 +80,8 @@ async function main(): Promise<void> {
     "runtime_grants.sql",
     "pnpm db:verify",
     "initial-admin-bootstrap.md",
+    "whatsapp-first-pairing.md",
+    "pnpm ops:bootstrap:whatsapp",
     "backup-restore.md",
     "disaster-recovery.md",
     "incident-response.md",
@@ -89,13 +96,33 @@ async function main(): Promise<void> {
     "17.5",
   ]);
 
+  requireTokens(WHATSAPP_PAIRING, whatsappPairing, [
+    "one-shot bootstrap ceremony",
+    "7.0.0-rc14",
+    "pnpm ops:bootstrap:whatsapp",
+    "WHATSAPP_PAIRING_TIMEOUT_MS",
+    "local interactive TTY",
+    "connection=open",
+    "registered credentials",
+    "atomically persist",
+    "no partially bootstrapped session",
+    "finalPostDeploySmokeComplete=true",
+    "incident-response.md",
+    "release-recovery-runbook.md",
+  ]);
+
   await Promise.all([
     requirePath("scripts/operations/release-migrate.sh"),
     requirePath("db/bootstrap/runtime_grants.sql"),
     requirePath("scripts/operations/bootstrap-initial-admin.ts"),
+    requirePath("scripts/operations/bootstrap-whatsapp-session.ts"),
   ]);
 
-  await Promise.all([verifyLinkedOperationalDocs(manual), verifyLinkedOperationalDocs(runbook)]);
+  await Promise.all([
+    verifyLinkedOperationalDocs(manual),
+    verifyLinkedOperationalDocs(runbook),
+    verifyLinkedOperationalDocs(whatsappPairing),
+  ]);
 
   console.log(
     JSON.stringify({
@@ -103,6 +130,7 @@ async function main(): Promise<void> {
       adminRoles: Object.keys(ADMIN_ROLE_CAPABILITIES).length,
       manual: MANUAL,
       runbook: RUNBOOK,
+      whatsappPairing: WHATSAPP_PAIRING,
     }),
   );
 }
