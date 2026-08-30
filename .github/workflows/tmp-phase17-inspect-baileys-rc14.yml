@@ -1,4 +1,4 @@
-name: Temporary Phase 17 inspect Baileys rc14
+name: Temporary Phase 17 generate Baileys rc14 patch
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
       - .github/workflows/tmp-phase17-inspect-baileys-rc14.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  generate:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout feature branch
@@ -32,47 +32,101 @@ jobs:
       - name: Install exact dependency graph
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Inspect exact compiled patch anchors
+      - name: Extract rc14 package for patching
+        run: |
+          set -euo pipefail
+          rm -rf .tmp/baileys-rc14-patch
+          pnpm patch @whiskeysockets/baileys@7.0.0-rc14 --edit-dir .tmp/baileys-rc14-patch
+
+      - name: Apply audited compatibility deltas
         shell: bash
         run: |
           set -euo pipefail
           node - <<'NODE'
           const fs = require('node:fs')
           const path = require('node:path')
-          let dir = path.dirname(require.resolve('@whiskeysockets/baileys'))
-          while (true) {
-            const manifest = path.join(dir, 'package.json')
-            if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, 'utf8')).name === '@whiskeysockets/baileys') break
-            const parent = path.dirname(dir)
-            if (parent === dir) throw new Error('Baileys package root not found')
-            dir = parent
+          const root = path.resolve('.tmp/baileys-rc14-patch')
+
+          function replaceExact(relative, before, after) {
+            const file = path.join(root, relative)
+            const source = fs.readFileSync(file, 'utf8')
+            const first = source.indexOf(before)
+            if (first < 0) throw new Error(`Patch anchor missing: ${relative}`)
+            if (source.indexOf(before, first + before.length) >= 0) throw new Error(`Patch anchor not unique: ${relative}`)
+            fs.writeFileSync(file, source.replace(before, after))
           }
 
-          function printRange(relative, start, end) {
-            const lines = fs.readFileSync(path.join(dir, relative), 'utf8').split(/\r?\n/)
-            console.log(`\n===== ${relative}:${start}-${end} =====`)
-            for (let i = start - 1; i < Math.min(end, lines.length); i += 1) console.log(`${i + 1}: ${lines[i]}`)
+          const manifestPath = path.join(root, 'package.json')
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+          if (manifest.name !== '@whiskeysockets/baileys' || manifest.version !== '7.0.0-rc14') {
+            throw new Error('Unexpected Baileys package identity')
           }
+          manifest.pokemonRpgPairingCompatibility = 'rc14-companion-reg-refresh-v1'
+          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
-          const companion = fs.readFileSync(path.join(dir, 'lib/Utils/companion-reg-client-utils.js'), 'utf8').split(/\r?\n/)
-          console.log('\n===== lib/Utils/companion-reg-client-utils.js FULL =====')
-          companion.forEach((line, index) => console.log(`${index + 1}: ${line}`))
+          replaceExact(
+            'lib/Socket/messages-recv.js',
+            'buildAckStanza(node, errorCode, authState.creds.me.id)',
+            'buildAckStanza(node, errorCode, authState.creds.me?.id)',
+          )
 
-          const socket = fs.readFileSync(path.join(dir, 'lib/Socket/socket.js'), 'utf8').split(/\r?\n/)
-          for (const needle of ['pair-device', 'qrTimer', 'buildPairingQRData', 'pair-success', 'ws.on', 'ws.off']) {
-            const indexes = socket.flatMap((line, index) => line.includes(needle) ? [index] : [])
-            console.log(`\n===== socket needle ${needle} occurrences=${indexes.length} =====`)
-            for (const index of indexes.slice(0, 8)) {
-              const start = Math.max(0, index - 18)
-              const end = Math.min(socket.length, index + 28)
-              for (let i = start; i < end; i += 1) console.log(`${i + 1}: ${socket[i]}`)
-            }
-          }
+          replaceExact(
+            'lib/Utils/companion-reg-client-utils.js',
+            'export var CompanionWebClientType;',
+            `import { randomBytes } from 'crypto';\nimport { getBinaryNodeChild } from '../WABinary/index.js';\nexport var CompanionWebClientType;`,
+          )
 
-          printRange('lib/Socket/messages-recv.js', 354, 368)
-          const utilsIndex = fs.readFileSync(path.join(dir, 'lib/Utils/index.js'), 'utf8').split(/\r?\n/)
-          console.log('\n===== Utils index companion export =====')
-          utilsIndex.forEach((line, index) => {
-            if (line.includes('companion-reg-client-utils')) console.log(`${index + 1}: ${line}`)
-          })
+          replaceExact(
+            'lib/Utils/companion-reg-client-utils.js',
+            `export const buildPairingQRData = (ref, noiseKeyB64, identityKeyB64, advB64, browser) => {\n    return ('https://wa.me/settings/linked_devices#' +\n        [ref, noiseKeyB64, identityKeyB64, advB64, getCompanionPlatformId(browser)].join(','));\n};\n//# sourceMappingURL=companion-reg-client-utils.js.map`,
+            `export const buildPairingQRData = (ref, noiseKeyB64, identityKeyB64, advB64, browser) => {\n    return ('https://wa.me/settings/linked_devices#' +\n        [ref, noiseKeyB64, identityKeyB64, advB64, getCompanionPlatformId(browser)].join(','));\n};\nexport const makePairingQRRenderer = (refs, render) => {\n    let index = 0;\n    let current;\n    return {\n        next() {\n            const ref = refs[index];\n            if (ref === undefined) {\n                return false;\n            }\n            index += 1;\n            current = ref;\n            render(ref);\n            return true;\n        },\n        refresh() {\n            if (current === undefined) {\n                return false;\n            }\n            render(current);\n            return true;\n        }\n    };\n};\nconst COMPANION_REG_REFRESH_CHILDREN = ['companion_reg_refresh', 'pair-device-rotate-qr'];\nexport const handleCompanionRegRefresh = (node, { creds, emitCredsUpdate, refreshQR, logger }) => {\n    if (!COMPANION_REG_REFRESH_CHILDREN.some(tag => getBinaryNodeChild(node, tag))) {\n        logger.warn({ node }, 'companion_reg_refresh carries neither expected child; ignoring');\n        return 'ignored_malformed';\n    }\n    if (creds.me) {\n        logger.debug({ id: node.attrs.id }, 'companion_reg_refresh on a registered session; keeping the adv secret');\n        return 'ignored_registered';\n    }\n    creds.advSecretKey = randomBytes(32).toString('base64');\n    emitCredsUpdate({ advSecretKey: creds.advSecretKey });\n    logger.info({ id: node.attrs.id }, 'rotated the adv secret the server asked to retire; re-rendering the pairing QR');\n    refreshQR();\n    return 'rotated';\n};\n//# sourceMappingURL=companion-reg-client-utils.js.map`,
+          )
+
+          replaceExact(
+            'lib/Socket/socket.js',
+            `addTransactionCapability, aesEncryptCTR, bindWaitForConnectionUpdate, buildPairingQRData, bytesToCrockford, configureSuccessfulPairing, Curve, derivePairingCodeKey, generateLoginNode, generateMdTagPrefix, generateRegistrationNode, getCodeFromWSError, getCompanionPlatformId, getErrorCodeFromStreamError, getNextPreKeysNode, makeEventBuffer, makeNoiseHandler, promiseTimeout, signedKeyPair, xmppSignedPreKey`,
+            `addTransactionCapability, aesEncryptCTR, bindWaitForConnectionUpdate, buildPairingQRData, bytesToCrockford, configureSuccessfulPairing, Curve, derivePairingCodeKey, generateLoginNode, generateMdTagPrefix, generateRegistrationNode, getCodeFromWSError, getCompanionPlatformId, getErrorCodeFromStreamError, getNextPreKeysNode, handleCompanionRegRefresh, makeEventBuffer, makeNoiseHandler, makePairingQRRenderer, promiseTimeout, signedKeyPair, xmppSignedPreKey`,
+          )
+
+          replaceExact(
+            'lib/Socket/socket.js',
+            `    // QR gen\n    ws.on('CB:iq,type:set,pair-device', async (stanza) => {`,
+            `    let refreshPairingQR;\n    // QR gen\n    ws.on('CB:iq,type:set,pair-device', async (stanza) => {`,
+          )
+
+          replaceExact(
+            'lib/Socket/socket.js',
+            `        const refNodes = getBinaryNodeChildren(pairDeviceNode, 'ref');\n        const noiseKeyB64 = Buffer.from(creds.noiseKey.public).toString('base64');\n        const identityKeyB64 = Buffer.from(creds.signedIdentityKey.public).toString('base64');\n        const advB64 = creds.advSecretKey;\n        let qrMs = qrTimeout || 60000; // time to let a QR live\n        const genPairQR = () => {\n            if (!ws.isOpen) {\n                return;\n            }\n            const refNode = refNodes.shift();\n            if (!refNode) {\n                void end(new Boom('QR refs attempts ended', { statusCode: DisconnectReason.timedOut }));\n                return;\n            }\n            const ref = refNode.content.toString('utf-8');\n            const qr = buildPairingQRData(ref, noiseKeyB64, identityKeyB64, advB64, browser);\n            ev.emit('connection.update', { qr });\n            qrTimer = setTimeout(genPairQR, qrMs);\n            qrMs = qrTimeout || 20000; // shorter subsequent qrs\n        };\n        genPairQR();\n    });\n    // device paired for the first time`,
+            `        const refNodes = getBinaryNodeChildren(pairDeviceNode, 'ref');\n        const noiseKeyB64 = Buffer.from(creds.noiseKey.public).toString('base64');\n        const identityKeyB64 = Buffer.from(creds.signedIdentityKey.public).toString('base64');\n        const renderer = makePairingQRRenderer(refNodes.map(refNode => refNode.content.toString('utf-8')), ref => ev.emit('connection.update', {\n            qr: buildPairingQRData(ref, noiseKeyB64, identityKeyB64, creds.advSecretKey, browser)\n        }));\n        refreshPairingQR = () => void renderer.refresh();\n        let qrMs = qrTimeout || 60000; // time to let a QR live\n        const genPairQR = () => {\n            if (!ws.isOpen) {\n                return;\n            }\n            if (!renderer.next()) {\n                void end(new Boom('QR refs attempts ended', { statusCode: DisconnectReason.timedOut }));\n                return;\n            }\n            qrTimer = setTimeout(genPairQR, qrMs);\n            qrMs = qrTimeout || 20000; // shorter subsequent qrs\n        };\n        genPairQR();\n    });\n    ws.on('CB:notification,type:companion_reg_refresh', (node) => {\n        handleCompanionRegRefresh(node, {\n            creds,\n            emitCredsUpdate: update => ev.emit('creds.update', update),\n            refreshQR: () => refreshPairingQR?.(),\n            logger\n        });\n    });\n    // device paired for the first time`,
+          )
           NODE
+
+      - name: Generate pnpm patch and lockfile
+        run: |
+          set -euo pipefail
+          pnpm patch-commit .tmp/baileys-rc14-patch
+          test -f patches/@whiskeysockets__baileys@7.0.0-rc14.patch
+
+      - name: Prove patch from a clean frozen install
+        run: |
+          set -euo pipefail
+          rm -rf node_modules
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec vitest run tests/runtime/baileys-rc14-pairing-compatibility.test.ts
+
+      - name: Commit generated patch contract
+        run: |
+          set -euo pipefail
+          git status --short
+          unexpected="$(git status --porcelain | awk '{print $2}' | grep -Ev '^(package.json|pnpm-lock.yaml|patches/)' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected generated paths:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git add package.json pnpm-lock.yaml patches/
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix: patch Baileys rc14 first pairing compatibility"
+          git push origin HEAD:fix/phase17-baileys-pairing-compat-v1
