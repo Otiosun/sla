@@ -1,6 +1,7 @@
+import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
 import { loadConfig } from "../platform/config/env.js";
 import {
-  assertWhatsAppPairingProviderVersionSupported,
+  assertWhatsAppPairingProviderIdentitySupported,
   type SensitivePairingQrSink,
 } from "./whatsapp-pairing-bootstrap.js";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./whatsapp-pairing-bootstrap-config.js";
 
 export {
+  resolveInstalledBaileysIdentity,
   resolveInstalledBaileysVersion,
   WhatsAppPairingPackageVersionResolutionError,
 } from "../adapters/whatsapp/baileys-package-version.js";
@@ -17,7 +19,7 @@ export type TerminalQrRenderer = (payload: string, callback: (rendered: string) 
 
 export type PairingCliExecutor = (
   config: WhatsAppPairingBootstrapConfig,
-  providerVersion: string,
+  providerIdentity: InstalledBaileysIdentity,
   qrSink: SensitivePairingQrSink,
 ) => Promise<void>;
 
@@ -26,7 +28,7 @@ export interface WhatsAppPairingBootstrapCliOptions {
   readonly stdinIsTTY: boolean;
   readonly stdoutIsTTY: boolean;
   readonly isCI: boolean;
-  readonly resolveProviderVersion: () => Promise<string>;
+  readonly resolveProviderIdentity: () => Promise<InstalledBaileysIdentity>;
   readonly executePairing: PairingCliExecutor;
   readonly renderQr: TerminalQrRenderer;
   readonly writeStdout: (chunk: string) => void;
@@ -81,14 +83,14 @@ export async function runWhatsAppPairingBootstrapCli(
 ): Promise<void> {
   const appConfig = loadConfig(options.env);
   const config = loadWhatsAppPairingBootstrapConfig(appConfig, options.env);
-  const providerVersion = await options.resolveProviderVersion();
+  const providerIdentity = await options.resolveProviderIdentity();
 
-  assertWhatsAppPairingProviderVersionSupported(providerVersion);
+  assertWhatsAppPairingProviderIdentitySupported(providerIdentity);
   assertInteractiveTerminal(options);
 
   await options.executePairing(
     config,
-    providerVersion,
+    providerIdentity,
     createTerminalPairingQrSink(options.renderQr, options.writeStdout),
   );
 }
