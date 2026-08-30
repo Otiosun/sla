@@ -10,6 +10,7 @@ export const AdminApiPrincipalContextSchema = z
   .object({
     principalId: z.string().uuid(),
     environment: z.string().trim().min(1).max(32),
+    correlationId: z.string().uuid(),
   })
   .strict();
 
@@ -28,7 +29,7 @@ function stripClientAuthority(value: unknown): UnknownRecord {
   const source = asRecord(value);
   const sanitized: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(source)) {
-    if (key === "principalId" || key === "environment") continue;
+    if (key === "principalId" || key === "environment" || key === "correlationId") continue;
     sanitized[key] = entry;
   }
   return sanitized;
@@ -46,11 +47,12 @@ function parsePrincipalContext(rawContext: unknown): AdminApiPrincipalContext {
 }
 
 /**
- * Transport-neutral boundary between an authenticated admin session and the
+ * Transport-neutral boundary between an authenticated admin request and the
  * canonical Player360Service. HTTP/framework code must stay outside this class.
  *
- * Critical invariant: browser-controlled input can never select principalId or
- * environment. Those values are injected from the trusted session context.
+ * Critical invariant: browser-controlled input can never select principalId,
+ * environment or correlationId. Those values are injected from trusted server
+ * context.
  */
 export class AdminReadFacade {
   public constructor(private readonly player360: Player360Reader) {}
@@ -63,6 +65,7 @@ export class AdminReadFacade {
     return this.player360.search({
       ...stripClientAuthority(clientQuery),
       principalId: context.principalId,
+      correlationId: context.correlationId,
     });
   }
 
@@ -75,6 +78,7 @@ export class AdminReadFacade {
     return this.player360.get({
       ...stripClientAuthority(clientQuery),
       principalId: context.principalId,
+      correlationId: context.correlationId,
       playerId,
     });
   }
