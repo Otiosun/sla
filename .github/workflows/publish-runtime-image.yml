@@ -47,6 +47,13 @@ jobs:
             echo "RUNTIME_IMAGE_MAIN=${main_tag}"
           } >> "$GITHUB_ENV"
 
+      - name: Bootstrap attestation-capable Buildx builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx create --driver docker-container --use
+          docker buildx inspect --bootstrap
+
       - name: Log in to GHCR
         shell: bash
         env:
