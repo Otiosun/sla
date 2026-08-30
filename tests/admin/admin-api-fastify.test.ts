@@ -169,4 +169,41 @@ describe("Admin API Fastify boundary", () => {
     expect(response.body).not.toContain("postgres://");
     expect(response.body).not.toContain("secret");
   });
+
+  it("returns 429 before the handler when an authenticated principal exceeds its read budget", async () => {
+    const authenticate = vi.fn().mockResolvedValue(identity);
+    const getSession = vi.fn().mockResolvedValue({ principalId: PRINCIPAL_ID });
+    const searchPlayers = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
+    const getPlayer = vi.fn();
+    const consume = vi.fn().mockResolvedValue({ allowed: false, retryAfterSeconds: 17 });
+    const dependencies = {
+      allowedOrigin: ORIGIN,
+      authenticator: { authenticate },
+      sessionService: { getSession },
+      readFacade: { searchPlayers, getPlayer },
+      rateLimiter: { consume },
+    };
+    const server = createAdminApiServer(dependencies);
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/admin/v1/players",
+      headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers["retry-after"]).toBe("17");
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "ADMIN_RATE_LIMITED",
+        message: "Administrative request rate limit exceeded",
+      },
+    });
+    expect(consume).toHaveBeenCalledWith({
+      principalId: PRINCIPAL_ID,
+      operation: "player.search",
+    });
+    expect(searchPlayers).not.toHaveBeenCalled();
+  });
 });
