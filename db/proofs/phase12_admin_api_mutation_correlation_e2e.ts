@@ -1,19 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { AdminMutationFacade } from "../../src/adapters/admin-api/mutation-facade.js";
-import {
-  ExternalAdminMutationEndpoint,
-} from "../../src/modules/anti-abuse/external-admin-endpoint.js";
+import { ExternalAdminMutationEndpoint } from "../../src/modules/anti-abuse/external-admin-endpoint.js";
 import { AdminOperationAuditService } from "../../src/modules/admin/audit-service.js";
 import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { AdminService } from "../../src/modules/admin/service.js";
-import {
-  PostgresAdminOperationAuditRepository,
-} from "../../src/platform/admin/postgres-admin-audit-repository.js";
+import { PostgresAdminOperationAuditRepository } from "../../src/platform/admin/postgres-admin-audit-repository.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
-import {
-  PostgresMutationAdmission,
-} from "../../src/platform/anti-abuse/postgres-mutation-admission.js";
+import { PostgresMutationAdmission } from "../../src/platform/anti-abuse/postgres-mutation-admission.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
