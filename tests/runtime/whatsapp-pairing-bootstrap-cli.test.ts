@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createTerminalPairingQrSink,
+  type PairingCliExecutor,
   resolveInstalledBaileysVersion,
   runWhatsAppPairingBootstrapCli,
   WhatsAppPairingInteractiveTerminalRequiredError,
@@ -28,7 +29,7 @@ describe("WhatsApp pairing CLI boundary", () => {
   });
 
   it("blocks the known-broken provider before executing any DB/provider work", async () => {
-    const executePairing = vi.fn(async () => {});
+    const executePairing = vi.fn<PairingCliExecutor>(async () => {});
 
     await expect(
       runWhatsAppPairingBootstrapCli({
@@ -47,7 +48,7 @@ describe("WhatsApp pairing CLI boundary", () => {
   });
 
   it("requires a local interactive terminal before executing pairing", async () => {
-    const executePairing = vi.fn(async () => {});
+    const executePairing = vi.fn<PairingCliExecutor>(async () => {});
 
     await expect(
       runWhatsAppPairingBootstrapCli({
@@ -96,7 +97,7 @@ describe("WhatsApp pairing CLI boundary", () => {
   });
 
   it("passes only the validated release config and sensitive sink to execution", async () => {
-    const executePairing = vi.fn(async () => {});
+    const executePairing = vi.fn<PairingCliExecutor>(async () => {});
     const renderQr = vi.fn((_payload: string, callback: (rendered: string) => void) => {
       callback("QR-MATRIX");
     });
