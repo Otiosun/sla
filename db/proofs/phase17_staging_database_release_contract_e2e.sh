@@ -72,7 +72,8 @@ require_literal "$release_script" "pokemon_migrator"
 require_literal "$release_script" "pokemon_runtime"
 require_literal "$release_script" "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"
 
-# The JIT wrapper must build three role-specific session-pooler URLs without role passwords.
+# The JIT wrapper must only assume the application roles. The existing-role preflight is read-only,
+# so authorizing the temporary-access PAT to assume provider owner/postgres would violate least privilege.
 require_literal "$jit_script" "STAGING_SUPABASE_JIT_TOKEN"
 require_literal "$jit_script" "STAGING_SUPABASE_PROJECT_REF"
 require_literal "$jit_script" "STAGING_SUPABASE_POOLER_HOST"
@@ -82,6 +83,7 @@ require_literal "$jit_script" "sslmode"
 require_literal "$jit_script" "jit=true"
 require_literal "$jit_script" "STAGING_ROLE_BOOTSTRAP_MODE=existing_roles"
 require_literal "$jit_script" "::add-mask::"
+reject_literal "$jit_script" "make_jit_url postgres"
 reject_literal "$jit_script" "MIGRATOR_PASSWORD"
 reject_literal "$jit_script" "RUNTIME_PASSWORD"
 reject_literal "$jit_script" "set -x"
@@ -116,11 +118,12 @@ RUN_APPLICATION_SMOKE=false \
   /usr/bin/bash "$jit_script" > "$probe_dir/wrapper-output"
 
 require_literal "$probe_dir/capture" "mode=existing_roles"
-require_literal "$probe_dir/capture" "owner=postgresql://postgres.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "owner=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
 require_literal "$probe_dir/capture" "migrator=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
 require_literal "$probe_dir/capture" "runtime=postgresql://pokemon_runtime.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
 require_literal "$probe_dir/capture" "migrator_password_present="
 require_literal "$probe_dir/capture" "runtime_password_present="
+reject_literal "$probe_dir/capture" "postgres.abcdefghijklmnopqrst"
 reject_literal "$probe_dir/capture" "+jit%3Dtrue"
 
 # Runtime smoke remains read-only and is only requested after release succeeds.
