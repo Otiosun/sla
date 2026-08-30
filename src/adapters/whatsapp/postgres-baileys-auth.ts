@@ -50,9 +50,7 @@ export interface BaileysAuthStateLike {
 
 export interface BaileysAuthSnapshot {
   readonly creds: Readonly<Record<string, unknown>>;
-  readonly keys: Readonly<
-    Record<string, Readonly<Record<string, unknown | null | undefined>>>
-  >;
+  readonly keys: Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
 }
 
 export interface PostgresBaileysAuthOptions {
