@@ -138,10 +138,7 @@ export async function reconcileGen123WorldConnections(
       WHERE content_release_id=$1
         AND active
         AND NOT (connection_id = ANY($2::uuid[]))`,
-    [
-      releaseId,
-      expectedConnections.map((connection) => connection.id),
-    ],
+    [releaseId, expectedConnections.map((connection) => connection.id)],
   );
 
   for (const connection of expectedConnections) {
