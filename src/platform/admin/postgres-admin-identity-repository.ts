@@ -13,7 +13,9 @@ interface AdminPrincipalIdentityRow {
 export class PostgresAdminIdentityRepository implements AdminPrincipalIdentityRepository {
   public constructor(private readonly pool: Pool) {}
 
-  public async findByIdentityRef(identityRef: string): Promise<AdminPrincipalIdentityRecord | null> {
+  public async findByIdentityRef(
+    identityRef: string,
+  ): Promise<AdminPrincipalIdentityRecord | null> {
     const result = await this.pool.query<AdminPrincipalIdentityRow>(
       `SELECT id, identity_ref, status
        FROM admin_principals
