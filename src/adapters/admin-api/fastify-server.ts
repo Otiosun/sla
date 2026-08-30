@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { AdminPreparedOperation } from "../../modules/admin/contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
+import { mapAdminHttpError } from "./http-error-mapper.js";
+import type { ResolvedAdminIdentityContext } from "./identity-resolver.js";
+import type { AdminMutationFacade } from "./mutation-facade.js";
 import type { AdminReadFacade } from "./read-facade.js";
 import type { AdminRequestAuthenticator } from "./request-authenticator.js";
 import type { AdminSessionService } from "./session-service.js";
-import { mapAdminHttpError } from "./http-error-mapper.js";
-import type { ResolvedAdminIdentityContext } from "./identity-resolver.js";
 
 const booleanQuery = z.enum(["true", "false"]).transform((value) => value === "true");
 
@@ -37,7 +39,11 @@ const PlayerGetTransportSchema = z
 
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
-export type AdminApiRateLimitedOperation = "session.read" | "player.search" | "player.read";
+export type AdminApiRateLimitedOperation =
+  | "session.read"
+  | "player.search"
+  | "player.read"
+  | "mutation.prepare";
 
 export interface AdminApiRateLimitRequest {
   readonly principalId: string;
@@ -58,6 +64,7 @@ export interface AdminApiServerDependencies {
   readonly authenticator: Pick<AdminRequestAuthenticator, "authenticate">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer">;
+  readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
   readonly rateLimiter: AdminApiRateLimiter;
 }
 
@@ -82,12 +89,41 @@ function applyResponseBoundary(reply: FastifyReply, correlationId: string): void
   reply.header("vary", "Origin");
 }
 
-function trustedReadContext(identity: ResolvedAdminIdentityContext, request: FastifyRequest) {
+function trustedRequestContext(identity: ResolvedAdminIdentityContext, request: FastifyRequest) {
   return {
     principalId: identity.principalId,
     environment: identity.environment,
     correlationId: request.id,
   };
+}
+
+function projectPreparedOperation(prepared: AdminPreparedOperation) {
+  const operation = prepared.operation;
+  return {
+    operation: {
+      id: operation.id,
+      operationType: operation.operationType,
+      target: { type: operation.targetType, id: operation.targetId },
+      riskTier: operation.riskTier,
+      authorizationMode: operation.authorizationMode,
+      status: operation.status,
+      reason: operation.reason,
+      expectedRevision: operation.expectedRevision?.toString() ?? null,
+      correlationId: operation.correlationId,
+      policy: operation.policy,
+      revision: operation.revision.toString(),
+    },
+    replayed: prepared.replayed,
+  };
+}
+
+function originDenied(
+  request: FastifyRequest,
+  allowedOrigin: string,
+): boolean {
+  const origin = request.headers.origin;
+  if (origin !== undefined && origin !== allowedOrigin) return true;
+  return request.method === "POST" && origin !== allowedOrigin;
 }
 
 async function authenticateAndLimit(
@@ -127,8 +163,7 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     const correlationId = request.id;
     applyResponseBoundary(reply, correlationId);
 
-    const origin = request.headers.origin;
-    if (origin !== undefined && origin !== dependencies.allowedOrigin) {
+    if (originDenied(request, dependencies.allowedOrigin)) {
       const mapped = mapAdminHttpError(
         new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Origin denied"),
         correlationId,
@@ -136,7 +171,7 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       await reply.code(mapped.statusCode).send(mapped.body);
       return reply;
     }
-    if (origin === dependencies.allowedOrigin) {
+    if (request.headers.origin === dependencies.allowedOrigin) {
       reply.header("access-control-allow-origin", dependencies.allowedOrigin);
       reply.header("access-control-allow-credentials", "true");
     }
@@ -165,7 +200,7 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     const identity = await authenticateAndLimit(request, reply, dependencies, "player.search");
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
-    return dependencies.readFacade.searchPlayers(trustedReadContext(identity, request), query);
+    return dependencies.readFacade.searchPlayers(trustedRequestContext(identity, request), query);
   });
 
   server.get("/admin/v1/players/:playerId", async (request, reply) => {
@@ -174,10 +209,29 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     const params = parseTransport(PlayerParamsSchema, request.params);
     const query = parseTransport(PlayerGetTransportSchema, request.query);
     return dependencies.readFacade.getPlayer(
-      trustedReadContext(identity, request),
+      trustedRequestContext(identity, request),
       params.playerId,
       query,
     );
+  });
+
+  server.options("/admin/v1/operations/prepare", async (request, reply) => {
+    if (request.headers.origin !== dependencies.allowedOrigin) {
+      throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Origin denied");
+    }
+    reply.header("access-control-allow-methods", "POST");
+    reply.header("access-control-allow-headers", "content-type");
+    return reply.code(204).send();
+  });
+
+  server.post("/admin/v1/operations/prepare", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "mutation.prepare");
+    if (identity === null) return reply;
+    const prepared = await dependencies.mutationFacade.prepareMutation(
+      trustedRequestContext(identity, request),
+      request.body,
+    );
+    return projectPreparedOperation(prepared);
   });
 
   return server;
