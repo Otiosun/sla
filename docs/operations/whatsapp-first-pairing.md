@@ -44,6 +44,61 @@ Before running the ceremony:
 
 Do not inject `MIGRATOR_DATABASE_URL` merely to pair WhatsApp. The ceremony uses the restricted runtime database identity after migrations/grants are already complete.
 
+## External staging credential boundary
+
+The staging release deliberately uses two different database-authentication lifetimes. Do not collapse them into one credential.
+
+### Supabase database release
+
+Supabase Temporary Access/JIT is only for the short-lived database-release ceremony. The operator identity must be authorized to assume exactly `pokemon_migrator` and `pokemon_runtime`; the release workflow proves those effective database users before any numbered migration is attempted.
+
+The GitHub Environment `staging` uses:
+
+- variable `STAGING_SUPABASE_PROJECT_REF`;
+- variable `STAGING_SUPABASE_POOLER_HOST`;
+- secret `STAGING_SUPABASE_JIT_TOKEN` for the temporary release credential;
+- secret `STAGING_RUNTIME_DATABASE_URL` only when a persistent runtime credential has already been provisioned and a later application/provider smoke needs it;
+- secret `STAGING_WHATSAPP_SESSION_KEY` for smoke correlation when a real session exists.
+
+The JIT token must never be copied into Fly.io and must never become the long-running `DATABASE_URL`. Temporary Access can expire by design; a worker cannot depend on that lifetime.
+
+### Persistent runtime database identity
+
+The Fly staging worker must use a distinct persistent connection string that authenticates as the restricted `pokemon_runtime` role. Its password/credential is generated and stored directly in provider secret layers; do not place it in Git, Drive, chat, CI logs or shell history.
+
+The runtime must never receive `MIGRATOR_DATABASE_URL`, the provider-owner credential or the Temporary Access/JIT token.
+
+### Fly.io staging app
+
+Create the Fly app without an implicit first deployment, then let the canonical `Staging Runtime Deploy` workflow perform the first managed deployment from an immutable `sha-<full-sha>` image.
+
+The GitHub Environment `staging` uses:
+
+- variable `STAGING_FLY_APP`;
+- secret `FLY_API_TOKEN`, preferably an app-scoped deploy token with the shortest practical expiry.
+
+The Fly app secret layer must contain exactly the runtime material required by the worker:
+
+- `DATABASE_URL` — persistent restricted `pokemon_runtime` connection string;
+- `WHATSAPP_SESSION_KEY` — the same staging session identifier used during first pairing;
+- `WHATSAPP_AUTH_KEY_BASE64` — the same 32-byte encryption key used during first pairing;
+- `WHATSAPP_AUTH_KEY_VERSION` — the same positive key version used during first pairing.
+
+`MIGRATOR_DATABASE_URL` must not exist in the Fly app secret layer. The deployment workflow checks this boundary before deployment.
+
+### Local pairing terminal
+
+The trusted local TTY uses the same persistent restricted runtime database URL and the same WhatsApp session/encryption identity that will later be injected into Fly:
+
+- `APP_ENV=staging`;
+- `DEPLOY_REVISION=<exact full staging revision>`;
+- `DATABASE_URL=<persistent pokemon_runtime URL>`;
+- `WHATSAPP_SESSION_KEY=<same Fly value>`;
+- `WHATSAPP_AUTH_KEY_BASE64=<same Fly value>`;
+- `WHATSAPP_AUTH_KEY_VERSION=<same Fly value>`.
+
+Do not paste any of those secret values into tickets, chat, Drive or GitHub. This document defines names and ownership boundaries only.
+
 ## Sensitive-output rules
 
 The ceremony requires a local interactive TTY:
