@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release-foundation:
-    name: WIP exact package formatter oracle
+    name: WIP exact workflow formatter oracle
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -31,17 +31,17 @@ jobs:
       - name: Install dependencies from lockfile
         run: pnpm install --frozen-lockfile
 
-      - name: Apply exact package formatter output
+      - name: Probe workflow formatter support
         shell: bash
         run: |
           set -euo pipefail
-          pnpm exec biome format --write package.json
-          if git diff --quiet -- package.json; then
-            echo "package.json already exact."
+          pnpm exec biome format --write .github/workflows/release-foundation-proof.yml
+          if git diff --quiet -- .github/workflows/release-foundation-proof.yml; then
+            echo "workflow unchanged by Biome."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "Apply exact Biome 2.5.10 package formatting"
+          git add .github/workflows/release-foundation-proof.yml
+          git commit -m "Apply exact Biome 2.5.10 workflow formatting"
           git push origin "HEAD:${GITHUB_REF_NAME}"
