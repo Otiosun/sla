@@ -1,0 +1,30 @@
+name: Staging Content Bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-content-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: canonical staging content bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      APP_ENV: staging
+      DEPLOY_REVISION: ${{ github.sha }}
+    steps:
+      - name: Require canonical main ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "staging content bootstrap must run from refs/heads/main" >&2
+            exit 64
+          fi
