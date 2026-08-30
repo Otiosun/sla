@@ -100,7 +100,7 @@ describe("WhatsApp live protocol eligibility", () => {
         stdinIsTTY: true,
         stdoutIsTTY: true,
         isCI: false,
-        resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+        resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
         resolveWaWebVersion: vi.fn(async () => {
           throw new WhatsAppWebVersionResolutionError("WhatsApp Web version is unavailable");
         }),
@@ -121,7 +121,7 @@ describe("WhatsApp live protocol eligibility", () => {
       stdinIsTTY: true,
       stdoutIsTTY: true,
       isCI: false,
-      resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+      resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
       resolveWaWebVersion: vi.fn(async () => WA_WEB_VERSION),
       executePairing,
       renderQr: vi.fn(),
@@ -129,7 +129,7 @@ describe("WhatsApp live protocol eligibility", () => {
     });
 
     const [, providerVersion, waWebVersion] = executePairing.mock.calls[0] ?? [];
-    expect(providerVersion).toBe("7.0.0-rc15");
+    expect(providerVersion).toBe("7.0.0-rc14");
     expect(waWebVersion).toEqual(WA_WEB_VERSION);
   });
 
@@ -147,7 +147,7 @@ describe("WhatsApp live protocol eligibility", () => {
 
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerVersion: "7.0.0-rc14",
       waWebVersion: WA_WEB_VERSION,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
