@@ -8,6 +8,7 @@ Detailed contracts:
 
 - environment/release boundary: `docs/operations/environments-release.md`;
 - initial admin bootstrap: `docs/operations/initial-admin-bootstrap.md`;
+- first WhatsApp provider session: `docs/operations/whatsapp-first-pairing.md`;
 - backup artifact and restore validation: `docs/operations/backup-restore.md`;
 - replacement-database recovery and logical rollback: `docs/operations/disaster-recovery.md`;
 - incident classification/containment: `docs/operations/incident-response.md`;
@@ -52,6 +53,8 @@ Verify staging and production isolation before continuing.
 
 For Fly.io staging, also verify that the app identified by `STAGING_FLY_APP` already exists, the GitHub `staging` Environment is configured, and the Fly secret layer contains `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, and `WHATSAPP_AUTH_KEY_VERSION` but does not contain `MIGRATOR_DATABASE_URL`.
 
+If this environment needs its first WhatsApp session, also verify that no runtime is active with the same `WHATSAPP_SESSION_KEY` and that the provider version is eligible under `docs/operations/whatsapp-first-pairing.md`. Do not plan a release that depends on bypassing the pairing compatibility gate.
+
 ### A2. Control traffic
 
 For a schema-changing release, stop or drain application traffic before migration. Do not allow old and new binaries to race against an in-transition schema unless an explicitly tested compatibility plan exists.
@@ -91,6 +94,20 @@ DATABASE_URL="$RUNTIME_DATABASE_URL" \
 ```
 
 The restricted runtime identity must pass schema verification without a migrator credential.
+
+### A6.1. Bootstrap the first WhatsApp session only when required
+
+For a genuinely new provider session only, follow `docs/operations/whatsapp-first-pairing.md` and run:
+
+```bash
+pnpm ops:bootstrap:whatsapp
+```
+
+The ceremony must use the same release-bound full `DEPLOY_REVISION`, restricted runtime database identity, intended `WHATSAPP_SESSION_KEY` and auth-encryption key/version that the runtime will use. No runtime may hold the same session advisory lease while pairing runs.
+
+The currently pinned `@whiskeysockets/baileys@7.0.0-rc14` is intentionally blocked for live first pairing. A release that requires a new provider session must stop here until an approved compatible provider version/patch exists and passes the real-provider staging acceptance. Do not bypass the gate or insert auth manually.
+
+Do not execute this step for an already bootstrapped session, ordinary redeploy, rollback or routine runtime restart.
 
 ### A7. Deploy the exact binary/revision
 
