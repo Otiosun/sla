@@ -48,14 +48,17 @@ make_jit_url() {
   '
 }
 
-owner_url="$(make_jit_url postgres)"
 migrator_url="$(make_jit_url pokemon_migrator)"
 runtime_url="$(make_jit_url pokemon_runtime)"
+
+# The existing-role preflight is read-only, so the migrator credential is deliberately reused as
+# STAGING_DATABASE_OWNER_URL. Temporary Access never needs authorization to assume provider-owner
+# `postgres`; the PAT is constrained to the two application roles only.
+owner_url="$migrator_url"
 
 # GitHub Actions masks both the source PAT and derived credential-bearing URLs before any child
 # command can report them. They only live in this process tree and are never written to a file.
 printf '::add-mask::%s\n' "$STAGING_SUPABASE_JIT_TOKEN"
-printf '::add-mask::%s\n' "$owner_url"
 printf '::add-mask::%s\n' "$migrator_url"
 printf '::add-mask::%s\n' "$runtime_url"
 
