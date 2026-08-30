@@ -74,10 +74,12 @@ function coreConfig(appEnv: "staging" | "production" = "staging") {
 
 describe("WhatsApp first-pairing release gates", () => {
   it("allows the audited rc14 identity only in staging until production is explicitly promoted", () => {
-    expect(() => assertWhatsAppPairingProviderIdentitySupported(PATCHED_RC14, "staging")).not.toThrow();
-    expect(() => assertWhatsAppPairingProviderIdentitySupported(PATCHED_RC14, "production")).toThrow(
-      WhatsAppPairingProviderVersionBlockedError,
-    );
+    expect(() =>
+      assertWhatsAppPairingProviderIdentitySupported(PATCHED_RC14, "staging"),
+    ).not.toThrow();
+    expect(() =>
+      assertWhatsAppPairingProviderIdentitySupported(PATCHED_RC14, "production"),
+    ).toThrow(WhatsAppPairingProviderVersionBlockedError);
   });
 
   it("accepts only a freshly resolved WhatsApp Web protocol tuple", async () => {
