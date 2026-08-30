@@ -151,7 +151,7 @@ function assertCoreConfig(config: WhatsAppPairingBootstrapConfig): void {
   }
 }
 
-function assertProviderVersion(providerVersion: string): void {
+export function assertWhatsAppPairingProviderVersionSupported(providerVersion: string): void {
   if (providerVersion.length === 0 || KNOWN_BROKEN_PROVIDER_VERSIONS.has(providerVersion)) {
     throw new WhatsAppPairingProviderVersionBlockedError(
       `WhatsApp first pairing is blocked for Baileys ${providerVersion || "unknown"}`,
@@ -259,7 +259,7 @@ export async function runWhatsAppPairingBootstrap(
   dependencies: WhatsAppPairingBootstrapDependencies,
 ): Promise<void> {
   assertCoreConfig(dependencies.config);
-  assertProviderVersion(dependencies.providerVersion);
+  assertWhatsAppPairingProviderVersionSupported(dependencies.providerVersion);
 
   const reservation = await dependencies.reserveBootstrap({
     sessionKey: dependencies.config.sessionKey,
