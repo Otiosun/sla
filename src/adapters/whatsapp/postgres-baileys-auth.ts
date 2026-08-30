@@ -36,6 +36,11 @@ interface PreparedSnapshotKey {
   readonly encrypted: EncryptedWhatsAppAuthValue;
 }
 
+interface PreparedSnapshot {
+  readonly credentials: EncryptedWhatsAppAuthValue;
+  readonly keys: readonly PreparedSnapshotKey[];
+}
+
 export interface BaileysSignalKeyStoreLike {
   get(type: string, ids: readonly string[]): Promise<Record<string, unknown>>;
   set(
@@ -59,6 +64,11 @@ export interface PostgresBaileysAuthOptions {
   readonly encryptionKeyVersion: number;
   readonly allowCreate?: boolean;
   readonly requireCreate?: boolean;
+}
+
+export interface WhatsAppAuthBootstrapReservation {
+  commit(snapshot: BaileysAuthSnapshot): Promise<void>;
+  close(): Promise<void>;
 }
 
 export class WhatsAppAuthNotBootstrappedError extends Error {
@@ -96,6 +106,10 @@ function assertOptions(options: PostgresBaileysAuthOptions): void {
   }
 }
 
+function leaseKey(sessionKey: string): string {
+  return `whatsapp-auth-session:${sessionKey}`;
+}
+
 function credentialsContext(sessionKey: string): string {
   return `whatsapp-auth:${sessionKey}:credentials`;
 }
@@ -130,10 +144,7 @@ function credentialsObject(value: unknown): Record<string, unknown> {
 function prepareSnapshot(
   options: PostgresBaileysAuthOptions,
   snapshot: BaileysAuthSnapshot,
-): {
-  readonly credentials: EncryptedWhatsAppAuthValue;
-  readonly keys: readonly PreparedSnapshotKey[];
-} {
+): PreparedSnapshot {
   const credentials = credentialsObject(snapshot.creds);
   const encryptedCredentials = encryptWhatsAppAuthValue(
     serializeAuthValue(credentials),
@@ -156,6 +167,103 @@ function prepareSnapshot(
     }
   }
   return { credentials: encryptedCredentials, keys };
+}
+
+async function loadSession(client: PoolClient, sessionKey: string): Promise<SessionRow | null> {
+  const result = await client.query<SessionRow>(
+    `SELECT credentials_ciphertext, credentials_iv, credentials_auth_tag,
+            encryption_key_version, revision::text
+     FROM whatsapp_auth_sessions
+     WHERE session_key = $1`,
+    [sessionKey],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function persistPreparedSnapshot(
+  client: PoolClient,
+  options: PostgresBaileysAuthOptions,
+  prepared: PreparedSnapshot,
+): Promise<void> {
+  await client.query("BEGIN");
+  try {
+    const inserted = await client.query<{ session_key: string }>(
+      `INSERT INTO whatsapp_auth_sessions(
+         session_key, credentials_ciphertext, credentials_iv, credentials_auth_tag,
+         encryption_key_version, revision
+       ) VALUES ($1, $2, $3, $4, $5, 0)
+       ON CONFLICT (session_key) DO NOTHING
+       RETURNING session_key`,
+      [
+        options.sessionKey,
+        prepared.credentials.ciphertext,
+        prepared.credentials.iv,
+        prepared.credentials.authTag,
+        options.encryptionKeyVersion,
+      ],
+    );
+    if (inserted.rows[0] === undefined) {
+      throw new WhatsAppAuthAlreadyBootstrappedError(
+        "WhatsApp auth session was bootstrapped concurrently",
+      );
+    }
+
+    for (const key of prepared.keys) {
+      await client.query(
+        `INSERT INTO whatsapp_auth_keys(
+           session_key, key_type, key_id, value_ciphertext, value_iv, value_auth_tag,
+           encryption_key_version, deleted, revision
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, 0)`,
+        [
+          options.sessionKey,
+          key.type,
+          key.id,
+          key.encrypted.ciphertext,
+          key.encrypted.iv,
+          key.encrypted.authTag,
+          options.encryptionKeyVersion,
+        ],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  }
+}
+
+class PostgresWhatsAppAuthBootstrapReservation implements WhatsAppAuthBootstrapReservation {
+  private closed = false;
+  private committed = false;
+
+  constructor(
+    private readonly client: PoolClient,
+    private readonly options: PostgresBaileysAuthOptions,
+  ) {}
+
+  async commit(snapshot: BaileysAuthSnapshot): Promise<void> {
+    if (this.closed) throw new Error("WhatsApp auth bootstrap reservation is closed");
+    if (this.committed) throw new Error("WhatsApp auth bootstrap reservation is already committed");
+    const prepared = prepareSnapshot(this.options, snapshot);
+    await persistPreparedSnapshot(this.client, this.options, prepared);
+    this.committed = true;
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      await this.client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
+        leaseKey(this.options.sessionKey),
+      ]);
+    } finally {
+      this.client.release();
+    }
+  }
 }
 
 export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
@@ -181,19 +289,22 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
     };
   }
 
-  public static async bootstrapFromSnapshot(
+  public static async reserveBootstrap(
     pool: Pool,
     options: PostgresBaileysAuthOptions,
-    snapshot: BaileysAuthSnapshot,
-  ): Promise<void> {
+  ): Promise<WhatsAppAuthBootstrapReservation> {
     assertOptions(options);
-    const prepared = prepareSnapshot(options, snapshot);
+    const reservationOptions: PostgresBaileysAuthOptions = {
+      sessionKey: options.sessionKey,
+      encryptionKey: Buffer.from(options.encryptionKey),
+      encryptionKeyVersion: options.encryptionKeyVersion,
+    };
     const client = await pool.connect();
     let leaseAcquired = false;
     try {
       const lease = await client.query<{ acquired: boolean }>(
         "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired",
-        [`whatsapp-auth-session:${options.sessionKey}`],
+        [leaseKey(options.sessionKey)],
       );
       leaseAcquired = lease.rows[0]?.acquired === true;
       if (!leaseAcquired) {
@@ -201,73 +312,37 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
           "WhatsApp auth session is already owned by another runtime",
         );
       }
-
-      if ((await PostgresBaileysAuthBinding.loadSession(client, options.sessionKey)) !== null) {
+      if ((await loadSession(client, options.sessionKey)) !== null) {
         throw new WhatsAppAuthAlreadyBootstrappedError(
           "WhatsApp auth session has already been bootstrapped",
         );
       }
-
-      await client.query("BEGIN");
-      try {
-        const inserted = await client.query<{ session_key: string }>(
-          `INSERT INTO whatsapp_auth_sessions(
-             session_key, credentials_ciphertext, credentials_iv, credentials_auth_tag,
-             encryption_key_version, revision
-           ) VALUES ($1, $2, $3, $4, $5, 0)
-           ON CONFLICT (session_key) DO NOTHING
-           RETURNING session_key`,
-          [
-            options.sessionKey,
-            prepared.credentials.ciphertext,
-            prepared.credentials.iv,
-            prepared.credentials.authTag,
-            options.encryptionKeyVersion,
-          ],
-        );
-        if (inserted.rows[0] === undefined) {
-          throw new WhatsAppAuthAlreadyBootstrappedError(
-            "WhatsApp auth session was bootstrapped concurrently",
-          );
-        }
-
-        for (const key of prepared.keys) {
-          await client.query(
-            `INSERT INTO whatsapp_auth_keys(
-               session_key, key_type, key_id, value_ciphertext, value_iv, value_auth_tag,
-               encryption_key_version, deleted, revision
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, 0)`,
-            [
-              options.sessionKey,
-              key.type,
-              key.id,
-              key.encrypted.ciphertext,
-              key.encrypted.iv,
-              key.encrypted.authTag,
-              options.encryptionKeyVersion,
-            ],
-          );
-        }
-        await client.query("COMMIT");
-      } catch (error) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {
-          // Preserve the original failure.
-        }
-        throw error;
-      }
-    } finally {
+      return new PostgresWhatsAppAuthBootstrapReservation(client, reservationOptions);
+    } catch (error) {
       if (leaseAcquired) {
         try {
           await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
-            `whatsapp-auth-session:${options.sessionKey}`,
+            leaseKey(options.sessionKey),
           ]);
         } catch {
-          // Preserve any earlier failure.
+          // The original failure remains authoritative.
         }
       }
       client.release();
+      throw error;
+    }
+  }
+
+  public static async bootstrapFromSnapshot(
+    pool: Pool,
+    options: PostgresBaileysAuthOptions,
+    snapshot: BaileysAuthSnapshot,
+  ): Promise<void> {
+    const reservation = await PostgresBaileysAuthBinding.reserveBootstrap(pool, options);
+    try {
+      await reservation.commit(snapshot);
+    } finally {
+      await reservation.close();
     }
   }
 
@@ -281,7 +356,7 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
     try {
       const lease = await client.query<{ acquired: boolean }>(
         "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired",
-        [`whatsapp-auth-session:${options.sessionKey}`],
+        [leaseKey(options.sessionKey)],
       );
       leaseAcquired = lease.rows[0]?.acquired === true;
       if (!leaseAcquired) {
@@ -290,7 +365,7 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
         );
       }
 
-      let session = await PostgresBaileysAuthBinding.loadSession(client, options.sessionKey);
+      let session = await loadSession(client, options.sessionKey);
       if (session !== null && options.requireCreate === true) {
         throw new WhatsAppAuthAlreadyBootstrappedError(
           "WhatsApp auth session has already been bootstrapped",
@@ -330,9 +405,7 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
             "WhatsApp auth session was bootstrapped concurrently",
           );
         }
-        session =
-          inserted.rows[0] ??
-          (await PostgresBaileysAuthBinding.loadSession(client, options.sessionKey));
+        session = inserted.rows[0] ?? (await loadSession(client, options.sessionKey));
         if (session === null) throw new Error("WhatsApp auth bootstrap did not persist a session");
       }
 
@@ -357,7 +430,7 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
       if (leaseAcquired) {
         try {
           await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
-            `whatsapp-auth-session:${options.sessionKey}`,
+            leaseKey(options.sessionKey),
           ]);
         } catch {
           // The original failure remains authoritative.
@@ -409,25 +482,11 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
     this.closed = true;
     try {
       await this.client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
-        `whatsapp-auth-session:${this.sessionKey}`,
+        leaseKey(this.sessionKey),
       ]);
     } finally {
       this.client.release();
     }
-  }
-
-  private static async loadSession(
-    client: PoolClient,
-    sessionKey: string,
-  ): Promise<SessionRow | null> {
-    const result = await client.query<SessionRow>(
-      `SELECT credentials_ciphertext, credentials_iv, credentials_auth_tag,
-              encryption_key_version, revision::text
-       FROM whatsapp_auth_sessions
-       WHERE session_key = $1`,
-      [sessionKey],
-    );
-    return result.rows[0] ?? null;
   }
 
   private async getKeys(type: string, ids: readonly string[]): Promise<Record<string, unknown>> {
