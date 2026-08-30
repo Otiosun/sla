@@ -32,40 +32,47 @@ jobs:
       - name: Install exact dependency graph
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Inspect published rc14 compiled pairing targets
+      - name: Inspect exact compiled patch anchors
         shell: bash
         run: |
           set -euo pipefail
           node - <<'NODE'
           const fs = require('node:fs')
           const path = require('node:path')
-          const root = path.dirname(require.resolve('@whiskeysockets/baileys'))
-          let dir = root
-          while (!fs.existsSync(path.join(dir, 'package.json')) || JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name !== '@whiskeysockets/baileys') {
+          let dir = path.dirname(require.resolve('@whiskeysockets/baileys'))
+          while (true) {
+            const manifest = path.join(dir, 'package.json')
+            if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, 'utf8')).name === '@whiskeysockets/baileys') break
             const parent = path.dirname(dir)
             if (parent === dir) throw new Error('Baileys package root not found')
             dir = parent
           }
-          const metadata = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
-          console.log(JSON.stringify({ version: metadata.version, compatibilityMarker: metadata.pokemonRpgPairingCompatibility ?? null }))
 
-          const targets = [
-            ['lib/Socket/messages-recv.js', ['sendMessageAck', 'authState.creds.me']],
-            ['lib/Socket/socket.js', ['pair-device', 'qrTimer', 'buildPairingQRData']],
-            ['lib/Utils/companion-reg-client-utils.js', ['buildPairingQRData', 'advSecretKey']],
-          ]
-          for (const [relative, needles] of targets) {
-            const file = path.join(dir, relative)
-            const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/)
-            console.log(`\n===== ${relative} =====`)
-            for (const needle of needles) {
-              const indexes = lines.flatMap((line, index) => line.includes(needle) ? [index] : [])
-              console.log(`--- needle: ${needle} occurrences=${indexes.length} ---`)
-              for (const index of indexes.slice(0, 4)) {
-                const start = Math.max(0, index - 12)
-                const end = Math.min(lines.length, index + 18)
-                for (let i = start; i < end; i += 1) console.log(`${i + 1}: ${lines[i]}`)
-              }
+          function printRange(relative, start, end) {
+            const lines = fs.readFileSync(path.join(dir, relative), 'utf8').split(/\r?\n/)
+            console.log(`\n===== ${relative}:${start}-${end} =====`)
+            for (let i = start - 1; i < Math.min(end, lines.length); i += 1) console.log(`${i + 1}: ${lines[i]}`)
+          }
+
+          const companion = fs.readFileSync(path.join(dir, 'lib/Utils/companion-reg-client-utils.js'), 'utf8').split(/\r?\n/)
+          console.log('\n===== lib/Utils/companion-reg-client-utils.js FULL =====')
+          companion.forEach((line, index) => console.log(`${index + 1}: ${line}`))
+
+          const socket = fs.readFileSync(path.join(dir, 'lib/Socket/socket.js'), 'utf8').split(/\r?\n/)
+          for (const needle of ['pair-device', 'qrTimer', 'buildPairingQRData', 'pair-success', 'ws.on', 'ws.off']) {
+            const indexes = socket.flatMap((line, index) => line.includes(needle) ? [index] : [])
+            console.log(`\n===== socket needle ${needle} occurrences=${indexes.length} =====`)
+            for (const index of indexes.slice(0, 8)) {
+              const start = Math.max(0, index - 18)
+              const end = Math.min(socket.length, index + 28)
+              for (let i = start; i < end; i += 1) console.log(`${i + 1}: ${socket[i]}`)
             }
           }
+
+          printRange('lib/Socket/messages-recv.js', 354, 368)
+          const utilsIndex = fs.readFileSync(path.join(dir, 'lib/Utils/index.js'), 'utf8').split(/\r?\n/)
+          console.log('\n===== Utils index companion export =====')
+          utilsIndex.forEach((line, index) => {
+            if (line.includes('companion-reg-client-utils')) console.log(`${index + 1}: ${line}`)
+          })
           NODE
