@@ -1,0 +1,40 @@
+name: Admin API Lockfile Once
+
+on:
+  push:
+    branches:
+      - feat/admin-api-read-foundation-v1
+
+permissions:
+  contents: read
+
+env:
+  APP_ENV: test
+
+jobs:
+  generate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+      - name: Generate exact Fastify lockfile
+        run: pnpm add fastify@5.12.1 --save-exact --lockfile-only
+      - name: Validate frozen lockfile and supply-chain policy
+        run: pnpm install --frozen-lockfile
+      - name: Upload generated package files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: admin-api-fastify-lockfile
+          path: |
+            package.json
+            pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 1
