@@ -4,6 +4,7 @@ import type {
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
+import type { BaileysAuthSnapshot } from "../../src/adapters/whatsapp/postgres-baileys-auth.js";
 import {
   loadWhatsAppPairingBootstrapConfig,
   WhatsAppPairingBootstrapConfigError,
@@ -79,7 +80,7 @@ function validEnv(): NodeJS.ProcessEnv {
 
 function fakeReservation() {
   return {
-    commit: vi.fn(async () => {}),
+    commit: vi.fn(async (_snapshot: BaileysAuthSnapshot) => {}),
     close: vi.fn(async () => {}),
   };
 }
@@ -173,15 +174,16 @@ describe("WhatsApp first-pairing bootstrap core", () => {
   it("fails closed on provider close without persisting auth or leaking QR", async () => {
     const socket = new FakePairingSocket();
     const reservation = fakeReservation();
+    const socketFactory = vi.fn(() => socket);
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
       providerVersion: "7.0.0-rc15",
       reserveBootstrap: vi.fn(async () => reservation),
-      socketFactory: () => socket,
+      socketFactory,
       qrSink: { render: vi.fn(async () => {}) },
     });
 
-    await Promise.resolve();
+    await vi.waitFor(() => expect(socketFactory).toHaveBeenCalledTimes(1));
     socket.emit("connection.update", { connection: "connecting", qr: "never-log-this-qr" });
     socket.emit("connection.update", { connection: "close", lastDisconnect: { error: "secret" } });
 
@@ -197,15 +199,16 @@ describe("WhatsApp first-pairing bootstrap core", () => {
   it("rejects provider open when the ephemeral credentials are not registered", async () => {
     const socket = new FakePairingSocket();
     const reservation = fakeReservation();
+    const socketFactory = vi.fn(() => socket);
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
       providerVersion: "7.0.0-rc15",
       reserveBootstrap: vi.fn(async () => reservation),
-      socketFactory: () => socket,
+      socketFactory,
       qrSink: { render: vi.fn(async () => {}) },
     });
 
-    await Promise.resolve();
+    await vi.waitFor(() => expect(socketFactory).toHaveBeenCalledTimes(1));
     socket.emit("connection.update", { connection: "open" });
 
     await expect(pairing).rejects.toBeInstanceOf(WhatsAppPairingIncompleteAuthError);
