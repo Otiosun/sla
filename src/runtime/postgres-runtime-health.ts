@@ -117,14 +117,18 @@ export class PostgresRuntimeHealthRepository {
     );
     if (result.rowCount === 1) return;
 
-    const replay = await this.pool.query<{ provider_state: string; shutdown_reason: string | null }>(
+    const replay = await this.pool.query<{
+      provider_state: string;
+      shutdown_reason: string | null;
+    }>(
       `SELECT provider_state, shutdown_reason
          FROM runtime_instances
         WHERE instance_id = $1`,
       [instanceId],
     );
     const current = replay.rows[0];
-    if (current?.provider_state === terminalState && current.shutdown_reason === shutdownReason) return;
+    if (current?.provider_state === terminalState && current.shutdown_reason === shutdownReason)
+      return;
     throw new Error("runtime instance could not transition to terminal state");
   }
 
