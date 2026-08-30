@@ -4,6 +4,7 @@ set -Eeuo pipefail
 workflow=".github/workflows/staging-database-release.yml"
 release_script="scripts/operations/staging-database-release.sh"
 jit_script="scripts/operations/staging-database-release-supabase-jit.sh"
+ca_file="certs/supabase/prod-ca-2021.crt"
 
 fail() {
   printf 'staging database release contract failed: %s\n' "$1" >&2
@@ -27,6 +28,7 @@ reject_literal() {
 [[ -f "$workflow" ]] || fail "missing ${workflow}"
 [[ -f "$release_script" ]] || fail "missing ${release_script}"
 [[ -f "$jit_script" ]] || fail "missing ${jit_script}"
+[[ -f "$ca_file" ]] || fail "missing ${ca_file}"
 bash -n "$release_script"
 bash -n "$jit_script"
 
@@ -71,6 +73,9 @@ require_literal "$release_script" "pnpm db:verify"
 require_literal "$release_script" "pokemon_migrator"
 require_literal "$release_script" "pokemon_runtime"
 require_literal "$release_script" "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"
+require_literal "$release_script" "DATABASE_SSL_ROOT_CERT_FILE"
+require_literal "$release_script" "NODE_EXTRA_CA_CERTS"
+require_literal "$release_script" "PGSSLROOTCERT"
 
 # The JIT wrapper must only assume the application roles. The existing-role preflight is read-only,
 # so authorizing the temporary-access PAT to assume provider owner/postgres would violate least privilege.
@@ -79,10 +84,12 @@ require_literal "$jit_script" "STAGING_SUPABASE_PROJECT_REF"
 require_literal "$jit_script" "STAGING_SUPABASE_POOLER_HOST"
 require_literal "$jit_script" "pokemon_migrator"
 require_literal "$jit_script" "pokemon_runtime"
-require_literal "$jit_script" "sslmode"
+require_literal "$jit_script" "sslmode=verify-full"
 require_literal "$jit_script" "jit=true"
+require_literal "$jit_script" "DATABASE_SSL_ROOT_CERT_FILE"
 require_literal "$jit_script" "STAGING_ROLE_BOOTSTRAP_MODE=existing_roles"
 require_literal "$jit_script" "::add-mask::"
+reject_literal "$jit_script" "sslmode=require"
 reject_literal "$jit_script" "make_jit_url postgres"
 reject_literal "$jit_script" "MIGRATOR_PASSWORD"
 reject_literal "$jit_script" "RUNTIME_PASSWORD"
@@ -100,6 +107,7 @@ cat > "$probe_dir/bash" <<'PROBE'
   printf 'owner=%s\n' "${STAGING_DATABASE_OWNER_URL:-}"
   printf 'migrator=%s\n' "${MIGRATOR_DATABASE_URL:-}"
   printf 'runtime=%s\n' "${DATABASE_URL:-}"
+  printf 'ca_file=%s\n' "${DATABASE_SSL_ROOT_CERT_FILE:-}"
   printf 'migrator_password_present=%s\n' "${MIGRATOR_PASSWORD+x}"
   printf 'runtime_password_present=%s\n' "${RUNTIME_PASSWORD+x}"
 } > "$JIT_CAPTURE_FILE"
@@ -118,9 +126,11 @@ RUN_APPLICATION_SMOKE=false \
   /usr/bin/bash "$jit_script" > "$probe_dir/wrapper-output"
 
 require_literal "$probe_dir/capture" "mode=existing_roles"
-require_literal "$probe_dir/capture" "owner=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
-require_literal "$probe_dir/capture" "migrator=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
-require_literal "$probe_dir/capture" "runtime=postgresql://pokemon_runtime.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "owner=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "migrator=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "runtime=postgresql://pokemon_runtime.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "ca_file="
+require_literal "$probe_dir/capture" "certs/supabase/prod-ca-2021.crt"
 require_literal "$probe_dir/capture" "migrator_password_present="
 require_literal "$probe_dir/capture" "runtime_password_present="
 reject_literal "$probe_dir/capture" "postgres.abcdefghijklmnopqrst"
