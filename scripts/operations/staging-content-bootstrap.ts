@@ -53,9 +53,7 @@ export function planStagingContentBootstrap(
     (candidateRelease === null ||
       (candidateRelease.id === STAGING_GEN123_RELEASE_ID &&
         candidateRelease.releaseNo === 15001 &&
-        new Set<ReleaseStatus>(["DRAFT", "VALIDATED", "PUBLISHED"]).has(
-          candidateRelease.status,
-        )))
+        new Set<ReleaseStatus>(["DRAFT", "VALIDATED", "PUBLISHED"]).has(candidateRelease.status)))
   ) {
     return "PROMOTE_CANDIDATE";
   }
@@ -188,9 +186,7 @@ async function runPhase4Seed(): Promise<void> {
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
       else {
-        reject(
-          new Error(`db:seed:phase4 failed: code=${String(code)} signal=${String(signal)}`),
-        );
+        reject(new Error(`db:seed:phase4 failed: code=${String(code)} signal=${String(signal)}`));
       }
     });
   });
