@@ -26,7 +26,8 @@ export class AdminRequestAuthenticator {
 
   public async authenticate(rawToken: unknown): Promise<ResolvedAdminIdentityContext> {
     const parsed = AccessTokenSchema.safeParse(rawToken);
-    if (!parsed.success) throw new AdminUnauthenticatedError("Administrative authentication failed");
+    if (!parsed.success)
+      throw new AdminUnauthenticatedError("Administrative authentication failed");
 
     let externalIdentity: CloudflareAccessIdentity;
     try {
