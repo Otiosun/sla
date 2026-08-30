@@ -32,9 +32,7 @@ export interface BaileysWhatsAppAdapterOptions {
   readonly metrics?: MetricSink;
   readonly onQr?: (qr: string) => Promise<void> | void;
   readonly onLoggedOut?: () => Promise<void> | void;
-  readonly onConnectionState?: (
-    state: WhatsAppProviderConnectionState,
-  ) => Promise<void> | void;
+  readonly onConnectionState?: (state: WhatsAppProviderConnectionState) => Promise<void> | void;
   readonly onProviderError?: (error: unknown) => void;
 }
 
