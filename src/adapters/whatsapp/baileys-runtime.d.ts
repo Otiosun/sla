@@ -9,6 +9,10 @@ export const loggedOutStatusCode: BaileysRuntimeBridge["loggedOutStatusCode"];
 export function normalizeMessageContent(
   message: BaileysMessageContentLike | null | undefined,
 ): BaileysMessageContentLike | undefined;
+export function fetchLatestWaWebVersion(): Promise<{
+  readonly version: readonly number[];
+  readonly isLatest: boolean;
+}>;
 export function makeSocket(config: BaileysSocketConfigLike): BaileysSocketLike;
 export function createInitialAuthCreds(): unknown;
 export function serializeAuthValue(value: unknown): string;
