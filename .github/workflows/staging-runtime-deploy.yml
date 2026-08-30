@@ -90,11 +90,23 @@ jobs:
             exit 1
           }
 
-      - name: Verify Fly app and runtime-only secret boundary
+      - name: Verify Fly topology and runtime-only secret boundary
         shell: bash
         run: |
           set -euo pipefail
           flyctl status --app "$FLY_APP" >/dev/null
+
+          predeploy_machines_json="$(flyctl machines list --app "$FLY_APP" --json)"
+          predeploy_machine_count="$(jq -r 'length' <<<"$predeploy_machines_json")"
+          [[ "$predeploy_machine_count" =~ ^[0-9]+$ ]] || {
+            echo "could not determine predeploy Fly Machine count" >&2
+            exit 1
+          }
+          if (( predeploy_machine_count > 1 )); then
+            echo "predeploy Fly topology has more than one Machine" >&2
+            exit 1
+          fi
+
           secret_names="$(flyctl secrets list --app "$FLY_APP" --json | jq -r '.[].name')"
           for required_secret in DATABASE_URL WHATSAPP_SESSION_KEY WHATSAPP_AUTH_KEY_BASE64 WHATSAPP_AUTH_KEY_VERSION; do
             grep -Fxq "$required_secret" <<<"$secret_names" || {
