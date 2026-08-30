@@ -9,6 +9,7 @@ import { AdminSessionService } from "../adapters/admin-api/session-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-api-rate-limiter.js";
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
@@ -56,11 +57,13 @@ export function createOperationalAdminApi(
   });
   const authenticator = new AdminRequestAuthenticator(accessVerifier, identityResolver);
   const sessionService = new AdminSessionService(adminRepository, identityRepository);
+  const rateLimiter = new PostgresAdminApiRateLimiter(pool);
   const server = createAdminApiServer({
     allowedOrigin: config.adminApiAllowedOrigin,
     authenticator,
     sessionService,
     readFacade,
+    rateLimiter,
   });
 
   return {
