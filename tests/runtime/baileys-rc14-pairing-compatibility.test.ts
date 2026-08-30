@@ -54,6 +54,26 @@ async function readPackageMetadata(root: string): Promise<BaileysPackageMetadata
   ) as BaileysPackageMetadata;
 }
 
+async function loadCompanionRegModule(): Promise<CompanionRegModule> {
+  const root = await resolveBaileysPackageRoot();
+  return (await import(
+    pathToFileURL(path.join(root, "lib/Utils/companion-reg-client-utils.js")).href
+  )) as CompanionRegModule;
+}
+
+function refreshContext(creds: Record<string, unknown>) {
+  return {
+    creds,
+    emitCredsUpdate: vi.fn(),
+    refreshQR: vi.fn(),
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    },
+  };
+}
+
 describe("audited Baileys rc14 first-pairing compatibility patch", () => {
   it("marks only the vendored rc14 patch as pairing compatible", async () => {
     const root = await resolveBaileysPackageRoot();
@@ -72,11 +92,7 @@ describe("audited Baileys rc14 first-pairing compatibility patch", () => {
   });
 
   it("re-renders the current QR ref without consuming another server ref", async () => {
-    const root = await resolveBaileysPackageRoot();
-    const moduleUrl = pathToFileURL(
-      path.join(root, "lib/Utils/companion-reg-client-utils.js"),
-    ).href;
-    const module = (await import(moduleUrl)) as CompanionRegModule;
+    const module = await loadCompanionRegModule();
 
     expect(module.makePairingQRRenderer).toBeTypeOf("function");
     const renders: string[] = [];
@@ -90,40 +106,65 @@ describe("audited Baileys rc14 first-pairing compatibility patch", () => {
   });
 
   it("rotates the unpaired adv secret, emits the credential delta, and requests QR refresh", async () => {
-    const root = await resolveBaileysPackageRoot();
-    const moduleUrl = pathToFileURL(
-      path.join(root, "lib/Utils/companion-reg-client-utils.js"),
-    ).href;
-    const module = (await import(moduleUrl)) as CompanionRegModule;
-
+    const module = await loadCompanionRegModule();
     expect(module.handleCompanionRegRefresh).toBeTypeOf("function");
 
     const creds: Record<string, unknown> = { advSecretKey: "old-secret" };
-    const emitCredsUpdate = vi.fn();
-    const refreshQR = vi.fn();
-    const logger = {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-    };
+    const context = refreshContext(creds);
     const node = {
       tag: "notification",
       attrs: { id: "refresh-1", type: "companion_reg_refresh" },
       content: [{ tag: "companion_reg_refresh", attrs: {} }],
     };
 
-    const outcome = module.handleCompanionRegRefresh?.(node, {
-      creds,
-      emitCredsUpdate,
-      refreshQR,
-      logger,
-    });
+    const outcome = module.handleCompanionRegRefresh?.(node, context);
 
     expect(outcome).toBe("rotated");
     expect(creds.advSecretKey).toEqual(expect.any(String));
     expect(creds.advSecretKey).not.toBe("old-secret");
     expect(Buffer.from(String(creds.advSecretKey), "base64")).toHaveLength(32);
-    expect(emitCredsUpdate).toHaveBeenCalledWith({ advSecretKey: creds.advSecretKey });
-    expect(refreshQR).toHaveBeenCalledTimes(1);
+    expect(context.emitCredsUpdate).toHaveBeenCalledWith({ advSecretKey: creds.advSecretKey });
+    expect(context.refreshQR).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores malformed companion refresh notifications without mutating pairing state", async () => {
+    const module = await loadCompanionRegModule();
+    const creds: Record<string, unknown> = { advSecretKey: "stable-secret" };
+    const context = refreshContext(creds);
+    const node = {
+      tag: "notification",
+      attrs: { id: "malformed-1", type: "companion_reg_refresh" },
+      content: [],
+    };
+
+    const outcome = module.handleCompanionRegRefresh?.(node, context);
+
+    expect(outcome).toBe("ignored_malformed");
+    expect(creds.advSecretKey).toBe("stable-secret");
+    expect(context.emitCredsUpdate).not.toHaveBeenCalled();
+    expect(context.refreshQR).not.toHaveBeenCalled();
+    expect(context.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("never rotates the adv secret after the session already has a registered identity", async () => {
+    const module = await loadCompanionRegModule();
+    const creds: Record<string, unknown> = {
+      advSecretKey: "registered-secret",
+      me: { id: "paired-user" },
+    };
+    const context = refreshContext(creds);
+    const node = {
+      tag: "notification",
+      attrs: { id: "registered-1", type: "companion_reg_refresh" },
+      content: [{ tag: "pair-device-rotate-qr", attrs: {} }],
+    };
+
+    const outcome = module.handleCompanionRegRefresh?.(node, context);
+
+    expect(outcome).toBe("ignored_registered");
+    expect(creds.advSecretKey).toBe("registered-secret");
+    expect(context.emitCredsUpdate).not.toHaveBeenCalled();
+    expect(context.refreshQR).not.toHaveBeenCalled();
+    expect(context.logger.debug).toHaveBeenCalledTimes(1);
   });
 });
