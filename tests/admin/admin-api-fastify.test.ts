@@ -110,18 +110,21 @@ describe("Admin API Fastify boundary", () => {
     });
   });
 
-  it("rejects client-supplied principal authority as invalid query input", async () => {
-    const { server, searchPlayers } = setup();
-    const response = await server.inject({
-      method: "GET",
-      url: `/admin/v1/players?principalId=${PRINCIPAL_ID}`,
-      headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
-    });
+  it.each(["principalId", "environment", "roles", "capabilities", "scopes"] as const)(
+    "rejects client-supplied authority field %s as invalid query input",
+    async (authorityField) => {
+      const { server, searchPlayers } = setup();
+      const response = await server.inject({
+        method: "GET",
+        url: `/admin/v1/players?${authorityField}=${encodeURIComponent("attacker-controlled")}`,
+        headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
+      });
 
-    expect(response.statusCode).toBe(400);
-    expect(searchPlayers).not.toHaveBeenCalled();
-    expect(response.json()).toMatchObject({ error: { code: "ADMIN_INVALID_INPUT" } });
-  });
+      expect(response.statusCode).toBe(400);
+      expect(searchPlayers).not.toHaveBeenCalled();
+      expect(response.json()).toMatchObject({ error: { code: "ADMIN_INVALID_INPUT" } });
+    },
+  );
 
   it("converts allowlisted search query values and injects only authenticated identity", async () => {
     const { server, searchPlayers } = setup();
