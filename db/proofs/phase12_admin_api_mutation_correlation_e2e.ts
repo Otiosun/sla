@@ -108,6 +108,7 @@ try {
         origin: allowedOrigin,
         "cf-access-jwt-assertion": "proof-token",
         "x-correlation-id": clientCorrelationId,
+        "x-control-center-csrf": "1",
       },
       payload: {
         operationType: "admin.role.assign",
