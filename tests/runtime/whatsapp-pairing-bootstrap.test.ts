@@ -112,27 +112,24 @@ describe("WhatsApp pairing bootstrap config", () => {
 });
 
 describe("WhatsApp first-pairing bootstrap core", () => {
-  it(
-    "blocks an unreviewed provider version before reserving auth or creating a socket",
-    async () => {
-      const reserveBootstrap = vi.fn(async () => fakeReservation());
-      const socketFactory = vi.fn(() => new FakePairingSocket());
+  it("blocks an unreviewed provider version before reserving auth or creating a socket", async () => {
+    const reserveBootstrap = vi.fn(async () => fakeReservation());
+    const socketFactory = vi.fn(() => new FakePairingSocket());
 
-      await expect(
-        runWhatsAppPairingBootstrap({
-          config: coreConfig(),
-          providerVersion: "7.0.0-rc15",
-          waWebVersion: WA_WEB_VERSION,
-          reserveBootstrap,
-          socketFactory,
-          qrSink: { render: vi.fn(async () => {}) },
-        }),
-      ).rejects.toBeInstanceOf(WhatsAppPairingProviderVersionBlockedError);
+    await expect(
+      runWhatsAppPairingBootstrap({
+        config: coreConfig(),
+        providerVersion: "7.0.0-rc15",
+        waWebVersion: WA_WEB_VERSION,
+        reserveBootstrap,
+        socketFactory,
+        qrSink: { render: vi.fn(async () => {}) },
+      }),
+    ).rejects.toBeInstanceOf(WhatsAppPairingProviderVersionBlockedError);
 
-      expect(reserveBootstrap).not.toHaveBeenCalled();
-      expect(socketFactory).not.toHaveBeenCalled();
-    },
-  );
+    expect(reserveBootstrap).not.toHaveBeenCalled();
+    expect(socketFactory).not.toHaveBeenCalled();
+  });
 
   it("persists one encrypted-ready snapshot only after provider open", async () => {
     const socket = new FakePairingSocket();
