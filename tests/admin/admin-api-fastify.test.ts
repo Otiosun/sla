@@ -36,15 +36,17 @@ function setup() {
     playerId,
     status: "ACTIVE" as const,
   })) as never;
+  const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 60 });
 
   const server = createAdminApiServer({
     allowedOrigin: ORIGIN,
     authenticator: { authenticate },
     sessionService: { getSession },
     readFacade: { searchPlayers, getPlayer },
+    rateLimiter: { consume },
   });
   servers.push(server);
-  return { server, authenticate, getSession, searchPlayers, getPlayer };
+  return { server, authenticate, getSession, searchPlayers, getPlayer, consume };
 }
 
 describe("Admin API Fastify boundary", () => {
@@ -84,7 +86,7 @@ describe("Admin API Fastify boundary", () => {
   });
 
   it("projects the authenticated session with exact-origin CORS and no-store", async () => {
-    const { server, getSession } = setup();
+    const { server, getSession, consume } = setup();
     const response = await server.inject({
       method: "GET",
       url: "/admin/v1/session",
@@ -96,6 +98,10 @@ describe("Admin API Fastify boundary", () => {
     expect(response.headers["access-control-allow-credentials"]).toBe("true");
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(consume).toHaveBeenCalledWith({
+      principalId: PRINCIPAL_ID,
+      operation: "session.read",
+    });
     expect(getSession).toHaveBeenCalledWith(identity);
     expect(response.json()).toMatchObject({
       principalId: PRINCIPAL_ID,
