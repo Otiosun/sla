@@ -47,10 +47,15 @@ export interface PostgresBaileysAuthOptions {
   readonly encryptionKey: Uint8Array;
   readonly encryptionKeyVersion: number;
   readonly allowCreate?: boolean;
+  readonly requireCreate?: boolean;
 }
 
 export class WhatsAppAuthNotBootstrappedError extends Error {
   override readonly name = "WhatsAppAuthNotBootstrappedError";
+}
+
+export class WhatsAppAuthAlreadyBootstrappedError extends Error {
+  override readonly name = "WhatsAppAuthAlreadyBootstrappedError";
 }
 
 export class WhatsAppAuthLeaseUnavailableError extends Error {
@@ -74,6 +79,9 @@ function assertOptions(options: PostgresBaileysAuthOptions): void {
   }
   if (!Number.isSafeInteger(options.encryptionKeyVersion) || options.encryptionKeyVersion <= 0) {
     throw new Error("WhatsApp auth encryption key version must be a positive safe integer");
+  }
+  if (options.requireCreate === true && options.allowCreate !== true) {
+    throw new Error("WhatsApp auth requireCreate requires allowCreate");
   }
 }
 
@@ -151,6 +159,12 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
       }
 
       let session = await PostgresBaileysAuthBinding.loadSession(client, options.sessionKey);
+      if (session !== null && options.requireCreate === true) {
+        throw new WhatsAppAuthAlreadyBootstrappedError(
+          "WhatsApp auth session has already been bootstrapped",
+        );
+      }
+
       if (session === null) {
         if (options.allowCreate !== true) {
           throw new WhatsAppAuthNotBootstrappedError(
@@ -179,6 +193,11 @@ export class PostgresBaileysAuthBinding implements BaileysAuthBinding {
             options.encryptionKeyVersion,
           ],
         );
+        if (inserted.rows[0] === undefined && options.requireCreate === true) {
+          throw new WhatsAppAuthAlreadyBootstrappedError(
+            "WhatsApp auth session was bootstrapped concurrently",
+          );
+        }
         session =
           inserted.rows[0] ??
           (await PostgresBaileysAuthBinding.loadSession(client, options.sessionKey));
