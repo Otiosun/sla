@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: runtime-image-publish-contract-proof-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   contract:
@@ -29,3 +29,86 @@ jobs:
       - name: Prove runtime image publish contract
         shell: bash
         run: bash db/proofs/phase17_runtime_image_publish_contract_e2e.sh
+
+  publish:
+    name: immutable OCI runtime image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare canonical image coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          immutable_tag="${image}:sha-${GITHUB_SHA}"
+          main_tag="${image}:main"
+          {
+            echo "RUNTIME_IMAGE=${image}"
+            echo "RUNTIME_IMAGE_IMMUTABLE=${immutable_tag}"
+            echo "RUNTIME_IMAGE_MAIN=${main_tag}"
+          } >> "$GITHUB_ENV"
+
+      - name: Bootstrap attestation-capable Buildx builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx create --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish immutable runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx version
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=sha-${GITHUB_SHA}" \
+            --tag "$RUNTIME_IMAGE_IMMUTABLE" \
+            --tag "$RUNTIME_IMAGE_MAIN" \
+            --push \
+            .
+
+      - name: Verify published manifest identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          immutable_digest="$(docker buildx imagetools inspect "$RUNTIME_IMAGE_IMMUTABLE" | awk '/^Digest:/ { print $2; exit }')"
+          main_digest="$(docker buildx imagetools inspect "$RUNTIME_IMAGE_MAIN" | awk '/^Digest:/ { print $2; exit }')"
+
+          [[ "$immutable_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "immutable runtime tag did not resolve to a sha256 digest" >&2
+            exit 1
+          }
+          [[ "$main_digest" == "$immutable_digest" ]] || {
+            echo "main and immutable runtime tags do not point to the same manifest digest" >&2
+            exit 1
+          }
+
+          printf 'runtime image published: %s@%s\n' "$RUNTIME_IMAGE" "$immutable_digest"
+
+      - name: Log out from GHCR
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
