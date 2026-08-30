@@ -15,7 +15,11 @@ export interface AdminMutationOwner {
   prepareMutation(rawRequest: unknown): Promise<AdminPreparedOperation>;
   simulate(operationId: string, actorPrincipalId: string): Promise<AdminOperationRecord>;
   confirm(operationId: string, actorPrincipalId: string): Promise<AdminOperationRecord>;
-  approve(operationId: string, actorPrincipalId: string, reason: string): Promise<AdminOperationRecord>;
+  approve(
+    operationId: string,
+    actorPrincipalId: string,
+    reason: string,
+  ): Promise<AdminOperationRecord>;
   apply(operationId: string, actorPrincipalId: string): Promise<AdminOperationRecord>;
 }
 
@@ -44,12 +48,18 @@ export class ExternalAdminMutationEndpoint {
     return this.owner.prepareMutation(rawRequest);
   }
 
-  public async simulate(operationId: string, actorPrincipalId: string): Promise<AdminOperationRecord> {
+  public async simulate(
+    operationId: string,
+    actorPrincipalId: string,
+  ): Promise<AdminOperationRecord> {
     await this.admitLifecycle("admin.simulate", operationId, actorPrincipalId, null);
     return this.owner.simulate(operationId, actorPrincipalId);
   }
 
-  public async confirm(operationId: string, actorPrincipalId: string): Promise<AdminOperationRecord> {
+  public async confirm(
+    operationId: string,
+    actorPrincipalId: string,
+  ): Promise<AdminOperationRecord> {
     await this.admitLifecycle("admin.confirm", operationId, actorPrincipalId, null);
     return this.owner.confirm(operationId, actorPrincipalId);
   }
