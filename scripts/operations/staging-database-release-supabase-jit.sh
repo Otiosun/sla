@@ -40,8 +40,10 @@ make_jit_url() {
     url.hostname = poolerHost;
     url.port = "5432";
     url.pathname = "/postgres";
-    url.searchParams.set("sslmode", "require");
-    url.searchParams.set("options", "-c jit=true");
+    // Supabase temporary-access connection strings require the libpq option `-c jit=true`.
+    // Preserve the documented URI encoding exactly; URLSearchParams serializes spaces as `+`,
+    // which is not the provider contract we are willing to depend on for PostgreSQL conninfo.
+    url.search = "?sslmode=require&options=-c%20jit%3Dtrue";
     process.stdout.write(url.toString());
   '
 }
