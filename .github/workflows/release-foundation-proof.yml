@@ -262,3 +262,18 @@ jobs:
           PROOF_REVISION="$PROOF_REVISION" \
           WHATSAPP_SESSION_KEY="$session_key" \
             node --import tsx db/proofs/phase17_application_smoke_e2e.ts
+
+  deploy-artifact-proof:
+    name: deploy artifact / OCI runtime invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROOF_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prove deployable runtime artifact
+        shell: bash
+        run: bash db/proofs/phase17_deploy_artifact_e2e.sh
