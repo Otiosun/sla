@@ -19,6 +19,14 @@ import {
 
 const REVISION = "a".repeat(40);
 const AUTH_KEY = Buffer.alloc(32, 0x63);
+const PATCHED_RC14 = {
+  version: "7.0.0-rc14",
+  pairingCompatibility: "rc14-companion-reg-refresh-v1",
+} as const;
+const BARE_RC14 = {
+  version: "7.0.0-rc14",
+  pairingCompatibility: null,
+} as const;
 
 class FakePairingSocket implements BaileysSocketLike {
   ended = false;
@@ -110,14 +118,14 @@ describe("WhatsApp pairing bootstrap config", () => {
 });
 
 describe("WhatsApp first-pairing bootstrap core", () => {
-  it("blocks the known-broken rc14 before reserving auth or creating a socket", async () => {
+  it("blocks bare rc14 before reserving auth or creating a socket", async () => {
     const reserveBootstrap = vi.fn(async () => fakeReservation());
     const socketFactory = vi.fn(() => new FakePairingSocket());
 
     await expect(
       runWhatsAppPairingBootstrap({
         config: coreConfig(),
-        providerVersion: "7.0.0-rc14",
+        providerIdentity: BARE_RC14,
         reserveBootstrap,
         socketFactory,
         qrSink: { render: vi.fn(async () => {}) },
@@ -141,7 +149,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
 
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerIdentity: PATCHED_RC14,
       reserveBootstrap,
       socketFactory,
       qrSink,
@@ -177,7 +185,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const socketFactory = vi.fn(() => socket);
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerIdentity: PATCHED_RC14,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
       qrSink: { render: vi.fn(async () => {}) },
@@ -202,7 +210,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const socketFactory = vi.fn(() => socket);
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerIdentity: PATCHED_RC14,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
       qrSink: { render: vi.fn(async () => {}) },
@@ -223,7 +231,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     await expect(
       runWhatsAppPairingBootstrap({
         config: coreConfig(10),
-        providerVersion: "7.0.0-rc15",
+        providerIdentity: PATCHED_RC14,
         reserveBootstrap: vi.fn(async () => reservation),
         socketFactory: () => socket,
         qrSink: { render: vi.fn(async () => {}) },
