@@ -43,6 +43,7 @@ runtime_url="$(ROLE=pokemon_runtime node --input-type=module -e '
   url.hostname = poolerHost;
   url.port = "5432";
   url.pathname = "/postgres";
+  // Temporary Access requires `-c jit=true`; verify-full preserves hostname and CA verification.
   url.search = "?sslmode=verify-full&options=-c%20jit%3Dtrue";
   process.stdout.write(url.toString());
 ')"
