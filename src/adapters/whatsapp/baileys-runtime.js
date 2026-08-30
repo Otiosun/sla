@@ -1,6 +1,7 @@
 import makeWASocket, {
   BufferJSON,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   initAuthCreds,
   normalizeMessageContent,
   proto,
@@ -9,6 +10,7 @@ import makeWASocket, {
 export const loggedOutStatusCode = DisconnectReason.loggedOut;
 export { normalizeMessageContent };
 export const makeSocket = (config) => makeWASocket(config);
+export const fetchLatestWaWebVersionResult = () => fetchLatestWaWebVersion();
 export const createInitialAuthCreds = () => initAuthCreds();
 export const serializeAuthValue = (value) => JSON.stringify(value, BufferJSON.replacer);
 export const deserializeAuthValue = (serialized, keyType = null) => {
