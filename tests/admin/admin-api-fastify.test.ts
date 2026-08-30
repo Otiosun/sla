@@ -110,6 +110,35 @@ describe("Admin API Fastify boundary", () => {
     });
   });
 
+  it("generates a server-owned correlation id and propagates it to the read boundary", async () => {
+    const { server, searchPlayers } = setup();
+    const clientCorrelation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const response = await server.inject({
+      method: "GET",
+      url: "/admin/v1/players",
+      headers: {
+        origin: ORIGIN,
+        "cf-access-jwt-assertion": TOKEN,
+        "x-correlation-id": clientCorrelation,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const correlationId = response.headers["x-correlation-id"];
+    expect(correlationId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(correlationId).not.toBe(clientCorrelation);
+    expect(searchPlayers).toHaveBeenCalledWith(
+      {
+        principalId: PRINCIPAL_ID,
+        environment: "staging",
+        correlationId,
+      },
+      {},
+    );
+  });
+
   it.each(["principalId", "environment", "roles", "capabilities", "scopes"] as const)(
     "rejects client-supplied authority field %s as invalid query input",
     async (authorityField) => {
