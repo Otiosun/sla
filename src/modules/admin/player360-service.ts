@@ -60,6 +60,10 @@ function redactPlayer360SearchItem(item: Player360SearchItemView): Player360Sear
   };
 }
 
+function correlationContext(correlationId: string | undefined): Readonly<Record<string, string>> {
+  return correlationId === undefined ? {} : { correlationId };
+}
+
 export class Player360Service {
   public constructor(
     private readonly authorizer: Pick<AdminService, "authorizeRead">,
@@ -76,12 +80,14 @@ export class Player360Service {
       principalId: parsed.data.principalId,
       operationType: "player.read",
       input: { playerId: parsed.data.playerId },
+      ...correlationContext(parsed.data.correlationId),
     });
     if (parsed.data.includeSensitive) {
       await this.authorizer.authorizeRead({
         principalId: parsed.data.principalId,
         operationType: "player.read_sensitive",
         input: { playerId: parsed.data.playerId },
+        ...correlationContext(parsed.data.correlationId),
       });
     }
 
@@ -105,12 +111,14 @@ export class Player360Service {
       principalId: parsed.data.principalId,
       operationType: "player.search",
       input: {},
+      ...correlationContext(parsed.data.correlationId),
     });
     if (parsed.data.includeSensitive) {
       await this.authorizer.authorizeRead({
         principalId: parsed.data.principalId,
         operationType: "player.search_sensitive",
         input: {},
+        ...correlationContext(parsed.data.correlationId),
       });
     }
 
