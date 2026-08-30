@@ -5,6 +5,8 @@ import { AdminUnauthenticatedError } from "../../src/adapters/admin-api/request-
 
 const TOKEN = "x".repeat(64);
 const ORIGIN = "https://admin-staging.example.com";
+const CSRF_HEADER = "x-control-center-csrf";
+const CSRF_VALUE = "1";
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
 const TARGET_ADMIN_ID = "22222222-2222-4222-8222-222222222222";
 const SUPPORT_ROLE_ID = "33333333-3333-4333-8333-333333333333";
@@ -106,6 +108,7 @@ describe("Admin API mutation preparation HTTP boundary", () => {
         origin: ORIGIN,
         "cf-access-jwt-assertion": TOKEN,
         "x-correlation-id": CLIENT_CORRELATION_ID,
+        [CSRF_HEADER]: CSRF_VALUE,
       },
       payload: clientBody,
     });
@@ -159,7 +162,10 @@ describe("Admin API mutation preparation HTTP boundary", () => {
     const response = await server.inject({
       method: "POST",
       url: "/admin/v1/operations/prepare",
-      headers: { "cf-access-jwt-assertion": TOKEN },
+      headers: {
+        "cf-access-jwt-assertion": TOKEN,
+        [CSRF_HEADER]: CSRF_VALUE,
+      },
       payload: clientBody,
     });
 
@@ -167,6 +173,30 @@ describe("Admin API mutation preparation HTTP boundary", () => {
     expect(authenticate).not.toHaveBeenCalled();
     expect(prepareMutationEndpoint).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, "wrong"])(
+    "rejects a mutation with missing/invalid CSRF header before authentication (%s)",
+    async (csrfValue) => {
+      const { server, authenticate, consume, prepareMutationEndpoint } = setup();
+      const headers: Record<string, string> = {
+        origin: ORIGIN,
+        "cf-access-jwt-assertion": TOKEN,
+      };
+      if (csrfValue !== undefined) headers[CSRF_HEADER] = csrfValue;
+
+      const response = await server.inject({
+        method: "POST",
+        url: "/admin/v1/operations/prepare",
+        headers,
+        payload: clientBody,
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(authenticate).not.toHaveBeenCalled();
+      expect(consume).not.toHaveBeenCalled();
+      expect(prepareMutationEndpoint).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     "principalId",
@@ -180,7 +210,11 @@ describe("Admin API mutation preparation HTTP boundary", () => {
     const response = await server.inject({
       method: "POST",
       url: "/admin/v1/operations/prepare",
-      headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
+      headers: {
+        origin: ORIGIN,
+        "cf-access-jwt-assertion": TOKEN,
+        [CSRF_HEADER]: CSRF_VALUE,
+      },
       payload: { ...clientBody, [authorityField]: "attacker-controlled" },
     });
 
@@ -197,7 +231,7 @@ describe("Admin API mutation preparation HTTP boundary", () => {
       headers: {
         origin: ORIGIN,
         "access-control-request-method": "POST",
-        "access-control-request-headers": "content-type",
+        "access-control-request-headers": `content-type,${CSRF_HEADER}`,
       },
     });
 
@@ -205,7 +239,7 @@ describe("Admin API mutation preparation HTTP boundary", () => {
     expect(response.headers["access-control-allow-origin"]).toBe(ORIGIN);
     expect(response.headers["access-control-allow-credentials"]).toBe("true");
     expect(response.headers["access-control-allow-methods"]).toBe("POST");
-    expect(response.headers["access-control-allow-headers"]).toBe("content-type");
+    expect(response.headers["access-control-allow-headers"]).toBe(`content-type,${CSRF_HEADER}`);
     expect(authenticate).not.toHaveBeenCalled();
   });
 });
