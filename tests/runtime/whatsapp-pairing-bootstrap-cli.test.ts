@@ -80,12 +80,10 @@ describe("WhatsApp pairing CLI boundary", () => {
 
   it("renders QR only through the terminal renderer and never writes the raw payload", async () => {
     const writes: string[] = [];
-    const renderQr = vi.fn(
-      (payload: string, callback: (rendered: string) => void) => {
-        expect(payload).toBe("super-sensitive-qr-payload");
-        callback("██  ██\n  ██  ");
-      },
-    );
+    const renderQr = vi.fn((payload: string, callback: (rendered: string) => void) => {
+      expect(payload).toBe("super-sensitive-qr-payload");
+      callback("██  ██\n  ██  ");
+    });
     const sink = createTerminalPairingQrSink(renderQr, (chunk) => {
       writes.push(chunk);
     });
