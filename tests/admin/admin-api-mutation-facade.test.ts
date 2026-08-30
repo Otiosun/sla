@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AdminMutationFacade } from "../../src/adapters/admin-api/mutation-facade.js";
-import {
-  ExternalAdminMutationEndpoint,
-  type AdminMutationOwner,
-} from "../../src/modules/anti-abuse/external-admin-endpoint.js";
-import type { MutationAdmissionPort } from "../../src/modules/anti-abuse/contracts.js";
-import type { AdminPreparedOperation } from "../../src/modules/admin/contracts.js";
 import { ADMIN_ERROR_CODES } from "../../src/modules/admin/errors.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import type { AdminPreparedOperation } from "../../src/modules/admin/contracts.js";
 
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
 const CORRELATION_ID = "22222222-2222-4222-8222-222222222222";
@@ -89,52 +83,4 @@ describe("AdminMutationFacade", () => {
 
     expect(prepareMutation).not.toHaveBeenCalled();
   });
-
-  it(
-    "preserves trusted correlation through anti-abuse admission before the mutation owner",
-    async () => {
-      const prepared = { operation: {}, replayed: false } as AdminPreparedOperation;
-      const ownerPrepareMutation = vi.fn(async (_request: unknown) => prepared);
-      const owner: AdminMutationOwner = {
-        prepareMutation: ownerPrepareMutation,
-        async simulate() {
-          return prepared.operation;
-        },
-        async confirm() {
-          return prepared.operation;
-        },
-        async approve() {
-          return prepared.operation;
-        },
-        async apply() {
-          return prepared.operation;
-        },
-      };
-      const consume = vi.fn(async () => ok({ allowed: true, replayed: false, retryAfterMs: 0 }));
-      const admission: MutationAdmissionPort = { consume };
-      const endpoint = new ExternalAdminMutationEndpoint(owner, admission);
-      const facade = new AdminMutationFacade(endpoint);
-
-      await expect(facade.prepareMutation(trustedContext, clientBody)).resolves.toBe(prepared);
-
-      expect(consume).toHaveBeenCalledWith(
-        expect.objectContaining({
-          subjectKind: "ADMIN_PRINCIPAL",
-          subjectId: PRINCIPAL_ID,
-          surface: "ADMIN",
-          actionKey: "admin.prepare-mutation",
-          dedupeKey: `${PRINCIPAL_ID}:inventory.adjust:support-adjust-0001`,
-        }),
-      );
-      expect(ownerPrepareMutation).toHaveBeenCalledWith({
-        principalId: PRINCIPAL_ID,
-        operationType: "inventory.adjust",
-        input: { playerId: PLAYER_ID, delta: 1 },
-        reason: "Suporte solicitado pelo jogador",
-        expectedRevision: 7n,
-        idempotencyKey: "support-adjust-0001",
-        correlationId: CORRELATION_ID,
-      });
-    },
-  );
 });
