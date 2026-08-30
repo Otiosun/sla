@@ -1,7 +1,7 @@
 import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import type { WhatsAppSessionInvalidationReason } from "./compose-whatsapp-runtime.js";
 import type { RuntimeTerminalState } from "./postgres-runtime-health.js";
-import { RuntimeTerminationController } from "./runtime-termination-controller.js";
+import type { RuntimeTerminationController } from "./runtime-termination-controller.js";
 
 export interface ReleaseRuntimeProcessHealth {
   start(): Promise<void>;
