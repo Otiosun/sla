@@ -86,6 +86,43 @@ reject_literal "$jit_script" "MIGRATOR_PASSWORD"
 reject_literal "$jit_script" "RUNTIME_PASSWORD"
 reject_literal "$jit_script" "set -x"
 
+# Execute the real URL builder offline. Intercept the child `bash` exactly at the network release
+# boundary, so this proves the values actually handed to the canonical release script without
+# requiring provider credentials or network access.
+probe_dir="$(mktemp -d)"
+trap 'rm -rf "$probe_dir"' EXIT
+cat > "$probe_dir/bash" <<'PROBE'
+#!/bin/sh
+{
+  printf 'mode=%s\n' "${STAGING_ROLE_BOOTSTRAP_MODE:-}"
+  printf 'owner=%s\n' "${STAGING_DATABASE_OWNER_URL:-}"
+  printf 'migrator=%s\n' "${MIGRATOR_DATABASE_URL:-}"
+  printf 'runtime=%s\n' "${DATABASE_URL:-}"
+  printf 'migrator_password_present=%s\n' "${MIGRATOR_PASSWORD+x}"
+  printf 'runtime_password_present=%s\n' "${RUNTIME_PASSWORD+x}"
+} > "$JIT_CAPTURE_FILE"
+exit 0
+PROBE
+chmod +x "$probe_dir/bash"
+
+JIT_CAPTURE_FILE="$probe_dir/capture" \
+PATH="$probe_dir:$PATH" \
+APP_ENV=staging \
+DEPLOY_REVISION=0000000000000000000000000000000000000001 \
+STAGING_SUPABASE_PROJECT_REF=abcdefghijklmnopqrst \
+STAGING_SUPABASE_POOLER_HOST=aws-0-sa-east-1.pooler.supabase.com \
+STAGING_SUPABASE_JIT_TOKEN=sbp_test_token_123 \
+RUN_APPLICATION_SMOKE=false \
+  /usr/bin/bash "$jit_script" > "$probe_dir/wrapper-output"
+
+require_literal "$probe_dir/capture" "mode=existing_roles"
+require_literal "$probe_dir/capture" "owner=postgresql://postgres.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "migrator=postgresql://pokemon_migrator.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "runtime=postgresql://pokemon_runtime.abcdefghijklmnopqrst:sbp_test_token_123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-c%20jit%3Dtrue"
+require_literal "$probe_dir/capture" "migrator_password_present="
+require_literal "$probe_dir/capture" "runtime_password_present="
+reject_literal "$probe_dir/capture" "+jit%3Dtrue"
+
 # Runtime smoke remains read-only and is only requested after release succeeds.
 require_literal "$workflow" "pnpm --silent run ops:smoke:application"
 require_literal "$workflow" "if: inputs.run_application_smoke && inputs.database_auth_mode == 'password'"
