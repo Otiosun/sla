@@ -47,6 +47,11 @@ require_literal "$workflow" 'secrets.GITHUB_TOKEN'
 reject_literal "$workflow" "ghp_"
 reject_literal "$workflow" "github_pat_"
 
+# Provenance/SBOM attestations require a non-default BuildKit-backed buildx driver.
+# GitHub-hosted runners otherwise use the docker driver, which rejects attestations.
+require_literal "$workflow" 'docker buildx create --driver docker-container --use'
+require_literal "$workflow" 'docker buildx inspect --bootstrap'
+
 # Exact source revision is embedded and the published manifest gets supply-chain metadata.
 require_literal "$workflow" 'org.opencontainers.image.revision=${GITHUB_SHA}'
 require_literal "$workflow" "--provenance=mode=max"
