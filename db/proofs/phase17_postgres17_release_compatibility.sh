@@ -145,6 +145,15 @@ docker exec \
   --set ON_ERROR_STOP=1 \
   --command "INSERT INTO whatsapp_auth_sessions(session_key, credentials_ciphertext, credentials_iv, credentials_auth_tag, encryption_key_version) VALUES ('${session_key}', decode('00','hex'), decode(repeat('00',12),'hex'), decode(repeat('00',16),'hex'), 1) ON CONFLICT (session_key) DO NOTHING;"
 
+docker exec \
+  --env "PGPASSWORD=${runtime_password}" \
+  "$container" psql \
+  --host 127.0.0.1 \
+  --username "$runtime_role" \
+  --dbname "$database" \
+  --set ON_ERROR_STOP=1 \
+  --command "INSERT INTO runtime_instances(instance_id, environment, deployment_revision, whatsapp_session_key, provider_state, started_at, last_connected_at, last_heartbeat_at) VALUES ('00000000-0000-4000-8000-000000000176', 'staging', '${revision}', '${session_key}', 'CONNECTED', now(), now(), now());"
+
 smoke_json="$(APP_ENV=staging \
   DATABASE_URL="$runtime_url" \
   MIGRATOR_DATABASE_URL="$migrator_url" \
@@ -155,8 +164,8 @@ smoke_json="$(APP_ENV=staging \
 node -e '
   const report = JSON.parse(process.argv[1]);
   if (!report.passed) throw new Error(`PostgreSQL 17 application smoke failed: ${report.failures.join(",")}`);
-  if (report.providerLiveHealth !== "NOT_PROBED") throw new Error("compatibility proof must not claim provider health");
-  if (report.finalPostDeploySmokeComplete !== false) throw new Error("compatibility proof must not claim final 17.5 completion");
+  if (report.providerLiveHealth !== "HEALTHY") throw new Error("compatibility proof did not observe live provider health");
+  if (report.finalPostDeploySmokeComplete !== true) throw new Error("compatibility proof did not complete final post-deploy smoke");
 ' "$smoke_json"
 
 printf 'PostgreSQL %s release compatibility proof passed for revision %s\n' "$server_version" "$revision"
