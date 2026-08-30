@@ -55,7 +55,8 @@ reject_literal "$workflow" 'push:'
 reject_literal "$workflow" 'pull_request:'
 
 # The workflow consumes the already-published immutable GHCR artifact; Fly never rebuilds source.
-require_literal "$workflow" 'ghcr.io/${GITHUB_REPOSITORY,,}:sha-${GITHUB_SHA}'
+require_literal "$workflow" 'repository_lower="${GITHUB_REPOSITORY,,}"'
+require_literal "$workflow" 'RUNTIME_IMAGE_GHCR=ghcr.io/${repository_lower}:sha-${GITHUB_SHA}'
 require_literal "$workflow" 'docker pull "$RUNTIME_IMAGE_GHCR"'
 require_literal "$workflow" 'org.opencontainers.image.revision'
 require_literal "$workflow" 'registry.fly.io/${FLY_APP}:sha-${GITHUB_SHA}'
