@@ -22,7 +22,10 @@ if (compile.status !== 0) {
 
 const bridgeTarget = join(distDirectory, "src", "adapters", "whatsapp", "baileys-runtime.js");
 await mkdir(dirname(bridgeTarget), { recursive: true });
-await copyFile(join(repositoryRoot, "src", "adapters", "whatsapp", "baileys-runtime.js"), bridgeTarget);
+await copyFile(
+  join(repositoryRoot, "src", "adapters", "whatsapp", "baileys-runtime.js"),
+  bridgeTarget,
+);
 
 await cp(join(repositoryRoot, "db", "migrations"), join(distDirectory, "db", "migrations"), {
   recursive: true,
