@@ -77,7 +77,9 @@ class GuardedPlayerRepository implements Player360ReadRepository {
 class MutableIdentityRepository implements AdminPrincipalIdentityRepository {
   public status: AdminPrincipalIdentityRecord["status"] = "ACTIVE";
 
-  public async findByIdentityRef(identityRef: string): Promise<AdminPrincipalIdentityRecord | null> {
+  public async findByIdentityRef(
+    identityRef: string,
+  ): Promise<AdminPrincipalIdentityRecord | null> {
     return {
       principalId: PRINCIPAL_ID,
       identityRef,
@@ -113,10 +115,7 @@ describe("Admin API adversarial authorization", () => {
       email: "admin@example.com",
     };
     const resolver = new AdminIdentityResolver(identityRepository, "staging");
-    const authenticator = new AdminRequestAuthenticator(
-      { verify: async () => identity },
-      resolver,
-    );
+    const authenticator = new AdminRequestAuthenticator({ verify: async () => identity }, resolver);
 
     await expect(authenticator.authenticate(TOKEN)).resolves.toMatchObject({
       principalId: PRINCIPAL_ID,
@@ -170,9 +169,7 @@ describe("Admin API adversarial authorization", () => {
   });
 
   it("blocks BFLA when the principal lacks the capability required by the registered operation", async () => {
-    const service = adminService(
-      activeSnapshot([], [{ scopeType: "GLOBAL", scopeId: null }]),
-    );
+    const service = adminService(activeSnapshot([], [{ scopeType: "GLOBAL", scopeId: null }]));
 
     await expect(
       service.authorizeRead({
