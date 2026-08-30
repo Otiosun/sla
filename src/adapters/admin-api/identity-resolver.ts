@@ -32,11 +32,17 @@ export interface ResolvedAdminIdentityContext {
 function normalizeAccessIssuerHost(rawIssuer: string): string {
   const issuer = new URL(rawIssuer);
   if (issuer.protocol !== "https:") {
-    throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Invalid admin identity assertion");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
+      "Invalid admin identity assertion",
+    );
   }
   const host = issuer.hostname.toLowerCase();
   if (!host.endsWith(".cloudflareaccess.com")) {
-    throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Invalid admin identity assertion");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
+      "Invalid admin identity assertion",
+    );
   }
   return host;
 }
@@ -44,7 +50,10 @@ function normalizeAccessIssuerHost(rawIssuer: string): string {
 export function toCloudflareAccessIdentityRef(rawIdentity: unknown): string {
   const parsed = CloudflareAccessIdentitySchema.safeParse(rawIdentity);
   if (!parsed.success) {
-    throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Invalid admin identity assertion");
+    throw new AdminError(
+      ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
+      "Invalid admin identity assertion",
+    );
   }
 
   const host = normalizeAccessIssuerHost(parsed.data.issuer);
