@@ -40,7 +40,9 @@ function releaseRuntimeConfig(
   try {
     runtimeConfig = loadWhatsAppRuntimeConfig(appConfig, env);
   } catch {
-    throw new WhatsAppPairingBootstrapConfigError("WhatsApp pairing runtime configuration is invalid");
+    throw new WhatsAppPairingBootstrapConfigError(
+      "WhatsApp pairing runtime configuration is invalid",
+    );
   }
   if (runtimeConfig === null || runtimeConfig.deploymentRevision === null) {
     throw new WhatsAppPairingBootstrapConfigError(
