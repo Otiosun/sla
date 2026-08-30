@@ -26,16 +26,19 @@ export async function resolveLatestWhatsAppWebVersion(
     throw new WhatsAppWebVersionResolutionError("WhatsApp Web version resolution failed");
   }
 
+  const [major, minor, patch] = result.version;
   if (
     result.isLatest !== true ||
     !Array.isArray(result.version) ||
     result.version.length !== 3 ||
-    !result.version.every(isValidVersionPart)
+    !isValidVersionPart(major) ||
+    !isValidVersionPart(minor) ||
+    !isValidVersionPart(patch)
   ) {
     throw new WhatsAppWebVersionResolutionError(
       "WhatsApp Web version resolution did not return a current valid protocol tuple",
     );
   }
 
-  return [result.version[0], result.version[1], result.version[2]];
+  return [major, minor, patch];
 }
