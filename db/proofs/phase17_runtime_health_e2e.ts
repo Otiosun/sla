@@ -51,7 +51,12 @@ try {
         has_table_privilege(current_user, 'runtime_instances', 'UPDATE') AS can_update,
         has_table_privilege(current_user, 'runtime_instances', 'DELETE') AS can_delete`);
   const privilege = privileges.rows[0];
-  if (!privilege?.can_select || !privilege.can_insert || !privilege.can_update || privilege.can_delete) {
+  if (
+    !privilege?.can_select ||
+    !privilege.can_insert ||
+    !privilege.can_update ||
+    privilege.can_delete
+  ) {
     throw new Error(`unexpected runtime health privileges: ${JSON.stringify(privilege)}`);
   }
 
@@ -123,7 +128,8 @@ try {
     } catch {
       rejected = true;
     }
-    if (!rejected) throw new Error(`invalid runtime evidence was accepted: ${JSON.stringify(invalid)}`);
+    if (!rejected)
+      throw new Error(`invalid runtime evidence was accepted: ${JSON.stringify(invalid)}`);
   }
 
   let deleteRejected = false;
