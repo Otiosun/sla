@@ -1,4 +1,5 @@
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
+import { AdminUnauthenticatedError } from "./request-authenticator.js";
 
 export interface AdminHttpErrorResponse {
   readonly statusCode: number;
@@ -24,6 +25,9 @@ function response(
 }
 
 export function mapAdminHttpError(error: unknown, correlationId: string): AdminHttpErrorResponse {
+  if (error instanceof AdminUnauthenticatedError) {
+    return response(401, "ADMIN_UNAUTHENTICATED", "Administrative authentication required", correlationId);
+  }
   if (!(error instanceof AdminError)) {
     return response(
       500,
