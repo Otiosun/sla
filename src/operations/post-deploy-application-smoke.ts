@@ -7,6 +7,7 @@ export interface PostDeployApplicationSmokeInput {
   readonly deploymentRevision: string;
   readonly whatsappSessionKey: string;
   readonly criticalQueueAgeMs?: number;
+  readonly criticalQueueDepth?: number;
 }
 
 export interface PostDeployApplicationSmokeReport {
@@ -34,6 +35,7 @@ export interface PostDeployApplicationSmokeReport {
     readonly unsentCount: number;
     readonly oldestUnsentAgeMs: number;
     readonly criticalQueueAgeMs: number;
+    readonly criticalQueueDepth: number;
   };
   readonly providerLiveHealth: "NOT_PROBED";
   readonly finalPostDeploySmokeComplete: false;
@@ -64,13 +66,14 @@ interface OutboxRow {
 }
 
 const DEFAULT_CRITICAL_QUEUE_AGE_MS = 300_000;
+const DEFAULT_CRITICAL_QUEUE_DEPTH = 500;
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const SESSION_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-function positiveThreshold(value: number | undefined): number {
-  const resolved = value ?? DEFAULT_CRITICAL_QUEUE_AGE_MS;
+function positiveThreshold(label: string, value: number | undefined, fallback: number): number {
+  const resolved = value ?? fallback;
   if (!Number.isSafeInteger(resolved) || resolved <= 0) {
-    throw new Error("criticalQueueAgeMs must be a positive safe integer");
+    throw new Error(`${label} must be a positive safe integer`);
   }
   return resolved;
 }
@@ -85,7 +88,16 @@ export async function runPostDeployApplicationSmoke(
   if (!SESSION_KEY.test(input.whatsappSessionKey)) {
     throw new Error("whatsappSessionKey is invalid");
   }
-  const criticalQueueAgeMs = positiveThreshold(input.criticalQueueAgeMs);
+  const criticalQueueAgeMs = positiveThreshold(
+    "criticalQueueAgeMs",
+    input.criticalQueueAgeMs,
+    DEFAULT_CRITICAL_QUEUE_AGE_MS,
+  );
+  const criticalQueueDepth = positiveThreshold(
+    "criticalQueueDepth",
+    input.criticalQueueDepth,
+    DEFAULT_CRITICAL_QUEUE_DEPTH,
+  );
 
   await assertDatabaseSchemaCurrent(pool);
 
@@ -173,7 +185,8 @@ export async function runPostDeployApplicationSmoke(
   }
   if (session === null) failures.push("WHATSAPP_SESSION_MISSING");
   if (outbox.dead_count > 0) failures.push("OUTBOX_DEAD_MESSAGES_PRESENT");
-  if (oldestUnsentAgeMs >= criticalQueueAgeMs) failures.push("OUTBOX_CRITICAL_BACKLOG");
+  if (outbox.unsent_count >= criticalQueueDepth) failures.push("OUTBOX_CRITICAL_DEPTH");
+  if (oldestUnsentAgeMs >= criticalQueueAgeMs) failures.push("OUTBOX_CRITICAL_AGE");
 
   return {
     passed: failures.length === 0,
@@ -203,6 +216,7 @@ export async function runPostDeployApplicationSmoke(
       unsentCount: outbox.unsent_count,
       oldestUnsentAgeMs,
       criticalQueueAgeMs,
+      criticalQueueDepth,
     },
     providerLiveHealth: "NOT_PROBED",
     finalPostDeploySmokeComplete: false,
