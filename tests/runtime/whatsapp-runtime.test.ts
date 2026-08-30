@@ -14,6 +14,8 @@ import {
   WhatsAppRuntimeSupervisor,
 } from "../../src/runtime/whatsapp-runtime-supervisor.js";
 
+const releaseRevision = "1234567890abcdef1234567890abcdef12345678";
+
 class MemoryLogSink implements LogSink {
   readonly entries: StructuredLogEntry[] = [];
   write(entry: StructuredLogEntry): void {
@@ -50,6 +52,7 @@ describe("WhatsApp runtime config", () => {
         WHATSAPP_AUTH_KEY_BASE64: encoded,
         WHATSAPP_AUTH_KEY_VERSION: "2",
         WHATSAPP_OUTBOX_POLL_MS: "750",
+        DEPLOY_REVISION: releaseRevision,
       },
     );
     expect(config?.sessionKey).toBe("prod-main");
@@ -63,6 +66,7 @@ describe("WhatsApp runtime config", () => {
         {
           WHATSAPP_SESSION_KEY: "staging-main",
           WHATSAPP_AUTH_KEY_BASE64: Buffer.alloc(31, 0x42).toString("base64"),
+          DEPLOY_REVISION: releaseRevision,
         },
       ),
     ).toThrow(WhatsAppRuntimeConfigError);
