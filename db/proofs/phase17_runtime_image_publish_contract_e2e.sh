@@ -56,7 +56,13 @@ require_literal "$contract_workflow" "--sbom=true"
 require_literal "$contract_workflow" "--push"
 
 # Both mutable convenience and immutable tags must resolve to the same sha256 manifest.
+# Registry reads are allowed a short bounded retry window because GHCR may not expose a freshly
+# pushed manifest immediately. The verifier must still fail closed after the final attempt.
+require_literal "$contract_workflow" 'resolve_manifest_digest()'
+require_literal "$contract_workflow" 'for attempt in {1..6}; do'
 require_literal "$contract_workflow" 'docker buildx imagetools inspect'
+require_literal "$contract_workflow" 'sleep $((attempt * 2))'
+require_literal "$contract_workflow" 'return 1'
 require_literal "$contract_workflow" 'main_digest'
 require_literal "$contract_workflow" 'immutable_digest'
 require_literal "$contract_workflow" 'main_digest" == "$immutable_digest'
