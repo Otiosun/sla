@@ -1,0 +1,31 @@
+name: Runtime Image Publish Contract Proof
+
+on:
+  push:
+    branches:
+      - main
+      - "gate/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-image-publish-contract-proof-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: immutable runtime image publish contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prove runtime image publish contract
+        shell: bash
+        run: bash db/proofs/phase17_runtime_image_publish_contract_e2e.sh
