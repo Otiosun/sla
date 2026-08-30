@@ -117,10 +117,7 @@ function projectPreparedOperation(prepared: AdminPreparedOperation) {
   };
 }
 
-function originDenied(
-  request: FastifyRequest,
-  allowedOrigin: string,
-): boolean {
+function originDenied(request: FastifyRequest, allowedOrigin: string): boolean {
   const origin = request.headers.origin;
   if (origin !== undefined && origin !== allowedOrigin) return true;
   return request.method === "POST" && origin !== allowedOrigin;
