@@ -27,6 +27,8 @@ reject_literal() {
 [[ -f "$workflow" ]] || fail "missing ${workflow}"
 [[ -f "$release_script" ]] || fail "missing ${release_script}"
 [[ -f "$jit_script" ]] || fail "missing ${jit_script}"
+bash -n "$release_script"
+bash -n "$jit_script"
 
 # The external staging mutation is deliberate, serialized, and pinned to canonical main.
 require_literal "$workflow" "workflow_dispatch:"
@@ -79,8 +81,10 @@ require_literal "$jit_script" "pokemon_runtime"
 require_literal "$jit_script" "sslmode"
 require_literal "$jit_script" "jit=true"
 require_literal "$jit_script" "STAGING_ROLE_BOOTSTRAP_MODE=existing_roles"
+require_literal "$jit_script" "::add-mask::"
 reject_literal "$jit_script" "MIGRATOR_PASSWORD"
 reject_literal "$jit_script" "RUNTIME_PASSWORD"
+reject_literal "$jit_script" "set -x"
 
 # Runtime smoke remains read-only and is only requested after release succeeds.
 require_literal "$workflow" "pnpm --silent run ops:smoke:application"
