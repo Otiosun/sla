@@ -30,7 +30,7 @@ describe("WhatsApp pairing CLI boundary", () => {
     await expect(resolveInstalledBaileysVersion()).resolves.toBe("7.0.0-rc14");
   });
 
-  it("blocks the known-broken provider before executing any DB/provider work", async () => {
+  it("blocks an unreviewed provider before resolving protocol or executing pairing", async () => {
     const executePairing = vi.fn<PairingCliExecutor>(async () => {});
     const resolveWaWebVersion = vi.fn(async () => WA_WEB_VERSION);
 
@@ -40,7 +40,7 @@ describe("WhatsApp pairing CLI boundary", () => {
         stdinIsTTY: true,
         stdoutIsTTY: true,
         isCI: false,
-        resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
+        resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
         resolveWaWebVersion,
         executePairing,
         renderQr: vi.fn(),
@@ -62,7 +62,7 @@ describe("WhatsApp pairing CLI boundary", () => {
         stdinIsTTY: false,
         stdoutIsTTY: true,
         isCI: false,
-        resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+        resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
         resolveWaWebVersion,
         executePairing,
         renderQr: vi.fn(),
@@ -76,7 +76,7 @@ describe("WhatsApp pairing CLI boundary", () => {
         stdinIsTTY: true,
         stdoutIsTTY: true,
         isCI: true,
-        resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+        resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
         resolveWaWebVersion,
         executePairing,
         renderQr: vi.fn(),
@@ -117,7 +117,7 @@ describe("WhatsApp pairing CLI boundary", () => {
       stdinIsTTY: true,
       stdoutIsTTY: true,
       isCI: false,
-      resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+      resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
       resolveWaWebVersion: vi.fn(async () => WA_WEB_VERSION),
       executePairing,
       renderQr,
@@ -128,7 +128,7 @@ describe("WhatsApp pairing CLI boundary", () => {
     const [config, providerVersion, waWebVersion, qrSink] = executePairing.mock.calls[0] ?? [];
     expect(config?.appEnv).toBe("staging");
     expect(config?.deploymentRevision).toBe(REVISION);
-    expect(providerVersion).toBe("7.0.0-rc15");
+    expect(providerVersion).toBe("7.0.0-rc14");
     expect(waWebVersion).toEqual(WA_WEB_VERSION);
     await qrSink?.render("payload-never-written-raw");
     expect(writeStdout.mock.calls.flat().join("")).not.toContain("payload-never-written-raw");
