@@ -301,7 +301,10 @@ async function main(): Promise<void> {
       encryptionKeyVersion: 1,
     });
     const reservationMarker = reservedAuth.state.creds.reservationMarker;
-    if (!Buffer.isBuffer(reservationMarker) || reservationMarker.toString("utf8") !== "provider-connected") {
+    if (
+      !Buffer.isBuffer(reservationMarker) ||
+      reservationMarker.toString("utf8") !== "provider-connected"
+    ) {
       throw new Error("Reserved bootstrap credentials were not recovered exactly");
     }
     const reservedKeys = await reservedAuth.state.keys.get("pre-key", ["epsilon"]);
