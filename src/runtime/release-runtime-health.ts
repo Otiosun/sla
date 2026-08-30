@@ -3,10 +3,7 @@ import type {
   RuntimeInstanceRegistration,
   RuntimeTerminalState,
 } from "./postgres-runtime-health.js";
-import {
-  RuntimeHealthReporter,
-  type RuntimeHealthWriter,
-} from "./runtime-health-reporter.js";
+import { RuntimeHealthReporter, type RuntimeHealthWriter } from "./runtime-health-reporter.js";
 
 export interface ReleaseRuntimeHealthStore extends RuntimeHealthWriter {
   register(input: RuntimeInstanceRegistration): Promise<void>;
