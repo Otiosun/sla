@@ -22,16 +22,20 @@ export class WhatsAppPairingBootstrapConfigError extends Error {
   override readonly name = "WhatsAppPairingBootstrapConfigError";
 }
 
-function releaseRuntimeConfig(
-  appConfig: Pick<AppConfig, "appEnv">,
-  env: NodeJS.ProcessEnv,
-): WhatsAppRuntimeConfig & { readonly deploymentRevision: string } {
-  if (appConfig.appEnv !== "staging" && appConfig.appEnv !== "production") {
+function assertReleaseEnvironment(
+  appEnv: AppConfig["appEnv"],
+): asserts appEnv is "staging" | "production" {
+  if (appEnv !== "staging" && appEnv !== "production") {
     throw new WhatsAppPairingBootstrapConfigError(
       "WhatsApp first pairing is restricted to staging or production",
     );
   }
+}
 
+function releaseRuntimeConfig(
+  appConfig: Pick<AppConfig, "appEnv">,
+  env: NodeJS.ProcessEnv,
+): WhatsAppRuntimeConfig & { readonly deploymentRevision: string } {
   let runtimeConfig: WhatsAppRuntimeConfig | null;
   try {
     runtimeConfig = loadWhatsAppRuntimeConfig(appConfig, env);
@@ -50,6 +54,8 @@ export function loadWhatsAppPairingBootstrapConfig(
   appConfig: Pick<AppConfig, "appEnv">,
   env: NodeJS.ProcessEnv = process.env,
 ): WhatsAppPairingBootstrapConfig {
+  const appEnv = appConfig.appEnv;
+  assertReleaseEnvironment(appEnv);
   const runtimeConfig = releaseRuntimeConfig(appConfig, env);
   const parsed = pairingEnvSchema.safeParse(env);
   if (!parsed.success) {
@@ -57,7 +63,7 @@ export function loadWhatsAppPairingBootstrapConfig(
   }
 
   return {
-    appEnv: appConfig.appEnv,
+    appEnv,
     sessionKey: runtimeConfig.sessionKey,
     authEncryptionKey: Buffer.from(runtimeConfig.authEncryptionKey),
     authEncryptionKeyVersion: runtimeConfig.authEncryptionKeyVersion,
