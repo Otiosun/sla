@@ -76,36 +76,33 @@ describe("planStagingContentBootstrap", () => {
     ).toThrow(/unexpected staging catalog state/i);
   });
 
-  test(
-    "fails closed when the ACTIVE pointer is neither canonical Phase 4 nor published Gen I-III",
-    () => {
-      expect(() =>
-        planStagingContentBootstrap(
-          state({
-            activeRelease: {
-              id: "00000000-0000-4000-8000-000000000099",
-              releaseNo: 99,
-              status: "PUBLISHED",
-            },
-          }),
-        ),
-      ).toThrow(/unexpected staging catalog state/i);
+  test("fails closed when the ACTIVE pointer is neither canonical Phase 4 nor published Gen I-III", () => {
+    expect(() =>
+      planStagingContentBootstrap(
+        state({
+          activeRelease: {
+            id: "00000000-0000-4000-8000-000000000099",
+            releaseNo: 99,
+            status: "PUBLISHED",
+          },
+        }),
+      ),
+    ).toThrow(/unexpected staging catalog state/i);
 
-      expect(() =>
-        planStagingContentBootstrap(
-          state({
-            activeRelease: {
-              ...candidate,
-              status: "VALIDATED",
-            },
-            phase4Release: phase4,
-            candidateRelease: {
-              ...candidate,
-              status: "VALIDATED",
-            },
-          }),
-        ),
-      ).toThrow(/unexpected staging catalog state/i);
-    },
-  );
+    expect(() =>
+      planStagingContentBootstrap(
+        state({
+          activeRelease: {
+            ...candidate,
+            status: "VALIDATED",
+          },
+          phase4Release: phase4,
+          candidateRelease: {
+            ...candidate,
+            status: "VALIDATED",
+          },
+        }),
+      ),
+    ).toThrow(/unexpected staging catalog state/i);
+  });
 });
