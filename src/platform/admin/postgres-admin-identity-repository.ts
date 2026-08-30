@@ -3,6 +3,7 @@ import type {
   AdminPrincipalIdentityRecord,
   AdminPrincipalIdentityRepository,
 } from "../../adapters/admin-api/identity-resolver.js";
+import type { AdminSessionRoleReader } from "../../adapters/admin-api/session-service.js";
 
 interface AdminPrincipalIdentityRow {
   readonly id: string;
@@ -10,7 +11,9 @@ interface AdminPrincipalIdentityRow {
   readonly status: "ACTIVE" | "DISABLED";
 }
 
-export class PostgresAdminIdentityRepository implements AdminPrincipalIdentityRepository {
+export class PostgresAdminIdentityRepository
+  implements AdminPrincipalIdentityRepository, AdminSessionRoleReader
+{
   public constructor(private readonly pool: Pool) {}
 
   public async findByIdentityRef(
@@ -29,5 +32,17 @@ export class PostgresAdminIdentityRepository implements AdminPrincipalIdentityRe
       identityRef: row.identity_ref,
       status: row.status,
     };
+  }
+
+  public async listRoleSlugs(principalId: string): Promise<readonly string[]> {
+    const result = await this.pool.query<{ slug: string }>(
+      `SELECT role.slug
+       FROM admin_principal_roles relation
+       JOIN admin_roles role ON role.id = relation.role_id
+       WHERE relation.principal_id = $1
+       ORDER BY role.slug`,
+      [principalId],
+    );
+    return result.rows.map((row) => row.slug);
   }
 }
