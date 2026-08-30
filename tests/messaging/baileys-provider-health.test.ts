@@ -62,4 +62,36 @@ describe("Baileys provider health transitions", () => {
     ]);
     await adapter.stop();
   });
+
+  it("does not let an operational health callback failure suppress provider reconnect", async () => {
+    const sockets: HealthTestSocket[] = [];
+    const onProviderError = vi.fn();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => {
+        const socket = new HealthTestSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectDelayMs: 0,
+      onConnectionState: async (state) => {
+        if (state === "DISCONNECTED") throw new Error("health persistence unavailable");
+      },
+      onProviderError,
+    });
+
+    await adapter.start(async () => {});
+    const firstSocket = sockets[0];
+    if (firstSocket === undefined) throw new Error("expected first socket");
+
+    firstSocket.emit("connection.update", {
+      connection: "close",
+      lastDisconnect: { error: { output: { statusCode: 500 } }, date: new Date() },
+    });
+
+    await vi.waitFor(() => expect(sockets).toHaveLength(2));
+    expect(onProviderError).toHaveBeenCalledTimes(1);
+    expect(onProviderError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    await adapter.stop();
+  });
 });
