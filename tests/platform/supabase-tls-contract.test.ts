@@ -34,8 +34,6 @@ describe("Supabase staging TLS contract", () => {
     expect(dockerfile).toContain(
       "COPY --chown=node:node certs/supabase/prod-ca-2021.crt ./certs/supabase/prod-ca-2021.crt",
     );
-    expect(dockerfile).toContain(
-      "ENV NODE_EXTRA_CA_CERTS=/app/certs/supabase/prod-ca-2021.crt",
-    );
+    expect(dockerfile).toContain("ENV NODE_EXTRA_CA_CERTS=/app/certs/supabase/prod-ca-2021.crt");
   });
 });
