@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { BaileysWaWebVersion } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
 import {
   createTerminalPairingQrSink,
   type PairingCliExecutor,
@@ -10,6 +11,7 @@ import { WhatsAppPairingProviderVersionBlockedError } from "../../src/operations
 
 const REVISION = "a".repeat(40);
 const AUTH_KEY = Buffer.alloc(32, 0x63);
+const WA_WEB_VERSION: BaileysWaWebVersion = [2, 3000, 1042626022];
 
 function validEnv(): NodeJS.ProcessEnv {
   return {
@@ -30,6 +32,7 @@ describe("WhatsApp pairing CLI boundary", () => {
 
   it("blocks the known-broken provider before executing any DB/provider work", async () => {
     const executePairing = vi.fn<PairingCliExecutor>(async () => {});
+    const resolveWaWebVersion = vi.fn(async () => WA_WEB_VERSION);
 
     await expect(
       runWhatsAppPairingBootstrapCli({
@@ -38,17 +41,20 @@ describe("WhatsApp pairing CLI boundary", () => {
         stdoutIsTTY: true,
         isCI: false,
         resolveProviderVersion: vi.fn(async () => "7.0.0-rc14"),
+        resolveWaWebVersion,
         executePairing,
         renderQr: vi.fn(),
         writeStdout: vi.fn(),
       }),
     ).rejects.toBeInstanceOf(WhatsAppPairingProviderVersionBlockedError);
 
+    expect(resolveWaWebVersion).not.toHaveBeenCalled();
     expect(executePairing).not.toHaveBeenCalled();
   });
 
   it("requires a local interactive terminal before executing pairing", async () => {
     const executePairing = vi.fn<PairingCliExecutor>(async () => {});
+    const resolveWaWebVersion = vi.fn(async () => WA_WEB_VERSION);
 
     await expect(
       runWhatsAppPairingBootstrapCli({
@@ -57,6 +63,7 @@ describe("WhatsApp pairing CLI boundary", () => {
         stdoutIsTTY: true,
         isCI: false,
         resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+        resolveWaWebVersion,
         executePairing,
         renderQr: vi.fn(),
         writeStdout: vi.fn(),
@@ -70,12 +77,14 @@ describe("WhatsApp pairing CLI boundary", () => {
         stdoutIsTTY: true,
         isCI: true,
         resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+        resolveWaWebVersion,
         executePairing,
         renderQr: vi.fn(),
         writeStdout: vi.fn(),
       }),
     ).rejects.toBeInstanceOf(WhatsAppPairingInteractiveTerminalRequiredError);
 
+    expect(resolveWaWebVersion).not.toHaveBeenCalled();
     expect(executePairing).not.toHaveBeenCalled();
   });
 
@@ -96,7 +105,7 @@ describe("WhatsApp pairing CLI boundary", () => {
     expect(writes.join("")).not.toContain("super-sensitive-qr-payload");
   });
 
-  it("passes only the validated release config and sensitive sink to execution", async () => {
+  it("passes only the validated release config, provider versions and sensitive sink to execution", async () => {
     const executePairing = vi.fn<PairingCliExecutor>(async () => {});
     const renderQr = vi.fn((_payload: string, callback: (rendered: string) => void) => {
       callback("QR-MATRIX");
@@ -109,16 +118,18 @@ describe("WhatsApp pairing CLI boundary", () => {
       stdoutIsTTY: true,
       isCI: false,
       resolveProviderVersion: vi.fn(async () => "7.0.0-rc15"),
+      resolveWaWebVersion: vi.fn(async () => WA_WEB_VERSION),
       executePairing,
       renderQr,
       writeStdout,
     });
 
     expect(executePairing).toHaveBeenCalledTimes(1);
-    const [config, providerVersion, qrSink] = executePairing.mock.calls[0] ?? [];
+    const [config, providerVersion, waWebVersion, qrSink] = executePairing.mock.calls[0] ?? [];
     expect(config?.appEnv).toBe("staging");
     expect(config?.deploymentRevision).toBe(REVISION);
     expect(providerVersion).toBe("7.0.0-rc15");
+    expect(waWebVersion).toEqual(WA_WEB_VERSION);
     await qrSink?.render("payload-never-written-raw");
     expect(writeStdout.mock.calls.flat().join("")).not.toContain("payload-never-written-raw");
   });
