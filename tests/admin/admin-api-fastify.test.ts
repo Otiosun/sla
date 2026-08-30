@@ -50,7 +50,11 @@ function setup() {
 describe("Admin API Fastify boundary", () => {
   it("returns 401 when the Cloudflare Access assertion is absent", async () => {
     const { server } = setup();
-    const response = await server.inject({ method: "GET", url: "/admin/v1/session", headers: { origin: ORIGIN } });
+    const response = await server.inject({
+      method: "GET",
+      url: "/admin/v1/session",
+      headers: { origin: ORIGIN },
+    });
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({
