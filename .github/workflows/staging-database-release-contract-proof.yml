@@ -1,0 +1,31 @@
+name: Staging Database Release Contract Proof
+
+on:
+  push:
+    branches:
+      - main
+      - "gate/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-database-release-contract-proof-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: remote staging database release contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prove staging database release contract
+        shell: bash
+        run: bash db/proofs/phase17_staging_database_release_contract_e2e.sh
