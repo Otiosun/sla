@@ -76,7 +76,10 @@ function normalizeTeamDomain(rawDomain: string): URL {
   return url;
 }
 
-function audienceMatches(rawAudience: string | readonly string[], expectedAudience: string): boolean {
+function audienceMatches(
+  rawAudience: string | readonly string[],
+  expectedAudience: string,
+): boolean {
   return Array.isArray(rawAudience)
     ? rawAudience.includes(expectedAudience)
     : rawAudience === expectedAudience;
@@ -104,7 +107,12 @@ export class CloudflareAccessJwtVerifier {
     this.issuer = teamDomain.origin;
     this.certsUrl = new URL("/cdn-cgi/access/certs", teamDomain);
     this.audience = z.string().trim().min(1).max(256).parse(config.audience);
-    this.clockSkewSeconds = z.number().int().min(0).max(300).parse(config.clockSkewSeconds ?? 30);
+    this.clockSkewSeconds = z
+      .number()
+      .int()
+      .min(0)
+      .max(300)
+      .parse(config.clockSkewSeconds ?? 30);
     this.jwksCacheTtlMs = z
       .number()
       .int()
