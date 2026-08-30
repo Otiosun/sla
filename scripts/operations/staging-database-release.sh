@@ -31,6 +31,17 @@ runtime_role="pokemon_runtime"
 psql_image="postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94"
 bootstrap_mode="${STAGING_ROLE_BOOTSTRAP_MODE:-password}"
 
+psql_tls_args=()
+if [[ -n "${DATABASE_SSL_ROOT_CERT_FILE:-}" ]]; then
+  [[ -f "$DATABASE_SSL_ROOT_CERT_FILE" ]] || fail "database_ssl_root_cert_file_not_found"
+  database_ssl_root_cert_file="$(cd "$(dirname "$DATABASE_SSL_ROOT_CERT_FILE")" && pwd)/$(basename "$DATABASE_SSL_ROOT_CERT_FILE")"
+  export NODE_EXTRA_CA_CERTS="$database_ssl_root_cert_file"
+  psql_tls_args=(
+    --volume "${database_ssl_root_cert_file}:/run/pokemon-rpg/database-root-ca.crt:ro"
+    --env "PGSSLROOTCERT=/run/pokemon-rpg/database-root-ca.crt"
+  )
+fi
+
 printf '{"event":"staging.database.release.start","revision":"%s","roleBootstrapMode":"%s"}\n' \
   "$DEPLOY_REVISION" "$bootstrap_mode"
 
@@ -41,6 +52,7 @@ case "$bootstrap_mode" in
 
     # Provider-owner ceremony: create/rotate only the two environment login roles and schema grants.
     docker run --rm -i \
+      "${psql_tls_args[@]}" \
       --env STAGING_DATABASE_OWNER_URL \
       --env MIGRATOR_PASSWORD \
       --env RUNTIME_PASSWORD \
@@ -60,6 +72,7 @@ case "$bootstrap_mode" in
     # proceed unless the externally provisioned roles already match the canonical least-privilege
     # contract. This path never rotates or invents a persistent database password.
     docker run --rm \
+      "${psql_tls_args[@]}" \
       --env STAGING_DATABASE_OWNER_URL \
       "$psql_image" \
       sh -ceu '
@@ -114,12 +127,14 @@ esac
 
 # Refuse a secret/URL mismatch before any numbered migration is attempted.
 migrator_user="$(docker run --rm \
+  "${psql_tls_args[@]}" \
   --env MIGRATOR_DATABASE_URL \
   "$psql_image" \
   sh -ceu 'exec psql "$MIGRATOR_DATABASE_URL" --tuples-only --no-align --set ON_ERROR_STOP=1 --command "SELECT current_user;"')"
 [[ "$migrator_user" == "$migrator_role" ]] || fail "migrator_url_does_not_authenticate_as_pokemon_migrator"
 
 runtime_user="$(docker run --rm \
+  "${psql_tls_args[@]}" \
   --env DATABASE_URL \
   "$psql_image" \
   sh -ceu 'exec psql "$DATABASE_URL" --tuples-only --no-align --set ON_ERROR_STOP=1 --command "SELECT current_user;"')"
@@ -134,6 +149,7 @@ DEPLOY_REVISION="$DEPLOY_REVISION" \
 
 # Reconcile runtime grants as the schema-owning migrator. This also verifies object ownership.
 docker run --rm -i \
+  "${psql_tls_args[@]}" \
   --env MIGRATOR_DATABASE_URL \
   "$psql_image" \
   sh -ceu '

@@ -25,6 +25,11 @@ require_env STAGING_SUPABASE_JIT_TOKEN
 [[ "$STAGING_SUPABASE_POOLER_HOST" =~ ^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$ ]] || fail "invalid_supabase_pooler_host"
 command -v node >/dev/null 2>&1 || fail "node_not_available"
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+database_ssl_root_cert_file="${DATABASE_SSL_ROOT_CERT_FILE:-${repo_root}/certs/supabase/prod-ca-2021.crt}"
+[[ -f "$database_ssl_root_cert_file" ]] || fail "database_ssl_root_cert_file_not_found"
+export NODE_EXTRA_CA_CERTS="$database_ssl_root_cert_file"
+
 make_jit_url() {
   local role="$1"
   ROLE="$role" node --input-type=module -e '
@@ -40,10 +45,9 @@ make_jit_url() {
     url.hostname = poolerHost;
     url.port = "5432";
     url.pathname = "/postgres";
-    // Supabase temporary-access connection strings require the libpq option `-c jit=true`.
-    // Preserve the documented URI encoding exactly; URLSearchParams serializes spaces as `+`,
-    // which is not the provider contract we are willing to depend on for PostgreSQL conninfo.
-    url.search = "?sslmode=require&options=-c%20jit%3Dtrue";
+    // Temporary Access requires `-c jit=true`; verify-full keeps hostname + CA verification enabled.
+    // Preserve the documented URI encoding exactly; URLSearchParams serializes spaces as `+`.
+    url.search = "?sslmode=verify-full&options=-c%20jit%3Dtrue";
     process.stdout.write(url.toString());
   '
 }
@@ -68,6 +72,7 @@ STAGING_ROLE_BOOTSTRAP_MODE=existing_roles \
 STAGING_DATABASE_OWNER_URL="$owner_url" \
 MIGRATOR_DATABASE_URL="$migrator_url" \
 DATABASE_URL="$runtime_url" \
+DATABASE_SSL_ROOT_CERT_FILE="$database_ssl_root_cert_file" \
   bash scripts/operations/staging-database-release.sh
 
 if [[ "${RUN_APPLICATION_SMOKE:-false}" == "true" ]]; then

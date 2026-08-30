@@ -30,11 +30,13 @@ LABEL org.opencontainers.image.title="pokemon-rpg-runtime" \
       org.opencontainers.image.revision="${VCS_REF}"
 
 ENV NODE_ENV=production
+ENV NODE_EXTRA_CA_CERTS=/app/certs/supabase/prod-ca-2021.crt
 WORKDIR /app
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./package.json
+COPY --chown=node:node certs/supabase/prod-ca-2021.crt ./certs/supabase/prod-ca-2021.crt
 
 USER node
 CMD ["node", "dist/src/main.js"]
