@@ -1,6 +1,9 @@
+import type {
+  BaileysConnectionUpdateLike,
+  BaileysWaWebVersion,
+} from "../adapters/whatsapp/baileys-provider-contracts.js";
 import { createInitialAuthCreds } from "../adapters/whatsapp/baileys-runtime.js";
 import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
-import type { BaileysConnectionUpdateLike } from "../adapters/whatsapp/baileys-provider-contracts.js";
 import type {
   BaileysAuthSnapshot,
   PostgresBaileysAuthOptions,
@@ -23,6 +26,7 @@ export type WhatsAppAuthBootstrapReservationFactory = (
 export interface WhatsAppPairingBootstrapDependencies {
   readonly config: WhatsAppPairingBootstrapConfig;
   readonly providerVersion: string;
+  readonly waWebVersion: BaileysWaWebVersion;
   readonly reserveBootstrap: WhatsAppAuthBootstrapReservationFactory;
   readonly socketFactory: BaileysSocketFactory;
   readonly qrSink: SensitivePairingQrSink;
@@ -223,6 +227,7 @@ async function executePairing(
         markOnlineOnConnect: false,
         shouldSyncHistoryMessage: () => false,
         syncFullHistory: false,
+        version: dependencies.waWebVersion,
       });
       socket.ev.on("creds.update", (update) => {
         auth.applyCredentialsUpdate(update);
