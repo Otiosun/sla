@@ -16,6 +16,7 @@ const KEY = Buffer.alloc(32, 0x51);
 const SESSION = "phase17-proof";
 const SNAPSHOT_SESSION = "phase17-snapshot-proof";
 const ROLLBACK_SESSION = "phase17-snapshot-rollback";
+const RESERVATION_SESSION = "phase17-reservation-proof";
 
 async function expectReject<T>(
   promise: Promise<T>,
@@ -44,12 +45,21 @@ async function deleteProofSession(pool: Pool, sessionKey: string): Promise<void>
   await pool.query("DELETE FROM whatsapp_auth_sessions WHERE session_key = $1", [sessionKey]);
 }
 
+async function sessionCount(pool: Pool, sessionKey: string): Promise<string | undefined> {
+  const result = await pool.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM whatsapp_auth_sessions WHERE session_key = $1",
+    [sessionKey],
+  );
+  return result.rows[0]?.count;
+}
+
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl, max: 6 });
   try {
     await deleteProofSession(pool, SESSION);
     await deleteProofSession(pool, SNAPSHOT_SESSION);
     await deleteProofSession(pool, ROLLBACK_SESSION);
+    await deleteProofSession(pool, RESERVATION_SESSION);
 
     await expectReject(
       PostgresBaileysAuthBinding.open(pool, {
@@ -229,13 +239,85 @@ async function main(): Promise<void> {
         },
       ),
     );
-    const rollbackCount = await pool.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM whatsapp_auth_sessions WHERE session_key = $1",
-      [ROLLBACK_SESSION],
-    );
-    if (rollbackCount.rows[0]?.count !== "0") {
+    if ((await sessionCount(pool, ROLLBACK_SESSION)) !== "0") {
       throw new Error("Failed snapshot bootstrap left a partial WhatsApp auth session");
     }
+
+    const abandonedReservation = await PostgresBaileysAuthBinding.reserveBootstrap(pool, {
+      sessionKey: RESERVATION_SESSION,
+      encryptionKey: KEY,
+      encryptionKeyVersion: 1,
+    });
+    if ((await sessionCount(pool, RESERVATION_SESSION)) !== "0") {
+      throw new Error("Bootstrap reservation persisted auth before provider connection");
+    }
+    await expectReject(
+      PostgresBaileysAuthBinding.open(pool, {
+        sessionKey: RESERVATION_SESSION,
+        encryptionKey: KEY,
+        encryptionKeyVersion: 1,
+      }),
+      WhatsAppAuthLeaseUnavailableError,
+    );
+    await expectReject(
+      PostgresBaileysAuthBinding.reserveBootstrap(pool, {
+        sessionKey: RESERVATION_SESSION,
+        encryptionKey: KEY,
+        encryptionKeyVersion: 1,
+      }),
+      WhatsAppAuthLeaseUnavailableError,
+    );
+    await abandonedReservation.close();
+    if ((await sessionCount(pool, RESERVATION_SESSION)) !== "0") {
+      throw new Error("Abandoned bootstrap reservation left auth state behind");
+    }
+
+    const reservation = await PostgresBaileysAuthBinding.reserveBootstrap(pool, {
+      sessionKey: RESERVATION_SESSION,
+      encryptionKey: KEY,
+      encryptionKeyVersion: 1,
+    });
+    await reservation.commit({
+      creds: { reservationMarker: Buffer.from("provider-connected") },
+      keys: {
+        "pre-key": {
+          epsilon: Buffer.from([5, 4, 3, 2, 1]),
+        },
+      },
+    });
+    await expectReject(
+      PostgresBaileysAuthBinding.open(pool, {
+        sessionKey: RESERVATION_SESSION,
+        encryptionKey: KEY,
+        encryptionKeyVersion: 1,
+      }),
+      WhatsAppAuthLeaseUnavailableError,
+    );
+    await reservation.close();
+
+    const reservedAuth = await PostgresBaileysAuthBinding.open(pool, {
+      sessionKey: RESERVATION_SESSION,
+      encryptionKey: KEY,
+      encryptionKeyVersion: 1,
+    });
+    const reservationMarker = reservedAuth.state.creds.reservationMarker;
+    if (!Buffer.isBuffer(reservationMarker) || reservationMarker.toString("utf8") !== "provider-connected") {
+      throw new Error("Reserved bootstrap credentials were not recovered exactly");
+    }
+    const reservedKeys = await reservedAuth.state.keys.get("pre-key", ["epsilon"]);
+    if (!Buffer.isBuffer(reservedKeys.epsilon)) {
+      throw new Error("Reserved bootstrap Signal key was not recovered exactly");
+    }
+    await reservedAuth.close();
+
+    await expectReject(
+      PostgresBaileysAuthBinding.reserveBootstrap(pool, {
+        sessionKey: RESERVATION_SESSION,
+        encryptionKey: KEY,
+        encryptionKeyVersion: 1,
+      }),
+      WhatsAppAuthAlreadyBootstrappedError,
+    );
 
     process.stdout.write("phase17 whatsapp auth proof passed\n");
   } finally {
