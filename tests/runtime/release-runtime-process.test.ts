@@ -39,11 +39,7 @@ describe("ReleaseRuntimeProcess", () => {
 
     await process.run(supervisor(events));
 
-    expect(events).toEqual([
-      "health.start",
-      "supervisor.run",
-      "health.stop.STOPPED.SIGTERM",
-    ]);
+    expect(events).toEqual(["health.start", "supervisor.run", "health.stop.STOPPED.SIGTERM"]);
   });
 
   it("routes provider state into durable release health", async () => {
