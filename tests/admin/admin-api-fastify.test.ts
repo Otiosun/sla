@@ -36,6 +36,7 @@ function setup() {
     playerId,
     status: "ACTIVE" as const,
   })) as never;
+  const prepareMutation = vi.fn();
   const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 60 });
 
   const server = createAdminApiServer({
@@ -43,10 +44,11 @@ function setup() {
     authenticator: { authenticate },
     sessionService: { getSession },
     readFacade: { searchPlayers, getPlayer },
+    mutationFacade: { prepareMutation },
     rateLimiter: { consume },
   });
   servers.push(server);
-  return { server, authenticate, getSession, searchPlayers, getPlayer, consume };
+  return { server, authenticate, getSession, searchPlayers, getPlayer, prepareMutation, consume };
 }
 
 describe("Admin API Fastify boundary", () => {
@@ -228,12 +230,14 @@ describe("Admin API Fastify boundary", () => {
     const getSession = vi.fn().mockResolvedValue({ principalId: PRINCIPAL_ID });
     const searchPlayers = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
     const getPlayer = vi.fn();
+    const prepareMutation = vi.fn();
     const consume = vi.fn().mockResolvedValue({ allowed: false, retryAfterSeconds: 17 });
     const dependencies = {
       allowedOrigin: ORIGIN,
       authenticator: { authenticate },
       sessionService: { getSession },
       readFacade: { searchPlayers, getPlayer },
+      mutationFacade: { prepareMutation },
       rateLimiter: { consume },
     };
     const server = createAdminApiServer(dependencies);
