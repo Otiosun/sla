@@ -40,6 +40,63 @@ describe("loadConfig", () => {
     expect(config.migratorDatabaseUrl).toContain("migrator");
   });
 
+  it("keeps the Admin API disabled by default", () => {
+    const config = loadConfig({
+      APP_ENV: "test",
+      DATABASE_URL: "postgresql://pokemon:test@localhost:5432/pokemon_rpg_test",
+    });
+
+    expect(config.adminApiEnabled).toBe(false);
+    expect(config.adminApiAllowedOrigin).toBeNull();
+    expect(config.adminAccessTeamDomain).toBeNull();
+    expect(config.adminAccessAudience).toBeNull();
+  });
+
+  it("fails fast when Admin API is enabled without its Access boundary", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "test",
+        DATABASE_URL: "postgresql://pokemon:test@localhost:5432/pokemon_rpg_test",
+        ADMIN_API_ENABLED: "true",
+      }),
+    ).toThrow(/enabled Admin API requires allowed origin/);
+  });
+
+  it("requires an HTTPS exact admin origin in production", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "production",
+        DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
+        MIGRATOR_DATABASE_URL: "postgresql://migrator:test@localhost:5432/pokemon_rpg",
+        ADMIN_API_ENABLED: "true",
+        ADMIN_API_ALLOWED_ORIGIN: "http://admin.example.com",
+        ADMIN_ACCESS_TEAM_DOMAIN: "https://pokemon-rpg.cloudflareaccess.com",
+        ADMIN_ACCESS_AUDIENCE: "control-center-audience",
+      }),
+    ).toThrow(/must use HTTPS/);
+  });
+
+  it("loads a complete enabled Admin API boundary", () => {
+    const config = loadConfig({
+      APP_ENV: "staging",
+      DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
+      MIGRATOR_DATABASE_URL: "postgresql://migrator:test@localhost:5432/pokemon_rpg",
+      ADMIN_API_ENABLED: "true",
+      ADMIN_API_HOST: "0.0.0.0",
+      ADMIN_API_PORT: "8787",
+      ADMIN_API_ALLOWED_ORIGIN: "https://admin-staging.example.com",
+      ADMIN_ACCESS_TEAM_DOMAIN: "https://pokemon-rpg.cloudflareaccess.com",
+      ADMIN_ACCESS_AUDIENCE: "control-center-audience",
+    });
+
+    expect(config.adminApiEnabled).toBe(true);
+    expect(config.adminApiHost).toBe("0.0.0.0");
+    expect(config.adminApiPort).toBe(8_787);
+    expect(config.adminApiAllowedOrigin).toBe("https://admin-staging.example.com");
+    expect(config.adminAccessTeamDomain).toBe("https://pokemon-rpg.cloudflareaccess.com");
+    expect(config.adminAccessAudience).toBe("control-center-audience");
+  });
+
   it("loads validated database tuning defaults without exposing unrelated fields", () => {
     const config = loadConfig({
       APP_ENV: "test",
@@ -59,6 +116,12 @@ describe("loadConfig", () => {
       databaseQueryTimeoutMs: 10_000,
       databaseStatementTimeoutMs: 10_000,
       databaseIdleInTransactionTimeoutMs: 15_000,
+      adminApiEnabled: false,
+      adminApiHost: "127.0.0.1",
+      adminApiPort: 8_787,
+      adminApiAllowedOrigin: null,
+      adminAccessTeamDomain: null,
+      adminAccessAudience: null,
     });
   });
 
