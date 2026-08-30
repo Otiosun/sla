@@ -25,12 +25,6 @@ jobs:
     env:
       APP_ENV: staging
       DEPLOY_REVISION: ${{ github.sha }}
-      STAGING_DATABASE_OWNER_URL: ${{ secrets.STAGING_DATABASE_OWNER_URL }}
-      MIGRATOR_DATABASE_URL: ${{ secrets.STAGING_MIGRATOR_DATABASE_URL }}
-      DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
-      MIGRATOR_PASSWORD: ${{ secrets.STAGING_MIGRATOR_PASSWORD }}
-      RUNTIME_PASSWORD: ${{ secrets.STAGING_RUNTIME_PASSWORD }}
-      WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
 
     steps:
       - name: Require canonical main ref
@@ -61,9 +55,19 @@ jobs:
 
       - name: Release staging database
         shell: bash
+        env:
+          STAGING_DATABASE_OWNER_URL: ${{ secrets.STAGING_DATABASE_OWNER_URL }}
+          MIGRATOR_DATABASE_URL: ${{ secrets.STAGING_MIGRATOR_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          MIGRATOR_PASSWORD: ${{ secrets.STAGING_MIGRATOR_PASSWORD }}
+          RUNTIME_PASSWORD: ${{ secrets.STAGING_RUNTIME_PASSWORD }}
         run: bash scripts/operations/staging-database-release.sh
 
       - name: Run optional application smoke
         if: inputs.run_application_smoke
         shell: bash
+        env:
+          MIGRATOR_DATABASE_URL: ${{ secrets.STAGING_MIGRATOR_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
         run: pnpm --silent run ops:smoke:application
