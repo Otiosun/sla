@@ -429,8 +429,8 @@ function terminalWinner(state: BattleState): {
   ) {
     return null;
   }
-  if (playerSide.participantIds.length !== 1 || defeatedSide.participantIds.length !== 1)
-    return null;
+  if (playerSide.participantIds.length < 1 || defeatedSide.participantIds.length !== 1) return null;
+  if (!playerSide.participantIds.includes(playerSide.activeParticipantId)) return null;
   const winner = state.combatants.find(
     (combatant) => combatant.participantId === playerSide.activeParticipantId,
   );
@@ -439,6 +439,8 @@ function terminalWinner(state: BattleState): {
   );
   if (winner === undefined || defeated === undefined || winner.pokemonInstanceId === null)
     return null;
+  // Reward v1 deliberately grants Pokemon XP only to the final active winner. Reserve
+  // participation is not durably tracked yet, so reserves cannot receive inferred XP.
   return { playerId: playerSide.playerId, winner, defeated };
 }
 
@@ -524,7 +526,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         if (terminal === null) {
           return {
             kind: "UNSUPPORTED",
-            reason: "Battle reward v1 requires one-player 1v1 terminal state",
+            reason:
+              "Battle reward v1 requires one player-owned side and exactly one defeated opponent",
           };
         }
 

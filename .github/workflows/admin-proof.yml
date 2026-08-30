@@ -118,3 +118,15 @@ jobs:
 
       - name: Run Phase 16 concurrent admin release race proof
         run: node --import tsx db/proofs/phase16_admin_concurrency_e2e.ts
+
+      - name: Seed Phase 17 integrated happy-path stack
+        run: |
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:seed:phase11
+          pnpm db:seed:phase12
+
+      - name: Run Phase 17 full happy-path E2E
+        run: node --import tsx db/proofs/phase17_happy_path_e2e.ts
