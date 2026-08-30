@@ -94,8 +94,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          flyctl status --app "$FLY_APP" >/dev/null
-
           predeploy_machines_json="$(flyctl machines list --app "$FLY_APP" --json)"
           predeploy_machine_count="$(jq -r 'length' <<<"$predeploy_machines_json")"
           [[ "$predeploy_machine_count" =~ ^[0-9]+$ ]] || {
