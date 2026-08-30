@@ -1,6 +1,10 @@
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
-import type { WhatsAppAdapter, WhatsAppIncomingHandler } from "./adapter.js";
+import type {
+  WhatsAppAdapter,
+  WhatsAppIncomingHandler,
+  WhatsAppProviderConnectionState,
+} from "./adapter.js";
 import { normalizeBaileysMessage } from "./baileys-normalizer.js";
 import type {
   BaileysConnectionUpdateLike,
@@ -28,6 +32,9 @@ export interface BaileysWhatsAppAdapterOptions {
   readonly metrics?: MetricSink;
   readonly onQr?: (qr: string) => Promise<void> | void;
   readonly onLoggedOut?: () => Promise<void> | void;
+  readonly onConnectionState?: (
+    state: WhatsAppProviderConnectionState,
+  ) => Promise<void> | void;
   readonly onProviderError?: (error: unknown) => void;
 }
 
@@ -85,6 +92,9 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private readonly metrics: MetricSink;
   private readonly onQr: ((qr: string) => Promise<void> | void) | undefined;
   private readonly onLoggedOut: (() => Promise<void> | void) | undefined;
+  private readonly onConnectionState:
+    | ((state: WhatsAppProviderConnectionState) => Promise<void> | void)
+    | undefined;
   private readonly onProviderError: (error: unknown) => void;
 
   private socket: BaileysSocketLike | null = null;
@@ -101,6 +111,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     this.metrics = options.metrics ?? NOOP_METRICS;
     this.onQr = options.onQr;
     this.onLoggedOut = options.onLoggedOut;
+    this.onConnectionState = options.onConnectionState;
     this.onProviderError = options.onProviderError ?? (() => {});
 
     if (!Number.isFinite(this.reconnectDelayMs) || this.reconnectDelayMs < 0) {
@@ -220,12 +231,14 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
     if (update.connection === "open") {
       this.metrics.increment("whatsapp.connection.open_total");
+      await this.notifyConnectionState("CONNECTED");
       return;
     }
     if (update.connection !== "close") return;
 
     this.metrics.increment("whatsapp.connection.close_total");
     if (this.socket === socket) this.socket = null;
+    await this.notifyConnectionState("DISCONNECTED");
 
     const statusCode = statusCodeFromError(update.lastDisconnect?.error);
     if (statusCode === loggedOutStatusCode) {
@@ -235,6 +248,15 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     }
 
     this.scheduleReconnect(generation);
+  }
+
+  private async notifyConnectionState(state: WhatsAppProviderConnectionState): Promise<void> {
+    if (this.onConnectionState === undefined) return;
+    try {
+      await this.onConnectionState(state);
+    } catch (error) {
+      this.onProviderError(error);
+    }
   }
 
   private scheduleReconnect(generation: number): void {
