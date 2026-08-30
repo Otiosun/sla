@@ -11,7 +11,8 @@ import type {
 } from "../adapters/whatsapp/postgres-baileys-auth.js";
 import type { WhatsAppPairingBootstrapConfig } from "./whatsapp-pairing-bootstrap-config.js";
 
-const KNOWN_BROKEN_PROVIDER_VERSIONS = new Set(["7.0.0-rc14"]);
+const STAGING_PROVIDER_CANDIDATES = new Set(["7.0.0-rc14"]);
+const PRODUCTION_APPROVED_PROVIDER_VERSIONS = new Set<string>();
 
 type SignalKeyData = Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
 
@@ -155,10 +156,20 @@ function assertCoreConfig(config: WhatsAppPairingBootstrapConfig): void {
   }
 }
 
-export function assertWhatsAppPairingProviderVersionSupported(providerVersion: string): void {
-  if (providerVersion.length === 0 || KNOWN_BROKEN_PROVIDER_VERSIONS.has(providerVersion)) {
+export function assertWhatsAppPairingProviderVersionSupported(
+  providerVersion: string,
+  appEnv: WhatsAppPairingBootstrapConfig["appEnv"],
+): void {
+  const eligibleVersions =
+    appEnv === "staging"
+      ? STAGING_PROVIDER_CANDIDATES
+      : appEnv === "production"
+        ? PRODUCTION_APPROVED_PROVIDER_VERSIONS
+        : null;
+
+  if (providerVersion.length === 0 || eligibleVersions === null || !eligibleVersions.has(providerVersion)) {
     throw new WhatsAppPairingProviderVersionBlockedError(
-      `WhatsApp first pairing is blocked for Baileys ${providerVersion || "unknown"}`,
+      `WhatsApp first pairing is blocked for Baileys ${providerVersion || "unknown"} in ${appEnv}`,
     );
   }
 }
@@ -264,7 +275,10 @@ export async function runWhatsAppPairingBootstrap(
   dependencies: WhatsAppPairingBootstrapDependencies,
 ): Promise<void> {
   assertCoreConfig(dependencies.config);
-  assertWhatsAppPairingProviderVersionSupported(dependencies.providerVersion);
+  assertWhatsAppPairingProviderVersionSupported(
+    dependencies.providerVersion,
+    dependencies.config.appEnv,
+  );
 
   const reservation = await dependencies.reserveBootstrap({
     sessionKey: dependencies.config.sessionKey,
