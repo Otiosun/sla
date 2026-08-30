@@ -86,7 +86,7 @@ export async function runWhatsAppPairingBootstrapCli(
   const config = loadWhatsAppPairingBootstrapConfig(appConfig, options.env);
   const providerVersion = await options.resolveProviderVersion();
 
-  assertWhatsAppPairingProviderVersionSupported(providerVersion);
+  assertWhatsAppPairingProviderVersionSupported(providerVersion, config.appEnv);
   assertInteractiveTerminal(options);
 
   const waWebVersion = await options.resolveWaWebVersion();
