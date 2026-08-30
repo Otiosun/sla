@@ -127,7 +127,9 @@ async function readState(client: PoolClient): Promise<StagingContentBootstrapSta
        JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
       WHERE pointer.pointer_key = 'ACTIVE'`,
   );
-  if (active.rows.length > 1) throw new Error("unexpected staging catalog state: multiple ACTIVE rows");
+  if (active.rows.length > 1) {
+    throw new Error("unexpected staging catalog state: multiple ACTIVE rows");
+  }
 
   const unexpectedReleases = await client.query<{ count: number }>(
     `SELECT count(*)::int AS count
@@ -185,7 +187,11 @@ async function runPhase4Seed(): Promise<void> {
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`db:seed:phase4 failed: code=${String(code)} signal=${String(signal)}`));
+      else {
+        reject(
+          new Error(`db:seed:phase4 failed: code=${String(code)} signal=${String(signal)}`),
+        );
+      }
     });
   });
 }
@@ -199,14 +205,19 @@ async function currentState(pool: Pool): Promise<StagingContentBootstrapState> {
   }
 }
 
-function requireDeploymentEnvironment(): { readonly databaseUrl: string; readonly revision: string } {
+function requireDeploymentEnvironment(): {
+  readonly databaseUrl: string;
+  readonly revision: string;
+} {
   if (process.env.APP_ENV !== "staging") throw new Error("APP_ENV must be staging");
   const revision = process.env.DEPLOY_REVISION;
   if (revision === undefined || !/^[0-9a-f]{40}$/.test(revision)) {
     throw new Error("DEPLOY_REVISION must be a full 40-character Git SHA");
   }
   const databaseUrl = process.env.DATABASE_URL;
-  if (databaseUrl === undefined || databaseUrl.length === 0) throw new Error("DATABASE_URL is required");
+  if (databaseUrl === undefined || databaseUrl.length === 0) {
+    throw new Error("DATABASE_URL is required");
+  }
   return { databaseUrl, revision };
 }
 
@@ -215,10 +226,18 @@ function assertFinalReport(report: {
   readonly counts: Readonly<Record<string, number>>;
 }): void {
   if (report.coverage.blocked.length !== 0) {
-    throw new Error(`final Gen I-III validation still has blockers: ${report.coverage.blocked.join(",")}`);
+    throw new Error(
+      `final Gen I-III validation still has blockers: ${report.coverage.blocked.join(",")}`,
+    );
   }
-  if (report.counts.species !== 386 || report.counts.forms !== 386 || report.counts.starters !== 9) {
-    throw new Error(`final Gen I-III validation counts are unexpected: ${JSON.stringify(report.counts)}`);
+  if (
+    report.counts.species !== 386 ||
+    report.counts.forms !== 386 ||
+    report.counts.starters !== 9
+  ) {
+    throw new Error(
+      `final Gen I-III validation counts are unexpected: ${JSON.stringify(report.counts)}`,
+    );
   }
 }
 
@@ -239,7 +258,9 @@ export async function bootstrapStagingContent(): Promise<{
       state = await currentState(pool);
       plan = planStagingContentBootstrap(state);
       if (plan !== "PROMOTE_CANDIDATE") {
-        throw new Error(`unexpected staging catalog state after Phase 4 seed: ${JSON.stringify(state)}`);
+        throw new Error(
+          `unexpected staging catalog state after Phase 4 seed: ${JSON.stringify(state)}`,
+        );
       }
     }
 
@@ -250,7 +271,9 @@ export async function bootstrapStagingContent(): Promise<{
       assertFinalReport(replayReport);
       const verified = await currentState(pool);
       if (planStagingContentBootstrap(verified) !== "VERIFY_ACTIVE_CANDIDATE") {
-        throw new Error(`unexpected staging catalog state during replay verification: ${JSON.stringify(verified)}`);
+        throw new Error(
+          `unexpected staging catalog state during replay verification: ${JSON.stringify(verified)}`,
+        );
       }
       console.log(
         JSON.stringify({
@@ -281,10 +304,14 @@ export async function bootstrapStagingContent(): Promise<{
 
     const published = await publishGen123();
     if (published.releaseStatus !== "PUBLISHED" || published.rulesetStatus !== "PUBLISHED") {
-      throw new Error(`Gen I-III publication returned unexpected state: ${JSON.stringify(published)}`);
+      throw new Error(
+        `Gen I-III publication returned unexpected state: ${JSON.stringify(published)}`,
+      );
     }
     if (published.activeReleaseId === STAGING_GEN123_RELEASE_ID) {
-      throw new Error("unexpected staging catalog state: candidate became ACTIVE before explicit activation");
+      throw new Error(
+        "unexpected staging catalog state: candidate became ACTIVE before explicit activation",
+      );
     }
 
     const catalog = new CatalogService(new PostgresCatalogRepository(pool));
@@ -297,7 +324,9 @@ export async function bootstrapStagingContent(): Promise<{
 
     const finalState = await currentState(pool);
     if (planStagingContentBootstrap(finalState) !== "VERIFY_ACTIVE_CANDIDATE") {
-      throw new Error(`unexpected staging catalog state after activation: ${JSON.stringify(finalState)}`);
+      throw new Error(
+        `unexpected staging catalog state after activation: ${JSON.stringify(finalState)}`,
+      );
     }
     const finalReport = await validateGen123Final(false);
     assertFinalReport(finalReport);
