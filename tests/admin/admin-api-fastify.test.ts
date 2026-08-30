@@ -155,7 +155,7 @@ describe("Admin API Fastify boundary", () => {
     },
   );
 
-  it("converts allowlisted search query values and injects only authenticated identity", async () => {
+  it("converts allowlisted search query values and injects trusted request context", async () => {
     const { server, searchPlayers } = setup();
     const response = await server.inject({
       method: "GET",
@@ -164,12 +164,19 @@ describe("Admin API Fastify boundary", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(searchPlayers).toHaveBeenCalledWith(identity, {
-      status: "ACTIVE",
-      trainerNamePrefix: "Ash",
-      includeSensitive: true,
-      limit: 10,
-    });
+    expect(searchPlayers).toHaveBeenCalledWith(
+      {
+        principalId: PRINCIPAL_ID,
+        environment: "staging",
+        correlationId: response.headers["x-correlation-id"],
+      },
+      {
+        status: "ACTIVE",
+        trainerNamePrefix: "Ash",
+        includeSensitive: true,
+        limit: 10,
+      },
+    );
   });
 
   it("takes the player target exclusively from the route and validates its UUID", async () => {
@@ -186,7 +193,15 @@ describe("Admin API Fastify boundary", () => {
     });
 
     expect(ok.statusCode).toBe(200);
-    expect(getPlayer).toHaveBeenCalledWith(identity, PLAYER_ID, { includeSensitive: false });
+    expect(getPlayer).toHaveBeenCalledWith(
+      {
+        principalId: PRINCIPAL_ID,
+        environment: "staging",
+        correlationId: ok.headers["x-correlation-id"],
+      },
+      PLAYER_ID,
+      { includeSensitive: false },
+    );
     expect(invalid.statusCode).toBe(400);
   });
 
