@@ -287,6 +287,10 @@ jobs:
         shell: bash
         run: bash db/proofs/phase17_deploy_artifact_e2e.sh
 
+      - name: Prove Fly staging deployment contract
+        shell: bash
+        run: bash db/proofs/phase17_fly_deploy_contract_e2e.sh
+
   postgres17-release-compatibility:
     name: PostgreSQL 17.6 / release compatibility floor
     runs-on: ubuntu-latest
