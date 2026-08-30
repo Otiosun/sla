@@ -6,10 +6,7 @@ import type {
 import { gen123Id } from "./ids.js";
 import { loadGen123Model } from "./model.js";
 import { Gen123Source, requiredInt, requiredText } from "./source.js";
-import {
-  type Gen123WorldEdge,
-  loadGen123WorldTopology,
-} from "./world-source.js";
+import { type Gen123WorldEdge, loadGen123WorldTopology } from "./world-source.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (DATABASE_URL === undefined)
