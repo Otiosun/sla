@@ -20,10 +20,7 @@ function requireFailure(
   if (report.passed || !report.failures.includes(code)) {
     throw new Error(`Application smoke did not fail closed with ${code}`);
   }
-  if (
-    report.providerLiveHealth !== "NOT_PROBED" ||
-    report.finalPostDeploySmokeComplete !== false
-  ) {
+  if (report.providerLiveHealth !== "NOT_PROBED" || report.finalPostDeploySmokeComplete !== false) {
     throw new Error("Application smoke incorrectly claimed final/provider-live readiness");
   }
 }
@@ -59,15 +56,12 @@ try {
 
   const happy = await runPostDeployApplicationSmoke(pool, baseInput);
   if (!happy.passed) {
-    throw new Error(
-      `Prepared application smoke unexpectedly failed: ${happy.failures.join(",")}`,
-    );
+    throw new Error(`Prepared application smoke unexpectedly failed: ${happy.failures.join(",")}`);
   }
-  if (
-    happy.providerLiveHealth !== "NOT_PROBED" ||
-    happy.finalPostDeploySmokeComplete !== false
-  ) {
-    throw new Error("Application smoke must remain explicitly incomplete without a live provider probe");
+  if (happy.providerLiveHealth !== "NOT_PROBED" || happy.finalPostDeploySmokeComplete !== false) {
+    throw new Error(
+      "Application smoke must remain explicitly incomplete without a live provider probe",
+    );
   }
   if (
     happy.activeRelease?.releaseStatus !== "PUBLISHED" ||
@@ -93,10 +87,7 @@ try {
   requireFailure(depth, "OUTBOX_CRITICAL_DEPTH");
   await markSent(depthId);
 
-  const ageId = await insertOutbox(
-    "PENDING",
-    "clock_timestamp() - interval '10 minutes'",
-  );
+  const ageId = await insertOutbox("PENDING", "clock_timestamp() - interval '10 minutes'");
   const age = await runPostDeployApplicationSmoke(pool, baseInput);
   requireFailure(age, "OUTBOX_CRITICAL_AGE");
   await markSent(ageId);
