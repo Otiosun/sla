@@ -26,7 +26,10 @@ interface RateLimitRow {
   readonly retry_after_seconds: number | string;
 }
 
-function validatePolicy(operation: AdminApiRateLimitedOperation, policy: AdminApiRateLimitPolicy): void {
+function validatePolicy(
+  operation: AdminApiRateLimitedOperation,
+  policy: AdminApiRateLimitPolicy,
+): void {
   if (!Number.isSafeInteger(policy.limit) || policy.limit <= 0) {
     throw new Error(`Invalid Admin API rate-limit policy for ${operation}: limit must be positive`);
   }
@@ -38,7 +41,9 @@ function validatePolicy(operation: AdminApiRateLimitedOperation, policy: AdminAp
 }
 
 export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
-  private readonly policies: Readonly<Record<AdminApiRateLimitedOperation, AdminApiRateLimitPolicy>>;
+  private readonly policies: Readonly<
+    Record<AdminApiRateLimitedOperation, AdminApiRateLimitPolicy>
+  >;
 
   public constructor(pool: Pool, overrides: AdminApiRateLimitPolicyOverrides = {}) {
     this.pool = pool;
