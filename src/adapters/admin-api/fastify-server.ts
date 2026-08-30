@@ -11,6 +11,10 @@ import type { AdminRequestAuthenticator } from "./request-authenticator.js";
 import type { AdminSessionService } from "./session-service.js";
 
 const booleanQuery = z.enum(["true", "false"]).transform((value) => value === "true");
+const CONTROL_CENTER_CSRF_HEADER = "x-control-center-csrf";
+const CONTROL_CENTER_CSRF_VALUE = "1";
+const CONTROL_CENTER_MUTATION_ALLOW_HEADERS = `content-type,${CONTROL_CENTER_CSRF_HEADER}`;
+const UNSAFE_HTTP_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 const PlayerSearchTransportSchema = z
   .object({
@@ -120,7 +124,12 @@ function projectPreparedOperation(prepared: AdminPreparedOperation) {
 function originDenied(request: FastifyRequest, allowedOrigin: string): boolean {
   const origin = request.headers.origin;
   if (origin !== undefined && origin !== allowedOrigin) return true;
-  return request.method === "POST" && origin !== allowedOrigin;
+  return UNSAFE_HTTP_METHODS.has(request.method) && origin !== allowedOrigin;
+}
+
+function csrfDenied(request: FastifyRequest): boolean {
+  if (!UNSAFE_HTTP_METHODS.has(request.method)) return false;
+  return request.headers[CONTROL_CENTER_CSRF_HEADER] !== CONTROL_CENTER_CSRF_VALUE;
 }
 
 async function authenticateAndLimit(
@@ -163,6 +172,14 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (originDenied(request, dependencies.allowedOrigin)) {
       const mapped = mapAdminHttpError(
         new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Origin denied"),
+        correlationId,
+      );
+      await reply.code(mapped.statusCode).send(mapped.body);
+      return reply;
+    }
+    if (csrfDenied(request)) {
+      const mapped = mapAdminHttpError(
+        new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "CSRF guard denied"),
         correlationId,
       );
       await reply.code(mapped.statusCode).send(mapped.body);
@@ -217,7 +234,8 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Origin denied");
     }
     reply.header("access-control-allow-methods", "POST");
-    reply.header("access-control-allow-headers", "content-type");
+    reply.header("access-control-allow-headers", CONTROL_CENTER_MUTATION_ALLOW_HEADERS);
+    reply.header("vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
     return reply.code(204).send();
   });
 
