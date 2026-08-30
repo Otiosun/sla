@@ -57,11 +57,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const requiresRoleSeparation =
     parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production";
-  if (requiresRoleSeparation && parsed.data.MIGRATOR_DATABASE_URL === undefined) {
-    throw new ConfigError(
-      "Invalid application configuration: MIGRATOR_DATABASE_URL is required in staging/production",
-    );
-  }
   if (
     requiresRoleSeparation &&
     parsed.data.MIGRATOR_DATABASE_URL !== undefined &&
