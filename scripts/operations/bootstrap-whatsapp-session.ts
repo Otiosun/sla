@@ -3,7 +3,7 @@ import { Pool } from "pg";
 import { makeSocket } from "../../src/adapters/whatsapp/baileys-runtime.js";
 import { PostgresBaileysAuthBinding } from "../../src/adapters/whatsapp/postgres-baileys-auth.js";
 import {
-  resolveInstalledBaileysVersion,
+  resolveInstalledBaileysIdentity,
   runWhatsAppPairingBootstrapCli,
   type TerminalQrRenderer,
 } from "../../src/operations/whatsapp-pairing-bootstrap-cli.js";
@@ -29,10 +29,10 @@ await runWhatsAppPairingBootstrapCli({
   stdinIsTTY: process.stdin.isTTY === true,
   stdoutIsTTY: process.stdout.isTTY === true,
   isCI: process.env.CI !== undefined,
-  resolveProviderVersion: resolveInstalledBaileysVersion,
+  resolveProviderIdentity: resolveInstalledBaileysIdentity,
   renderQr,
   writeStdout: (chunk) => process.stdout.write(chunk),
-  executePairing: async (config, providerVersion, qrSink) => {
+  executePairing: async (config, providerIdentity, qrSink) => {
     const appConfig = loadConfig(process.env);
     const pool = new Pool({
       connectionString: appConfig.databaseUrl,
@@ -49,7 +49,7 @@ await runWhatsAppPairingBootstrapCli({
       await assertDatabaseSchemaCurrent(pool);
       await runWhatsAppPairingBootstrap({
         config,
-        providerVersion,
+        providerIdentity,
         reserveBootstrap: (options) => PostgresBaileysAuthBinding.reserveBootstrap(pool, options),
         socketFactory: makeSocket,
         qrSink,
