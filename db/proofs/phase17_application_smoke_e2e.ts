@@ -71,7 +71,8 @@ async function updateRuntimeEvidence(
 ): Promise<void> {
   await pool.query(
     `UPDATE runtime_instances
-     SET provider_state = $2,
+     SET started_at = least(started_at, ${heartbeatSql}),
+         provider_state = $2,
          last_connected_at = CASE
            WHEN $2 = 'CONNECTED' THEN clock_timestamp()
            ELSE last_connected_at
