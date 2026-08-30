@@ -116,8 +116,8 @@ migration_count="$(docker exec \
   --tuples-only \
   --no-align \
   --command "SELECT count(*) FROM schema_migrations;")"
-if [[ "$migration_count" != "25" ]]; then
-  echo "expected 25 applied migrations on PostgreSQL 17.6, got ${migration_count}" >&2
+if [[ "$migration_count" != "26" ]]; then
+  echo "expected 26 applied migrations on PostgreSQL 17.6, got ${migration_count}" >&2
   exit 1
 fi
 
