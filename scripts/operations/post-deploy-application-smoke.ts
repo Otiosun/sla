@@ -1,4 +1,7 @@
-import { createDatabasePool, closeDatabasePool } from "../../src/platform/db/database.js";
+import {
+  createDatabasePool,
+  closeDatabasePool,
+} from "../../src/platform/db/database.js";
 import { loadConfig } from "../../src/platform/config/env.js";
 import { runPostDeployApplicationSmoke } from "../../src/operations/post-deploy-application-smoke.js";
 
