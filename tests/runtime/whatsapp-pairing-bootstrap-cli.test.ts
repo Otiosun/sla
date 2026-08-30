@@ -32,8 +32,8 @@ function validEnv(): NodeJS.ProcessEnv {
 }
 
 describe("WhatsApp pairing CLI boundary", () => {
-  it("reads the actual installed Baileys package identity without inventing compatibility", async () => {
-    await expect(resolveInstalledBaileysIdentity()).resolves.toEqual(BARE_RC14);
+  it("reads the audited identity from the actually installed Baileys package", async () => {
+    await expect(resolveInstalledBaileysIdentity()).resolves.toEqual(PATCHED_RC14);
   });
 
   it("blocks bare rc14 before executing any DB/provider work", async () => {
