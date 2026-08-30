@@ -10,9 +10,7 @@ import type { WhatsAppPairingBootstrapConfig } from "./whatsapp-pairing-bootstra
 
 const KNOWN_BROKEN_PROVIDER_VERSIONS = new Set(["7.0.0-rc14"]);
 
-type SignalKeyData = Readonly<
-  Record<string, Readonly<Record<string, unknown | null | undefined>>>
->;
+type SignalKeyData = Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
 
 export interface SensitivePairingQrSink {
   render(qr: string): Promise<void> | void;
