@@ -110,9 +110,7 @@ describe("AdminMutationFacade", () => {
           return prepared.operation;
         },
       };
-      const consume = vi.fn(async () =>
-        ok({ allowed: true, replayed: false, retryAfterMs: 0 }),
-      );
+      const consume = vi.fn(async () => ok({ allowed: true, replayed: false, retryAfterMs: 0 }));
       const admission: MutationAdmissionPort = { consume };
       const endpoint = new ExternalAdminMutationEndpoint(owner, admission);
       const facade = new AdminMutationFacade(endpoint);
