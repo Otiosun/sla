@@ -3,6 +3,7 @@ import type {
   BaileysEventSourceLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
+  BaileysWaWebVersion,
 } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
 import type { BaileysAuthSnapshot } from "../../src/adapters/whatsapp/postgres-baileys-auth.js";
 import {
@@ -19,6 +20,7 @@ import {
 
 const REVISION = "a".repeat(40);
 const AUTH_KEY = Buffer.alloc(32, 0x63);
+const WA_WEB_VERSION: BaileysWaWebVersion = [2, 3000, 1042626022];
 
 class FakePairingSocket implements BaileysSocketLike {
   ended = false;
@@ -118,6 +120,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
       runWhatsAppPairingBootstrap({
         config: coreConfig(),
         providerVersion: "7.0.0-rc14",
+        waWebVersion: WA_WEB_VERSION,
         reserveBootstrap,
         socketFactory,
         qrSink: { render: vi.fn(async () => {}) },
@@ -142,6 +145,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
       providerVersion: "7.0.0-rc15",
+      waWebVersion: WA_WEB_VERSION,
       reserveBootstrap,
       socketFactory,
       qrSink,
@@ -178,6 +182,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
       providerVersion: "7.0.0-rc15",
+      waWebVersion: WA_WEB_VERSION,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
       qrSink: { render: vi.fn(async () => {}) },
@@ -203,6 +208,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
       providerVersion: "7.0.0-rc15",
+      waWebVersion: WA_WEB_VERSION,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
       qrSink: { render: vi.fn(async () => {}) },
@@ -224,6 +230,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
       runWhatsAppPairingBootstrap({
         config: coreConfig(10),
         providerVersion: "7.0.0-rc15",
+        waWebVersion: WA_WEB_VERSION,
         reserveBootstrap: vi.fn(async () => reservation),
         socketFactory: () => socket,
         qrSink: { render: vi.fn(async () => {}) },
