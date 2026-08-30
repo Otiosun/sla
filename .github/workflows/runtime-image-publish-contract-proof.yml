@@ -94,13 +94,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          immutable_digest="$(docker buildx imagetools inspect "$RUNTIME_IMAGE_IMMUTABLE" | awk '/^Digest:/ { print $2; exit }')"
-          main_digest="$(docker buildx imagetools inspect "$RUNTIME_IMAGE_MAIN" | awk '/^Digest:/ { print $2; exit }')"
 
-          [[ "$immutable_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
-            echo "immutable runtime tag did not resolve to a sha256 digest" >&2
+          resolve_manifest_digest() {
+            local reference="$1"
+            local digest=""
+
+            for attempt in {1..6}; do
+              if digest="$(docker buildx imagetools inspect "$reference" 2>/dev/null | awk '/^Digest:/ { print $2; exit }')" && \
+                [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                printf '%s\n' "$digest"
+                return 0
+              fi
+
+              if (( attempt == 6 )); then
+                break
+              fi
+
+              printf 'manifest not visible yet; retrying verification (%d/6)\n' "$attempt" >&2
+              sleep $((attempt * 2))
+            done
+
+            return 1
+          }
+
+          immutable_digest="$(resolve_manifest_digest "$RUNTIME_IMAGE_IMMUTABLE")" || {
+            echo "immutable runtime tag did not resolve to a sha256 digest after bounded retry" >&2
             exit 1
           }
+          main_digest="$(resolve_manifest_digest "$RUNTIME_IMAGE_MAIN")" || {
+            echo "main runtime tag did not resolve to a sha256 digest after bounded retry" >&2
+            exit 1
+          }
+
           [[ "$main_digest" == "$immutable_digest" ]] || {
             echo "main and immutable runtime tags do not point to the same manifest digest" >&2
             exit 1
