@@ -14,6 +14,8 @@ if (databaseUrl === undefined) {
 
 const KEY = Buffer.alloc(32, 0x51);
 const SESSION = "phase17-proof";
+const SNAPSHOT_SESSION = "phase17-snapshot-proof";
+const ROLLBACK_SESSION = "phase17-snapshot-rollback";
 
 async function expectReject<T>(
   promise: Promise<T>,
@@ -28,11 +30,26 @@ async function expectReject<T>(
   throw new Error(`Expected ${errorType.name}`);
 }
 
+async function expectAnyReject<T>(promise: Promise<T>): Promise<void> {
+  try {
+    await promise;
+  } catch {
+    return;
+  }
+  throw new Error("Expected promise rejection");
+}
+
+async function deleteProofSession(pool: Pool, sessionKey: string): Promise<void> {
+  await pool.query("DELETE FROM whatsapp_auth_keys WHERE session_key = $1", [sessionKey]);
+  await pool.query("DELETE FROM whatsapp_auth_sessions WHERE session_key = $1", [sessionKey]);
+}
+
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl, max: 6 });
   try {
-    await pool.query("DELETE FROM whatsapp_auth_keys WHERE session_key = $1", [SESSION]);
-    await pool.query("DELETE FROM whatsapp_auth_sessions WHERE session_key = $1", [SESSION]);
+    await deleteProofSession(pool, SESSION);
+    await deleteProofSession(pool, SNAPSHOT_SESSION);
+    await deleteProofSession(pool, ROLLBACK_SESSION);
 
     await expectReject(
       PostgresBaileysAuthBinding.open(pool, {
@@ -140,6 +157,81 @@ async function main(): Promise<void> {
     }
     if (row.deleted !== true || row.signal_hex !== null) {
       throw new Error("Deleted Signal key did not remain a ciphertext-free tombstone");
+    }
+
+    await PostgresBaileysAuthBinding.bootstrapFromSnapshot(
+      pool,
+      {
+        sessionKey: SNAPSHOT_SESSION,
+        encryptionKey: KEY,
+        encryptionKeyVersion: 1,
+      },
+      {
+        creds: { snapshotMarker: Buffer.from("connected-before-persist") },
+        keys: {
+          "pre-key": {
+            gamma: Buffer.from([9, 8, 7, 6]),
+            delta: { value: "snapshot-signal-key" },
+          },
+        },
+      },
+    );
+
+    await expectReject(
+      PostgresBaileysAuthBinding.bootstrapFromSnapshot(
+        pool,
+        {
+          sessionKey: SNAPSHOT_SESSION,
+          encryptionKey: KEY,
+          encryptionKeyVersion: 1,
+        },
+        { creds: {}, keys: {} },
+      ),
+      WhatsAppAuthAlreadyBootstrappedError,
+    );
+
+    const snapshotAuth = await PostgresBaileysAuthBinding.open(pool, {
+      sessionKey: SNAPSHOT_SESSION,
+      encryptionKey: KEY,
+      encryptionKeyVersion: 1,
+    });
+    const snapshotMarker = snapshotAuth.state.creds.snapshotMarker;
+    if (!Buffer.isBuffer(snapshotMarker) || snapshotMarker.toString("utf8") !== "connected-before-persist") {
+      throw new Error("Atomic snapshot credentials were not recovered exactly");
+    }
+    const snapshotKeys = await snapshotAuth.state.keys.get("pre-key", ["gamma", "delta"]);
+    if (!Buffer.isBuffer(snapshotKeys.gamma)) {
+      throw new Error("Atomic snapshot Signal BufferJSON round-trip failed");
+    }
+    if (JSON.stringify(snapshotKeys.delta) !== JSON.stringify({ value: "snapshot-signal-key" })) {
+      throw new Error("Atomic snapshot Signal object round-trip failed");
+    }
+    await snapshotAuth.close();
+
+    await expectAnyReject(
+      PostgresBaileysAuthBinding.bootstrapFromSnapshot(
+        pool,
+        {
+          sessionKey: ROLLBACK_SESSION,
+          encryptionKey: KEY,
+          encryptionKeyVersion: 1,
+        },
+        {
+          creds: { shouldRollback: true },
+          keys: {
+            "pre-key": {
+              ["x".repeat(513)]: Buffer.from([1]),
+            },
+          },
+        },
+      ),
+    );
+    const rollbackCount = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM whatsapp_auth_sessions WHERE session_key = $1",
+      [ROLLBACK_SESSION],
+    );
+    if (rollbackCount.rows[0]?.count !== "0") {
+      throw new Error("Failed snapshot bootstrap left a partial WhatsApp auth session");
     }
 
     process.stdout.write("phase17 whatsapp auth proof passed\n");
