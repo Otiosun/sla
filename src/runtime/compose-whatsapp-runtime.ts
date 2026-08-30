@@ -76,7 +76,9 @@ export function createOperationalWhatsAppRuntime(
       options.logger.log("ERROR", "whatsapp.auth.logged_out");
       options.onSessionInvalidated?.("LOGGED_OUT");
     },
-    onConnectionState: options.onProviderConnectionState,
+    ...(options.onProviderConnectionState === undefined
+      ? {}
+      : { onConnectionState: options.onProviderConnectionState }),
     onProviderError: (error) => {
       options.logger.log("ERROR", "whatsapp.provider.error", { errorKind: errorKind(error) });
     },
