@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { mapAdminHttpError } from "../../src/adapters/admin-api/http-error-mapper.js";
-import { AdminRequestAuthenticator } from "../../src/adapters/admin-api/request-authenticator.js";
+import {
+  AdminRequestAuthenticator,
+  AdminUnauthenticatedError,
+} from "../../src/adapters/admin-api/request-authenticator.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
@@ -31,20 +34,49 @@ describe("AdminRequestAuthenticator", () => {
     expect(resolve).toHaveBeenCalledWith(externalIdentity);
   });
 
-  it("fails closed before verification when the assertion is malformed", async () => {
+  it("fails as unauthenticated before verification when the assertion is malformed", async () => {
     const verify = vi.fn();
     const resolve = vi.fn();
     const authenticator = new AdminRequestAuthenticator({ verify }, { resolve });
 
-    await expect(authenticator.authenticate("short")).rejects.toMatchObject({
-      code: ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
-    });
+    await expect(authenticator.authenticate("short")).rejects.toBeInstanceOf(
+      AdminUnauthenticatedError,
+    );
     expect(verify).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("collapses verifier detail into an unauthenticated result", async () => {
+    const authenticator = new AdminRequestAuthenticator(
+      { verify: vi.fn().mockRejectedValue(new Error("JWKS internals")) },
+      { resolve: vi.fn() },
+    );
+
+    await expect(authenticator.authenticate(TOKEN)).rejects.toBeInstanceOf(
+      AdminUnauthenticatedError,
+    );
   });
 });
 
 describe("mapAdminHttpError", () => {
+  it("maps authentication failure to a generic 401", () => {
+    const mapped = mapAdminHttpError(
+      new AdminUnauthenticatedError("private verification detail"),
+      "correlation-auth",
+    );
+
+    expect(mapped).toEqual({
+      statusCode: 401,
+      body: {
+        error: {
+          code: "ADMIN_UNAUTHENTICATED",
+          message: "Administrative authentication required",
+          correlationId: "correlation-auth",
+        },
+      },
+    });
+  });
+
   it("collapses principal lookup detail into one authorization denial", () => {
     const mapped = mapAdminHttpError(
       new AdminError(ADMIN_ERROR_CODES.PRINCIPAL_NOT_FOUND, "sensitive lookup detail"),
