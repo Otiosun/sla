@@ -1,8 +1,6 @@
-name: Publish Runtime Image
+name: Publish Runtime Image (Manual Recovery)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -10,12 +8,12 @@ permissions:
   packages: write
 
 concurrency:
-  group: runtime-image-publish
+  group: runtime-image-publish-manual-recovery
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: immutable OCI runtime image
+    name: immutable OCI runtime image manual recovery
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
