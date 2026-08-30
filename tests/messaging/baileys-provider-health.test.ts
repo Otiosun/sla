@@ -5,6 +5,7 @@ import {
   type BaileysEventSource,
   type BaileysSocketLike,
 } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
+import type { WhatsAppProviderConnectionState } from "../../src/adapters/whatsapp/adapter.js";
 
 class HealthTestSocket implements BaileysSocketLike {
   private readonly listeners = new Map<string, Array<(value: unknown) => void>>();
@@ -38,7 +39,7 @@ function authBinding(): BaileysAuthBinding {
 describe("Baileys provider health transitions", () => {
   it("surfaces connected and disconnected transitions through the operational callback", async () => {
     const socket = new HealthTestSocket();
-    const onConnectionState = vi.fn(async () => {});
+    const onConnectionState = vi.fn(async (_state: WhatsAppProviderConnectionState) => {});
     const adapter = new BaileysWhatsAppAdapter({
       auth: authBinding(),
       socketFactory: () => socket,
@@ -65,7 +66,7 @@ describe("Baileys provider health transitions", () => {
 
   it("does not let an operational health callback failure suppress provider reconnect", async () => {
     const sockets: HealthTestSocket[] = [];
-    const onProviderError = vi.fn();
+    const onProviderError = vi.fn((_error: unknown) => {});
     const adapter = new BaileysWhatsAppAdapter({
       auth: authBinding(),
       socketFactory: () => {
