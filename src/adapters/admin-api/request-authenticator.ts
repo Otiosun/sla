@@ -1,11 +1,14 @@
 import { z } from "zod";
-import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
 import type {
   CloudflareAccessIdentity,
   ResolvedAdminIdentityContext,
 } from "./identity-resolver.js";
 
 const AccessTokenSchema = z.string().trim().min(32).max(16_384);
+
+export class AdminUnauthenticatedError extends Error {
+  override readonly name = "AdminUnauthenticatedError";
+}
 
 export interface AdminAccessIdentityVerifier {
   verify(token: string): Promise<CloudflareAccessIdentity>;
@@ -23,10 +26,15 @@ export class AdminRequestAuthenticator {
 
   public async authenticate(rawToken: unknown): Promise<ResolvedAdminIdentityContext> {
     const parsed = AccessTokenSchema.safeParse(rawToken);
-    if (!parsed.success) {
-      throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Administrative access denied");
+    if (!parsed.success) throw new AdminUnauthenticatedError("Administrative authentication failed");
+
+    let externalIdentity: CloudflareAccessIdentity;
+    try {
+      externalIdentity = await this.verifier.verify(parsed.data);
+    } catch {
+      throw new AdminUnauthenticatedError("Administrative authentication failed");
     }
-    const externalIdentity = await this.verifier.verify(parsed.data);
+
     return this.resolver.resolve(externalIdentity);
   }
 }
