@@ -112,14 +112,14 @@ describe("WhatsApp pairing bootstrap config", () => {
 });
 
 describe("WhatsApp first-pairing bootstrap core", () => {
-  it("blocks the known-broken rc14 before reserving auth or creating a socket", async () => {
+  it("blocks an unreviewed provider version before reserving auth or creating a socket", async () => {
     const reserveBootstrap = vi.fn(async () => fakeReservation());
     const socketFactory = vi.fn(() => new FakePairingSocket());
 
     await expect(
       runWhatsAppPairingBootstrap({
         config: coreConfig(),
-        providerVersion: "7.0.0-rc14",
+        providerVersion: "7.0.0-rc15",
         waWebVersion: WA_WEB_VERSION,
         reserveBootstrap,
         socketFactory,
@@ -144,7 +144,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
 
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerVersion: "7.0.0-rc14",
       waWebVersion: WA_WEB_VERSION,
       reserveBootstrap,
       socketFactory,
@@ -181,7 +181,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const socketFactory = vi.fn(() => socket);
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerVersion: "7.0.0-rc14",
       waWebVersion: WA_WEB_VERSION,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
@@ -207,7 +207,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     const socketFactory = vi.fn(() => socket);
     const pairing = runWhatsAppPairingBootstrap({
       config: coreConfig(),
-      providerVersion: "7.0.0-rc15",
+      providerVersion: "7.0.0-rc14",
       waWebVersion: WA_WEB_VERSION,
       reserveBootstrap: vi.fn(async () => reservation),
       socketFactory,
@@ -229,7 +229,7 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     await expect(
       runWhatsAppPairingBootstrap({
         config: coreConfig(10),
-        providerVersion: "7.0.0-rc15",
+        providerVersion: "7.0.0-rc14",
         waWebVersion: WA_WEB_VERSION,
         reserveBootstrap: vi.fn(async () => reservation),
         socketFactory: () => socket,
