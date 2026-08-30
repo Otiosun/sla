@@ -14,7 +14,9 @@ const SUBJECT = "stable-access-subject";
 class FakeIdentityRepository implements AdminPrincipalIdentityRepository {
   public constructor(private readonly records: readonly AdminPrincipalIdentityRecord[]) {}
 
-  public async findByIdentityRef(identityRef: string): Promise<AdminPrincipalIdentityRecord | null> {
+  public async findByIdentityRef(
+    identityRef: string,
+  ): Promise<AdminPrincipalIdentityRecord | null> {
     return this.records.find((record) => record.identityRef === identityRef) ?? null;
   }
 }
@@ -32,9 +34,7 @@ describe("AdminIdentityResolver", () => {
   it("uses verified Access subject instead of email as the authority key", async () => {
     const identityRef = toCloudflareAccessIdentityRef(identity("original@example.com"));
     const resolver = new AdminIdentityResolver(
-      new FakeIdentityRepository([
-        { principalId: PRINCIPAL_ID, identityRef, status: "ACTIVE" },
-      ]),
+      new FakeIdentityRepository([{ principalId: PRINCIPAL_ID, identityRef, status: "ACTIVE" }]),
       "staging",
     );
 
@@ -51,9 +51,7 @@ describe("AdminIdentityResolver", () => {
   it("denies a disabled internal principal even when external identity is valid", async () => {
     const identityRef = toCloudflareAccessIdentityRef(identity("admin@example.com"));
     const resolver = new AdminIdentityResolver(
-      new FakeIdentityRepository([
-        { principalId: PRINCIPAL_ID, identityRef, status: "DISABLED" },
-      ]),
+      new FakeIdentityRepository([{ principalId: PRINCIPAL_ID, identityRef, status: "DISABLED" }]),
       "production",
     );
 
