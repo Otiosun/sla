@@ -66,4 +66,6 @@ export function mapAdminHttpError(error: unknown, correlationId: string): AdminH
     case ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT:
       return response(500, "ADMIN_INTERNAL_ERROR", "Administrative request failed", correlationId);
   }
+
+  return response(500, "ADMIN_INTERNAL_ERROR", "Administrative request failed", correlationId);
 }
