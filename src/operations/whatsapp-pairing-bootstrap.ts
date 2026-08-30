@@ -1,7 +1,7 @@
 import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
-import {
-  type BaileysConnectionUpdateLike,
-  type BaileysWaWebVersion,
+import type {
+  BaileysConnectionUpdateLike,
+  BaileysWaWebVersion,
 } from "../adapters/whatsapp/baileys-provider-contracts.js";
 import { createInitialAuthCreds } from "../adapters/whatsapp/baileys-runtime.js";
 import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
