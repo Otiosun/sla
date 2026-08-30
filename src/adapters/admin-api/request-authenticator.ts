@@ -1,6 +1,9 @@
 import { z } from "zod";
-import type { CloudflareAccessIdentity } from "./identity-resolver.js";
-import type { ResolvedAdminIdentityContext } from "./identity-resolver.js";
+import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
+import type {
+  CloudflareAccessIdentity,
+  ResolvedAdminIdentityContext,
+} from "./identity-resolver.js";
 
 const AccessTokenSchema = z.string().trim().min(32).max(16_384);
 
@@ -19,8 +22,11 @@ export class AdminRequestAuthenticator {
   ) {}
 
   public async authenticate(rawToken: unknown): Promise<ResolvedAdminIdentityContext> {
-    const token = AccessTokenSchema.parse(rawToken);
-    const externalIdentity = await this.verifier.verify(token);
+    const parsed = AccessTokenSchema.safeParse(rawToken);
+    if (!parsed.success) {
+      throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Administrative access denied");
+    }
+    const externalIdentity = await this.verifier.verify(parsed.data);
     return this.resolver.resolve(externalIdentity);
   }
 }
