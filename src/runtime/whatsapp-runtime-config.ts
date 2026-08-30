@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AppConfig } from "../platform/config/env.js";
 
 const sessionKeySchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const fullRevisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const positiveInteger = (defaultValue: number) =>
   z.coerce.number().int().positive().default(defaultValue);
 
@@ -10,6 +11,8 @@ const whatsappRuntimeSchema = z.object({
   WHATSAPP_AUTH_KEY_BASE64: z.string().min(1),
   WHATSAPP_AUTH_KEY_VERSION: positiveInteger(1),
   WHATSAPP_OUTBOX_POLL_MS: positiveInteger(500),
+  WHATSAPP_HEALTH_HEARTBEAT_MS: positiveInteger(30_000),
+  DEPLOY_REVISION: fullRevisionSchema.optional(),
 });
 
 export interface WhatsAppRuntimeConfig {
@@ -17,6 +20,8 @@ export interface WhatsAppRuntimeConfig {
   readonly authEncryptionKey: Buffer;
   readonly authEncryptionKeyVersion: number;
   readonly outboxPollMs: number;
+  readonly deploymentRevision: string | null;
+  readonly healthHeartbeatMs: number;
 }
 
 export class WhatsAppRuntimeConfigError extends Error {
@@ -43,6 +48,7 @@ export function loadWhatsAppRuntimeConfig(
     "WHATSAPP_AUTH_KEY_BASE64",
     "WHATSAPP_AUTH_KEY_VERSION",
     "WHATSAPP_OUTBOX_POLL_MS",
+    "WHATSAPP_HEALTH_HEARTBEAT_MS",
   ] as const;
   const anyRuntimeValue = runtimeKeys.some((key) => env[key] !== undefined);
   const required = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
@@ -56,10 +62,18 @@ export function loadWhatsAppRuntimeConfig(
     throw new WhatsAppRuntimeConfigError(`Invalid WhatsApp runtime configuration: ${issues}`);
   }
 
+  if (required && parsed.data.DEPLOY_REVISION === undefined) {
+    throw new WhatsAppRuntimeConfigError(
+      "Invalid WhatsApp runtime configuration: DEPLOY_REVISION is required in staging/production",
+    );
+  }
+
   return {
     sessionKey: parsed.data.WHATSAPP_SESSION_KEY,
     authEncryptionKey: decodeKey(parsed.data.WHATSAPP_AUTH_KEY_BASE64),
     authEncryptionKeyVersion: parsed.data.WHATSAPP_AUTH_KEY_VERSION,
     outboxPollMs: parsed.data.WHATSAPP_OUTBOX_POLL_MS,
+    deploymentRevision: parsed.data.DEPLOY_REVISION ?? null,
+    healthHeartbeatMs: parsed.data.WHATSAPP_HEALTH_HEARTBEAT_MS,
   };
 }
