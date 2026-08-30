@@ -13,10 +13,7 @@ import {
 
 const require = createRequire(import.meta.url);
 
-export type TerminalQrRenderer = (
-  payload: string,
-  callback: (rendered: string) => void,
-) => void;
+export type TerminalQrRenderer = (payload: string, callback: (rendered: string) => void) => void;
 
 export type PairingCliExecutor = (
   config: WhatsAppPairingBootstrapConfig,
