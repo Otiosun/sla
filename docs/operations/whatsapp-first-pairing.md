@@ -2,38 +2,51 @@
 
 ## Purpose
 
-This procedure creates the first encrypted PostgreSQL-backed Baileys auth session for one staging or production WhatsApp session. It is a one-shot bootstrap ceremony, not a normal runtime path, session-rotation tool or generic auth-repair command.
+This procedure creates the first encrypted PostgreSQL-backed Baileys auth session for staging. It is a one-shot bootstrap ceremony, not a normal runtime path, session-rotation tool or generic auth-repair command.
 
 The normal long-running runtime remains fail-closed and opens auth with creation disabled. It must never silently create or replace a missing session.
 
 ## Current provider gate
 
-The repository currently pins `@whiskeysockets/baileys@7.0.0-rc14`. That version is intentionally blocked for live first pairing because the currently known upstream registration path is not trusted for this release.
+The repository pins `@whiskeysockets/baileys@7.0.0-rc14` and carries the repository-owned audited first-pairing compatibility patch identified by `rc14-companion-reg-refresh-v1`.
 
-`pnpm ops:bootstrap:whatsapp` therefore resolves the actual installed Baileys package version and rejects rc14 before PostgreSQL reservation or provider socket creation. Do not bypass this gate with an environment variable, patched version string or manual database insert.
+First pairing is intentionally environment-specific:
 
-Live use becomes eligible only after an approved Baileys upgrade or separately reviewed provider patch passes the repository pairing proofs and an explicit real-provider staging acceptance.
+- **staging** may proceed only when the actually installed provider identity is exactly `7.0.0-rc14` plus `rc14-companion-reg-refresh-v1`;
+- **production** remains blocked in code until a separate post-staging approval explicitly promotes a proven provider identity;
+- bare rc14, a wrong/missing compatibility marker, another Baileys version or any unknown identity fails closed before PostgreSQL reservation or provider socket creation.
+
+This staging eligibility is not a live-compatibility claim. It exists so the exact audited candidate can undergo real-provider acceptance without implicitly authorizing production.
+
+## WhatsApp Web protocol gate
+
+After provider identity and local-terminal checks pass, the bootstrap resolves the current WhatsApp Web protocol version through the encapsulated Baileys adapter.
+
+The resolver must return `isLatest=true` and exactly three non-negative safe-integer version parts. Stale, invalid or unavailable metadata fails closed. There is no fallback to a hard-coded tuple and no operator-controlled `WHATSAPP_WEB_VERSION` authority.
+
+The validated tuple is passed explicitly as the pairing socket `version` before the provider connection starts.
 
 ## Required conditions
 
 Before running the ceremony:
 
-- use only `APP_ENV=staging` or `APP_ENV=production`;
+- use `APP_ENV=staging`; the current production pairing gate is intentionally closed;
 - identify the exact full 40-character `DEPLOY_REVISION` being prepared;
-- configure the restricted runtime `DATABASE_URL` for the target environment;
-- configure `WHATSAPP_SESSION_KEY` for exactly one target session;
+- configure the restricted runtime `DATABASE_URL` for staging;
+- configure `WHATSAPP_SESSION_KEY` for exactly one staging session;
 - configure `WHATSAPP_AUTH_KEY_BASE64` as canonical base64 for exactly 32 random bytes in the secret layer;
 - configure the positive `WHATSAPP_AUTH_KEY_VERSION`;
 - optionally configure `WHATSAPP_PAIRING_TIMEOUT_MS` (default `120000`, maximum `300000`);
 - verify the target database already has the canonical schema and runtime grants;
 - stop any runtime process that could use the same `WHATSAPP_SESSION_KEY` so the PostgreSQL advisory lease is free;
-- verify the target session has never already been bootstrapped.
+- verify the target session has never already been bootstrapped;
+- ensure the trusted operator terminal can reach the WhatsApp provider and resolve the current WhatsApp Web metadata.
 
 Do not inject `MIGRATOR_DATABASE_URL` merely to pair WhatsApp. The ceremony uses the restricted runtime database identity after migrations/grants are already complete.
 
 ## Sensitive-output rules
 
-The ceremony is local-interactive only:
+The ceremony requires a local interactive TTY:
 
 - both stdin and stdout must be a TTY;
 - execution is blocked when `CI` is present;
@@ -45,43 +58,52 @@ Do not paste, screenshot, record or forward the QR into chat, an issue, Drive, a
 
 ## Command
 
-From a trusted local operator terminal with the release-bound environment configured:
+From a trusted local operator terminal with the release-bound staging environment configured:
 
 ```bash
 pnpm ops:bootstrap:whatsapp
 ```
 
-With the currently pinned rc14 this command is expected to stop at the provider-version gate. That is correct behavior and is not a reason to bypass the gate.
+Production is expected to stop at the environment/provider gate until a separately reviewed promotion changes that policy.
 
-## Successful ceremony after provider compatibility is approved
+## Pairing ceremony
 
 The command performs these steps in order:
 
-1. validate release environment, runtime database URL, full deployment revision and WhatsApp auth settings;
-2. resolve the actual installed Baileys version and enforce the provider-version gate;
-3. require a local interactive TTY and reject CI/non-interactive execution;
-4. open a small restricted-runtime PostgreSQL pool and verify the canonical schema;
-5. acquire the existing session advisory lease through a create-only bootstrap reservation;
-6. keep all first-pairing credentials and Signal keys ephemeral in memory while the QR is displayed locally;
-7. wait for actual provider `connection=open` and require registered credentials;
-8. atomically persist credentials plus all collected Signal keys as one encrypted PostgreSQL snapshot;
-9. close the provider socket, release the reservation/lease and close the database pool.
+1. validate staging environment, runtime database URL, full deployment revision and WhatsApp auth settings;
+2. resolve the actually installed Baileys identity and require exact rc14 plus the audited compatibility marker;
+3. enforce the staging-only provider gate;
+4. require a local interactive TTY and reject CI/non-interactive execution;
+5. resolve and validate the current WhatsApp Web protocol tuple;
+6. open a small restricted-runtime PostgreSQL pool and verify the canonical schema;
+7. acquire the existing session advisory lease through a create-only bootstrap reservation;
+8. create the provider socket with the validated WhatsApp Web version explicitly configured;
+9. keep all first-pairing credentials and Signal keys ephemeral in memory while the QR is displayed locally;
+10. wait for actual provider `connection=open` and require registered credentials;
+11. atomically persist credentials plus all collected Signal keys as one encrypted PostgreSQL snapshot;
+12. close the provider socket, release the reservation/lease and close the database pool.
 
-No auth row is created before provider success. Timeout, provider close, QR-render failure or incomplete registration leaves no partially bootstrapped session.
+Provider-identity rejection, production use, protocol-resolution failure, timeout, provider close, QR-render failure or incomplete registration leaves no partially bootstrapped session.
 
-## After success
+## After successful staging pairing
 
-After a successful first pairing:
+A successful QR scan alone is not release evidence. After pairing:
 
 1. do not run the bootstrap command again for that session;
-2. start/deploy the normal single-replica runtime using the same `WHATSAPP_SESSION_KEY` and encryption key version;
+2. start/deploy the normal single-replica staging runtime using the same `WHATSAPP_SESSION_KEY` and encryption key version;
 3. require the runtime to recover the existing PostgreSQL auth rather than create a new one;
-4. run the canonical post-deploy smoke;
-5. accept provider-live readiness only when the expected full SHA/session reports fresh `CONNECTED` heartbeat evidence and `finalPostDeploySmokeComplete=true`.
+4. prove restart/recovery using the persisted encrypted session;
+5. run the canonical post-deploy smoke;
+6. accept provider-live staging readiness only when the expected full SHA/session reports fresh `CONNECTED` heartbeat evidence and `finalPostDeploySmokeComplete=true`;
+7. only after that evidence may a separate change be reviewed to promote an exact provider identity for production.
 
-A successful QR scan alone is not release evidence.
+Staging success must never silently authorize production.
 
 ## Failure and recovery
+
+If current WhatsApp Web metadata cannot be resolved or is reported stale, stop. Do not substitute a manual protocol version.
+
+If the provider closes during pairing, including provider/HTTP failures such as 408 or 428, stop and preserve only non-sensitive diagnostics. Do not repeatedly hammer the provider with automated pairing retries.
 
 If the command reports that the auth session already exists, stop. Do not delete the existing session merely to force another QR.
 
