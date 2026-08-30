@@ -49,7 +49,9 @@ async function resolveBaileysPackageRoot(): Promise<string> {
 }
 
 async function readPackageMetadata(root: string): Promise<BaileysPackageMetadata> {
-  return JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")) as BaileysPackageMetadata;
+  return JSON.parse(
+    await fs.readFile(path.join(root, "package.json"), "utf8"),
+  ) as BaileysPackageMetadata;
 }
 
 describe("audited Baileys rc14 first-pairing compatibility patch", () => {
