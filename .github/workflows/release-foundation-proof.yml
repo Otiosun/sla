@@ -216,3 +216,49 @@ jobs:
             echo "release migration unexpectedly accepted a shared staging database role"
             exit 1
           fi
+
+      - name: Prove application post-deploy smoke prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          database="pokemon_rpg_release_foundation"
+          runtime_role="pokemon_release_runtime"
+          runtime_password="release-runtime-password"
+          migrator_url="postgresql://pokemon_release_migrator:release-migrator-password@localhost:5432/${database}"
+          runtime_url="postgresql://${runtime_role}:${runtime_password}@localhost:5432/${database}"
+          session_key="release-smoke-proof"
+
+          APP_ENV=staging \
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+            pnpm db:seed:phase4
+
+          docker exec \
+            --env "PGPASSWORD=${runtime_password}" \
+            pokemon-postgres-release-proof psql \
+            --host 127.0.0.1 \
+            --username "$runtime_role" \
+            --dbname "$database" \
+            --set ON_ERROR_STOP=1 \
+            --command "INSERT INTO whatsapp_auth_sessions(session_key, credentials_ciphertext, credentials_iv, credentials_auth_tag, encryption_key_version) VALUES ('${session_key}', decode('00','hex'), decode(repeat('00',12),'hex'), decode(repeat('00',16),'hex'), 1) ON CONFLICT (session_key) DO NOTHING;"
+
+          smoke_json="$(APP_ENV=staging \
+            DATABASE_URL="$runtime_url" \
+            MIGRATOR_DATABASE_URL="$migrator_url" \
+            DEPLOY_REVISION="$PROOF_REVISION" \
+            WHATSAPP_SESSION_KEY="$session_key" \
+              pnpm --silent run ops:smoke:application)"
+
+          node -e '
+            const report = JSON.parse(process.argv[1]);
+            if (!report.passed) throw new Error(`application smoke failed: ${report.failures.join(",")}`);
+            if (report.providerLiveHealth !== "NOT_PROBED") throw new Error("application smoke falsely probed provider health");
+            if (report.finalPostDeploySmokeComplete !== false) throw new Error("application smoke falsely claimed final 17.5 completion");
+          ' "$smoke_json"
+
+          APP_ENV=staging \
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+          PROOF_REVISION="$PROOF_REVISION" \
+          WHATSAPP_SESSION_KEY="$session_key" \
+            node --import tsx db/proofs/phase17_application_smoke_e2e.ts
