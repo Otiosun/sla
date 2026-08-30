@@ -26,15 +26,15 @@ function response(
 
 export function mapAdminHttpError(error: unknown, correlationId: string): AdminHttpErrorResponse {
   if (error instanceof AdminUnauthenticatedError) {
-    return response(401, "ADMIN_UNAUTHENTICATED", "Administrative authentication required", correlationId);
-  }
-  if (!(error instanceof AdminError)) {
     return response(
-      500,
-      "ADMIN_INTERNAL_ERROR",
-      "Administrative request failed",
+      401,
+      "ADMIN_UNAUTHENTICATED",
+      "Administrative authentication required",
       correlationId,
     );
+  }
+  if (!(error instanceof AdminError)) {
+    return response(500, "ADMIN_INTERNAL_ERROR", "Administrative request failed", correlationId);
   }
 
   switch (error.code) {
@@ -64,11 +64,6 @@ export function mapAdminHttpError(error: unknown, correlationId: string): AdminH
     case ADMIN_ERROR_CODES.OPERATION_KIND_MISMATCH:
     case ADMIN_ERROR_CODES.CAPABILITY_POLICY_DRIFT:
     case ADMIN_ERROR_CODES.OPERATION_POLICY_DRIFT:
-      return response(
-        500,
-        "ADMIN_INTERNAL_ERROR",
-        "Administrative request failed",
-        correlationId,
-      );
+      return response(500, "ADMIN_INTERNAL_ERROR", "Administrative request failed", correlationId);
   }
 }
