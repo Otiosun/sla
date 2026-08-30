@@ -58,7 +58,7 @@ export interface AdminApiServerDependencies {
   readonly authenticator: Pick<AdminRequestAuthenticator, "authenticate">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer">;
-  readonly rateLimiter?: AdminApiRateLimiter;
+  readonly rateLimiter: AdminApiRateLimiter;
 }
 
 function invalidTransportInput(): AdminError {
@@ -89,8 +89,6 @@ async function authenticateAndLimit(
   operation: AdminApiRateLimitedOperation,
 ): Promise<ResolvedAdminIdentityContext | null> {
   const identity = await dependencies.authenticator.authenticate(accessAssertion(request));
-  if (dependencies.rateLimiter === undefined) return identity;
-
   const decision = await dependencies.rateLimiter.consume({
     principalId: identity.principalId,
     operation,
