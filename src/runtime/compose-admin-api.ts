@@ -20,14 +20,15 @@ export interface OperationalAdminApi {
   close(): Promise<void>;
 }
 
-function adminEnvironment(
-  appEnv: AppConfig["appEnv"],
-): "development" | "staging" | "production" {
+function adminEnvironment(appEnv: AppConfig["appEnv"]): "development" | "staging" | "production" {
   if (appEnv === "staging" || appEnv === "production") return appEnv;
   return "development";
 }
 
-export function createOperationalAdminApi(pool: Pool, config: AppConfig): OperationalAdminApi | null {
+export function createOperationalAdminApi(
+  pool: Pool,
+  config: AppConfig,
+): OperationalAdminApi | null {
   if (!config.adminApiEnabled) return null;
   if (
     config.adminApiAllowedOrigin === null ||
