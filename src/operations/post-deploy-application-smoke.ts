@@ -70,11 +70,7 @@ const DEFAULT_CRITICAL_QUEUE_DEPTH = 500;
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const SESSION_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-function positiveThreshold(
-  label: string,
-  value: number | undefined,
-  fallback: number,
-): number {
+function positiveThreshold(label: string, value: number | undefined, fallback: number): number {
   const resolved = value ?? fallback;
   if (!Number.isSafeInteger(resolved) || resolved <= 0) {
     throw new Error(`${label} must be a positive safe integer`);
