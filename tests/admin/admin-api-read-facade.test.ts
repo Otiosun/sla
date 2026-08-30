@@ -4,7 +4,7 @@ import type {
   Player360View,
 } from "../../src/modules/admin/player360-contracts.js";
 import { AdminReadFacade } from "../../src/adapters/admin-api/read-facade.js";
-import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
+import { ADMIN_ERROR_CODES } from "../../src/modules/admin/errors.js";
 
 const SESSION_PRINCIPAL = "11111111-1111-4111-8111-111111111111";
 const SPOOFED_PRINCIPAL = "22222222-2222-4222-8222-222222222222";
@@ -70,7 +70,7 @@ describe("AdminReadFacade", () => {
   it("fails closed when session context is missing or malformed", async () => {
     const { facade, search } = createFacade();
 
-    await expect(facade.searchPlayers({}, {})).rejects.toMatchObject<Partial<AdminError>>({
+    await expect(facade.searchPlayers({}, {})).rejects.toMatchObject({
       code: ADMIN_ERROR_CODES.AUTHORIZATION_DENIED,
     });
     expect(search).not.toHaveBeenCalled();
