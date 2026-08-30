@@ -1,3 +1,4 @@
+import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
 import { createInitialAuthCreds } from "../adapters/whatsapp/baileys-runtime.js";
 import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { BaileysConnectionUpdateLike } from "../adapters/whatsapp/baileys-provider-contracts.js";
@@ -9,6 +10,7 @@ import type {
 import type { WhatsAppPairingBootstrapConfig } from "./whatsapp-pairing-bootstrap-config.js";
 
 const KNOWN_BROKEN_PROVIDER_VERSIONS = new Set(["7.0.0-rc14"]);
+const AUDITED_RC14_PAIRING_COMPATIBILITY = "rc14-companion-reg-refresh-v1";
 
 type SignalKeyData = Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
 
@@ -155,6 +157,19 @@ export function assertWhatsAppPairingProviderVersionSupported(providerVersion: s
   if (providerVersion.length === 0 || KNOWN_BROKEN_PROVIDER_VERSIONS.has(providerVersion)) {
     throw new WhatsAppPairingProviderVersionBlockedError(
       `WhatsApp first pairing is blocked for Baileys ${providerVersion || "unknown"}`,
+    );
+  }
+}
+
+export function assertWhatsAppPairingProviderIdentitySupported(
+  identity: InstalledBaileysIdentity,
+): void {
+  if (
+    identity.version !== "7.0.0-rc14" ||
+    identity.pairingCompatibility !== AUDITED_RC14_PAIRING_COMPATIBILITY
+  ) {
+    throw new WhatsAppPairingProviderVersionBlockedError(
+      `WhatsApp first pairing is blocked for Baileys ${identity.version || "unknown"}`,
     );
   }
 }
