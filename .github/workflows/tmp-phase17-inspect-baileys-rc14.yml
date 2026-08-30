@@ -1,0 +1,71 @@
+name: Temporary Phase 17 inspect Baileys rc14
+
+on:
+  push:
+    branches:
+      - fix/phase17-baileys-pairing-compat-v1
+    paths:
+      - .github/workflows/tmp-phase17-inspect-baileys-rc14.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/phase17-baileys-pairing-compat-v1
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install exact dependency graph
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Inspect published rc14 compiled pairing targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const root = path.dirname(require.resolve('@whiskeysockets/baileys'))
+          let dir = root
+          while (!fs.existsSync(path.join(dir, 'package.json')) || JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name !== '@whiskeysockets/baileys') {
+            const parent = path.dirname(dir)
+            if (parent === dir) throw new Error('Baileys package root not found')
+            dir = parent
+          }
+          const metadata = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+          console.log(JSON.stringify({ version: metadata.version, compatibilityMarker: metadata.pokemonRpgPairingCompatibility ?? null }))
+
+          const targets = [
+            ['lib/Socket/messages-recv.js', ['sendMessageAck', 'authState.creds.me']],
+            ['lib/Socket/socket.js', ['pair-device', 'qrTimer', 'buildPairingQRData']],
+            ['lib/Utils/companion-reg-client-utils.js', ['buildPairingQRData', 'advSecretKey']],
+          ]
+          for (const [relative, needles] of targets) {
+            const file = path.join(dir, relative)
+            const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/)
+            console.log(`\n===== ${relative} =====`)
+            for (const needle of needles) {
+              const indexes = lines.flatMap((line, index) => line.includes(needle) ? [index] : [])
+              console.log(`--- needle: ${needle} occurrences=${indexes.length} ---`)
+              for (const index of indexes.slice(0, 4)) {
+                const start = Math.max(0, index - 12)
+                const end = Math.min(lines.length, index + 18)
+                for (let i = start; i < end; i += 1) console.log(`${i + 1}: ${lines[i]}`)
+              }
+            }
+          }
+          NODE
