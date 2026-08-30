@@ -4,6 +4,11 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 
+export interface InstalledBaileysIdentity {
+  readonly version: string;
+  readonly pairingCompatibility: string | null;
+}
+
 export class WhatsAppPairingPackageVersionResolutionError extends Error {
   override readonly name = "WhatsAppPairingPackageVersionResolutionError";
 }
