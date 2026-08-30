@@ -11,8 +11,10 @@ const PATCHED_RC14: InstalledBaileysIdentity = {
 };
 
 describe("WhatsApp pairing provider identity gate", () => {
-  it("accepts only the exact audited rc14 compatibility identity", () => {
-    expect(() => assertWhatsAppPairingProviderIdentitySupported(PATCHED_RC14)).not.toThrow();
+  it("accepts only the exact audited rc14 compatibility identity in staging", () => {
+    expect(() =>
+      assertWhatsAppPairingProviderIdentitySupported(PATCHED_RC14, "staging"),
+    ).not.toThrow();
   });
 
   it.each<InstalledBaileysIdentity>([
@@ -22,7 +24,7 @@ describe("WhatsApp pairing provider identity gate", () => {
     { version: "7.0.0-rc15", pairingCompatibility: "rc14-companion-reg-refresh-v1" },
     { version: "", pairingCompatibility: "rc14-companion-reg-refresh-v1" },
   ])("fails closed for unsupported provider identity %#", (identity) => {
-    expect(() => assertWhatsAppPairingProviderIdentitySupported(identity)).toThrow(
+    expect(() => assertWhatsAppPairingProviderIdentitySupported(identity, "staging")).toThrow(
       WhatsAppPairingProviderVersionBlockedError,
     );
   });
