@@ -83,13 +83,7 @@ export class PostgresMutationAdmission implements MutationAdmissionPort {
            AND surface = $3
            AND policy_key = $4
            AND dedupe_hash = $5`,
-        [
-          request.subjectKind,
-          subjectHash,
-          request.surface,
-          request.policy.policyKey,
-          dedupeHash,
-        ],
+        [request.subjectKind, subjectHash, request.surface, request.policy.policyKey, dedupeHash],
       );
       const priorFingerprint = prior.rows[0]?.request_fingerprint;
       if (priorFingerprint !== undefined) {
