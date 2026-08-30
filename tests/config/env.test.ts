@@ -12,13 +12,14 @@ describe("loadConfig", () => {
     ).toThrow(/PostgreSQL URL scheme/);
   });
 
-  it("requires a migrator URL in staging and production", () => {
-    expect(() =>
-      loadConfig({
-        APP_ENV: "production",
+  it("accepts runtime-only database config in staging and production", () => {
+    for (const appEnv of ["staging", "production"] as const) {
+      const config = loadConfig({
+        APP_ENV: appEnv,
         DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
-      }),
-    ).toThrow(/MIGRATOR_DATABASE_URL/);
+      });
+      expect(config.migratorDatabaseUrl).toBeNull();
+    }
   });
 
   it("rejects the same PostgreSQL role for runtime and migrator in production", () => {

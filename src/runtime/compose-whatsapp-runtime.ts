@@ -3,6 +3,7 @@ import {
   BaileysWhatsAppAdapter,
   type BaileysAuthBinding,
 } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
+import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
@@ -29,6 +30,9 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
+  readonly onProviderConnectionState?: (
+    state: WhatsAppProviderConnectionState,
+  ) => Promise<void> | void;
 }
 
 function errorKind(error: unknown): string {
@@ -72,6 +76,9 @@ export function createOperationalWhatsAppRuntime(
       options.logger.log("ERROR", "whatsapp.auth.logged_out");
       options.onSessionInvalidated?.("LOGGED_OUT");
     },
+    ...(options.onProviderConnectionState === undefined
+      ? {}
+      : { onConnectionState: options.onProviderConnectionState }),
     onProviderError: (error) => {
       options.logger.log("ERROR", "whatsapp.provider.error", { errorKind: errorKind(error) });
     },

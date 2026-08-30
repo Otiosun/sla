@@ -8,6 +8,7 @@ export interface PostDeployApplicationSmokeInput {
   readonly whatsappSessionKey: string;
   readonly criticalQueueAgeMs?: number;
   readonly criticalQueueDepth?: number;
+  readonly providerHeartbeatMaxAgeMs?: number;
 }
 
 export interface PostDeployApplicationSmokeReport {
@@ -37,8 +38,8 @@ export interface PostDeployApplicationSmokeReport {
     readonly criticalQueueAgeMs: number;
     readonly criticalQueueDepth: number;
   };
-  readonly providerLiveHealth: "NOT_PROBED";
-  readonly finalPostDeploySmokeComplete: false;
+  readonly providerLiveHealth: "HEALTHY" | "UNHEALTHY";
+  readonly finalPostDeploySmokeComplete: boolean;
   readonly failures: readonly string[];
 }
 
@@ -65,8 +66,14 @@ interface OutboxRow {
   readonly oldest_unsent_age_ms: string;
 }
 
+interface RuntimeEvidenceRow {
+  readonly provider_state: string;
+  readonly heartbeat_age_ms: string;
+}
+
 const DEFAULT_CRITICAL_QUEUE_AGE_MS = 300_000;
 const DEFAULT_CRITICAL_QUEUE_DEPTH = 500;
+const DEFAULT_PROVIDER_HEARTBEAT_MAX_AGE_MS = 120_000;
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const SESSION_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
@@ -97,6 +104,11 @@ export async function runPostDeployApplicationSmoke(
     "criticalQueueDepth",
     input.criticalQueueDepth,
     DEFAULT_CRITICAL_QUEUE_DEPTH,
+  );
+  const providerHeartbeatMaxAgeMs = positiveThreshold(
+    "providerHeartbeatMaxAgeMs",
+    input.providerHeartbeatMaxAgeMs,
+    DEFAULT_PROVIDER_HEARTBEAT_MAX_AGE_MS,
   );
 
   await assertDatabaseSchemaCurrent(pool);
@@ -166,6 +178,31 @@ export async function runPostDeployApplicationSmoke(
     throw new Error("Outbox smoke query returned an invalid oldest pending age");
   }
 
+  const runtimeEvidenceResult = await pool.query<RuntimeEvidenceRow>(
+    `SELECT
+       provider_state,
+       greatest(
+         0::bigint,
+         floor(extract(epoch FROM (clock_timestamp() - last_heartbeat_at)) * 1000)::bigint
+       )::text AS heartbeat_age_ms
+     FROM runtime_instances
+     WHERE environment = $1
+       AND deployment_revision = $2
+       AND whatsapp_session_key = $3
+     ORDER BY started_at DESC, instance_id DESC
+     LIMIT 1`,
+    [input.environment, input.deploymentRevision, input.whatsappSessionKey],
+  );
+  const runtimeEvidence = runtimeEvidenceResult.rows[0] ?? null;
+  const providerHeartbeatAgeMs =
+    runtimeEvidence === null ? null : Number(runtimeEvidence.heartbeat_age_ms);
+  if (
+    providerHeartbeatAgeMs !== null &&
+    (!Number.isSafeInteger(providerHeartbeatAgeMs) || providerHeartbeatAgeMs < 0)
+  ) {
+    throw new Error("Provider smoke query returned an invalid heartbeat age");
+  }
+
   const failures: string[] = [];
   if (
     activeRelease === null ||
@@ -188,8 +225,25 @@ export async function runPostDeployApplicationSmoke(
   if (outbox.unsent_count >= criticalQueueDepth) failures.push("OUTBOX_CRITICAL_DEPTH");
   if (oldestUnsentAgeMs >= criticalQueueAgeMs) failures.push("OUTBOX_CRITICAL_AGE");
 
+  let providerLiveHealth: "HEALTHY" | "UNHEALTHY" = "UNHEALTHY";
+  if (runtimeEvidence === null) {
+    failures.push("PROVIDER_RUNTIME_EVIDENCE_MISSING");
+  } else if (runtimeEvidence.provider_state !== "CONNECTED") {
+    failures.push("PROVIDER_NOT_CONNECTED");
+  } else if (
+    providerHeartbeatAgeMs === null ||
+    providerHeartbeatAgeMs >= providerHeartbeatMaxAgeMs
+  ) {
+    failures.push("PROVIDER_HEARTBEAT_STALE");
+  } else {
+    providerLiveHealth = "HEALTHY";
+  }
+
+  const passed = failures.length === 0;
+  const finalPostDeploySmokeComplete = passed && providerLiveHealth === "HEALTHY";
+
   return {
-    passed: failures.length === 0,
+    passed,
     environment: input.environment,
     deploymentRevision: input.deploymentRevision,
     schemaCurrent: true,
@@ -218,8 +272,8 @@ export async function runPostDeployApplicationSmoke(
       criticalQueueAgeMs,
       criticalQueueDepth,
     },
-    providerLiveHealth: "NOT_PROBED",
-    finalPostDeploySmokeComplete: false,
+    providerLiveHealth,
+    finalPostDeploySmokeComplete,
     failures,
   };
 }

@@ -4,11 +4,12 @@ import { runPostDeployApplicationSmoke } from "../../src/operations/post-deploy-
 
 const databaseUrl = process.env.DATABASE_URL;
 const deploymentRevision = process.env.PROOF_REVISION;
-const whatsappSessionKey = process.env.WHATSAPP_SESSION_KEY;
+const sourceWhatsappSessionKey = process.env.WHATSAPP_SESSION_KEY;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 if (!deploymentRevision) throw new Error("PROOF_REVISION is required");
-if (!whatsappSessionKey) throw new Error("WHATSAPP_SESSION_KEY is required");
+if (!sourceWhatsappSessionKey) throw new Error("WHATSAPP_SESSION_KEY is required");
 
+const whatsappSessionKey = `${sourceWhatsappSessionKey.slice(0, 20)}-e2e-${randomUUID().slice(0, 8)}`;
 const pool = new Pool({ connectionString: databaseUrl, max: 4 });
 
 function requireFailure(
@@ -18,9 +19,72 @@ function requireFailure(
   if (report.passed || !report.failures.includes(code)) {
     throw new Error(`Application smoke did not fail closed with ${code}`);
   }
-  if (report.providerLiveHealth !== "NOT_PROBED" || report.finalPostDeploySmokeComplete !== false) {
-    throw new Error("Application smoke incorrectly claimed final/provider-live readiness");
+}
+
+function requireProviderFailure(
+  report: Awaited<ReturnType<typeof runPostDeployApplicationSmoke>>,
+  code: string,
+) {
+  requireFailure(report, code);
+  if (
+    String(report.providerLiveHealth) !== "UNHEALTHY" ||
+    Boolean(report.finalPostDeploySmokeComplete)
+  ) {
+    throw new Error("Application smoke incorrectly claimed provider-live readiness");
   }
+}
+
+async function insertRuntimeEvidence(input: {
+  deploymentRevision: string;
+  whatsappSessionKey: string;
+  providerState: "CONNECTED" | "DISCONNECTED";
+  heartbeatSql: string;
+}): Promise<string> {
+  const instanceId = randomUUID();
+  await pool.query(
+    `INSERT INTO runtime_instances(
+       instance_id,
+       environment,
+       deployment_revision,
+       whatsapp_session_key,
+       provider_state,
+       last_connected_at,
+       last_heartbeat_at
+     ) VALUES (
+       $1,
+       'staging',
+       $2,
+       $3,
+       $4,
+       CASE WHEN $4 = 'CONNECTED' THEN clock_timestamp() ELSE NULL END,
+       ${input.heartbeatSql}
+     )`,
+    [instanceId, input.deploymentRevision, input.whatsappSessionKey, input.providerState],
+  );
+  return instanceId;
+}
+
+async function updateRuntimeEvidence(
+  instanceId: string,
+  providerState: "CONNECTED" | "DISCONNECTED",
+  heartbeatSql: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE runtime_instances
+     SET started_at = least(started_at, ${heartbeatSql}),
+         provider_state = $2,
+         last_connected_at = CASE
+           WHEN $2 = 'CONNECTED' THEN clock_timestamp()
+           ELSE last_connected_at
+         END,
+         last_disconnect_at = CASE
+           WHEN $2 = 'DISCONNECTED' THEN clock_timestamp()
+           ELSE last_disconnect_at
+         END,
+         last_heartbeat_at = ${heartbeatSql}
+     WHERE instance_id = $1`,
+    [instanceId, providerState],
+  );
 }
 
 async function insertOutbox(status: "PENDING" | "DEAD", createdAtSql: string): Promise<string> {
@@ -46,20 +110,77 @@ async function markSent(id: string): Promise<void> {
 }
 
 try {
+  await pool.query(
+    `INSERT INTO whatsapp_auth_sessions(
+       session_key,
+       credentials_ciphertext,
+       credentials_iv,
+       credentials_auth_tag,
+       encryption_key_version
+     ) VALUES (
+       $1,
+       decode('00', 'hex'),
+       decode(repeat('00', 12), 'hex'),
+       decode(repeat('00', 16), 'hex'),
+       1
+     )`,
+    [whatsappSessionKey],
+  );
+
   const baseInput = {
     environment: "staging" as const,
     deploymentRevision,
     whatsappSessionKey,
   };
 
+  const missingEvidence = await runPostDeployApplicationSmoke(pool, baseInput);
+  requireProviderFailure(missingEvidence, "PROVIDER_RUNTIME_EVIDENCE_MISSING");
+
+  await insertRuntimeEvidence({
+    deploymentRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    whatsappSessionKey,
+    providerState: "CONNECTED",
+    heartbeatSql: "clock_timestamp()",
+  });
+  const wrongRevision = await runPostDeployApplicationSmoke(pool, baseInput);
+  requireProviderFailure(wrongRevision, "PROVIDER_RUNTIME_EVIDENCE_MISSING");
+
+  await insertRuntimeEvidence({
+    deploymentRevision,
+    whatsappSessionKey: "different-proof-session",
+    providerState: "CONNECTED",
+    heartbeatSql: "clock_timestamp()",
+  });
+  const wrongSession = await runPostDeployApplicationSmoke(pool, baseInput);
+  requireProviderFailure(wrongSession, "PROVIDER_RUNTIME_EVIDENCE_MISSING");
+
+  const exactInstanceId = await insertRuntimeEvidence({
+    deploymentRevision,
+    whatsappSessionKey,
+    providerState: "DISCONNECTED",
+    heartbeatSql: "clock_timestamp()",
+  });
+  const disconnected = await runPostDeployApplicationSmoke(pool, baseInput);
+  requireProviderFailure(disconnected, "PROVIDER_NOT_CONNECTED");
+
+  await updateRuntimeEvidence(
+    exactInstanceId,
+    "CONNECTED",
+    "clock_timestamp() - interval '10 minutes'",
+  );
+  const stale = await runPostDeployApplicationSmoke(pool, baseInput);
+  requireProviderFailure(stale, "PROVIDER_HEARTBEAT_STALE");
+
+  await updateRuntimeEvidence(exactInstanceId, "CONNECTED", "clock_timestamp()");
   const happy = await runPostDeployApplicationSmoke(pool, baseInput);
   if (!happy.passed) {
     throw new Error(`Prepared application smoke unexpectedly failed: ${happy.failures.join(",")}`);
   }
-  if (happy.providerLiveHealth !== "NOT_PROBED" || happy.finalPostDeploySmokeComplete !== false) {
-    throw new Error(
-      "Application smoke must remain explicitly incomplete without a live provider probe",
-    );
+  if (
+    String(happy.providerLiveHealth) !== "HEALTHY" ||
+    !Boolean(happy.finalPostDeploySmokeComplete)
+  ) {
+    throw new Error("Application smoke did not prove final provider-live readiness");
   }
   if (
     happy.activeRelease?.releaseStatus !== "PUBLISHED" ||
@@ -96,7 +217,11 @@ try {
   await markSent(deadId);
 
   const recovered = await runPostDeployApplicationSmoke(pool, baseInput);
-  if (!recovered.passed) {
+  if (
+    !recovered.passed ||
+    String(recovered.providerLiveHealth) !== "HEALTHY" ||
+    !Boolean(recovered.finalPostDeploySmokeComplete)
+  ) {
     throw new Error(
       `Application smoke did not recover after proof fixtures cleared: ${recovered.failures.join(",")}`,
     );
@@ -106,6 +231,12 @@ try {
     JSON.stringify({
       proof: "phase17-application-smoke",
       applicationLayerPassed: true,
+      isolatedSessionEvidence: true,
+      missingProviderEvidenceFailClosed: true,
+      wrongRevisionFailClosed: true,
+      wrongSessionFailClosed: true,
+      disconnectedProviderFailClosed: true,
+      staleHeartbeatFailClosed: true,
       missingSessionFailClosed: true,
       criticalDepthFailClosed: true,
       criticalAgeFailClosed: true,

@@ -2,6 +2,7 @@ import type { IncomingMessage, PendingOutboxMessage } from "../../modules/messag
 import type { OutboundMessageAdapter } from "../../modules/messaging/ports.js";
 
 export type WhatsAppIncomingHandler = (message: IncomingMessage) => Promise<void>;
+export type WhatsAppProviderConnectionState = "CONNECTED" | "DISCONNECTED";
 
 export interface WhatsAppAdapter extends OutboundMessageAdapter {
   readonly channel: "whatsapp";

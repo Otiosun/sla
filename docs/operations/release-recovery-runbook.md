@@ -19,13 +19,15 @@ Detailed contracts:
 Stop the release/recovery and do not admit traffic when any of these is true:
 
 - the candidate is not identified by a full immutable Git SHA;
-- staging/production runtime and migrator database roles are shared;
+- staging/production runtime and migrator database roles are shared for migration operations;
+- the long-running runtime has access to `MIGRATOR_DATABASE_URL`;
 - the target database/environment is ambiguous;
 - migration verification fails or migration history/checksum drifts;
 - required backup/restore evidence is unavailable for a risky production change;
 - a post-deploy smoke check fails or has not been performed when the release requires it;
 - a secret, WhatsApp auth session or backup artifact appears to be shared between staging and production;
 - provider authentication/pairing is unavailable and the deployment depends on creating a new provider session;
+- more than one active Fly Machine could use the same Baileys session without an explicitly approved fencing design;
 - operator evidence is incomplete enough that the next action cannot be audited.
 
 Never make a failing gate green by editing the production database manually.
@@ -48,9 +50,13 @@ Record a release evidence entry with:
 
 Verify staging and production isolation before continuing.
 
+For Fly.io staging, also verify that the app identified by `STAGING_FLY_APP` already exists, the GitHub `staging` Environment is configured, and the Fly secret layer contains `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, and `WHATSAPP_AUTH_KEY_VERSION` but does not contain `MIGRATOR_DATABASE_URL`.
+
 ### A2. Control traffic
 
 For a schema-changing release, stop or drain application traffic before migration. Do not allow old and new binaries to race against an in-transition schema unless an explicitly tested compatibility plan exists.
+
+The current Baileys staging topology is intentionally one Machine. Deploys use `--strategy immediate`; brief worker downtime is accepted to avoid overlapping two active workers on the same WhatsApp session.
 
 ### A3. Run controlled migration
 
@@ -81,23 +87,54 @@ Do not rerun bootstrap to repair ordinary role-management problems.
 ```bash
 APP_ENV=<staging|production> \
 DATABASE_URL="$RUNTIME_DATABASE_URL" \
-MIGRATOR_DATABASE_URL="$MIGRATOR_DATABASE_URL" \
   pnpm db:verify
 ```
 
-The restricted runtime identity must pass schema verification.
+The restricted runtime identity must pass schema verification without a migrator credential.
 
 ### A7. Deploy the exact binary/revision
 
 Deploy the same full SHA that was migrated/approved. Manual server-side code editing is not a valid normal release path.
 
+For staging the canonical workflow consumes the already-published immutable GHCR tag, verifies its OCI revision label, copies it to:
+
+```text
+registry.fly.io/<staging-app>:sha-<full-40-char-git-sha>
+```
+
+and deploys that exact image with:
+
+```bash
+flyctl deploy \
+  --app "$FLY_APP" \
+  --config fly.staging.toml \
+  --image "registry.fly.io/${FLY_APP}:sha-${DEPLOY_REVISION}" \
+  --ha=false \
+  --strategy immediate \
+  --env "DEPLOY_REVISION=${DEPLOY_REVISION}" \
+  --now
+
+flyctl scale count 1 --app "$FLY_APP" --config fly.staging.toml --yes
+```
+
+`--ha=false` prevents Fly from creating standby redundancy on first deploy. The scale command reasserts the one Machine invariant after deployment. Do not replace the immutable SHA image with `:main`.
+
 ### A8. Post-deploy smoke gate
 
-Run the canonical post-deploy smoke suite when it exists for the target. Until Phase 17.5 is closed with a real smoke implementation, this runbook must not be used as evidence that production release readiness is complete.
+The canonical smoke implementation is `pnpm ops:smoke:application`. It is read-only and release-bound. It must run against the runtime database credential and expected provider session, not a migrator credential.
 
-At minimum a future real smoke gate must prove readiness/schema, one safe read path, provider/runtime health where enabled, and no unexpected critical backlog/error signal.
+For a real staging/production deployment, success requires all application checks plus exact provider evidence:
 
-If smoke fails: remove/keep traffic away and move to the rollback/incident decision below.
+- deployed `DEPLOY_REVISION` matches the expected full SHA;
+- `WHATSAPP_SESSION_KEY` matches the intended session;
+- provider state is `CONNECTED`;
+- heartbeat is fresh;
+- `providerLiveHealth` is `HEALTHY`;
+- `finalPostDeploySmokeComplete` is `true`.
+
+The staging runtime deploy workflow retries this smoke for a bounded window after Fly reports the Machine started. A process merely being alive is not sufficient release evidence.
+
+If smoke fails: keep the release unapproved and move to the rollback/incident decision below.
 
 ### A9. Admit traffic and observe
 
@@ -114,6 +151,23 @@ Rollback is not synonymous with "deploy the previous commit".
 ### Code-only rollback
 
 A previous binary may be redeployed only when its compatibility with the current database schema/state is explicitly known. Never assume an older binary can safely operate a newer schema after a migration.
+
+If compatibility is proven, Fly staging rollback uses the previously published immutable image, not a rebuild and not the mutable `main` tag:
+
+```bash
+ROLLBACK_SHA="<previous-known-good-full-sha>"
+flyctl deploy \
+  --app "$FLY_APP" \
+  --config fly.staging.toml \
+  --image "registry.fly.io/${FLY_APP}:sha-${ROLLBACK_SHA}" \
+  --ha=false \
+  --strategy immediate \
+  --env "DEPLOY_REVISION=${ROLLBACK_SHA}" \
+  --now
+flyctl scale count 1 --app "$FLY_APP" --config fly.staging.toml --yes
+```
+
+Then rerun the canonical post-deploy smoke with `DEPLOY_REVISION=$ROLLBACK_SHA`. The rollback is not complete until the exact rollback revision/session produces fresh provider-live evidence.
 
 If compatibility is not proven, keep traffic contained and use state recovery instead.
 
@@ -230,6 +284,8 @@ Database target/replacement id:
 Runtime role:
 Migrator role:
 Migration result/evidence:
+Runtime image digest/tag:
+Fly app/Machine id (when applicable):
 Backup generation (if used):
 Restore checksum/result (if used):
 Smoke/validation evidence:
@@ -243,11 +299,11 @@ Do not put passwords, connection strings with credentials, encryption keys, What
 
 ## Phase 17 boundaries
 
-This runbook documents the procedures required by Phase 17.12. It does not itself prove the external infrastructure-dependent items.
+This runbook documents the procedures required by Phase 17.12 and the code-level Fly deployment/smoke contract. It does not itself prove the external infrastructure-dependent items.
 
 The following remain separately gated until real evidence exists:
 
-- **17.2** real staging PostgreSQL/provider-equivalent environment;
-- **17.3** reproducible CI/CD connected to an approved runtime target;
-- **17.5** real post-deploy smoke implementation;
+- **17.2** real staging PostgreSQL release/provider-equivalent environment;
+- **17.3** real CI/CD execution connected to the configured Fly.io staging target;
+- **17.5** real post-deploy smoke against an actually deployed provider-connected revision/session;
 - production backup/alert/provider validations that explicitly require the eventual production target.
