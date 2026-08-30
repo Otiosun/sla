@@ -71,7 +71,9 @@ reject_literal "$workflow" ':main'
 reject_literal "$workflow" '--remote-only'
 reject_literal "$workflow" 'docker build'
 
-# One-session safety: explicitly normalize the process group to one Machine after deploy.
+# One-session safety: reject a preexisting multi-Machine topology before deploy and normalize to one afterwards.
+require_literal "$workflow" 'predeploy_machine_count'
+require_literal "$workflow" 'predeploy Fly topology has more than one Machine'
 require_literal "$workflow" 'flyctl scale count 1'
 
 # Fly credentials and app identity are environment-scoped; database runtime credentials are not migrator credentials.
