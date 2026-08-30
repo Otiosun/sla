@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import {
-  runPostDeployApplicationSmoke,
-} from "../../src/operations/post-deploy-application-smoke.js";
+import { runPostDeployApplicationSmoke } from "../../src/operations/post-deploy-application-smoke.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const deploymentRevision = process.env.PROOF_REVISION;
