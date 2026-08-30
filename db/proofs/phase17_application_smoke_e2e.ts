@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { runPostDeployApplicationSmoke } from "../../src/operations/post-deploy-application-smoke.js";
+import {
+  runPostDeployApplicationSmoke,
+} from "../../src/operations/post-deploy-application-smoke.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const deploymentRevision = process.env.PROOF_REVISION;
@@ -11,11 +13,17 @@ if (!whatsappSessionKey) throw new Error("WHATSAPP_SESSION_KEY is required");
 
 const pool = new Pool({ connectionString: databaseUrl, max: 4 });
 
-function requireFailure(report: Awaited<ReturnType<typeof runPostDeployApplicationSmoke>>, code: string) {
+function requireFailure(
+  report: Awaited<ReturnType<typeof runPostDeployApplicationSmoke>>,
+  code: string,
+) {
   if (report.passed || !report.failures.includes(code)) {
     throw new Error(`Application smoke did not fail closed with ${code}`);
   }
-  if (report.providerLiveHealth !== "NOT_PROBED" || report.finalPostDeploySmokeComplete !== false) {
+  if (
+    report.providerLiveHealth !== "NOT_PROBED" ||
+    report.finalPostDeploySmokeComplete !== false
+  ) {
     throw new Error("Application smoke incorrectly claimed final/provider-live readiness");
   }
 }
@@ -51,9 +59,14 @@ try {
 
   const happy = await runPostDeployApplicationSmoke(pool, baseInput);
   if (!happy.passed) {
-    throw new Error(`Prepared application smoke unexpectedly failed: ${happy.failures.join(",")}`);
+    throw new Error(
+      `Prepared application smoke unexpectedly failed: ${happy.failures.join(",")}`,
+    );
   }
-  if (happy.providerLiveHealth !== "NOT_PROBED" || happy.finalPostDeploySmokeComplete !== false) {
+  if (
+    happy.providerLiveHealth !== "NOT_PROBED" ||
+    happy.finalPostDeploySmokeComplete !== false
+  ) {
     throw new Error("Application smoke must remain explicitly incomplete without a live provider probe");
   }
   if (
@@ -80,7 +93,10 @@ try {
   requireFailure(depth, "OUTBOX_CRITICAL_DEPTH");
   await markSent(depthId);
 
-  const ageId = await insertOutbox("PENDING", "clock_timestamp() - interval '10 minutes'");
+  const ageId = await insertOutbox(
+    "PENDING",
+    "clock_timestamp() - interval '10 minutes'",
+  );
   const age = await runPostDeployApplicationSmoke(pool, baseInput);
   requireFailure(age, "OUTBOX_CRITICAL_AGE");
   await markSent(ageId);
@@ -92,7 +108,9 @@ try {
 
   const recovered = await runPostDeployApplicationSmoke(pool, baseInput);
   if (!recovered.passed) {
-    throw new Error(`Application smoke did not recover after proof fixtures cleared: ${recovered.failures.join(",")}`);
+    throw new Error(
+      `Application smoke did not recover after proof fixtures cleared: ${recovered.failures.join(",")}`,
+    );
   }
 
   console.log(
