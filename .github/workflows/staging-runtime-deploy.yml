@@ -1,0 +1,186 @@
+name: Staging Runtime Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: staging-runtime-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: immutable Fly.io staging worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      APP_ENV: staging
+      DEPLOY_REVISION: ${{ github.sha }}
+      FLY_APP: ${{ vars.STAGING_FLY_APP }}
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+    steps:
+      - name: Require canonical main ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "staging runtime deploys must run from refs/heads/main" >&2
+            exit 64
+          fi
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "GITHUB_SHA must be a full immutable commit SHA" >&2
+            exit 64
+          }
+          [[ -n "$FLY_APP" ]] || {
+            echo "STAGING_FLY_APP is required in the staging GitHub Environment" >&2
+            exit 64
+          }
+
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup pinned flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+
+      - name: Prepare immutable image coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_lower="${GITHUB_REPOSITORY,,}"
+          {
+            echo "RUNTIME_IMAGE_GHCR=ghcr.io/${repository_lower}:sha-${GITHUB_SHA}"
+            echo "RUNTIME_IMAGE_FLY=registry.fly.io/${FLY_APP}:sha-${GITHUB_SHA}"
+          } >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Pull and verify canonical immutable runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$RUNTIME_IMAGE_GHCR"
+          actual_revision="$(docker image inspect "$RUNTIME_IMAGE_GHCR" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          [[ "$actual_revision" == "$GITHUB_SHA" ]] || {
+            echo "runtime image revision label mismatch" >&2
+            exit 1
+          }
+
+      - name: Verify Fly app and runtime-only secret boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          flyctl status --app "$FLY_APP" >/dev/null
+          secret_names="$(flyctl secrets list --app "$FLY_APP" --json | jq -r '.[].name')"
+          for required_secret in DATABASE_URL WHATSAPP_SESSION_KEY WHATSAPP_AUTH_KEY_BASE64 WHATSAPP_AUTH_KEY_VERSION; do
+            grep -Fxq "$required_secret" <<<"$secret_names" || {
+              echo "required Fly runtime secret is not provisioned: ${required_secret}" >&2
+              exit 1
+            }
+          done
+          if grep -Fxq "MIGRATOR_DATABASE_URL" <<<"$secret_names"; then
+            echo "Fly runtime must not receive MIGRATOR_DATABASE_URL" >&2
+            exit 1
+          fi
+
+      - name: Copy immutable image into Fly private registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          flyctl auth docker
+          docker tag "$RUNTIME_IMAGE_GHCR" "$RUNTIME_IMAGE_FLY"
+          docker push "$RUNTIME_IMAGE_FLY"
+
+      - name: Deploy one non-overlapping worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          flyctl deploy \
+            --app "$FLY_APP" \
+            --config fly.staging.toml \
+            --image "$RUNTIME_IMAGE_FLY" \
+            --ha=false \
+            --strategy immediate \
+            --env "DEPLOY_REVISION=${GITHUB_SHA}" \
+            --now
+
+      - name: Enforce one Machine and verify settled state
+        shell: bash
+        run: |
+          set -euo pipefail
+          flyctl scale count 1 --app "$FLY_APP" --config fly.staging.toml --yes
+          status_json="$(flyctl status --app "$FLY_APP" --json)"
+          machine_count="$(jq -r '.Machines | length' <<<"$status_json")"
+          [[ "$machine_count" == "1" ]] || {
+            echo "staging runtime must have exactly one Fly Machine" >&2
+            exit 1
+          }
+          jq -e '.Machines | length == 1 and .[0].state == "started"' <<<"$status_json" >/dev/null || {
+            echo "the single staging Fly Machine is not started" >&2
+            exit 1
+          }
+
+      - name: Prove exact provider-live post-deploy smoke
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
+          DEPLOY_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          smoke_json=""
+          for attempt in {1..12}; do
+            set +e
+            smoke_json="$(pnpm --silent run ops:smoke:application)"
+            smoke_status=$?
+            set -e
+
+            if [[ "$smoke_status" -eq 0 ]] && node -e '
+              const report = JSON.parse(process.argv[1]);
+              if (!report.passed) process.exit(1);
+              if (report.providerLiveHealth !== "HEALTHY") process.exit(1);
+              if (report.finalPostDeploySmokeComplete !== true) process.exit(1);
+            ' "$smoke_json"; then
+              echo "provider-live smoke passed for ${GITHUB_SHA}"
+              exit 0
+            fi
+
+            if [[ "$attempt" -lt 12 ]]; then
+              sleep 15
+            fi
+          done
+
+          echo "provider-live smoke did not become healthy for the exact deployment revision" >&2
+          [[ -z "$smoke_json" ]] || printf '%s\n' "$smoke_json" >&2
+          exit 1
+
+      - name: Log out from registries
+        if: always()
+        shell: bash
+        run: |
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          docker logout registry.fly.io >/dev/null 2>&1 || true
