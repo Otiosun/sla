@@ -196,7 +196,10 @@ async function main(): Promise<void> {
       encryptionKeyVersion: 1,
     });
     const snapshotMarker = snapshotAuth.state.creds.snapshotMarker;
-    if (!Buffer.isBuffer(snapshotMarker) || snapshotMarker.toString("utf8") !== "connected-before-persist") {
+    if (
+      !Buffer.isBuffer(snapshotMarker) ||
+      snapshotMarker.toString("utf8") !== "connected-before-persist"
+    ) {
       throw new Error("Atomic snapshot credentials were not recovered exactly");
     }
     const snapshotKeys = await snapshotAuth.state.keys.get("pre-key", ["gamma", "delta"]);
