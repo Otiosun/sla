@@ -4,11 +4,12 @@ import { runPostDeployApplicationSmoke } from "../../src/operations/post-deploy-
 
 const databaseUrl = process.env.DATABASE_URL;
 const deploymentRevision = process.env.PROOF_REVISION;
-const whatsappSessionKey = process.env.WHATSAPP_SESSION_KEY;
+const sourceWhatsappSessionKey = process.env.WHATSAPP_SESSION_KEY;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 if (!deploymentRevision) throw new Error("PROOF_REVISION is required");
-if (!whatsappSessionKey) throw new Error("WHATSAPP_SESSION_KEY is required");
+if (!sourceWhatsappSessionKey) throw new Error("WHATSAPP_SESSION_KEY is required");
 
+const whatsappSessionKey = `${sourceWhatsappSessionKey.slice(0, 20)}-e2e-${randomUUID().slice(0, 8)}`;
 const pool = new Pool({ connectionString: databaseUrl, max: 4 });
 
 function requireFailure(
@@ -108,6 +109,23 @@ async function markSent(id: string): Promise<void> {
 }
 
 try {
+  await pool.query(
+    `INSERT INTO whatsapp_auth_sessions(
+       session_key,
+       credentials_ciphertext,
+       credentials_iv,
+       credentials_auth_tag,
+       encryption_key_version
+     ) VALUES (
+       $1,
+       decode('00', 'hex'),
+       decode(repeat('00', 12), 'hex'),
+       decode(repeat('00', 16), 'hex'),
+       1
+     )`,
+    [whatsappSessionKey],
+  );
+
   const baseInput = {
     environment: "staging" as const,
     deploymentRevision,
@@ -212,6 +230,7 @@ try {
     JSON.stringify({
       proof: "phase17-application-smoke",
       applicationLayerPassed: true,
+      isolatedSessionEvidence: true,
       missingProviderEvidenceFailClosed: true,
       wrongRevisionFailClosed: true,
       wrongSessionFailClosed: true,
