@@ -1,0 +1,93 @@
+name: Staging Database Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      database_auth_mode:
+        description: Database authentication path for this staging release
+        required: true
+        default: supabase_jit
+        type: choice
+        options:
+          - supabase_jit
+          - password
+      run_application_smoke:
+        description: Run the read-only application smoke after the database release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-database-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: canonical staging database release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      APP_ENV: staging
+      DEPLOY_REVISION: ${{ github.sha }}
+
+    steps:
+      - name: Require canonical main ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "staging database releases must run from refs/heads/main" >&2
+            exit 64
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Release staging database with Supabase temporary access
+        if: inputs.database_auth_mode == 'supabase_jit'
+        shell: bash
+        env:
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+          STAGING_SUPABASE_POOLER_HOST: ${{ vars.STAGING_SUPABASE_POOLER_HOST }}
+          STAGING_SUPABASE_JIT_TOKEN: ${{ secrets.STAGING_SUPABASE_JIT_TOKEN }}
+          RUN_APPLICATION_SMOKE: ${{ inputs.run_application_smoke }}
+          WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
+        run: bash scripts/operations/staging-database-release-supabase-jit.sh
+
+      - name: Release staging database with role passwords
+        if: inputs.database_auth_mode == 'password'
+        shell: bash
+        env:
+          STAGING_DATABASE_OWNER_URL: ${{ secrets.STAGING_DATABASE_OWNER_URL }}
+          MIGRATOR_DATABASE_URL: ${{ secrets.STAGING_MIGRATOR_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          MIGRATOR_PASSWORD: ${{ secrets.STAGING_MIGRATOR_PASSWORD }}
+          RUNTIME_PASSWORD: ${{ secrets.STAGING_RUNTIME_PASSWORD }}
+        run: bash scripts/operations/staging-database-release.sh
+
+      - name: Run optional application smoke with role passwords
+        if: inputs.run_application_smoke && inputs.database_auth_mode == 'password'
+        shell: bash
+        env:
+          MIGRATOR_DATABASE_URL: ${{ secrets.STAGING_MIGRATOR_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
+        run: pnpm --silent run ops:smoke:application
