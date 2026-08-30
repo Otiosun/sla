@@ -4,6 +4,10 @@ import { loadConfig } from "./platform/config/env.js";
 import { closeDatabasePool, createDatabasePool } from "./platform/db/database.js";
 import { assertDatabaseSchemaCurrent } from "./platform/db/migrations.js";
 import { JsonLineStdoutSink, StructuredLogger } from "./platform/logging/index.js";
+import {
+  createOperationalAdminApi,
+  type OperationalAdminApi,
+} from "./runtime/compose-admin-api.js";
 import { createOperationalWhatsAppRuntime } from "./runtime/compose-whatsapp-runtime.js";
 import { loadWhatsAppRuntimeConfig } from "./runtime/whatsapp-runtime-config.js";
 import { WhatsAppRuntimeSupervisor } from "./runtime/whatsapp-runtime-supervisor.js";
@@ -22,14 +26,45 @@ const pool = createDatabasePool({
 });
 
 let auth: PostgresBaileysAuthBinding | null = null;
+let adminApi: OperationalAdminApi | null = null;
 const shutdown = new AbortController();
 const requestShutdown = (): void => shutdown.abort();
 
+async function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
+
 try {
   await assertDatabaseSchemaCurrent(pool);
+  adminApi = createOperationalAdminApi(pool, config);
   const runtimeConfig = loadWhatsAppRuntimeConfig(config);
+  const longRunning = adminApi !== null || runtimeConfig !== null;
+
+  if (longRunning) {
+    process.once("SIGINT", requestShutdown);
+    process.once("SIGTERM", requestShutdown);
+  }
+
+  if (adminApi !== null) {
+    const address = await adminApi.listen();
+    logger.log("INFO", "admin_api.ready", {
+      appEnv: config.appEnv,
+      address,
+      access: "cloudflare-access",
+      mode: "read-only",
+    });
+  }
+
   if (runtimeConfig === null) {
-    logger.log("INFO", "runtime.ready", { appEnv: config.appEnv, mode: "schema-only" });
+    if (adminApi === null) {
+      logger.log("INFO", "runtime.ready", { appEnv: config.appEnv, mode: "schema-only" });
+    } else {
+      logger.log("INFO", "runtime.ready", { appEnv: config.appEnv, mode: "admin-api" });
+      await waitForAbort(shutdown.signal);
+    }
   } else {
     auth = await PostgresBaileysAuthBinding.open(pool, {
       sessionKey: runtimeConfig.sessionKey,
@@ -48,14 +83,16 @@ try {
       logger,
     });
 
-    process.once("SIGINT", requestShutdown);
-    process.once("SIGTERM", requestShutdown);
-    logger.log("INFO", "runtime.ready", { appEnv: config.appEnv, mode: "whatsapp" });
+    logger.log("INFO", "runtime.ready", {
+      appEnv: config.appEnv,
+      mode: adminApi === null ? "whatsapp" : "whatsapp+admin-api",
+    });
     await supervisor.run(shutdown.signal);
   }
 } finally {
   process.removeListener("SIGINT", requestShutdown);
   process.removeListener("SIGTERM", requestShutdown);
+  await adminApi?.close();
   await auth?.close();
   await closeDatabasePool(pool);
 }
