@@ -1,9 +1,7 @@
 name: Admin API Lockfile Once
 
 on:
-  push:
-    branches:
-      - feat/admin-api-read-foundation-v1
+  pull_request:
 
 permissions:
   contents: read
@@ -13,7 +11,7 @@ env:
 
 jobs:
   generate:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'feat/admin-api-read-foundation-v1'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
