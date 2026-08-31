@@ -178,11 +178,10 @@ try {
         safety: { kind: "IDEMPOTENT_MUTATION", idempotencyKey: key },
         transaction: { isolationLevel: "SERIALIZABLE" },
         maxAttempts: 3,
-        baseDelayMs: 0,
-        maxDelayMs: 0,
+        baseDelayMs: 10,
+        maxDelayMs: 20,
         jitterRatio: 0,
         rng: new DeterministicRandomSource(1602),
-        sleep: () => Promise.resolve(),
       },
     );
   };
