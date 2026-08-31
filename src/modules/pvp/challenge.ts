@@ -107,6 +107,16 @@ function validDate(value: Date): boolean {
   return Number.isFinite(value.getTime());
 }
 
+export function canonicalPvpChallengeCreationKey(
+  externalKey: string,
+): PvpChallengeResult<string> {
+  const idempotency = createIdempotencyKey(PVP_CHALLENGE_CREATE_SCOPE, externalKey);
+  if (!idempotency.ok) {
+    return failure("PVP_CHALLENGE_INVALID", idempotency.error.message, idempotency.error.details);
+  }
+  return { ok: true, value: idempotency.value.storageKey };
+}
+
 function requestFingerprint(input: CreatePvpChallengeInput): string {
   return createHash("sha256")
     .update(
@@ -151,18 +161,13 @@ function validateCreateInput(input: CreatePvpChallengeInput): PvpChallengeResult
     return failure("PVP_CHALLENGE_INVALID", "Challenge expiry must be after creation");
   }
 
-  const idempotency = createIdempotencyKey(
-    PVP_CHALLENGE_CREATE_SCOPE,
-    input.creationIdempotencyKey,
-  );
-  if (!idempotency.ok) {
-    return failure("PVP_CHALLENGE_INVALID", idempotency.error.message, idempotency.error.details);
-  }
+  const idempotency = canonicalPvpChallengeCreationKey(input.creationIdempotencyKey);
+  if (!idempotency.ok) return idempotency;
 
   return {
     ok: true,
     value: {
-      idempotencyKey: idempotency.value.storageKey,
+      idempotencyKey: idempotency.value,
       fingerprint: requestFingerprint(input),
     },
   };
