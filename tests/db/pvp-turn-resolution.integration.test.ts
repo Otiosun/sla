@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { Pool, type PoolClient } from "pg";
+import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { BattleAction, BattleCombatant, BattleState } from "../../src/modules/battle/contracts.js";
+import type {
+  BattleAction,
+  BattleCombatant,
+  BattleState,
+} from "../../src/modules/battle/contracts.js";
 import { PvpTurnResolutionService } from "../../src/modules/battle/pvp-turn-resolution.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { PostgresPvpTurnResolutionRepository } from "../../src/platform/battle/postgres-pvp-turn-resolution-repository.js";
@@ -145,23 +149,25 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
   });
 
   await pool.query(
-    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
-     VALUES ($1, $2, 1, 1, $3::jsonb, 'PUBLISHED')`,
+    `INSERT INTO rulesets(
+       id, key, version, engine_contract_version, config, status, published_at
+     ) VALUES ($1, $2, 1, 1, $3::jsonb, 'PUBLISHED', now())`,
     [rulesetId, `pvp-resolution-${rulesetId}`, JSON.stringify(RULESET_CONFIG)],
-  );
-  await pool.query(
-    `UPDATE rulesets SET published_at = now() WHERE id = $1`,
-    [rulesetId],
   );
   await pool.query(
     `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id, published_at)
      VALUES ($1, $2, $3, 'PUBLISHED', $4, now())`,
-    [releaseId, Number.parseInt(releaseId.replaceAll("-", "").slice(0, 8), 16) + 1, `PVP ${battleId}`, rulesetId],
+    [
+      releaseId,
+      Number.parseInt(releaseId.replaceAll("-", "").slice(0, 8), 16) + 1,
+      `PVP ${battleId}`,
+      rulesetId,
+    ],
   );
-  await pool.query(
-    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`,
-    [playerA, playerB],
-  );
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
+    playerA,
+    playerB,
+  ]);
   await pool.query(
     `INSERT INTO battles(
        id, battle_type, status, content_release_id, ruleset_id,
@@ -393,6 +399,6 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(persisted.submissions).toEqual([{ status: "ACTIVE", count: "2" }]);
 
     await pool.query("DROP TRIGGER reject_test_window_commit_trigger ON battle_turn_windows");
-    await pool.query("DROP FUNCTION reject_test_window_commit()")
+    await pool.query("DROP FUNCTION reject_test_window_commit()");
   });
 });
