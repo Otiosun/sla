@@ -478,7 +478,9 @@ describe("PVP START PostgreSQL atomicity", () => {
         }),
       ).rejects.toThrow("forced turn-window failure");
     } finally {
-      await pool.query("DROP TRIGGER IF EXISTS trg_fail_pvp_start_turn_window ON battle_turn_windows");
+      await pool.query(
+        "DROP TRIGGER IF EXISTS trg_fail_pvp_start_turn_window ON battle_turn_windows",
+      );
       await pool.query("DROP FUNCTION IF EXISTS fail_pvp_start_turn_window() CASCADE");
     }
 
