@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withOperationalCommandAliases } from "../../src/modules/messaging/operational-command-aliases.js";
 import {
   createOperationalUxRoutes,
   type OperationalUxDependencies,
@@ -19,12 +20,11 @@ const EXPECTED_ALIASES = {
 
 describe("operational command aliases", () => {
   it("declares a small explicit alias vocabulary without duplicating accent variants", () => {
-    const routes = createOperationalUxRoutes({} as OperationalUxDependencies);
+    const routes = withOperationalCommandAliases(
+      createOperationalUxRoutes({} as OperationalUxDependencies),
+    );
     const aliasesByCommand = new Map(
-      routes.map((route) => [
-        route.command,
-        (route as typeof route & { readonly aliases?: readonly string[] }).aliases ?? [],
-      ]),
+      routes.map((route) => [route.command, route.aliases ?? []]),
     );
 
     for (const [command, aliases] of Object.entries(EXPECTED_ALIASES)) {
