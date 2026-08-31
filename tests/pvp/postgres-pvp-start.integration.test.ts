@@ -70,15 +70,15 @@ async function seedCatalog(pool: Pool): Promise<CatalogFixture> {
 
   await pool.query(
     `INSERT INTO rulesets(
-       id, key, version, engine_contract_version, config, status, published_at
-     ) VALUES ($1, $2, 1, 1, '{}'::jsonb, 'PUBLISHED', $3)`,
-    [rulesetId, `pvp-start-ruleset-${rulesetId}`, publishedAt],
+       id, key, version, engine_contract_version, config, status
+     ) VALUES ($1, $2, 1, 1, '{}'::jsonb, 'DRAFT')`,
+    [rulesetId, `pvp-start-ruleset-${rulesetId}`],
   );
   await pool.query(
     `INSERT INTO content_releases(
-       id, release_no, name, status, default_ruleset_id, published_at
-     ) VALUES ($1, 28002, 'PVP start integration', 'PUBLISHED', $2, $3)`,
-    [contentReleaseId, rulesetId, publishedAt],
+       id, release_no, name, status, default_ruleset_id
+     ) VALUES ($1, 28002, 'PVP start integration', 'DRAFT', $2)`,
+    [contentReleaseId, rulesetId],
   );
   await pool.query("INSERT INTO regions(id, slug) VALUES ($1, $2)", [
     regionId,
@@ -139,6 +139,35 @@ async function seedCatalog(pool: Pool): Promise<CatalogFixture> {
        '{"schemaVersion":1,"makesContact":true}'::jsonb
      )`,
     [randomUUID(), contentReleaseId, moveId, typeId],
+  );
+
+  await pool.query(
+    `UPDATE rulesets
+     SET status = 'VALIDATED', validated_at = $2,
+         validation_report = '{"test_fixture":true}'::jsonb,
+         config_fingerprint = $3
+     WHERE id = $1`,
+    [rulesetId, publishedAt, "b".repeat(64)],
+  );
+  await pool.query(
+    `UPDATE rulesets
+     SET status = 'PUBLISHED', published_at = $2
+     WHERE id = $1`,
+    [rulesetId, publishedAt],
+  );
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'VALIDATED', validated_at = $2,
+         validation_report = '{"test_fixture":true}'::jsonb,
+         content_fingerprint = $3
+     WHERE id = $1`,
+    [contentReleaseId, publishedAt, "c".repeat(64)],
+  );
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'PUBLISHED', published_at = $2
+     WHERE id = $1`,
+    [contentReleaseId, publishedAt],
   );
 
   return {
