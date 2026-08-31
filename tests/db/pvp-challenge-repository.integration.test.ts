@@ -72,6 +72,16 @@ async function seedFixture(pool: Pool): Promise<Fixture> {
   };
 }
 
+async function fixtureWithFreshPlayers(pool: Pool, fixture: Fixture): Promise<Fixture> {
+  const challengerPlayerId = randomUUID();
+  const targetPlayerId = randomUUID();
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
+    challengerPlayerId,
+    targetPlayerId,
+  ]);
+  return { ...fixture, challengerPlayerId, targetPlayerId };
+}
+
 function createChallenge(fixture: Fixture, externalIdempotencyKey = "pvp-create-1"): PvpChallenge {
   const created = createPvpChallenge({
     id: randomUUID(),
@@ -124,7 +134,8 @@ describe("PVP challenge PostgreSQL repository", () => {
   }, 30_000);
 
   it("persists one challenge identity and can replay it by creation key", async () => {
-    const challenge = createChallenge(fixture);
+    const testFixture = await fixtureWithFreshPlayers(pool, fixture);
+    const challenge = createChallenge(testFixture);
 
     const inserted = await repository.transaction((transaction) =>
       transaction.insertChallenge(challenge),
@@ -133,7 +144,7 @@ describe("PVP challenge PostgreSQL repository", () => {
 
     const loaded = await repository.read((transaction) =>
       transaction.challengeByCreationKey(
-        fixture.challengerPlayerId,
+        testFixture.challengerPlayerId,
         challenge.creationIdempotencyKey,
       ),
     );
@@ -148,18 +159,22 @@ describe("PVP challenge PostgreSQL repository", () => {
       `SELECT count(*)::text AS count
        FROM pvp_challenges
        WHERE challenger_player_id = $1 AND creation_idempotency_key = $2`,
-      [fixture.challengerPlayerId, challenge.creationIdempotencyKey],
+      [testFixture.challengerPlayerId, challenge.creationIdempotencyKey],
     );
     expect(count.rows[0]?.count).toBe("1");
   });
 
   it("persists ACCEPTED challenge and its two PVP encounter participants atomically", async () => {
-    const challenge = createChallenge(fixture, "pvp-create-accept");
+    const testFixture = await fixtureWithFreshPlayers(pool, fixture);
+    const challenge = createChallenge(testFixture, "pvp-create-accept");
     const encounterId = randomUUID();
-    await repository.transaction((transaction) => transaction.insertChallenge(challenge));
+    const inserted = await repository.transaction((transaction) =>
+      transaction.insertChallenge(challenge),
+    );
+    expect(inserted).toBe(true);
 
     const accepted = acceptPvpChallenge(challenge, {
-      actorPlayerId: fixture.targetPlayerId,
+      actorPlayerId: testFixture.targetPlayerId,
       encounterId,
       acceptedAt: new Date("2026-08-31T12:01:00.000Z"),
     });
@@ -185,7 +200,7 @@ describe("PVP challenge PostgreSQL repository", () => {
     expect(encounter.rows[0]).toEqual({
       mode: "PVP",
       status: "PRESENTED",
-      player_id: fixture.challengerPlayerId,
+      player_id: testFixture.challengerPlayerId,
     });
 
     const participants = await pool.query<{
@@ -201,12 +216,12 @@ describe("PVP challenge PostgreSQL repository", () => {
     );
     expect(participants.rows).toEqual([
       {
-        player_id: fixture.challengerPlayerId,
+        player_id: testFixture.challengerPlayerId,
         side_no: 1,
         role: "CHALLENGER",
       },
       {
-        player_id: fixture.targetPlayerId,
+        player_id: testFixture.targetPlayerId,
         side_no: 2,
         role: "TARGET",
       },
@@ -218,11 +233,15 @@ describe("PVP challenge PostgreSQL repository", () => {
   });
 
   it("rolls back encounter and challenge state when an acceptance transaction fails", async () => {
-    const challenge = createChallenge(fixture, "pvp-create-rollback");
+    const testFixture = await fixtureWithFreshPlayers(pool, fixture);
+    const challenge = createChallenge(testFixture, "pvp-create-rollback");
     const encounterId = randomUUID();
-    await repository.transaction((transaction) => transaction.insertChallenge(challenge));
+    const inserted = await repository.transaction((transaction) =>
+      transaction.insertChallenge(challenge),
+    );
+    expect(inserted).toBe(true);
     const accepted = acceptPvpChallenge(challenge, {
-      actorPlayerId: fixture.targetPlayerId,
+      actorPlayerId: testFixture.targetPlayerId,
       encounterId,
       acceptedAt: new Date("2026-08-31T12:01:30.000Z"),
     });
