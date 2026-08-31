@@ -59,7 +59,14 @@ describe("transaction-local TurnWindow open", () => {
          turn_number, version, rng_seed_ciphertext, rng_seed_iv,
          rng_seed_auth_tag, rng_seed_key_version, rng_counter
        ) VALUES ($1, 'PVP', 'ACTIVE', $2, $3, 0, 0, $4, $5, $6, 1, 0)`,
-      [battleId, releaseId, rulesetId, Buffer.alloc(32, 1), Buffer.alloc(12, 2), Buffer.alloc(16, 3)],
+      [
+        battleId,
+        releaseId,
+        rulesetId,
+        Buffer.alloc(32, 1),
+        Buffer.alloc(12, 2),
+        Buffer.alloc(16, 3),
+      ],
     );
     await pool.query(
       `INSERT INTO battle_state_snapshots(battle_id, version, schema_version, state)
