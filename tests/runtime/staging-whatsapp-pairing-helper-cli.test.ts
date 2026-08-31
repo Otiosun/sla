@@ -63,6 +63,7 @@ describe("staging WhatsApp pairing helper CLI", () => {
     const getCheckoutInfo = vi.fn(async () => ({
       branch: "main",
       revision: REVISION,
+      originMainRevision: REVISION,
       isClean: true,
     }));
     const promptVisible = vi.fn(async () => PROJECT_REF);
@@ -125,6 +126,7 @@ describe("staging WhatsApp pairing helper CLI", () => {
       getCheckoutInfo: vi.fn(async () => ({
         branch: "main",
         revision: REVISION,
+        originMainRevision: REVISION,
         isClean: true,
       })),
       promptVisible,
@@ -165,6 +167,7 @@ describe("staging WhatsApp pairing helper CLI", () => {
       getCheckoutInfo: vi.fn(async () => ({
         branch: "main",
         revision: REVISION,
+        originMainRevision: REVISION,
         isClean: true,
       })),
       promptVisible,
