@@ -70,7 +70,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("governs revoke-all and blocks unseen Access tokens issued before the cutoff", async () => {
+  it("governs revoke-all and blocks unseen Access tokens issued before the environment cutoff", async () => {
     const proposerId = randomUUID();
     const approverId = randomUUID();
     const targetId = randomUUID();
@@ -128,7 +128,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     const prepared = await admin.prepareMutation({
       principalId: proposerId,
       operationType: "admin.session.revoke_all",
-      input: { principalId: targetId },
+      input: { principalId: targetId, environment: "staging" },
       reason: "incident response requires immediate administrative session revocation",
       idempotencyKey: `admin-session-revoke-all-${randomUUID()}`,
       correlationId,
@@ -146,7 +146,9 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     const simulated = await admin.simulate(prepared.operation.id, proposerId);
     expect(simulated).toMatchObject({
       status: "PENDING_CONFIRMATION",
-      result: { simulation: { summary: { activeSessions: 1 } } },
+      result: {
+        simulation: { summary: { environment: "staging", activeSessions: 1 } },
+      },
     });
     expect((await admin.confirm(prepared.operation.id, proposerId)).status).toBe(
       "PENDING_APPROVAL",
@@ -162,20 +164,23 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     const applied = await admin.apply(prepared.operation.id, proposerId);
     expect(applied).toMatchObject({
       status: "APPLIED",
-      result: { applied: true, revokedSessions: 1 },
+      result: { applied: true, environment: "staging", revokedSessions: 1 },
     });
 
-    const target = await pool.query<{
-      admin_access_sessions_revoked_before: Date;
-      revision: string;
-    }>(
-      `SELECT admin_access_sessions_revoked_before, revision::text
-       FROM admin_principals WHERE id = $1`,
+    const target = await pool.query<{ revision: string }>(
+      `SELECT revision::text FROM admin_principals WHERE id = $1`,
       [targetId],
     );
-    const cutoff = target.rows[0]?.admin_access_sessions_revoked_before;
-    expect(cutoff).toBeInstanceOf(Date);
     expect(target.rows[0]?.revision).toBe("1");
+
+    const cutoffResult = await pool.query<{ revoked_before: Date }>(
+      `SELECT revoked_before
+       FROM admin_access_session_revocation_cutoffs
+       WHERE principal_id = $1 AND environment = 'staging'`,
+      [targetId],
+    );
+    const cutoff = cutoffResult.rows[0]?.revoked_before;
+    expect(cutoff).toBeInstanceOf(Date);
     if (cutoff === undefined) throw new Error("Session revocation cutoff was not persisted");
 
     const revoked = await pool.query<{
@@ -235,9 +240,9 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
       actor_id: proposerId,
       target_id: targetId,
       correlation_id: correlationId,
-      before_data: { activeSessions: 1 },
-      after_data: { activeSessions: 0 },
-      metadata: { adminOperationId: prepared.operation.id },
+      before_data: { environment: "staging", activeSessions: 1 },
+      after_data: { environment: "staging", activeSessions: 0 },
+      metadata: { adminOperationId: prepared.operation.id, environment: "staging" },
     });
     expect(JSON.stringify(audit.rows[0])).not.toContain("tokenFingerprint");
     expect(JSON.stringify(audit.rows[0])).not.toContain("aaaaaaaa");
