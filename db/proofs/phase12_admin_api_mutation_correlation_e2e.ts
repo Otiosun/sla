@@ -1,20 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { AdminAccessSessionGuard } from "../../src/adapters/admin-api/access-session-guard.js";
 import { createAdminApiServer } from "../../src/adapters/admin-api/fastify-server.js";
 import { AdminMutationFacade } from "../../src/adapters/admin-api/mutation-facade.js";
 import { ExternalAdminMutationEndpoint } from "../../src/modules/anti-abuse/external-admin-endpoint.js";
 import { AdminOperationAuditService } from "../../src/modules/admin/audit-service.js";
 import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { AdminService } from "../../src/modules/admin/service.js";
+import { PostgresAdminAccessSessionRepository } from "../../src/platform/admin/postgres-admin-access-session-repository.js";
 import { PostgresAdminApiRateLimiter } from "../../src/platform/admin/postgres-admin-api-rate-limiter.js";
 import { PostgresAdminOperationAuditRepository } from "../../src/platform/admin/postgres-admin-audit-repository.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresMutationAdmission } from "../../src/platform/anti-abuse/postgres-mutation-admission.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
 
 const allowedOrigin = "https://admin-staging.example.com";
+const sessionObservedAt = new Date("2026-08-31T17:40:00.000Z");
+const sessionClock = new ManualClock(sessionObservedAt);
 const pool = new Pool({ connectionString: databaseUrl, max: 8 });
 try {
   const ownerRoleResult = await pool.query<{ id: string }>(
@@ -73,6 +78,11 @@ try {
     admin,
     new PostgresAdminOperationAuditRepository(pool),
   );
+  const sessionGuard = new AdminAccessSessionGuard(
+    new PostgresAdminAccessSessionRepository(pool),
+    sessionClock,
+    15 * 60 * 1_000,
+  );
   const server = createAdminApiServer({
     allowedOrigin,
     authenticator: {
@@ -81,8 +91,15 @@ try {
         environment: "staging",
         identityRef: `proof:admin-api:proposer:${proposerId}`,
         displayEmail: null,
+        accessSession: {
+          tokenFingerprint: "c".repeat(64),
+          issuedAt: new Date("2026-08-31T17:30:00.000Z"),
+          notBefore: new Date("2026-08-31T17:30:00.000Z"),
+          expiresAt: new Date("2026-08-31T18:30:00.000Z"),
+        },
       }),
     },
+    sessionGuard,
     sessionService: {
       getSession: async () => {
         throw new Error("session route is not part of this proof");
@@ -139,6 +156,24 @@ try {
       throw new Error("HTTP mutation preparation response projection is inconsistent");
     }
 
+    const persistedSession = await pool.query<{
+      principal_id: string;
+      status: string;
+      last_seen_at: Date;
+    }>(
+      `SELECT principal_id, status, last_seen_at
+       FROM admin_access_sessions
+       WHERE token_fingerprint = $1`,
+      ["c".repeat(64)],
+    );
+    if (
+      persistedSession.rows[0]?.principal_id !== proposerId ||
+      persistedSession.rows[0]?.status !== "ACTIVE" ||
+      persistedSession.rows[0]?.last_seen_at.getTime() !== sessionObservedAt.getTime()
+    ) {
+      throw new Error("HTTP mutation preparation did not persist the durable access session");
+    }
+
     const persisted = await pool.query<{ correlation_id: string; principal_id: string }>(
       `SELECT correlation_id, principal_id FROM admin_operations WHERE id = $1`,
       [body.operation.id],
@@ -175,7 +210,7 @@ try {
     }
 
     console.log(
-      "phase12 Admin API HTTP correlation proof passed: POST -> admission -> operation -> audit",
+      "phase12 Admin API HTTP correlation proof passed: session -> POST -> admission -> operation -> audit",
     );
   } finally {
     await server.close();
