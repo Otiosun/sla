@@ -32,6 +32,9 @@ export type AdminOperationKind = z.infer<typeof AdminOperationKindSchema>;
 export const AdminAuthorizationModeSchema = z.enum(["GLOBAL_ONLY", "SUBJECT"]);
 export type AdminAuthorizationMode = z.infer<typeof AdminAuthorizationModeSchema>;
 
+export const AdminEnvironmentSchema = z.enum(["development", "staging", "production"]);
+export type AdminEnvironment = z.infer<typeof AdminEnvironmentSchema>;
+
 const tokenSchema = z
   .string()
   .trim()
@@ -107,6 +110,7 @@ export type AdminRoleAssignInput = z.infer<typeof AdminRoleAssignInputSchema>;
 export const AdminSessionRevokeAllInputSchema = z
   .object({
     principalId: z.string().uuid(),
+    environment: AdminEnvironmentSchema,
   })
   .strict();
 export type AdminSessionRevokeAllInput = z.infer<typeof AdminSessionRevokeAllInputSchema>;
