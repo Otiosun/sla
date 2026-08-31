@@ -55,18 +55,18 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
      VALUES ($1, 27001, 'TurnWindow integration', 'DRAFT', $2)`,
     [releaseId, rulesetId],
   );
-  await client.query(
-    "INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')",
-    [playerA, playerB],
-  );
-  await client.query(
-    "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9999, $2)",
-    [speciesId, `turn-window-species-${speciesId}`],
-  );
-  await client.query(
-    "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')",
-    [formId, speciesId],
-  );
+  await client.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')", [
+    playerA,
+    playerB,
+  ]);
+  await client.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9999, $2)", [
+    speciesId,
+    `turn-window-species-${speciesId}`,
+  ]);
+  await client.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
+    formId,
+    speciesId,
+  ]);
   await client.query(
     `INSERT INTO pokemon_instances(id, owner_player_id, form_id, level, current_hp, origin_type)
      VALUES ($1, $2, $5, 5, 20, 'TEST'), ($3, $4, $5, 5, 20, 'TEST')`,
@@ -290,7 +290,9 @@ describe("battle TurnWindow PostgreSQL integration", () => {
     if (!persisted.ok) return;
     expect(persisted.value.window.status).toBe("LOCKED");
     expect(persisted.value.window.deadlineAt).toBe("2026-08-31T12:05:00.000Z");
-    expect(persisted.value.submissions.filter((entry) => entry.status === "ACTIVE")).toHaveLength(2);
+    expect(persisted.value.submissions.filter((entry) => entry.status === "ACTIVE")).toHaveLength(
+      2,
+    );
   });
 
   it("serializes concurrent replacements so one action remains ACTIVE and revisions stay auditable", async () => {
@@ -302,14 +304,7 @@ describe("battle TurnWindow PostgreSQL integration", () => {
 
     const first = await repository.submit(
       opened.value.aggregate.window.id,
-      submission(
-        replacementFixture,
-        "A",
-        "replace-v1",
-        1,
-        new Date("2026-08-31T12:00:10.000Z"),
-        8,
-      ),
+      submission(replacementFixture, "A", "replace-v1", 1, new Date("2026-08-31T12:00:10.000Z"), 8),
     );
     expect(first.ok).toBe(true);
     if (!first.ok) return;
