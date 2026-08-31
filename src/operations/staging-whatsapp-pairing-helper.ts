@@ -5,6 +5,11 @@ const POOLER_HOST_PATTERN = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/;
 const DEPLOY_REVISION_PATTERN = /^[a-f0-9]{40}$/;
 const STAGING_SESSION_KEY = "pokemon-staging";
 const HOSTING_ENV_KEYS = ["FLY_API_TOKEN", "RENDER_API_KEY", "RAILWAY_TOKEN"] as const;
+const RAW_STAGING_JIT_ENV_KEYS = [
+  "STAGING_SUPABASE_PROJECT_REF",
+  "STAGING_SUPABASE_POOLER_HOST",
+  "STAGING_SUPABASE_JIT_TOKEN",
+] as const;
 
 export class StagingWhatsAppPairingHelperConfigError extends Error {
   override readonly name = "StagingWhatsAppPairingHelperConfigError";
@@ -70,6 +75,21 @@ export function generateWhatsAppAuthKeyBase64(
   return generated.toString("base64");
 }
 
+export function serializeStagingPairingLocalSecrets(authKeyBase64: string): string {
+  assertCanonicalAuthKey(authKeyBase64);
+  return [
+    "# Local staging WhatsApp secret. Gitignored; do not share or commit.",
+    `WHATSAPP_SESSION_KEY=${STAGING_SESSION_KEY}`,
+    `WHATSAPP_AUTH_KEY_BASE64=${authKeyBase64}`,
+    "WHATSAPP_AUTH_KEY_VERSION=1",
+    "",
+  ].join("\n");
+}
+
+export function createStagingPairingBootstrapArgs(): readonly string[] {
+  return ["--import", "tsx", "scripts/operations/bootstrap-whatsapp-session.ts"];
+}
+
 export function createStagingWhatsAppPairingEnvironment(
   input: StagingWhatsAppPairingEnvironmentInput,
 ): NodeJS.ProcessEnv {
@@ -84,6 +104,7 @@ export function createStagingWhatsAppPairingEnvironment(
   const env: NodeJS.ProcessEnv = { ...input.baseEnv };
   delete env.MIGRATOR_DATABASE_URL;
   for (const key of HOSTING_ENV_KEYS) delete env[key];
+  for (const key of RAW_STAGING_JIT_ENV_KEYS) delete env[key];
 
   env.APP_ENV = "staging";
   env.DATABASE_URL = buildStagingRuntimeJitUrl(input);
