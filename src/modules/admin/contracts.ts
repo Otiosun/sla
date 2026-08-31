@@ -104,6 +104,13 @@ export const AdminRoleAssignInputSchema = z
   .strict();
 export type AdminRoleAssignInput = z.infer<typeof AdminRoleAssignInputSchema>;
 
+export const AdminSessionRevokeAllInputSchema = z
+  .object({
+    principalId: z.string().uuid(),
+  })
+  .strict();
+export type AdminSessionRevokeAllInput = z.infer<typeof AdminSessionRevokeAllInputSchema>;
+
 export interface AdminSimulationResult {
   readonly summary: Readonly<Record<string, unknown>>;
   readonly before: Readonly<Record<string, unknown>> | null;
