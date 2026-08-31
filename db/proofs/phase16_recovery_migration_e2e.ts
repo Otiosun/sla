@@ -153,7 +153,9 @@ try {
     [PROBE_ADMIN_ID],
   );
   if (!(await mutationPrepareBucketExists())) {
-    throw new Error("N-1 database did not preserve the mutation.prepare allowlist from migration 0028");
+    throw new Error(
+      "N-1 database did not preserve the mutation.prepare allowlist from migration 0028",
+    );
   }
 
   const stateBefore = await pool.query<{ state: string }>(
@@ -198,7 +200,9 @@ try {
     throw new Error("Migration 0029 did not create the durable Admin API access-session relation");
   }
   if (!(await mutationPrepareBucketExists())) {
-    throw new Error("Migration 0029 regressed the mutation.prepare limiter state from migration 0028");
+    throw new Error(
+      "Migration 0029 regressed the mutation.prepare limiter state from migration 0028",
+    );
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
