@@ -21,8 +21,6 @@ import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutat
 import { SystemClock } from "../platform/clock/index.js";
 import type { AppConfig } from "../platform/config/env.js";
 
-const ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1_000;
-
 export interface OperationalAdminApi {
   readonly server: FastifyInstance;
   listen(): Promise<string>;
@@ -72,7 +70,7 @@ export function createOperationalAdminApi(
   const sessionGuard = new AdminAccessSessionGuard(
     new PostgresAdminAccessSessionRepository(pool),
     new SystemClock(),
-    ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS,
+    config.adminAccessSessionIdleTimeoutMs,
   );
   const sessionService = new AdminSessionService(adminRepository, identityRepository);
   const rateLimiter = new PostgresAdminApiRateLimiter(pool);
