@@ -153,6 +153,14 @@ export class PvpService {
           ),
         );
       }
+      if (challenger.areaId === null || target.areaId === null) {
+        return err(
+          pvpPlayerIneligible(
+            "player-location-missing",
+            challenger.areaId === null ? challenger.playerId : target.playerId,
+          ),
+        );
+      }
       if (challenger.areaId !== target.areaId) {
         return err(pvpActionInvalid("pvp-same-area-required"));
       }
