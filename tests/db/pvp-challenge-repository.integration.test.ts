@@ -39,10 +39,10 @@ async function seedFixture(pool: Pool): Promise<Fixture> {
   const rulesetId = randomUUID();
   const contentReleaseId = randomUUID();
 
-  await pool.query(
-    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`,
-    [challengerPlayerId, targetPlayerId],
-  );
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
+    challengerPlayerId,
+    targetPlayerId,
+  ]);
   await pool.query(`INSERT INTO regions(id, slug) VALUES ($1, $2)`, [
     regionId,
     `pvp-region-${regionId}`,
@@ -212,9 +212,7 @@ describe("PVP challenge PostgreSQL repository", () => {
       },
     ]);
 
-    const loaded = await repository.read((transaction) =>
-      transaction.challengeById(challenge.id),
-    );
+    const loaded = await repository.read((transaction) => transaction.challengeById(challenge.id));
     expect(loaded?.status).toBe("ACCEPTED");
     expect(loaded?.encounterId).toBe(encounterId);
   });
@@ -248,9 +246,7 @@ describe("PVP challenge PostgreSQL repository", () => {
     );
     expect(encounterCount.rows[0]?.count).toBe("0");
 
-    const loaded = await repository.read((transaction) =>
-      transaction.challengeById(challenge.id),
-    );
+    const loaded = await repository.read((transaction) => transaction.challengeById(challenge.id));
     expect(loaded?.status).toBe("OPEN");
     expect(loaded?.revision).toBe(0);
   });
