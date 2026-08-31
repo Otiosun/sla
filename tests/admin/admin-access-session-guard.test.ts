@@ -29,7 +29,9 @@ function context(overrides: Partial<AuthenticatedAdminRequestContext["accessSess
 }
 
 function repository(decision: "ACTIVE" | "DENIED" = "ACTIVE") {
-  const useSession = vi.fn<AdminAccessSessionRepository["useSession"]>().mockResolvedValue(decision);
+  const useSession = vi
+    .fn<AdminAccessSessionRepository["useSession"]>()
+    .mockResolvedValue(decision);
   return { useSession };
 }
 
