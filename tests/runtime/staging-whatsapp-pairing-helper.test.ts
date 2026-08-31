@@ -11,6 +11,7 @@ import {
 } from "../../src/operations/staging-whatsapp-pairing-helper.js";
 
 const REVISION = "a".repeat(40);
+const OTHER_REVISION = "b".repeat(40);
 const PROJECT_REF = "abcdefghijklmnopqrst";
 const POOLER_HOST = "aws-0-sa-east-1.pooler.supabase.com";
 const JIT_TOKEN = "jit-token-never-log-this";
@@ -85,11 +86,12 @@ describe("staging WhatsApp pairing helper", () => {
     ).rejects.toBeInstanceOf(StagingWhatsAppPairingHelperConfigError);
   });
 
-  it("pins the execution to a clean main checkout with a full commit revision", () => {
+  it("pins execution to the current clean main revision", () => {
     expect(() =>
       assertStagingWhatsAppPairingCheckout({
         branch: "main",
         revision: REVISION,
+        originMainRevision: REVISION,
         isClean: true,
       }),
     ).not.toThrow();
@@ -98,6 +100,7 @@ describe("staging WhatsApp pairing helper", () => {
       assertStagingWhatsAppPairingCheckout({
         branch: "feature/not-main",
         revision: REVISION,
+        originMainRevision: REVISION,
         isClean: true,
       }),
     ).toThrow(StagingWhatsAppPairingHelperConfigError);
@@ -105,6 +108,7 @@ describe("staging WhatsApp pairing helper", () => {
       assertStagingWhatsAppPairingCheckout({
         branch: "main",
         revision: REVISION,
+        originMainRevision: REVISION,
         isClean: false,
       }),
     ).toThrow(StagingWhatsAppPairingHelperConfigError);
@@ -112,6 +116,15 @@ describe("staging WhatsApp pairing helper", () => {
       assertStagingWhatsAppPairingCheckout({
         branch: "main",
         revision: "short-sha",
+        originMainRevision: REVISION,
+        isClean: true,
+      }),
+    ).toThrow(StagingWhatsAppPairingHelperConfigError);
+    expect(() =>
+      assertStagingWhatsAppPairingCheckout({
+        branch: "main",
+        revision: REVISION,
+        originMainRevision: OTHER_REVISION,
         isClean: true,
       }),
     ).toThrow(StagingWhatsAppPairingHelperConfigError);
