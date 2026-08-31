@@ -138,6 +138,8 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
   const actorA = randomUUID();
   const actorB = randomUUID();
   const windowId = randomUUID();
+  const speciesId = randomUUID();
+  const formId = randomUUID();
   const state = stateFor({
     battleId,
     rulesetId,
@@ -147,16 +149,33 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
     actorA,
     actorB,
   });
+  const pokemonA = state.combatants[0]?.pokemonInstanceId;
+  const pokemonB = state.combatants[1]?.pokemonInstanceId;
+  if (pokemonA === null || pokemonA === undefined || pokemonB === null || pokemonB === undefined) {
+    throw new Error("PVP fixture combatants must have Pokemon instances");
+  }
 
   await pool.query(
-    `INSERT INTO rulesets(
-       id, key, version, engine_contract_version, config, status, published_at
-     ) VALUES ($1, $2, 1, 1, $3::jsonb, 'PUBLISHED', now())`,
+    `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+     VALUES ($1, $2, 1, 1, $3::jsonb, 'DRAFT')`,
     [rulesetId, `pvp-resolution-${rulesetId}`, JSON.stringify(RULESET_CONFIG)],
   );
   await pool.query(
-    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id, published_at)
-     VALUES ($1, $2, $3, 'PUBLISHED', $4, now())`,
+    `UPDATE rulesets
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"test_fixture":true}'::jsonb,
+         config_fingerprint = $2
+     WHERE id = $1`,
+    [rulesetId, "0".repeat(64)],
+  );
+  await pool.query(
+    `UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [rulesetId],
+  );
+  await pool.query(
+    `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+     VALUES ($1, $2, $3, 'DRAFT', $4)`,
     [
       releaseId,
       Number.parseInt(releaseId.replaceAll("-", "").slice(0, 8), 16) + 1,
@@ -164,10 +183,46 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
       rulesetId,
     ],
   );
+  await pool.query(
+    `UPDATE content_releases
+     SET status = 'VALIDATED',
+         validated_at = now(),
+         validation_report = '{"test_fixture":true}'::jsonb,
+         content_fingerprint = $2
+     WHERE id = $1`,
+    [releaseId, "1".repeat(64)],
+  );
+  await pool.query(
+    `UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
+    [releaseId],
+  );
   await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
     playerA,
     playerB,
   ]);
+  await pool.query(
+    `INSERT INTO pokemon_species(id, national_dex, slug)
+     SELECT $1, COALESCE(MAX(national_dex), 0) + 1, $2
+     FROM pokemon_species`,
+    [speciesId, `pvp-resolution-species-${speciesId}`],
+  );
+  await pool.query(
+    `INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`,
+    [formId, speciesId],
+  );
+  await pool.query(
+    `INSERT INTO pokemon_instances(id, owner_player_id, form_id, level, current_hp, origin_type)
+     VALUES ($1, $2, $5, 10, $6, 'TEST'), ($3, $4, $5, 10, $7, 'TEST')`,
+    [
+      pokemonA,
+      playerA,
+      pokemonB,
+      playerB,
+      formId,
+      state.combatants[0]?.currentHp ?? 1,
+      state.combatants[1]?.currentHp ?? 1,
+    ],
+  );
   await pool.query(
     `INSERT INTO battles(
        id, battle_type, status, content_release_id, ruleset_id,
@@ -186,14 +241,16 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
        id, battle_id, battle_side_id, pokemon_instance_id, participant_kind,
        roster_position, active_member, snapshot
      ) VALUES
-       ($1, $5, $3, NULL, 'PLAYER_POKEMON', 1, TRUE, $6::jsonb),
-       ($2, $5, $4, NULL, 'PLAYER_POKEMON', 1, TRUE, $7::jsonb)`,
+       ($1, $5, $3, $6, 'PLAYER_POKEMON', 1, TRUE, $8::jsonb),
+       ($2, $5, $4, $7, 'PLAYER_POKEMON', 1, TRUE, $9::jsonb)`,
     [
       actorA,
       actorB,
       sideA,
       sideB,
       battleId,
+      pokemonA,
+      pokemonB,
       JSON.stringify(state.combatants[0]),
       JSON.stringify(state.combatants[1]),
     ],
