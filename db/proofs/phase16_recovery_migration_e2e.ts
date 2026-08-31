@@ -51,14 +51,30 @@ async function accessSessionRelation(): Promise<string | null> {
   return result.rows[0]?.relation ?? null;
 }
 
-async function sessionRevocationCutoffColumnExists(): Promise<boolean> {
+async function sessionRevocationCutoffRelation(): Promise<string | null> {
+  const result = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.admin_access_session_revocation_cutoffs')::text AS relation",
+  );
+  return result.rows[0]?.relation ?? null;
+}
+
+async function sessionRevocationCutoffShapeExists(): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1
        FROM information_schema.columns
        WHERE table_schema = 'public'
-         AND table_name = 'admin_principals'
-         AND column_name = 'admin_access_sessions_revoked_before'
+         AND table_name = 'admin_access_session_revocation_cutoffs'
+         AND column_name = 'environment'
+     ) AND EXISTS (
+       SELECT 1
+       FROM pg_constraint constraint_row
+       JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+       JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+       WHERE namespace.nspname = 'public'
+         AND relation.relname = 'admin_access_session_revocation_cutoffs'
+         AND constraint_row.contype = 'p'
+         AND pg_get_constraintdef(constraint_row.oid) LIKE '%(principal_id, environment)%'
      ) AS exists`,
   );
   return result.rows[0]?.exists === true;
@@ -154,8 +170,8 @@ try {
       "N-1 database is missing the durable access-session relation from migration 0029",
     );
   }
-  if (await sessionRevocationCutoffColumnExists()) {
-    throw new Error("N-1 database unexpectedly contains the 0030 session-revocation cutoff");
+  if ((await sessionRevocationCutoffRelation()) !== null) {
+    throw new Error("N-1 database unexpectedly contains the 0030 session-revocation cutoff relation");
   }
 
   await pool.query(
@@ -262,8 +278,13 @@ try {
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error("Migration 0030 regressed the durable Admin API access-session relation");
   }
-  if (!(await sessionRevocationCutoffColumnExists())) {
-    throw new Error("Migration 0030 did not create the principal session-revocation cutoff");
+  if (
+    (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
+    !(await sessionRevocationCutoffShapeExists())
+  ) {
+    throw new Error(
+      "Migration 0030 did not create the environment-scoped principal session-revocation cutoff",
+    );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
@@ -288,9 +309,11 @@ try {
             session.last_seen_at,
             session.idle_expires_at,
             session.access_expires_at,
-            principal.admin_access_sessions_revoked_before AS revoked_before
+            cutoff.revoked_before
      FROM admin_access_sessions session
-     JOIN admin_principals principal ON principal.id = session.principal_id
+     LEFT JOIN admin_access_session_revocation_cutoffs cutoff
+       ON cutoff.principal_id = session.principal_id
+      AND cutoff.environment = session.environment
      WHERE session.token_fingerprint = $1`,
     [PROBE_SESSION_FINGERPRINT],
   );
@@ -312,7 +335,7 @@ try {
     throw new Error("Migration 0030 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0030 invented a revocation cutoff for an existing principal");
+    throw new Error("Migration 0030 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -355,7 +378,7 @@ try {
       runtimeHealthPreserved: true,
       mutationPrepareStatePreserved: true,
       accessSessionStatePreserved: true,
-      sessionRevocationCutoffAdded: true,
+      environmentScopedSessionRevocationCutoffAdded: true,
       durableStatePreserved: true,
       rerunConverged: true,
     }),
