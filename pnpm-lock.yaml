@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@whiskeysockets/baileys@7.0.0-rc14': d4d420a02204fa891ad04c0f25ccd785c1e7300d611a1296bac83dd518c68968
-  libsignal@6.0.0: 9aba64bc1d1ca4ebe76f8541ef96cb46c6df7d0c9522852ae2ccbb3aeba5d219
+  libsignal@6.0.0: d5cbbcedc1776d7508b56adb345ef5eee797dda42fff00809d00b5c6b2d5b6de
 
 importers:
 
@@ -1757,7 +1757,7 @@ snapshots:
       '@cacheable/node-cache': 1.7.6
       '@hapi/boom': 9.1.4
       async-mutex: 0.5.0
-      libsignal: 6.0.0(patch_hash=9aba64bc1d1ca4ebe76f8541ef96cb46c6df7d0c9522852ae2ccbb3aeba5d219)
+      libsignal: 6.0.0(patch_hash=d5cbbcedc1776d7508b56adb345ef5eee797dda42fff00809d00b5c6b2d5b6de)
       lru-cache: 11.5.2
       music-metadata: 11.15.0
       p-queue: 9.3.3
@@ -1870,7 +1870,7 @@ snapshots:
     dependencies:
       '@keyv/serialize': 1.1.1
 
-  libsignal@6.0.0(patch_hash=9aba64bc1d1ca4ebe76f8541ef96cb46c6df7d0c9522852ae2ccbb3aeba5d219):
+  libsignal@6.0.0(patch_hash=d5cbbcedc1776d7508b56adb345ef5eee797dda42fff00809d00b5c6b2d5b6de):
     dependencies:
       curve25519-js: 0.0.4
       protobufjs: 7.6.5
