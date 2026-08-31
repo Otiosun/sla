@@ -5,27 +5,17 @@ import type { BattleState } from "../../modules/battle/contracts.js";
 import { initializeBattleState } from "../../modules/battle/initialization.js";
 import type { BattleRootRecord } from "../../modules/battle/ports.js";
 import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
+import type {
+  PvpStartRepository,
+  PvpStartRepositoryInput,
+  PvpStartRepositoryOutput,
+} from "../../modules/pvp/ports.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { openTurnWindowInTransaction } from "../battle/postgres-battle-turn-window-repository.js";
 import { loadPlayerBattleParty } from "../battle/postgres-player-party-reader.js";
 import { withTransaction } from "../db/transaction.js";
 
 const uuid = z.string().uuid();
-
-export interface PvpStartInput {
-  readonly challengeId: string;
-  readonly actorPlayerId: string;
-  readonly startedAt: Date;
-  readonly deadlineAt: Date;
-}
-
-export interface PvpStartOutput {
-  readonly challengeId: string;
-  readonly encounterId: string;
-  readonly battleId: string;
-  readonly turnWindowId: string;
-  readonly replayed: boolean;
-}
 
 interface ChallengeRow {
   readonly id: string;
@@ -90,7 +80,7 @@ async function loadChallenge(
 async function loadStartedReplay(
   client: PoolClient,
   challenge: ChallengeRow,
-): Promise<Result<PvpStartOutput>> {
+): Promise<Result<PvpStartRepositoryOutput>> {
   if (challenge.encounter_id === null || challenge.battle_id === null) {
     throw new Error("STARTED PVP challenge is missing durable Encounter/Battle linkage");
   }
@@ -286,13 +276,15 @@ async function persistBattleState(
   if (activated.rowCount !== 1) throw new Error("PVP Battle activation CAS failed");
 }
 
-export class PostgresPvpStartRepository {
+export class PostgresPvpStartRepository implements PvpStartRepository {
   public constructor(
     private readonly pool: Pool,
     private readonly seedProvider: EncounterSeedProvider,
   ) {}
 
-  public async start(input: PvpStartInput): Promise<Result<PvpStartOutput>> {
+  public async start(
+    input: PvpStartRepositoryInput,
+  ): Promise<Result<PvpStartRepositoryOutput>> {
     if (
       !uuid.safeParse(input.challengeId).success ||
       !uuid.safeParse(input.actorPlayerId).success
