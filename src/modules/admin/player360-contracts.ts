@@ -201,6 +201,7 @@ export interface Player360EncounterView {
   readonly areaId: string;
   readonly contentReleaseId: string;
   readonly rulesetId: string;
+  readonly revision: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
