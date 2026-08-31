@@ -5,10 +5,7 @@ import {
   type IncomingMessage,
   type MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
-import {
-  type CommandRouteDefinition,
-  MessageRouter,
-} from "../../src/modules/messaging/router.js";
+import { type CommandRouteDefinition, MessageRouter } from "../../src/modules/messaging/router.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 function incoming(text: string): IncomingMessage {
@@ -38,6 +35,7 @@ function route(
   command: string,
   aliases: readonly string[] = [],
   rateLimitClass: "STANDARD" | "SENSITIVE" = "STANDARD",
+  onHandle: (handlerContext: MessageHandlerContext) => void = () => {},
 ): CommandRouteDefinition & { readonly aliases: readonly string[] } {
   return {
     command,
@@ -45,12 +43,8 @@ function route(
     rateLimitClass,
     handler: {
       async handle(handlerContext) {
-        return ok({
-          resultRefType: null,
-          resultRefId: null,
-          outgoing: [],
-          observedText: handlerContext.message.text,
-        } as never);
+        onHandle(handlerContext);
+        return ok({ resultRefType: null, resultRefId: null, outgoing: [] });
       },
     },
   };
@@ -60,15 +54,9 @@ describe("command router normalization", () => {
   it("folds Portuguese diacritics and casing on the command token only", async () => {
     let observedText: string | null = null;
     const router = new MessageRouter([
-      {
-        command: "pokedex",
-        handler: {
-          async handle(handlerContext) {
-            observedText = handlerContext.message.text;
-            return ok({ resultRefType: null, resultRefId: null, outgoing: [] });
-          },
-        },
-      },
+      route("pokedex", [], "STANDARD", (handlerContext) => {
+        observedText = handlerContext.message.text;
+      }),
     ]);
     const message = incoming("$POKÉDEX João Ávila");
 
@@ -81,12 +69,11 @@ describe("command router normalization", () => {
 
   it("routes aliases while classifying them as the canonical command", async () => {
     let calls = 0;
-    const definition = route("pokedex", ["dex"]);
-    definition.handler.handle = async () => {
-      calls += 1;
-      return ok({ resultRefType: null, resultRefId: null, outgoing: [] });
-    };
-    const router = new MessageRouter([definition]);
+    const router = new MessageRouter([
+      route("pokedex", ["dex"], "STANDARD", () => {
+        calls += 1;
+      }),
+    ]);
     const message = incoming("$DEX");
 
     expect(router.classify(message)).toEqual({ command: "pokedex", sensitiveActionKey: null });
@@ -104,11 +91,11 @@ describe("command router normalization", () => {
   });
 
   it("rejects aliases that collide after command normalization", () => {
-    expect(
-      () => new MessageRouter([route("pokedex", ["dex"]), route("dex")]),
-    ).toThrow("Messaging command route is already registered: dex");
-    expect(
-      () => new MessageRouter([route("regiao"), route("região")]),
-    ).toThrow("Messaging command route is already registered: regiao");
+    expect(() => new MessageRouter([route("pokedex", ["dex"]), route("dex")])).toThrow(
+      "Messaging command route is already registered: dex",
+    );
+    expect(() => new MessageRouter([route("regiao"), route("região")])).toThrow(
+      "Messaging command route is already registered: regiao",
+    );
   });
 });
