@@ -150,7 +150,9 @@ try {
     throw new Error("N-1 limiter relation is missing before the session-cutoff migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("N-1 database is missing the durable access-session relation from migration 0029");
+    throw new Error(
+      "N-1 database is missing the durable access-session relation from migration 0029",
+    );
   }
   if (await sessionRevocationCutoffColumnExists()) {
     throw new Error("N-1 database unexpectedly contains the 0030 session-revocation cutoff");
