@@ -19,11 +19,7 @@ import {
   pvpFlowBlocked,
   pvpPlayerIneligible,
 } from "./errors.js";
-import type {
-  PvpChallengeRepository,
-  PvpChallengeTransaction,
-  PvpPlayerContext,
-} from "./ports.js";
+import type { PvpChallengeRepository, PvpPlayerContext } from "./ports.js";
 
 const uuid = z.string().uuid();
 
@@ -116,7 +112,10 @@ export class PvpService {
   ): Promise<Result<CreatePvpChallengeOutput>> {
     const feature = this.featureError();
     if (feature !== null) return err(feature);
-    if (!uuid.safeParse(input.challengerPlayerId).success || !uuid.safeParse(input.targetPlayerId).success) {
+    if (
+      !uuid.safeParse(input.challengerPlayerId).success ||
+      !uuid.safeParse(input.targetPlayerId).success
+    ) {
       return err(appError("INVALID_ID", "PVP player ids must be valid UUIDs"));
     }
     if (input.challengerPlayerId === input.targetPlayerId) {
@@ -147,12 +146,22 @@ export class PvpService {
       const contextError = this.validatePlayers(challenger, target);
       if (contextError !== null) return err(contextError);
       if (challenger === null || target === null) {
-        return err(pvpPlayerIneligible("player-not-found", challenger === null ? input.challengerPlayerId : input.targetPlayerId));
+        return err(
+          pvpPlayerIneligible(
+            "player-not-found",
+            challenger === null ? input.challengerPlayerId : input.targetPlayerId,
+          ),
+        );
       }
       if (challenger.areaId !== target.areaId) {
         return err(pvpActionInvalid("pvp-same-area-required"));
       }
-      if (challenger.activeEncounter || target.activeEncounter || challenger.activeBattle || target.activeBattle) {
+      if (
+        challenger.activeEncounter ||
+        target.activeEncounter ||
+        challenger.activeBattle ||
+        target.activeBattle
+      ) {
         return err(pvpFlowBlocked("active-mechanical-flow"));
       }
 
@@ -192,14 +201,19 @@ export class PvpService {
   ): Promise<Result<AcceptPvpChallengeOutput>> {
     const feature = this.featureError();
     if (feature !== null) return err(feature);
-    if (!uuid.safeParse(input.challengeId).success || !uuid.safeParse(input.actorPlayerId).success) {
+    if (
+      !uuid.safeParse(input.challengeId).success ||
+      !uuid.safeParse(input.actorPlayerId).success
+    ) {
       return err(appError("INVALID_ID", "PVP challenge and actor ids must be valid UUIDs"));
     }
 
     return this.repository.transaction(async (transaction) => {
       const challenge = await transaction.challengeById(input.challengeId, true);
       if (challenge === null) {
-        return err(appError("NOT_FOUND", "PVP challenge was not found", { challengeId: input.challengeId }));
+        return err(
+          appError("NOT_FOUND", "PVP challenge was not found", { challengeId: input.challengeId }),
+        );
       }
       if (input.actorPlayerId !== challenge.targetPlayerId) {
         return err(pvpActionInvalid("challenge-actor-forbidden"));
@@ -248,7 +262,12 @@ export class PvpService {
       if (challenger.areaId !== challenge.areaId || target.areaId !== challenge.areaId) {
         return err(pvpActionInvalid("pvp-same-area-required"));
       }
-      if (challenger.activeEncounter || target.activeEncounter || challenger.activeBattle || target.activeBattle) {
+      if (
+        challenger.activeEncounter ||
+        target.activeEncounter ||
+        challenger.activeBattle ||
+        target.activeBattle
+      ) {
         return err(pvpFlowBlocked("active-mechanical-flow"));
       }
       if (
