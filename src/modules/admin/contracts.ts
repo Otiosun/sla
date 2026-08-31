@@ -91,6 +91,7 @@ export const AdminReadAuthorizationRequestSchema = z
     principalId: z.string().uuid(),
     operationType: tokenSchema,
     input: z.record(z.string(), z.unknown()),
+    correlationId: z.string().uuid().optional(),
   })
   .strict();
 export type AdminReadAuthorizationRequest = z.infer<typeof AdminReadAuthorizationRequestSchema>;
