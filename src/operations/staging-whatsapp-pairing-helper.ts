@@ -184,6 +184,7 @@ export async function loadOrCreateStagingWhatsAppLocalSecrets(input: {
 export function assertStagingWhatsAppPairingCheckout(input: {
   branch: string;
   revision: string;
+  originMainRevision: string;
   isClean: boolean;
 }): void {
   if (input.branch !== "main") {
@@ -191,14 +192,22 @@ export function assertStagingWhatsAppPairingCheckout(input: {
       "Staging WhatsApp pairing helper must run from the main branch",
     );
   }
-  if (!FULL_REVISION_PATTERN.test(input.revision)) {
+  if (
+    !FULL_REVISION_PATTERN.test(input.revision) ||
+    !FULL_REVISION_PATTERN.test(input.originMainRevision)
+  ) {
     throw new StagingWhatsAppPairingHelperConfigError(
-      "Staging WhatsApp pairing helper requires a full 40-character commit revision",
+      "Staging WhatsApp pairing helper requires full 40-character local and origin/main revisions",
     );
   }
   if (!input.isClean) {
     throw new StagingWhatsAppPairingHelperConfigError(
       "Staging WhatsApp pairing helper requires a clean working tree",
+    );
+  }
+  if (input.revision !== input.originMainRevision) {
+    throw new StagingWhatsAppPairingHelperConfigError(
+      "Local main is stale or diverged from origin/main; update the checkout before pairing",
     );
   }
 }
