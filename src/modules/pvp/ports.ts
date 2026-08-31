@@ -1,3 +1,6 @@
+import type { PvpTurnResolutionResult } from "../battle/pvp-turn-resolution.js";
+import type { BattleState } from "../battle/contracts.js";
+import type { TurnWindowAggregate } from "../battle/turn-window.js";
 import type { Result } from "../../shared-kernel/result.js";
 import type { EncryptedSeedEnvelope } from "../encounter/ports.js";
 import type { PvpChallenge } from "./challenge.js";
@@ -69,4 +72,18 @@ export interface PvpStartRepositoryOutput {
 
 export interface PvpStartRepository {
   start(input: PvpStartRepositoryInput): Promise<Result<PvpStartRepositoryOutput>>;
+}
+
+export interface PvpRecoveryRecord {
+  readonly battleId: string;
+  readonly state: BattleState;
+  readonly turnWindow: TurnWindowAggregate;
+}
+
+export interface PvpRecoveryRepository {
+  activeForPlayer(playerId: string): Promise<PvpRecoveryRecord | null>;
+}
+
+export interface PvpTurnResolver {
+  resolve(turnWindowId: string): Promise<PvpTurnResolutionResult>;
 }
