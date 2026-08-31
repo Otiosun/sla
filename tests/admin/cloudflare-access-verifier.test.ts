@@ -67,12 +67,17 @@ function verifier() {
 }
 
 describe("CloudflareAccessJwtVerifier", () => {
-  it("accepts a correctly signed identity application token", async () => {
+  it("accepts a correctly signed identity application token and preserves trusted session bounds", async () => {
     await expect(verifier().verify(tokenFor(validClaims()))).resolves.toEqual({
-      provider: "cloudflare-access",
-      issuer: TEAM_DOMAIN,
-      subject: "stable-access-subject",
-      email: "admin@example.com",
+      identity: {
+        provider: "cloudflare-access",
+        issuer: TEAM_DOMAIN,
+        subject: "stable-access-subject",
+        email: "admin@example.com",
+      },
+      issuedAt: new Date((NOW_SECONDS - 60) * 1_000),
+      notBefore: new Date((NOW_SECONDS - 60) * 1_000),
+      expiresAt: new Date((NOW_SECONDS + 600) * 1_000),
     });
   });
 
