@@ -1,0 +1,64 @@
+name: Admin API Lockfile Sync Once
+
+on:
+  push:
+    branches:
+      - "integration/admin-api-main-2026-08-31"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: admin-api-lockfile-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    if: >-
+      github.repository == 'Otiosun/sla' &&
+      github.actor == 'Otiosun' &&
+      !contains(github.event.head_commit.message, '[admin-api-lockfile-sync]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: integration/admin-api-main-2026-08-31
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Reconcile lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+
+      - name: Prove frozen install and retained runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          grep -F "fastify:" pnpm-lock.yaml >/dev/null
+          grep -F "qrcode-terminal:" pnpm-lock.yaml >/dev/null
+          grep -F "patchedDependencies:" pnpm-lock.yaml >/dev/null
+          grep -F "@whiskeysockets/baileys@7.0.0-rc14" pnpm-lock.yaml >/dev/null
+
+      - name: Commit only the reconciled lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            echo "Lockfile already reconciled."
+            exit 0
+          fi
+          git commit -m "build: reconcile Admin API and Phase 17 lockfile [admin-api-lockfile-sync]"
+          git push origin HEAD:integration/admin-api-main-2026-08-31
