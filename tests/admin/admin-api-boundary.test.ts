@@ -17,7 +17,12 @@ describe("AdminRequestAuthenticator", () => {
       subject: "stable-subject",
       email: "admin@example.com",
     };
-    const verify = vi.fn().mockResolvedValue(externalIdentity);
+    const verify = vi.fn().mockResolvedValue({
+      identity: externalIdentity,
+      issuedAt: new Date("2026-08-31T12:00:00.000Z"),
+      notBefore: new Date("2026-08-31T12:00:00.000Z"),
+      expiresAt: new Date("2026-08-31T13:00:00.000Z"),
+    });
     const resolve = vi.fn().mockResolvedValue({
       principalId: PRINCIPAL_ID,
       environment: "staging",
