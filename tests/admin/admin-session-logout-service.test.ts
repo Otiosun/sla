@@ -22,7 +22,9 @@ const context = {
 };
 
 function revoker(result: boolean) {
-  const revokeSession = vi.fn<AdminAccessSessionRevoker["revokeSession"]>().mockResolvedValue(result);
+  const revokeSession = vi
+    .fn<AdminAccessSessionRevoker["revokeSession"]>()
+    .mockResolvedValue(result);
   return { revokeSession };
 }
 
