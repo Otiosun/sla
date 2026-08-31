@@ -151,14 +151,6 @@ async function defaultVisiblePrompt(prompt: string): Promise<string> {
   }
 }
 
-async function defaultSecretPrompt(prompt: string): Promise<string> {
-  return readHiddenTerminalInput({
-    prompt,
-    input: process.stdin as StagingPairingSecretInput,
-    write: (chunk) => process.stdout.write(chunk),
-  });
-}
-
 async function defaultPairingExecutor(plan: StagingPairingPlan): Promise<void> {
   const caPath = plan.env.NODE_EXTRA_CA_CERTS;
   if (!caPath) {
@@ -188,20 +180,18 @@ async function defaultPairingExecutor(plan: StagingPairingPlan): Promise<void> {
   });
 }
 
-export async function runStagingWhatsAppPairingHelperCli(
-  options: {
-    stdinIsTTY?: boolean;
-    stdoutIsTTY?: boolean;
-    isCI?: boolean;
-    secretFilePath?: string;
-    caPath?: string;
-    getCheckoutInfo?: () => Promise<{ branch: string; revision: string; isClean: boolean }>;
-    promptVisible?: (prompt: string) => Promise<string>;
-    promptSecret?: (prompt: string) => Promise<string>;
-    executePairing?: StagingPairingExecutor;
-    writeStdout?: (chunk: string) => void;
-  } = {},
-): Promise<void> {
+export async function runStagingWhatsAppPairingHelperCli(options: {
+  stdinIsTTY?: boolean;
+  stdoutIsTTY?: boolean;
+  isCI?: boolean;
+  secretFilePath?: string;
+  caPath?: string;
+  getCheckoutInfo?: () => Promise<{ branch: string; revision: string; isClean: boolean }>;
+  promptVisible?: (prompt: string) => Promise<string>;
+  promptSecret: (prompt: string) => Promise<string>;
+  executePairing?: StagingPairingExecutor;
+  writeStdout: (chunk: string) => void;
+}): Promise<void> {
   const stdinIsTTY = options.stdinIsTTY ?? Boolean(process.stdin.isTTY);
   const stdoutIsTTY = options.stdoutIsTTY ?? Boolean(process.stdout.isTTY);
   const isCI = options.isCI ?? Boolean(process.env.CI);
@@ -211,9 +201,7 @@ export async function runStagingWhatsAppPairingHelperCli(
 
   const getCheckoutInfo = options.getCheckoutInfo ?? defaultCheckoutInfo;
   const promptVisible = options.promptVisible ?? defaultVisiblePrompt;
-  const promptSecret = options.promptSecret ?? defaultSecretPrompt;
   const executePairing = options.executePairing ?? defaultPairingExecutor;
-  const writeStdout = options.writeStdout ?? ((chunk: string) => process.stdout.write(chunk));
   const secretFilePath = options.secretFilePath ?? defaultSecretFilePath();
   const caPath = options.caPath ?? resolve(process.cwd(), "certs/supabase/prod-ca-2021.crt");
 
@@ -234,7 +222,7 @@ export async function runStagingWhatsAppPairingHelperCli(
     created = loaded.created;
   }
 
-  const jitToken = await promptSecret("Supabase Temporary Access token: ");
+  const jitToken = await options.promptSecret("Supabase Temporary Access token: ");
   const plan = buildStagingWhatsAppPairingPlan({
     revision: checkout.revision,
     jitToken,
@@ -242,7 +230,7 @@ export async function runStagingWhatsAppPairingHelperCli(
     secrets,
   });
 
-  writeStdout(
+  options.writeStdout(
     [
       "\nStaging WhatsApp pairing helper ready.",
       `Environment: ${plan.publicSummary.environment}`,
@@ -258,5 +246,5 @@ export async function runStagingWhatsAppPairingHelperCli(
   );
 
   await executePairing(plan);
-  writeStdout("\nStaging WhatsApp pairing bootstrap completed.\n");
+  options.writeStdout("\nStaging WhatsApp pairing bootstrap completed.\n");
 }
