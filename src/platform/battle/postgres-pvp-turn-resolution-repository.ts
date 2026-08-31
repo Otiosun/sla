@@ -24,6 +24,7 @@ import {
   ContentLifecycleStatusSchema,
   type RulesetSnapshot,
 } from "../../modules/catalog/contracts.js";
+import { openTurnWindowInTransaction } from "./postgres-battle-turn-window-repository.js";
 import { withTransaction } from "../db/transaction.js";
 
 interface RootRow {
@@ -383,6 +384,31 @@ class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransacti
     );
     if (windowUpdated.rowCount !== 1) {
       throw new Error("PVP turn window commit CAS failed");
+    }
+
+    if (input.nextState.status === "ACTIVE") {
+      if (window.committedAt === null) {
+        throw new Error("PVP active resolution is missing committed_at");
+      }
+      const priorOpenedAt = Date.parse(input.lockedWindow.window.openedAt);
+      const priorDeadlineAt = Date.parse(input.lockedWindow.window.deadlineAt);
+      const windowDurationMs = priorDeadlineAt - priorOpenedAt;
+      if (!Number.isFinite(windowDurationMs) || windowDurationMs <= 0) {
+        throw new Error("PVP turn window has invalid persisted duration");
+      }
+      const openedAt = new Date(window.committedAt);
+      const nextWindow = await openTurnWindowInTransaction(this.client, {
+        id: randomUUID(),
+        battleId: input.battleId,
+        battleVersion: input.nextState.version,
+        turnNumber: input.nextState.turnNumber,
+        openedAt,
+        deadlineAt: new Date(openedAt.getTime() + windowDurationMs),
+        requiredPlayers: input.lockedWindow.window.requiredPlayers,
+      });
+      if (!nextWindow.ok) {
+        throw new Error(nextWindow.error.message);
+      }
     }
 
     return { kind: "PERSISTED", state: input.nextState };
