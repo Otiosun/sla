@@ -169,10 +169,9 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
      WHERE id = $1`,
     [rulesetId, "0".repeat(64)],
   );
-  await pool.query(
-    `UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`,
-    [rulesetId],
-  );
+  await pool.query(`UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1`, [
+    rulesetId,
+  ]);
   await pool.query(
     `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
      VALUES ($1, $2, $3, 'DRAFT', $4)`,
@@ -206,10 +205,10 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
      FROM pokemon_species`,
     [speciesId, `pvp-resolution-species-${speciesId}`],
   );
-  await pool.query(
-    `INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`,
-    [formId, speciesId],
-  );
+  await pool.query(`INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`, [
+    formId,
+    speciesId,
+  ]);
   await pool.query(
     `INSERT INTO pokemon_instances(id, owner_player_id, form_id, level, current_hp, origin_type)
      VALUES ($1, $2, $5, 10, $6, 'TEST'), ($3, $4, $5, 10, $7, 'TEST')`,
