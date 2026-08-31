@@ -7,6 +7,7 @@ import { resolveTurn } from "./resolver.js";
 import { normalizeBattleRules } from "./rules.js";
 import {
   commitTurnWindow,
+  type BattleTurnSubmission,
   type TurnWindowAggregate,
   type TurnWindowErrorCode,
 } from "./turn-window.js";
@@ -56,6 +57,11 @@ export interface PvpTurnResolutionError {
   readonly currentState?: BattleState;
 }
 
+export type PvpTurnResolutionFailure = {
+  readonly ok: false;
+  readonly error: PvpTurnResolutionError;
+};
+
 export type PvpTurnResolutionResult =
   | {
       readonly ok: true;
@@ -65,17 +71,21 @@ export type PvpTurnResolutionResult =
         readonly replayed: boolean;
       };
     }
-  | { readonly ok: false; readonly error: PvpTurnResolutionError };
+  | PvpTurnResolutionFailure;
 
 type IdFactory = () => string;
 type Clock = () => Date;
+
+type SubmissionValidationResult =
+  | { readonly ok: true; readonly value: readonly BattleTurnSubmission[] }
+  | PvpTurnResolutionFailure;
 
 function failure(
   code: PvpTurnResolutionErrorCode,
   message: string,
   details?: Readonly<Record<string, unknown>>,
   currentState?: BattleState,
-): PvpTurnResolutionResult {
+): PvpTurnResolutionFailure {
   return {
     ok: false,
     error: {
@@ -90,8 +100,8 @@ function failure(
 function validateSubmissionOwnership(
   state: BattleState,
   aggregate: TurnWindowAggregate,
-): PvpTurnResolutionResult | readonly TurnWindowAggregate["submissions"][number][] {
-  const actions = [] as TurnWindowAggregate["submissions"][number][];
+): SubmissionValidationResult {
+  const actions: BattleTurnSubmission[] = [];
   const requiredPlayers = [...aggregate.window.requiredPlayers].sort(
     (left, right) => left.sideNo - right.sideNo,
   );
@@ -154,7 +164,7 @@ function validateSubmissionOwnership(
       "Locked turn window contains unexpected active actions",
     );
   }
-  return actions;
+  return { ok: true, value: actions };
 }
 
 export class PvpTurnResolutionService {
@@ -237,7 +247,7 @@ export class PvpTurnResolutionService {
       }
 
       const submissions = validateSubmissionOwnership(state, aggregate);
-      if (!Array.isArray(submissions)) return submissions;
+      if (!submissions.ok) return submissions;
 
       const ruleset = await transaction.loadRuleset(root.rulesetId);
       if (ruleset === null)
@@ -259,7 +269,7 @@ export class PvpTurnResolutionService {
       const rng = new CounterRandomSource(seed, root.rngCounter);
       const resolved = resolveTurn(
         state,
-        submissions.map((entry) => entry.action),
+        submissions.value.map((entry) => entry.action),
         normalized.value,
         rng,
       );
