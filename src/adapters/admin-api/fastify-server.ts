@@ -47,12 +47,26 @@ const PlayerGetTransportSchema = z
   })
   .strict();
 
+const ContentLibraryTransportSchema = z
+  .object({
+    query: z.string().trim().min(1).max(120).optional(),
+    resourceKind: z
+      .enum(["SPECIES", "MOVE", "ITEM", "AREA", "ENCOUNTER_TABLE", "REWARD", "EFFECT"])
+      .optional(),
+    releaseStatus: z.enum(["DRAFT", "VALIDATED", "PUBLISHED", "ARCHIVED"]).optional(),
+    active: booleanQuery.optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    cursor: z.string().trim().min(1).max(768).optional(),
+  })
+  .strict();
+
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
 export type AdminApiRateLimitedOperation =
   | "session.read"
   | "player.search"
   | "player.read"
+  | "content.search"
   | "mutation.prepare";
 
 export interface AdminApiRateLimitRequest {
@@ -76,7 +90,8 @@ export interface AdminApiServerDependencies {
   readonly sessionGuard: Pick<AdminAccessSessionGuard, "authorize">;
   readonly sessionLogoutService?: Pick<AdminSessionLogoutService, "logoutCurrent">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
-  readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer">;
+  readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer"> &
+    Partial<Pick<AdminReadFacade, "searchContent">>;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
   readonly rateLimiter: AdminApiRateLimiter;
 }
@@ -241,6 +256,16 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
     return dependencies.readFacade.searchPlayers(trustedRequestContext(identity, request), query);
+  });
+
+  server.get("/admin/v1/content", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "content.search");
+    if (identity === null) return reply;
+    const query = parseTransport(ContentLibraryTransportSchema, request.query);
+    if (dependencies.readFacade.searchContent === undefined) {
+      throw new Error("Content library read boundary is not configured");
+    }
+    return dependencies.readFacade.searchContent(trustedRequestContext(identity, request), query);
   });
 
   server.get("/admin/v1/players/:playerId", async (request, reply) => {

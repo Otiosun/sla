@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type {
+  ContentLibrarySearchResultView,
+} from "../../modules/admin/content-library-contracts.js";
+import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
+import type {
   Player360SearchResultView,
   Player360View,
 } from "../../modules/admin/player360-contracts.js";
@@ -17,6 +21,7 @@ export const AdminApiPrincipalContextSchema = z
 export type AdminApiPrincipalContext = z.infer<typeof AdminApiPrincipalContextSchema>;
 
 type Player360Reader = Pick<Player360Service, "get" | "search">;
+type ContentLibraryReader = Pick<ContentLibraryService, "search">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -48,14 +53,17 @@ function parsePrincipalContext(rawContext: unknown): AdminApiPrincipalContext {
 
 /**
  * Transport-neutral boundary between an authenticated admin request and the
- * canonical Player360Service. HTTP/framework code must stay outside this class.
+ * canonical read services. HTTP/framework code must stay outside this class.
  *
  * Critical invariant: browser-controlled input can never select principalId,
  * environment or correlationId. Those values are injected from trusted server
  * context.
  */
 export class AdminReadFacade {
-  public constructor(private readonly player360: Player360Reader) {}
+  public constructor(
+    private readonly player360: Player360Reader,
+    private readonly contentLibrary?: ContentLibraryReader,
+  ) {}
 
   public async searchPlayers(
     rawContext: unknown,
@@ -80,6 +88,21 @@ export class AdminReadFacade {
       principalId: context.principalId,
       correlationId: context.correlationId,
       playerId,
+    });
+  }
+
+  public async searchContent(
+    rawContext: unknown,
+    clientQuery: unknown,
+  ): Promise<ContentLibrarySearchResultView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.contentLibrary === undefined) {
+      throw new Error("Content library reader is not configured");
+    }
+    return this.contentLibrary.search({
+      ...stripClientAuthority(clientQuery),
+      principalId: context.principalId,
+      correlationId: context.correlationId,
     });
   }
 }

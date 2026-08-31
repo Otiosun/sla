@@ -10,6 +10,7 @@ import { AdminRequestAuthenticator } from "../adapters/admin-api/request-authent
 import { AdminSessionLogoutService } from "../adapters/admin-api/session-logout-service.js";
 import { AdminSessionService } from "../adapters/admin-api/session-service.js";
 import { ExternalAdminMutationEndpoint } from "../modules/anti-abuse/external-admin-endpoint.js";
+import { ContentLibraryService } from "../modules/admin/content-library-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminService } from "../modules/admin/service.js";
@@ -20,6 +21,7 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
+import { PostgresContentLibraryRepository } from "../platform/catalog/postgres-content-library-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import type { AppConfig } from "../platform/config/env.js";
 
@@ -59,7 +61,9 @@ export function createOperationalAdminApi(
   const adminService = new AdminService(registry, adminRepository);
   const player360Repository = new PostgresPlayer360Repository(pool);
   const player360Service = new Player360Service(adminService, player360Repository);
-  const readFacade = new AdminReadFacade(player360Service);
+  const contentLibraryRepository = new PostgresContentLibraryRepository(pool);
+  const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
+  const readFacade = new AdminReadFacade(player360Service, contentLibraryService);
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
     new PostgresMutationAdmission(pool),

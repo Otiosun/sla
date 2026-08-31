@@ -10,6 +10,7 @@ import type { AdminRoleAssignmentPort, AdminSessionRevocationPort } from "./port
 
 const playerReadSchema = z.object({ playerId: z.string().uuid() }).strict();
 const playerCollectionReadSchema = z.object({}).strict();
+const contentCollectionReadSchema = z.object({}).strict();
 const adminOperationAuditReadSchema = z.object({ operationId: z.string().uuid() }).strict();
 
 const readPolicy = {
@@ -111,6 +112,42 @@ export function createPhase12AdminOperationRegistry(
       target: (input) => ({ type: "ADMIN_OPERATION", id: input.operationId }),
     }),
   );
+
+  for (const definition of [
+    {
+      operationType: "content.library.search.create",
+      capabilityKey: "content.draft.create",
+      riskTier: 3 as const,
+    },
+    {
+      operationType: "content.library.search.edit",
+      capabilityKey: "content.draft.edit",
+      riskTier: 3 as const,
+    },
+    {
+      operationType: "content.library.search.validate",
+      capabilityKey: "content.validate",
+      riskTier: 3 as const,
+    },
+    {
+      operationType: "content.library.search.publish",
+      capabilityKey: "content.publish",
+      riskTier: 4 as const,
+    },
+  ]) {
+    registry.register(
+      defineAdminOperation({
+        kind: "READ",
+        operationType: definition.operationType,
+        capabilityKey: definition.capabilityKey,
+        riskTier: definition.riskTier,
+        authorizationMode: "GLOBAL_ONLY",
+        policy: readPolicy,
+        inputSchema: contentCollectionReadSchema,
+        target: () => ({ type: "CONTENT_COLLECTION", id: null }),
+      }),
+    );
+  }
 
   registry.register(
     defineAdminOperation<AdminRoleAssignInput>({
