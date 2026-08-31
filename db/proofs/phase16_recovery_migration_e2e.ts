@@ -16,8 +16,8 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
 const PROBE_ADMIN_ID = "00000000-0000-4000-8000-000000001627";
-const EXPECTED_PREVIOUS_LATEST = "0027_admin_api_rate_limit_buckets.sql";
-const EXPECTED_CURRENT_LATEST = "0028_admin_api_mutation_prepare_rate_limit.sql";
+const EXPECTED_PREVIOUS_LATEST = "0028_admin_api_mutation_prepare_rate_limit.sql";
+const EXPECTED_CURRENT_LATEST = "0029_admin_api_access_sessions.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -38,6 +38,13 @@ async function mutationPrepareBucketExists(): Promise<boolean> {
     [PROBE_ADMIN_ID],
   );
   return result.rows[0]?.exists === true;
+}
+
+async function accessSessionRelation(): Promise<string | null> {
+  const result = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.admin_access_sessions')::text AS relation",
+  );
+  return result.rows[0]?.relation ?? null;
 }
 
 try {
@@ -123,7 +130,10 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the constraint-only forward migration");
+    throw new Error("N-1 limiter relation is missing before the access-session migration");
+  }
+  if ((await accessSessionRelation()) !== null) {
+    throw new Error("N-1 database unexpectedly contains the 0029 access-session relation");
   }
 
   await pool.query(
@@ -136,21 +146,14 @@ try {
      VALUES ($1::uuid, $2, 'ACTIVE')`,
     [PROBE_ADMIN_ID, `phase16-forward-proof:${PROBE_ADMIN_ID}`],
   );
-
-  let rejectedBefore = false;
-  try {
-    await pool.query(
-      `INSERT INTO admin_api_rate_limit_buckets(
-         principal_id, operation, window_started_at, request_count, updated_at
-       ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
-      [PROBE_ADMIN_ID],
-    );
-  } catch (error) {
-    rejectedBefore =
-      typeof error === "object" && error !== null && "code" in error && error.code === "23514";
-  }
-  if (!rejectedBefore || (await mutationPrepareBucketExists())) {
-    throw new Error("N-1 limiter unexpectedly accepts mutation.prepare before migration 0028");
+  await pool.query(
+    `INSERT INTO admin_api_rate_limit_buckets(
+       principal_id, operation, window_started_at, request_count, updated_at
+     ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
+    [PROBE_ADMIN_ID],
+  );
+  if (!(await mutationPrepareBucketExists())) {
+    throw new Error("N-1 database did not preserve the mutation.prepare allowlist from migration 0028");
   }
 
   const stateBefore = await pool.query<{ state: string }>(
@@ -191,14 +194,11 @@ try {
     throw new Error("Latest migration was not attributed to the controlled forward step");
   }
 
-  await pool.query(
-    `INSERT INTO admin_api_rate_limit_buckets(
-       principal_id, operation, window_started_at, request_count, updated_at
-     ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
-    [PROBE_ADMIN_ID],
-  );
+  if ((await accessSessionRelation()) !== "admin_access_sessions") {
+    throw new Error("Migration 0029 did not create the durable Admin API access-session relation");
+  }
   if (!(await mutationPrepareBucketExists())) {
-    throw new Error("Migration 0028 did not enable mutation.prepare in the limiter allowlist");
+    throw new Error("Migration 0029 regressed the mutation.prepare limiter state from migration 0028");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -239,8 +239,8 @@ try {
       previousLatestMigration: previousLatest.fileName,
       latestMigration: latest.fileName,
       runtimeHealthPreserved: true,
-      mutationPrepareRejectedBefore: true,
-      mutationPrepareAcceptedAfter: true,
+      mutationPrepareStatePreserved: true,
+      accessSessionRelationCreated: true,
       durableStatePreserved: true,
       rerunConverged: true,
     }),
