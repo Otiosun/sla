@@ -33,6 +33,7 @@ const envSchema = z.object({
   ADMIN_API_ALLOWED_ORIGIN: z.string().url().optional(),
   ADMIN_ACCESS_TEAM_DOMAIN: z.string().url().optional(),
   ADMIN_ACCESS_AUDIENCE: z.string().trim().min(1).max(256).optional(),
+  ADMIN_ACCESS_PRIVILEGED_AUDIENCE: z.string().trim().min(1).max(256).optional(),
   ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS: positiveInteger(900_000),
 });
 
@@ -53,6 +54,7 @@ export interface AppConfig {
   readonly adminApiAllowedOrigin: string | null;
   readonly adminAccessTeamDomain: string | null;
   readonly adminAccessAudience: string | null;
+  readonly adminAccessPrivilegedAudience: string | null;
   readonly adminAccessSessionIdleTimeoutMs: number;
 }
 
@@ -112,6 +114,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  const adminApiAllowedOrigin =
+    parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined
+      ? null
+      : normalizeOrigin(parsed.data.ADMIN_API_ALLOWED_ORIGIN, parsed.data.APP_ENV);
+
+  const requiresPrivilegedAccessBoundary =
+    parsed.data.ADMIN_API_ENABLED &&
+    (parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production");
+  if (requiresPrivilegedAccessBoundary && parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE === undefined) {
+    throw new ConfigError(
+      "Invalid application configuration: enabled Admin API requires a privileged Access audience in staging/production",
+    );
+  }
+  if (
+    parsed.data.ADMIN_API_ENABLED &&
+    parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE !== undefined &&
+    parsed.data.ADMIN_ACCESS_AUDIENCE === parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE
+  ) {
+    throw new ConfigError(
+      "Invalid application configuration: privileged Access audience must be distinct from the standard Access audience",
+    );
+  }
+
   return {
     appEnv: parsed.data.APP_ENV,
     logLevel: parsed.data.LOG_LEVEL,
@@ -126,12 +151,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminApiEnabled: parsed.data.ADMIN_API_ENABLED,
     adminApiHost: parsed.data.ADMIN_API_HOST,
     adminApiPort: parsed.data.ADMIN_API_PORT,
-    adminApiAllowedOrigin:
-      parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined
-        ? null
-        : normalizeOrigin(parsed.data.ADMIN_API_ALLOWED_ORIGIN, parsed.data.APP_ENV),
+    adminApiAllowedOrigin,
     adminAccessTeamDomain: parsed.data.ADMIN_ACCESS_TEAM_DOMAIN ?? null,
     adminAccessAudience: parsed.data.ADMIN_ACCESS_AUDIENCE ?? null,
+    adminAccessPrivilegedAudience: parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE ?? null,
     adminAccessSessionIdleTimeoutMs: parsed.data.ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS,
   };
 }
