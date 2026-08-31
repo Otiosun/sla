@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { BattleAction } from "../../src/modules/battle/contracts.js";
-import type { CreateTurnWindowInput, SubmitTurnActionInput } from "../../src/modules/battle/turn-window.js";
-import { runMigrations } from "../../src/platform/db/migrations.js";
+import type {
+  CreateTurnWindowInput,
+  SubmitTurnActionInput,
+} from "../../src/modules/battle/turn-window.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
+import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
@@ -100,7 +103,68 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
   return { battleId, playerA, playerB, actorA, actorB };
 }
 
-function moveAction(actorParticipantId: string, targetParticipantId: string, moveSlot: number): BattleAction {
+async function cloneBattleFixture(pool: Pool, source: Fixture, version: number): Promise<Fixture> {
+  const battleId = randomUUID();
+  const sideA = randomUUID();
+  const sideB = randomUUID();
+  const actorA = randomUUID();
+  const actorB = randomUUID();
+
+  await pool.query(
+    `INSERT INTO battles(
+       id, battle_type, status, content_release_id, ruleset_id,
+       turn_number, version, rng_seed_ciphertext, rng_seed_iv,
+       rng_seed_auth_tag, rng_seed_key_version, rng_counter
+     )
+     SELECT $1, 'PVP', 'ACTIVE', content_release_id, ruleset_id,
+            4, $2, $3, $4, $5, 1, 0
+     FROM battles WHERE id = $6`,
+    [
+      battleId,
+      version,
+      Buffer.alloc(32, version),
+      Buffer.alloc(12, version),
+      Buffer.alloc(16, version),
+      source.battleId,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO battle_sides(id, battle_id, side_no, controller_kind, player_id)
+     VALUES ($1, $3, 1, 'PLAYER', $4), ($2, $3, 2, 'PLAYER', $5)`,
+    [sideA, sideB, battleId, source.playerA, source.playerB],
+  );
+  await pool.query(
+    `INSERT INTO battle_participants(
+       id, battle_id, battle_side_id, pokemon_instance_id, participant_kind,
+       roster_position, active_member, snapshot
+     )
+     SELECT $1, $5, $3, pokemon_instance_id, 'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
+     FROM battle_participants WHERE id = $6
+     UNION ALL
+     SELECT $2, $5, $4, pokemon_instance_id, 'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
+     FROM battle_participants WHERE id = $7`,
+    [actorA, actorB, sideA, sideB, battleId, source.actorA, source.actorB],
+  );
+  await pool.query(
+    `INSERT INTO battle_state_snapshots(battle_id, version, schema_version, state)
+     VALUES ($1, $2, 1, '{}'::jsonb)`,
+    [battleId, version],
+  );
+
+  return {
+    battleId,
+    playerA: source.playerA,
+    playerB: source.playerB,
+    actorA,
+    actorB,
+  };
+}
+
+function moveAction(
+  actorParticipantId: string,
+  targetParticipantId: string,
+  moveSlot: number,
+): BattleAction {
   return {
     type: "USE_MOVE",
     actorParticipantId,
@@ -109,11 +173,15 @@ function moveAction(actorParticipantId: string, targetParticipantId: string, mov
   };
 }
 
-function windowInput(fixture: Fixture, id = randomUUID()): CreateTurnWindowInput {
+function windowInput(
+  fixture: Fixture,
+  battleVersion = 7,
+  id = randomUUID(),
+): CreateTurnWindowInput {
   return {
     id,
     battleId: fixture.battleId,
-    battleVersion: 7,
+    battleVersion,
     turnNumber: 4,
     openedAt: new Date("2026-08-31T12:00:00.000Z"),
     deadlineAt: new Date("2026-08-31T12:05:00.000Z"),
@@ -130,13 +198,14 @@ function submission(
   idempotencyKey: string,
   moveSlot: number,
   submittedAt: Date,
+  expectedBattleVersion = 7,
 ): SubmitTurnActionInput {
   const isA = player === "A";
   return {
     id: randomUUID(),
     playerId: isA ? fixture.playerA : fixture.playerB,
     sideNo: isA ? 1 : 2,
-    expectedBattleVersion: 7,
+    expectedBattleVersion,
     idempotencyKey,
     action: moveAction(
       isA ? fixture.actorA : fixture.actorB,
@@ -225,60 +294,63 @@ describe("battle TurnWindow PostgreSQL integration", () => {
   });
 
   it("serializes concurrent replacements so one action remains ACTIVE and revisions stay auditable", async () => {
-    const battleId = randomUUID();
-    await pool.query(
-      `INSERT INTO battles(
-         id, battle_type, status, content_release_id, ruleset_id,
-         turn_number, version, rng_seed_ciphertext, rng_seed_iv,
-         rng_seed_auth_tag, rng_seed_key_version, rng_counter
-       )
-       SELECT $1, 'PVP', 'ACTIVE', content_release_id, ruleset_id,
-              4, 8, $2, $3, $4, 1, 0
-       FROM battles WHERE id = $5`,
-      [
-        battleId,
-        Buffer.alloc(32, 4),
-        Buffer.alloc(12, 5),
-        Buffer.alloc(16, 6),
-        fixture.battleId,
-      ],
-    );
-    const sideA = randomUUID();
-    const sideB = randomUUID();
-    await pool.query(
-      `INSERT INTO battle_sides(id, battle_id, side_no, controller_kind, player_id)
-       VALUES ($1, $3, 1, 'PLAYER', $4), ($2, $3, 2, 'PLAYER', $5)`,
-      [sideA, sideB, battleId, fixture.playerA, fixture.playerB],
-    );
-    await pool.query(
-      `INSERT INTO battle_participants(
-         id, battle_id, battle_side_id, pokemon_instance_id, participant_kind,
-         roster_position, active_member, snapshot
-       )
-       SELECT $1, $5, $3, pokemon_instance_id, 'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
-       FROM battle_participants WHERE id = $6
-       UNION ALL
-       SELECT $2, $5, $4, pokemon_instance_id, 'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
-       FROM battle_participants WHERE id = $7`,
-      [randomUUID(), randomUUID(), sideA, sideB, battleId, fixture.actorA, fixture.actorB],
-    );
-    await pool.query(
-      `INSERT INTO battle_state_snapshots(battle_id, version, schema_version, state)
-       VALUES ($1, 8, 1, '{}'::jsonb)`,
-      [battleId],
-    );
-
+    const replacementFixture = await cloneBattleFixture(pool, fixture, 8);
     const repository = new PostgresBattleTurnWindowRepository(pool);
-    const open = await repository.open({ ...windowInput(fixture), id: randomUUID(), battleId, battleVersion: 8 });
-    expect(open.ok).toBe(true);
-    if (!open.ok) return;
+    const opened = await repository.open(windowInput(replacementFixture, 8));
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
 
-    const firstInput = {
-      ...submission(fixture, "A", "replace-v1", 1, new Date("2026-08-31T12:00:10.000Z")),
-      expectedBattleVersion: 8,
-      action: moveAction(open.value.aggregate.window.requiredPlayers[0]?.playerId ?? fixture.actorA, fixture.actorB, 1),
-    };
-    const first = await repository.submit(open.value.aggregate.window.id, firstInput);
-    expect(first.ok).toBe(false);
+    const first = await repository.submit(
+      opened.value.aggregate.window.id,
+      submission(
+        replacementFixture,
+        "A",
+        "replace-v1",
+        1,
+        new Date("2026-08-31T12:00:10.000Z"),
+        8,
+      ),
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const [second, third] = await Promise.all([
+      repository.submit(
+        opened.value.aggregate.window.id,
+        submission(
+          replacementFixture,
+          "A",
+          "replace-v2",
+          2,
+          new Date("2026-08-31T12:00:20.000Z"),
+          8,
+        ),
+      ),
+      repository.submit(
+        opened.value.aggregate.window.id,
+        submission(
+          replacementFixture,
+          "A",
+          "replace-v3",
+          3,
+          new Date("2026-08-31T12:00:21.000Z"),
+          8,
+        ),
+      ),
+    ]);
+    expect(second.ok).toBe(true);
+    expect(third.ok).toBe(true);
+
+    const persisted = await repository.loadByBattleVersion(replacementFixture.battleId, 8);
+    expect(persisted.ok).toBe(true);
+    if (!persisted.ok) return;
+    const mine = persisted.value.submissions.filter(
+      (entry) => entry.playerId === replacementFixture.playerA,
+    );
+    expect(mine).toHaveLength(3);
+    expect(mine.map((entry) => entry.submissionRevision).sort()).toEqual([1, 2, 3]);
+    expect(mine.filter((entry) => entry.status === "ACTIVE")).toHaveLength(1);
+    expect(mine.filter((entry) => entry.status === "SUPERSEDED")).toHaveLength(2);
+    expect(persisted.value.window.status).toBe("COLLECTING");
   });
 });
