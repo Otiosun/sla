@@ -16,8 +16,12 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
 const PROBE_ADMIN_ID = "00000000-0000-4000-8000-000000001627";
-const EXPECTED_PREVIOUS_LATEST = "0028_admin_api_mutation_prepare_rate_limit.sql";
-const EXPECTED_CURRENT_LATEST = "0029_admin_api_access_sessions.sql";
+const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
+const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
+const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
+const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
+const EXPECTED_PREVIOUS_LATEST = "0029_admin_api_access_sessions.sql";
+const EXPECTED_CURRENT_LATEST = "0030_admin_session_revocation_cutoff.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -45,6 +49,19 @@ async function accessSessionRelation(): Promise<string | null> {
     "SELECT to_regclass('public.admin_access_sessions')::text AS relation",
   );
   return result.rows[0]?.relation ?? null;
+}
+
+async function sessionRevocationCutoffColumnExists(): Promise<boolean> {
+  const result = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'admin_principals'
+         AND column_name = 'admin_access_sessions_revoked_before'
+     ) AS exists`,
+  );
+  return result.rows[0]?.exists === true;
 }
 
 try {
@@ -130,10 +147,13 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the access-session migration");
+    throw new Error("N-1 limiter relation is missing before the session-cutoff migration");
   }
-  if ((await accessSessionRelation()) !== null) {
-    throw new Error("N-1 database unexpectedly contains the 0029 access-session relation");
+  if ((await accessSessionRelation()) !== "admin_access_sessions") {
+    throw new Error("N-1 database is missing the durable access-session relation from migration 0029");
+  }
+  if (await sessionRevocationCutoffColumnExists()) {
+    throw new Error("N-1 database unexpectedly contains the 0030 session-revocation cutoff");
   }
 
   await pool.query(
@@ -156,6 +176,47 @@ try {
     throw new Error(
       "N-1 database did not preserve the mutation.prepare allowlist from migration 0028",
     );
+  }
+
+  await pool.query(
+    `INSERT INTO admin_access_sessions(
+       token_fingerprint,
+       principal_id,
+       environment,
+       status,
+       access_issued_at,
+       access_not_before,
+       access_expires_at,
+       created_at,
+       last_seen_at,
+       idle_expires_at
+     ) VALUES ($1, $2::uuid, 'staging', 'ACTIVE', $3, $3, $4, $3, $3, $5)`,
+    [
+      PROBE_SESSION_FINGERPRINT,
+      PROBE_ADMIN_ID,
+      PROBE_SESSION_CREATED_AT,
+      PROBE_SESSION_ACCESS_EXPIRES_AT,
+      PROBE_SESSION_IDLE_EXPIRES_AT,
+    ],
+  );
+  const sessionBefore = await pool.query<{
+    token_fingerprint: string;
+    principal_id: string;
+    status: string;
+    created_at: Date;
+    last_seen_at: Date;
+    idle_expires_at: Date;
+    access_expires_at: Date;
+  }>(
+    `SELECT token_fingerprint, principal_id, status, created_at, last_seen_at,
+            idle_expires_at, access_expires_at
+     FROM admin_access_sessions
+     WHERE token_fingerprint = $1`,
+    [PROBE_SESSION_FINGERPRINT],
+  );
+  const durableSessionBefore = sessionBefore.rows[0];
+  if (durableSessionBefore === undefined) {
+    throw new Error("N-1 durable access-session probe was not created");
   }
 
   const stateBefore = await pool.query<{ state: string }>(
@@ -197,12 +258,59 @@ try {
   }
 
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0029 did not create the durable Admin API access-session relation");
+    throw new Error("Migration 0030 regressed the durable Admin API access-session relation");
+  }
+  if (!(await sessionRevocationCutoffColumnExists())) {
+    throw new Error("Migration 0030 did not create the principal session-revocation cutoff");
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0029 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0030 regressed the mutation.prepare limiter state from migration 0028",
     );
+  }
+
+  const sessionAfter = await pool.query<{
+    token_fingerprint: string;
+    principal_id: string;
+    status: string;
+    created_at: Date;
+    last_seen_at: Date;
+    idle_expires_at: Date;
+    access_expires_at: Date;
+    revoked_before: Date | null;
+  }>(
+    `SELECT session.token_fingerprint,
+            session.principal_id,
+            session.status,
+            session.created_at,
+            session.last_seen_at,
+            session.idle_expires_at,
+            session.access_expires_at,
+            principal.admin_access_sessions_revoked_before AS revoked_before
+     FROM admin_access_sessions session
+     JOIN admin_principals principal ON principal.id = session.principal_id
+     WHERE session.token_fingerprint = $1`,
+    [PROBE_SESSION_FINGERPRINT],
+  );
+  const durableSessionAfter = sessionAfter.rows[0];
+  if (durableSessionAfter === undefined) {
+    throw new Error("Migration 0030 removed the durable access-session probe");
+  }
+  if (
+    durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
+    durableSessionAfter.principal_id !== durableSessionBefore.principal_id ||
+    durableSessionAfter.status !== durableSessionBefore.status ||
+    durableSessionAfter.created_at.getTime() !== durableSessionBefore.created_at.getTime() ||
+    durableSessionAfter.last_seen_at.getTime() !== durableSessionBefore.last_seen_at.getTime() ||
+    durableSessionAfter.idle_expires_at.getTime() !==
+      durableSessionBefore.idle_expires_at.getTime() ||
+    durableSessionAfter.access_expires_at.getTime() !==
+      durableSessionBefore.access_expires_at.getTime()
+  ) {
+    throw new Error("Migration 0030 changed existing durable access-session state");
+  }
+  if (durableSessionAfter.revoked_before !== null) {
+    throw new Error("Migration 0030 invented a revocation cutoff for an existing principal");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -244,7 +352,8 @@ try {
       latestMigration: latest.fileName,
       runtimeHealthPreserved: true,
       mutationPrepareStatePreserved: true,
-      accessSessionRelationCreated: true,
+      accessSessionStatePreserved: true,
+      sessionRevocationCutoffAdded: true,
       durableStatePreserved: true,
       rerunConverged: true,
     }),
