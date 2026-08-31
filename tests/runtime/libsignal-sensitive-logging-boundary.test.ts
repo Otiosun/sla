@@ -21,6 +21,7 @@ describe("libsignal sensitive logging boundary", () => {
     expect(sessionBuilder).not.toContain(
       'console.warn("Closing stale open session for new outgoing prekey bundle")',
     );
+    expect(sessionRecord).not.toContain('console.warn("Session already closed", session)');
     expect(sessionRecord).not.toContain('console.info("Closing session:", session)');
     expect(sessionRecord).not.toContain('console.info("Opening session:", session)');
     expect(sessionRecord).not.toContain(
