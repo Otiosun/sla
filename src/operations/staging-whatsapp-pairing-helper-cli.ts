@@ -134,8 +134,7 @@ async function defaultCheckoutInfo(): Promise<{
   revision: string;
   isClean: boolean;
 }> {
-  const runGit = (args: string[]): string =>
-    execFileSync("git", args, { encoding: "utf8" }).trim();
+  const runGit = (args: string[]): string => execFileSync("git", args, { encoding: "utf8" }).trim();
   return {
     branch: runGit(["branch", "--show-current"]),
     revision: runGit(["rev-parse", "HEAD"]),
@@ -189,18 +188,20 @@ async function defaultPairingExecutor(plan: StagingPairingPlan): Promise<void> {
   });
 }
 
-export async function runStagingWhatsAppPairingHelperCli(options: {
-  stdinIsTTY?: boolean;
-  stdoutIsTTY?: boolean;
-  isCI?: boolean;
-  secretFilePath?: string;
-  caPath?: string;
-  getCheckoutInfo?: () => Promise<{ branch: string; revision: string; isClean: boolean }>;
-  promptVisible?: (prompt: string) => Promise<string>;
-  promptSecret?: (prompt: string) => Promise<string>;
-  executePairing?: StagingPairingExecutor;
-  writeStdout?: (chunk: string) => void;
-} = {}): Promise<void> {
+export async function runStagingWhatsAppPairingHelperCli(
+  options: {
+    stdinIsTTY?: boolean;
+    stdoutIsTTY?: boolean;
+    isCI?: boolean;
+    secretFilePath?: string;
+    caPath?: string;
+    getCheckoutInfo?: () => Promise<{ branch: string; revision: string; isClean: boolean }>;
+    promptVisible?: (prompt: string) => Promise<string>;
+    promptSecret?: (prompt: string) => Promise<string>;
+    executePairing?: StagingPairingExecutor;
+    writeStdout?: (chunk: string) => void;
+  } = {},
+): Promise<void> {
   const stdinIsTTY = options.stdinIsTTY ?? Boolean(process.stdin.isTTY);
   const stdoutIsTTY = options.stdoutIsTTY ?? Boolean(process.stdout.isTTY);
   const isCI = options.isCI ?? Boolean(process.env.CI);
