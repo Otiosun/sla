@@ -44,14 +44,19 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
     }>(
       `SELECT principal.status,
               principal.revision::text,
-              principal.admin_access_sessions_revoked_before AS revoked_before,
+              cutoff.revoked_before,
               count(session.token_fingerprint) FILTER (WHERE session.status = 'ACTIVE')::text
                 AS active_sessions
        FROM admin_principals principal
-       LEFT JOIN admin_access_sessions session ON session.principal_id = principal.id
+       LEFT JOIN admin_access_session_revocation_cutoffs cutoff
+         ON cutoff.principal_id = principal.id
+        AND cutoff.environment = $2
+       LEFT JOIN admin_access_sessions session
+         ON session.principal_id = principal.id
+        AND session.environment = $2
        WHERE principal.id = $1
-       GROUP BY principal.id`,
-      [parsed.principalId],
+       GROUP BY principal.id, cutoff.revoked_before`,
+      [parsed.principalId, parsed.environment],
     );
     const row = result.rows[0];
     if (row === undefined) {
@@ -61,17 +66,20 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
     return {
       summary: {
         operation: "admin.session.revoke_all",
+        environment: parsed.environment,
         activeSessions,
         targetRevision: row.revision,
       },
       before: {
         principalStatus: row.status,
+        environment: parsed.environment,
         activeSessions,
         sessionRevocationCutoff: row.revoked_before?.toISOString() ?? null,
         revision: row.revision,
       },
       after: {
         principalStatus: row.status,
+        environment: parsed.environment,
         activeSessions: 0,
         sessionRevocationCutoff: "AT_APPLY",
         revision: (BigInt(row.revision) + 1n).toString(),
@@ -155,12 +163,16 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
         revision: string;
         revoked_before: Date | null;
       }>(
-        `SELECT status, revision::text,
-                admin_access_sessions_revoked_before AS revoked_before
-         FROM admin_principals
-         WHERE id = $1
-         FOR UPDATE`,
-        [parsed.principalId],
+        `SELECT principal.status,
+                principal.revision::text,
+                cutoff.revoked_before
+         FROM admin_principals principal
+         LEFT JOIN admin_access_session_revocation_cutoffs cutoff
+           ON cutoff.principal_id = principal.id
+          AND cutoff.environment = $2
+         WHERE principal.id = $1
+         FOR UPDATE OF principal`,
+        [parsed.principalId, parsed.environment],
       );
       const target = targetResult.rows[0];
       if (target === undefined) {
@@ -170,8 +182,10 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
       const activeBeforeResult = await client.query<{ count: string }>(
         `SELECT count(*)::text AS count
          FROM admin_access_sessions
-         WHERE principal_id = $1 AND status = 'ACTIVE'`,
-        [parsed.principalId],
+         WHERE principal_id = $1
+           AND environment = $2
+           AND status = 'ACTIVE'`,
+        [parsed.principalId, parsed.environment],
       );
       const activeBefore = Number(activeBeforeResult.rows[0]?.count ?? "0");
       const cutoffResult = await client.query<{ cutoff: Date }>(
@@ -180,16 +194,41 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
       const cutoff = cutoffResult.rows[0]?.cutoff;
       if (cutoff === undefined) throw new Error("Failed to materialize session revocation cutoff");
 
-      const principalUpdate = await client.query<{ revision: string; cutoff: Date }>(
-        `UPDATE admin_principals
-         SET admin_access_sessions_revoked_before = GREATEST(
-               COALESCE(admin_access_sessions_revoked_before, '-infinity'::timestamptz),
-               $2::timestamptz
+      const cutoffUpdate = await client.query<{ revoked_before: Date }>(
+        `INSERT INTO admin_access_session_revocation_cutoffs(
+           principal_id,
+           environment,
+           revoked_before,
+           revoked_by_principal_id,
+           revocation_reason,
+           created_at,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, 'ADMIN_REVOKE_ALL', $3, $3)
+         ON CONFLICT (principal_id, environment) DO UPDATE
+         SET revoked_before = GREATEST(
+               admin_access_session_revocation_cutoffs.revoked_before,
+               EXCLUDED.revoked_before
              ),
-             revision = revision + 1
+             revoked_by_principal_id = EXCLUDED.revoked_by_principal_id,
+             revocation_reason = EXCLUDED.revocation_reason,
+             updated_at = GREATEST(
+               admin_access_session_revocation_cutoffs.updated_at,
+               EXCLUDED.updated_at
+             )
+         RETURNING revoked_before`,
+        [parsed.principalId, parsed.environment, cutoff, actorPrincipalId],
+      );
+      const effectiveCutoff = cutoffUpdate.rows[0]?.revoked_before;
+      if (effectiveCutoff === undefined) {
+        throw new Error("Failed to persist session revocation cutoff");
+      }
+
+      const principalUpdate = await client.query<{ revision: string }>(
+        `UPDATE admin_principals
+         SET revision = revision + 1
          WHERE id = $1
-         RETURNING revision::text, admin_access_sessions_revoked_before AS cutoff`,
-        [parsed.principalId, cutoff],
+         RETURNING revision::text`,
+        [parsed.principalId],
       );
       const updatedPrincipal = principalUpdate.rows[0];
       if (updatedPrincipal === undefined) {
@@ -199,12 +238,13 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
       const revoked = await client.query(
         `UPDATE admin_access_sessions
          SET status = 'REVOKED',
-             revoked_at = $2,
-             revoked_by_principal_id = $3,
+             revoked_at = $3,
+             revoked_by_principal_id = $4,
              revocation_reason = 'ADMIN_REVOKE_ALL'
          WHERE principal_id = $1
+           AND environment = $2
            AND status = 'ACTIVE'`,
-        [parsed.principalId, updatedPrincipal.cutoff, actorPrincipalId],
+        [parsed.principalId, parsed.environment, effectiveCutoff, actorPrincipalId],
       );
       const revokedSessions = revoked.rowCount ?? 0;
       if (revokedSessions !== activeBefore) {
@@ -216,14 +256,16 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
 
       const before = {
         principalStatus: target.status,
+        environment: parsed.environment,
         activeSessions: activeBefore,
         sessionRevocationCutoff: target.revoked_before?.toISOString() ?? null,
         revision: target.revision,
       };
       const after = {
         principalStatus: target.status,
+        environment: parsed.environment,
         activeSessions: 0,
-        sessionRevocationCutoff: updatedPrincipal.cutoff.toISOString(),
+        sessionRevocationCutoff: effectiveCutoff.toISOString(),
         revision: updatedPrincipal.revision,
       };
 
@@ -257,6 +299,7 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
           JSON.stringify(after),
           JSON.stringify({
             adminOperationId: operation.id,
+            environment: parsed.environment,
             requestFingerprint: locked.request_fingerprint,
             revokedSessions,
           }),
@@ -267,9 +310,10 @@ export class PostgresAdminSessionRevocationPort implements AdminSessionRevocatio
 
       const resultPayload = {
         applied: true,
+        environment: parsed.environment,
         revokedSessions,
         targetRevision: updatedPrincipal.revision,
-        sessionRevocationCutoff: updatedPrincipal.cutoff.toISOString(),
+        sessionRevocationCutoff: effectiveCutoff.toISOString(),
       };
       const operationUpdate = await client.query(
         `UPDATE admin_operations
