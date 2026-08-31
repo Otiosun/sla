@@ -237,7 +237,10 @@ class PostgresPvpChallengeTransaction implements PvpChallengeTransaction {
         };
   }
 
-  public async pinnedContentAvailable(contentReleaseId: string, rulesetId: string): Promise<boolean> {
+  public async pinnedContentAvailable(
+    contentReleaseId: string,
+    rulesetId: string,
+  ): Promise<boolean> {
     const result = await this.client.query<{ available: boolean }>(
       `SELECT EXISTS (
          SELECT 1
