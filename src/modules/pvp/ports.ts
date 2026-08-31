@@ -1,6 +1,22 @@
 import type { EncryptedSeedEnvelope } from "../encounter/ports.js";
 import type { PvpChallenge } from "./challenge.js";
 
+export interface PvpPlayerContext {
+  readonly playerId: string;
+  readonly playerActive: boolean;
+  readonly onboardingComplete: boolean;
+  readonly activeExternalIdentity: boolean;
+  readonly areaId: string | null;
+  readonly hasEligibleTeamPokemon: boolean;
+  readonly activeEncounter: boolean;
+  readonly activeBattle: boolean;
+}
+
+export interface ActivePvpContent {
+  readonly contentReleaseId: string;
+  readonly rulesetId: string;
+}
+
 export interface InsertAcceptedPvpEncounterInput {
   readonly challenge: PvpChallenge;
   readonly seed: EncryptedSeedEnvelope;
@@ -12,6 +28,13 @@ export interface ReplacePvpChallengeInput {
 }
 
 export interface PvpChallengeTransaction {
+  playerContexts(
+    playerIds: readonly string[],
+    lock?: boolean,
+    contentReleaseId?: string,
+  ): Promise<readonly PvpPlayerContext[]>;
+  activeContent(): Promise<ActivePvpContent | null>;
+  pinnedContentAvailable(contentReleaseId: string, rulesetId: string): Promise<boolean>;
   challengeById(challengeId: string, lock?: boolean): Promise<PvpChallenge | null>;
   challengeByCreationKey(
     challengerPlayerId: string,
