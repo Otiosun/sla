@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
+import type { BattleState } from "../../modules/battle/contracts.js";
 import { initializeBattleState } from "../../modules/battle/initialization.js";
 import type { BattleRootRecord } from "../../modules/battle/ports.js";
 import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
@@ -71,7 +72,10 @@ function safeRevision(value: string, label: string): number {
   return parsed;
 }
 
-async function loadChallenge(client: PoolClient, challengeId: string): Promise<ChallengeRow | null> {
+async function loadChallenge(
+  client: PoolClient,
+  challengeId: string,
+): Promise<ChallengeRow | null> {
   const result = await client.query<ChallengeRow>(
     `SELECT id, challenger_player_id, target_player_id, status, area_id,
             content_release_id, ruleset_id, encounter_id, battle_id, revision::text
@@ -109,10 +113,7 @@ async function loadStartedReplay(
   });
 }
 
-async function lockPlayers(
-  client: PoolClient,
-  playerIds: readonly string[],
-): Promise<void> {
+async function lockPlayers(client: PoolClient, playerIds: readonly string[]): Promise<void> {
   const ordered = [...new Set(playerIds)].sort();
   const result = await client.query<{ id: string }>(
     `SELECT id
@@ -238,7 +239,7 @@ function eligibilityError(
 async function persistBattleState(
   client: PoolClient,
   root: BattleRootRecord,
-  state: ReturnType<typeof initializeBattleState> extends { ok: true; value: infer T } ? T : never,
+  state: BattleState,
 ): Promise<void> {
   const sideIdByNo = new Map<number, string>();
   for (const side of state.sides) {
@@ -305,17 +306,29 @@ export class PostgresPvpStartRepository {
     return withTransaction(this.pool, async (client) => {
       const challenge = await loadChallenge(client, input.challengeId);
       if (challenge === null) {
-        return err(appError("NOT_FOUND", "PVP challenge was not found", { challengeId: input.challengeId }));
+        return err(
+          appError("NOT_FOUND", "PVP challenge was not found", {
+            challengeId: input.challengeId,
+          }),
+        );
       }
       const participants = [challenge.challenger_player_id, challenge.target_player_id] as const;
       if (!participants.includes(input.actorPlayerId)) {
-        return err(appError("ACTION_INVALID", "PVP action is invalid", { reason: "challenge-actor-forbidden" }));
+        return err(
+          appError("ACTION_INVALID", "PVP action is invalid", {
+            reason: "challenge-actor-forbidden",
+          }),
+        );
       }
       if (challenge.status === "STARTED") {
         return loadStartedReplay(client, challenge);
       }
       if (challenge.status !== "ACCEPTED" || challenge.encounter_id === null) {
-        return err(appError("FLOW_BLOCKED", "PVP flow is blocked", { reason: "challenge-not-accepted" }));
+        return err(
+          appError("FLOW_BLOCKED", "PVP flow is blocked", {
+            reason: "challenge-not-accepted",
+          }),
+        );
       }
 
       await lockPlayers(client, participants);
@@ -330,33 +343,49 @@ export class PostgresPvpStartRepository {
         encounter.content_release_id !== challenge.content_release_id ||
         encounter.ruleset_id !== challenge.ruleset_id
       ) {
-        return err(appError("FLOW_BLOCKED", "PVP flow is blocked", { reason: "encounter-not-startable" }));
+        return err(
+          appError("FLOW_BLOCKED", "PVP flow is blocked", {
+            reason: "encounter-not-startable",
+          }),
+        );
       }
       if (
         !(await pinnedContentAvailable(client, challenge.content_release_id, challenge.ruleset_id))
       ) {
-        return err(appError("FLOW_BLOCKED", "PVP flow is blocked", { reason: "pinned-content-unavailable" }));
+        return err(
+          appError("FLOW_BLOCKED", "PVP flow is blocked", {
+            reason: "pinned-content-unavailable",
+          }),
+        );
       }
 
       const contexts = await playerEligibility(client, participants, encounter.id);
       if (contexts.length !== 2) {
-        return err(appError("PLAYER_INELIGIBLE", "Player is not eligible for PVP", { reason: "player-not-found" }));
+        return err(
+          appError("PLAYER_INELIGIBLE", "Player is not eligible for PVP", {
+            reason: "player-not-found",
+          }),
+        );
       }
       for (const context of contexts) {
         const invalid = eligibilityError(context, challenge.area_id);
         if (invalid !== null) return err(invalid);
       }
 
-      const challengerParty = (await loadPlayerBattleParty(
-        client,
-        challenge.content_release_id,
-        challenge.challenger_player_id,
-      )).filter((pokemon) => pokemon.rosterPosition <= 6 && pokemon.currentHp > 0);
-      const targetParty = (await loadPlayerBattleParty(
-        client,
-        challenge.content_release_id,
-        challenge.target_player_id,
-      )).filter((pokemon) => pokemon.rosterPosition <= 6 && pokemon.currentHp > 0);
+      const challengerParty = (
+        await loadPlayerBattleParty(
+          client,
+          challenge.content_release_id,
+          challenge.challenger_player_id,
+        )
+      ).filter((pokemon) => pokemon.rosterPosition <= 6 && pokemon.currentHp > 0);
+      const targetParty = (
+        await loadPlayerBattleParty(
+          client,
+          challenge.content_release_id,
+          challenge.target_player_id,
+        )
+      ).filter((pokemon) => pokemon.rosterPosition <= 6 && pokemon.currentHp > 0);
       if (challengerParty.length === 0 || targetParty.length === 0) {
         return err(
           appError("PLAYER_INELIGIBLE", "Player is not eligible for PVP", {
@@ -399,7 +428,9 @@ export class PostgresPvpStartRepository {
         idFactory: randomUUID,
       });
       if (!initialized.ok) {
-        return err(appError("VALIDATION_FAILED", initialized.error.message, initialized.error.details));
+        return err(
+          appError("VALIDATION_FAILED", initialized.error.message, initialized.error.details),
+        );
       }
 
       const encounterRevision = safeRevision(encounter.revision, "PVP Encounter revision");
@@ -463,7 +494,9 @@ export class PostgresPvpStartRepository {
          RETURNING id`,
         [encounter.id, encounterRevision + 1, input.startedAt],
       );
-      if (inBattle.rowCount !== 1) throw new Error("PVP Encounter IN_BATTLE transition CAS failed");
+      if (inBattle.rowCount !== 1) {
+        throw new Error("PVP Encounter IN_BATTLE transition CAS failed");
+      }
 
       const challengeRevision = safeRevision(challenge.revision, "PVP challenge revision");
       const started = await client.query(
@@ -474,7 +507,9 @@ export class PostgresPvpStartRepository {
          RETURNING id`,
         [challenge.id, challengeRevision, battleId, input.startedAt],
       );
-      if (started.rowCount !== 1) throw new Error("PVP challenge START transition CAS failed");
+      if (started.rowCount !== 1) {
+        throw new Error("PVP challenge START transition CAS failed");
+      }
 
       return ok({
         challengeId: challenge.id,
