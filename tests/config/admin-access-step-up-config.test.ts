@@ -30,8 +30,8 @@ describe("Admin Access privileged audience configuration", () => {
       ADMIN_ACCESS_PRIVILEGED_AUDIENCE: "control-center-privileged-audience",
     });
 
-    expect(
-      (config as unknown as Record<string, unknown>).adminAccessPrivilegedAudience,
-    ).toBe("control-center-privileged-audience");
+    expect((config as unknown as Record<string, unknown>).adminAccessPrivilegedAudience).toBe(
+      "control-center-privileged-audience",
+    );
   });
 });
