@@ -33,6 +33,7 @@ const envSchema = z.object({
   ADMIN_API_ALLOWED_ORIGIN: z.string().url().optional(),
   ADMIN_ACCESS_TEAM_DOMAIN: z.string().url().optional(),
   ADMIN_ACCESS_AUDIENCE: z.string().trim().min(1).max(256).optional(),
+  ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS: positiveInteger(900_000),
 });
 
 export interface AppConfig {
@@ -52,6 +53,7 @@ export interface AppConfig {
   readonly adminApiAllowedOrigin: string | null;
   readonly adminAccessTeamDomain: string | null;
   readonly adminAccessAudience: string | null;
+  readonly adminAccessSessionIdleTimeoutMs: number;
 }
 
 export class ConfigError extends Error {
@@ -130,5 +132,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         : normalizeOrigin(parsed.data.ADMIN_API_ALLOWED_ORIGIN, parsed.data.APP_ENV),
     adminAccessTeamDomain: parsed.data.ADMIN_ACCESS_TEAM_DOMAIN ?? null,
     adminAccessAudience: parsed.data.ADMIN_ACCESS_AUDIENCE ?? null,
+    adminAccessSessionIdleTimeoutMs: parsed.data.ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS,
   };
 }
