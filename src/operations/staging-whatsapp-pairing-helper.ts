@@ -137,12 +137,7 @@ export async function readStagingWhatsAppLocalSecrets(input: {
     await hardenLocalSecretPermissions(input.filePath);
     return existing;
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return null;
     }
     throw error;
