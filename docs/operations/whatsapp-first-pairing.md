@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This procedure creates the first encrypted PostgreSQL-backed Baileys auth session for the staging WhatsApp identity. It is a one-shot operator ceremony, not a normal runtime path, session-rotation tool or generic auth-repair command.
+This procedure creates the first encrypted PostgreSQL-backed Baileys auth session for the staging WhatsApp identity. It is a one-shot bootstrap ceremony executed by a local operator, not a normal runtime path, session-rotation tool or generic auth-repair command.
 
 The normal long-running runtime remains fail-closed and opens auth with creation disabled. It must never silently create or replace a missing session.
 
@@ -16,7 +16,7 @@ Live first pairing is eligible only when all of the following are true:
 
 - `APP_ENV=staging`;
 - the installed provider identity is exactly `7.0.0-rc14` plus the audited compatibility marker;
-- execution is local and interactive, not CI;
+- execution is a local interactive TTY, not CI;
 - `fetchLatestWaWebVersion()` returns `isLatest=true` and an exact three-integer protocol tuple.
 
 The resolved WhatsApp Web protocol tuple is passed explicitly to the provider socket. There is no environment override and no stale hard-coded fallback.
@@ -62,6 +62,8 @@ The helper requires these temporary shell variables:
 - `STAGING_SUPABASE_PROJECT_REF` — non-secret staging project ref;
 - `STAGING_SUPABASE_POOLER_HOST` — non-secret staging pooler host;
 - `STAGING_SUPABASE_JIT_TOKEN` — short-lived secret; keep it out of command history and persistent files.
+
+`WHATSAPP_PAIRING_TIMEOUT_MS` remains optional for the canonical child process; it defaults to `120000` and is capped at `300000`.
 
 Do not inject or use a migrator credential merely to pair WhatsApp.
 
@@ -139,7 +141,8 @@ After a successful first pairing:
 4. verify the encrypted PostgreSQL auth session exists;
 5. choose/provision the long-running runtime separately under the project's R$0 hosting constraint;
 6. configure that runtime with the same `WHATSAPP_SESSION_KEY`, auth encryption key and key version so it can recover the existing PostgreSQL session rather than create a new one;
-7. run the canonical provider-live/post-deploy smoke after the runtime is actually connected.
+7. run the canonical provider-live/post-deploy smoke after the runtime is actually connected;
+8. accept final provider-live readiness only when the expected revision/session has a fresh CONNECTED heartbeat and `finalPostDeploySmokeComplete=true`.
 
 A successful QR scan alone is not final release evidence.
 
