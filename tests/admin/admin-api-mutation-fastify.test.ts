@@ -47,6 +47,7 @@ function setup() {
     if (rawToken !== TOKEN) throw new AdminUnauthenticatedError("invalid token detail");
     return identity;
   });
+  const authorize = vi.fn(async (context: typeof identity) => context);
   const getSession = vi.fn();
   const searchPlayers = vi.fn();
   const getPlayer = vi.fn();
@@ -94,6 +95,7 @@ function setup() {
   const dependencies = {
     allowedOrigin: ORIGIN,
     authenticator: { authenticate },
+    sessionGuard: { authorize },
     sessionService: { getSession },
     readFacade: { searchPlayers, getPlayer },
     mutationFacade,
@@ -101,12 +103,12 @@ function setup() {
   };
   const server = createAdminApiServer(dependencies);
   servers.push(server);
-  return { server, authenticate, consume, prepareMutationEndpoint };
+  return { server, authenticate, authorize, consume, prepareMutationEndpoint };
 }
 
 describe("Admin API mutation preparation HTTP boundary", () => {
   it("prepares an operation from trusted server context and returns a JSON-safe projection", async () => {
-    const { server, consume, prepareMutationEndpoint } = setup();
+    const { server, authorize, consume, prepareMutationEndpoint } = setup();
     const response = await server.inject({
       method: "POST",
       url: "/admin/v1/operations/prepare",
@@ -125,6 +127,7 @@ describe("Admin API mutation preparation HTTP boundary", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
     expect(correlationId).not.toBe(CLIENT_CORRELATION_ID);
+    expect(authorize).toHaveBeenCalledWith(identity);
     expect(consume).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
       operation: "mutation.prepare",
@@ -161,6 +164,28 @@ describe("Admin API mutation preparation HTTP boundary", () => {
       },
       replayed: false,
     });
+  });
+
+  it("rejects PREPARE when the durable session is inactive before rate limiting", async () => {
+    const { server, authorize, consume, prepareMutationEndpoint } = setup();
+    authorize.mockRejectedValueOnce(new AdminUnauthenticatedError("revoked session detail"));
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/admin/v1/operations/prepare",
+      headers: {
+        origin: ORIGIN,
+        "cf-access-jwt-assertion": TOKEN,
+        [CSRF_HEADER]: CSRF_VALUE,
+      },
+      payload: clientBody,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(authorize).toHaveBeenCalledWith(identity);
+    expect(consume).not.toHaveBeenCalled();
+    expect(prepareMutationEndpoint).not.toHaveBeenCalled();
+    expect(response.body).not.toContain("revoked session detail");
   });
 
   it("rejects a mutation request without the exact browser Origin before authentication", async () => {
