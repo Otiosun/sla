@@ -247,7 +247,9 @@ export class PostgresPvpChallengeRepository implements PvpChallengeRepository {
   public async transaction<T>(
     work: (transaction: PvpChallengeTransaction) => Promise<T>,
   ): Promise<T> {
-    return withTransaction(this.pool, (client) => work(new PostgresPvpChallengeTransaction(client)));
+    return withTransaction(this.pool, (client) =>
+      work(new PostgresPvpChallengeTransaction(client)),
+    );
   }
 
   public async read<T>(work: (transaction: PvpChallengeTransaction) => Promise<T>): Promise<T> {
