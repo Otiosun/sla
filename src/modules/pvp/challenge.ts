@@ -123,9 +123,7 @@ function requestFingerprint(input: CreatePvpChallengeInput): string {
     .digest("hex");
 }
 
-function validateCreateInput(
-  input: CreatePvpChallengeInput,
-): PvpChallengeResult<{
+function validateCreateInput(input: CreatePvpChallengeInput): PvpChallengeResult<{
   readonly idempotencyKey: string;
   readonly fingerprint: string;
 }> {
@@ -158,11 +156,7 @@ function validateCreateInput(
     input.creationIdempotencyKey,
   );
   if (!idempotency.ok) {
-    return failure(
-      "PVP_CHALLENGE_INVALID",
-      idempotency.error.message,
-      idempotency.error.details,
-    );
+    return failure("PVP_CHALLENGE_INVALID", idempotency.error.message, idempotency.error.details);
   }
 
   return {
