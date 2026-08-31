@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { Clock } from "../../platform/clock/index.js";
 import type { FeatureAvailability } from "../../shared-kernel/gates.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { BattleState } from "../battle/contracts.js";
+import type { BattleTurnWindow } from "../battle/turn-window.js";
 import type { EncounterSeedProvider } from "../encounter/ports.js";
 import {
   acceptPvpChallenge,
@@ -22,8 +24,10 @@ import {
 import type {
   PvpChallengeRepository,
   PvpPlayerContext,
+  PvpRecoveryRepository,
   PvpStartRepository,
   PvpStartRepositoryOutput,
+  PvpTurnResolver,
 } from "./ports.js";
 
 const uuid = z.string().uuid();
@@ -51,6 +55,10 @@ export interface StartPvpEncounterRequest {
   readonly actorPlayerId: string;
 }
 
+export interface RecoverPvpEncounterRequest {
+  readonly playerId: string;
+}
+
 export interface CreatePvpChallengeOutput {
   readonly challenge: PvpChallenge;
   readonly replayed: boolean;
@@ -63,6 +71,13 @@ export interface AcceptPvpChallengeOutput {
 }
 
 export type StartPvpEncounterOutput = PvpStartRepositoryOutput;
+
+export interface RecoverPvpEncounterOutput {
+  readonly battleId: string;
+  readonly state: BattleState;
+  readonly turnWindow: BattleTurnWindow | null;
+  readonly resolvedLocked: boolean;
+}
 
 function playerEligibilityError(context: PvpPlayerContext): ReturnType<typeof appError> | null {
   if (!context.playerActive) return pvpPlayerIneligible("player-not-active", context.playerId);
@@ -115,6 +130,8 @@ export class PvpService {
     private readonly feature: FeatureAvailability,
     private readonly config: PvpServiceConfig,
     private readonly startRepository?: PvpStartRepository,
+    private readonly recoveryRepository?: PvpRecoveryRepository,
+    private readonly turnResolver?: PvpTurnResolver,
   ) {
     if (!Number.isSafeInteger(config.challengeTtlMs) || config.challengeTtlMs <= 0) {
       throw new Error("PVP challenge TTL must be a positive safe integer");
@@ -364,6 +381,86 @@ export class PvpService {
       actorPlayerId: input.actorPlayerId,
       startedAt,
       deadlineAt,
+    });
+  }
+
+  public async recoverEncounter(
+    input: RecoverPvpEncounterRequest,
+  ): Promise<Result<RecoverPvpEncounterOutput>> {
+    const feature = this.featureError();
+    if (feature !== null) return err(feature);
+    if (!uuid.safeParse(input.playerId).success) {
+      return err(appError("INVALID_ID", "PVP player id must be a valid UUID"));
+    }
+    if (this.recoveryRepository === undefined || this.turnResolver === undefined) {
+      return err(
+        appError("FEATURE_UNAVAILABLE", "PVP recovery is unavailable", {
+          reason: "pvp-recovery-not-configured",
+        }),
+      );
+    }
+
+    const current = await this.recoveryRepository.activeForPlayer(input.playerId);
+    if (current === null) {
+      return err(
+        appError("NOT_FOUND", "Active PVP battle was not found", { playerId: input.playerId }),
+      );
+    }
+    if (
+      current.state.battleId !== current.battleId ||
+      current.state.status !== "ACTIVE" ||
+      current.turnWindow.window.battleId !== current.battleId ||
+      current.turnWindow.window.battleVersion !== current.state.version
+    ) {
+      return err(pvpFlowBlocked("recovery-current-state-inconsistent"));
+    }
+
+    if (current.turnWindow.window.status === "COLLECTING") {
+      return ok({
+        battleId: current.battleId,
+        state: current.state,
+        turnWindow: current.turnWindow.window,
+        resolvedLocked: false,
+      });
+    }
+    if (current.turnWindow.window.status !== "LOCKED") {
+      return err(pvpFlowBlocked("recovery-window-not-actionable"));
+    }
+
+    const resolved = await this.turnResolver.resolve(current.turnWindow.window.id);
+    if (!resolved.ok) {
+      return err(
+        pvpFlowBlocked(`recovery-locked-resolution-failed:${resolved.error.code.toLowerCase()}`),
+      );
+    }
+    if (resolved.value.state.status !== "ACTIVE") {
+      return ok({
+        battleId: current.battleId,
+        state: resolved.value.state,
+        turnWindow: null,
+        resolvedLocked: true,
+      });
+    }
+
+    const reloaded = await this.recoveryRepository.activeForPlayer(input.playerId);
+    if (reloaded === null) {
+      return err(pvpFlowBlocked("recovery-current-window-missing"));
+    }
+    if (
+      reloaded.battleId !== current.battleId ||
+      reloaded.state.battleId !== current.battleId ||
+      reloaded.state.status !== "ACTIVE" ||
+      reloaded.turnWindow.window.battleId !== current.battleId ||
+      reloaded.turnWindow.window.battleVersion !== reloaded.state.version
+    ) {
+      return err(pvpFlowBlocked("recovery-reloaded-state-inconsistent"));
+    }
+
+    return ok({
+      battleId: reloaded.battleId,
+      state: reloaded.state,
+      turnWindow: reloaded.turnWindow.window,
+      resolvedLocked: true,
     });
   }
 
