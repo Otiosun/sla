@@ -70,7 +70,10 @@ function safeInteger(value: string, label: string): number {
   return parsed;
 }
 
-function parseWindow(row: TurnWindowRow, requiredPlayers: readonly RequiredPlayerRow[]): BattleTurnWindow {
+function parseWindow(
+  row: TurnWindowRow,
+  requiredPlayers: readonly RequiredPlayerRow[],
+): BattleTurnWindow {
   return {
     id: row.id,
     battleId: row.battle_id,
@@ -234,7 +237,9 @@ export class PostgresBattleTurnWindowRepository {
       this.pool,
       async (client) => {
         const aggregate = await loadAggregateByBattleVersion(client, battleId, battleVersion);
-        return aggregate === null ? failure("Turn window was not found") : { ok: true, value: aggregate };
+        return aggregate === null
+          ? failure("Turn window was not found")
+          : { ok: true, value: aggregate };
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );
