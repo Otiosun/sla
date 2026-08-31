@@ -1,7 +1,5 @@
 import { z } from "zod";
-import type {
-  ContentLibrarySearchResultView,
-} from "../../modules/admin/content-library-contracts.js";
+import type { ContentLibrarySearchResultView } from "../../modules/admin/content-library-contracts.js";
 import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
 import type {
   Player360SearchResultView,

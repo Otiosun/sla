@@ -56,9 +56,7 @@ export class ContentLibraryService {
 
     return this.repository.searchContent({
       ...(parsed.data.query === undefined ? {} : { query: parsed.data.query }),
-      ...(parsed.data.resourceKind === undefined
-        ? {}
-        : { resourceKind: parsed.data.resourceKind }),
+      ...(parsed.data.resourceKind === undefined ? {} : { resourceKind: parsed.data.resourceKind }),
       ...(parsed.data.releaseStatus === undefined
         ? {}
         : { releaseStatus: parsed.data.releaseStatus }),
