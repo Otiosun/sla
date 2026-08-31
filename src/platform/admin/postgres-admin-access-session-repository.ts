@@ -13,7 +13,13 @@ export class PostgresAdminAccessSessionRepository implements AdminAccessSessionR
     request: AdminAccessSessionUseRequest,
   ): Promise<AdminAccessSessionUseDecision> {
     const result = await this.pool.query<{ status: "ACTIVE" }>(
-      `INSERT INTO admin_access_sessions (
+      `WITH principal_gate AS (
+         SELECT admin_access_sessions_revoked_before
+         FROM admin_principals
+         WHERE id = $2
+         FOR SHARE
+       )
+       INSERT INTO admin_access_sessions (
          token_fingerprint,
          principal_id,
          environment,
@@ -36,11 +42,16 @@ export class PostgresAdminAccessSessionRepository implements AdminAccessSessionR
          $7,
          $7,
          $8
+       FROM principal_gate
        WHERE $7::timestamptz >= $5::timestamptz
          AND $7::timestamptz < $6::timestamptz
          AND $8::timestamptz > $7::timestamptz
          AND $8::timestamptz <= $6::timestamptz
          AND $4::timestamptz <= $6::timestamptz
+         AND (
+           principal_gate.admin_access_sessions_revoked_before IS NULL
+           OR $4::timestamptz > principal_gate.admin_access_sessions_revoked_before
+         )
        ON CONFLICT (token_fingerprint) DO UPDATE
        SET last_seen_at = EXCLUDED.last_seen_at,
            idle_expires_at = EXCLUDED.idle_expires_at

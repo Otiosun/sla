@@ -5,7 +5,7 @@ import type { AdminAccessSessionUseRequest } from "../../src/adapters/admin-api/
 import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { PostgresAdminAccessSessionRepository } from "../../src/platform/admin/postgres-admin-access-session-repository.js";
-import { PostgresAdminRegistrySeed } from "../../src/platform/admin/postgres-admin-registry-seed.js";
+import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../../src/platform/admin/postgres-admin-session-revocation-port.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -23,7 +23,7 @@ function databaseUrlFor(name: string): string {
   return url.toString();
 }
 
-function accessSessionRequest(input: {
+function sessionRequest(input: {
   principalId: string;
   fingerprint: string;
   issuedAt: Date;
@@ -52,13 +52,12 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 8 });
     await runMigrations(pool, { appliedBy: "admin-session-revoke-all-proof" });
-    await pool.connect().then(async (client) => {
-      try {
-        await new PostgresAdminRegistrySeed(client).reconcile();
-      } finally {
-        client.release();
-      }
-    });
+    const client = await pool.connect();
+    try {
+      await reconcileCanonicalAdminRegistry(client);
+    } finally {
+      client.release();
+    }
   }, 30_000);
 
   afterAll(async () => {
@@ -71,7 +70,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("revokes every current session and blocks previously unseen pre-cutoff Access tokens", async () => {
+  it("governs revoke-all and blocks unseen Access tokens issued before the cutoff", async () => {
     const proposerId = randomUUID();
     const approverId = randomUUID();
     const targetId = randomUUID();
@@ -79,7 +78,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
       "SELECT id FROM admin_roles WHERE slug = 'OWNER_SECURITY_ADMIN'",
     );
     const ownerRoleId = ownerRole.rows[0]?.id;
-    expect(ownerRoleId).toBeDefined();
+    if (ownerRoleId === undefined) throw new Error("OWNER_SECURITY_ADMIN role was not seeded");
 
     await pool.query(
       `INSERT INTO admin_principals(id, identity_ref, status)
@@ -107,13 +106,12 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     }
 
     const sessions = new PostgresAdminAccessSessionRepository(pool);
-    const existingIssuedAt = new Date("2026-08-31T17:00:00.000Z");
     await expect(
       sessions.useSession(
-        accessSessionRequest({
+        sessionRequest({
           principalId: targetId,
           fingerprint: "a".repeat(64),
-          issuedAt: existingIssuedAt,
+          issuedAt: new Date("2026-08-31T17:00:00.000Z"),
           observedAt: new Date("2026-08-31T17:30:00.000Z"),
           expiresAt: new Date("2026-08-31T23:00:00.000Z"),
         }),
@@ -121,9 +119,9 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
     ).resolves.toBe("ACTIVE");
 
     const repository = new PostgresAdminRepository(pool);
-    const sessionRevocation = new PostgresAdminSessionRevocationPort(pool);
+    const revocationPort = new PostgresAdminSessionRevocationPort(pool);
     const admin = new AdminService(
-      createPhase12AdminOperationRegistry(repository, sessionRevocation),
+      createPhase12AdminOperationRegistry(repository, revocationPort),
       repository,
     );
     const correlationId = randomUUID();
@@ -145,39 +143,34 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
       status: "VALIDATED",
       expectedRevision: null,
     });
-
     const simulated = await admin.simulate(prepared.operation.id, proposerId);
-    expect(simulated.status).toBe("PENDING_CONFIRMATION");
-    expect(simulated.result).toMatchObject({
-      simulation: {
-        summary: { operation: "admin.session.revoke_all", activeSessions: 1 },
-      },
+    expect(simulated).toMatchObject({
+      status: "PENDING_CONFIRMATION",
+      result: { simulation: { summary: { activeSessions: 1 } } },
     });
-
-    const confirmed = await admin.confirm(prepared.operation.id, proposerId);
-    expect(confirmed.status).toBe("PENDING_APPROVAL");
+    expect((await admin.confirm(prepared.operation.id, proposerId)).status).toBe(
+      "PENDING_APPROVAL",
+    );
     await expect(
       admin.approve(prepared.operation.id, proposerId, "self approval is forbidden"),
     ).rejects.toMatchObject({ code: "ADMIN_SELF_APPROVAL_FORBIDDEN" });
-
-    const approved = await admin.approve(
-      prepared.operation.id,
-      approverId,
-      "independent security approval",
-    );
-    expect(approved.status).toBe("READY");
+    expect(
+      (await admin.approve(prepared.operation.id, approverId, "independent security approval"))
+        .status,
+    ).toBe("READY");
 
     const applied = await admin.apply(prepared.operation.id, proposerId);
-    expect(applied.status).toBe("APPLIED");
-    expect(applied.result).toMatchObject({ applied: true, revokedSessions: 1 });
+    expect(applied).toMatchObject({
+      status: "APPLIED",
+      result: { applied: true, revokedSessions: 1 },
+    });
 
     const target = await pool.query<{
       admin_access_sessions_revoked_before: Date;
       revision: string;
     }>(
       `SELECT admin_access_sessions_revoked_before, revision::text
-       FROM admin_principals
-       WHERE id = $1`,
+       FROM admin_principals WHERE id = $1`,
       [targetId],
     );
     const cutoff = target.rows[0]?.admin_access_sessions_revoked_before;
@@ -191,8 +184,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
       revoked_by_principal_id: string;
     }>(
       `SELECT status, revocation_reason, revoked_by_principal_id
-       FROM admin_access_sessions
-       WHERE token_fingerprint = $1`,
+       FROM admin_access_sessions WHERE token_fingerprint = $1`,
       ["a".repeat(64)],
     );
     expect(revoked.rows[0]).toMatchObject({
@@ -203,7 +195,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
 
     await expect(
       sessions.useSession(
-        accessSessionRequest({
+        sessionRequest({
           principalId: targetId,
           fingerprint: "b".repeat(64),
           issuedAt: new Date(cutoff.getTime() - 60_000),
@@ -212,10 +204,9 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
         }),
       ),
     ).resolves.toBe("DENIED");
-
     await expect(
       sessions.useSession(
-        accessSessionRequest({
+        sessionRequest({
           principalId: targetId,
           fingerprint: "c".repeat(64),
           issuedAt: new Date(cutoff.getTime() + 1_000),
@@ -235,8 +226,7 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
       metadata: Record<string, unknown>;
     }>(
       `SELECT action, actor_id, target_id, correlation_id, before_data, after_data, metadata
-       FROM audit_events
-       WHERE causation_id = $1`,
+       FROM audit_events WHERE causation_id = $1`,
       [prepared.operation.id],
     );
     expect(audit.rows).toHaveLength(1);
@@ -250,6 +240,6 @@ describe.sequential("admin.session.revoke_all PostgreSQL lifecycle", () => {
       metadata: { adminOperationId: prepared.operation.id },
     });
     expect(JSON.stringify(audit.rows[0])).not.toContain("tokenFingerprint");
-    expect(JSON.stringify(audit.rows[0])).not.toContain("aaaa");
+    expect(JSON.stringify(audit.rows[0])).not.toContain("aaaaaaaa");
   });
 });

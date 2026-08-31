@@ -1,7 +1,12 @@
 import { z } from "zod";
-import { AdminRoleAssignInputSchema, type AdminRoleAssignInput } from "./contracts.js";
+import {
+  AdminRoleAssignInputSchema,
+  AdminSessionRevokeAllInputSchema,
+  type AdminRoleAssignInput,
+  type AdminSessionRevokeAllInput,
+} from "./contracts.js";
 import { AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
-import type { AdminRoleAssignmentPort } from "./ports.js";
+import type { AdminRoleAssignmentPort, AdminSessionRevocationPort } from "./ports.js";
 
 const playerReadSchema = z.object({ playerId: z.string().uuid() }).strict();
 const playerCollectionReadSchema = z.object({}).strict();
@@ -16,10 +21,31 @@ const readPolicy = {
   requiredApprovals: 0,
 } as const;
 
+function sessionRevocationPortFrom(
+  roleAssignmentPort: AdminRoleAssignmentPort,
+  explicit: AdminSessionRevocationPort | undefined,
+): AdminSessionRevocationPort | null {
+  if (explicit !== undefined) return explicit;
+  if (
+    "simulateSessionRevocation" in roleAssignmentPort &&
+    typeof roleAssignmentPort.simulateSessionRevocation === "function" &&
+    "applySessionRevocation" in roleAssignmentPort &&
+    typeof roleAssignmentPort.applySessionRevocation === "function"
+  ) {
+    return roleAssignmentPort as AdminRoleAssignmentPort & AdminSessionRevocationPort;
+  }
+  return null;
+}
+
 export function createPhase12AdminOperationRegistry(
   roleAssignmentPort: AdminRoleAssignmentPort,
+  explicitSessionRevocationPort?: AdminSessionRevocationPort,
 ): AdminOperationRegistry {
   const registry = new AdminOperationRegistry();
+  const sessionRevocationPort = sessionRevocationPortFrom(
+    roleAssignmentPort,
+    explicitSessionRevocationPort,
+  );
 
   registry.register(
     defineAdminOperation({
@@ -106,6 +132,42 @@ export function createPhase12AdminOperationRegistry(
       simulate: (input) => roleAssignmentPort.simulateRoleAssignment(input),
       apply: (context, input) =>
         roleAssignmentPort.applyRoleAssignment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminSessionRevokeAllInput>({
+      kind: "MUTATION",
+      operationType: "admin.session.revoke_all",
+      capabilityKey: "admin.session.revoke",
+      riskTier: 4,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: {
+        version: 1,
+        requiresReason: true,
+        requiresExpectedRevision: false,
+        requiresSimulation: true,
+        requiresConfirmation: true,
+        requiredApprovals: 1,
+      },
+      inputSchema: AdminSessionRevokeAllInputSchema,
+      target: (input) => ({ type: "ADMIN_PRINCIPAL", id: input.principalId }),
+      simulate: async (input) => {
+        if (sessionRevocationPort === null) {
+          throw new Error("Admin session revocation port is not configured");
+        }
+        return sessionRevocationPort.simulateSessionRevocation(input);
+      },
+      apply: async (context, input) => {
+        if (sessionRevocationPort === null) {
+          throw new Error("Admin session revocation port is not configured");
+        }
+        return sessionRevocationPort.applySessionRevocation(
+          context.operation,
+          context.actorPrincipalId,
+          input,
+        );
+      },
     }),
   );
 

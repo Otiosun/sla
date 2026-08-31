@@ -17,6 +17,7 @@ import { PostgresAdminAccessSessionRepository } from "../platform/admin/postgres
 import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-api-rate-limiter.js";
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
+import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
 import { SystemClock } from "../platform/clock/index.js";
@@ -47,7 +48,8 @@ export function createOperationalAdminApi(
   }
 
   const adminRepository = new PostgresAdminRepository(pool);
-  const registry = createPhase12AdminOperationRegistry(adminRepository);
+  const sessionRevocationPort = new PostgresAdminSessionRevocationPort(pool);
+  const registry = createPhase12AdminOperationRegistry(adminRepository, sessionRevocationPort);
   const adminService = new AdminService(registry, adminRepository);
   const player360Repository = new PostgresPlayer360Repository(pool);
   const player360Service = new Player360Service(adminService, player360Repository);

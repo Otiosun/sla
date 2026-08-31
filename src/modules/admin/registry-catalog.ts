@@ -53,6 +53,7 @@ export const ADMIN_CAPABILITIES = [
   ["admin.role.assign", 4],
   ["admin.role.manage", 4],
   ["admin.capability.manage", 4],
+  ["admin.session.revoke", 4],
   ["admin.override.invariant", 4],
 ] as const;
 
