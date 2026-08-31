@@ -1,0 +1,113 @@
+name: Staging Content Bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-content-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: canonical staging content bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      APP_ENV: staging
+      DEPLOY_REVISION: ${{ github.sha }}
+
+    steps:
+      - name: Require canonical main ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "staging content bootstrap must run from refs/heads/main" >&2
+            exit 64
+          fi
+
+      - name: Checkout application
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Checkout pinned PokeAPI data snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: PokeAPI/pokeapi
+          ref: 7af36d9f3424366ffc46e90d94c8bc120df39cd0
+          path: .phase15-pokeapi
+          sparse-checkout: data/v2/csv
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout pinned FireRed topology
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pret/pokefirered
+          ref: c75f352304d529f6ba92d4f74b9cf8b5c3810788
+          path: .phase15-firered
+          sparse-checkout: data/maps
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout pinned Crystal topology
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pret/pokecrystal
+          ref: 7a7881d0d62e0ddbd82dcf10e7116807487ac651
+          path: .phase15-crystal
+          sparse-checkout: |
+            constants/map_constants.asm
+            data/maps
+            maps
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout pinned Emerald topology
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pret/pokeemerald
+          ref: c65e93f20a5275ab03b07d6f6411096a82a60ffd
+          path: .phase15-emerald
+          sparse-checkout: data/maps
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify pinned external source SHAs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .phase15-pokeapi rev-parse HEAD)" = "7af36d9f3424366ffc46e90d94c8bc120df39cd0"
+          test "$(git -C .phase15-firered rev-parse HEAD)" = "c75f352304d529f6ba92d4f74b9cf8b5c3810788"
+          test "$(git -C .phase15-crystal rev-parse HEAD)" = "7a7881d0d62e0ddbd82dcf10e7116807487ac651"
+          test "$(git -C .phase15-emerald rev-parse HEAD)" = "c65e93f20a5275ab03b07d6f6411096a82a60ffd"
+
+      - name: Bootstrap canonical Gen I-III staging content
+        shell: bash
+        env:
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+          STAGING_SUPABASE_POOLER_HOST: ${{ vars.STAGING_SUPABASE_POOLER_HOST }}
+          STAGING_SUPABASE_JIT_TOKEN: ${{ secrets.STAGING_SUPABASE_JIT_TOKEN }}
+          POKEAPI_DATA_DIR: ${{ github.workspace }}/.phase15-pokeapi/data/v2/csv
+          POKEFIRERED_DIR: ${{ github.workspace }}/.phase15-firered
+          POKECRYSTAL_DIR: ${{ github.workspace }}/.phase15-crystal
+          POKEEMERALD_DIR: ${{ github.workspace }}/.phase15-emerald
+        run: bash scripts/operations/staging-content-bootstrap-supabase-jit.sh

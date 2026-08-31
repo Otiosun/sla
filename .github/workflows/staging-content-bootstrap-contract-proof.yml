@@ -1,0 +1,39 @@
+name: Staging Content Bootstrap Contract Proof
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/staging-content-bootstrap.yml"
+      - ".github/workflows/staging-content-bootstrap-contract-proof.yml"
+      - "scripts/operations/staging-content-bootstrap-supabase-jit.sh"
+      - "scripts/operations/staging-content-bootstrap.ts"
+      - "db/proofs/phase17_staging_content_bootstrap_contract_e2e.sh"
+      - "package.json"
+  push:
+    branches:
+      - "feat/staging-content-bootstrap-v1"
+    paths:
+      - ".github/workflows/staging-content-bootstrap.yml"
+      - ".github/workflows/staging-content-bootstrap-contract-proof.yml"
+      - "scripts/operations/staging-content-bootstrap-supabase-jit.sh"
+      - "scripts/operations/staging-content-bootstrap.ts"
+      - "db/proofs/phase17_staging_content_bootstrap_contract_e2e.sh"
+      - "package.json"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: staging content bootstrap contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prove workflow contract
+        shell: bash
+        run: bash db/proofs/phase17_staging_content_bootstrap_contract_e2e.sh
