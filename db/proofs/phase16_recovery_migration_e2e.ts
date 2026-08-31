@@ -15,8 +15,9 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const EXPECTED_PREVIOUS_LATEST = "0025_mutation_abuse_admission.sql";
-const EXPECTED_CURRENT_LATEST = "0026_runtime_health_evidence.sql";
+const PROBE_ADMIN_ID = "00000000-0000-4000-8000-000000001627";
+const EXPECTED_PREVIOUS_LATEST = "0027_admin_api_rate_limit_buckets.sql";
+const EXPECTED_CURRENT_LATEST = "0028_admin_api_mutation_prepare_rate_limit.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -26,10 +27,23 @@ const pool = new Pool({
 });
 const previousMigrationsDirectory = await mkdtemp(join(tmpdir(), "pokemon-phase16-prev-"));
 
+async function mutationPrepareBucketExists(): Promise<boolean> {
+  const result = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM admin_api_rate_limit_buckets
+       WHERE principal_id = $1::uuid
+         AND operation = 'mutation.prepare'
+     ) AS exists`,
+    [PROBE_ADMIN_ID],
+  );
+  return result.rows[0]?.exists === true;
+}
+
 try {
   const migrations = await loadMigrations();
-  if (migrations.length < 2) {
-    throw new Error("Forward-migration proof requires at least two migrations");
+  if (migrations.length < 3) {
+    throw new Error("Forward-migration proof requires the runtime and Admin API migrations");
   }
 
   const previousLatest = migrations.at(-2);
@@ -98,11 +112,18 @@ try {
     throw new Error("Latest migration unexpectedly exists in the previous-version database");
   }
 
-  const latestRelationBefore = await pool.query<{ relation: string | null }>(
+  const runtimeRelationBefore = await pool.query<{ relation: string | null }>(
     "SELECT to_regclass('public.runtime_instances')::text AS relation",
   );
-  if (latestRelationBefore.rows[0]?.relation !== null) {
-    throw new Error("Latest-version relation unexpectedly exists before forward migration");
+  if (runtimeRelationBefore.rows[0]?.relation !== "runtime_instances") {
+    throw new Error("Phase 17 runtime health relation is missing from the N-1 baseline");
+  }
+
+  const limiterRelationBefore = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
+  );
+  if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
+    throw new Error("N-1 limiter relation is missing before the constraint-only forward migration");
   }
 
   await pool.query(
@@ -110,6 +131,27 @@ try {
      VALUES ($1::uuid, 'ACTIVE')`,
     [PROBE_PLAYER_ID],
   );
+  await pool.query(
+    `INSERT INTO admin_principals(id, identity_ref, status)
+     VALUES ($1::uuid, $2, 'ACTIVE')`,
+    [PROBE_ADMIN_ID, `phase16-forward-proof:${PROBE_ADMIN_ID}`],
+  );
+
+  let rejectedBefore = false;
+  try {
+    await pool.query(
+      `INSERT INTO admin_api_rate_limit_buckets(
+         principal_id, operation, window_started_at, request_count, updated_at
+       ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
+      [PROBE_ADMIN_ID],
+    );
+  } catch (error) {
+    rejectedBefore =
+      typeof error === "object" && error !== null && "code" in error && error.code === "23514";
+  }
+  if (!rejectedBefore || (await mutationPrepareBucketExists())) {
+    throw new Error("N-1 limiter unexpectedly accepts mutation.prepare before migration 0028");
+  }
 
   const stateBefore = await pool.query<{ state: string }>(
     `SELECT status || ':' || revision::text AS state
@@ -149,11 +191,21 @@ try {
     throw new Error("Latest migration was not attributed to the controlled forward step");
   }
 
-  const latestRelationAfter = await pool.query<{ relation: string | null }>(
+  await pool.query(
+    `INSERT INTO admin_api_rate_limit_buckets(
+       principal_id, operation, window_started_at, request_count, updated_at
+     ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
+    [PROBE_ADMIN_ID],
+  );
+  if (!(await mutationPrepareBucketExists())) {
+    throw new Error("Migration 0028 did not enable mutation.prepare in the limiter allowlist");
+  }
+
+  const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
     "SELECT to_regclass('public.runtime_instances')::text AS relation",
   );
-  if (latestRelationAfter.rows[0]?.relation !== "runtime_instances") {
-    throw new Error("Latest migration schema effect is missing after forward migration");
+  if (runtimeRelationAfter.rows[0]?.relation !== "runtime_instances") {
+    throw new Error("Admin API forward migration regressed the Phase 17 runtime health relation");
   }
 
   const stateAfter = await pool.query<{ state: string }>(
@@ -186,6 +238,9 @@ try {
       currentMigrationCount: migrations.length,
       previousLatestMigration: previousLatest.fileName,
       latestMigration: latest.fileName,
+      runtimeHealthPreserved: true,
+      mutationPrepareRejectedBefore: true,
+      mutationPrepareAcceptedAfter: true,
       durableStatePreserved: true,
       rerunConverged: true,
     }),
