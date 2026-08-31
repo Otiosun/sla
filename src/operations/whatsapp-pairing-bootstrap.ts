@@ -10,6 +10,8 @@ import type {
 import type { WhatsAppPairingBootstrapConfig } from "./whatsapp-pairing-bootstrap-config.js";
 
 const AUDITED_RC14_PAIRING_COMPATIBILITY = "rc14-companion-reg-refresh-v1";
+const RESTART_REQUIRED_STATUS_CODE = 515;
+const MAX_PAIRING_RESTARTS = 1;
 
 type SignalKeyData = Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
 
@@ -170,6 +172,24 @@ function asConnectionUpdate(value: unknown): BaileysConnectionUpdateLike | null 
   return value as BaileysConnectionUpdateLike;
 }
 
+function statusCodeFromError(error: unknown): number | null {
+  if (typeof error !== "object" || error === null) return null;
+
+  if ("output" in error) {
+    const output = error.output;
+    if (typeof output === "object" && output !== null && "statusCode" in output) {
+      const statusCode = output.statusCode;
+      if (typeof statusCode === "number") return statusCode;
+    }
+  }
+
+  if ("statusCode" in error && typeof error.statusCode === "number") {
+    return error.statusCode;
+  }
+
+  return null;
+}
+
 function safeEnd(socket: { end(): void } | null): void {
   if (socket === null) return;
   try {
@@ -189,6 +209,7 @@ async function executePairing(
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
+    let restartCount = 0;
 
     const clearDeadline = (): void => {
       if (timeout !== undefined) clearTimeout(timeout);
@@ -222,18 +243,22 @@ async function executePairing(
       })();
     };
 
-    try {
-      socket = dependencies.socketFactory({
+    const createSocket = (): void => {
+      const currentSocket = dependencies.socketFactory({
         auth: auth.state,
         logger: silentLogger,
         markOnlineOnConnect: false,
         shouldSyncHistoryMessage: () => false,
         syncFullHistory: false,
       });
-      socket.ev.on("creds.update", (update) => {
+      socket = currentSocket;
+
+      currentSocket.ev.on("creds.update", (update) => {
+        if (settled || socket !== currentSocket) return;
         auth.applyCredentialsUpdate(update);
       });
-      socket.ev.on("connection.update", (value) => {
+      currentSocket.ev.on("connection.update", (value) => {
+        if (settled || socket !== currentSocket) return;
         const update = asConnectionUpdate(value);
         if (update === null) return;
 
@@ -242,11 +267,41 @@ async function executePairing(
             fail(new WhatsAppPairingQrSinkError("Sensitive WhatsApp QR rendering failed"));
           });
         }
-        if (update.connection === "open") succeed();
-        else if (update.connection === "close") {
-          fail(new WhatsAppPairingProviderClosedError("WhatsApp provider closed before pairing"));
+        if (update.connection === "open") {
+          succeed();
+          return;
         }
+        if (update.connection !== "close") return;
+
+        const statusCode = statusCodeFromError(update.lastDisconnect?.error);
+        if (
+          statusCode === RESTART_REQUIRED_STATUS_CODE &&
+          auth.creds.registered === true &&
+          restartCount < MAX_PAIRING_RESTARTS
+        ) {
+          restartCount += 1;
+          socket = null;
+          safeEnd(currentSocket);
+          try {
+            createSocket();
+          } catch (error) {
+            fail(
+              error instanceof Error
+                ? error
+                : new WhatsAppPairingProviderClosedError(
+                    "WhatsApp provider restart failed during pairing",
+                  ),
+            );
+          }
+          return;
+        }
+
+        fail(new WhatsAppPairingProviderClosedError("WhatsApp provider closed before pairing"));
       });
+    };
+
+    try {
+      createSocket();
       timeout = setTimeout(() => {
         fail(new WhatsAppPairingTimeoutError("WhatsApp first pairing timed out"));
       }, dependencies.config.timeoutMs);
