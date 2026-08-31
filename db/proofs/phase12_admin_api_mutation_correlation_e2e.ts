@@ -83,22 +83,24 @@ try {
     sessionClock,
     15 * 60 * 1_000,
   );
+  const proofAuthenticator = {
+    authenticate: async () => ({
+      principalId: proposerId,
+      environment: "staging" as const,
+      identityRef: `proof:admin-api:proposer:${proposerId}`,
+      displayEmail: null,
+      accessSession: {
+        tokenFingerprint: "c".repeat(64),
+        issuedAt: new Date("2026-08-31T17:30:00.000Z"),
+        notBefore: new Date("2026-08-31T17:30:00.000Z"),
+        expiresAt: new Date("2026-08-31T18:30:00.000Z"),
+      },
+    }),
+  };
   const server = createAdminApiServer({
     allowedOrigin,
-    authenticator: {
-      authenticate: async () => ({
-        principalId: proposerId,
-        environment: "staging",
-        identityRef: `proof:admin-api:proposer:${proposerId}`,
-        displayEmail: null,
-        accessSession: {
-          tokenFingerprint: "c".repeat(64),
-          issuedAt: new Date("2026-08-31T17:30:00.000Z"),
-          notBefore: new Date("2026-08-31T17:30:00.000Z"),
-          expiresAt: new Date("2026-08-31T18:30:00.000Z"),
-        },
-      }),
-    },
+    authenticator: proofAuthenticator,
+    privilegedAuthenticator: proofAuthenticator,
     sessionGuard,
     sessionService: {
       getSession: async () => {
