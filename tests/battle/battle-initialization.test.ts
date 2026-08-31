@@ -2,13 +2,7 @@ import { describe, expect, it } from "vitest";
 import { initializeBattleState } from "../../src/modules/battle/initialization.js";
 import type { BattleCombatant } from "../../src/modules/battle/contracts.js";
 import type { BattlePokemonBuild, BattleRootRecord } from "../../src/modules/battle/ports.js";
-import {
-  IDS,
-  battleState,
-  playerCombatant,
-  reserveCombatant,
-  wildCombatant,
-} from "./fixtures.js";
+import { IDS, battleState, playerCombatant, reserveCombatant, wildCombatant } from "./fixtures.js";
 
 const secondPlayerId = "00000000-0000-4000-8000-000000000006";
 
@@ -144,7 +138,8 @@ describe("shared Battle initialization", () => {
       }),
     ]);
     expect(initialized.value.combatants).toHaveLength(2);
-    expect(initialized.value.combatants.every((entry) => entry.participantKind === "PLAYER_POKEMON"))
-      .toBe(true);
+    expect(
+      initialized.value.combatants.every((entry) => entry.participantKind === "PLAYER_POKEMON"),
+    ).toBe(true);
   });
 });
