@@ -62,7 +62,7 @@ describe("zero-cost staging WhatsApp pairing helper", () => {
   });
 
   it("generates canonical base64 for exactly 32 random bytes", () => {
-    const generated = generateWhatsAppAuthKeyBase64((size) => Buffer.alloc(size, 0xa5));
+    const generated = generateWhatsAppAuthKeyBase64((size: number) => Buffer.alloc(size, 0xa5));
     const decoded = Buffer.from(generated, "base64");
 
     expect(decoded).toHaveLength(32);
