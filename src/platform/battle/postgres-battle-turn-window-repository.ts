@@ -210,11 +210,7 @@ export async function openTurnWindowInTransaction(
     };
   }
 
-  const existing = await loadAggregateByBattleVersion(
-    client,
-    input.battleId,
-    input.battleVersion,
-  );
+  const existing = await loadAggregateByBattleVersion(client, input.battleId, input.battleVersion);
   if (existing === null) {
     return failure("Turn window uniqueness conflict could not be replayed");
   }
