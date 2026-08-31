@@ -22,9 +22,9 @@ const identity = {
   displayEmail: "admin@example.com",
   accessSession: {
     tokenFingerprint: "a".repeat(64),
-    issuedAt: 1_700_000_000,
-    notBefore: 1_700_000_000,
-    expiresAt: 1_700_003_600,
+    issuedAt: new Date("2026-08-31T15:00:00.000Z"),
+    notBefore: new Date("2026-08-31T15:00:00.000Z"),
+    expiresAt: new Date("2026-08-31T16:00:00.000Z"),
   },
 };
 
