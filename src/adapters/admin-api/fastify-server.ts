@@ -3,11 +3,15 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { z } from "zod";
 import type { AdminPreparedOperation } from "../../modules/admin/contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
+import type { AdminAccessSessionGuard } from "./access-session-guard.js";
 import { mapAdminHttpError } from "./http-error-mapper.js";
 import type { ResolvedAdminIdentityContext } from "./identity-resolver.js";
 import type { AdminMutationFacade } from "./mutation-facade.js";
 import type { AdminReadFacade } from "./read-facade.js";
-import type { AdminRequestAuthenticator } from "./request-authenticator.js";
+import type {
+  AdminRequestAuthenticator,
+  AuthenticatedAdminRequestContext,
+} from "./request-authenticator.js";
 import type { AdminSessionService } from "./session-service.js";
 
 const booleanQuery = z.enum(["true", "false"]).transform((value) => value === "true");
@@ -66,6 +70,7 @@ export interface AdminApiRateLimiter {
 export interface AdminApiServerDependencies {
   readonly allowedOrigin: string;
   readonly authenticator: Pick<AdminRequestAuthenticator, "authenticate">;
+  readonly sessionGuard: Pick<AdminAccessSessionGuard, "authorize">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer">;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
@@ -137,8 +142,9 @@ async function authenticateAndLimit(
   reply: FastifyReply,
   dependencies: AdminApiServerDependencies,
   operation: AdminApiRateLimitedOperation,
-): Promise<ResolvedAdminIdentityContext | null> {
-  const identity = await dependencies.authenticator.authenticate(accessAssertion(request));
+): Promise<AuthenticatedAdminRequestContext | null> {
+  const authenticated = await dependencies.authenticator.authenticate(accessAssertion(request));
+  const identity = await dependencies.sessionGuard.authorize(authenticated);
   const decision = await dependencies.rateLimiter.consume({
     principalId: identity.principalId,
     operation,
