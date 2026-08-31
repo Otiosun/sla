@@ -12,6 +12,7 @@ import type {
   AdminRequestAuthenticator,
   AuthenticatedAdminRequestContext,
 } from "./request-authenticator.js";
+import type { AdminSessionLogoutService } from "./session-logout-service.js";
 import type { AdminSessionService } from "./session-service.js";
 
 const booleanQuery = z.enum(["true", "false"]).transform((value) => value === "true");
@@ -71,6 +72,7 @@ export interface AdminApiServerDependencies {
   readonly allowedOrigin: string;
   readonly authenticator: Pick<AdminRequestAuthenticator, "authenticate">;
   readonly sessionGuard: Pick<AdminAccessSessionGuard, "authorize">;
+  readonly sessionLogoutService: Pick<AdminSessionLogoutService, "logoutCurrent">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer">;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
@@ -137,14 +139,21 @@ function csrfDenied(request: FastifyRequest): boolean {
   return request.headers[CONTROL_CENTER_CSRF_HEADER] !== CONTROL_CENTER_CSRF_VALUE;
 }
 
+async function authenticateSession(
+  request: FastifyRequest,
+  dependencies: AdminApiServerDependencies,
+): Promise<AuthenticatedAdminRequestContext> {
+  const authenticated = await dependencies.authenticator.authenticate(accessAssertion(request));
+  return dependencies.sessionGuard.authorize(authenticated);
+}
+
 async function authenticateAndLimit(
   request: FastifyRequest,
   reply: FastifyReply,
   dependencies: AdminApiServerDependencies,
   operation: AdminApiRateLimitedOperation,
 ): Promise<AuthenticatedAdminRequestContext | null> {
-  const authenticated = await dependencies.authenticator.authenticate(accessAssertion(request));
-  const identity = await dependencies.sessionGuard.authorize(authenticated);
+  const identity = await authenticateSession(request, dependencies);
   const decision = await dependencies.rateLimiter.consume({
     principalId: identity.principalId,
     operation,
@@ -214,6 +223,11 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     const identity = await authenticateAndLimit(request, reply, dependencies, "session.read");
     if (identity === null) return reply;
     return dependencies.sessionService.getSession(identity);
+  });
+
+  server.post("/admin/v1/session/logout", async (request) => {
+    const identity = await authenticateSession(request, dependencies);
+    return dependencies.sessionLogoutService.logoutCurrent(identity);
   });
 
   server.get("/admin/v1/players", async (request, reply) => {
