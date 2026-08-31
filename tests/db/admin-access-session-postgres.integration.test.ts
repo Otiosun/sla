@@ -129,10 +129,9 @@ describe.sequential("PostgresAdminAccessSessionRepository", () => {
       observedAt: new Date("2026-08-31T16:16:00.000Z"),
       idleExpiresAt: new Date("2026-08-31T16:46:00.000Z"),
     });
-    await expect(Promise.all([first.useSession(replay), second.useSession(replay)])).resolves.toEqual([
-      "DENIED",
-      "DENIED",
-    ]);
+    await expect(
+      Promise.all([first.useSession(replay), second.useSession(replay)]),
+    ).resolves.toEqual(["DENIED", "DENIED"]);
 
     const stored = await firstPool.query<{
       status: string;
@@ -155,9 +154,9 @@ describe.sequential("PostgresAdminAccessSessionRepository", () => {
 
   it("denies a fingerprint after idle expiry and does not refresh it", async () => {
     const fingerprint = "b".repeat(64);
-    await expect(
-      first.useSession(sessionUse({ tokenFingerprint: fingerprint })),
-    ).resolves.toBe("ACTIVE");
+    await expect(first.useSession(sessionUse({ tokenFingerprint: fingerprint }))).resolves.toBe(
+      "ACTIVE",
+    );
 
     await expect(
       second.useSession(
@@ -183,9 +182,9 @@ describe.sequential("PostgresAdminAccessSessionRepository", () => {
 
   it("denies reuse of one fingerprint under a different principal or environment", async () => {
     const fingerprint = "c".repeat(64);
-    await expect(
-      first.useSession(sessionUse({ tokenFingerprint: fingerprint })),
-    ).resolves.toBe("ACTIVE");
+    await expect(first.useSession(sessionUse({ tokenFingerprint: fingerprint }))).resolves.toBe(
+      "ACTIVE",
+    );
 
     await expect(
       second.useSession(
