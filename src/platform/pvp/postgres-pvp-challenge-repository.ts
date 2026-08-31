@@ -1,9 +1,11 @@
 import type { Pool, PoolClient } from "pg";
 import type { PvpChallenge, PvpChallengeStatus } from "../../modules/pvp/challenge.js";
 import type {
+  ActivePvpContent,
   InsertAcceptedPvpEncounterInput,
   PvpChallengeRepository,
   PvpChallengeTransaction,
+  PvpPlayerContext,
   ReplacePvpChallengeInput,
 } from "../../modules/pvp/ports.js";
 import { withTransaction } from "../db/transaction.js";
@@ -29,6 +31,17 @@ interface PvpChallengeRow {
   readonly accepted_at: Date | null;
   readonly started_at: Date | null;
   readonly closed_at: Date | null;
+}
+
+interface PvpPlayerContextRow {
+  readonly player_id: string;
+  readonly player_active: boolean;
+  readonly onboarding_complete: boolean;
+  readonly active_external_identity: boolean;
+  readonly area_id: string | null;
+  readonly has_eligible_team_pokemon: boolean;
+  readonly active_encounter: boolean;
+  readonly active_battle: boolean;
 }
 
 const CHALLENGE_SELECT = `
@@ -89,8 +102,156 @@ function mapChallenge(row: PvpChallengeRow): PvpChallenge {
   };
 }
 
+function mapPlayerContext(row: PvpPlayerContextRow): PvpPlayerContext {
+  return {
+    playerId: row.player_id,
+    playerActive: row.player_active,
+    onboardingComplete: row.onboarding_complete,
+    activeExternalIdentity: row.active_external_identity,
+    areaId: row.area_id,
+    hasEligibleTeamPokemon: row.has_eligible_team_pokemon,
+    activeEncounter: row.active_encounter,
+    activeBattle: row.active_battle,
+  };
+}
+
 class PostgresPvpChallengeTransaction implements PvpChallengeTransaction {
   public constructor(private readonly client: PoolClient) {}
+
+  public async playerContexts(
+    playerIds: readonly string[],
+    lock = false,
+    contentReleaseId?: string,
+  ): Promise<readonly PvpPlayerContext[]> {
+    if (contentReleaseId === undefined) {
+      throw new Error("PVP player eligibility requires a pinned content release");
+    }
+    const orderedIds = [...new Set(playerIds)].sort();
+    if (orderedIds.length === 0) return [];
+
+    if (lock) {
+      await this.client.query(
+        `SELECT id
+         FROM players
+         WHERE id = ANY($1::uuid[])
+         ORDER BY id
+         FOR UPDATE`,
+        [orderedIds],
+      );
+    }
+
+    const result = await this.client.query<PvpPlayerContextRow>(
+      `SELECT p.id AS player_id,
+              (p.status = 'ACTIVE') AS player_active,
+              COALESCE(os.state = 'COMPLETE', FALSE) AS onboarding_complete,
+              EXISTS (
+                SELECT 1
+                FROM player_identities identity
+                WHERE identity.player_id = p.id AND identity.status = 'ACTIVE'
+              ) AS active_external_identity,
+              location.area_id,
+              EXISTS (
+                SELECT 1
+                FROM pokemon_roster_slots roster
+                JOIN pokemon_instances pokemon
+                  ON pokemon.id = roster.pokemon_instance_id
+                 AND pokemon.owner_player_id = roster.player_id
+                JOIN pokemon_form_revisions form_revision
+                  ON form_revision.form_id = pokemon.form_id
+                 AND form_revision.content_release_id = $2::uuid
+                LEFT JOIN pokemon_training_values training
+                  ON training.pokemon_instance_id = pokemon.id
+                WHERE roster.player_id = p.id
+                  AND roster.placement_kind = 'TEAM'
+                  AND pokemon.status = 'ACTIVE'
+                  AND training.nature_id IS NOT NULL
+                  AND pokemon.ability_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM nature_revisions nature
+                    WHERE nature.nature_id = training.nature_id
+                      AND nature.content_release_id = $2::uuid
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM ability_revisions ability
+                    WHERE ability.ability_id = pokemon.ability_id
+                      AND ability.content_release_id = $2::uuid
+                  )
+                  AND (
+                    SELECT count(*)
+                    FROM pokemon_move_slots slot
+                    WHERE slot.pokemon_instance_id = pokemon.id
+                  ) BETWEEN 1 AND 4
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM pokemon_move_slots slot
+                    LEFT JOIN move_revisions move
+                      ON move.move_id = slot.move_id
+                     AND move.content_release_id = $2::uuid
+                    WHERE slot.pokemon_instance_id = pokemon.id
+                      AND move.move_id IS NULL
+                  )
+              ) AS has_eligible_team_pokemon,
+              EXISTS (
+                SELECT 1
+                FROM encounter_players participant
+                WHERE participant.player_id = p.id AND participant.active = TRUE
+              ) AS active_encounter,
+              EXISTS (
+                SELECT 1
+                FROM battle_sides side
+                JOIN battles battle ON battle.id = side.battle_id
+                WHERE side.player_id = p.id
+                  AND battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
+              ) AS active_battle
+       FROM players p
+       LEFT JOIN onboarding_states os ON os.player_id = p.id
+       LEFT JOIN player_locations location ON location.player_id = p.id
+       WHERE p.id = ANY($1::uuid[])
+       ORDER BY p.id`,
+      [orderedIds, contentReleaseId],
+    );
+    return result.rows.map(mapPlayerContext);
+  }
+
+  public async activeContent(): Promise<ActivePvpContent | null> {
+    const result = await this.client.query<{
+      content_release_id: string;
+      ruleset_id: string;
+    }>(
+      `SELECT release.id AS content_release_id, ruleset.id AS ruleset_id
+       FROM content_release_pointers pointer
+       JOIN content_releases release ON release.id = pointer.content_release_id
+       JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
+       WHERE pointer.pointer_key = 'ACTIVE'
+         AND release.status = 'PUBLISHED'
+         AND ruleset.status = 'PUBLISHED'`,
+    );
+    const row = result.rows[0];
+    return row === undefined
+      ? null
+      : {
+          contentReleaseId: row.content_release_id,
+          rulesetId: row.ruleset_id,
+        };
+  }
+
+  public async pinnedContentAvailable(contentReleaseId: string, rulesetId: string): Promise<boolean> {
+    const result = await this.client.query<{ available: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM content_releases release
+         JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
+         WHERE release.id = $1
+           AND ruleset.id = $2
+           AND release.status IN ('PUBLISHED', 'ARCHIVED')
+           AND ruleset.status IN ('PUBLISHED', 'ARCHIVED')
+       ) AS available`,
+      [contentReleaseId, rulesetId],
+    );
+    return result.rows[0]?.available ?? false;
+  }
 
   public async challengeById(challengeId: string, lock = false): Promise<PvpChallenge | null> {
     const result = await this.client.query<PvpChallengeRow>(
