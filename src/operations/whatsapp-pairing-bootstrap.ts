@@ -82,6 +82,26 @@ function recordObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasPairedAuthIdentity(creds: Readonly<Record<string, unknown>>): boolean {
+  if (creds.registered === true) return true;
+
+  const me = creds.me;
+  const account = creds.account;
+  const signalIdentities = creds.signalIdentities;
+  return (
+    isRecord(me) &&
+    typeof me.id === "string" &&
+    me.id.length > 0 &&
+    isRecord(account) &&
+    Array.isArray(signalIdentities) &&
+    signalIdentities.length > 0
+  );
+}
+
 class EphemeralBaileysAuth {
   readonly creds: Record<string, unknown>;
   private readonly values = new Map<string, Map<string, unknown>>();
@@ -108,6 +128,18 @@ class EphemeralBaileysAuth {
   applyCredentialsUpdate(update: unknown): void {
     if (typeof update !== "object" || update === null || Array.isArray(update)) return;
     Object.assign(this.creds, update);
+  }
+
+  hasPairedIdentity(): boolean {
+    return hasPairedAuthIdentity(this.creds);
+  }
+
+  pairedSnapshot(): BaileysAuthSnapshot {
+    const snapshot = this.snapshot();
+    return {
+      ...snapshot,
+      creds: { ...snapshot.creds, registered: true },
+    };
   }
 
   snapshot(): BaileysAuthSnapshot {
@@ -232,12 +264,12 @@ async function executePairing(
       safeEnd(socket);
       void (async () => {
         try {
-          if (auth.creds.registered !== true) {
+          if (!auth.hasPairedIdentity()) {
             throw new WhatsAppPairingIncompleteAuthError(
-              "WhatsApp provider opened without registered pairing credentials",
+              "WhatsApp provider opened without completed pairing credentials",
             );
           }
-          await reservation.commit(auth.snapshot());
+          await reservation.commit(auth.pairedSnapshot());
           resolve();
         } catch (error) {
           reject(error);
@@ -277,7 +309,7 @@ async function executePairing(
 
         const statusCode = statusCodeFromError(update.lastDisconnect?.error);
         if (
-          auth.creds.registered === true &&
+          auth.hasPairedIdentity() &&
           statusCode !== loggedOutStatusCode &&
           restartCount < MAX_PAIRING_RESTARTS
         ) {
