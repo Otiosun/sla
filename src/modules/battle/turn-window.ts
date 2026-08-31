@@ -1,10 +1,14 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
+import {
+  createIdempotencyKey,
+  parseIdempotencyScope,
+} from "../../shared-kernel/idempotency.js";
 import { BattleActionSchema, type BattleAction } from "./contracts.js";
 
 const idempotencyScopeResult = parseIdempotencyScope("battle.turn.submission");
-if (!idempotencyScopeResult.ok) throw new Error("Canonical turn submission idempotency scope is invalid");
+if (!idempotencyScopeResult.ok)
+  throw new Error("Canonical turn submission idempotency scope is invalid");
 const TURN_SUBMISSION_SCOPE = idempotencyScopeResult.value;
 
 const uuid = z.string().uuid();
@@ -188,7 +192,10 @@ export function createTurnWindow(
   if (!uuid.safeParse(input.id).success || !uuid.safeParse(input.battleId).success) {
     return failure("TURN_WINDOW_INVALID", "Turn window ids must be valid UUIDs");
   }
-  if (!isNonNegativeSafeInteger(input.battleVersion) || !isNonNegativeSafeInteger(input.turnNumber)) {
+  if (
+    !isNonNegativeSafeInteger(input.battleVersion) ||
+    !isNonNegativeSafeInteger(input.turnNumber)
+  ) {
     return failure(
       "TURN_WINDOW_INVALID",
       "battleVersion and turnNumber must be non-negative safe integers",
@@ -247,7 +254,10 @@ export function submitTurnAction(
   if (!uuid.safeParse(input.id).success || !uuid.safeParse(input.playerId).success) {
     return failure("TURN_WINDOW_INVALID", "Submission ids must be valid UUIDs");
   }
-  if (!isPositiveSafeInteger(input.sideNo) || !isNonNegativeSafeInteger(input.expectedBattleVersion)) {
+  if (
+    !isPositiveSafeInteger(input.sideNo) ||
+    !isNonNegativeSafeInteger(input.expectedBattleVersion)
+  ) {
     return failure("TURN_WINDOW_INVALID", "Submission side/version is invalid");
   }
   if (!isValidDate(input.submittedAt)) {
@@ -279,20 +289,18 @@ export function submitTurnAction(
     return failure("TURN_WINDOW_NOT_COLLECTING", "Turn window is no longer collecting actions");
   }
   if (input.expectedBattleVersion !== aggregate.window.battleVersion) {
-    return failure(
-      "TURN_WINDOW_VERSION_CONFLICT",
-      "Submission targets a stale battle version",
-      {
-        expectedVersion: input.expectedBattleVersion,
-        currentVersion: aggregate.window.battleVersion,
-      },
-    );
+    return failure("TURN_WINDOW_VERSION_CONFLICT", "Submission targets a stale battle version", {
+      expectedVersion: input.expectedBattleVersion,
+      currentVersion: aggregate.window.battleVersion,
+    });
   }
   if (input.submittedAt.getTime() >= Date.parse(aggregate.window.deadlineAt)) {
     return failure("TURN_WINDOW_EXPIRED", "Turn window deadline has expired");
   }
 
-  const required = aggregate.window.requiredPlayers.find((entry) => entry.playerId === input.playerId);
+  const required = aggregate.window.requiredPlayers.find(
+    (entry) => entry.playerId === input.playerId,
+  );
   if (required === undefined || required.sideNo !== input.sideNo) {
     return failure(
       "TURN_WINDOW_PLAYER_NOT_REQUIRED",
@@ -347,7 +355,9 @@ export function getTurnWindowView(
   aggregate: TurnWindowAggregate,
   viewerPlayerId: string,
 ): TurnWindowResult<TurnWindowView> {
-  const required = aggregate.window.requiredPlayers.find((entry) => entry.playerId === viewerPlayerId);
+  const required = aggregate.window.requiredPlayers.find(
+    (entry) => entry.playerId === viewerPlayerId,
+  );
   if (required === undefined) {
     return failure("TURN_WINDOW_PLAYER_NOT_REQUIRED", "Player cannot view this turn window");
   }
@@ -411,7 +421,9 @@ export function commitTurnWindow(
   }
 
   const submissions = aggregate.submissions.map((entry) =>
-    entry.status === "ACTIVE" ? { ...entry, status: "COMMITTED" as const } : structuredClone(entry),
+    entry.status === "ACTIVE"
+      ? { ...entry, status: "COMMITTED" as const }
+      : structuredClone(entry),
   );
   const window: BattleTurnWindow = {
     ...aggregate.window,
