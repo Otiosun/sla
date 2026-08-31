@@ -1,13 +1,14 @@
 import makeWASocket, {
   BufferJSON,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   initAuthCreds,
   normalizeMessageContent,
   proto,
 } from "@whiskeysockets/baileys";
 
 export const loggedOutStatusCode = DisconnectReason.loggedOut;
-export { normalizeMessageContent };
+export { fetchLatestWaWebVersion, normalizeMessageContent };
 export const makeSocket = (config) => makeWASocket(config);
 export const createInitialAuthCreds = () => initAuthCreds();
 export const serializeAuthValue = (value) => JSON.stringify(value, BufferJSON.replacer);
