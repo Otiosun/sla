@@ -177,7 +177,13 @@ class PostgresEncounterTransaction implements EncounterTransaction {
   public async activeForPlayer(playerId: PlayerId, lock = false): Promise<EncounterRecord | null> {
     const result = await this.client.query<EncounterRow>(
       `${ENCOUNTER_SELECT}
-       WHERE player_id = $1
+       WHERE EXISTS (
+         SELECT 1
+         FROM encounter_players participant
+         WHERE participant.encounter_id = encounters.id
+           AND participant.player_id = $1
+           AND participant.active = TRUE
+       )
          AND status IN ('CREATED', 'PRESENTED', 'ENGAGED', 'CAPTURE_RESOLVING', 'IN_BATTLE')
        ORDER BY created_at DESC
        LIMIT 1
