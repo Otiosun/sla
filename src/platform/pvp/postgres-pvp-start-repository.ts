@@ -282,9 +282,7 @@ export class PostgresPvpStartRepository implements PvpStartRepository {
     private readonly seedProvider: EncounterSeedProvider,
   ) {}
 
-  public async start(
-    input: PvpStartRepositoryInput,
-  ): Promise<Result<PvpStartRepositoryOutput>> {
+  public async start(input: PvpStartRepositoryInput): Promise<Result<PvpStartRepositoryOutput>> {
     if (
       !uuid.safeParse(input.challengeId).success ||
       !uuid.safeParse(input.actorPlayerId).success
