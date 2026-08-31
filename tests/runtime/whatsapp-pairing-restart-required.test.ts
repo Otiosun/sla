@@ -57,7 +57,16 @@ function fakeReservation() {
   };
 }
 
-async function exerciseRegisteredRestart(statusCode: number) {
+function rc14PairSuccessCredentials() {
+  return {
+    me: { id: "paired-user" },
+    account: { keyIndex: 1 },
+    signalIdentities: [{ identifier: { name: "paired-user", deviceId: 0 } }],
+    platform: "web",
+  };
+}
+
+async function exerciseRc14PairSuccessRestart(statusCode: number) {
   const first = new FakePairingSocket();
   const second = new FakePairingSocket();
   const sockets = [first, second];
@@ -86,7 +95,10 @@ async function exerciseRegisteredRestart(statusCode: number) {
   );
 
   await vi.waitFor(() => expect(socketFactory).toHaveBeenCalledTimes(1));
-  first.emit("creds.update", { registered: true, me: { id: "paired-user" } });
+
+  // This mirrors Baileys 7.0.0-rc14 pair-success: the auth update contains
+  // the paired identity/account but does not set the legacy `registered` flag.
+  first.emit("creds.update", rc14PairSuccessCredentials());
   first.emit("connection.update", {
     connection: "close",
     lastDisconnect: { error: { output: { statusCode } } },
@@ -100,17 +112,20 @@ async function exerciseRegisteredRestart(statusCode: number) {
   expect(await result).toEqual({ ok: true });
 
   expect(reservation.commit).toHaveBeenCalledTimes(1);
+  const snapshot = reservation.commit.mock.calls[0]?.[0];
+  expect(snapshot?.creds.me).toEqual({ id: "paired-user" });
+  expect(snapshot?.creds.registered).toBe(true);
   expect(reservation.close).toHaveBeenCalledTimes(1);
   expect(first.ended).toBe(true);
   expect(second.ended).toBe(true);
 }
 
 describe("WhatsApp first-pairing restart-required flow", () => {
-  it("recreates the socket with the same ephemeral auth after a registered 515 restart", async () => {
-    await exerciseRegisteredRestart(515);
+  it("recreates the socket after rc14 pair-success closes with 515", async () => {
+    await exerciseRc14PairSuccessRestart(515);
   });
 
-  it("recreates the socket after registered credentials when the server closes the websocket generically", async () => {
-    await exerciseRegisteredRestart(428);
+  it("recreates the socket after rc14 pair-success closes with generic connectionClosed", async () => {
+    await exerciseRc14PairSuccessRestart(428);
   });
 });
