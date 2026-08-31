@@ -12,9 +12,13 @@ function governancePort(): AdminRoleAssignmentPort & AdminSessionRevocationPort 
     simulateRoleAssignment: vi.fn(),
     applyRoleAssignment: vi.fn(),
     simulateSessionRevocation: vi.fn().mockResolvedValue({
-      summary: { operation: "admin.session.revoke_all", activeSessions: 2 },
-      before: { activeSessions: 2 },
-      after: { activeSessions: 0 },
+      summary: {
+        operation: "admin.session.revoke_all",
+        environment: "staging",
+        activeSessions: 2,
+      },
+      before: { environment: "staging", activeSessions: 2 },
+      after: { environment: "staging", activeSessions: 0 },
     }),
     applySessionRevocation: vi.fn(),
   };
@@ -39,7 +43,14 @@ describe("admin.session.revoke_all policy", () => {
         requiredApprovals: 1,
       },
     });
-    const input = definition.parseInput({ principalId: TARGET_PRINCIPAL_ID });
+    const input = definition.parseInput({
+      principalId: TARGET_PRINCIPAL_ID,
+      environment: "staging",
+    });
+    expect(input).toEqual({
+      principalId: TARGET_PRINCIPAL_ID,
+      environment: "staging",
+    });
     expect(definition.target(input)).toEqual({
       type: "ADMIN_PRINCIPAL",
       id: TARGET_PRINCIPAL_ID,
@@ -54,12 +65,14 @@ describe("admin.session.revoke_all policy", () => {
     expect(() =>
       definition.parseInput({
         principalId: TARGET_PRINCIPAL_ID,
+        environment: "staging",
         tokenFingerprint: "a".repeat(64),
       }),
     ).toThrow();
     expect(() =>
       definition.parseInput({
         principalId: TARGET_PRINCIPAL_ID,
+        environment: "staging",
         sessionId: "attacker-selected",
       }),
     ).toThrow();
