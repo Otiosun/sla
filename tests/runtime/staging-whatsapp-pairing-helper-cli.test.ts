@@ -9,6 +9,7 @@ import {
   resolveDefaultStagingWhatsAppSecretFilePath,
   runStagingWhatsAppPairingHelperCli,
   StagingWhatsAppPairingHelperInteractiveTerminalRequiredError,
+  type StagingPairingExecutor,
   type StagingPairingSecretInput,
 } from "../../src/operations/staging-whatsapp-pairing-helper-cli.js";
 
@@ -66,7 +67,7 @@ describe("staging WhatsApp pairing helper CLI", () => {
     }));
     const promptVisible = vi.fn(async () => PROJECT_REF);
     const promptSecret = vi.fn(async () => JIT_TOKEN);
-    const executePairing = vi.fn(async () => {});
+    const executePairing = vi.fn<StagingPairingExecutor>(async () => {});
 
     await expect(
       runStagingWhatsAppPairingHelperCli({
@@ -112,7 +113,7 @@ describe("staging WhatsApp pairing helper CLI", () => {
       .mockResolvedValueOnce(PROJECT_REF)
       .mockResolvedValueOnce(POOLER_HOST);
     const promptSecret = vi.fn(async () => JIT_TOKEN);
-    const executePairing = vi.fn(async () => {});
+    const executePairing = vi.fn<StagingPairingExecutor>(async () => {});
     const writes: string[] = [];
 
     await runStagingWhatsAppPairingHelperCli({
@@ -153,7 +154,7 @@ describe("staging WhatsApp pairing helper CLI", () => {
       poolerHost: POOLER_HOST,
     });
     const promptVisible = vi.fn(async () => "should-not-be-read");
-    const executePairing = vi.fn(async () => {});
+    const executePairing = vi.fn<StagingPairingExecutor>(async () => {});
 
     await runStagingWhatsAppPairingHelperCli({
       stdinIsTTY: true,
