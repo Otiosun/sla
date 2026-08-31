@@ -24,7 +24,7 @@ describe("zero-cost staging WhatsApp pairing helper", () => {
 
     expect(url.protocol).toBe("postgresql:");
     expect(url.username).toBe(`pokemon_runtime.${PROJECT_REF}`);
-    expect(url.password).toBe(JIT_TOKEN);
+    expect(decodeURIComponent(url.password)).toBe(JIT_TOKEN);
     expect(url.hostname).toBe(POOLER_HOST);
     expect(url.port).toBe("5432");
     expect(url.pathname).toBe("/postgres");
@@ -54,7 +54,7 @@ describe("zero-cost staging WhatsApp pairing helper", () => {
     expect(env.WHATSAPP_AUTH_KEY_VERSION).toBe("1");
     expect(env.DATABASE_URL).toContain(`pokemon_runtime.${PROJECT_REF}`);
     expect(env.NODE_EXTRA_CA_CERTS).toBe(CA_PATH);
-    expect(env.DATABASE_SSL_ROOT_CERT_FILE).toBe(CA_PATH);
+    expect(env.PGSSLROOTCERT).toBe(CA_PATH);
     expect(env.MIGRATOR_DATABASE_URL).toBeUndefined();
     expect(env.FLY_API_TOKEN).toBeUndefined();
     expect(env.RENDER_API_KEY).toBeUndefined();
