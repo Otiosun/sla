@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RulesetSnapshot } from "../../src/modules/catalog/contracts.js";
-import type { BattleAction, BattleState } from "../../src/modules/battle/contracts.js";
+import type { BattleAction, BattleSide, BattleState } from "../../src/modules/battle/contracts.js";
 import type { BattleRootRecord, BattleSeedReader } from "../../src/modules/battle/ports.js";
 import {
   createTurnWindow,
@@ -25,8 +25,16 @@ const OPENED_AT = new Date("2026-08-31T10:00:00.000Z");
 const DEADLINE_AT = new Date("2026-08-31T10:05:00.000Z");
 const COMMITTED_AT = new Date("2026-08-31T10:01:00.000Z");
 
+function battleSide(state: BattleState, sideNo: number): BattleSide {
+  const found = state.sides.find((entry) => entry.sideNo === sideNo);
+  if (found === undefined) throw new Error(`missing side ${sideNo}`);
+  return found;
+}
+
 function pvpState(): BattleState {
   const base = battleState();
+  const baseOne = battleSide(base, 1);
+  const baseTwo = battleSide(base, 2);
   const first = playerCombatant();
   const secondBase = wildCombatant();
   const second = {
@@ -43,9 +51,9 @@ function pvpState(): BattleState {
     battleType: "PVP",
     encounterId: null,
     sides: [
-      { ...base.sides[0], playerId: IDS.player },
+      { ...baseOne, playerId: IDS.player },
       {
-        ...base.sides[1],
+        ...baseTwo,
         controllerKind: "PLAYER",
         playerId: PLAYER_TWO,
         participantIds: [second.participantId],
@@ -107,20 +115,24 @@ function ruleset(): RulesetSnapshot {
 }
 
 function actionOne(state = pvpState()): BattleAction {
+  const one = battleSide(state, 1);
+  const two = battleSide(state, 2);
   return {
     type: "USE_MOVE",
-    actorParticipantId: state.sides[0].activeParticipantId,
+    actorParticipantId: one.activeParticipantId,
     moveSlot: 1,
-    targetParticipantId: state.sides[1].activeParticipantId,
+    targetParticipantId: two.activeParticipantId,
   };
 }
 
 function actionTwo(state = pvpState()): BattleAction {
+  const one = battleSide(state, 1);
+  const two = battleSide(state, 2);
   return {
     type: "USE_MOVE",
-    actorParticipantId: state.sides[1].activeParticipantId,
+    actorParticipantId: two.activeParticipantId,
     moveSlot: 1,
-    targetParticipantId: state.sides[0].activeParticipantId,
+    targetParticipantId: one.activeParticipantId,
   };
 }
 
@@ -264,7 +276,7 @@ describe("PVP turn resolution", () => {
     expect(first.persistCalls[0]?.committedWindow.window.status).toBe("COMMITTED");
     expect(
       first.persistCalls[0]?.committedWindow.submissions.every(
-        (entry) => entry.status !== "ACTIVE",
+        (entry: { readonly status: string }) => entry.status !== "ACTIVE",
       ),
     ).toBe(true);
   });
