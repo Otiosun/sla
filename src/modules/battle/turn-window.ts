@@ -1,9 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import {
-  createIdempotencyKey,
-  parseIdempotencyScope,
-} from "../../shared-kernel/idempotency.js";
+import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import { BattleActionSchema, type BattleAction } from "./contracts.js";
 
 const idempotencyScopeResult = parseIdempotencyScope("battle.turn.submission");
@@ -174,10 +171,7 @@ function allRequiredPlayersSubmitted(aggregate: TurnWindowAggregate): boolean {
   );
 }
 
-function submissionMatches(
-  existing: BattleTurnSubmission,
-  input: SubmitTurnActionInput,
-): boolean {
+function submissionMatches(existing: BattleTurnSubmission, input: SubmitTurnActionInput): boolean {
   return (
     existing.playerId === input.playerId &&
     existing.sideNo === input.sideNo &&
@@ -421,9 +415,7 @@ export function commitTurnWindow(
   }
 
   const submissions = aggregate.submissions.map((entry) =>
-    entry.status === "ACTIVE"
-      ? { ...entry, status: "COMMITTED" as const }
-      : structuredClone(entry),
+    entry.status === "ACTIVE" ? { ...entry, status: "COMMITTED" as const } : structuredClone(entry),
   );
   const window: BattleTurnWindow = {
     ...aggregate.window,
