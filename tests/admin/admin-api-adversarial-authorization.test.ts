@@ -115,7 +115,17 @@ describe("Admin API adversarial authorization", () => {
       email: "admin@example.com",
     };
     const resolver = new AdminIdentityResolver(identityRepository, "staging");
-    const authenticator = new AdminRequestAuthenticator({ verify: async () => identity }, resolver);
+    const authenticator = new AdminRequestAuthenticator(
+      {
+        verify: async () => ({
+          identity,
+          issuedAt: new Date("2026-08-31T12:00:00.000Z"),
+          notBefore: new Date("2026-08-31T12:00:00.000Z"),
+          expiresAt: new Date("2026-08-31T13:00:00.000Z"),
+        }),
+      },
+      resolver,
+    );
 
     await expect(authenticator.authenticate(TOKEN)).resolves.toMatchObject({
       principalId: PRINCIPAL_ID,
