@@ -103,6 +103,12 @@ function parsePersistedSecrets(raw: string): StagingWhatsAppLocalSecrets {
   };
 }
 
+async function hardenLocalSecretPermissions(filePath: string): Promise<void> {
+  if (process.platform !== "win32") {
+    await chmod(filePath, 0o600);
+  }
+}
+
 export function buildSupabaseRuntimeJitDatabaseUrl(input: {
   projectRef: string;
   poolerHost: string;
@@ -123,6 +129,26 @@ export function buildSupabaseRuntimeJitDatabaseUrl(input: {
   return url.toString();
 }
 
+export async function readStagingWhatsAppLocalSecrets(input: {
+  filePath: string;
+}): Promise<StagingWhatsAppLocalSecrets | null> {
+  try {
+    const existing = parsePersistedSecrets(await readFile(input.filePath, "utf8"));
+    await hardenLocalSecretPermissions(input.filePath);
+    return existing;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function loadOrCreateStagingWhatsAppLocalSecrets(input: {
   filePath: string;
   projectRef: string;
@@ -131,25 +157,14 @@ export async function loadOrCreateStagingWhatsAppLocalSecrets(input: {
   assertProjectRef(input.projectRef);
   assertPoolerHost(input.poolerHost);
 
-  try {
-    const existing = parsePersistedSecrets(await readFile(input.filePath, "utf8"));
+  const existing = await readStagingWhatsAppLocalSecrets({ filePath: input.filePath });
+  if (existing) {
     if (existing.projectRef !== input.projectRef || existing.poolerHost !== input.poolerHost) {
       throw new StagingWhatsAppPairingHelperConfigError(
         "Local staging WhatsApp secret file belongs to a different Supabase staging database",
       );
     }
-    await chmod(input.filePath, 0o600);
     return { secrets: existing, created: false };
-  } catch (error) {
-    if (
-      error instanceof StagingWhatsAppPairingHelperConfigError ||
-      !error ||
-      typeof error !== "object" ||
-      !("code" in error) ||
-      error.code !== "ENOENT"
-    ) {
-      throw error;
-    }
   }
 
   const secrets: StagingWhatsAppLocalSecrets = {
@@ -167,7 +182,7 @@ export async function loadOrCreateStagingWhatsAppLocalSecrets(input: {
     flag: "wx",
     mode: 0o600,
   });
-  await chmod(input.filePath, 0o600);
+  await hardenLocalSecretPermissions(input.filePath);
   return { secrets, created: true };
 }
 
