@@ -189,9 +189,9 @@ async function seedPlayer(
   const playerId = randomUUID();
   await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
   await pool.query(
-    `INSERT INTO onboarding_states(player_id, state, completed_at)
-     VALUES ($1, 'COMPLETE', now())`,
-    [playerId],
+    `INSERT INTO onboarding_states(player_id, state, starter_claim_key, completed_at)
+     VALUES ($1, 'COMPLETE', $2, now())`,
+    [playerId, `pvp-start-starter-${playerId}`],
   );
   await pool.query(
     `INSERT INTO player_identities(id, player_id, provider, external_id, status)
