@@ -5,21 +5,15 @@ import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel
 import { chooseHeuristicAction } from "./ai.js";
 import {
   BattleActionSchema,
-  BattleStateSchema,
-  EMPTY_BATTLE_STAGES,
   type BattleAction,
-  type BattleCombatant,
   type BattleError,
   type BattleEvent,
-  type BattleSide,
   type BattleState,
 } from "./contracts.js";
+import { initializeBattleState } from "./initialization.js";
 import { activeCombatant, usableReserves, validateBattleAction } from "./legal.js";
 import type {
-  BattleInitializationData,
-  BattlePokemonBuild,
   BattleRepository,
-  BattleRootRecord,
   BattleSeedReader,
   StoredBattleAction,
 } from "./ports.js";
@@ -88,124 +82,6 @@ function failure(
   };
 }
 
-function buildCombatant(
-  build: BattlePokemonBuild,
-  participantId: string,
-  sideNo: number,
-): BattleCombatant {
-  return {
-    participantId,
-    sideNo,
-    rosterPosition: build.rosterPosition,
-    participantKind: build.participantKind,
-    pokemonInstanceId: build.pokemonInstanceId,
-    formId: build.formId,
-    speciesId: build.speciesId,
-    level: build.level,
-    type1Id: build.type1Id,
-    type1Slug: build.type1Slug,
-    type2Id: build.type2Id,
-    type2Slug: build.type2Slug,
-    baseStats: { ...build.baseStats },
-    ivs: { ...build.ivs },
-    nature: { ...build.nature },
-    ability: { ...build.ability },
-    moves: build.moves.map((move) => ({
-      slotNo: move.slotNo,
-      moveId: move.moveId,
-      typeId: move.typeId,
-      typeSlug: move.typeSlug,
-      category: move.category,
-      power: move.power,
-      accuracy: move.accuracy,
-      priority: move.priority,
-      maxPp: move.maxPp,
-      ppCurrent: move.ppCurrent,
-      effectKey: move.effectKey,
-      effectConfig: structuredClone(move.effectConfig),
-      flags: { makesContact: move.makesContact },
-    })),
-    maxHp: build.maxHp,
-    currentHp: Math.max(0, Math.min(build.currentHp, build.maxHp)),
-    majorStatus: build.majorStatus === null ? null : { key: build.majorStatus, counter: null },
-    stages: { ...EMPTY_BATTLE_STAGES },
-    volatile: { flinch: false, confusionTurns: 0 },
-  };
-}
-
-function buildInitialState(
-  root: BattleRootRecord,
-  data: BattleInitializationData,
-  idFactory: IdFactory,
-): BattleServiceResult<BattleState> {
-  if (data.playerParty.length === 0 || data.opponentParty.length === 0) {
-    return failure(
-      "BATTLE_INITIALIZATION_INVALID",
-      "Battle initialization requires at least one combatant on each side",
-    );
-  }
-
-  const playerSideNo = 1;
-  const opponentSideNo = 2;
-  const playerCombatants = data.playerParty.map((build) =>
-    buildCombatant(build, idFactory(), playerSideNo),
-  );
-  const opponentCombatants = data.opponentParty.map((build) =>
-    buildCombatant(build, idFactory(), opponentSideNo),
-  );
-  const firstLiving = (values: readonly BattleCombatant[]) =>
-    values.find((entry) => entry.currentHp > 0)?.participantId ?? values[0]?.participantId;
-  const playerActive = firstLiving(playerCombatants);
-  const opponentActive = firstLiving(opponentCombatants);
-  if (playerActive === undefined || opponentActive === undefined) {
-    return failure(
-      "BATTLE_INITIALIZATION_INVALID",
-      "Battle active combatants could not be selected",
-    );
-  }
-
-  const sides: BattleSide[] = [
-    {
-      sideNo: playerSideNo,
-      controllerKind: "PLAYER",
-      playerId: data.playerId,
-      participantIds: playerCombatants.map((entry) => entry.participantId),
-      activeParticipantId: playerActive,
-      result: null,
-    },
-    {
-      sideNo: opponentSideNo,
-      controllerKind: root.battleType === "NPC" ? "NPC" : "WILD",
-      playerId: null,
-      participantIds: opponentCombatants.map((entry) => entry.participantId),
-      activeParticipantId: opponentActive,
-      result: null,
-    },
-  ];
-
-  const state: BattleState = {
-    schemaVersion: 1,
-    battleId: root.battleId,
-    battleType: root.battleType,
-    status: "ACTIVE",
-    contentReleaseId: root.contentReleaseId,
-    rulesetId: root.rulesetId,
-    encounterId: root.encounterId,
-    turnNumber: 0,
-    version: 0,
-    rngCounter: root.rngCounter.toString(),
-    sides,
-    combatants: [...playerCombatants, ...opponentCombatants],
-  };
-  const parsed = BattleStateSchema.safeParse(state);
-  if (!parsed.success) {
-    return failure("BATTLE_INITIALIZATION_INVALID", "Initial battle state failed validation", {
-      issues: parsed.error.issues,
-    });
-  }
-  return { ok: true, value: parsed.data };
-}
-
 function requiredSideNumbers(state: BattleState): readonly number[] {
   const forced = state.sides
     .filter((side) => {
@@ -262,8 +138,27 @@ export class BattleService {
           "Battle initialization data could not be assembled from pinned content",
         );
       }
-      const built = buildInitialState(root, data, this.idFactory);
-      if (!built.ok) return built;
+      const built = initializeBattleState({
+        root,
+        sides: [
+          {
+            sideNo: 1,
+            controllerKind: "PLAYER",
+            playerId: data.playerId,
+            party: data.playerParty,
+          },
+          {
+            sideNo: 2,
+            controllerKind: root.battleType === "NPC" ? "NPC" : "WILD",
+            playerId: null,
+            party: data.opponentParty,
+          },
+        ],
+        idFactory: this.idFactory,
+      });
+      if (!built.ok) {
+        return failure(built.error.code, built.error.message, built.error.details);
+      }
       const state = await transaction.initialize(root, built.value);
       return { ok: true, value: { state, replayed: false } };
     });
