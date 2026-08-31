@@ -1,3 +1,4 @@
+import type { Result } from "../../shared-kernel/result.js";
 import type { EncryptedSeedEnvelope } from "../encounter/ports.js";
 import type { PvpChallenge } from "./challenge.js";
 
@@ -49,4 +50,23 @@ export interface PvpChallengeTransaction {
 export interface PvpChallengeRepository {
   transaction<T>(work: (transaction: PvpChallengeTransaction) => Promise<T>): Promise<T>;
   read<T>(work: (transaction: PvpChallengeTransaction) => Promise<T>): Promise<T>;
+}
+
+export interface PvpStartRepositoryInput {
+  readonly challengeId: string;
+  readonly actorPlayerId: string;
+  readonly startedAt: Date;
+  readonly deadlineAt: Date;
+}
+
+export interface PvpStartRepositoryOutput {
+  readonly challengeId: string;
+  readonly encounterId: string;
+  readonly battleId: string;
+  readonly turnWindowId: string;
+  readonly replayed: boolean;
+}
+
+export interface PvpStartRepository {
+  start(input: PvpStartRepositoryInput): Promise<Result<PvpStartRepositoryOutput>>;
 }
