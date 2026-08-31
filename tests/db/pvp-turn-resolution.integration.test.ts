@@ -385,6 +385,7 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error(first.error.message);
     expect(first.value.replayed).toBe(false);
+    expect(first.value.state.status).toBe("ACTIVE");
     expect(first.value.state.version).toBe(1);
     expect(first.value.state.turnNumber).toBe(1);
 
@@ -398,6 +399,37 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(persisted.window?.resolved_battle_version).toBe("1");
     expect(persisted.window?.resolution_correlation_id).not.toBeNull();
     expect(persisted.submissions).toEqual([{ status: "COMMITTED", count: "2" }]);
+
+    const nextWindow = await pool.query<{
+      id: string;
+      battle_version: string;
+      turn_number: number;
+      status: string;
+      opened_at: Date;
+      deadline_at: Date;
+    }>(
+      `SELECT id, battle_version::text, turn_number, status, opened_at, deadline_at
+       FROM battle_turn_windows
+       WHERE battle_id = $1 AND battle_version = 1`,
+      [fixture.battleId],
+    );
+    expect(nextWindow.rows).toHaveLength(1);
+    expect(nextWindow.rows[0]?.status).toBe("COLLECTING");
+    expect(nextWindow.rows[0]?.turn_number).toBe(1);
+    expect(nextWindow.rows[0]?.opened_at.toISOString()).toBe("2026-08-31T13:01:00.000Z");
+    expect(nextWindow.rows[0]?.deadline_at.toISOString()).toBe("2026-08-31T13:06:00.000Z");
+
+    const nextRequiredPlayers = await pool.query<{ player_id: string; side_no: number }>(
+      `SELECT player_id, side_no
+       FROM battle_turn_window_required_players
+       WHERE turn_window_id = $1
+       ORDER BY side_no`,
+      [nextWindow.rows[0]?.id],
+    );
+    expect(nextRequiredPlayers.rows).toEqual([
+      { player_id: fixture.playerA, side_no: 1 },
+      { player_id: fixture.playerB, side_no: 2 },
+    ]);
 
     const eventIdentity = await pool.query<{
       causation_count: string;
@@ -419,6 +451,11 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(replay.value.replayed).toBe(true);
     expect(replay.value.events).toEqual([]);
     expect(await resolutionCounts(pool, fixture)).toEqual(persisted);
+    const windowCount = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM battle_turn_windows WHERE battle_id = $1`,
+      [fixture.battleId],
+    );
+    expect(windowCount.rows[0]?.count).toBe("2");
   });
 
   it("rolls back battle writes when the committed-window write fails", async () => {
