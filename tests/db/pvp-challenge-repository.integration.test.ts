@@ -6,8 +6,10 @@ import {
   createPvpChallenge,
   type PvpChallenge,
 } from "../../src/modules/pvp/challenge.js";
-import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
@@ -230,6 +232,15 @@ describe("PVP challenge PostgreSQL repository", () => {
     const loaded = await repository.read((transaction) => transaction.challengeById(challenge.id));
     expect(loaded?.status).toBe("ACCEPTED");
     expect(loaded?.encounterId).toBe(encounterId);
+
+    const parsedTarget = parsePlayerId(testFixture.targetPlayerId);
+    expect(parsedTarget.ok).toBe(true);
+    if (!parsedTarget.ok) return;
+    const encounterRepository = new PostgresEncounterRepository(pool);
+    const targetActiveEncounter = await encounterRepository.read((transaction) =>
+      transaction.activeForPlayer(parsedTarget.value),
+    );
+    expect(targetActiveEncounter?.encounterId).toBe(encounterId);
   });
 
   it("rolls back encounter and challenge state when an acceptance transaction fails", async () => {
