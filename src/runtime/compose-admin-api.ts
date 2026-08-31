@@ -7,6 +7,7 @@ import { AdminIdentityResolver } from "../adapters/admin-api/identity-resolver.j
 import { AdminMutationFacade } from "../adapters/admin-api/mutation-facade.js";
 import { AdminReadFacade } from "../adapters/admin-api/read-facade.js";
 import { AdminRequestAuthenticator } from "../adapters/admin-api/request-authenticator.js";
+import { AdminSessionLogoutService } from "../adapters/admin-api/session-logout-service.js";
 import { AdminSessionService } from "../adapters/admin-api/session-service.js";
 import { ExternalAdminMutationEndpoint } from "../modules/anti-abuse/external-admin-endpoint.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
@@ -67,17 +68,21 @@ export function createOperationalAdminApi(
     audience: config.adminAccessAudience,
   });
   const authenticator = new AdminRequestAuthenticator(accessVerifier, identityResolver);
+  const accessSessionRepository = new PostgresAdminAccessSessionRepository(pool);
+  const clock = new SystemClock();
   const sessionGuard = new AdminAccessSessionGuard(
-    new PostgresAdminAccessSessionRepository(pool),
-    new SystemClock(),
+    accessSessionRepository,
+    clock,
     config.adminAccessSessionIdleTimeoutMs,
   );
+  const sessionLogoutService = new AdminSessionLogoutService(accessSessionRepository, clock);
   const sessionService = new AdminSessionService(adminRepository, identityRepository);
   const rateLimiter = new PostgresAdminApiRateLimiter(pool);
   const server = createAdminApiServer({
     allowedOrigin: config.adminApiAllowedOrigin,
     authenticator,
     sessionGuard,
+    sessionLogoutService,
     sessionService,
     readFacade,
     mutationFacade,
