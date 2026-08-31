@@ -19,12 +19,18 @@ import {
   pvpFlowBlocked,
   pvpPlayerIneligible,
 } from "./errors.js";
-import type { PvpChallengeRepository, PvpPlayerContext } from "./ports.js";
+import type {
+  PvpChallengeRepository,
+  PvpPlayerContext,
+  PvpStartRepository,
+  PvpStartRepositoryOutput,
+} from "./ports.js";
 
 const uuid = z.string().uuid();
 
 export interface PvpServiceConfig {
   readonly challengeTtlMs: number;
+  readonly turnWindowTtlMs?: number;
 }
 
 export interface CreatePvpChallengeRequest {
@@ -40,6 +46,11 @@ export interface AcceptPvpChallengeRequest {
   readonly actorPlayerId: string;
 }
 
+export interface StartPvpEncounterRequest {
+  readonly challengeId: string;
+  readonly actorPlayerId: string;
+}
+
 export interface CreatePvpChallengeOutput {
   readonly challenge: PvpChallenge;
   readonly replayed: boolean;
@@ -50,6 +61,8 @@ export interface AcceptPvpChallengeOutput {
   readonly encounterId: string;
   readonly replayed: boolean;
 }
+
+export type StartPvpEncounterOutput = PvpStartRepositoryOutput;
 
 function playerEligibilityError(context: PvpPlayerContext): ReturnType<typeof appError> | null {
   if (!context.playerActive) return pvpPlayerIneligible("player-not-active", context.playerId);
@@ -101,9 +114,16 @@ export class PvpService {
     private readonly clock: Clock,
     private readonly feature: FeatureAvailability,
     private readonly config: PvpServiceConfig,
+    private readonly startRepository?: PvpStartRepository,
   ) {
     if (!Number.isSafeInteger(config.challengeTtlMs) || config.challengeTtlMs <= 0) {
       throw new Error("PVP challenge TTL must be a positive safe integer");
+    }
+    if (
+      config.turnWindowTtlMs !== undefined &&
+      (!Number.isSafeInteger(config.turnWindowTtlMs) || config.turnWindowTtlMs <= 0)
+    ) {
+      throw new Error("PVP TurnWindow TTL must be a positive safe integer");
     }
   }
 
@@ -312,6 +332,38 @@ export class PvpService {
         encounterId,
         replayed: false,
       });
+    });
+  }
+
+  public async startEncounter(
+    input: StartPvpEncounterRequest,
+  ): Promise<Result<StartPvpEncounterOutput>> {
+    const feature = this.featureError();
+    if (feature !== null) return err(feature);
+    if (
+      !uuid.safeParse(input.challengeId).success ||
+      !uuid.safeParse(input.actorPlayerId).success
+    ) {
+      return err(appError("INVALID_ID", "PVP challenge and actor ids must be valid UUIDs"));
+    }
+    if (this.startRepository === undefined || this.config.turnWindowTtlMs === undefined) {
+      return err(
+        appError("FEATURE_UNAVAILABLE", "PVP START is unavailable", {
+          reason: "pvp-start-not-configured",
+        }),
+      );
+    }
+
+    const startedAt = this.clock.now();
+    const deadlineAt = new Date(startedAt.getTime() + this.config.turnWindowTtlMs);
+    if (!Number.isFinite(deadlineAt.getTime())) {
+      return err(appError("VALIDATION_FAILED", "PVP TurnWindow deadline is outside Date range"));
+    }
+    return this.startRepository.start({
+      challengeId: input.challengeId,
+      actorPlayerId: input.actorPlayerId,
+      startedAt,
+      deadlineAt,
     });
   }
 
