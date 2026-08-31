@@ -107,9 +107,7 @@ function validDate(value: Date): boolean {
   return Number.isFinite(value.getTime());
 }
 
-export function canonicalPvpChallengeCreationKey(
-  externalKey: string,
-): PvpChallengeResult<string> {
+export function canonicalPvpChallengeCreationKey(externalKey: string): PvpChallengeResult<string> {
   const idempotency = createIdempotencyKey(PVP_CHALLENGE_CREATE_SCOPE, externalKey);
   if (!idempotency.ok) {
     return failure("PVP_CHALLENGE_INVALID", idempotency.error.message, idempotency.error.details);
