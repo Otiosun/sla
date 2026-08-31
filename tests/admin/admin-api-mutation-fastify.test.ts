@@ -95,6 +95,7 @@ function setup() {
   const dependencies = {
     allowedOrigin: ORIGIN,
     authenticator: { authenticate },
+    privilegedAuthenticator: { authenticate },
     sessionGuard: { authorize },
     sessionService: { getSession },
     readFacade: { searchPlayers, getPlayer },
