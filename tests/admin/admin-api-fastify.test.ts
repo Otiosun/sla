@@ -30,6 +30,7 @@ function setup() {
     if (rawToken !== TOKEN) throw new AdminUnauthenticatedError("invalid token detail");
     return identity;
   });
+  const authorize = vi.fn(async (context: typeof identity) => context);
   const getSession = vi.fn(async () => ({
     principalId: PRINCIPAL_ID,
     roles: ["OWNER_SECURITY_ADMIN"],
@@ -45,16 +46,27 @@ function setup() {
   const prepareMutation = vi.fn();
   const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 60 });
 
-  const server = createAdminApiServer({
+  const dependencies = {
     allowedOrigin: ORIGIN,
     authenticator: { authenticate },
+    sessionGuard: { authorize },
     sessionService: { getSession },
     readFacade: { searchPlayers, getPlayer },
     mutationFacade: { prepareMutation },
     rateLimiter: { consume },
-  });
+  };
+  const server = createAdminApiServer(dependencies);
   servers.push(server);
-  return { server, authenticate, getSession, searchPlayers, getPlayer, prepareMutation, consume };
+  return {
+    server,
+    authenticate,
+    authorize,
+    getSession,
+    searchPlayers,
+    getPlayer,
+    prepareMutation,
+    consume,
+  };
 }
 
 describe("Admin API Fastify boundary", () => {
@@ -77,6 +89,23 @@ describe("Admin API Fastify boundary", () => {
     expect(response.body).not.toContain("invalid token detail");
   });
 
+  it("rejects an inactive durable session before rate limiting or handlers", async () => {
+    const { server, authorize, consume, searchPlayers } = setup();
+    authorize.mockRejectedValueOnce(new AdminUnauthenticatedError("revoked session detail"));
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/admin/v1/players",
+      headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(authorize).toHaveBeenCalledWith(identity);
+    expect(consume).not.toHaveBeenCalled();
+    expect(searchPlayers).not.toHaveBeenCalled();
+    expect(response.body).not.toContain("revoked session detail");
+  });
+
   it("rejects a mismatched browser origin before authentication", async () => {
     const { server, authenticate } = setup();
     const response = await server.inject({
@@ -94,7 +123,7 @@ describe("Admin API Fastify boundary", () => {
   });
 
   it("projects the authenticated session with exact-origin CORS and no-store", async () => {
-    const { server, getSession, consume } = setup();
+    const { server, authorize, getSession, consume } = setup();
     const response = await server.inject({
       method: "GET",
       url: "/admin/v1/session",
@@ -106,6 +135,7 @@ describe("Admin API Fastify boundary", () => {
     expect(response.headers["access-control-allow-credentials"]).toBe("true");
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(authorize).toHaveBeenCalledWith(identity);
     expect(consume).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
       operation: "session.read",
@@ -233,6 +263,7 @@ describe("Admin API Fastify boundary", () => {
 
   it("returns 429 before the handler when an authenticated principal exceeds its read budget", async () => {
     const authenticate = vi.fn().mockResolvedValue(identity);
+    const authorize = vi.fn().mockResolvedValue(identity);
     const getSession = vi.fn().mockResolvedValue({ principalId: PRINCIPAL_ID });
     const searchPlayers = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
     const getPlayer = vi.fn();
@@ -241,6 +272,7 @@ describe("Admin API Fastify boundary", () => {
     const dependencies = {
       allowedOrigin: ORIGIN,
       authenticator: { authenticate },
+      sessionGuard: { authorize },
       sessionService: { getSession },
       readFacade: { searchPlayers, getPlayer },
       mutationFacade: { prepareMutation },
@@ -263,6 +295,7 @@ describe("Admin API Fastify boundary", () => {
         message: "Administrative request rate limit exceeded",
       },
     });
+    expect(authorize).toHaveBeenCalledWith(identity);
     expect(consume).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
       operation: "player.search",
