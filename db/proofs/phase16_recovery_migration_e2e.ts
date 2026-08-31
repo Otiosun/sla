@@ -171,7 +171,9 @@ try {
     );
   }
   if ((await sessionRevocationCutoffRelation()) !== null) {
-    throw new Error("N-1 database unexpectedly contains the 0030 session-revocation cutoff relation");
+    throw new Error(
+      "N-1 database unexpectedly contains the 0030 session-revocation cutoff relation",
+    );
   }
 
   await pool.query(
