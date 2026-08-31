@@ -88,12 +88,7 @@ export class PostgresAdminAccessSessionRepository implements AdminAccessSessionR
        WHERE token_fingerprint = $1
          AND status = 'ACTIVE'
        RETURNING token_fingerprint`,
-      [
-        request.tokenFingerprint,
-        request.revokedAt,
-        request.revokedByPrincipalId,
-        request.reason,
-      ],
+      [request.tokenFingerprint, request.revokedAt, request.revokedByPrincipalId, request.reason],
     );
 
     return result.rowCount === 1;
