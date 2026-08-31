@@ -9,17 +9,27 @@ import type { MessageRouteHandler, MessageRouterPort } from "./ports.js";
 
 export interface CommandRouteDefinition {
   readonly command: string;
+  readonly aliases?: readonly string[];
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass?: "STANDARD" | "SENSITIVE";
 }
 
 interface RegisteredRoute {
+  readonly canonicalCommand: string;
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass: "STANDARD" | "SENSITIVE";
 }
 
 function normalizeCommand(value: string): string {
-  return value.trim().toLocaleLowerCase("pt-BR");
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
+function normalizeRouteToken(value: string): string {
+  return normalizeCommand(value.replace(/^\$/, ""));
 }
 
 function commandFromText(text: string | null): string | null {
@@ -40,17 +50,31 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   register(definition: CommandRouteDefinition): void {
-    const command = normalizeCommand(definition.command.replace(/^\$/, ""));
-    if (command.length === 0) {
-      throw new Error("Messaging command route cannot be empty");
+    const canonicalCommand = normalizeRouteToken(definition.command);
+    const routeKeys = [
+      canonicalCommand,
+      ...(definition.aliases ?? []).map((alias) => normalizeRouteToken(alias)),
+    ];
+    const pendingKeys = new Set<string>();
+
+    for (const routeKey of routeKeys) {
+      if (routeKey.length === 0) {
+        throw new Error("Messaging command route cannot be empty");
+      }
+      if (pendingKeys.has(routeKey) || this.routes.has(routeKey)) {
+        throw new Error(`Messaging command route is already registered: ${routeKey}`);
+      }
+      pendingKeys.add(routeKey);
     }
-    if (this.routes.has(command)) {
-      throw new Error(`Messaging command route is already registered: ${command}`);
-    }
-    this.routes.set(command, {
+
+    const route: RegisteredRoute = {
+      canonicalCommand,
       handler: definition.handler,
       rateLimitClass: definition.rateLimitClass ?? "STANDARD",
-    });
+    };
+    for (const routeKey of pendingKeys) {
+      this.routes.set(routeKey, route);
+    }
   }
 
   classify(message: IncomingMessage): MessageRoutingMetadata {
@@ -59,9 +83,11 @@ export class MessageRouter implements MessageRouterPort {
       return { command: null, sensitiveActionKey: null };
     }
     const route = this.routes.get(command);
+    const canonicalCommand = route?.canonicalCommand ?? command;
     return {
-      command,
-      sensitiveActionKey: route?.rateLimitClass === "SENSITIVE" ? `command:${command}` : null,
+      command: canonicalCommand,
+      sensitiveActionKey:
+        route?.rateLimitClass === "SENSITIVE" ? `command:${canonicalCommand}` : null,
     };
   }
 
