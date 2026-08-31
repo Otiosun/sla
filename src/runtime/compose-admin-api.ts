@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import { AdminAccessSessionGuard } from "../adapters/admin-api/access-session-guard.js";
 import { CloudflareAccessJwtVerifier } from "../adapters/admin-api/cloudflare-access-verifier.js";
 import { createAdminApiServer } from "../adapters/admin-api/fastify-server.js";
 import { AdminIdentityResolver } from "../adapters/admin-api/identity-resolver.js";
@@ -11,12 +12,16 @@ import { ExternalAdminMutationEndpoint } from "../modules/anti-abuse/external-ad
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { PostgresAdminAccessSessionRepository } from "../platform/admin/postgres-admin-access-session-repository.js";
 import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-api-rate-limiter.js";
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
+import { SystemClock } from "../platform/clock/index.js";
 import type { AppConfig } from "../platform/config/env.js";
+
+const ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1_000;
 
 export interface OperationalAdminApi {
   readonly server: FastifyInstance;
@@ -64,11 +69,17 @@ export function createOperationalAdminApi(
     audience: config.adminAccessAudience,
   });
   const authenticator = new AdminRequestAuthenticator(accessVerifier, identityResolver);
+  const sessionGuard = new AdminAccessSessionGuard(
+    new PostgresAdminAccessSessionRepository(pool),
+    new SystemClock(),
+    ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS,
+  );
   const sessionService = new AdminSessionService(adminRepository, identityRepository);
   const rateLimiter = new PostgresAdminApiRateLimiter(pool);
   const server = createAdminApiServer({
     allowedOrigin: config.adminApiAllowedOrigin,
     authenticator,
+    sessionGuard,
     sessionService,
     readFacade,
     mutationFacade,
