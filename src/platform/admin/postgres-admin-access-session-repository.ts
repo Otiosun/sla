@@ -4,13 +4,7 @@ import type {
   AdminAccessSessionUseDecision,
   AdminAccessSessionUseRequest,
 } from "../../adapters/admin-api/access-session-guard.js";
-
-export interface AdminAccessSessionRevocationRequest {
-  readonly tokenFingerprint: string;
-  readonly revokedAt: Date;
-  readonly revokedByPrincipalId: string | null;
-  readonly reason: string;
-}
+import type { AdminAccessSessionRevocationRequest } from "../../adapters/admin-api/session-logout-service.js";
 
 export class PostgresAdminAccessSessionRepository implements AdminAccessSessionRepository {
   public constructor(private readonly pool: Pool) {}
