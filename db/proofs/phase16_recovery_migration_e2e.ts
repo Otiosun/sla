@@ -15,9 +15,9 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const EXPECTED_PREVIOUS_LATEST = "0026_runtime_health_evidence.sql";
-const EXPECTED_CURRENT_LATEST = "0027_battle_turn_windows.sql";
-const EXPECTED_CURRENT_RELATION = "battle_turn_windows";
+const EXPECTED_PREVIOUS_LATEST = "0027_battle_turn_windows.sql";
+const EXPECTED_CURRENT_LATEST = "0028_pvp_challenge_lifecycle.sql";
+const EXPECTED_CURRENT_RELATION = "pvp_challenges";
 
 const pool = new Pool({
   connectionString: databaseUrl,
