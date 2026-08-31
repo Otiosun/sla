@@ -27,12 +27,15 @@ describe("Admin API current-session logout", () => {
   it("revokes the current durable session before returning the fixed Access logout path", async () => {
     const authenticate = vi.fn().mockResolvedValue(identity);
     const authorize = vi.fn().mockResolvedValue(identity);
-    const logoutCurrent = vi.fn().mockResolvedValue(undefined);
+    const logoutCurrent = vi
+      .fn()
+      .mockResolvedValue({ logoutPath: "/cdn-cgi/access/logout" as const });
     const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 60 });
     const dependencies = {
       allowedOrigin: ORIGIN,
       authenticator: { authenticate },
-      sessionGuard: { authorize, logoutCurrent },
+      sessionGuard: { authorize },
+      sessionLogoutService: { logoutCurrent },
       sessionService: { getSession: vi.fn() },
       readFacade: { searchPlayers: vi.fn(), getPlayer: vi.fn() },
       mutationFacade: { prepareMutation: vi.fn() },
