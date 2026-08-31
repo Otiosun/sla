@@ -3,6 +3,7 @@ import type {
   AdminOperationRecord,
   AdminOperationStatus,
   AdminRoleAssignInput,
+  AdminSessionRevokeAllInput,
   AdminSimulationResult,
   AdminTarget,
 } from "./contracts.js";
@@ -76,5 +77,14 @@ export interface AdminRoleAssignmentPort {
     operation: AdminOperationRecord,
     actorPrincipalId: string,
     input: AdminRoleAssignInput,
+  ): Promise<AdminOperationRecord>;
+}
+
+export interface AdminSessionRevocationPort {
+  simulateSessionRevocation(input: AdminSessionRevokeAllInput): Promise<AdminSimulationResult>;
+  applySessionRevocation(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminSessionRevokeAllInput,
   ): Promise<AdminOperationRecord>;
 }
