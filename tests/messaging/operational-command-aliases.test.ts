@@ -23,9 +23,7 @@ describe("operational command aliases", () => {
     const routes = withOperationalCommandAliases(
       createOperationalUxRoutes({} as OperationalUxDependencies),
     );
-    const aliasesByCommand = new Map(
-      routes.map((route) => [route.command, route.aliases ?? []]),
-    );
+    const aliasesByCommand = new Map(routes.map((route) => [route.command, route.aliases ?? []]));
 
     for (const [command, aliases] of Object.entries(EXPECTED_ALIASES)) {
       expect(aliasesByCommand.get(command)).toEqual(aliases);
