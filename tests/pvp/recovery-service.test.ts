@@ -61,7 +61,11 @@ function seedProvider() {
   };
 }
 
-function battleState(battleId: string, version: number, status: BattleState["status"]): BattleState {
+function battleState(
+  battleId: string,
+  version: number,
+  status: BattleState["status"],
+): BattleState {
   return {
     battleId,
     version,
