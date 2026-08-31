@@ -32,11 +32,11 @@ jobs:
       - name: Refresh lockfile deterministically
         run: pnpm install --lockfile-only --no-frozen-lockfile
 
-      - name: Commit generated lock and remove one-shot workflow
+      - name: Commit generated lock and remove one-shot files
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .lock-refresh-libsignal
+          git rm .lock-refresh-libsignal
           git rm .github/workflows/refresh-libsignal-patch-lock.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
