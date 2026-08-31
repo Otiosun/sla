@@ -41,12 +41,21 @@ export interface CloudflareAccessVerifierConfig {
   readonly fetchTimeoutMs?: number;
 }
 
+export interface VerifiedCloudflareAccessAssertion {
+  readonly identity: CloudflareAccessIdentity;
+  readonly issuedAt: Date;
+  readonly notBefore: Date;
+  readonly expiresAt: Date;
+}
+
 interface CachedJwk {
   readonly key: ReturnType<typeof createPublicKey>;
   readonly expiresAtMs: number;
 }
 
-export type AdminAccessTokenVerifier = (token: string) => Promise<CloudflareAccessIdentity>;
+export type AdminAccessTokenVerifier = (
+  token: string,
+) => Promise<VerifiedCloudflareAccessAssertion>;
 
 function denied(): AdminError {
   return new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Administrative access denied");
@@ -129,7 +138,7 @@ export class CloudflareAccessJwtVerifier {
     this.now = dependencies.now ?? Date.now;
   }
 
-  public async verify(token: string): Promise<CloudflareAccessIdentity> {
+  public async verify(token: string): Promise<VerifiedCloudflareAccessAssertion> {
     const parts = token.split(".");
     if (parts.length !== 3) throw denied();
     const [encodedHeader, encodedPayload, encodedSignature] = parts;
@@ -146,10 +155,15 @@ export class CloudflareAccessJwtVerifier {
     if (!verify("RSA-SHA256", signingInput, key, signature)) throw denied();
 
     return {
-      provider: "cloudflare-access",
-      issuer: claims.data.iss,
-      subject: claims.data.sub,
-      email: claims.data.email,
+      identity: {
+        provider: "cloudflare-access",
+        issuer: claims.data.iss,
+        subject: claims.data.sub,
+        email: claims.data.email,
+      },
+      issuedAt: new Date(claims.data.iat * 1_000),
+      notBefore: new Date(claims.data.nbf * 1_000),
+      expiresAt: new Date(claims.data.exp * 1_000),
     };
   }
 
