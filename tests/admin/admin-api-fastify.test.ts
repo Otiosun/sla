@@ -11,6 +11,12 @@ const identity = {
   environment: "staging" as const,
   identityRef: "cloudflare-access:pokemon-rpg.cloudflareaccess.com:stable-subject",
   displayEmail: "admin@example.com",
+  accessSession: {
+    tokenFingerprint: "a".repeat(64),
+    issuedAt: 1_700_000_000,
+    notBefore: 1_700_000_000,
+    expiresAt: 1_700_003_600,
+  },
 };
 
 const servers: ReturnType<typeof createAdminApiServer>[] = [];
