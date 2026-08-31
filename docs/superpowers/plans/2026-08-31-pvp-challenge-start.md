@@ -148,8 +148,8 @@
 - [x] **Step 1:** Add RED/GREEN proof that exposed PVP mutations use the existing BATTLE admission surface and idempotent replays do not double charge.
 - [x] **Step 2:** Run complete CI/Release/Battle/Security workflow matrix on one frozen head.
 - [x] **Step 3:** Audit PR diff against its stacked base: only Slice D files, no WhatsApp or unrelated refactors.
-- [ ] **Step 4:** Update Drive with exact SHA/run IDs and revision lock. Do not change global progress unless the canonical checklist explicitly awards executable Slice D evidence.
-- [ ] **Step 5:** Leave merge decision to the user; do not merge automatically.
+- [x] **Step 4:** Update Drive with exact SHA/run IDs and revision lock. Do not change global progress unless the canonical checklist explicitly awards executable Slice D evidence.
+- [x] **Step 5:** Leave merge decision to the user; do not merge automatically.
 
 ## Self-review
 
