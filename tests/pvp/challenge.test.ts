@@ -57,9 +57,7 @@ describe("PVP challenge lifecycle", () => {
     expect(created.value.encounterId).toBeNull();
     expect(created.value.battleId).toBeNull();
 
-    const self = createPvpChallenge(
-      createInput({ targetPlayerId: IDS.challenger }),
-    );
+    const self = createPvpChallenge(createInput({ targetPlayerId: IDS.challenger }));
     expect(self.ok).toBe(false);
     if (!self.ok) expect(self.error.code).toBe("PVP_CHALLENGE_SELF_TARGET");
   });
