@@ -138,10 +138,12 @@ async function cloneBattleFixture(pool: Pool, source: Fixture, version: number):
        id, battle_id, battle_side_id, pokemon_instance_id, participant_kind,
        roster_position, active_member, snapshot
      )
-     SELECT $1, $5, $3, pokemon_instance_id, 'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
+     SELECT $1::uuid, $5::uuid, $3::uuid, pokemon_instance_id,
+            'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
      FROM battle_participants WHERE id = $6
      UNION ALL
-     SELECT $2, $5, $4, pokemon_instance_id, 'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
+     SELECT $2::uuid, $5::uuid, $4::uuid, pokemon_instance_id,
+            'PLAYER_POKEMON', 1, TRUE, '{}'::jsonb
      FROM battle_participants WHERE id = $7`,
     [actorA, actorB, sideA, sideB, battleId, source.actorA, source.actorB],
   );
