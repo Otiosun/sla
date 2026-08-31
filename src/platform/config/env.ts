@@ -122,7 +122,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const requiresPrivilegedAccessBoundary =
     parsed.data.ADMIN_API_ENABLED &&
     (parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production");
-  if (requiresPrivilegedAccessBoundary && parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE === undefined) {
+  if (
+    requiresPrivilegedAccessBoundary &&
+    parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE === undefined
+  ) {
     throw new ConfigError(
       "Invalid application configuration: enabled Admin API requires a privileged Access audience in staging/production",
     );
