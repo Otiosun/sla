@@ -1,5 +1,8 @@
 import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
-import { createInitialAuthCreds } from "../adapters/whatsapp/baileys-runtime.js";
+import {
+  createInitialAuthCreds,
+  loggedOutStatusCode,
+} from "../adapters/whatsapp/baileys-runtime.js";
 import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { BaileysConnectionUpdateLike } from "../adapters/whatsapp/baileys-provider-contracts.js";
 import type {
@@ -10,7 +13,6 @@ import type {
 import type { WhatsAppPairingBootstrapConfig } from "./whatsapp-pairing-bootstrap-config.js";
 
 const AUDITED_RC14_PAIRING_COMPATIBILITY = "rc14-companion-reg-refresh-v1";
-const RESTART_REQUIRED_STATUS_CODE = 515;
 const MAX_PAIRING_RESTARTS = 1;
 
 type SignalKeyData = Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
@@ -275,8 +277,8 @@ async function executePairing(
 
         const statusCode = statusCodeFromError(update.lastDisconnect?.error);
         if (
-          statusCode === RESTART_REQUIRED_STATUS_CODE &&
           auth.creds.registered === true &&
+          statusCode !== loggedOutStatusCode &&
           restartCount < MAX_PAIRING_RESTARTS
         ) {
           restartCount += 1;
