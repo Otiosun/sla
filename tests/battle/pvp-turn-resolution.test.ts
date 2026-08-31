@@ -262,7 +262,11 @@ describe("PVP turn resolution", () => {
     expect(resolvedFirst.value.state).toEqual(resolvedSecond.value.state);
     expect(resolvedFirst.value.events).toEqual(resolvedSecond.value.events);
     expect(first.persistCalls[0]?.committedWindow.window.status).toBe("COMMITTED");
-    expect(first.persistCalls[0]?.committedWindow.submissions.every((entry) => entry.status !== "ACTIVE")).toBe(true);
+    expect(
+      first.persistCalls[0]?.committedWindow.submissions.every(
+        (entry) => entry.status !== "ACTIVE",
+      ),
+    ).toBe(true);
   });
 
   it("replays a committed window from its produced snapshot without decrypting or resolving again", async () => {
