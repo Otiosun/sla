@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildStagingRuntimeJitUrl,
+  createStagingPairingBootstrapArgs,
   createStagingWhatsAppPairingEnvironment,
   generateWhatsAppAuthKeyBase64,
+  serializeStagingPairingLocalSecrets,
   StagingWhatsAppPairingHelperConfigError,
 } from "../../src/operations/staging-whatsapp-pairing-helper.js";
 
@@ -32,12 +35,15 @@ describe("zero-cost staging WhatsApp pairing helper", () => {
     expect(url.searchParams.get("options")).toBe("-c jit=true");
   });
 
-  it("creates a host-agnostic staging environment without migrator authority", () => {
+  it("creates a host-agnostic staging environment without migrator or raw JIT authority", () => {
     const env = createStagingWhatsAppPairingEnvironment({
       baseEnv: {
         PATH: "C:\\Windows\\System32",
         MIGRATOR_DATABASE_URL: "postgresql://must-not-survive",
         FLY_API_TOKEN: "must-not-be-needed",
+        STAGING_SUPABASE_PROJECT_REF: PROJECT_REF,
+        STAGING_SUPABASE_POOLER_HOST: POOLER_HOST,
+        STAGING_SUPABASE_JIT_TOKEN: JIT_TOKEN,
       },
       projectRef: PROJECT_REF,
       poolerHost: POOLER_HOST,
@@ -56,6 +62,9 @@ describe("zero-cost staging WhatsApp pairing helper", () => {
     expect(env.NODE_EXTRA_CA_CERTS).toBe(CA_PATH);
     expect(env.PGSSLROOTCERT).toBe(CA_PATH);
     expect(env.MIGRATOR_DATABASE_URL).toBeUndefined();
+    expect(env.STAGING_SUPABASE_PROJECT_REF).toBeUndefined();
+    expect(env.STAGING_SUPABASE_POOLER_HOST).toBeUndefined();
+    expect(env.STAGING_SUPABASE_JIT_TOKEN).toBeUndefined();
     expect(env.FLY_API_TOKEN).toBeUndefined();
     expect(env.RENDER_API_KEY).toBeUndefined();
     expect(env.RAILWAY_TOKEN).toBeUndefined();
@@ -67,6 +76,35 @@ describe("zero-cost staging WhatsApp pairing helper", () => {
 
     expect(decoded).toHaveLength(32);
     expect(decoded.toString("base64")).toBe(generated);
+  });
+
+  it("serializes only the persistent local WhatsApp secret and never JIT/database material", () => {
+    const serialized = serializeStagingPairingLocalSecrets(AUTH_KEY);
+
+    expect(serialized).toContain("WHATSAPP_SESSION_KEY=pokemon-staging");
+    expect(serialized).toContain(`WHATSAPP_AUTH_KEY_BASE64=${AUTH_KEY}`);
+    expect(serialized).toContain("WHATSAPP_AUTH_KEY_VERSION=1");
+    expect(serialized).not.toContain(JIT_TOKEN);
+    expect(serialized).not.toContain("DATABASE_URL");
+    expect(serialized).not.toContain("STAGING_SUPABASE_JIT_TOKEN");
+  });
+
+  it("invokes only the canonical local bootstrap through a Node child process", () => {
+    expect(createStagingPairingBootstrapArgs()).toEqual([
+      "--import",
+      "tsx",
+      "scripts/operations/bootstrap-whatsapp-session.ts",
+    ]);
+  });
+
+  it("exposes one local staging pairing command that reloads the ignored secret file", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+      readonly scripts?: Readonly<Record<string, string>>;
+    };
+
+    expect(pkg.scripts?.["ops:bootstrap:whatsapp:staging"]).toBe(
+      "node --env-file-if-exists=.env.whatsapp-staging.local --import tsx scripts/operations/staging-whatsapp-pairing-helper.ts",
+    );
   });
 
   it("fails closed for malformed staging identity, revision or auth key", () => {
