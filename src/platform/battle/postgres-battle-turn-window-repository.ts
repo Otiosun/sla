@@ -169,64 +169,69 @@ async function loadAggregateByBattleVersion(
   return row === undefined ? null : loadAggregateById(client, row.id, false);
 }
 
+export async function openTurnWindowInTransaction(
+  client: PoolClient,
+  input: CreateTurnWindowInput,
+): Promise<TurnWindowResult<OpenTurnWindowOutput>> {
+  const created = createTurnWindow(input);
+  if (!created.ok) return created;
+
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO battle_turn_windows(
+       id, battle_id, battle_version, turn_number, status,
+       opened_at, deadline_at, revision
+     ) VALUES ($1, $2, $3, $4, 'COLLECTING', $5, $6, 0)
+     ON CONFLICT (battle_id, battle_version) DO NOTHING
+     RETURNING id`,
+    [
+      created.value.window.id,
+      created.value.window.battleId,
+      created.value.window.battleVersion,
+      created.value.window.turnNumber,
+      created.value.window.openedAt,
+      created.value.window.deadlineAt,
+    ],
+  );
+
+  if (inserted.rowCount === 1) {
+    for (const required of created.value.window.requiredPlayers) {
+      await client.query(
+        `INSERT INTO battle_turn_window_required_players(turn_window_id, player_id, side_no)
+         VALUES ($1, $2, $3)`,
+        [created.value.window.id, required.playerId, required.sideNo],
+      );
+    }
+    return {
+      ok: true,
+      value: {
+        aggregate: created.value,
+        replayed: false,
+      },
+    };
+  }
+
+  const existing = await loadAggregateByBattleVersion(
+    client,
+    input.battleId,
+    input.battleVersion,
+  );
+  if (existing === null) {
+    return failure("Turn window uniqueness conflict could not be replayed");
+  }
+  return {
+    ok: true,
+    value: {
+      aggregate: existing,
+      replayed: true,
+    },
+  };
+}
+
 export class PostgresBattleTurnWindowRepository {
   public constructor(private readonly pool: Pool) {}
 
   public async open(input: CreateTurnWindowInput): Promise<TurnWindowResult<OpenTurnWindowOutput>> {
-    const created = createTurnWindow(input);
-    if (!created.ok) return created;
-
-    return withTransaction(this.pool, async (client) => {
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO battle_turn_windows(
-           id, battle_id, battle_version, turn_number, status,
-           opened_at, deadline_at, revision
-         ) VALUES ($1, $2, $3, $4, 'COLLECTING', $5, $6, 0)
-         ON CONFLICT (battle_id, battle_version) DO NOTHING
-         RETURNING id`,
-        [
-          created.value.window.id,
-          created.value.window.battleId,
-          created.value.window.battleVersion,
-          created.value.window.turnNumber,
-          created.value.window.openedAt,
-          created.value.window.deadlineAt,
-        ],
-      );
-
-      if (inserted.rowCount === 1) {
-        for (const required of created.value.window.requiredPlayers) {
-          await client.query(
-            `INSERT INTO battle_turn_window_required_players(turn_window_id, player_id, side_no)
-             VALUES ($1, $2, $3)`,
-            [created.value.window.id, required.playerId, required.sideNo],
-          );
-        }
-        return {
-          ok: true,
-          value: {
-            aggregate: created.value,
-            replayed: false,
-          },
-        };
-      }
-
-      const existing = await loadAggregateByBattleVersion(
-        client,
-        input.battleId,
-        input.battleVersion,
-      );
-      if (existing === null) {
-        return failure("Turn window uniqueness conflict could not be replayed");
-      }
-      return {
-        ok: true,
-        value: {
-          aggregate: existing,
-          replayed: true,
-        },
-      };
-    });
+    return withTransaction(this.pool, async (client) => openTurnWindowInTransaction(client, input));
   }
 
   public async loadByBattleVersion(
