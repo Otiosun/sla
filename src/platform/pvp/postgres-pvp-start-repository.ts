@@ -293,7 +293,10 @@ export class PostgresPvpStartRepository {
   ) {}
 
   public async start(input: PvpStartInput): Promise<Result<PvpStartOutput>> {
-    if (!uuid.safeParse(input.challengeId).success || !uuid.safeParse(input.actorPlayerId).success) {
+    if (
+      !uuid.safeParse(input.challengeId).success ||
+      !uuid.safeParse(input.actorPlayerId).success
+    ) {
       return err(appError("INVALID_ID", "PVP challenge and actor ids must be valid UUIDs"));
     }
     if (!isValidDate(input.startedAt) || !isValidDate(input.deadlineAt)) {
