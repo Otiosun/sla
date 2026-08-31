@@ -23,6 +23,13 @@ export interface StagingPairingSecretInput {
 
 type StagingPairingPlan = ReturnType<typeof buildStagingWhatsAppPairingPlan>;
 
+type StagingPairingCheckoutInfo = {
+  branch: string;
+  revision: string;
+  originMainRevision: string;
+  isClean: boolean;
+};
+
 export type StagingPairingExecutor = (plan: StagingPairingPlan) => Promise<void>;
 
 export class StagingWhatsAppPairingHelperInteractiveTerminalRequiredError extends Error {
@@ -129,15 +136,13 @@ function defaultSecretFilePath(): string {
   });
 }
 
-async function defaultCheckoutInfo(): Promise<{
-  branch: string;
-  revision: string;
-  isClean: boolean;
-}> {
+async function defaultCheckoutInfo(): Promise<StagingPairingCheckoutInfo> {
   const runGit = (args: string[]): string => execFileSync("git", args, { encoding: "utf8" }).trim();
+  execFileSync("git", ["fetch", "--quiet", "origin", "main"], { stdio: "ignore" });
   return {
     branch: runGit(["branch", "--show-current"]),
     revision: runGit(["rev-parse", "HEAD"]),
+    originMainRevision: runGit(["rev-parse", "origin/main"]),
     isClean: runGit(["status", "--porcelain"]).length === 0,
   };
 }
@@ -186,7 +191,7 @@ export async function runStagingWhatsAppPairingHelperCli(options: {
   isCI?: boolean;
   secretFilePath?: string;
   caPath?: string;
-  getCheckoutInfo?: () => Promise<{ branch: string; revision: string; isClean: boolean }>;
+  getCheckoutInfo?: () => Promise<StagingPairingCheckoutInfo>;
   promptVisible?: (prompt: string) => Promise<string>;
   promptSecret: (prompt: string) => Promise<string>;
   executePairing?: StagingPairingExecutor;
