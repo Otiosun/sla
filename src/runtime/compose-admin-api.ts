@@ -46,6 +46,12 @@ export function createOperationalAdminApi(
   ) {
     throw new Error("Enabled Admin API is missing validated identity/origin configuration");
   }
+  if (
+    (config.appEnv === "staging" || config.appEnv === "production") &&
+    config.adminAccessPrivilegedAudience === null
+  ) {
+    throw new Error("Enabled Admin API is missing validated privileged Access configuration");
+  }
 
   const adminRepository = new PostgresAdminRepository(pool);
   const sessionRevocationPort = new PostgresAdminSessionRevocationPort(pool);
@@ -70,6 +76,16 @@ export function createOperationalAdminApi(
     audience: config.adminAccessAudience,
   });
   const authenticator = new AdminRequestAuthenticator(accessVerifier, identityResolver);
+  const privilegedAuthenticator =
+    config.adminAccessPrivilegedAudience === null
+      ? undefined
+      : new AdminRequestAuthenticator(
+          new CloudflareAccessJwtVerifier({
+            teamDomain: config.adminAccessTeamDomain,
+            audience: config.adminAccessPrivilegedAudience,
+          }),
+          identityResolver,
+        );
   const accessSessionRepository = new PostgresAdminAccessSessionRepository(pool);
   const clock = new SystemClock();
   const sessionGuard = new AdminAccessSessionGuard(
@@ -83,6 +99,7 @@ export function createOperationalAdminApi(
   const server = createAdminApiServer({
     allowedOrigin: config.adminApiAllowedOrigin,
     authenticator,
+    ...(privilegedAuthenticator === undefined ? {} : { privilegedAuthenticator }),
     sessionGuard,
     sessionLogoutService,
     sessionService,
