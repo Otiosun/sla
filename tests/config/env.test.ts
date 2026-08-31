@@ -86,15 +86,19 @@ describe("loadConfig", () => {
       ADMIN_API_ALLOWED_ORIGIN: "https://admin-staging.example.com",
       ADMIN_ACCESS_TEAM_DOMAIN: "https://pokemon-rpg.cloudflareaccess.com",
       ADMIN_ACCESS_AUDIENCE: "control-center-audience",
+      ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS: "1200000",
     });
 
-    expect(config.migratorDatabaseUrl).toBeNull();
-    expect(config.adminApiEnabled).toBe(true);
-    expect(config.adminApiHost).toBe("0.0.0.0");
-    expect(config.adminApiPort).toBe(8_787);
-    expect(config.adminApiAllowedOrigin).toBe("https://admin-staging.example.com");
-    expect(config.adminAccessTeamDomain).toBe("https://pokemon-rpg.cloudflareaccess.com");
-    expect(config.adminAccessAudience).toBe("control-center-audience");
+    expect(config).toMatchObject({
+      migratorDatabaseUrl: null,
+      adminApiEnabled: true,
+      adminApiHost: "0.0.0.0",
+      adminApiPort: 8_787,
+      adminApiAllowedOrigin: "https://admin-staging.example.com",
+      adminAccessTeamDomain: "https://pokemon-rpg.cloudflareaccess.com",
+      adminAccessAudience: "control-center-audience",
+      adminAccessSessionIdleTimeoutMs: 1_200_000,
+    });
   });
 
   it("loads validated database and Admin API defaults without exposing unrelated fields", () => {
@@ -122,6 +126,7 @@ describe("loadConfig", () => {
       adminApiAllowedOrigin: null,
       adminAccessTeamDomain: null,
       adminAccessAudience: null,
+      adminAccessSessionIdleTimeoutMs: 900_000,
     });
   });
 
