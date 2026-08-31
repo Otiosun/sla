@@ -51,6 +51,7 @@ describe("loadConfig", () => {
     expect(config.adminApiAllowedOrigin).toBeNull();
     expect(config.adminAccessTeamDomain).toBeNull();
     expect(config.adminAccessAudience).toBeNull();
+    expect(config.adminAccessPrivilegedAudience).toBeNull();
   });
 
   it("fails fast when Admin API is enabled without its Access boundary", () => {
@@ -72,6 +73,7 @@ describe("loadConfig", () => {
         ADMIN_API_ALLOWED_ORIGIN: "http://admin.example.com",
         ADMIN_ACCESS_TEAM_DOMAIN: "https://pokemon-rpg.cloudflareaccess.com",
         ADMIN_ACCESS_AUDIENCE: "control-center-audience",
+        ADMIN_ACCESS_PRIVILEGED_AUDIENCE: "control-center-privileged-audience",
       }),
     ).toThrow(/must use HTTPS/);
   });
@@ -86,6 +88,7 @@ describe("loadConfig", () => {
       ADMIN_API_ALLOWED_ORIGIN: "https://admin-staging.example.com",
       ADMIN_ACCESS_TEAM_DOMAIN: "https://pokemon-rpg.cloudflareaccess.com",
       ADMIN_ACCESS_AUDIENCE: "control-center-audience",
+      ADMIN_ACCESS_PRIVILEGED_AUDIENCE: "control-center-privileged-audience",
       ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS: "1200000",
     });
 
@@ -97,6 +100,7 @@ describe("loadConfig", () => {
       adminApiAllowedOrigin: "https://admin-staging.example.com",
       adminAccessTeamDomain: "https://pokemon-rpg.cloudflareaccess.com",
       adminAccessAudience: "control-center-audience",
+      adminAccessPrivilegedAudience: "control-center-privileged-audience",
       adminAccessSessionIdleTimeoutMs: 1_200_000,
     });
   });
@@ -126,6 +130,7 @@ describe("loadConfig", () => {
       adminApiAllowedOrigin: null,
       adminAccessTeamDomain: null,
       adminAccessAudience: null,
+      adminAccessPrivilegedAudience: null,
       adminAccessSessionIdleTimeoutMs: 900_000,
     });
   });
