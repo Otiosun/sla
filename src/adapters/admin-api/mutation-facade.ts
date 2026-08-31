@@ -54,8 +54,14 @@ export class AdminMutationFacade {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid administrative mutation");
     }
 
+    const input =
+      clientRequest.data.operationType === "admin.session.revoke_all"
+        ? { ...clientRequest.data.input, environment: context.data.environment }
+        : clientRequest.data.input;
+
     return this.endpoint.prepareMutation({
       ...clientRequest.data,
+      input,
       principalId: context.data.principalId,
       correlationId: context.data.correlationId,
     });
