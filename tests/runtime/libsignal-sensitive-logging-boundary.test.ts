@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const projectRequire = createRequire(import.meta.url);
 const baileysEntry = projectRequire.resolve("@whiskeysockets/baileys");
+// Resolve through Baileys so this assertion covers the exact transitive libsignal used at runtime.
 const baileysRequire = createRequire(baileysEntry);
 
 function installedLibsignalSource(path: string): string {
