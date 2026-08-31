@@ -12,11 +12,7 @@ import {
 } from "./contracts.js";
 import { initializeBattleState } from "./initialization.js";
 import { activeCombatant, usableReserves, validateBattleAction } from "./legal.js";
-import type {
-  BattleRepository,
-  BattleSeedReader,
-  StoredBattleAction,
-} from "./ports.js";
+import type { BattleRepository, BattleSeedReader, StoredBattleAction } from "./ports.js";
 import { resolveTurn } from "./resolver.js";
 import { normalizeBattleRules } from "./rules.js";
 
