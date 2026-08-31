@@ -1,7 +1,10 @@
 import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
+import type {
+  BaileysConnectionUpdateLike,
+  BaileysWaWebVersion,
+} from "../adapters/whatsapp/baileys-provider-contracts.js";
 import { createInitialAuthCreds } from "../adapters/whatsapp/baileys-runtime.js";
 import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
-import type { BaileysConnectionUpdateLike } from "../adapters/whatsapp/baileys-provider-contracts.js";
 import type {
   BaileysAuthSnapshot,
   PostgresBaileysAuthOptions,
@@ -24,6 +27,7 @@ export type WhatsAppAuthBootstrapReservationFactory = (
 export interface WhatsAppPairingBootstrapDependencies {
   readonly config: WhatsAppPairingBootstrapConfig;
   readonly providerIdentity: InstalledBaileysIdentity;
+  readonly waWebVersion: BaileysWaWebVersion;
   readonly reserveBootstrap: WhatsAppAuthBootstrapReservationFactory;
   readonly socketFactory: BaileysSocketFactory;
   readonly qrSink: SensitivePairingQrSink;
@@ -154,13 +158,15 @@ function assertCoreConfig(config: WhatsAppPairingBootstrapConfig): void {
 
 export function assertWhatsAppPairingProviderIdentitySupported(
   identity: InstalledBaileysIdentity,
+  appEnv: WhatsAppPairingBootstrapConfig["appEnv"],
 ): void {
   if (
+    appEnv !== "staging" ||
     identity.version !== "7.0.0-rc14" ||
     identity.pairingCompatibility !== AUDITED_RC14_PAIRING_COMPATIBILITY
   ) {
     throw new WhatsAppPairingProviderVersionBlockedError(
-      `WhatsApp first pairing is blocked for Baileys ${identity.version || "unknown"}`,
+      `WhatsApp first pairing is blocked for Baileys ${identity.version || "unknown"} in ${appEnv}`,
     );
   }
 }
@@ -229,6 +235,7 @@ async function executePairing(
         markOnlineOnConnect: false,
         shouldSyncHistoryMessage: () => false,
         syncFullHistory: false,
+        version: dependencies.waWebVersion,
       });
       socket.ev.on("creds.update", (update) => {
         auth.applyCredentialsUpdate(update);
@@ -265,7 +272,10 @@ export async function runWhatsAppPairingBootstrap(
   dependencies: WhatsAppPairingBootstrapDependencies,
 ): Promise<void> {
   assertCoreConfig(dependencies.config);
-  assertWhatsAppPairingProviderIdentitySupported(dependencies.providerIdentity);
+  assertWhatsAppPairingProviderIdentitySupported(
+    dependencies.providerIdentity,
+    dependencies.config.appEnv,
+  );
 
   const reservation = await dependencies.reserveBootstrap({
     sessionKey: dependencies.config.sessionKey,
