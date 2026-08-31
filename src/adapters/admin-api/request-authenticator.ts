@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { VerifiedCloudflareAccessAssertion } from "./cloudflare-access-verifier.js";
 import type {
@@ -19,13 +20,28 @@ export interface AdminInternalIdentityResolver {
   resolve(identity: CloudflareAccessIdentity): Promise<ResolvedAdminIdentityContext>;
 }
 
+export interface AdminAccessSessionContext {
+  readonly tokenFingerprint: string;
+  readonly issuedAt: Date;
+  readonly notBefore: Date;
+  readonly expiresAt: Date;
+}
+
+export interface AuthenticatedAdminRequestContext extends ResolvedAdminIdentityContext {
+  readonly accessSession: AdminAccessSessionContext;
+}
+
+function tokenFingerprint(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
 export class AdminRequestAuthenticator {
   public constructor(
     private readonly verifier: AdminAccessIdentityVerifier,
     private readonly resolver: AdminInternalIdentityResolver,
   ) {}
 
-  public async authenticate(rawToken: unknown): Promise<ResolvedAdminIdentityContext> {
+  public async authenticate(rawToken: unknown): Promise<AuthenticatedAdminRequestContext> {
     const parsed = AccessTokenSchema.safeParse(rawToken);
     if (!parsed.success)
       throw new AdminUnauthenticatedError("Administrative authentication failed");
@@ -37,6 +53,15 @@ export class AdminRequestAuthenticator {
       throw new AdminUnauthenticatedError("Administrative authentication failed");
     }
 
-    return this.resolver.resolve(assertion.identity);
+    const resolved = await this.resolver.resolve(assertion.identity);
+    return {
+      ...resolved,
+      accessSession: {
+        tokenFingerprint: tokenFingerprint(parsed.data),
+        issuedAt: assertion.issuedAt,
+        notBefore: assertion.notBefore,
+        expiresAt: assertion.expiresAt,
+      },
+    };
   }
 }
