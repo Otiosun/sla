@@ -198,10 +198,7 @@ class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransacti
     return loadTurnWindowAggregate(this.client, turnWindowId, lock);
   }
 
-  public async loadBattleRoot(
-    battleId: string,
-    lock = false,
-  ): Promise<BattleRootRecord | null> {
+  public async loadBattleRoot(battleId: string, lock = false): Promise<BattleRootRecord | null> {
     const result = await this.client.query<RootRow>(
       `SELECT id, battle_type, status, content_release_id, ruleset_id, encounter_id,
               turn_number, version::text, rng_seed_ciphertext, rng_seed_iv,
@@ -270,9 +267,7 @@ class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransacti
       throw new Error("PVP turn resolution window transition is inconsistent");
     }
 
-    const terminal = ["WON", "LOST", "FLED", "DRAW", "CANCELLED"].includes(
-      input.nextState.status,
-    );
+    const terminal = ["WON", "LOST", "FLED", "DRAW", "CANCELLED"].includes(input.nextState.status);
     const updated = await this.client.query(
       `UPDATE battles
        SET status = $3,
