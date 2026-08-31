@@ -39,6 +39,8 @@ export type BaileysTimestampLike =
   | null
   | undefined;
 
+export type BaileysWaWebVersion = readonly [number, number, number];
+
 export interface BaileysMessageLike {
   readonly key: {
     readonly id?: string | null;
@@ -81,6 +83,7 @@ export interface BaileysSocketConfigLike {
   readonly markOnlineOnConnect: boolean;
   readonly shouldSyncHistoryMessage: (...args: unknown[]) => boolean;
   readonly syncFullHistory: boolean;
+  readonly version?: BaileysWaWebVersion;
 }
 
 export interface BaileysEventMapLike {
