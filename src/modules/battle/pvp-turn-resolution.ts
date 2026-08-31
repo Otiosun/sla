@@ -149,7 +149,10 @@ function validateSubmissionOwnership(
 
   const activeCount = aggregate.submissions.filter((entry) => entry.status === "ACTIVE").length;
   if (activeCount !== actions.length) {
-    return failure("TURN_WINDOW_INCOMPLETE", "Locked turn window contains unexpected active actions");
+    return failure(
+      "TURN_WINDOW_INCOMPLETE",
+      "Locked turn window contains unexpected active actions",
+    );
   }
   return actions;
 }
@@ -181,11 +184,17 @@ export class PvpTurnResolutionService {
       if (aggregate.window.status === "COMMITTED") {
         const resolvedVersion = aggregate.window.resolvedBattleVersion;
         if (resolvedVersion === null || aggregate.window.resolutionCorrelationId === null) {
-          return failure("BATTLE_STATE_INVALID", "Committed turn window has no resolution identity");
+          return failure(
+            "BATTLE_STATE_INVALID",
+            "Committed turn window has no resolution identity",
+          );
         }
         const replay = await transaction.loadBattleState(root.battleId, resolvedVersion);
         if (replay === null) {
-          return failure("BATTLE_STATE_INVALID", "Committed turn window points to a missing snapshot");
+          return failure(
+            "BATTLE_STATE_INVALID",
+            "Committed turn window points to a missing snapshot",
+          );
         }
         return { ok: true, value: { state: replay, events: [], replayed: true } };
       }
@@ -231,7 +240,8 @@ export class PvpTurnResolutionService {
       if (!Array.isArray(submissions)) return submissions;
 
       const ruleset = await transaction.loadRuleset(root.rulesetId);
-      if (ruleset === null) return failure("BATTLE_STATE_INVALID", "Pinned battle ruleset is missing");
+      if (ruleset === null)
+        return failure("BATTLE_STATE_INVALID", "Pinned battle ruleset is missing");
       const normalized = normalizeBattleRules(ruleset);
       if (!normalized.ok) {
         return failure(normalized.error.code, normalized.error.message, normalized.error.details);
