@@ -72,7 +72,7 @@ export interface AdminApiServerDependencies {
   readonly allowedOrigin: string;
   readonly authenticator: Pick<AdminRequestAuthenticator, "authenticate">;
   readonly sessionGuard: Pick<AdminAccessSessionGuard, "authorize">;
-  readonly sessionLogoutService: Pick<AdminSessionLogoutService, "logoutCurrent">;
+  readonly sessionLogoutService?: Pick<AdminSessionLogoutService, "logoutCurrent">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer">;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
@@ -225,10 +225,12 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     return dependencies.sessionService.getSession(identity);
   });
 
-  server.post("/admin/v1/session/logout", async (request) => {
-    const identity = await authenticateSession(request, dependencies);
-    return dependencies.sessionLogoutService.logoutCurrent(identity);
-  });
+  if (dependencies.sessionLogoutService !== undefined) {
+    server.post("/admin/v1/session/logout", async (request) => {
+      const identity = await authenticateSession(request, dependencies);
+      return dependencies.sessionLogoutService?.logoutCurrent(identity);
+    });
+  }
 
   server.get("/admin/v1/players", async (request, reply) => {
     const identity = await authenticateAndLimit(request, reply, dependencies, "player.search");
