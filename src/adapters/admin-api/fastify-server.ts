@@ -8,9 +8,10 @@ import { mapAdminHttpError } from "./http-error-mapper.js";
 import type { ResolvedAdminIdentityContext } from "./identity-resolver.js";
 import type { AdminMutationFacade } from "./mutation-facade.js";
 import type { AdminReadFacade } from "./read-facade.js";
-import type {
-  AdminRequestAuthenticator,
-  AuthenticatedAdminRequestContext,
+import {
+  type AdminRequestAuthenticator,
+  type AuthenticatedAdminRequestContext,
+  AdminUnauthenticatedError,
 } from "./request-authenticator.js";
 import type { AdminSessionLogoutService } from "./session-logout-service.js";
 import type { AdminSessionService } from "./session-service.js";
@@ -71,6 +72,7 @@ export interface AdminApiRateLimiter {
 export interface AdminApiServerDependencies {
   readonly allowedOrigin: string;
   readonly authenticator: Pick<AdminRequestAuthenticator, "authenticate">;
+  readonly privilegedAuthenticator?: Pick<AdminRequestAuthenticator, "authenticate">;
   readonly sessionGuard: Pick<AdminAccessSessionGuard, "authorize">;
   readonly sessionLogoutService?: Pick<AdminSessionLogoutService, "logoutCurrent">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
@@ -142,8 +144,9 @@ function csrfDenied(request: FastifyRequest): boolean {
 async function authenticateSession(
   request: FastifyRequest,
   dependencies: AdminApiServerDependencies,
+  authenticator: Pick<AdminRequestAuthenticator, "authenticate"> = dependencies.authenticator,
 ): Promise<AuthenticatedAdminRequestContext> {
-  const authenticated = await dependencies.authenticator.authenticate(accessAssertion(request));
+  const authenticated = await authenticator.authenticate(accessAssertion(request));
   return dependencies.sessionGuard.authorize(authenticated);
 }
 
@@ -152,8 +155,9 @@ async function authenticateAndLimit(
   reply: FastifyReply,
   dependencies: AdminApiServerDependencies,
   operation: AdminApiRateLimitedOperation,
+  authenticator: Pick<AdminRequestAuthenticator, "authenticate"> = dependencies.authenticator,
 ): Promise<AuthenticatedAdminRequestContext | null> {
-  const identity = await authenticateSession(request, dependencies);
+  const identity = await authenticateSession(request, dependencies, authenticator);
   const decision = await dependencies.rateLimiter.consume({
     principalId: identity.principalId,
     operation,
@@ -262,7 +266,16 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
   });
 
   server.post("/admin/v1/operations/prepare", async (request, reply) => {
-    const identity = await authenticateAndLimit(request, reply, dependencies, "mutation.prepare");
+    if (dependencies.privilegedAuthenticator === undefined) {
+      throw new AdminUnauthenticatedError("Privileged administrative authentication required");
+    }
+    const identity = await authenticateAndLimit(
+      request,
+      reply,
+      dependencies,
+      "mutation.prepare",
+      dependencies.privilegedAuthenticator,
+    );
     if (identity === null) return reply;
     const prepared = await dependencies.mutationFacade.prepareMutation(
       trustedRequestContext(identity, request),
