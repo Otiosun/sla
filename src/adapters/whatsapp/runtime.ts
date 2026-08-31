@@ -14,6 +14,8 @@ export class WhatsAppMessagingRuntime {
 
   async start(): Promise<void> {
     await this.adapter.start(async (message) => {
+      const text = message.text?.trimStart();
+      if (text === undefined || !text.startsWith("$")) return;
       await this.messaging.receive(message);
     });
   }
