@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { VerifiedCloudflareAccessAssertion } from "./cloudflare-access-verifier.js";
 import type {
   CloudflareAccessIdentity,
   ResolvedAdminIdentityContext,
@@ -11,7 +12,7 @@ export class AdminUnauthenticatedError extends Error {
 }
 
 export interface AdminAccessIdentityVerifier {
-  verify(token: string): Promise<CloudflareAccessIdentity>;
+  verify(token: string): Promise<VerifiedCloudflareAccessAssertion>;
 }
 
 export interface AdminInternalIdentityResolver {
@@ -29,13 +30,13 @@ export class AdminRequestAuthenticator {
     if (!parsed.success)
       throw new AdminUnauthenticatedError("Administrative authentication failed");
 
-    let externalIdentity: CloudflareAccessIdentity;
+    let assertion: VerifiedCloudflareAccessAssertion;
     try {
-      externalIdentity = await this.verifier.verify(parsed.data);
+      assertion = await this.verifier.verify(parsed.data);
     } catch {
       throw new AdminUnauthenticatedError("Administrative authentication failed");
     }
 
-    return this.resolver.resolve(externalIdentity);
+    return this.resolver.resolve(assertion.identity);
   }
 }
