@@ -15,6 +15,7 @@ const databaseUrl = (() => {
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";
 const STARTER_FORM_ID = "22222222-2222-4222-8222-222222222222";
+const ADMIN_PRINCIPAL_ID = "00000000-0000-4000-8000-000000000777";
 
 function databaseUrlFor(name: string): string {
   const url = new URL(databaseUrl);
@@ -61,6 +62,11 @@ describe.sequential("registration persistence on disposable PostgreSQL", () => {
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 8 });
     await runMigrations(pool, { appliedBy: "registration-vitest" });
+    await pool.query(
+      `INSERT INTO admin_principals(id, identity_ref, status)
+       VALUES ($1, 'registration-test-admin', 'ACTIVE')`,
+      [ADMIN_PRINCIPAL_ID],
+    );
   }, 30_000);
 
   afterAll(async () => {
@@ -106,7 +112,7 @@ describe.sequential("registration persistence on disposable PostgreSQL", () => {
     const approved = await service.approve({
       reviewId: submitted.value.id,
       expectedRevision: submitted.value.revision,
-      actor: { adminPrincipalId: "00000000-0000-4000-8000-000000000777" },
+      actor: { adminPrincipalId: ADMIN_PRINCIPAL_ID },
       idempotencyKey: "db-approve-1",
     });
     expect(approved).toMatchObject({
@@ -114,7 +120,7 @@ describe.sequential("registration persistence on disposable PostgreSQL", () => {
       value: {
         status: "APPROVED",
         revision: 1,
-        decidedByAdminPrincipalId: "00000000-0000-4000-8000-000000000777",
+        decidedByAdminPrincipalId: ADMIN_PRINCIPAL_ID,
       },
     });
   });
@@ -155,7 +161,6 @@ describe.sequential("registration persistence on disposable PostgreSQL", () => {
     const playerId = createPlayerId();
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
     const repository = new PostgresRegistrationRepository(pool);
-    const reviewId = randomUUID();
 
     await expect(
       repository.transaction(async (tx) => {
@@ -165,8 +170,8 @@ describe.sequential("registration persistence on disposable PostgreSQL", () => {
     ).rejects.toThrow("forced rollback");
 
     const count = await pool.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM registration_revisions WHERE id = $1 OR player_id = $2",
-      [reviewId, playerId],
+      "SELECT count(*)::text AS count FROM registration_revisions WHERE player_id = $1",
+      [playerId],
     );
     expect(count.rows[0]?.count).toBe("0");
   });
