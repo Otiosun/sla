@@ -153,6 +153,12 @@ export class CatalogReleaseAdminService {
     return ok(diffCatalogSnapshots(from, to));
   }
 
+  public async previewValidation(releaseId: string): Promise<Result<ValidationReport>> {
+    const snapshot = await this.repository.loadSnapshot(releaseId);
+    if (snapshot === null) return err(notFound("Content release snapshot", releaseId));
+    return ok(validateReleaseSnapshot(snapshot));
+  }
+
   public async previewPublishRelease(
     releaseId: string,
   ): Promise<Result<CatalogReleasePublishPreview>> {

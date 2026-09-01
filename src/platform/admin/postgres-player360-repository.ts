@@ -347,10 +347,12 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
             area_id: string;
             content_release_id: string;
             ruleset_id: string;
+            encounter_revision: string;
             created_at: Date;
             updated_at: Date;
           }>(
-            `SELECT id, status, area_id, content_release_id, ruleset_id, created_at, updated_at
+            `SELECT id, status, area_id, content_release_id, ruleset_id,
+                    revision::text AS encounter_revision, created_at, updated_at
              FROM encounters
              WHERE player_id = $1
                AND status IN ('CREATED', 'PRESENTED', 'ENGAGED', 'CAPTURE_RESOLVING', 'IN_BATTLE')
@@ -570,6 +572,7 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                 areaId: encounterRow.area_id,
                 contentReleaseId: encounterRow.content_release_id,
                 rulesetId: encounterRow.ruleset_id,
+                revision: encounterRow.encounter_revision,
                 createdAt: iso(encounterRow.created_at),
                 updatedAt: iso(encounterRow.updated_at),
               };

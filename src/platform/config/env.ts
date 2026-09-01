@@ -11,6 +11,10 @@ const positiveInteger = (defaultValue: number) =>
   z.coerce.number().int().positive().default(defaultValue);
 const nonNegativeInteger = (defaultValue: number) =>
   z.coerce.number().int().nonnegative().default(defaultValue);
+const environmentBoolean = z
+  .enum(["true", "false"])
+  .default("false")
+  .transform((value) => value === "true");
 
 const envSchema = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
@@ -23,6 +27,14 @@ const envSchema = z.object({
   DATABASE_QUERY_TIMEOUT_MS: nonNegativeInteger(10_000),
   DATABASE_STATEMENT_TIMEOUT_MS: nonNegativeInteger(10_000),
   DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: positiveInteger(15_000),
+  ADMIN_API_ENABLED: environmentBoolean,
+  ADMIN_API_HOST: z.string().trim().min(1).max(255).default("127.0.0.1"),
+  ADMIN_API_PORT: z.coerce.number().int().min(1).max(65_535).default(8_787),
+  ADMIN_API_ALLOWED_ORIGIN: z.string().url().optional(),
+  ADMIN_ACCESS_TEAM_DOMAIN: z.string().url().optional(),
+  ADMIN_ACCESS_AUDIENCE: z.string().trim().min(1).max(256).optional(),
+  ADMIN_ACCESS_PRIVILEGED_AUDIENCE: z.string().trim().min(1).max(256).optional(),
+  ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS: positiveInteger(900_000),
 });
 
 export interface AppConfig {
@@ -36,6 +48,14 @@ export interface AppConfig {
   readonly databaseQueryTimeoutMs: number;
   readonly databaseStatementTimeoutMs: number;
   readonly databaseIdleInTransactionTimeoutMs: number;
+  readonly adminApiEnabled: boolean;
+  readonly adminApiHost: string;
+  readonly adminApiPort: number;
+  readonly adminApiAllowedOrigin: string | null;
+  readonly adminAccessTeamDomain: string | null;
+  readonly adminAccessAudience: string | null;
+  readonly adminAccessPrivilegedAudience: string | null;
+  readonly adminAccessSessionIdleTimeoutMs: number;
 }
 
 export class ConfigError extends Error {
@@ -44,6 +64,21 @@ export class ConfigError extends Error {
 
 function databaseUsername(connectionString: string): string {
   return decodeURIComponent(new URL(connectionString).username);
+}
+
+function normalizeOrigin(rawOrigin: string, appEnv: AppConfig["appEnv"]): string {
+  const url = new URL(rawOrigin);
+  if (url.origin !== rawOrigin || url.username || url.password) {
+    throw new ConfigError(
+      "Invalid application configuration: ADMIN_API_ALLOWED_ORIGIN must be an exact origin",
+    );
+  }
+  if ((appEnv === "staging" || appEnv === "production") && url.protocol !== "https:") {
+    throw new ConfigError(
+      "Invalid application configuration: ADMIN_API_ALLOWED_ORIGIN must use HTTPS in staging/production",
+    );
+  }
+  return url.origin;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -68,6 +103,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  if (
+    parsed.data.ADMIN_API_ENABLED &&
+    (parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined ||
+      parsed.data.ADMIN_ACCESS_TEAM_DOMAIN === undefined ||
+      parsed.data.ADMIN_ACCESS_AUDIENCE === undefined)
+  ) {
+    throw new ConfigError(
+      "Invalid application configuration: enabled Admin API requires allowed origin, Access team domain, and Access audience",
+    );
+  }
+
+  const adminApiAllowedOrigin =
+    parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined
+      ? null
+      : normalizeOrigin(parsed.data.ADMIN_API_ALLOWED_ORIGIN, parsed.data.APP_ENV);
+
+  const requiresPrivilegedAccessBoundary =
+    parsed.data.ADMIN_API_ENABLED &&
+    (parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production");
+  if (
+    requiresPrivilegedAccessBoundary &&
+    parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE === undefined
+  ) {
+    throw new ConfigError(
+      "Invalid application configuration: enabled Admin API requires a privileged Access audience in staging/production",
+    );
+  }
+  if (
+    parsed.data.ADMIN_API_ENABLED &&
+    parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE !== undefined &&
+    parsed.data.ADMIN_ACCESS_AUDIENCE === parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE
+  ) {
+    throw new ConfigError(
+      "Invalid application configuration: privileged Access audience must be distinct from the standard Access audience",
+    );
+  }
+
   return {
     appEnv: parsed.data.APP_ENV,
     logLevel: parsed.data.LOG_LEVEL,
@@ -79,5 +151,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseQueryTimeoutMs: parsed.data.DATABASE_QUERY_TIMEOUT_MS,
     databaseStatementTimeoutMs: parsed.data.DATABASE_STATEMENT_TIMEOUT_MS,
     databaseIdleInTransactionTimeoutMs: parsed.data.DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    adminApiEnabled: parsed.data.ADMIN_API_ENABLED,
+    adminApiHost: parsed.data.ADMIN_API_HOST,
+    adminApiPort: parsed.data.ADMIN_API_PORT,
+    adminApiAllowedOrigin,
+    adminAccessTeamDomain: parsed.data.ADMIN_ACCESS_TEAM_DOMAIN ?? null,
+    adminAccessAudience: parsed.data.ADMIN_ACCESS_AUDIENCE ?? null,
+    adminAccessPrivilegedAudience: parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE ?? null,
+    adminAccessSessionIdleTimeoutMs: parsed.data.ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS,
   };
 }

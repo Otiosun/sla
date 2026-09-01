@@ -14,6 +14,7 @@ export const Player360GetRequestSchema = z
   .object({
     principalId: z.string().uuid(),
     playerId: z.string().uuid(),
+    correlationId: z.string().uuid().optional(),
     includeSensitive: z.boolean().default(false),
   })
   .strict();
@@ -22,6 +23,7 @@ export type Player360GetRequest = z.infer<typeof Player360GetRequestSchema>;
 export const Player360SearchRequestSchema = z
   .object({
     principalId: z.string().uuid(),
+    correlationId: z.string().uuid().optional(),
     status: PlayerStatusSchema.optional(),
     trainerNamePrefix: z.string().trim().min(1).max(80).optional(),
     originRegionId: z.string().uuid().optional(),
@@ -199,6 +201,7 @@ export interface Player360EncounterView {
   readonly areaId: string;
   readonly contentReleaseId: string;
   readonly rulesetId: string;
+  readonly revision: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

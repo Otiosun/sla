@@ -32,6 +32,9 @@ export type AdminOperationKind = z.infer<typeof AdminOperationKindSchema>;
 export const AdminAuthorizationModeSchema = z.enum(["GLOBAL_ONLY", "SUBJECT"]);
 export type AdminAuthorizationMode = z.infer<typeof AdminAuthorizationModeSchema>;
 
+export const AdminEnvironmentSchema = z.enum(["development", "staging", "production"]);
+export type AdminEnvironment = z.infer<typeof AdminEnvironmentSchema>;
+
 const tokenSchema = z
   .string()
   .trim()
@@ -91,6 +94,7 @@ export const AdminReadAuthorizationRequestSchema = z
     principalId: z.string().uuid(),
     operationType: tokenSchema,
     input: z.record(z.string(), z.unknown()),
+    correlationId: z.string().uuid().optional(),
   })
   .strict();
 export type AdminReadAuthorizationRequest = z.infer<typeof AdminReadAuthorizationRequestSchema>;
@@ -102,6 +106,14 @@ export const AdminRoleAssignInputSchema = z
   })
   .strict();
 export type AdminRoleAssignInput = z.infer<typeof AdminRoleAssignInputSchema>;
+
+export const AdminSessionRevokeAllInputSchema = z
+  .object({
+    principalId: z.string().uuid(),
+    environment: AdminEnvironmentSchema,
+  })
+  .strict();
+export type AdminSessionRevokeAllInput = z.infer<typeof AdminSessionRevokeAllInputSchema>;
 
 export interface AdminSimulationResult {
   readonly summary: Readonly<Record<string, unknown>>;
