@@ -133,9 +133,13 @@ describe("registration draft lifecycle", () => {
     });
     expect(repository.revisions).toHaveLength(1);
 
-    repository.draft = repository.draft === null
-      ? null
-      : { ...repository.draft, snapshot: { ...repository.draft.snapshot, trainerName: "Mutado" } };
+    repository.draft =
+      repository.draft === null
+        ? null
+        : {
+            ...repository.draft,
+            snapshot: { ...repository.draft.snapshot, trainerName: "Mutado" },
+          };
 
     expect(repository.revisions[0]?.snapshot.trainerName).toBe("Liora Vale");
   });
