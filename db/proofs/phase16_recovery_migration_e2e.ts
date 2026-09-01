@@ -50,7 +50,9 @@ function postgresErrorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-async function rateLimitInsertAllowed(operation: "content.search" | "runtime.health.read"): Promise<boolean> {
+async function rateLimitInsertAllowed(
+  operation: "content.search" | "runtime.health.read",
+): Promise<boolean> {
   try {
     await pool.query(
       `INSERT INTO admin_api_rate_limit_buckets(
@@ -246,7 +248,9 @@ try {
     throw new Error("N-1 database unexpectedly allows runtime.health.read before migration 0032");
   }
   if (await rateLimitBucketExists("runtime.health.read")) {
-    throw new Error("Rejected N-1 runtime.health.read probe unexpectedly persisted a limiter bucket");
+    throw new Error(
+      "Rejected N-1 runtime.health.read probe unexpectedly persisted a limiter bucket",
+    );
   }
 
   await pool.query(
