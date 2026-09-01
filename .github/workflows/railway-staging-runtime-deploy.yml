@@ -103,7 +103,35 @@ jobs:
             exit 1
           fi
 
-          configured_replicas="$(jq -r --arg service "$RAILWAY_SERVICE" '.[] | select(.name == $service) | .replicas.configured // empty' <<<"$services_json")"
+          service_id="$(jq -r --arg service "$RAILWAY_SERVICE" '.[] | select(.name == $service) | .id' <<<"$services_json")"
+          if [[ -z "$service_id" ]]; then
+            echo "Railway staging service ID could not be resolved" >&2
+            exit 1
+          fi
+
+          token_scope_json="$(railway api 'query { projectToken { projectId environmentId } }' --compact)"
+          environment_id="$(jq -r '.data.projectToken.environmentId // empty' <<<"$token_scope_json")"
+          if [[ -z "$environment_id" ]]; then
+            echo "Railway project token did not resolve its staging environment" >&2
+            exit 1
+          fi
+
+          configured_replicas="$(
+            railway api \
+              'query($environmentId:String!){ environment(id:$environmentId){ config(decryptVariables:false) } }' \
+              --raw-var "environmentId=$environment_id" \
+              --compact |
+            jq -r --arg service_id "$service_id" '
+              .data.environment.config.services[$service_id] as $service |
+              if ($service == null or $service.isDeleted == true) then empty
+              elif (($service.deploy.multiRegionConfig // {}) | length) > 0 then
+                [($service.deploy.multiRegionConfig // {})[]? | (.numReplicas // 0)] | add // 0
+              else
+                ($service.deploy.numReplicas // 1)
+              end
+            '
+          )"
+
           if [[ ! "$configured_replicas" =~ ^[0-9]+$ ]] || [[ "$configured_replicas" -ne 1 ]]; then
             echo "Railway service must be preconfigured with exactly one replica before canonical deploy" >&2
             exit 1
