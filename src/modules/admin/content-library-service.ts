@@ -79,7 +79,9 @@ export class ContentLibraryService {
     });
   }
 
-  public async listUnpublished(rawRequest: unknown): Promise<readonly ContentUnpublishedReleaseView[]> {
+  public async listUnpublished(
+    rawRequest: unknown,
+  ): Promise<readonly ContentUnpublishedReleaseView[]> {
     const parsed = ContentUnpublishedStateRequestSchema.safeParse(rawRequest);
     if (!parsed.success) {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid unpublished content read");
