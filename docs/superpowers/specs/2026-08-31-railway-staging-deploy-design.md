@@ -1,7 +1,7 @@
 # Railway Staging Deploy — Design
 
 Date: 2026-08-31
-Status: approved design
+Status: approved design, provider-safety refinement recorded during implementation
 Base main: `22e152b5aca98d07f64bc5db939152b086937cbf`
 
 ## Context
@@ -80,7 +80,7 @@ The Railway service owns these runtime secrets/variables:
 
 `MIGRATOR_DATABASE_URL` must be absent from the Railway runtime.
 
-The workflow must not fetch or print secret values. Verification is limited to secret/variable names and externally observable runtime behavior where Railway supports that safely.
+Railway's current CLI/API variable-list operations return variable values, not a names-only metadata view. The canonical workflow therefore must not enumerate the Railway variable collection merely to prove names: doing so would unnecessarily pull secrets into CI command output/state. Provisioning and absence of the migrator credential are an external preflight invariant documented in the operator runbook; the workflow itself supplies no migrator credential, and the final runtime/smoke gate fails closed when required runtime configuration is missing or unusable.
 
 ### Immutable source update
 
@@ -92,7 +92,16 @@ Image auto-update is disabled/ignored for this application path; CI owns promoti
 
 ### Single-worker invariant
 
-WhatsApp/Baileys state must not be served by overlapping workers. The Railway service must be configured for one replica only. The workflow verifies the service/deployment topology before treating the rollout as successful.
+WhatsApp/Baileys state must not be served by overlapping workers. Configuring one Railway replica is necessary but not sufficient: Railway's normal singleton rollout starts the replacement before the previous deployment is removed, and can therefore overlap two processes even when the final replica count is one.
+
+For this staging worker, provider safety takes precedence over zero downtime. The workflow must:
+
+1. reject an already-transitioning Railway topology (`BUILDING`, `DEPLOYING`, `INITIALIZING`, `WAITING`, `QUEUED`, or `REMOVING`);
+2. identify the current successful deployment when one exists;
+3. call `railway down` for that deployment and wait until it is `REMOVED` or absent;
+4. only after the old worker is proven stopped, configure exactly one replica and connect/deploy the replacement immutable image.
+
+A short staging outage is accepted. The workflow must never start the replacement merely because the configured replica count is one if the previous Baileys worker has not been proven stopped.
 
 A deployment is not GREEN merely because Railway accepted it. It must reach Railway's successful/running state and remain singular.
 
@@ -121,24 +130,23 @@ The Railway workflow is `workflow_dispatch` only during this final validation ph
 High-level steps:
 
 1. require `refs/heads/main` and a full 40-char SHA;
-2. validate required Railway configuration/token presence;
+2. validate required Railway token/service identity without enumerating secret values;
 3. checkout exact revision;
 4. install exact Node/pnpm versions needed for existing smoke tooling;
 5. pull and verify the immutable GHCR runtime image;
-6. install/use a pinned Railway CLI version or a small repository-owned API script with pinned dependencies;
-7. verify target service identity and forbidden runtime secret boundary;
-8. update Railway service source to `ghcr.io/otiosun/sla:sha-${GITHUB_SHA}` without using mutable tags;
-9. ensure one replica;
-10. deploy and wait for terminal success;
-11. verify the target is running the requested revision;
-12. run provider-live post-deploy smoke;
-13. log out/clean up transient registry/auth state.
+6. install/use a pinned Railway CLI version;
+7. reject any pre-existing transitional deployment state;
+8. stop the previous successful worker and prove it is removed;
+9. enforce exactly one configured replica;
+10. stage `DEPLOY_REVISION=${GITHUB_SHA}` without a standalone redeploy;
+11. update Railway service source to `ghcr.io/otiosun/sla:sha-${GITHUB_SHA}` without using mutable tags;
+12. wait for a new terminal deployment and require `SUCCESS`;
+13. run provider-live post-deploy smoke;
+14. log out/clean up transient registry/auth state.
 
 ## CLI vs Public API implementation choice
 
-Preferred implementation: Railway CLI for authentication, service targeting, source update, status, and scaling, provided tests prove non-interactive deterministic behavior for the pinned CLI version.
-
-Fallback implementation: a minimal repository-owned GraphQL client against Railway's public API if the CLI cannot atomically/deterministically update the Docker image source to an exact immutable tag and then prove the resulting deployment identity.
+The implementation uses the pinned Railway CLI for authentication, service targeting, source update, status, teardown and scaling. Public API use remains a fallback only if a future CLI version can no longer provide deterministic non-interactive operations required by this contract.
 
 The implementation must not depend on browser clicks for routine deployments.
 
@@ -148,16 +156,19 @@ Implementation follows TDD.
 
 Before the production workflow is added, contract tests must fail against the current repository because the Railway canonical deploy contract does not yet exist. Tests then become GREEN only after the workflow/script implements the design.
 
-Tests should assert at minimum:
+Tests assert at minimum:
 
 - canonical main-only guard;
 - exact 40-character SHA requirement;
 - immutable `sha-${GITHUB_SHA}` image construction;
 - OCI revision verification exists;
 - Railway project token is referenced only as a GitHub secret;
+- Railway secret values are not enumerated into CI merely for configuration-name checks;
 - no secret literal values are committed;
-- `MIGRATOR_DATABASE_URL` is rejected/absent from runtime contract;
+- `MIGRATOR_DATABASE_URL` is absent from workflow runtime inputs and forbidden by operator contract;
 - service name/target is explicit;
+- transitional deployment states fail closed;
+- explicit previous-worker teardown occurs before replacement;
 - single-replica enforcement exists;
 - post-deploy smoke preserves the three existing success predicates;
 - Fly fallback files remain present and are not made the canonical zero-cost staging path.
@@ -168,9 +179,9 @@ The repository's existing CI suite must remain GREEN.
 
 If deployment fails before Railway changes are applied, the existing offline/previous Railway deployment is untouched.
 
-If Railway accepts the new image but the deployment or provider-live smoke fails, the workflow fails loudly and records the Railway deployment/revision information needed for diagnosis. No automatic destructive cleanup of WhatsApp auth state is allowed.
+Once the canonical workflow intentionally removes the previous worker, subsequent failure leaves staging unavailable rather than starting an overlapping speculative worker. No automatic destructive cleanup of WhatsApp auth state is allowed. Diagnosis/retry uses the same immutable candidate or a separately selected known-good immutable SHA.
 
-Rollback is performed by redeploying a previously known-good immutable SHA/image. WhatsApp auth material and database state are not reset as part of rollback.
+Rollback is performed through the same non-overlapping sequence with a previously known-good immutable SHA/image. WhatsApp auth material and database state are not reset as part of rollback.
 
 ## User interaction boundary
 
@@ -178,7 +189,7 @@ The only expected manual credential ceremony is:
 
 1. create a Railway project-scoped token for the `staging` project/environment;
 2. add it directly to the GitHub `staging` Environment as `RAILWAY_TOKEN` without exposing it to the assistant or repository;
-3. if required, add non-secret Railway project/environment/service identifiers as GitHub Environment variables.
+3. add `STAGING_RAILWAY_SERVICE=pokemon-rpg-whatsapp-staging` as a GitHub Environment variable if not already present.
 
 All normal subsequent staging deploys must be launchable through the canonical GitHub Actions workflow without dashboard reconfiguration.
 
