@@ -46,20 +46,22 @@ reject_literal "$workflow" 'pull_request:'
 
 # Railway identity/authentication stays outside Git and the service target is explicit.
 require_literal "$workflow" 'RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}'
+reject_literal "$workflow" 'RAILWAY_API_TOKEN'
 require_literal "$workflow" 'RAILWAY_SERVICE: ${{ vars.STAGING_RAILWAY_SERVICE }}'
 require_literal "$workflow" 'pokemon-rpg-whatsapp-staging'
 require_literal "$workflow" 'npm install --global @railway/cli@5.45.10'
 
-# The already-published immutable GHCR artifact is verified before Railway is mutated.
+# The already-published immutable GHCR artifact is verified and converted to a digest-pinned deployment base before Railway is mutated.
 require_literal "$workflow" 'repository_lower="${GITHUB_REPOSITORY,,}"'
 require_literal "$workflow" 'RUNTIME_IMAGE_GHCR=ghcr.io/${repository_lower}:sha-${GITHUB_SHA}'
 require_literal "$workflow" 'docker pull "$RUNTIME_IMAGE_GHCR"'
 require_literal "$workflow" 'org.opencontainers.image.revision'
+require_literal "$workflow" 'docker buildx imagetools inspect "$RUNTIME_IMAGE_GHCR"'
+require_literal "$workflow" 'RUNTIME_IMAGE_PINNED=ghcr.io/${repository_lower}@${immutable_digest}'
 reject_literal "$workflow" ':latest'
 reject_literal "$workflow" ':main'
 reject_literal "$workflow" ':staging'
-reject_literal "$workflow" 'docker build'
-reject_literal "$workflow" 'railway up'
+reject_literal "$workflow" 'docker build '
 
 # Railway's variable-list API returns secret values. Canonical CI must not enumerate/decrypt them.
 reject_literal "$workflow" 'railway variable list'
@@ -80,6 +82,7 @@ reject_literal "$workflow" 'railway scale'
 require_literal "$workflow" 'railway service list --environment staging --json'
 require_literal "$workflow" 'railway api'
 require_literal "$workflow" 'projectToken { projectId environmentId }'
+require_literal "$workflow" 'RAILWAY_PROJECT_ID=${project_id}'
 require_literal "$workflow" 'config(decryptVariables:false)'
 require_literal "$workflow" 'multiRegionConfig'
 require_literal "$workflow" 'numReplicas'
@@ -92,14 +95,24 @@ require_literal "$workflow" 'previous Railway deployment did not stop before rep
 require_literal "$railway_doc" 'exactly one configured replica'
 require_literal "$railway_doc" 'Project Token'
 
-# Exact revision is staged without its own redeploy, then the exact Docker image becomes the source.
+# Exact revision is staged without its own deploy, then project-token-supported `railway up` deploys a one-line wrapper FROM the exact immutable digest.
 require_literal "$workflow" 'railway variable set DEPLOY_REVISION=${GITHUB_SHA}'
 require_literal "$workflow" '--skip-deploys'
-require_literal "$workflow" 'railway service source connect'
-require_literal "$workflow" '--image "$RUNTIME_IMAGE_GHCR"'
+reject_literal "$workflow" 'railway service source connect'
+reject_literal "$workflow" 'RAILWAY_API_TOKEN'
+require_literal "$workflow" 'printf '\''FROM %s\n'\'' "$RUNTIME_IMAGE_PINNED" > "$deploy_context/Dockerfile"'
+require_literal "$workflow" 'railway up "$deploy_context"'
+require_literal "$workflow" '--path-as-root'
+require_literal "$workflow" '--project "$RAILWAY_PROJECT_ID"'
+require_literal "$workflow" '--environment staging'
+require_literal "$workflow" '--service "$RAILWAY_SERVICE"'
+require_literal "$workflow" '--detach'
 require_literal "$workflow" 'railway deployment list'
 require_literal "$workflow" 'SUCCESS'
 require_literal "$workflow" 'FAILED|CRASHED|REMOVED'
+require_literal "$railway_doc" 'digest-pinned wrapper Dockerfile'
+require_literal "$railway_doc" '`railway up`'
+require_literal "$railway_doc" 'does not require a broader account/workspace token'
 
 # A deploy is not GREEN until the exact revision/session has fresh provider-live evidence.
 require_literal "$workflow" 'DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}'
