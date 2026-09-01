@@ -71,6 +71,8 @@ const ContentReleaseDiffTransportSchema = z
     message: "Release diff requires two distinct releases",
     path: ["toReleaseId"],
   });
+const ContentReleaseValidationTransportSchema = z.object({}).strict();
+const ContentReleaseParamsSchema = z.object({ releaseId: z.string().uuid() }).strict();
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
 export type AdminApiRateLimitedOperation =
@@ -103,7 +105,13 @@ export interface AdminApiServerDependencies {
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer"> &
     Partial<
-      Pick<AdminReadFacade, "searchContent" | "listUnpublishedContent" | "diffContentRelease">
+      Pick<
+        AdminReadFacade,
+        | "searchContent"
+        | "listUnpublishedContent"
+        | "diffContentRelease"
+        | "previewContentReleaseValidation"
+      >
     >;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
   readonly rateLimiter: AdminApiRateLimiter;
@@ -282,6 +290,21 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       trustedRequestContext(identity, request),
       query,
     );
+  });
+
+  server.get("/admin/v1/content/releases/:releaseId/validation", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "content.search");
+    if (identity === null) return reply;
+    const params = parseTransport(ContentReleaseParamsSchema, request.params);
+    parseTransport(ContentReleaseValidationTransportSchema, request.query);
+    if (dependencies.readFacade.previewContentReleaseValidation === undefined) {
+      throw new Error("Content release validation preview boundary is not configured");
+    }
+    const report = await dependencies.readFacade.previewContentReleaseValidation(
+      trustedRequestContext(identity, request),
+      params.releaseId,
+    );
+    return { releaseId: params.releaseId, ...report };
   });
 
   server.get("/admin/v1/content/unpublished", async (request, reply) => {
