@@ -1,7 +1,11 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
-import type { RegistrationDraftRecord, RegistrationRepository, RegistrationRevisionRecord } from "./ports.js";
+import type {
+  RegistrationDraftRecord,
+  RegistrationRepository,
+  RegistrationRevisionRecord,
+} from "./ports.js";
 import { validateRegistrationDraft } from "./validation.js";
 
 export interface SaveRegistrationDraftInput {
@@ -32,7 +36,9 @@ function snapshotCopy(snapshot: RegistrationSnapshot): RegistrationSnapshot {
 export class RegistrationService {
   public constructor(private readonly repository: RegistrationRepository) {}
 
-  public async saveDraft(input: SaveRegistrationDraftInput): Promise<Result<RegistrationDraftRecord>> {
+  public async saveDraft(
+    input: SaveRegistrationDraftInput,
+  ): Promise<Result<RegistrationDraftRecord>> {
     const validation = validateRegistrationDraft(input.draft);
     if (!validation.ok) return validation;
 
@@ -66,7 +72,9 @@ export class RegistrationService {
 
       const current = await tx.loadCurrentRevision(input.playerId);
       if (current?.status === "SUBMITTED") {
-        return err(appError("INVALID_STATE_TRANSITION", "Registration review is already submitted"));
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Registration review is already submitted"),
+        );
       }
 
       const inserted = await tx.insertRevision({
@@ -79,16 +87,24 @@ export class RegistrationService {
     });
   }
 
-  public async withdraw(input: WithdrawRegistrationInput): Promise<Result<RegistrationRevisionRecord>> {
+  public async withdraw(
+    input: WithdrawRegistrationInput,
+  ): Promise<Result<RegistrationRevisionRecord>> {
     return this.repository.transaction(async (tx) => {
       const current = await tx.loadCurrentRevision(input.playerId);
       if (current === null || current.id !== input.revisionId) {
         return err(appError("NOT_FOUND", "Current registration review not found"));
       }
       if (current.status !== "SUBMITTED") {
-        return err(appError("INVALID_STATE_TRANSITION", "Only submitted registration can be withdrawn"));
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Only submitted registration can be withdrawn"),
+        );
       }
-      const updated = await tx.updateRevisionStatus(current.id, input.expectedRevision, "WITHDRAWN");
+      const updated = await tx.updateRevisionStatus(
+        current.id,
+        input.expectedRevision,
+        "WITHDRAWN",
+      );
       return updated === null
         ? err(appError("REVISION_CONFLICT", "Registration review revision conflict"))
         : ok(updated);
