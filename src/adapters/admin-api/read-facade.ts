@@ -5,12 +5,15 @@ import type {
 } from "../../modules/admin/content-library-contracts.js";
 import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
 import type { ContentReleaseReadService } from "../../modules/admin/content-release-read-service.js";
+import { AdminEnvironmentSchema } from "../../modules/admin/contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
 import type {
   Player360SearchResultView,
   Player360View,
 } from "../../modules/admin/player360-contracts.js";
 import type { Player360Service } from "../../modules/admin/player360-service.js";
+import type { RuntimeWhatsappHealthView } from "../../modules/admin/runtime-health-contracts.js";
+import type { RuntimeWhatsappHealthService } from "../../modules/admin/runtime-health-service.js";
 import type { ValidationReport } from "../../modules/catalog/contracts.js";
 import type { ReleaseDiff } from "../../modules/catalog/diff.js";
 
@@ -27,6 +30,7 @@ export type AdminApiPrincipalContext = z.infer<typeof AdminApiPrincipalContextSc
 type Player360Reader = Pick<Player360Service, "get" | "search">;
 type ContentLibraryReader = Pick<ContentLibraryService, "search" | "listUnpublished">;
 type ContentReleaseReader = Pick<ContentReleaseReadService, "diff" | "validationPreview">;
+type RuntimeHealthReader = Pick<RuntimeWhatsappHealthService, "getLatest">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -69,6 +73,7 @@ export class AdminReadFacade {
     private readonly player360: Player360Reader,
     private readonly contentLibrary?: ContentLibraryReader,
     private readonly contentRelease?: ContentReleaseReader,
+    private readonly runtimeHealth?: RuntimeHealthReader,
   ) {}
 
   public async searchPlayers(
@@ -149,6 +154,18 @@ export class AdminReadFacade {
       principalId: context.principalId,
       correlationId: context.correlationId,
       releaseId,
+    });
+  }
+
+  public async getRuntimeWhatsappHealth(rawContext: unknown): Promise<RuntimeWhatsappHealthView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.runtimeHealth === undefined) {
+      throw new Error("Runtime health read boundary is not configured");
+    }
+    return this.runtimeHealth.getLatest({
+      principalId: context.principalId,
+      environment: AdminEnvironmentSchema.parse(context.environment),
+      correlationId: context.correlationId,
     });
   }
 }
