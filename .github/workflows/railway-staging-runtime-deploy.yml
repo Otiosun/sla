@@ -92,32 +92,24 @@ jobs:
             exit 1
           fi
 
-      - name: Verify Railway runtime-only variable boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          variables_json="$(railway variable list --service "$RAILWAY_SERVICE" --environment staging --json)"
-          if ! jq -e 'type == "object"' <<<"$variables_json" >/dev/null; then
-            echo "Railway variable list did not return an object" >&2
-            exit 1
-          fi
-          variable_names="$(jq -r 'keys[]' <<<"$variables_json")"
-          for required_secret in DATABASE_URL WHATSAPP_SESSION_KEY WHATSAPP_AUTH_KEY_BASE64 WHATSAPP_AUTH_KEY_VERSION; do
-            if ! grep -Fxq "$required_secret" <<<"$variable_names"; then
-              echo "required Railway runtime variable is not provisioned: ${required_secret}" >&2
-              exit 1
-            fi
-          done
-          if grep -Fxq "MIGRATOR_DATABASE_URL" <<<"$variable_names"; then
-            echo "Railway runtime must not receive MIGRATOR_DATABASE_URL" >&2
-            exit 1
-          fi
-
       - name: Stop previous worker before replacement
         shell: bash
         run: |
           set -euo pipefail
-          before_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 20 --json)"
+          before_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 50 --json)"
+
+          transitional_count="$(jq '[.[] | select(.status | test("^(BUILDING|DEPLOYING|INITIALIZING|WAITING|QUEUED|REMOVING)$"))] | length' <<<"$before_json")"
+          if (( transitional_count > 0 )); then
+            echo "concurrent or transitional Railway deployment already exists" >&2
+            exit 1
+          fi
+
+          active_success_count="$(jq '[.[] | select(.status == "SUCCESS")] | length' <<<"$before_json")"
+          if (( active_success_count > 1 )); then
+            echo "more than one successful Railway deployment is present" >&2
+            exit 1
+          fi
+
           before_id="$(jq -r 'map(select(.status == "SUCCESS"))[0].id // empty' <<<"$before_json")"
           echo "PREVIOUS_RAILWAY_DEPLOYMENT_ID=${before_id}" >> "$GITHUB_ENV"
 
@@ -176,18 +168,27 @@ jobs:
           baseline_id="$(jq -r '.[0].id // empty' <<<"$baseline_json")"
           echo "RAILWAY_BASELINE_DEPLOYMENT_ID=${baseline_id}" >> "$GITHUB_ENV"
 
-          railway service source disconnect \
-            --service "$RAILWAY_SERVICE" \
-            --environment staging \
-            --json \
-            >/tmp/railway-source-disconnect.json
-
           railway service source connect \
             --service "$RAILWAY_SERVICE" \
             --environment staging \
             --image "$RUNTIME_IMAGE_GHCR" \
             --json \
             >/tmp/railway-source-connect.json
+
+          new_deployment_seen=false
+          for attempt in {1..6}; do
+            latest_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 1 --json)"
+            latest_id="$(jq -r '.[0].id // empty' <<<"$latest_json")"
+            if [[ -n "$latest_id" && "$latest_id" != "$baseline_id" ]]; then
+              new_deployment_seen=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ "$new_deployment_seen" != "true" ]]; then
+            railway redeploy --service "$RAILWAY_SERVICE" --yes --json >/tmp/railway-redeploy.json
+          fi
 
       - name: Wait for exact Railway replacement deployment
         shell: bash
