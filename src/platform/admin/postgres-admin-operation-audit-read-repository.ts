@@ -97,7 +97,9 @@ function compareTimeline(
   return timeDelta === 0 ? left.eventId.localeCompare(right.eventId) : timeDelta;
 }
 
-export class PostgresAdminOperationAuditReadRepository implements AdminOperationAuditReadRepository {
+export class PostgresAdminOperationAuditReadRepository
+  implements AdminOperationAuditReadRepository
+{
   public constructor(private readonly pool: Pool) {}
 
   public async reconstruct(operationId: string): Promise<AdminOperationAuditEvidence | null> {
