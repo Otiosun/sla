@@ -96,4 +96,24 @@ describe.sequential("PostgresAdminApiRateLimiter", () => {
     );
     expect(bucket.rows[0]?.request_count).toBe(1);
   });
+
+  it("accepts the runtime.health.read operation used by the operational health route", async () => {
+    const limiter = new PostgresAdminApiRateLimiter(firstPool, {
+      "runtime.health.read": { limit: 2, windowSeconds: 60 },
+    });
+
+    const decision = await limiter.consume({
+      principalId: PRINCIPAL_ID,
+      operation: "runtime.health.read",
+    });
+
+    expect(decision.allowed).toBe(true);
+    const bucket = await firstPool.query<{ request_count: number }>(
+      `SELECT request_count
+       FROM admin_api_rate_limit_buckets
+       WHERE principal_id = $1 AND operation = 'runtime.health.read'`,
+      [PRINCIPAL_ID],
+    );
+    expect(bucket.rows[0]?.request_count).toBe(1);
+  });
 });
