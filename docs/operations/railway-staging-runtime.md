@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Railway is the canonical staging runtime target for the current zero-cost Phase 17 validation window. It runs the already-built immutable GHCR runtime image; it is not a source-build environment and it is not the production hosting decision.
+Railway is the canonical staging runtime target for the current zero-cost Phase 17 validation window. The application runtime is still the already-built immutable GHCR image; Railway does not rebuild the application sources or dependencies and it is not the production hosting decision. For a canonical deploy, Railway builds only a one-line wrapper Dockerfile whose `FROM` is pinned to the verified GHCR manifest digest.
 
 Fly.io remains an inactive fallback. Its existing workflow and `fly.staging.toml` stay in the repository so the project does not discard the previously validated deployment path.
 
@@ -14,10 +14,11 @@ Fly.io remains an inactive fallback. Its existing workflow and `fly.staging.toml
 - GitHub Environment secret: `RAILWAY_TOKEN`
 - GitHub Environment variable: `STAGING_RAILWAY_SERVICE=pokemon-rpg-whatsapp-staging`
 - Canonical workflow: `Railway Staging Runtime Deploy`
-- Canonical image: `ghcr.io/otiosun/sla:sha-<full-40-char-git-sha>`
+- Canonical image coordinate: `ghcr.io/otiosun/sla:sha-<full-40-char-git-sha>`
+- Canonical deployed base: the manifest digest resolved from that exact SHA tag
 - Fly.io: fallback only while the zero-cost validation window is active
 
-The Railway Project Token is created for the staging project/environment and pasted directly into the GitHub `staging` Environment as `RAILWAY_TOKEN`. Never put its value in Git, Drive, PR bodies, workflow output, screenshots, shell history, or chat transcripts.
+The Railway Project Token is created for the staging project/environment and pasted directly into the GitHub `staging` Environment as `RAILWAY_TOKEN`. Never put its value in Git, Drive, PR bodies, workflow output, screenshots, shell history, or chat transcripts. The canonical deploy does not require a broader account/workspace token and must not replace this Project Token with `RAILWAY_API_TOKEN` merely to mutate service source configuration.
 
 ## Runtime variables
 
@@ -38,7 +39,7 @@ The GitHub `staging` Environment also supplies `STAGING_RUNTIME_DATABASE_URL` an
 
 ## One-worker invariant
 
-Baileys cannot safely run two active workers on the same WhatsApp session in this topology. Railway's normal singleton deployment strategy starts the replacement before removing the previous deployment, so merely configuring one replica is not sufficient for this project.
+Baileys cannot safely run two active workers on the same WhatsApp session in this topology. Railway's normal singleton deployment strategy can overlap a replacement with the previous deployment, so merely configuring one replica is not sufficient for this project.
 
 The Railway service must be preconfigured with exactly one configured replica before routine canonical deploys. Replica topology is infrastructure bootstrap, not a per-release mutation: the project-scoped `RAILWAY_TOKEN` is intentionally kept narrow, and the canonical workflow must not call `railway scale` merely to rewrite the already-required singleton topology.
 
@@ -51,9 +52,11 @@ The canonical workflow therefore accepts brief staging downtime and performs an 
 3. when one successful deployment exists, run `railway down --service "$RAILWAY_SERVICE" --environment staging --yes`;
 4. wait until that deployment is `REMOVED` or absent;
 5. stage the exact `DEPLOY_REVISION` with `--skip-deploys`;
-6. connect the exact immutable GHCR `sha-<full-sha>` image;
-7. wait for the replacement deployment to reach `SUCCESS`;
-8. run the provider-live post-deploy smoke.
+6. resolve the exact manifest digest from the already-verified immutable `sha-<full-sha>` GHCR tag;
+7. write a temporary digest-pinned wrapper Dockerfile containing only `FROM ghcr.io/otiosun/sla@sha256:<digest>`;
+8. deploy that wrapper with the Project-Token-supported `railway up`, targeting the exact project, `staging` environment and service;
+9. wait for the replacement deployment to reach `SUCCESS`;
+10. run the provider-live post-deploy smoke.
 
 If the singleton preflight fails, correct the Railway service topology through the staging infrastructure bootstrap ceremony before rerunning the canonical workflow. Do not replace the Project Token with a broader account/workspace credential merely to make `railway scale` available to CI.
 
@@ -63,7 +66,9 @@ If the previous deployment cannot be proven stopped, the replacement is not star
 
 Routine staging deployments are launched only from canonical `main` through the GitHub Actions workflow `Railway Staging Runtime Deploy`. Browser-side source edits or manual server deployment are not normal release evidence.
 
-The workflow requires a full 40-character `GITHUB_SHA`, pulls `ghcr.io/otiosun/sla:sha-${GITHUB_SHA}`, and verifies that the OCI label `org.opencontainers.image.revision` equals the same SHA before mutating Railway.
+The workflow requires a full 40-character `GITHUB_SHA`, pulls `ghcr.io/otiosun/sla:sha-${GITHUB_SHA}`, and verifies that the OCI label `org.opencontainers.image.revision` equals the same SHA before mutating Railway. It then resolves the manifest digest of that verified tag and creates a temporary digest-pinned wrapper Dockerfile. The wrapper has no application source and no dependency installation; its only instruction is `FROM` the exact immutable GHCR digest.
+
+The wrapper is uploaded with `railway up` using explicit `--project`, `--environment staging`, `--service` and `--path-as-root` targeting. `railway up` is a deployment action supported by the project-scoped `RAILWAY_TOKEN`, so the canonical path does not require a broader account/workspace token. The previously attempted `railway service source connect --image ...` path is intentionally not part of canonical CI because source mutation exceeded the Project Token's deployment scope.
 
 It does not enumerate Railway variables because Railway's variable-list API exposes secret values. Required runtime variables remain an external provisioning invariant; runtime startup and the final smoke fail closed when required configuration is missing or unusable.
 
@@ -77,7 +82,7 @@ A Railway `SUCCESS` state alone is insufficient. Final success requires `pnpm op
 
 ## Failure handling
 
-Before source mutation, a failure leaves the previous deployment untouched unless the workflow has already entered the explicit teardown step.
+Before Railway mutation, a failure leaves the previous deployment untouched unless the workflow has already entered the explicit teardown step.
 
 After the previous worker has been removed, any failure is fail-closed: do not start a second speculative worker, do not reset WhatsApp auth, and do not alter database state manually to make the gate pass. Diagnose the workflow/deployment, then rerun the same immutable candidate or select a separately approved known-good SHA.
 
@@ -85,7 +90,7 @@ A free/trial Railway deployment may also remain queued during temporary capacity
 
 ## Rollback
 
-Rollback must use a known-good immutable SHA whose compatibility with the current database schema/state is understood. The safe staging rollback procedure uses the same non-overlapping sequence as a forward deploy: verify the preconfigured singleton topology, stop the current worker, stage the rollback `DEPLOY_REVISION`, connect the known-good `sha-<rollback-sha>` image, wait for `SUCCESS`, then rerun the exact provider-live smoke.
+Rollback must use a known-good immutable SHA whose compatibility with the current database schema/state is understood. The safe staging rollback procedure uses the same non-overlapping sequence as a forward deploy: verify the preconfigured singleton topology, stop the current worker, stage the rollback `DEPLOY_REVISION`, verify the known-good immutable SHA tag, resolve its manifest digest, deploy a digest-pinned wrapper with `railway up`, wait for `SUCCESS`, then rerun the exact provider-live smoke.
 
 Do not regenerate or delete WhatsApp authentication material during a code rollback. Do not rewrite migration history.
 
