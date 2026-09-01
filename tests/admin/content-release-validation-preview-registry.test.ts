@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerPhase12CCatalogReleaseOperations } from "../../src/modules/admin/catalog-release-definitions.js";
+import {
+  registerPhase12CCatalogReleaseOperations,
+} from "../../src/modules/admin/catalog-release-definitions.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
 
 describe("content release validation preview registry", () => {
@@ -27,7 +29,9 @@ describe("content release validation preview registry", () => {
       requiredApprovals: 0,
     });
     expect(
-      definition.parseInput({ releaseId: "22222222-2222-4222-8222-222222222222" }),
+      definition.parseInput({
+        releaseId: "22222222-2222-4222-8222-222222222222",
+      }),
     ).toEqual({ releaseId: "22222222-2222-4222-8222-222222222222" });
   });
 });
