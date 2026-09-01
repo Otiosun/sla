@@ -132,7 +132,7 @@ Do not replace the immutable SHA image with a mutable tag and do not use `railwa
 
 #### Fly.io fallback
 
-If Railway is deliberately suspended and Fly.io is explicitly reactivated, the preserved fallback workflow remains `.github/workflows/staging-runtime-deploy.yml` with `fly.staging.toml`. Its `--ha=false`, `--strategy immediate`, immutable image, and one-Machine constraints remain mandatory. Do not silently fail over from Railway to Fly during an incident.
+If Railway is deliberately suspended and Fly.io is explicitly reactivated, the preserved fallback workflow remains `.github/workflows/staging-runtime-deploy.yml` with `fly.staging.toml`. The fallback copies the immutable image to `registry.fly.io/<staging-app>:sha-<full-40-char-git-sha>`, uses `--strategy immediate`, and preserves exactly one Machine. Its `--ha=false`, immutable-image, runtime-only secret, and one-Machine constraints remain mandatory. Do not silently fail over from Railway to Fly during an incident.
 
 ### A8. Post-deploy smoke gate
 
@@ -315,6 +315,7 @@ This runbook documents the procedures required by Phase 17.12 and the code-level
 
 The following remain separately gated until real evidence exists:
 
+- **17.2** real staging PostgreSQL release/provider-equivalent environment (already validated separately; retained here as a required operator-contract reference);
 - **17.3** real CI/CD execution connected to the configured Railway staging target;
 - **17.5** real post-deploy smoke against an actually deployed provider-connected Railway revision/session;
 - production backup/alert/provider validations that explicitly require the eventual production target.
