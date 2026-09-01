@@ -68,15 +68,19 @@ const travelPolicy: CommandPolicyRequirement = {
 
 describe("community command policy", () => {
   it("allows registration only in onboarding-capable context before activation", () => {
-    expect(evaluateCommandPolicy(context(), registerPolicy)).toEqual({ ok: true, value: undefined });
+    expect(evaluateCommandPolicy(context(), registerPolicy)).toEqual({
+      ok: true,
+      value: undefined,
+    });
 
     expect(
       evaluateCommandPolicy(context({ playerAccess: access("ACTIVE") }), registerPolicy),
     ).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
 
-    expect(
-      evaluateCommandPolicy(context({ group: worldGroup }), registerPolicy),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(evaluateCommandPolicy(context({ group: worldGroup }), registerPolicy)).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
   });
 
   it("requires both the review-capable group and the administrative capability", () => {
