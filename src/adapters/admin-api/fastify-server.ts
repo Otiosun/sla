@@ -61,6 +61,16 @@ const ContentLibraryTransportSchema = z
   .strict();
 
 const ContentUnpublishedTransportSchema = z.object({}).strict();
+const ContentReleaseDiffTransportSchema = z
+  .object({
+    fromReleaseId: z.string().uuid(),
+    toReleaseId: z.string().uuid(),
+  })
+  .strict()
+  .refine((value) => value.fromReleaseId !== value.toReleaseId, {
+    message: "Release diff requires two distinct releases",
+    path: ["toReleaseId"],
+  });
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
 export type AdminApiRateLimitedOperation =
@@ -92,7 +102,12 @@ export interface AdminApiServerDependencies {
   readonly sessionLogoutService?: Pick<AdminSessionLogoutService, "logoutCurrent">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer"> &
-    Partial<Pick<AdminReadFacade, "searchContent" | "listUnpublishedContent">>;
+    Partial<
+      Pick<
+        AdminReadFacade,
+        "searchContent" | "listUnpublishedContent" | "diffContentRelease"
+      >
+    >;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
   readonly rateLimiter: AdminApiRateLimiter;
 }
@@ -257,6 +272,19 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
     return dependencies.readFacade.searchPlayers(trustedRequestContext(identity, request), query);
+  });
+
+  server.get("/admin/v1/content/releases/diff", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "content.search");
+    if (identity === null) return reply;
+    const query = parseTransport(ContentReleaseDiffTransportSchema, request.query);
+    if (dependencies.readFacade.diffContentRelease === undefined) {
+      throw new Error("Content release diff read boundary is not configured");
+    }
+    return dependencies.readFacade.diffContentRelease(
+      trustedRequestContext(identity, request),
+      query,
+    );
   });
 
   server.get("/admin/v1/content/unpublished", async (request, reply) => {
