@@ -72,7 +72,7 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
       const index = this.revisions.findIndex((entry) => entry.id === revisionId);
       if (index === -1) return null;
       const current = this.revisions[index];
-      if (current.revision !== expectedRevision) return null;
+      if (current === undefined || current.revision !== expectedRevision) return null;
       const updated: RegistrationRevisionRecord = {
         ...current,
         status,
