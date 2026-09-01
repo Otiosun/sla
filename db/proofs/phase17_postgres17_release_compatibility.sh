@@ -1,68 +1,92 @@
-set -euo pipefail
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
 container="pokemon-postgres17-release-proof"
-database="pokemon_release_proof"
-migrator_role="pokemon_migrator"
-runtime_role="pokemon_runtime"
-migrator_password="migrator-proof-password"
-runtime_password="runtime-proof-password"
-revision="phase17-postgres17-release-proof"
+database="pokemon_rpg_pg17_compat"
+admin_user="pokemon"
+admin_password="test-only-password"
+migrator_role="pokemon_pg17_migrator"
+runtime_role="pokemon_pg17_runtime"
+migrator_password="pg17-migrator-password"
+runtime_password="pg17-runtime-password"
+revision="${PROOF_REVISION:-}"
+
+if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "PROOF_REVISION must be a full lowercase 40-character commit SHA" >&2
+  exit 1
+fi
 
 cleanup() {
   docker rm --force "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-cleanup
 
 docker run --detach \
   --name "$container" \
-  --env POSTGRES_USER=postgres \
-  --env POSTGRES_PASSWORD=postgres-proof-password \
+  --env "POSTGRES_USER=${admin_user}" \
+  --env "POSTGRES_PASSWORD=${admin_password}" \
   --env POSTGRES_DB=postgres \
-  postgres:17.6-alpine@sha256:a14d4436f36a1290d05cfc902df0f559d2e9f95d27e2a2703ce9a544b867cf92 >/dev/null
+  --publish 5432:5432 \
+  postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94 >/dev/null
 
 for attempt in {1..30}; do
   if docker exec \
-    --env PGPASSWORD=postgres-proof-password \
+    --env "PGPASSWORD=${admin_password}" \
     "$container" psql \
-    --username postgres \
+    --host 127.0.0.1 \
+    --username "$admin_user" \
     --dbname postgres \
+    --set ON_ERROR_STOP=1 \
     --tuples-only \
     --command "SELECT 1;" >/dev/null 2>&1; then
     break
   fi
-  if [[ "$attempt" == "30" ]]; then
+  if [[ "$attempt" -eq 30 ]]; then
     docker logs "$container"
     exit 1
   fi
   sleep 1
 done
 
-docker exec \
-  --env PGPASSWORD=postgres-proof-password \
+server_version="$(docker exec \
+  --env "PGPASSWORD=${admin_password}" \
   "$container" psql \
-  --username postgres \
+  --host 127.0.0.1 \
+  --username "$admin_user" \
   --dbname postgres \
-  --set ON_ERROR_STOP=1 \
-  --command "CREATE ROLE ${migrator_role} LOGIN PASSWORD '${migrator_password}'" \
-  --command "CREATE ROLE ${runtime_role} LOGIN PASSWORD '${runtime_password}'" \
-  --command "CREATE DATABASE ${database} OWNER ${migrator_role}"
+  --tuples-only \
+  --no-align \
+  --command "SHOW server_version;")"
+if [[ "$server_version" != 17.6* ]]; then
+  echo "expected PostgreSQL 17.6 compatibility target, got ${server_version}" >&2
+  exit 1
+fi
 
 docker exec \
-  --env PGPASSWORD=postgres-proof-password \
+  --env "PGPASSWORD=${admin_password}" \
+  "$container" createdb \
+  --host 127.0.0.1 \
+  --username "$admin_user" \
+  "$database"
+
+docker exec -i \
+  --env "PGPASSWORD=${admin_password}" \
   "$container" psql \
-  --username postgres \
+  --host 127.0.0.1 \
+  --username "$admin_user" \
   --dbname "$database" \
   --set ON_ERROR_STOP=1 \
-  --command "REVOKE CREATE ON SCHEMA public FROM PUBLIC" \
-  --command "GRANT USAGE ON SCHEMA public TO ${runtime_role}" \
-  --command "ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator_role} IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO ${runtime_role}"
+  --set "migrator_role=${migrator_role}" \
+  --set "migrator_password=${migrator_password}" \
+  --set "runtime_role=${runtime_role}" \
+  --set "runtime_password=${runtime_password}" \
+  < db/bootstrap/roles.sql
 
-host="127.0.0.1"
-port="$(docker inspect --format='{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$container")"
-migrator_url="postgresql://${migrator_role}:${migrator_password}@${host}:${port}/${database}?sslmode=disable"
-runtime_url="postgresql://${runtime_role}:${runtime_password}@${host}:${port}/${database}?sslmode=disable"
+migrator_url="postgresql://${migrator_role}:${migrator_password}@localhost:5432/${database}"
+runtime_url="postgresql://${runtime_role}:${runtime_password}@localhost:5432/${database}"
 
+APP_ENV=staging \
+DATABASE_URL="$runtime_url" \
 MIGRATOR_DATABASE_URL="$migrator_url" \
 DEPLOY_REVISION="$revision" \
   bash scripts/operations/release-migrate.sh
@@ -119,12 +143,29 @@ docker exec \
   --username "$runtime_role" \
   --dbname "$database" \
   --set ON_ERROR_STOP=1 \
-  --command "INSERT INTO whatsapp_sessions(session_key, auth_state_ciphertext, auth_state_nonce, auth_state_tag, key_version) VALUES ('${session_key}', decode('00','hex'), decode(repeat('00', 12),'hex'), decode(repeat('00', 16),'hex'), 1)"
+  --command "INSERT INTO whatsapp_auth_sessions(session_key, credentials_ciphertext, credentials_iv, credentials_auth_tag, encryption_key_version) VALUES ('${session_key}', decode('00','hex'), decode(repeat('00',12),'hex'), decode(repeat('00',16),'hex'), 1) ON CONFLICT (session_key) DO NOTHING;"
 
-APP_ENV=staging \
-DATABASE_URL="$runtime_url" \
-MIGRATOR_DATABASE_URL="$migrator_url" \
-WHATSAPP_SESSION_KEY="$session_key" \
-  node --import tsx db/proofs/phase17_application_smoke_e2e.ts --schema-only
+docker exec \
+  --env "PGPASSWORD=${runtime_password}" \
+  "$container" psql \
+  --host 127.0.0.1 \
+  --username "$runtime_role" \
+  --dbname "$database" \
+  --set ON_ERROR_STOP=1 \
+  --command "INSERT INTO runtime_instances(instance_id, environment, deployment_revision, whatsapp_session_key, provider_state, started_at, last_connected_at, last_heartbeat_at) VALUES ('00000000-0000-4000-8000-000000000176', 'staging', '${revision}', '${session_key}', 'CONNECTED', now(), now(), now());"
 
-printf '%s\n' '{"proof":"phase17-postgres17-release-compatibility","postgres":"17.6","migrations":27,"runtimeVerify":true,"bootstrap":true,"seed":true,"schemaSmoke":true}'
+smoke_json="$(APP_ENV=staging \
+  DATABASE_URL="$runtime_url" \
+  MIGRATOR_DATABASE_URL="$migrator_url" \
+  DEPLOY_REVISION="$revision" \
+  WHATSAPP_SESSION_KEY="$session_key" \
+    pnpm --silent run ops:smoke:application)"
+
+node -e '
+  const report = JSON.parse(process.argv[1]);
+  if (!report.passed) throw new Error(`PostgreSQL 17 application smoke failed: ${report.failures.join(",")}`);
+  if (report.providerLiveHealth !== "HEALTHY") throw new Error("compatibility proof did not observe live provider health");
+  if (report.finalPostDeploySmokeComplete !== true) throw new Error("compatibility proof did not complete final post-deploy smoke");
+' "$smoke_json"
+
+printf 'PostgreSQL %s release compatibility proof passed for revision %s\n' "$server_version" "$revision"
