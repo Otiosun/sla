@@ -1,8 +1,8 @@
-import {
-  type AdminOperationAuditEvidence,
-  type AdminOperationAuditReadRepository,
-  type AdminOperationAuditTimelineView,
-  type AdminOperationAuditView,
+import type {
+  AdminOperationAuditEvidence,
+  AdminOperationAuditReadRepository,
+  AdminOperationAuditTimelineView,
+  AdminOperationAuditView,
 } from "./admin-operation-audit-read-contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 
@@ -21,7 +21,9 @@ export interface AdminOperationAuditReadRequest {
   readonly operationId: string;
 }
 
-function projectTimeline(evidence: AdminOperationAuditEvidence): readonly AdminOperationAuditTimelineView[] {
+function projectTimeline(
+  evidence: AdminOperationAuditEvidence,
+): readonly AdminOperationAuditTimelineView[] {
   return evidence.timeline.map((event) => ({
     ...event,
     occurredAt: event.occurredAt.toISOString(),
