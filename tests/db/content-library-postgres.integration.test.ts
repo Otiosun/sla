@@ -101,15 +101,28 @@ describe.sequential("PostgresContentLibraryRepository", () => {
   it("lists only DRAFT and VALIDATED releases with append-only change evidence", async () => {
     await pool.query(
       `INSERT INTO content_releases (
-         id, release_no, name, status, default_ruleset_id, revision,
-         created_at, validated_at, validation_report, content_fingerprint, published_at
+         id, release_no, name, status, default_ruleset_id, revision, created_at
        ) VALUES (
-         $1, 90, 'Published control', 'PUBLISHED', $2, 1,
-         '2026-08-31T19:00:00.000Z', '2026-08-31T19:30:00.000Z',
-         '{}'::jsonb, $3, '2026-08-31T20:00:00.000Z'
+         $1, 90, 'Published control', 'DRAFT', $2, 1, '2026-08-31T19:00:00.000Z'
        )`,
-      [PUBLISHED_RELEASE_ID, RULESET_ID, "a".repeat(64)],
+      [PUBLISHED_RELEASE_ID, RULESET_ID],
     );
+    await pool.query(
+      `UPDATE content_releases
+       SET status = 'VALIDATED',
+           validated_at = '2026-08-31T19:30:00.000Z',
+           validation_report = '{}'::jsonb,
+           content_fingerprint = $2
+       WHERE id = $1`,
+      [PUBLISHED_RELEASE_ID, "a".repeat(64)],
+    );
+    await pool.query(
+      `UPDATE content_releases
+       SET status = 'PUBLISHED', published_at = '2026-08-31T20:00:00.000Z'
+       WHERE id = $1`,
+      [PUBLISHED_RELEASE_ID],
+    );
+
     await pool.query(
       `INSERT INTO content_releases (
          id, release_no, name, status, parent_release_id, default_ruleset_id,
@@ -123,13 +136,12 @@ describe.sequential("PostgresContentLibraryRepository", () => {
     await pool.query(
       `INSERT INTO content_releases (
          id, release_no, name, status, parent_release_id, default_ruleset_id,
-         revision, created_at, validated_at, validation_report, content_fingerprint
+         revision, created_at
        ) VALUES (
-         $1, 92, 'Kanto ready', 'VALIDATED', $2, $3,
-         1, '2026-08-31T20:00:00.000Z', '2026-08-31T21:00:00.000Z',
-         '{}'::jsonb, $4
+         $1, 92, 'Kanto ready', 'DRAFT', $2, $3,
+         1, '2026-08-31T20:00:00.000Z'
        )`,
-      [VALIDATED_RELEASE_ID, PUBLISHED_RELEASE_ID, RULESET_ID, "b".repeat(64)],
+      [VALIDATED_RELEASE_ID, PUBLISHED_RELEASE_ID, RULESET_ID],
     );
 
     const claims = [
@@ -192,6 +204,16 @@ describe.sequential("PostgresContentLibraryRepository", () => {
         ],
       );
     }
+
+    await pool.query(
+      `UPDATE content_releases
+       SET status = 'VALIDATED',
+           validated_at = '2026-08-31T21:00:00.000Z',
+           validation_report = '{}'::jsonb,
+           content_fingerprint = $2
+       WHERE id = $1`,
+      [VALIDATED_RELEASE_ID, "b".repeat(64)],
+    );
 
     const repository = new PostgresContentLibraryRepository(pool);
     const result = await repository.listUnpublished();
