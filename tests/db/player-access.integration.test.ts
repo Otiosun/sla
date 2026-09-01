@@ -58,7 +58,10 @@ describe.sequential("player access persistence on disposable PostgreSQL", () => 
     await adminPool.end();
   }, 30_000);
 
-  async function createApprovedReview(): Promise<{ readonly playerId: ReturnType<typeof createPlayerId>; readonly reviewId: string }> {
+  async function createApprovedReview(): Promise<{
+    readonly playerId: ReturnType<typeof createPlayerId>;
+    readonly reviewId: string;
+  }> {
     const playerId = createPlayerId();
     const reviewId = randomUUID();
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
