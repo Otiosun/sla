@@ -19,11 +19,10 @@ const report = {
 describe("AdminReadFacade content validation preview", () => {
   it("injects trusted authority and route release id", async () => {
     const validationPreview = vi.fn(async () => report);
-    const facade = new AdminReadFacade(
-      { search: vi.fn(), get: vi.fn() },
-      undefined,
-      { diff: vi.fn(), validationPreview },
-    );
+    const facade = new AdminReadFacade({ search: vi.fn(), get: vi.fn() }, undefined, {
+      diff: vi.fn(),
+      validationPreview,
+    });
 
     const result = await facade.previewContentReleaseValidation(
       {
