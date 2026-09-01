@@ -1,10 +1,16 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
+import type {
+  RegistrationDraftInput,
+  RegistrationReviewActor,
+  RegistrationSnapshot,
+} from "./contracts.js";
 import type {
   RegistrationDraftRecord,
+  RegistrationIdempotentOperation,
   RegistrationRepository,
   RegistrationRevisionRecord,
+  RegistrationRevisionStatus,
 } from "./ports.js";
 import { validateRegistrationDraft } from "./validation.js";
 
@@ -29,8 +35,27 @@ export interface WithdrawRegistrationInput {
   readonly expectedRevision: number;
 }
 
+export interface ReviewRegistrationInput {
+  readonly reviewId: string;
+  readonly expectedRevision: number;
+  readonly actor: RegistrationReviewActor;
+  readonly idempotencyKey: string;
+}
+
+export interface ReviewRegistrationResult extends RegistrationRevisionRecord {
+  readonly replayed: boolean;
+}
+
 function snapshotCopy(snapshot: RegistrationSnapshot): RegistrationSnapshot {
   return { ...snapshot };
+}
+
+function normalizeIdempotencyKey(value: string): Result<string> {
+  const key = value.trim();
+  if (key.length === 0 || key.length > 512) {
+    return err(appError("IDEMPOTENCY_KEY_INVALID", "Invalid registration idempotency key"));
+  }
+  return ok(key);
 }
 
 export class RegistrationService {
@@ -55,10 +80,9 @@ export class RegistrationService {
   }
 
   public async submit(input: SubmitRegistrationInput): Promise<Result<SubmitRegistrationResult>> {
-    const key = input.idempotencyKey.trim();
-    if (key.length === 0 || key.length > 512) {
-      return err(appError("IDEMPOTENCY_KEY_INVALID", "Invalid registration idempotency key"));
-    }
+    const keyResult = normalizeIdempotencyKey(input.idempotencyKey);
+    if (!keyResult.ok) return keyResult;
+    const key = keyResult.value;
 
     return this.repository.transaction(async (tx) => {
       const replay = await tx.loadIdempotencyReceipt("SUBMIT", key);
@@ -108,6 +132,92 @@ export class RegistrationService {
       return updated === null
         ? err(appError("REVISION_CONFLICT", "Registration review revision conflict"))
         : ok(updated);
+    });
+  }
+
+  public async requestChanges(
+    input: ReviewRegistrationInput,
+  ): Promise<Result<ReviewRegistrationResult>> {
+    return this.decideReview(input, "REQUEST_CHANGES", "CHANGES_REQUESTED", false);
+  }
+
+  public async approve(
+    input: ReviewRegistrationInput,
+  ): Promise<Result<ReviewRegistrationResult>> {
+    return this.decideReview(input, "APPROVE", "APPROVED", true);
+  }
+
+  public async reject(
+    input: ReviewRegistrationInput,
+  ): Promise<Result<ReviewRegistrationResult>> {
+    return this.decideReview(input, "REJECT", "REJECTED", true);
+  }
+
+  private async decideReview(
+    input: ReviewRegistrationInput,
+    operation: RegistrationIdempotentOperation,
+    nextStatus: RegistrationRevisionStatus,
+    terminalDecision: boolean,
+  ): Promise<Result<ReviewRegistrationResult>> {
+    const keyResult = normalizeIdempotencyKey(input.idempotencyKey);
+    if (!keyResult.ok) return keyResult;
+    const key = keyResult.value;
+
+    const adminPrincipalId = input.actor.adminPrincipalId.trim();
+    if (adminPrincipalId.length === 0) {
+      return err(appError("VALIDATION_FAILED", "Admin principal is required for review action"));
+    }
+
+    return this.repository.transaction(async (tx) => {
+      const replay = await tx.loadIdempotencyReceipt(operation, key);
+      if (replay !== null) {
+        if (replay.id !== input.reviewId) {
+          return err(
+            appError(
+              "FINGERPRINT_MISMATCH",
+              "Registration idempotency key belongs to another review",
+            ),
+          );
+        }
+        return ok({ ...replay, replayed: true });
+      }
+
+      const review = await tx.loadRevisionById(input.reviewId);
+      if (review === null) return err(appError("NOT_FOUND", "Registration review not found"));
+
+      const current = await tx.loadCurrentRevision(review.playerId);
+      if (current === null || current.id !== review.id) {
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Only the current registration review can be decided",
+          ),
+        );
+      }
+      if (current.revision !== input.expectedRevision) {
+        return err(appError("REVISION_CONFLICT", "Registration review revision conflict"));
+      }
+      if (current.status !== "SUBMITTED") {
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Only submitted registration can be decided",
+          ),
+        );
+      }
+
+      const updated = await tx.updateRevisionStatus(
+        current.id,
+        input.expectedRevision,
+        nextStatus,
+        terminalDecision ? adminPrincipalId : undefined,
+      );
+      if (updated === null) {
+        return err(appError("REVISION_CONFLICT", "Registration review revision conflict"));
+      }
+
+      await tx.saveIdempotencyReceipt(operation, key, updated.id);
+      return ok({ ...updated, replayed: false });
     });
   }
 }
