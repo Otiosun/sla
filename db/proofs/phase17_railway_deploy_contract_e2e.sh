@@ -66,8 +66,10 @@ reject_literal "$workflow" 'railway variable list'
 reject_literal "$workflow" 'railway variables'
 reject_literal "$workflow" 'MIGRATOR_DATABASE_URL:'
 reject_literal "$workflow" 'STAGING_MIGRATOR_DATABASE_URL'
-require_literal "$railway_doc" 'Required runtime variables'
-require_literal "$railway_doc" 'MIGRATOR_DATABASE_URL'
+require_literal "$railway_doc" 'The Railway service must have these variables before a canonical deployment:'
+require_literal "$railway_doc" '`DATABASE_URL`'
+require_literal "$railway_doc" '`WHATSAPP_AUTH_KEY_BASE64`'
+require_literal "$railway_doc" '`MIGRATOR_DATABASE_URL` is forbidden'
 
 # Provider safety: reject concurrent/transitional deploys, then allow exactly one configured replica.
 require_literal "$workflow" 'concurrent or transitional Railway deployment already exists'
