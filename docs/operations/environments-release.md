@@ -25,11 +25,33 @@ The contract is fail-closed. Missing production/staging role separation for a mi
 - The long-running runtime must receive only its restricted `DATABASE_URL`; the runtime must not receive `MIGRATOR_DATABASE_URL`.
 - Production startup must continue to fail when the database schema is not current.
 
-## Fly.io staging runtime target
+## Railway canonical staging runtime target
 
-The approved Phase 17 staging runtime target is Fly.io, using `fly.staging.toml` and the manual `Staging Runtime Deploy` GitHub Actions workflow.
+For the current zero-cost Phase 17 validation window, Railway is the canonical staging runtime target. The operator contract is documented in `docs/operations/railway-staging-runtime.md`, and the canonical workflow is `Railway Staging Runtime Deploy` in `.github/workflows/railway-staging-runtime-deploy.yml`.
 
-The repository contract is intentionally single-worker and provider-safe:
+The Railway contract is intentionally single-worker and provider-safe:
+
+- the runtime is a background worker; no public HTTP service is required for release evidence;
+- the workflow deploys only `ghcr.io/otiosun/sla:sha-<full-git-sha>` images and never mutable `main`, `latest` or `staging` tags;
+- the GHCR image is verified by its `org.opencontainers.image.revision` label before any Railway mutation;
+- GitHub Actions authenticates through an environment-scoped/project-scoped `RAILWAY_TOKEN` and targets `STAGING_RAILWAY_SERVICE=pokemon-rpg-whatsapp-staging`;
+- runtime secrets stay in the Railway service variable layer and are never committed or printed;
+- `MIGRATOR_DATABASE_URL` is forbidden in the long-running runtime;
+- exactly one replica is configured, in `us-east`, with the other supported Railway regions set to zero replicas;
+- Railway's normal singleton deployment behavior still allows old/new process overlap while a replacement starts, so the workflow explicitly removes the previous successful deployment with `railway down` and waits for `REMOVED` before connecting the replacement image;
+- brief staging downtime is accepted to prevent two Baileys workers from using the same WhatsApp session;
+- `DEPLOY_REVISION` is staged as the exact full Git SHA before the replacement image is connected;
+- a Railway deployment is not accepted merely because its status is `SUCCESS`; the exact revision/session must also pass the provider-live post-deploy smoke.
+
+Before the first canonical Railway deployment, the service must already contain `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, `WHATSAPP_AUTH_KEY_VERSION`, `APP_ENV`, `DEPLOY_REVISION`, `LOG_LEVEL` and `WHATSAPP_HEALTH_HEARTBEAT_MS`. `MIGRATOR_DATABASE_URL` must be absent.
+
+The GitHub `staging` Environment must provide `RAILWAY_TOKEN`, `STAGING_RUNTIME_DATABASE_URL`, `STAGING_WHATSAPP_SESSION_KEY`, and the variable `STAGING_RAILWAY_SERVICE=pokemon-rpg-whatsapp-staging`. These values are external configuration, not repository content.
+
+## Fly.io fallback
+
+Fly.io is preserved as an inactive fallback deployment path. The existing `fly.staging.toml` and `.github/workflows/staging-runtime-deploy.yml` remain valid repository assets but are not the canonical zero-cost staging path while Railway is active.
+
+The Fly.io fallback contract remains intentionally single-worker and provider-safe:
 
 - primary Fly region is `gru` (São Paulo), aligned with the South America staging database region;
 - the runtime is a worker with no HTTP service, no Fly Proxy service and no persistent volume;
@@ -45,9 +67,7 @@ The repository contract is intentionally single-worker and provider-safe:
 - `DEPLOY_REVISION` is injected as non-secret release metadata for provider-live evidence;
 - database/runtime/auth secrets remain in the Fly app secret vault and are never written into `fly.staging.toml`.
 
-Before the first real staging deployment, the Fly app must already exist and the following runtime secrets must be provisioned directly in its secret layer: `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, and `WHATSAPP_AUTH_KEY_VERSION`. `MIGRATOR_DATABASE_URL` must not be present in the Fly runtime app. The workflow validates secret names only; Fly does not return their values.
-
-The GitHub `staging` Environment must provide `STAGING_FLY_APP`, `FLY_API_TOKEN`, `STAGING_RUNTIME_DATABASE_URL`, and `STAGING_WHATSAPP_SESSION_KEY` for the controlled deployment/smoke workflow. These values are external configuration, not repository content.
+If Fly.io is deliberately reactivated later, the app must already exist and its secret layer must contain `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, and `WHATSAPP_AUTH_KEY_VERSION` while excluding `MIGRATOR_DATABASE_URL`. The GitHub `staging` Environment must then also provide `STAGING_FLY_APP` and `FLY_API_TOKEN`.
 
 ## Controlled migration step
 
@@ -89,23 +109,23 @@ The release order is:
 4. on a genuinely new environment only, execute the initial administrative bootstrap ceremony;
 5. run `pnpm db:verify` using only the runtime credential;
 6. confirm the exact immutable runtime image exists for the same candidate SHA;
-7. run the manual Fly.io staging runtime deployment workflow;
-8. wait for the exact revision/session to report fresh provider-live `CONNECTED` evidence;
-9. require the canonical post-deploy smoke to return `providerLiveHealth=HEALTHY` and `finalPostDeploySmokeComplete=true`;
-10. only then admit the release as externally proven.
+7. run the manual `Railway Staging Runtime Deploy` workflow from canonical `main`;
+8. require Railway deployment `SUCCESS` for the replacement worker after the prior worker has been proven removed;
+9. wait for the exact revision/session to report fresh provider-live `CONNECTED` evidence;
+10. require the canonical post-deploy smoke to return `providerLiveHealth=HEALTHY` and `finalPostDeploySmokeComplete=true`;
+11. only then admit the release as externally proven.
 
 ## CI evidence
 
 Permanent CI exercises the controlled migration command against a real disposable PostgreSQL database using `APP_ENV=staging`, distinct migrator/runtime roles and the exact CI commit SHA. The same proof reconciles runtime grants, verifies the schema through the restricted runtime role and exercises the one-shot initial admin bootstrap with exact replay/conflict/privilege checks.
 
-Permanent Release Foundation CI also statically proves the Fly.io deployment contract: single Machine, no HTTP/mounts, immutable-image-only deployment, no runtime migrator credential, exact revision injection and provider-live post-deploy smoke. This is repository evidence for the pipeline design; it is not evidence that an external Fly app has actually been configured or deployed.
+Permanent Release Foundation CI statically proves both deployment contracts: Railway as canonical staging for the current validation window and Fly.io as preserved fallback. The Railway proof requires main-only dispatch, immutable-image-only deployment, no runtime migrator credential, explicit non-overlapping worker replacement, exact revision injection and provider-live post-deploy smoke. Static proof is repository evidence for pipeline design; it is not evidence that an external Railway deployment has actually succeeded.
 
 ## Deliberately still open
 
 This foundation does **not** by itself close these Phase 17 requirements:
 
-- 17.2: an actual staging database release and production-equivalent adapter configuration where possible;
-- 17.3: the approved Fly.io runtime target configured externally and a real immutable deployment completed through the workflow;
-- 17.5: real provider-connected post-deploy smoke evidence from that deployed revision/session.
+- 17.3: the configured Railway staging target must complete a real immutable deployment through the merged canonical workflow;
+- 17.5: real provider-connected post-deploy smoke evidence must succeed from that deployed revision/session.
 
 Those items close only after the external target, credentials and release are configured and proven. No workflow or document may substitute a simulated target for that evidence.

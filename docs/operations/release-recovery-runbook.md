@@ -7,6 +7,7 @@ This is the canonical operator sequence for Phase 17 release/recovery work. It d
 Detailed contracts:
 
 - environment/release boundary: `docs/operations/environments-release.md`;
+- Railway staging runtime: `docs/operations/railway-staging-runtime.md`;
 - initial admin bootstrap: `docs/operations/initial-admin-bootstrap.md`;
 - first WhatsApp provider session: `docs/operations/whatsapp-first-pairing.md`;
 - backup artifact and restore validation: `docs/operations/backup-restore.md`;
@@ -28,7 +29,8 @@ Stop the release/recovery and do not admit traffic when any of these is true:
 - a post-deploy smoke check fails or has not been performed when the release requires it;
 - a secret, WhatsApp auth session or backup artifact appears to be shared between staging and production;
 - provider authentication/pairing is unavailable and the deployment depends on creating a new provider session;
-- more than one active Fly Machine could use the same Baileys session without an explicitly approved fencing design;
+- more than one active worker could use the same Baileys session without an explicitly approved fencing design;
+- the previous Railway worker cannot be proven removed before its replacement starts;
 - operator evidence is incomplete enough that the next action cannot be audited.
 
 Never make a failing gate green by editing the production database manually.
@@ -51,7 +53,9 @@ Record a release evidence entry with:
 
 Verify staging and production isolation before continuing.
 
-For Fly.io staging, also verify that the app identified by `STAGING_FLY_APP` already exists, the GitHub `staging` Environment is configured, and the Fly secret layer contains `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, and `WHATSAPP_AUTH_KEY_VERSION` but does not contain `MIGRATOR_DATABASE_URL`.
+For canonical Railway staging, verify that GitHub Environment `staging` is configured with `RAILWAY_TOKEN`, `STAGING_RUNTIME_DATABASE_URL`, `STAGING_WHATSAPP_SESSION_KEY`, and `STAGING_RAILWAY_SERVICE=pokemon-rpg-whatsapp-staging`. Verify the Railway service contains `DATABASE_URL`, `WHATSAPP_SESSION_KEY`, `WHATSAPP_AUTH_KEY_BASE64`, `WHATSAPP_AUTH_KEY_VERSION`, `APP_ENV`, `DEPLOY_REVISION`, `LOG_LEVEL`, and `WHATSAPP_HEALTH_HEARTBEAT_MS`, and does not contain `MIGRATOR_DATABASE_URL`.
+
+Fly.io remains a fallback only. If it is deliberately activated, use the existing Fly-specific preflight in `docs/operations/environments-release.md` rather than mixing Fly and Railway credentials.
 
 If this environment needs its first WhatsApp session, also verify that no runtime is active with the same `WHATSAPP_SESSION_KEY` and that the provider version is eligible under `docs/operations/whatsapp-first-pairing.md`. Do not plan a release that depends on bypassing the pairing compatibility gate.
 
@@ -59,7 +63,7 @@ If this environment needs its first WhatsApp session, also verify that no runtim
 
 For a schema-changing release, stop or drain application traffic before migration. Do not allow old and new binaries to race against an in-transition schema unless an explicitly tested compatibility plan exists.
 
-The current Baileys staging topology is intentionally one Machine. Deploys use `--strategy immediate`; brief worker downtime is accepted to avoid overlapping two active workers on the same WhatsApp session.
+The current Baileys staging topology is intentionally one worker. Railway normally brings a replacement online before removing the previous deployment, so the canonical workflow explicitly executes `railway down` and waits for the previous successful deployment to become `REMOVED` before connecting the replacement image. Brief worker downtime is accepted to prevent two active processes from sharing the same WhatsApp session.
 
 ### A3. Run controlled migration
 
@@ -105,36 +109,30 @@ pnpm ops:bootstrap:whatsapp
 
 The ceremony must use the same release-bound full `DEPLOY_REVISION`, restricted runtime database identity, intended `WHATSAPP_SESSION_KEY` and auth-encryption key/version that the runtime will use. No runtime may hold the same session advisory lease while pairing runs.
 
-The currently pinned `@whiskeysockets/baileys@7.0.0-rc14` is intentionally blocked for live first pairing. A release that requires a new provider session must stop here until an approved compatible provider version/patch exists and passes the real-provider staging acceptance. Do not bypass the gate or insert auth manually.
-
 Do not execute this step for an already bootstrapped session, ordinary redeploy, rollback or routine runtime restart.
 
 ### A7. Deploy the exact binary/revision
 
 Deploy the same full SHA that was migrated/approved. Manual server-side code editing is not a valid normal release path.
 
-For staging the canonical workflow consumes the already-published immutable GHCR tag, verifies its OCI revision label, copies it to:
+For staging, dispatch the GitHub Actions workflow `Railway Staging Runtime Deploy` from canonical `main`. The workflow must:
 
-```text
-registry.fly.io/<staging-app>:sha-<full-40-char-git-sha>
-```
+1. validate `refs/heads/main` and the full 40-character SHA;
+2. pull `ghcr.io/otiosun/sla:sha-<full-40-char-git-sha>`;
+3. verify `org.opencontainers.image.revision` equals that SHA;
+4. verify the Railway runtime variable-name boundary and reject `MIGRATOR_DATABASE_URL`;
+5. capture the previous successful deployment, run `railway down --service "$RAILWAY_SERVICE" --environment staging --yes`, and wait for `REMOVED` when a previous worker exists;
+6. enforce exactly one Railway replica;
+7. stage `DEPLOY_REVISION=<full-sha>` with `--skip-deploys`;
+8. connect the exact immutable GHCR image source;
+9. wait for the replacement deployment to reach `SUCCESS`;
+10. run the exact provider-live smoke.
 
-and deploys that exact image with:
+Do not replace the immutable SHA image with a mutable tag and do not use `railway up` to rebuild/upload source for the canonical path.
 
-```bash
-flyctl deploy \
-  --app "$FLY_APP" \
-  --config fly.staging.toml \
-  --image "registry.fly.io/${FLY_APP}:sha-${DEPLOY_REVISION}" \
-  --ha=false \
-  --strategy immediate \
-  --env "DEPLOY_REVISION=${DEPLOY_REVISION}" \
-  --now
+#### Fly.io fallback
 
-flyctl scale count 1 --app "$FLY_APP" --config fly.staging.toml --yes
-```
-
-`--ha=false` prevents Fly from creating standby redundancy on first deploy. The scale command reasserts the one Machine invariant after deployment. Do not replace the immutable SHA image with `:main`.
+If Railway is deliberately suspended and Fly.io is explicitly reactivated, the preserved fallback workflow remains `.github/workflows/staging-runtime-deploy.yml` with `fly.staging.toml`. The fallback copies the immutable image to `registry.fly.io/<staging-app>:sha-<full-40-char-git-sha>`, uses `--strategy immediate`, and preserves exactly one Machine. Its `--ha=false`, immutable-image, runtime-only secret, and one-Machine constraints remain mandatory. Do not silently fail over from Railway to Fly during an incident.
 
 ### A8. Post-deploy smoke gate
 
@@ -149,7 +147,7 @@ For a real staging/production deployment, success requires all application check
 - `providerLiveHealth` is `HEALTHY`;
 - `finalPostDeploySmokeComplete` is `true`.
 
-The staging runtime deploy workflow retries this smoke for a bounded window after Fly reports the Machine started. A process merely being alive is not sufficient release evidence.
+The Railway staging runtime workflow retries this smoke for a bounded window after the replacement deployment reaches `SUCCESS`. A process merely being alive is not sufficient release evidence.
 
 If smoke fails: keep the release unapproved and move to the rollback/incident decision below.
 
@@ -169,24 +167,20 @@ Rollback is not synonymous with "deploy the previous commit".
 
 A previous binary may be redeployed only when its compatibility with the current database schema/state is explicitly known. Never assume an older binary can safely operate a newer schema after a migration.
 
-If compatibility is proven, Fly staging rollback uses the previously published immutable image, not a rebuild and not the mutable `main` tag:
+For Railway staging, rollback uses a previously known-good immutable GHCR SHA through the same non-overlapping one-worker sequence as forward deployment:
 
-```bash
-ROLLBACK_SHA="<previous-known-good-full-sha>"
-flyctl deploy \
-  --app "$FLY_APP" \
-  --config fly.staging.toml \
-  --image "registry.fly.io/${FLY_APP}:sha-${ROLLBACK_SHA}" \
-  --ha=false \
-  --strategy immediate \
-  --env "DEPLOY_REVISION=${ROLLBACK_SHA}" \
-  --now
-flyctl scale count 1 --app "$FLY_APP" --config fly.staging.toml --yes
-```
+1. identify `ROLLBACK_SHA=<previous-known-good-full-sha>`;
+2. stop the current Railway worker and prove it is removed;
+3. stage `DEPLOY_REVISION=$ROLLBACK_SHA` without a standalone redeploy;
+4. connect `ghcr.io/otiosun/sla:sha-${ROLLBACK_SHA}` as the service source;
+5. wait for Railway deployment `SUCCESS`;
+6. rerun the canonical post-deploy smoke with `DEPLOY_REVISION=$ROLLBACK_SHA`.
 
-Then rerun the canonical post-deploy smoke with `DEPLOY_REVISION=$ROLLBACK_SHA`. The rollback is not complete until the exact rollback revision/session produces fresh provider-live evidence.
+The rollback is not complete until the exact rollback revision/session produces fresh provider-live evidence. Do not regenerate WhatsApp auth during rollback.
 
-If compatibility is not proven, keep traffic contained and use state recovery instead.
+If Fly.io fallback is the deliberately active target, use its preserved immutable-image rollback procedure from `docs/operations/environments-release.md`.
+
+If binary/database compatibility is not proven, keep traffic contained and use state recovery instead.
 
 ### State/data rollback
 
@@ -302,7 +296,8 @@ Runtime role:
 Migrator role:
 Migration result/evidence:
 Runtime image digest/tag:
-Fly app/Machine id (when applicable):
+Railway service/deployment id (when applicable):
+Fly app/Machine id (fallback when applicable):
 Backup generation (if used):
 Restore checksum/result (if used):
 Smoke/validation evidence:
@@ -316,11 +311,11 @@ Do not put passwords, connection strings with credentials, encryption keys, What
 
 ## Phase 17 boundaries
 
-This runbook documents the procedures required by Phase 17.12 and the code-level Fly deployment/smoke contract. It does not itself prove the external infrastructure-dependent items.
+This runbook documents the procedures required by Phase 17.12 and the code-level Railway deployment/smoke contract while preserving the Fly.io fallback. It does not itself prove the external infrastructure-dependent items.
 
 The following remain separately gated until real evidence exists:
 
-- **17.2** real staging PostgreSQL release/provider-equivalent environment;
-- **17.3** real CI/CD execution connected to the configured Fly.io staging target;
-- **17.5** real post-deploy smoke against an actually deployed provider-connected revision/session;
+- **17.2** real staging PostgreSQL release/provider-equivalent environment (already validated separately; retained here as a required operator-contract reference);
+- **17.3** real CI/CD execution connected to the configured Railway staging target;
+- **17.5** real post-deploy smoke against an actually deployed provider-connected Railway revision/session;
 - production backup/alert/provider validations that explicitly require the eventual production target.

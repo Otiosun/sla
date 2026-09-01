@@ -1,0 +1,263 @@
+name: Railway Staging Runtime Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: railway-staging-runtime-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: immutable Railway staging worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    env:
+      APP_ENV: staging
+      DEPLOY_REVISION: ${{ github.sha }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SERVICE: ${{ vars.STAGING_RAILWAY_SERVICE }}
+
+    steps:
+      - name: Require canonical main and staging target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Railway staging deploys must run from refs/heads/main" >&2
+            exit 64
+          fi
+          if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "GITHUB_SHA must be a full immutable commit SHA" >&2
+            exit 64
+          fi
+          if [[ -z "$RAILWAY_TOKEN" ]]; then
+            echo "RAILWAY_TOKEN is required in the staging GitHub Environment" >&2
+            exit 64
+          fi
+          if [[ "$RAILWAY_SERVICE" != "pokemon-rpg-whatsapp-staging" ]]; then
+            echo "STAGING_RAILWAY_SERVICE must identify pokemon-rpg-whatsapp-staging" >&2
+            exit 64
+          fi
+
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm and Railway CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global pnpm@11.23.0
+          npm install --global @railway/cli@5.45.10
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare immutable image coordinate
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_lower="${GITHUB_REPOSITORY,,}"
+          echo "RUNTIME_IMAGE_GHCR=ghcr.io/${repository_lower}:sha-${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Pull and verify canonical immutable runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$RUNTIME_IMAGE_GHCR"
+          actual_revision="$(docker image inspect "$RUNTIME_IMAGE_GHCR" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          if [[ "$actual_revision" != "$GITHUB_SHA" ]]; then
+            echo "runtime image revision label mismatch" >&2
+            exit 1
+          fi
+
+      - name: Stop previous worker before replacement
+        shell: bash
+        run: |
+          set -euo pipefail
+          before_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 50 --json)"
+
+          transitional_count="$(jq '[.[] | select(.status | test("^(BUILDING|DEPLOYING|INITIALIZING|WAITING|QUEUED|REMOVING)$"))] | length' <<<"$before_json")"
+          if (( transitional_count > 0 )); then
+            echo "concurrent or transitional Railway deployment already exists" >&2
+            exit 1
+          fi
+
+          active_success_count="$(jq '[.[] | select(.status == "SUCCESS")] | length' <<<"$before_json")"
+          if (( active_success_count > 1 )); then
+            echo "more than one successful Railway deployment is present" >&2
+            exit 1
+          fi
+
+          before_id="$(jq -r 'map(select(.status == "SUCCESS"))[0].id // empty' <<<"$before_json")"
+          echo "PREVIOUS_RAILWAY_DEPLOYMENT_ID=${before_id}" >> "$GITHUB_ENV"
+
+          if [[ -z "$before_id" ]]; then
+            echo "No active successful Railway deployment needs teardown."
+            exit 0
+          fi
+
+          railway down --service "$RAILWAY_SERVICE" --environment staging --yes
+
+          for attempt in {1..60}; do
+            deployments_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 50 --json)"
+            previous_status="$(jq -r --arg id "$before_id" '.[] | select(.id == $id) | .status' <<<"$deployments_json" | head -n1)"
+            if [[ -z "$previous_status" || "$previous_status" == "REMOVED" ]]; then
+              echo "Previous Railway deployment ${before_id} is stopped."
+              exit 0
+            fi
+            if [[ "$attempt" -lt 60 ]]; then
+              sleep 2
+            fi
+          done
+
+          echo "previous Railway deployment did not stop before replacement" >&2
+          exit 1
+
+      - name: Enforce exactly one Railway replica
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway scale \
+            --service "$RAILWAY_SERVICE" \
+            --environment staging \
+            --json \
+            us-west=0 \
+            eu-west=0 \
+            southeast-asia=0 \
+            us-east=1 \
+            >/tmp/railway-scale.json
+
+      - name: Stage exact deployment revision without redeploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway variable set DEPLOY_REVISION=${GITHUB_SHA} \
+            --service "$RAILWAY_SERVICE" \
+            --environment staging \
+            --skip-deploys \
+            --json \
+            >/tmp/railway-variable-set.json
+
+      - name: Connect exact immutable image source
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 1 --json)"
+          baseline_id="$(jq -r '.[0].id // empty' <<<"$baseline_json")"
+          echo "RAILWAY_BASELINE_DEPLOYMENT_ID=${baseline_id}" >> "$GITHUB_ENV"
+
+          railway service source connect \
+            --service "$RAILWAY_SERVICE" \
+            --environment staging \
+            --image "$RUNTIME_IMAGE_GHCR" \
+            --json \
+            >/tmp/railway-source-connect.json
+
+          new_deployment_seen=false
+          for attempt in {1..6}; do
+            latest_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 1 --json)"
+            latest_id="$(jq -r '.[0].id // empty' <<<"$latest_json")"
+            if [[ -n "$latest_id" && "$latest_id" != "$baseline_id" ]]; then
+              new_deployment_seen=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ "$new_deployment_seen" != "true" ]]; then
+            railway redeploy --service "$RAILWAY_SERVICE" --yes --json >/tmp/railway-redeploy.json
+          fi
+
+      - name: Wait for exact Railway replacement deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployment_id=""
+          for attempt in {1..60}; do
+            deployment_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 1 --json)"
+            current_id="$(jq -r '.[0].id // empty' <<<"$deployment_json")"
+            current_status="$(jq -r '.[0].status // empty' <<<"$deployment_json")"
+
+            if [[ -n "$current_id" && "$current_id" != "$RAILWAY_BASELINE_DEPLOYMENT_ID" ]]; then
+              deployment_id="$current_id"
+              case "$current_status" in
+                SUCCESS)
+                  echo "Railway deployment ${deployment_id} reached SUCCESS for ${GITHUB_SHA}"
+                  echo "RAILWAY_DEPLOYMENT_ID=${deployment_id}" >> "$GITHUB_ENV"
+                  exit 0
+                  ;;
+                FAILED|CRASHED|REMOVED)
+                  echo "Railway deployment ${current_id} ended in ${current_status}" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+
+            if [[ "$attempt" -lt 60 ]]; then
+              sleep 5
+            fi
+          done
+
+          echo "Railway replacement deployment did not reach SUCCESS in time" >&2
+          exit 1
+
+      - name: Prove exact provider-live post-deploy smoke
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
+          DEPLOY_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          smoke_json=""
+          for attempt in {1..12}; do
+            set +e
+            smoke_json="$(pnpm --silent run ops:smoke:application)"
+            smoke_status=$?
+            set -e
+
+            if [[ "$smoke_status" -eq 0 ]] && node -e '
+              const report = JSON.parse(process.argv[1]);
+              if (!report.passed) process.exit(1);
+              if (report.providerLiveHealth !== "HEALTHY") process.exit(1);
+              if (report.finalPostDeploySmokeComplete !== true) process.exit(1);
+            ' "$smoke_json"; then
+              echo "provider-live smoke passed for ${GITHUB_SHA}"
+              exit 0
+            fi
+
+            if [[ "$attempt" -lt 12 ]]; then
+              sleep 15
+            fi
+          done
+
+          echo "provider-live smoke did not become healthy for the exact Railway deployment revision" >&2
+          [[ -z "$smoke_json" ]] || printf '%s\n' "$smoke_json" >&2
+          exit 1
+
+      - name: Log out from GHCR
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
