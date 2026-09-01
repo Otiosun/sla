@@ -1,10 +1,15 @@
-import { ok, type Result } from "../../shared-kernel/result.js";
+import {
+  appError,
+  err,
+  ok,
+  type Result,
+} from "../../shared-kernel/result.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 
 export function validateRegistrationDraft(
   input: RegistrationDraftInput,
 ): Result<RegistrationSnapshot> {
-  return ok({
+  const normalized = {
     trainerName: input.trainerName.trim(),
     age: input.age,
     genderPronouns: input.genderPronouns.trim(),
@@ -14,5 +19,26 @@ export function validateRegistrationDraft(
     starterFormId: input.starterFormId,
     regionId: input.regionId,
     schemaVersion: input.schemaVersion,
-  });
+  } satisfies RegistrationSnapshot;
+
+  const invalidFields: string[] = [];
+
+  if (normalized.trainerName.length === 0) invalidFields.push("trainerName");
+  if (!Number.isInteger(normalized.age) || normalized.age <= 0) invalidFields.push("age");
+  if (normalized.genderPronouns.length === 0) invalidFields.push("genderPronouns");
+  if (normalized.appearance.length === 0) invalidFields.push("appearance");
+  if (normalized.personality.length === 0) invalidFields.push("personality");
+  if (normalized.backstory.length === 0) invalidFields.push("backstory");
+
+  if (invalidFields.length > 0) {
+    return err(
+      appError(
+        "VALIDATION_FAILED",
+        "Registration draft is invalid",
+        { fields: invalidFields },
+      ),
+    );
+  }
+
+  return ok(normalized);
 }
