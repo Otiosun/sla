@@ -73,13 +73,12 @@ class AccessRepository implements PlayerAccessRepository {
     load: async (playerId) =>
       this.record ?? { playerId, status: "PENDING", approvedReviewId: null, revision: 0 },
     beginProvisioning: async (input) => {
-      const current =
-        this.record ?? {
-          playerId: input.playerId,
-          status: "PENDING" as const,
-          approvedReviewId: null,
-          revision: 0,
-        };
+      const current = this.record ?? {
+        playerId: input.playerId,
+        status: "PENDING" as const,
+        approvedReviewId: null,
+        revision: 0,
+      };
       if (current.revision !== input.expectedRevision) return null;
       if (current.status === "PROVISIONING" && current.approvedReviewId === input.reviewId) {
         return current;
