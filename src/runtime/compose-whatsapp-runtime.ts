@@ -7,6 +7,7 @@ import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapt
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
+import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
 import { createOperationalUxRoutes } from "../modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
@@ -59,7 +60,9 @@ export function createOperationalWhatsAppRuntime(
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(options.pool));
   const reads = new PostgresOperationalUxReadModel(options.pool);
   const router = new MessageRouter(
-    createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads }),
+    withOperationalCommandAliases(
+      createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads }),
+    ),
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, router, 30_000);

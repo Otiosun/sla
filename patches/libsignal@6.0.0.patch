@@ -1,0 +1,49 @@
+diff --git a/src/session_builder.js b/src/session_builder.js
+--- a/src/session_builder.js
++++ b/src/session_builder.js
+@@ -43,7 +43,6 @@ class SessionBuilder {
+             } else {
+                 const openSession = record.getOpenSession();
+                 if (openSession) {
+-                    // console.warn("Closing stale open session for new outgoing prekey bundle"); temporary fix
+                     record.closeSession(openSession);
+                 }
+             }
+@@ -71,7 +70,6 @@ class SessionBuilder {
+         }
+         const existingOpenSession = record.getOpenSession();
+         if (existingOpenSession) {
+-            console.warn("Closing open session in favor of incoming prekey bundle");
+             record.closeSession(existingOpenSession);
+         }
+         record.setSession(await this.initSession(false, preKeyPair, signedPreKeyPair,
+diff --git a/src/session_record.js b/src/session_record.js
+--- a/src/session_record.js
++++ b/src/session_record.js
+@@ -267,18 +267,15 @@ class SessionRecord {
+ 
+     closeSession(session) {
+         if (this.isClosed(session)) {
+-            console.warn("Session already closed", session);
+             return;
+         }
+-        console.info("Closing session:", session);
+         session.indexInfo.closed = Date.now();
+     }
+ 
+     openSession(session) {
+         if (!this.isClosed(session)) {
+             console.warn("Session already open");
+         }
+-        console.info("Opening session:", session);
+         session.indexInfo.closed = -1;
+     }
+ 
+@@ -297,7 +294,6 @@ class SessionRecord {
+                 }
+             }
+             if (oldestKey) {
+-                console.info("Removing old closed session:", oldestSession);
+                 delete this.sessions[oldestKey];
+             } else {
+                 throw new Error('Corrupt sessions object');

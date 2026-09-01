@@ -1,5 +1,8 @@
 import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
-import { createInitialAuthCreds } from "../adapters/whatsapp/baileys-runtime.js";
+import {
+  createInitialAuthCreds,
+  loggedOutStatusCode,
+} from "../adapters/whatsapp/baileys-runtime.js";
 import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { BaileysConnectionUpdateLike } from "../adapters/whatsapp/baileys-provider-contracts.js";
 import type {
@@ -10,6 +13,7 @@ import type {
 import type { WhatsAppPairingBootstrapConfig } from "./whatsapp-pairing-bootstrap-config.js";
 
 const AUDITED_RC14_PAIRING_COMPATIBILITY = "rc14-companion-reg-refresh-v1";
+const MAX_PAIRING_RESTARTS = 1;
 
 type SignalKeyData = Readonly<Record<string, Readonly<Record<string, unknown | null | undefined>>>>;
 
@@ -78,6 +82,26 @@ function recordObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasPairedAuthIdentity(creds: Readonly<Record<string, unknown>>): boolean {
+  if (creds.registered === true) return true;
+
+  const me = creds.me;
+  const account = creds.account;
+  const signalIdentities = creds.signalIdentities;
+  return (
+    isRecord(me) &&
+    typeof me.id === "string" &&
+    me.id.length > 0 &&
+    isRecord(account) &&
+    Array.isArray(signalIdentities) &&
+    signalIdentities.length > 0
+  );
+}
+
 class EphemeralBaileysAuth {
   readonly creds: Record<string, unknown>;
   private readonly values = new Map<string, Map<string, unknown>>();
@@ -104,6 +128,18 @@ class EphemeralBaileysAuth {
   applyCredentialsUpdate(update: unknown): void {
     if (typeof update !== "object" || update === null || Array.isArray(update)) return;
     Object.assign(this.creds, update);
+  }
+
+  hasPairedIdentity(): boolean {
+    return hasPairedAuthIdentity(this.creds);
+  }
+
+  pairedSnapshot(): BaileysAuthSnapshot {
+    const snapshot = this.snapshot();
+    return {
+      ...snapshot,
+      creds: { ...snapshot.creds, registered: true },
+    };
   }
 
   snapshot(): BaileysAuthSnapshot {
@@ -170,6 +206,24 @@ function asConnectionUpdate(value: unknown): BaileysConnectionUpdateLike | null 
   return value as BaileysConnectionUpdateLike;
 }
 
+function statusCodeFromError(error: unknown): number | null {
+  if (typeof error !== "object" || error === null) return null;
+
+  if ("output" in error) {
+    const output = error.output;
+    if (typeof output === "object" && output !== null && "statusCode" in output) {
+      const statusCode = output.statusCode;
+      if (typeof statusCode === "number") return statusCode;
+    }
+  }
+
+  if ("statusCode" in error && typeof error.statusCode === "number") {
+    return error.statusCode;
+  }
+
+  return null;
+}
+
 function safeEnd(socket: { end(): void } | null): void {
   if (socket === null) return;
   try {
@@ -189,6 +243,7 @@ async function executePairing(
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
+    let restartCount = 0;
 
     const clearDeadline = (): void => {
       if (timeout !== undefined) clearTimeout(timeout);
@@ -209,12 +264,12 @@ async function executePairing(
       safeEnd(socket);
       void (async () => {
         try {
-          if (auth.creds.registered !== true) {
+          if (!auth.hasPairedIdentity()) {
             throw new WhatsAppPairingIncompleteAuthError(
-              "WhatsApp provider opened without registered pairing credentials",
+              "WhatsApp provider opened without completed pairing credentials",
             );
           }
-          await reservation.commit(auth.snapshot());
+          await reservation.commit(auth.pairedSnapshot());
           resolve();
         } catch (error) {
           reject(error);
@@ -222,18 +277,22 @@ async function executePairing(
       })();
     };
 
-    try {
-      socket = dependencies.socketFactory({
+    const createSocket = (): void => {
+      const currentSocket = dependencies.socketFactory({
         auth: auth.state,
         logger: silentLogger,
         markOnlineOnConnect: false,
         shouldSyncHistoryMessage: () => false,
         syncFullHistory: false,
       });
-      socket.ev.on("creds.update", (update) => {
+      socket = currentSocket;
+
+      currentSocket.ev.on("creds.update", (update) => {
+        if (settled || socket !== currentSocket) return;
         auth.applyCredentialsUpdate(update);
       });
-      socket.ev.on("connection.update", (value) => {
+      currentSocket.ev.on("connection.update", (value) => {
+        if (settled || socket !== currentSocket) return;
         const update = asConnectionUpdate(value);
         if (update === null) return;
 
@@ -242,11 +301,41 @@ async function executePairing(
             fail(new WhatsAppPairingQrSinkError("Sensitive WhatsApp QR rendering failed"));
           });
         }
-        if (update.connection === "open") succeed();
-        else if (update.connection === "close") {
-          fail(new WhatsAppPairingProviderClosedError("WhatsApp provider closed before pairing"));
+        if (update.connection === "open") {
+          succeed();
+          return;
         }
+        if (update.connection !== "close") return;
+
+        const statusCode = statusCodeFromError(update.lastDisconnect?.error);
+        if (
+          auth.hasPairedIdentity() &&
+          statusCode !== loggedOutStatusCode &&
+          restartCount < MAX_PAIRING_RESTARTS
+        ) {
+          restartCount += 1;
+          socket = null;
+          safeEnd(currentSocket);
+          try {
+            createSocket();
+          } catch (error) {
+            fail(
+              error instanceof Error
+                ? error
+                : new WhatsAppPairingProviderClosedError(
+                    "WhatsApp provider restart failed during pairing",
+                  ),
+            );
+          }
+          return;
+        }
+
+        fail(new WhatsAppPairingProviderClosedError("WhatsApp provider closed before pairing"));
       });
+    };
+
+    try {
+      createSocket();
       timeout = setTimeout(() => {
         fail(new WhatsAppPairingTimeoutError("WhatsApp first pairing timed out"));
       }, dependencies.config.timeoutMs);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
+import { WhatsAppMessagingRuntime } from "../../src/adapters/whatsapp/runtime.js";
 import {
   IncomingMessageSchema,
   incomingMessageFingerprint,
@@ -8,6 +9,7 @@ import {
   type PendingOutboxMessage,
 } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
+import type { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 const message: IncomingMessage = IncomingMessageSchema.parse({
@@ -64,6 +66,44 @@ describe("messaging boundary", () => {
     });
     expect(freeform).toEqual(ok(null));
     expect(calls).toBe(1);
+  });
+
+  it("drops freeform WhatsApp traffic before the inbox while preserving command candidates", async () => {
+    const adapter = new FakeWhatsAppAdapter();
+    const received: IncomingMessage[] = [];
+    const messaging = {
+      async receive(incoming: IncomingMessage) {
+        received.push(incoming);
+        return ok({
+          status: "PROCESSED" as const,
+          inboxMessageId: "00000000-0000-4000-8000-000000000010",
+          correlationId: "00000000-0000-4000-8000-000000000011",
+          resultRefType: null,
+          resultRefId: null,
+        });
+      },
+    } as unknown as MessagingService;
+    const outboxWorker = {
+      async runOnce() {
+        return { claimed: 0, sent: 0, failed: 0 };
+      },
+    } as unknown as OutboxWorker;
+    const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker);
+
+    await runtime.start();
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-freeform",
+      text: "Charmander observa o mato em silêncio.",
+    });
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-command",
+      text: "   $menu",
+    });
+    await runtime.stop();
+
+    expect(received.map((incoming) => incoming.externalMessageId)).toEqual(["msg-command"]);
   });
 });
 

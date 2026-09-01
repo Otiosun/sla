@@ -116,7 +116,7 @@ export function normalizeBaileysMessage(message: BaileysMessageLike): IncomingMe
   const mediaRefs = mediaFromContent(content, externalMessageId);
   if (text === null && mediaRefs.length === 0) return null;
 
-  return IncomingMessageSchema.parse({
+  const normalized = IncomingMessageSchema.safeParse({
     provider: "baileys",
     externalMessageId,
     senderRef: message.key.participant ?? chatRef,
@@ -126,4 +126,5 @@ export function normalizeBaileysMessage(message: BaileysMessageLike): IncomingMe
     mediaRefs,
     replyToExternalMessageId: replyIdFromContent(content),
   });
+  return normalized.success ? normalized.data : null;
 }
