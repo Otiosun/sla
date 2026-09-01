@@ -43,3 +43,14 @@ export const ContentLibraryCursorSchema = z
   })
   .strict();
 export type ContentLibraryCursor = z.infer<typeof ContentLibraryCursorSchema>;
+
+export function decodeContentLibraryCursor(value: string): ContentLibraryCursor | null {
+  try {
+    const parsed = ContentLibraryCursorSchema.safeParse(
+      JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}

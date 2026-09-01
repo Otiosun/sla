@@ -1,5 +1,6 @@
 import {
   ContentLibrarySearchRequestSchema,
+  decodeContentLibraryCursor,
   type ContentLibrarySearchResultView,
 } from "./content-library-contracts.js";
 import type { ContentLibraryRepository } from "./content-library-ports.js";
@@ -36,6 +37,12 @@ export class ContentLibraryService {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid content library search");
     }
 
+    const cursor =
+      parsed.data.cursor === undefined ? null : decodeContentLibraryCursor(parsed.data.cursor);
+    if (parsed.data.cursor !== undefined && cursor === null) {
+      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid content library cursor");
+    }
+
     let denied: unknown = null;
     for (const operationType of AUTHORIZATION_OPERATIONS) {
       try {
@@ -62,7 +69,7 @@ export class ContentLibraryService {
         : { releaseStatus: parsed.data.releaseStatus }),
       ...(parsed.data.active === undefined ? {} : { active: parsed.data.active }),
       limit: parsed.data.limit,
-      cursor: parsed.data.cursor ?? null,
+      cursor,
     });
   }
 }

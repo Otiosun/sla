@@ -1,9 +1,7 @@
 import type { Pool } from "pg";
-import {
-  ContentLibraryCursorSchema,
-  type ContentLibraryCursor,
-  type ContentLibraryItemView,
-  type ContentLibrarySearchResultView,
+import type {
+  ContentLibraryItemView,
+  ContentLibrarySearchResultView,
 } from "../../modules/admin/content-library-contracts.js";
 import type {
   ContentLibraryRepository,
@@ -21,17 +19,6 @@ interface ContentLibraryRow {
   readonly slug: string;
   readonly display_name: string;
   readonly active: boolean;
-}
-
-function decodeCursor(value: string | null): ContentLibraryCursor | null {
-  if (value === null) return null;
-  try {
-    return ContentLibraryCursorSchema.parse(
-      JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
-    );
-  } catch {
-    throw new Error("Invalid content library cursor");
-  }
 }
 
 function encodeCursor(item: ContentLibraryItemView): string {
@@ -67,7 +54,7 @@ export class PostgresContentLibraryRepository implements ContentLibraryRepositor
   public async searchContent(
     input: ContentLibraryRepositorySearch,
   ): Promise<ContentLibrarySearchResultView> {
-    const cursor = decodeCursor(input.cursor);
+    const cursor = input.cursor;
     const result = await this.pool.query<ContentLibraryRow>(
       `WITH content AS (
          SELECT revision.content_release_id, 'SPECIES'::text AS resource_kind,
