@@ -32,7 +32,7 @@ const evidence = [
 ];
 
 describe("IncidentCenterReadService", () => {
-  it("authorizes the incident read and returns correlated failure metadata only", async () => {
+  it("authorizes the incident read and returns correlated failure metadata plus static guidance only", async () => {
     const authorizeRead = vi.fn(async () => ({ type: "RUNTIME", id: null }));
     const readRecent = vi.fn(async () => evidence);
     const service = new IncidentCenterReadService({ authorizeRead }, { readRecent });
@@ -49,17 +49,22 @@ describe("IncidentCenterReadService", () => {
       correlationId: CORRELATION_ID,
     });
     expect(readRecent).toHaveBeenCalledWith(25);
-    expect(result).toEqual({
-      signals: [
-        {
-          ...evidence[0],
-          occurredAt: "2026-09-01T13:00:00.000Z",
-        },
-        {
-          ...evidence[1],
-          occurredAt: "2026-09-01T12:30:00.000Z",
-        },
-      ],
+    expect(result.signals).toHaveLength(2);
+    expect(result.signals[0]).toMatchObject({
+      ...evidence[0],
+      occurredAt: "2026-09-01T13:00:00.000Z",
+      runbook: {
+        key: "outbox-dead-letter",
+        title: "Mensagem em dead-letter",
+      },
+    });
+    expect(result.signals[1]).toMatchObject({
+      ...evidence[1],
+      occurredAt: "2026-09-01T12:30:00.000Z",
+      runbook: {
+        key: "admin-operation-failed",
+        title: "Falha em operação administrativa",
+      },
     });
 
     const serialized = JSON.stringify(result);
@@ -73,6 +78,9 @@ describe("IncidentCenterReadService", () => {
       "external_message_id",
       "last_error_code",
       "causation_id",
+      "retryEndpoint",
+      "replayEndpoint",
+      "requeueEndpoint",
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
