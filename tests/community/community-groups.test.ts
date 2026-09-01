@@ -169,9 +169,12 @@ describe("CommunityService group registry", () => {
     const repository = new MemoryCommunityRepository();
     const service = new CommunityService(repository);
 
-    expect(
-      await service.resolveChat({ provider: "WHATSAPP", chatRef: "unknown@g.us" }),
-    ).toEqual({ known: false, groupId: null, role: null, capabilities: [] });
+    expect(await service.resolveChat({ provider: "WHATSAPP", chatRef: "unknown@g.us" })).toEqual({
+      known: false,
+      groupId: null,
+      role: null,
+      capabilities: [],
+    });
 
     const group = await createReception(service, "120363000201@g.us", "Recepção antiga");
     const withCapability = await service.replaceCapabilities({
@@ -187,9 +190,12 @@ describe("CommunityService group registry", () => {
     });
     expect(retired.ok).toBe(true);
 
-    expect(
-      await service.resolveChat({ provider: "WHATSAPP", chatRef: group.chatRef }),
-    ).toEqual({ known: false, groupId: null, role: null, capabilities: [] });
+    expect(await service.resolveChat({ provider: "WHATSAPP", chatRef: group.chatRef })).toEqual({
+      known: false,
+      groupId: null,
+      role: null,
+      capabilities: [],
+    });
   });
 
   it("does not turn Reception staff assignment into a group admin capability", async () => {
