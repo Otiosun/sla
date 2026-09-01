@@ -5,13 +5,14 @@ import type {
 } from "../../modules/admin/content-library-contracts.js";
 import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
 import type { ContentReleaseReadService } from "../../modules/admin/content-release-read-service.js";
+import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
 import type {
   Player360SearchResultView,
   Player360View,
 } from "../../modules/admin/player360-contracts.js";
 import type { Player360Service } from "../../modules/admin/player360-service.js";
+import type { ValidationReport } from "../../modules/catalog/contracts.js";
 import type { ReleaseDiff } from "../../modules/catalog/diff.js";
-import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
 
 export const AdminApiPrincipalContextSchema = z
   .object({
@@ -25,7 +26,7 @@ export type AdminApiPrincipalContext = z.infer<typeof AdminApiPrincipalContextSc
 
 type Player360Reader = Pick<Player360Service, "get" | "search">;
 type ContentLibraryReader = Pick<ContentLibraryService, "search" | "listUnpublished">;
-type ContentReleaseReader = Pick<ContentReleaseReadService, "diff">;
+type ContentReleaseReader = Pick<ContentReleaseReadService, "diff" | "validationPreview">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -133,6 +134,21 @@ export class AdminReadFacade {
       ...stripClientAuthority(clientQuery),
       principalId: context.principalId,
       correlationId: context.correlationId,
+    });
+  }
+
+  public async previewContentReleaseValidation(
+    rawContext: unknown,
+    releaseId: string,
+  ): Promise<ValidationReport> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.contentRelease === undefined) {
+      throw new Error("Content release read boundary is not configured");
+    }
+    return this.contentRelease.validationPreview({
+      principalId: context.principalId,
+      correlationId: context.correlationId,
+      releaseId,
     });
   }
 }
