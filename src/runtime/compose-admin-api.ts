@@ -11,9 +11,11 @@ import { AdminSessionLogoutService } from "../adapters/admin-api/session-logout-
 import { AdminSessionService } from "../adapters/admin-api/session-service.js";
 import { ExternalAdminMutationEndpoint } from "../modules/anti-abuse/external-admin-endpoint.js";
 import { ContentLibraryService } from "../modules/admin/content-library-service.js";
+import { ContentReleaseReadService } from "../modules/admin/content-release-read-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { CatalogReleaseAdminService } from "../modules/catalog/release-admin-service.js";
 import { PostgresAdminAccessSessionRepository } from "../platform/admin/postgres-admin-access-session-repository.js";
 import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-api-rate-limiter.js";
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
@@ -21,6 +23,7 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
+import { PostgresCatalogReleaseAdminRepository } from "../platform/catalog/postgres-catalog-release-admin-repository.js";
 import { PostgresContentLibraryRepository } from "../platform/catalog/postgres-content-library-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import type { AppConfig } from "../platform/config/env.js";
@@ -63,7 +66,14 @@ export function createOperationalAdminApi(
   const player360Service = new Player360Service(adminService, player360Repository);
   const contentLibraryRepository = new PostgresContentLibraryRepository(pool);
   const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
-  const readFacade = new AdminReadFacade(player360Service, contentLibraryService);
+  const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
+  const catalogReleaseOwner = new CatalogReleaseAdminService(catalogReleaseRepository);
+  const contentReleaseReadService = new ContentReleaseReadService(adminService, catalogReleaseOwner);
+  const readFacade = new AdminReadFacade(
+    player360Service,
+    contentLibraryService,
+    contentReleaseReadService,
+  );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
     new PostgresMutationAdmission(pool),
