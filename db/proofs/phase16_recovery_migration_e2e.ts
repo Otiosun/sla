@@ -20,8 +20,8 @@ const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
 const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
-const EXPECTED_PREVIOUS_LATEST = "0030_admin_session_revocation_cutoff.sql";
-const EXPECTED_CURRENT_LATEST = "0031_admin_api_content_search_rate_limit.sql";
+const EXPECTED_PREVIOUS_LATEST = "0031_admin_api_content_search_rate_limit.sql";
+const EXPECTED_CURRENT_LATEST = "0032_admin_api_runtime_health_rate_limit.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -50,13 +50,13 @@ function postgresErrorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-async function contentSearchInsertAllowed(): Promise<boolean> {
+async function rateLimitInsertAllowed(operation: "content.search" | "runtime.health.read"): Promise<boolean> {
   try {
     await pool.query(
       `INSERT INTO admin_api_rate_limit_buckets(
          principal_id, operation, window_started_at, request_count, updated_at
-       ) VALUES ($1::uuid, 'content.search', now(), 1, now())`,
-      [PROBE_ADMIN_ID],
+       ) VALUES ($1::uuid, $2::text, now(), 1, now())`,
+      [PROBE_ADMIN_ID, operation],
     );
     return true;
   } catch (error) {
@@ -65,15 +65,17 @@ async function contentSearchInsertAllowed(): Promise<boolean> {
   }
 }
 
-async function contentSearchBucketExists(): Promise<boolean> {
+async function rateLimitBucketExists(
+  operation: "content.search" | "runtime.health.read",
+): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1
        FROM admin_api_rate_limit_buckets
        WHERE principal_id = $1::uuid
-         AND operation = 'content.search'
+         AND operation = $2::text
      ) AS exists`,
-    [PROBE_ADMIN_ID],
+    [PROBE_ADMIN_ID, operation],
   );
   return result.rows[0]?.exists === true;
 }
@@ -197,7 +199,7 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the content-search migration");
+    throw new Error("N-1 limiter relation is missing before the runtime-health migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error(
@@ -234,11 +236,17 @@ try {
       "N-1 database did not preserve the mutation.prepare allowlist from migration 0028",
     );
   }
-  if (await contentSearchInsertAllowed()) {
-    throw new Error("N-1 database unexpectedly allows content.search before migration 0031");
+  if (!(await rateLimitInsertAllowed("content.search"))) {
+    throw new Error("N-1 database lost the content.search allowlist from migration 0031");
   }
-  if (await contentSearchBucketExists()) {
-    throw new Error("Rejected N-1 content.search probe unexpectedly persisted a limiter bucket");
+  if (!(await rateLimitBucketExists("content.search"))) {
+    throw new Error("N-1 content.search probe did not persist its limiter bucket");
+  }
+  if (await rateLimitInsertAllowed("runtime.health.read")) {
+    throw new Error("N-1 database unexpectedly allows runtime.health.read before migration 0032");
+  }
+  if (await rateLimitBucketExists("runtime.health.read")) {
+    throw new Error("Rejected N-1 runtime.health.read probe unexpectedly persisted a limiter bucket");
   }
 
   await pool.query(
@@ -321,23 +329,29 @@ try {
   }
 
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0031 regressed the durable Admin API access-session relation");
+    throw new Error("Migration 0032 regressed the durable Admin API access-session relation");
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
     !(await sessionRevocationCutoffShapeExists())
   ) {
     throw new Error(
-      "Migration 0031 regressed the environment-scoped principal session-revocation cutoff",
+      "Migration 0032 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0031 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0032 regressed the mutation.prepare limiter state from migration 0028",
     );
   }
-  if (!(await contentSearchInsertAllowed()) || !(await contentSearchBucketExists())) {
-    throw new Error("Migration 0031 did not allow the Content Studio content.search limiter key");
+  if (!(await rateLimitBucketExists("content.search"))) {
+    throw new Error("Migration 0032 regressed the Content Studio content.search limiter key");
+  }
+  if (
+    !(await rateLimitInsertAllowed("runtime.health.read")) ||
+    !(await rateLimitBucketExists("runtime.health.read"))
+  ) {
+    throw new Error("Migration 0032 did not allow the runtime.health.read limiter key");
   }
 
   const sessionAfter = await pool.query<{
@@ -367,7 +381,7 @@ try {
   );
   const durableSessionAfter = sessionAfter.rows[0];
   if (durableSessionAfter === undefined) {
-    throw new Error("Migration 0031 removed the durable access-session probe");
+    throw new Error("Migration 0032 removed the durable access-session probe");
   }
   if (
     durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
@@ -380,10 +394,10 @@ try {
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
-    throw new Error("Migration 0031 changed existing durable access-session state");
+    throw new Error("Migration 0032 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0031 invented a revocation cutoff for an existing environment");
+    throw new Error("Migration 0032 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -425,7 +439,8 @@ try {
       latestMigration: latest.fileName,
       runtimeHealthPreserved: true,
       mutationPrepareStatePreserved: true,
-      contentSearchAllowlistAdded: true,
+      contentSearchAllowlistPreserved: true,
+      runtimeHealthReadAllowlistAdded: true,
       accessSessionStatePreserved: true,
       environmentScopedSessionRevocationCutoffPreserved: true,
       durableStatePreserved: true,
