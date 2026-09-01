@@ -20,6 +20,7 @@ const DEFAULT_POLICIES: Readonly<Record<AdminApiRateLimitedOperation, AdminApiRa
   "player.search": { limit: 60, windowSeconds: 60 },
   "player.read": { limit: 120, windowSeconds: 60 },
   "content.search": { limit: 60, windowSeconds: 60 },
+  "runtime.health.read": { limit: 60, windowSeconds: 60 },
   "mutation.prepare": { limit: 60, windowSeconds: 60 },
 };
 
@@ -54,6 +55,8 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
       "player.search": overrides["player.search"] ?? DEFAULT_POLICIES["player.search"],
       "player.read": overrides["player.read"] ?? DEFAULT_POLICIES["player.read"],
       "content.search": overrides["content.search"] ?? DEFAULT_POLICIES["content.search"],
+      "runtime.health.read":
+        overrides["runtime.health.read"] ?? DEFAULT_POLICIES["runtime.health.read"],
       "mutation.prepare": overrides["mutation.prepare"] ?? DEFAULT_POLICIES["mutation.prepare"],
     };
 
@@ -61,6 +64,7 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
     validatePolicy("player.search", this.policies["player.search"]);
     validatePolicy("player.read", this.policies["player.read"]);
     validatePolicy("content.search", this.policies["content.search"]);
+    validatePolicy("runtime.health.read", this.policies["runtime.health.read"]);
     validatePolicy("mutation.prepare", this.policies["mutation.prepare"]);
   }
 
