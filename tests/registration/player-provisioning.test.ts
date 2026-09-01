@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { RegistrationRepository, RegistrationRevisionRecord, RegistrationTransaction } from "../../src/modules/registration/ports.js";
-import { PlayerProvisioningService } from "../../src/modules/registration/provisioning-service.js";
+import type {
+  RegistrationRepository,
+  RegistrationRevisionRecord,
+  RegistrationTransaction,
+} from "../../src/modules/registration/ports.js";
 import type {
   PlayerAccessRecord,
   PlayerAccessRepository,
   PlayerAccessTransaction,
 } from "../../src/modules/registration/player-access-ports.js";
+import { PlayerProvisioningService } from "../../src/modules/registration/provisioning-service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -37,6 +41,7 @@ function approvedReview(playerId = createPlayerId()): RegistrationRevisionRecord
 
 class ReviewRepository implements RegistrationRepository {
   public constructor(private readonly review: RegistrationRevisionRecord) {}
+
   private tx(): RegistrationTransaction {
     return {
       loadDraft: async () => null,
@@ -51,9 +56,11 @@ class ReviewRepository implements RegistrationRepository {
       updateRevisionStatus: async () => null,
     };
   }
+
   public async transaction<T>(fn: (tx: RegistrationTransaction) => Promise<T>): Promise<T> {
     return fn(this.tx());
   }
+
   public async read<T>(fn: (tx: RegistrationTransaction) => Promise<T>): Promise<T> {
     return fn(this.tx());
   }
@@ -101,7 +108,11 @@ class AccessRepository implements PlayerAccessRepository {
     },
     suspend: async (input) => {
       const current = this.record;
-      if (current === null || current.status !== "ACTIVE" || current.revision !== input.expectedRevision) {
+      if (
+        current === null ||
+        current.status !== "ACTIVE" ||
+        current.revision !== input.expectedRevision
+      ) {
         return null;
       }
       this.record = { ...current, status: "SUSPENDED", revision: current.revision + 1 };
@@ -124,24 +135,10 @@ class AccessRepository implements PlayerAccessRepository {
   public async transaction<T>(fn: (tx: PlayerAccessTransaction) => Promise<T>): Promise<T> {
     return fn(this.tx);
   }
+
   public async read<T>(fn: (tx: PlayerAccessTransaction) => Promise<T>): Promise<T> {
     return fn(this.tx);
   }
-}
-
-class MechanicalHarness {
-  public profileCreated = false;
-  public regionSelected = false;
-  public starterPrepared = false;
-  public starterGranted = false;
-  public onboardingComplete = false;
-  public locationInitialized = false;
-  public starterCreates = 0;
-  public failAt: "PROFILE" | "STARTER" | "LOCATION" | null = null;
-
-  public registration = {
-    createProfile: async: any => {},
-  };
 }
 
 function createMechanicalHarness() {
@@ -160,7 +157,9 @@ function createMechanicalHarness() {
     state,
     registration: {
       createProfile: async () => {
-        if (state.failAt === "PROFILE") return err(appError("FEATURE_UNAVAILABLE", "profile failed"));
+        if (state.failAt === "PROFILE") {
+          return err(appError("FEATURE_UNAVAILABLE", "profile failed"));
+        }
         state.profileCreated = true;
         return ok({ playerId: createPlayerId(), state: "PROFILE_CREATED" as const });
       },
@@ -177,12 +176,14 @@ function createMechanicalHarness() {
       grantStarter: async () => {
         if (!state.starterGranted) state.starterCreates += 1;
         state.starterGranted = true;
-        if (state.failAt === "STARTER") return err(appError("FEATURE_UNAVAILABLE", "starter failed"));
+        if (state.failAt === "STARTER") {
+          return err(appError("FEATURE_UNAVAILABLE", "starter failed"));
+        }
         return ok({
           playerId: createPlayerId(),
           pokemonInstanceId: "00000000-0000-4000-8000-000000000888" as never,
           state: "STARTER_GRANTED" as const,
-          replayed: state.starterCreates > 1,
+          replayed: false,
         });
       },
       completeOnboarding: async () => {
@@ -192,7 +193,9 @@ function createMechanicalHarness() {
     },
     world: {
       ensureInitialLocation: async () => {
-        if (state.failAt === "LOCATION") return err(appError("FEATURE_UNAVAILABLE", "location failed"));
+        if (state.failAt === "LOCATION") {
+          return err(appError("FEATURE_UNAVAILABLE", "location failed"));
+        }
         state.locationInitialized = true;
         return ok({} as never);
       },
@@ -215,7 +218,10 @@ describe("post-approval player provisioning", () => {
 
     const result = await service.provisionApprovedPlayer(review.id);
 
-    expect(result).toMatchObject({ ok: true, value: { status: "ACTIVE", approvedReviewId: review.id } });
+    expect(result).toMatchObject({
+      ok: true,
+      value: { status: "ACTIVE", approvedReviewId: review.id },
+    });
     expect(access.record?.status).toBe("ACTIVE");
     expect(mechanical.state).toMatchObject({
       profileCreated: true,
@@ -229,7 +235,11 @@ describe("post-approval player provisioning", () => {
   });
 
   it("refuses provisioning when the registration revision is not approved", async () => {
-    const review = { ...approvedReview(), status: "SUBMITTED" as const, decidedByAdminPrincipalId: null };
+    const review = {
+      ...approvedReview(),
+      status: "SUBMITTED" as const,
+      decidedByAdminPrincipalId: null,
+    };
     const access = new AccessRepository();
     const mechanical = createMechanicalHarness();
     const service = new PlayerProvisioningService(
@@ -291,6 +301,7 @@ describe("post-approval player provisioning", () => {
     const suspended = await service.suspend(review.playerId, active.value.revision);
     expect(suspended).toMatchObject({ ok: true, value: { status: "SUSPENDED" } });
     if (!suspended.ok) throw suspended.error;
+
     const restored = await service.restore(review.playerId, suspended.value.revision);
     expect(restored).toMatchObject({ ok: true, value: { status: "ACTIVE" } });
     expect(mechanical.state.starterCreates).toBe(starterCreates);
