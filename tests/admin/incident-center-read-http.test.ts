@@ -96,12 +96,7 @@ describe("Admin API Incident Center read", () => {
 
   it("rejects browser-selected environment, limit, source or state", async () => {
     const { server, getIncidentCenter } = setup();
-    for (const query of [
-      "environment=production",
-      "limit=100",
-      "source=OUTBOX",
-      "state=DEAD",
-    ]) {
+    for (const query of ["environment=production", "limit=100", "source=OUTBOX", "state=DEAD"]) {
       const response = await server.inject({
         method: "GET",
         url: `/admin/v1/incidents?${query}`,
