@@ -1,5 +1,8 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { PlayerAccessRecord, PlayerAccessStatus } from "../registration/player-access-ports.js";
+import type {
+  PlayerAccessRecord,
+  PlayerAccessStatus,
+} from "../registration/player-access-ports.js";
 import type { CommunityCapability, CommunityChatContext } from "./contracts.js";
 
 export interface CommandPolicyContext {
