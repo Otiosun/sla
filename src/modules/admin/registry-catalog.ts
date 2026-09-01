@@ -15,6 +15,7 @@ export const ADMIN_CAPABILITIES = [
   ["admin_operation.read", 0],
   ["runtime.health.read", 0],
   ["messaging.operations.read", 0],
+  ["incident.read", 0],
   ["player.profile.edit", 1],
   ["player.location.correct", 1],
   ["player.onboarding.support", 1],

@@ -17,6 +17,8 @@ import {
 import { ContentLibraryService } from "../modules/admin/content-library-service.js";
 import { ContentReleaseReadService } from "../modules/admin/content-release-read-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
+import { registerIncidentCenterRead } from "../modules/admin/incident-center-definitions.js";
+import { IncidentCenterReadService } from "../modules/admin/incident-center-read-service.js";
 import { registerMessagingOperationsRead } from "../modules/admin/messaging-operations-definitions.js";
 import { MessagingOperationsReadService } from "../modules/admin/messaging-operations-read-service.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
@@ -30,6 +32,7 @@ import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-ap
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
+import { PostgresIncidentCenterReadRepository } from "../platform/admin/postgres-incident-center-read-repository.js";
 import { PostgresMessagingOperationsReadRepository } from "../platform/admin/postgres-messaging-operations-read-repository.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresRuntimeWhatsappHealthRepository } from "../platform/admin/postgres-runtime-whatsapp-health-repository.js";
@@ -107,12 +110,22 @@ export function createOperationalAdminApi(
     messagingOperationsReadAuthorizer,
     new PostgresMessagingOperationsReadRepository(pool),
   );
+  const incidentCenterReadRegistry = registerIncidentCenterRead(new AdminOperationRegistry());
+  const incidentCenterReadAuthorizer = new AdminService(
+    incidentCenterReadRegistry,
+    adminRepository,
+  );
+  const incidentCenterReadService = new IncidentCenterReadService(
+    incidentCenterReadAuthorizer,
+    new PostgresIncidentCenterReadRepository(pool),
+  );
   const readFacade = new AdminReadFacade(
     player360Service,
     contentLibraryService,
     contentReleaseReadService,
     runtimeHealthReadService,
     messagingOperationsReadService,
+    incidentCenterReadService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
