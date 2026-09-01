@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  CatalogReleaseDiffInputSchema,
+  type CatalogReleaseDiffInput,
+} from "../catalog/release-admin-contracts.js";
+import {
   AdminRoleAssignInputSchema,
   AdminSessionRevokeAllInputSchema,
   type AdminRoleAssignInput,
@@ -148,6 +152,19 @@ export function createPhase12AdminOperationRegistry(
       }),
     );
   }
+
+  registry.register(
+    defineAdminOperation<CatalogReleaseDiffInput>({
+      kind: "READ",
+      operationType: "content.release.diff",
+      capabilityKey: "content.validate",
+      riskTier: 3,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: CatalogReleaseDiffInputSchema,
+      target: (input) => ({ type: "CONTENT_RELEASE", id: input.toReleaseId }),
+    }),
+  );
 
   registry.register(
     defineAdminOperation<AdminRoleAssignInput>({
