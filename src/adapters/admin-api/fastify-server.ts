@@ -75,8 +75,10 @@ const ContentReleaseValidationTransportSchema = z.object({}).strict();
 const RuntimeWhatsappHealthTransportSchema = z.object({}).strict();
 const MessagingOperationsTransportSchema = z.object({}).strict();
 const IncidentCenterTransportSchema = z.object({}).strict();
+const AdminOperationAuditTransportSchema = z.object({}).strict();
 const ContentReleaseParamsSchema = z.object({ releaseId: z.string().uuid() }).strict();
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
+const AdminOperationAuditParamsSchema = z.object({ operationId: z.string().uuid() }).strict();
 
 export type AdminApiRateLimitedOperation =
   | "session.read"
@@ -86,6 +88,7 @@ export type AdminApiRateLimitedOperation =
   | "runtime.health.read"
   | "messaging.operations.read"
   | "incident.read"
+  | "audit.read"
   | "mutation.prepare";
 
 export interface AdminApiRateLimitRequest {
@@ -120,6 +123,7 @@ export interface AdminApiServerDependencies {
         | "getRuntimeWhatsappHealth"
         | "getMessagingOperations"
         | "getIncidentCenter"
+        | "getAdminOperationAudit"
       >
     >;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
@@ -328,6 +332,20 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       throw new Error("Incident Center read boundary is not configured");
     }
     return dependencies.readFacade.getIncidentCenter(trustedRequestContext(identity, request));
+  });
+
+  server.get("/admin/v1/operations/:operationId/audit", async (request, reply) => {
+    const params = parseTransport(AdminOperationAuditParamsSchema, request.params);
+    parseTransport(AdminOperationAuditTransportSchema, request.query);
+    const identity = await authenticateAndLimit(request, reply, dependencies, "audit.read");
+    if (identity === null) return reply;
+    if (dependencies.readFacade.getAdminOperationAudit === undefined) {
+      throw new Error("Admin operation audit read boundary is not configured");
+    }
+    return dependencies.readFacade.getAdminOperationAudit(
+      trustedRequestContext(identity, request),
+      params.operationId,
+    );
   });
 
   server.get("/admin/v1/content/releases/diff", async (request, reply) => {
