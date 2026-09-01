@@ -17,6 +17,8 @@ import {
 import { ContentLibraryService } from "../modules/admin/content-library-service.js";
 import { ContentReleaseReadService } from "../modules/admin/content-release-read-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
+import { registerMessagingOperationsRead } from "../modules/admin/messaging-operations-definitions.js";
+import { MessagingOperationsReadService } from "../modules/admin/messaging-operations-read-service.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { registerRuntimeWhatsappHealthRead } from "../modules/admin/runtime-health-definitions.js";
@@ -28,6 +30,7 @@ import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-ap
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
+import { PostgresMessagingOperationsReadRepository } from "../platform/admin/postgres-messaging-operations-read-repository.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresRuntimeWhatsappHealthRepository } from "../platform/admin/postgres-runtime-whatsapp-health-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
@@ -93,11 +96,23 @@ export function createOperationalAdminApi(
     runtimeHealthReadAuthorizer,
     new PostgresRuntimeWhatsappHealthRepository(pool),
   );
+  const messagingOperationsReadRegistry = registerMessagingOperationsRead(
+    new AdminOperationRegistry(),
+  );
+  const messagingOperationsReadAuthorizer = new AdminService(
+    messagingOperationsReadRegistry,
+    adminRepository,
+  );
+  const messagingOperationsReadService = new MessagingOperationsReadService(
+    messagingOperationsReadAuthorizer,
+    new PostgresMessagingOperationsReadRepository(pool),
+  );
   const readFacade = new AdminReadFacade(
     player360Service,
     contentLibraryService,
     contentReleaseReadService,
     runtimeHealthReadService,
+    messagingOperationsReadService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
