@@ -13,7 +13,11 @@ describe("ContentLibraryService", () => {
       )
       .mockResolvedValue({ type: "CONTENT_COLLECTION", id: null });
     const searchContent = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
-    const service = new ContentLibraryService({ authorizeRead }, { searchContent });
+    const listUnpublished = vi.fn();
+    const service = new ContentLibraryService(
+      { authorizeRead },
+      { searchContent, listUnpublished },
+    );
 
     await service.search({
       principalId: PRINCIPAL_ID,
@@ -50,7 +54,11 @@ describe("ContentLibraryService", () => {
   it("fails closed on malformed filters before touching authorization or persistence", async () => {
     const authorizeRead = vi.fn();
     const searchContent = vi.fn();
-    const service = new ContentLibraryService({ authorizeRead }, { searchContent });
+    const listUnpublished = vi.fn();
+    const service = new ContentLibraryService(
+      { authorizeRead },
+      { searchContent, listUnpublished },
+    );
 
     await expect(
       service.search({
@@ -66,7 +74,11 @@ describe("ContentLibraryService", () => {
   it("rejects malformed opaque cursors before touching authorization or persistence", async () => {
     const authorizeRead = vi.fn();
     const searchContent = vi.fn();
-    const service = new ContentLibraryService({ authorizeRead }, { searchContent });
+    const listUnpublished = vi.fn();
+    const service = new ContentLibraryService(
+      { authorizeRead },
+      { searchContent, listUnpublished },
+    );
 
     await expect(
       service.search({
