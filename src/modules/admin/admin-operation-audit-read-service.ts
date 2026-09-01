@@ -37,7 +37,7 @@ export class AdminOperationAuditReadService {
   public async get(request: AdminOperationAuditReadRequest): Promise<AdminOperationAuditView> {
     await this.authorizer.authorizeRead({
       principalId: request.principalId,
-      operationType: "admin.operation.audit.read",
+      operationType: "admin.operation.audit",
       input: { operationId: request.operationId },
       correlationId: request.correlationId,
     });
