@@ -13,6 +13,7 @@ export const ADMIN_CAPABILITIES = [
   ["effects.read", 0],
   ["audit.read", 0],
   ["admin_operation.read", 0],
+  ["runtime.health.read", 0],
   ["player.profile.edit", 1],
   ["player.location.correct", 1],
   ["player.onboarding.support", 1],
