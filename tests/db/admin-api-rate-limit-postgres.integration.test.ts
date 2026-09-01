@@ -76,4 +76,24 @@ describe.sequential("PostgresAdminApiRateLimiter", () => {
     );
     expect(bucket.rows[0]?.request_count).toBe(6);
   });
+
+  it("accepts the content.search operation used by Content Studio routes", async () => {
+    const limiter = new PostgresAdminApiRateLimiter(firstPool, {
+      "content.search": { limit: 2, windowSeconds: 60 },
+    });
+
+    const decision = await limiter.consume({
+      principalId: PRINCIPAL_ID,
+      operation: "content.search",
+    });
+
+    expect(decision.allowed).toBe(true);
+    const bucket = await firstPool.query<{ request_count: number }>(
+      `SELECT request_count
+       FROM admin_api_rate_limit_buckets
+       WHERE principal_id = $1 AND operation = 'content.search'`,
+      [PRINCIPAL_ID],
+    );
+    expect(bucket.rows[0]?.request_count).toBe(1);
+  });
 });
