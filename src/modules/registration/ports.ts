@@ -36,11 +36,7 @@ export interface InsertRegistrationRevisionWrite {
   readonly snapshot: RegistrationSnapshot;
 }
 
-export type RegistrationIdempotentOperation =
-  | "SUBMIT"
-  | "REQUEST_CHANGES"
-  | "APPROVE"
-  | "REJECT";
+export type RegistrationIdempotentOperation = "SUBMIT" | "REQUEST_CHANGES" | "APPROVE" | "REJECT";
 
 export interface RegistrationTransaction {
   loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null>;
