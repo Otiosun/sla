@@ -15,8 +15,9 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const EXPECTED_PREVIOUS_LATEST = "0025_mutation_abuse_admission.sql";
-const EXPECTED_CURRENT_LATEST = "0026_runtime_health_evidence.sql";
+const EXPECTED_PREVIOUS_LATEST = "0026_runtime_health_evidence.sql";
+const EXPECTED_CURRENT_LATEST = "0027_registration_review.sql";
+const EXPECTED_CURRENT_RELATION = "registration_revisions";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -99,7 +100,8 @@ try {
   }
 
   const latestRelationBefore = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.runtime_instances')::text AS relation",
+    "SELECT to_regclass('public.' || $1)::text AS relation",
+    [EXPECTED_CURRENT_RELATION],
   );
   if (latestRelationBefore.rows[0]?.relation !== null) {
     throw new Error("Latest-version relation unexpectedly exists before forward migration");
@@ -150,9 +152,10 @@ try {
   }
 
   const latestRelationAfter = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.runtime_instances')::text AS relation",
+    "SELECT to_regclass('public.' || $1)::text AS relation",
+    [EXPECTED_CURRENT_RELATION],
   );
-  if (latestRelationAfter.rows[0]?.relation !== "runtime_instances") {
+  if (latestRelationAfter.rows[0]?.relation !== EXPECTED_CURRENT_RELATION) {
     throw new Error("Latest migration schema effect is missing after forward migration");
   }
 
