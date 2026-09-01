@@ -1,5 +1,8 @@
+import { z } from "zod";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
+
+const uuidSchema = z.string().uuid();
 
 export function validateRegistrationDraft(
   input: RegistrationDraftInput,
@@ -24,6 +27,8 @@ export function validateRegistrationDraft(
   if (normalized.appearance.length === 0) invalidFields.push("appearance");
   if (normalized.personality.length === 0) invalidFields.push("personality");
   if (normalized.backstory.length === 0) invalidFields.push("backstory");
+  if (!uuidSchema.safeParse(normalized.starterFormId).success) invalidFields.push("starterFormId");
+  if (!uuidSchema.safeParse(normalized.regionId).success) invalidFields.push("regionId");
 
   if (invalidFields.length > 0) {
     return err(
