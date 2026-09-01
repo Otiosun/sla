@@ -92,6 +92,23 @@ jobs:
             exit 1
           fi
 
+      - name: Verify preconfigured Railway singleton
+        shell: bash
+        run: |
+          set -euo pipefail
+          services_json="$(railway service list --environment staging --json)"
+          service_matches="$(jq --arg service "$RAILWAY_SERVICE" '[.[] | select(.name == $service)] | length' <<<"$services_json")"
+          if [[ "$service_matches" != "1" ]]; then
+            echo "Railway staging service could not be resolved uniquely" >&2
+            exit 1
+          fi
+
+          configured_replicas="$(jq -r --arg service "$RAILWAY_SERVICE" '.[] | select(.name == $service) | .replicas.configured // empty' <<<"$services_json")"
+          if [[ ! "$configured_replicas" =~ ^[0-9]+$ ]] || [[ "$configured_replicas" -ne 1 ]]; then
+            echo "Railway service must be preconfigured with exactly one replica before canonical deploy" >&2
+            exit 1
+          fi
+
       - name: Stop previous worker before replacement
         shell: bash
         run: |
@@ -134,20 +151,6 @@ jobs:
 
           echo "previous Railway deployment did not stop before replacement" >&2
           exit 1
-
-      - name: Enforce exactly one Railway replica
-        shell: bash
-        run: |
-          set -euo pipefail
-          railway scale \
-            --service "$RAILWAY_SERVICE" \
-            --environment staging \
-            --json \
-            us-west=0 \
-            eu-west=0 \
-            southeast-asia=0 \
-            us-east=1 \
-            >/tmp/railway-scale.json
 
       - name: Stage exact deployment revision without redeploy
         shell: bash
