@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { AdminOperationAuditView } from "../../modules/admin/admin-operation-audit-read-contracts.js";
+import type { AdminOperationAuditReadService } from "../../modules/admin/admin-operation-audit-read-service.js";
 import type {
   ContentLibrarySearchResultView,
   ContentUnpublishedReleaseView,
@@ -37,6 +39,7 @@ type ContentReleaseReader = Pick<ContentReleaseReadService, "diff" | "validation
 type RuntimeHealthReader = Pick<RuntimeWhatsappHealthService, "getLatest">;
 type MessagingOperationsReader = Pick<MessagingOperationsReadService, "getSnapshot">;
 type IncidentCenterReader = Pick<IncidentCenterReadService, "getSnapshot">;
+type AdminOperationAuditReader = Pick<AdminOperationAuditReadService, "get">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -82,6 +85,7 @@ export class AdminReadFacade {
     private readonly runtimeHealth?: RuntimeHealthReader,
     private readonly messagingOperations?: MessagingOperationsReader,
     private readonly incidentCenter?: IncidentCenterReader,
+    private readonly adminOperationAudit?: AdminOperationAuditReader,
   ) {}
 
   public async searchPlayers(
@@ -196,6 +200,21 @@ export class AdminReadFacade {
     return this.incidentCenter.getSnapshot({
       principalId: context.principalId,
       correlationId: context.correlationId,
+    });
+  }
+
+  public async getAdminOperationAudit(
+    rawContext: unknown,
+    operationId: string,
+  ): Promise<AdminOperationAuditView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.adminOperationAudit === undefined) {
+      throw new Error("Admin operation audit read boundary is not configured");
+    }
+    return this.adminOperationAudit.get({
+      principalId: context.principalId,
+      correlationId: context.correlationId,
+      operationId,
     });
   }
 }
