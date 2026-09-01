@@ -74,6 +74,7 @@ const ContentReleaseDiffTransportSchema = z
 const ContentReleaseValidationTransportSchema = z.object({}).strict();
 const RuntimeWhatsappHealthTransportSchema = z.object({}).strict();
 const MessagingOperationsTransportSchema = z.object({}).strict();
+const IncidentCenterTransportSchema = z.object({}).strict();
 const ContentReleaseParamsSchema = z.object({ releaseId: z.string().uuid() }).strict();
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
@@ -84,6 +85,7 @@ export type AdminApiRateLimitedOperation =
   | "content.search"
   | "runtime.health.read"
   | "messaging.operations.read"
+  | "incident.read"
   | "mutation.prepare";
 
 export interface AdminApiRateLimitRequest {
@@ -117,6 +119,7 @@ export interface AdminApiServerDependencies {
         | "previewContentReleaseValidation"
         | "getRuntimeWhatsappHealth"
         | "getMessagingOperations"
+        | "getIncidentCenter"
       >
     >;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
@@ -315,6 +318,16 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       throw new Error("Messaging operations read boundary is not configured");
     }
     return dependencies.readFacade.getMessagingOperations(trustedRequestContext(identity, request));
+  });
+
+  server.get("/admin/v1/incidents", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "incident.read");
+    if (identity === null) return reply;
+    parseTransport(IncidentCenterTransportSchema, request.query);
+    if (dependencies.readFacade.getIncidentCenter === undefined) {
+      throw new Error("Incident Center read boundary is not configured");
+    }
+    return dependencies.readFacade.getIncidentCenter(trustedRequestContext(identity, request));
   });
 
   server.get("/admin/v1/content/releases/diff", async (request, reply) => {
