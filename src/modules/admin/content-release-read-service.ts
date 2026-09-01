@@ -42,7 +42,11 @@ export class ContentReleaseReadService {
     const result = await this.owner.diffReleases(input.fromReleaseId, input.toReleaseId);
     if (result.ok) return result.value;
     if (result.error.code === "NOT_FOUND") {
-      throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, result.error.message, result.error.details);
+      throw new AdminError(
+        ADMIN_ERROR_CODES.TARGET_NOT_FOUND,
+        result.error.message,
+        result.error.details,
+      );
     }
     throw new AdminError(ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED, result.error.message, {
       ownerCode: result.error.code,
