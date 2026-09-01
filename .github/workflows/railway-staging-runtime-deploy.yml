@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
-      - name: Pull and verify canonical immutable runtime image
+      - name: Pull, verify and pin canonical immutable runtime image
         shell: bash
         run: |
           set -euo pipefail
@@ -91,6 +91,25 @@ jobs:
             echo "runtime image revision label mismatch" >&2
             exit 1
           fi
+
+          immutable_digest=""
+          for attempt in {1..6}; do
+            immutable_digest="$(docker buildx imagetools inspect "$RUNTIME_IMAGE_GHCR" 2>/dev/null | awk '/^Digest:/ { print $2; exit }')"
+            if [[ "$immutable_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              break
+            fi
+            immutable_digest=""
+            if [[ "$attempt" -lt 6 ]]; then
+              sleep $((attempt * 2))
+            fi
+          done
+          if [[ ! "$immutable_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "immutable runtime tag did not resolve to a sha256 manifest digest" >&2
+            exit 1
+          fi
+
+          repository_lower="${GITHUB_REPOSITORY,,}"
+          echo "RUNTIME_IMAGE_PINNED=ghcr.io/${repository_lower}@${immutable_digest}" >> "$GITHUB_ENV"
 
       - name: Verify preconfigured Railway singleton
         shell: bash
@@ -110,11 +129,13 @@ jobs:
           fi
 
           token_scope_json="$(railway api 'query { projectToken { projectId environmentId } }' --compact)"
+          project_id="$(jq -r '.data.projectToken.projectId // empty' <<<"$token_scope_json")"
           environment_id="$(jq -r '.data.projectToken.environmentId // empty' <<<"$token_scope_json")"
-          if [[ -z "$environment_id" ]]; then
-            echo "Railway project token did not resolve its staging environment" >&2
+          if [[ -z "$project_id" || -z "$environment_id" ]]; then
+            echo "Railway project token did not resolve its staging project/environment" >&2
             exit 1
           fi
+          echo "RAILWAY_PROJECT_ID=${project_id}" >> "$GITHUB_ENV"
 
           configured_replicas="$(
             railway api \
@@ -191,7 +212,7 @@ jobs:
             --json \
             >/tmp/railway-variable-set.json
 
-      - name: Connect exact immutable image source
+      - name: Deploy exact immutable image with project token
         shell: bash
         run: |
           set -euo pipefail
@@ -199,27 +220,17 @@ jobs:
           baseline_id="$(jq -r '.[0].id // empty' <<<"$baseline_json")"
           echo "RAILWAY_BASELINE_DEPLOYMENT_ID=${baseline_id}" >> "$GITHUB_ENV"
 
-          railway service source connect \
-            --service "$RAILWAY_SERVICE" \
+          deploy_context="$RUNNER_TEMP/railway-immutable-runtime"
+          rm -rf "$deploy_context"
+          mkdir -p "$deploy_context"
+          printf 'FROM %s\n' "$RUNTIME_IMAGE_PINNED" > "$deploy_context/Dockerfile"
+
+          railway up "$deploy_context" \
+            --path-as-root \
+            --project "$RAILWAY_PROJECT_ID" \
             --environment staging \
-            --image "$RUNTIME_IMAGE_GHCR" \
-            --json \
-            >/tmp/railway-source-connect.json
-
-          new_deployment_seen=false
-          for attempt in {1..6}; do
-            latest_json="$(railway deployment list --service "$RAILWAY_SERVICE" --environment staging --limit 1 --json)"
-            latest_id="$(jq -r '.[0].id // empty' <<<"$latest_json")"
-            if [[ -n "$latest_id" && "$latest_id" != "$baseline_id" ]]; then
-              new_deployment_seen=true
-              break
-            fi
-            sleep 2
-          done
-
-          if [[ "$new_deployment_seen" != "true" ]]; then
-            railway redeploy --service "$RAILWAY_SERVICE" --yes --json >/tmp/railway-redeploy.json
-          fi
+            --service "$RAILWAY_SERVICE" \
+            --detach
 
       - name: Wait for exact Railway replacement deployment
         shell: bash
