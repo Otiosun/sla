@@ -22,6 +22,7 @@ const DEFAULT_POLICIES: Readonly<Record<AdminApiRateLimitedOperation, AdminApiRa
   "content.search": { limit: 60, windowSeconds: 60 },
   "runtime.health.read": { limit: 60, windowSeconds: 60 },
   "messaging.operations.read": { limit: 60, windowSeconds: 60 },
+  "incident.read": { limit: 60, windowSeconds: 60 },
   "mutation.prepare": { limit: 60, windowSeconds: 60 },
 };
 
@@ -60,6 +61,7 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
         overrides["runtime.health.read"] ?? DEFAULT_POLICIES["runtime.health.read"],
       "messaging.operations.read":
         overrides["messaging.operations.read"] ?? DEFAULT_POLICIES["messaging.operations.read"],
+      "incident.read": overrides["incident.read"] ?? DEFAULT_POLICIES["incident.read"],
       "mutation.prepare": overrides["mutation.prepare"] ?? DEFAULT_POLICIES["mutation.prepare"],
     };
 
@@ -69,6 +71,7 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
     validatePolicy("content.search", this.policies["content.search"]);
     validatePolicy("runtime.health.read", this.policies["runtime.health.read"]);
     validatePolicy("messaging.operations.read", this.policies["messaging.operations.read"]);
+    validatePolicy("incident.read", this.policies["incident.read"]);
     validatePolicy("mutation.prepare", this.policies["mutation.prepare"]);
   }
 
