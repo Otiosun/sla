@@ -283,7 +283,12 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
   });
 
   server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
-    const identity = await authenticateAndLimit(request, reply, dependencies, "runtime.health.read");
+    const identity = await authenticateAndLimit(
+      request,
+      reply,
+      dependencies,
+      "runtime.health.read",
+    );
     if (identity === null) return reply;
     parseTransport(RuntimeWhatsappHealthTransportSchema, request.query);
     if (dependencies.readFacade.getRuntimeWhatsappHealth === undefined) {
