@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  registerPhase12CCatalogReleaseOperations,
-} from "../../src/modules/admin/catalog-release-definitions.js";
+import { registerPhase12CCatalogReleaseOperations } from "../../src/modules/admin/catalog-release-definitions.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
 
 describe("content release validation preview registry", () => {
