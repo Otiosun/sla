@@ -4,11 +4,13 @@ import type {
   ContentUnpublishedReleaseView,
 } from "../../modules/admin/content-library-contracts.js";
 import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
+import type { ContentReleaseReadService } from "../../modules/admin/content-release-read-service.js";
 import type {
   Player360SearchResultView,
   Player360View,
 } from "../../modules/admin/player360-contracts.js";
 import type { Player360Service } from "../../modules/admin/player360-service.js";
+import type { ReleaseDiff } from "../../modules/catalog/diff.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
 
 export const AdminApiPrincipalContextSchema = z
@@ -23,6 +25,7 @@ export type AdminApiPrincipalContext = z.infer<typeof AdminApiPrincipalContextSc
 
 type Player360Reader = Pick<Player360Service, "get" | "search">;
 type ContentLibraryReader = Pick<ContentLibraryService, "search" | "listUnpublished">;
+type ContentReleaseReader = Pick<ContentReleaseReadService, "diff">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -64,6 +67,7 @@ export class AdminReadFacade {
   public constructor(
     private readonly player360: Player360Reader,
     private readonly contentLibrary?: ContentLibraryReader,
+    private readonly contentRelease?: ContentReleaseReader,
   ) {}
 
   public async searchPlayers(
@@ -115,6 +119,18 @@ export class AdminReadFacade {
       throw new Error("Content library reader is not configured");
     }
     return this.contentLibrary.listUnpublished({
+      principalId: context.principalId,
+      correlationId: context.correlationId,
+    });
+  }
+
+  public async diffContentRelease(rawContext: unknown, clientQuery: unknown): Promise<ReleaseDiff> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.contentRelease === undefined) {
+      throw new Error("Content release read boundary is not configured");
+    }
+    return this.contentRelease.diff({
+      ...stripClientAuthority(clientQuery),
       principalId: context.principalId,
       correlationId: context.correlationId,
     });
