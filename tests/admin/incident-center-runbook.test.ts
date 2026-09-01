@@ -83,13 +83,7 @@ describe("Incident Center contextual runbooks", () => {
             "Compare o sinal com a trilha de auditoria e com o estado atual do alvo, sem executar correções.",
             "Registre divergências de revisão, autorização ou domínio observadas na investigação.",
           ],
-          evidenceToCollect: [
-            "correlationId",
-            "kind",
-            "target metadata",
-            "riskTier",
-            "occurredAt",
-          ],
+          evidenceToCollect: ["correlationId", "kind", "target metadata", "riskTier", "occurredAt"],
           escalation:
             "Escalone para engenharia quando a causa não estiver explicada pela trilha de auditoria ou pelo estado atual do alvo.",
         },
