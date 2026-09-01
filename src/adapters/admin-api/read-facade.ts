@@ -1,5 +1,8 @@
 import { z } from "zod";
-import type { ContentLibrarySearchResultView } from "../../modules/admin/content-library-contracts.js";
+import type {
+  ContentLibrarySearchResultView,
+  ContentUnpublishedReleaseView,
+} from "../../modules/admin/content-library-contracts.js";
 import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
 import type {
   Player360SearchResultView,
@@ -19,7 +22,7 @@ export const AdminApiPrincipalContextSchema = z
 export type AdminApiPrincipalContext = z.infer<typeof AdminApiPrincipalContextSchema>;
 
 type Player360Reader = Pick<Player360Service, "get" | "search">;
-type ContentLibraryReader = Pick<ContentLibraryService, "search">;
+type ContentLibraryReader = Pick<ContentLibraryService, "search" | "listUnpublished">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -99,6 +102,19 @@ export class AdminReadFacade {
     }
     return this.contentLibrary.search({
       ...stripClientAuthority(clientQuery),
+      principalId: context.principalId,
+      correlationId: context.correlationId,
+    });
+  }
+
+  public async listUnpublishedContent(
+    rawContext: unknown,
+  ): Promise<readonly ContentUnpublishedReleaseView[]> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.contentLibrary === undefined) {
+      throw new Error("Content library reader is not configured");
+    }
+    return this.contentLibrary.listUnpublished({
       principalId: context.principalId,
       correlationId: context.correlationId,
     });
