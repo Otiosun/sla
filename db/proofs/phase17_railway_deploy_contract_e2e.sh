@@ -61,14 +61,17 @@ reject_literal "$workflow" ':staging'
 reject_literal "$workflow" 'docker build'
 reject_literal "$workflow" 'railway up'
 
-# Runtime-only secret boundary is checked by names without committing or printing values.
-require_literal "$workflow" 'railway variable list'
-require_literal "$workflow" 'DATABASE_URL WHATSAPP_SESSION_KEY WHATSAPP_AUTH_KEY_BASE64 WHATSAPP_AUTH_KEY_VERSION'
-require_literal "$workflow" 'MIGRATOR_DATABASE_URL'
+# Railway's variable-list API returns secret values. Canonical CI must not enumerate them.
+reject_literal "$workflow" 'railway variable list'
+reject_literal "$workflow" 'railway variables'
 reject_literal "$workflow" 'MIGRATOR_DATABASE_URL:'
 reject_literal "$workflow" 'STAGING_MIGRATOR_DATABASE_URL'
+require_literal "$railway_doc" 'Required runtime variables'
+require_literal "$railway_doc" 'MIGRATOR_DATABASE_URL'
 
-# Provider safety: exactly one configured replica and no old/new Baileys overlap.
+# Provider safety: reject concurrent/transitional deploys, then allow exactly one configured replica.
+require_literal "$workflow" 'concurrent or transitional Railway deployment already exists'
+require_literal "$workflow" 'BUILDING|DEPLOYING|INITIALIZING|WAITING|QUEUED|REMOVING'
 require_literal "$workflow" 'railway scale'
 require_literal "$workflow" 'us-east=1'
 require_literal "$workflow" 'us-west=0'
@@ -103,7 +106,6 @@ require_literal "$recovery_doc" 'Railway'
 require_literal "$railway_doc" 'RAILWAY_TOKEN'
 require_literal "$railway_doc" 'STAGING_RAILWAY_SERVICE=pokemon-rpg-whatsapp-staging'
 require_literal "$railway_doc" 'Fly.io'
-require_literal "$railway_doc" 'MIGRATOR_DATABASE_URL'
 require_literal "$railway_doc" 'railway down'
 
 printf 'Phase 17 Railway staging deploy contract proof passed.\n'
