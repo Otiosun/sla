@@ -72,6 +72,7 @@ const ContentReleaseDiffTransportSchema = z
     path: ["toReleaseId"],
   });
 const ContentReleaseValidationTransportSchema = z.object({}).strict();
+const RuntimeWhatsappHealthTransportSchema = z.object({}).strict();
 const ContentReleaseParamsSchema = z.object({ releaseId: z.string().uuid() }).strict();
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
@@ -80,6 +81,7 @@ export type AdminApiRateLimitedOperation =
   | "player.search"
   | "player.read"
   | "content.search"
+  | "runtime.health.read"
   | "mutation.prepare";
 
 export interface AdminApiRateLimitRequest {
@@ -111,6 +113,7 @@ export interface AdminApiServerDependencies {
         | "listUnpublishedContent"
         | "diffContentRelease"
         | "previewContentReleaseValidation"
+        | "getRuntimeWhatsappHealth"
       >
     >;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
@@ -277,6 +280,18 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
     return dependencies.readFacade.searchPlayers(trustedRequestContext(identity, request), query);
+  });
+
+  server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "runtime.health.read");
+    if (identity === null) return reply;
+    parseTransport(RuntimeWhatsappHealthTransportSchema, request.query);
+    if (dependencies.readFacade.getRuntimeWhatsappHealth === undefined) {
+      throw new Error("Runtime WhatsApp health read boundary is not configured");
+    }
+    return dependencies.readFacade.getRuntimeWhatsappHealth(
+      trustedRequestContext(identity, request),
+    );
   });
 
   server.get("/admin/v1/content/releases/diff", async (request, reply) => {
