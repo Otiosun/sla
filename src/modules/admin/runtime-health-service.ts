@@ -43,7 +43,9 @@ export class RuntimeWhatsappHealthService {
     private readonly repository: RuntimeWhatsappHealthReadRepository,
   ) {}
 
-  public async getLatest(request: RuntimeWhatsappHealthReadRequest): Promise<RuntimeWhatsappHealthView> {
+  public async getLatest(
+    request: RuntimeWhatsappHealthReadRequest,
+  ): Promise<RuntimeWhatsappHealthView> {
     const environment = AdminEnvironmentSchema.parse(request.environment);
     await this.authorizer.authorizeRead({
       principalId: request.principalId,
