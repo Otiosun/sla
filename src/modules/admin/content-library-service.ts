@@ -1,7 +1,9 @@
 import {
   ContentLibrarySearchRequestSchema,
+  ContentUnpublishedStateRequestSchema,
   decodeContentLibraryCursor,
   type ContentLibrarySearchResultView,
+  type ContentUnpublishedReleaseView,
 } from "./content-library-contracts.js";
 import type { ContentLibraryRepository } from "./content-library-ports.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
@@ -31,6 +33,26 @@ export class ContentLibraryService {
     private readonly repository: ContentLibraryRepository,
   ) {}
 
+  private async authorize(principalId: string, correlationId: string): Promise<void> {
+    let denied: unknown = null;
+    for (const operationType of AUTHORIZATION_OPERATIONS) {
+      try {
+        await this.authorizer.authorizeRead({
+          principalId,
+          operationType,
+          input: {},
+          correlationId,
+        });
+        denied = null;
+        break;
+      } catch (error) {
+        if (!isAuthorizationDenied(error)) throw error;
+        denied = error;
+      }
+    }
+    if (denied !== null) throw denied;
+  }
+
   public async search(rawRequest: unknown): Promise<ContentLibrarySearchResultView> {
     const parsed = ContentLibrarySearchRequestSchema.safeParse(rawRequest);
     if (!parsed.success) {
@@ -43,23 +65,7 @@ export class ContentLibraryService {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid content library cursor");
     }
 
-    let denied: unknown = null;
-    for (const operationType of AUTHORIZATION_OPERATIONS) {
-      try {
-        await this.authorizer.authorizeRead({
-          principalId: parsed.data.principalId,
-          operationType,
-          input: {},
-          correlationId: parsed.data.correlationId,
-        });
-        denied = null;
-        break;
-      } catch (error) {
-        if (!isAuthorizationDenied(error)) throw error;
-        denied = error;
-      }
-    }
-    if (denied !== null) throw denied;
+    await this.authorize(parsed.data.principalId, parsed.data.correlationId);
 
     return this.repository.searchContent({
       ...(parsed.data.query === undefined ? {} : { query: parsed.data.query }),
@@ -71,5 +77,15 @@ export class ContentLibraryService {
       limit: parsed.data.limit,
       cursor,
     });
+  }
+
+  public async listUnpublished(rawRequest: unknown): Promise<readonly ContentUnpublishedReleaseView[]> {
+    const parsed = ContentUnpublishedStateRequestSchema.safeParse(rawRequest);
+    if (!parsed.success) {
+      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid unpublished content read");
+    }
+
+    await this.authorize(parsed.data.principalId, parsed.data.correlationId);
+    return this.repository.listUnpublished();
   }
 }

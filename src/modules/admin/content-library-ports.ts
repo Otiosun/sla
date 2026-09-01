@@ -2,6 +2,7 @@ import type {
   ContentLibraryCursor,
   ContentLibrarySearchRequest,
   ContentLibrarySearchResultView,
+  ContentUnpublishedReleaseView,
 } from "./content-library-contracts.js";
 
 export type ContentLibraryRepositorySearch = Omit<
@@ -13,4 +14,5 @@ export type ContentLibraryRepositorySearch = Omit<
 
 export interface ContentLibraryRepository {
   searchContent(input: ContentLibraryRepositorySearch): Promise<ContentLibrarySearchResultView>;
+  listUnpublished(): Promise<readonly ContentUnpublishedReleaseView[]>;
 }

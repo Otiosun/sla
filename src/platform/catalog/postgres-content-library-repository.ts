@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import type {
   ContentLibraryItemView,
   ContentLibrarySearchResultView,
+  ContentUnpublishedReleaseView,
 } from "../../modules/admin/content-library-contracts.js";
 import type {
   ContentLibraryRepository,
@@ -19,6 +20,19 @@ interface ContentLibraryRow {
   readonly slug: string;
   readonly display_name: string;
   readonly active: boolean;
+}
+
+interface ContentUnpublishedRow {
+  readonly release_id: string;
+  readonly release_no: string;
+  readonly release_name: string;
+  readonly status: "DRAFT" | "VALIDATED";
+  readonly revision: string;
+  readonly parent_release_id: string | null;
+  readonly created_at: Date;
+  readonly validated_at: Date | null;
+  readonly recorded_change_count: string;
+  readonly last_changed_at: Date | null;
 }
 
 function encodeCursor(item: ContentLibraryItemView): string {
@@ -45,6 +59,22 @@ function project(row: ContentLibraryRow): ContentLibraryItemView {
     slug: row.slug,
     displayName: row.display_name,
     active: row.active,
+  };
+}
+
+function projectUnpublished(row: ContentUnpublishedRow): ContentUnpublishedReleaseView {
+  return {
+    releaseId: row.release_id,
+    releaseNo: row.release_no,
+    releaseName: row.release_name,
+    status: row.status,
+    workflowState: row.status === "DRAFT" ? "EDITING" : "READY_TO_PUBLISH",
+    revision: row.revision,
+    parentReleaseId: row.parent_release_id,
+    createdAt: row.created_at.toISOString(),
+    validatedAt: row.validated_at?.toISOString() ?? null,
+    recordedChangeCount: row.recorded_change_count,
+    lastChangedAt: row.last_changed_at?.toISOString() ?? null,
   };
 }
 
@@ -145,5 +175,28 @@ export class PostgresContentLibraryRepository implements ContentLibraryRepositor
       items,
       nextCursor: hasMore && last !== undefined ? encodeCursor(last) : null,
     };
+  }
+
+  public async listUnpublished(): Promise<readonly ContentUnpublishedReleaseView[]> {
+    const result = await this.pool.query<ContentUnpublishedRow>(
+      `SELECT release.id AS release_id,
+              release.release_no::text AS release_no,
+              release.name AS release_name,
+              release.status,
+              release.revision::text AS revision,
+              release.parent_release_id,
+              release.created_at,
+              release.validated_at,
+              count(claim.id)::text AS recorded_change_count,
+              max(claim.created_at) AS last_changed_at
+       FROM content_releases release
+       LEFT JOIN catalog_admin_operation_claims claim
+         ON claim.content_release_id = release.id
+       WHERE release.status IN ('DRAFT', 'VALIDATED')
+       GROUP BY release.id, release.release_no, release.name, release.status, release.revision,
+                release.parent_release_id, release.created_at, release.validated_at
+       ORDER BY release.release_no DESC, release.id ASC`,
+    );
+    return result.rows.map(projectUnpublished);
   }
 }

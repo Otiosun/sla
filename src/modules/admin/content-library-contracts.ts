@@ -16,6 +16,14 @@ export const ContentLibrarySearchRequestSchema = z
   .strict();
 export type ContentLibrarySearchRequest = z.infer<typeof ContentLibrarySearchRequestSchema>;
 
+export const ContentUnpublishedStateRequestSchema = z
+  .object({
+    principalId: z.string().uuid(),
+    correlationId: z.string().uuid(),
+  })
+  .strict();
+export type ContentUnpublishedStateRequest = z.infer<typeof ContentUnpublishedStateRequestSchema>;
+
 export interface ContentLibraryItemView {
   readonly releaseId: string;
   readonly releaseNo: string;
@@ -32,6 +40,20 @@ export interface ContentLibraryItemView {
 export interface ContentLibrarySearchResultView {
   readonly items: readonly ContentLibraryItemView[];
   readonly nextCursor: string | null;
+}
+
+export interface ContentUnpublishedReleaseView {
+  readonly releaseId: string;
+  readonly releaseNo: string;
+  readonly releaseName: string;
+  readonly status: "DRAFT" | "VALIDATED";
+  readonly workflowState: "EDITING" | "READY_TO_PUBLISH";
+  readonly revision: string;
+  readonly parentReleaseId: string | null;
+  readonly createdAt: string;
+  readonly validatedAt: string | null;
+  readonly recordedChangeCount: string;
+  readonly lastChangedAt: string | null;
 }
 
 export const ContentLibraryCursorSchema = z
