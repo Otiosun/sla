@@ -60,6 +60,7 @@ const ContentLibraryTransportSchema = z
   })
   .strict();
 
+const ContentUnpublishedTransportSchema = z.object({}).strict();
 const PlayerParamsSchema = z.object({ playerId: z.string().uuid() }).strict();
 
 export type AdminApiRateLimitedOperation =
@@ -91,7 +92,7 @@ export interface AdminApiServerDependencies {
   readonly sessionLogoutService?: Pick<AdminSessionLogoutService, "logoutCurrent">;
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer"> &
-    Partial<Pick<AdminReadFacade, "searchContent">>;
+    Partial<Pick<AdminReadFacade, "searchContent" | "listUnpublishedContent">>;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
   readonly rateLimiter: AdminApiRateLimiter;
 }
@@ -256,6 +257,16 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
     return dependencies.readFacade.searchPlayers(trustedRequestContext(identity, request), query);
+  });
+
+  server.get("/admin/v1/content/unpublished", async (request, reply) => {
+    const identity = await authenticateAndLimit(request, reply, dependencies, "content.search");
+    if (identity === null) return reply;
+    parseTransport(ContentUnpublishedTransportSchema, request.query);
+    if (dependencies.readFacade.listUnpublishedContent === undefined) {
+      throw new Error("Unpublished content read boundary is not configured");
+    }
+    return dependencies.readFacade.listUnpublishedContent(trustedRequestContext(identity, request));
   });
 
   server.get("/admin/v1/content", async (request, reply) => {
