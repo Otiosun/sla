@@ -63,21 +63,35 @@ describe("Incident Center contextual runbooks", () => {
       correlationId: CORRELATION_ID,
     });
 
-    expect(result.signals.map((signal) => ({ source: signal.source, state: signal.state, runbook: signal.runbook }))).toEqual([
+    expect(
+      result.signals.map((signal) => ({
+        source: signal.source,
+        state: signal.state,
+        runbook: signal.runbook,
+      })),
+    ).toEqual([
       {
         source: "ADMIN_OPERATION",
         state: "FAILED",
         runbook: {
           key: "admin-operation-failed",
           title: "Falha em operação administrativa",
-          summary: "Preserve a correlação e confirme o contexto da operação antes de escalar a investigação.",
+          summary:
+            "Preserve a correlação e confirme o contexto da operação antes de escalar a investigação.",
           steps: [
             "Confirme correlationId, tipo da operação, alvo e horário do sinal.",
             "Compare o sinal com a trilha de auditoria e com o estado atual do alvo, sem executar correções.",
             "Registre divergências de revisão, autorização ou domínio observadas na investigação.",
           ],
-          evidenceToCollect: ["correlationId", "kind", "target metadata", "riskTier", "occurredAt"],
-          escalation: "Escalone para engenharia quando a causa não estiver explicada pela trilha de auditoria ou pelo estado atual do alvo.",
+          evidenceToCollect: [
+            "correlationId",
+            "kind",
+            "target metadata",
+            "riskTier",
+            "occurredAt",
+          ],
+          escalation:
+            "Escalone para engenharia quando a causa não estiver explicada pela trilha de auditoria ou pelo estado atual do alvo.",
         },
       },
       {
@@ -86,14 +100,22 @@ describe("Incident Center contextual runbooks", () => {
         runbook: {
           key: "inbox-processing-failed",
           title: "Falha no processamento de entrada",
-          summary: "Investigue o processamento da mensagem recebida sem expor conteúdo bruto nem alterar a fila.",
+          summary:
+            "Investigue o processamento da mensagem recebida sem expor conteúdo bruto nem alterar a fila.",
           steps: [
             "Confirme correlationId, tentativas e horário do sinal.",
             "Compare o sinal com a saúde do runtime e com os metadados operacionais da Inbox.",
             "Determine se a falha é isolada ou recorrente usando somente evidência operacional permitida.",
           ],
-          evidenceToCollect: ["correlationId", "attempts", "occurredAt", "runtime health", "inbox metadata"],
-          escalation: "Escalone para engenharia quando houver recorrência, degradação do runtime ou causa não explicada pelos metadados permitidos.",
+          evidenceToCollect: [
+            "correlationId",
+            "attempts",
+            "occurredAt",
+            "runtime health",
+            "inbox metadata",
+          ],
+          escalation:
+            "Escalone para engenharia quando houver recorrência, degradação do runtime ou causa não explicada pelos metadados permitidos.",
         },
       },
       {
@@ -102,14 +124,22 @@ describe("Incident Center contextual runbooks", () => {
         runbook: {
           key: "outbox-delivery-failed",
           title: "Falha temporária de saída",
-          summary: "Verifique a evidência de entrega sem reenviar, reprocessar ou alterar a fila pela Central.",
+          summary:
+            "Verifique a evidência de entrega sem reenviar, reprocessar ou alterar a fila pela Central.",
           steps: [
             "Confirme correlationId, tentativas e horário do sinal.",
             "Compare o sinal com a saúde do runtime e com os metadados operacionais da Outbox.",
             "Observe se o mesmo padrão aparece em outros sinais recentes antes de escalar.",
           ],
-          evidenceToCollect: ["correlationId", "attempts", "occurredAt", "runtime health", "outbox metadata"],
-          escalation: "Escalone para engenharia quando a falha persistir, se repetir em série ou coincidir com degradação do runtime.",
+          evidenceToCollect: [
+            "correlationId",
+            "attempts",
+            "occurredAt",
+            "runtime health",
+            "outbox metadata",
+          ],
+          escalation:
+            "Escalone para engenharia quando a falha persistir, se repetir em série ou coincidir com degradação do runtime.",
         },
       },
       {
@@ -118,21 +148,39 @@ describe("Incident Center contextual runbooks", () => {
         runbook: {
           key: "outbox-dead-letter",
           title: "Mensagem em dead-letter",
-          summary: "Trate o sinal como evidência persistente e preserve o estado para investigação antes de qualquer recuperação autorizada.",
+          summary:
+            "Trate o sinal como evidência persistente e preserve o estado para investigação antes de qualquer recuperação autorizada.",
           steps: [
             "Confirme correlationId, total de tentativas e horário de entrada em estado DEAD.",
             "Compare o sinal com os metadados de dead-letter e com a saúde do runtime.",
             "Documente a recorrência e encaminhe a recuperação para o fluxo privilegiado apropriado, fora desta superfície.",
           ],
-          evidenceToCollect: ["correlationId", "attempts", "occurredAt", "dead-letter metadata", "runtime health"],
-          escalation: "Escalone para o responsável pelo fluxo de recuperação; a Central permanece somente observacional neste runbook.",
+          evidenceToCollect: [
+            "correlationId",
+            "attempts",
+            "occurredAt",
+            "dead-letter metadata",
+            "runtime health",
+          ],
+          escalation:
+            "Escalone para o responsável pelo fluxo de recuperação; a Central permanece somente observacional neste runbook.",
         },
       },
     ]);
 
     const serialized = JSON.stringify(result);
-    for (const forbiddenKey of ["command", "shell", "sql", "url", "action", "mutation", "retryEndpoint", "replayEndpoint", "requeueEndpoint"]) {
-      expect(serialized).not.toContain(`\"${forbiddenKey}\"`);
+    for (const forbiddenKey of [
+      "command",
+      "shell",
+      "sql",
+      "url",
+      "action",
+      "mutation",
+      "retryEndpoint",
+      "replayEndpoint",
+      "requeueEndpoint",
+    ]) {
+      expect(serialized).not.toContain(`"${forbiddenKey}"`);
     }
   });
 });
