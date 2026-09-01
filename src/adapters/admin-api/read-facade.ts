@@ -7,6 +7,8 @@ import type { ContentLibraryService } from "../../modules/admin/content-library-
 import type { ContentReleaseReadService } from "../../modules/admin/content-release-read-service.js";
 import { AdminEnvironmentSchema } from "../../modules/admin/contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
+import type { MessagingOperationsView } from "../../modules/admin/messaging-operations-read-contracts.js";
+import type { MessagingOperationsReadService } from "../../modules/admin/messaging-operations-read-service.js";
 import type {
   Player360SearchResultView,
   Player360View,
@@ -31,6 +33,7 @@ type Player360Reader = Pick<Player360Service, "get" | "search">;
 type ContentLibraryReader = Pick<ContentLibraryService, "search" | "listUnpublished">;
 type ContentReleaseReader = Pick<ContentReleaseReadService, "diff" | "validationPreview">;
 type RuntimeHealthReader = Pick<RuntimeWhatsappHealthService, "getLatest">;
+type MessagingOperationsReader = Pick<MessagingOperationsReadService, "getSnapshot">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -74,6 +77,7 @@ export class AdminReadFacade {
     private readonly contentLibrary?: ContentLibraryReader,
     private readonly contentRelease?: ContentReleaseReader,
     private readonly runtimeHealth?: RuntimeHealthReader,
+    private readonly messagingOperations?: MessagingOperationsReader,
   ) {}
 
   public async searchPlayers(
@@ -165,6 +169,17 @@ export class AdminReadFacade {
     return this.runtimeHealth.getLatest({
       principalId: context.principalId,
       environment: AdminEnvironmentSchema.parse(context.environment),
+      correlationId: context.correlationId,
+    });
+  }
+
+  public async getMessagingOperations(rawContext: unknown): Promise<MessagingOperationsView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.messagingOperations === undefined) {
+      throw new Error("Messaging operations read boundary is not configured");
+    }
+    return this.messagingOperations.getSnapshot({
+      principalId: context.principalId,
       correlationId: context.correlationId,
     });
   }

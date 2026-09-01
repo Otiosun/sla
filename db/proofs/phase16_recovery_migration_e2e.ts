@@ -20,8 +20,8 @@ const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
 const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
-const EXPECTED_PREVIOUS_LATEST = "0031_admin_api_content_search_rate_limit.sql";
-const EXPECTED_CURRENT_LATEST = "0032_admin_api_runtime_health_rate_limit.sql";
+const EXPECTED_PREVIOUS_LATEST = "0032_admin_api_runtime_health_rate_limit.sql";
+const EXPECTED_CURRENT_LATEST = "0033_admin_api_messaging_operations_rate_limit.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -51,7 +51,7 @@ function postgresErrorCode(error: unknown): string | null {
 }
 
 async function rateLimitInsertAllowed(
-  operation: "content.search" | "runtime.health.read",
+  operation: "content.search" | "runtime.health.read" | "messaging.operations.read",
 ): Promise<boolean> {
   try {
     await pool.query(
@@ -68,7 +68,7 @@ async function rateLimitInsertAllowed(
 }
 
 async function rateLimitBucketExists(
-  operation: "content.search" | "runtime.health.read",
+  operation: "content.search" | "runtime.health.read" | "messaging.operations.read",
 ): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
     `SELECT EXISTS (
@@ -201,7 +201,7 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the runtime-health migration");
+    throw new Error("N-1 limiter relation is missing before the messaging-operations migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error(
@@ -244,12 +244,20 @@ try {
   if (!(await rateLimitBucketExists("content.search"))) {
     throw new Error("N-1 content.search probe did not persist its limiter bucket");
   }
-  if (await rateLimitInsertAllowed("runtime.health.read")) {
-    throw new Error("N-1 database unexpectedly allows runtime.health.read before migration 0032");
+  if (!(await rateLimitInsertAllowed("runtime.health.read"))) {
+    throw new Error("N-1 database lost the runtime.health.read allowlist from migration 0032");
   }
-  if (await rateLimitBucketExists("runtime.health.read")) {
+  if (!(await rateLimitBucketExists("runtime.health.read"))) {
+    throw new Error("N-1 runtime.health.read probe did not persist its limiter bucket");
+  }
+  if (await rateLimitInsertAllowed("messaging.operations.read")) {
     throw new Error(
-      "Rejected N-1 runtime.health.read probe unexpectedly persisted a limiter bucket",
+      "N-1 database unexpectedly allows messaging.operations.read before migration 0033",
+    );
+  }
+  if (await rateLimitBucketExists("messaging.operations.read")) {
+    throw new Error(
+      "Rejected N-1 messaging.operations.read probe unexpectedly persisted a limiter bucket",
     );
   }
 
@@ -333,29 +341,32 @@ try {
   }
 
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0032 regressed the durable Admin API access-session relation");
+    throw new Error("Migration 0033 regressed the durable Admin API access-session relation");
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
     !(await sessionRevocationCutoffShapeExists())
   ) {
     throw new Error(
-      "Migration 0032 regressed the environment-scoped principal session-revocation cutoff",
+      "Migration 0033 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0032 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0033 regressed the mutation.prepare limiter state from migration 0028",
     );
   }
   if (!(await rateLimitBucketExists("content.search"))) {
-    throw new Error("Migration 0032 regressed the Content Studio content.search limiter key");
+    throw new Error("Migration 0033 regressed the Content Studio content.search limiter key");
+  }
+  if (!(await rateLimitBucketExists("runtime.health.read"))) {
+    throw new Error("Migration 0033 regressed the runtime.health.read limiter key");
   }
   if (
-    !(await rateLimitInsertAllowed("runtime.health.read")) ||
-    !(await rateLimitBucketExists("runtime.health.read"))
+    !(await rateLimitInsertAllowed("messaging.operations.read")) ||
+    !(await rateLimitBucketExists("messaging.operations.read"))
   ) {
-    throw new Error("Migration 0032 did not allow the runtime.health.read limiter key");
+    throw new Error("Migration 0033 did not allow the messaging.operations.read limiter key");
   }
 
   const sessionAfter = await pool.query<{
@@ -385,7 +396,7 @@ try {
   );
   const durableSessionAfter = sessionAfter.rows[0];
   if (durableSessionAfter === undefined) {
-    throw new Error("Migration 0032 removed the durable access-session probe");
+    throw new Error("Migration 0033 removed the durable access-session probe");
   }
   if (
     durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
@@ -398,10 +409,10 @@ try {
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
-    throw new Error("Migration 0032 changed existing durable access-session state");
+    throw new Error("Migration 0033 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0032 invented a revocation cutoff for an existing environment");
+    throw new Error("Migration 0033 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -444,7 +455,8 @@ try {
       runtimeHealthPreserved: true,
       mutationPrepareStatePreserved: true,
       contentSearchAllowlistPreserved: true,
-      runtimeHealthReadAllowlistAdded: true,
+      runtimeHealthReadAllowlistPreserved: true,
+      messagingOperationsReadAllowlistAdded: true,
       accessSessionStatePreserved: true,
       environmentScopedSessionRevocationCutoffPreserved: true,
       durableStatePreserved: true,
