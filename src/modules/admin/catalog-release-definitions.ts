@@ -36,9 +36,8 @@ const publishPolicy = {
   requiredApprovals: 1,
 } as const;
 
-export function registerPhase12CCatalogReleaseOperations(
+export function registerCatalogReleaseDiffRead(
   registry: AdminOperationRegistry,
-  port: AdminCatalogReleaseOperationPort,
 ): AdminOperationRegistry {
   registry.register(
     defineAdminOperation<CatalogReleaseDiffInput>({
@@ -52,6 +51,15 @@ export function registerPhase12CCatalogReleaseOperations(
       target: (input) => ({ type: "CONTENT_RELEASE", id: input.toReleaseId }),
     }),
   );
+
+  return registry;
+}
+
+export function registerPhase12CCatalogReleaseOperations(
+  registry: AdminOperationRegistry,
+  port: AdminCatalogReleaseOperationPort,
+): AdminOperationRegistry {
+  registerCatalogReleaseDiffRead(registry);
 
   registry.register(
     defineAdminOperation<CatalogReleaseLifecycleInput>({
