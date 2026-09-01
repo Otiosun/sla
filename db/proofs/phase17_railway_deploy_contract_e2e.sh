@@ -71,12 +71,13 @@ require_literal "$railway_doc" '`DATABASE_URL`'
 require_literal "$railway_doc" '`WHATSAPP_AUTH_KEY_BASE64`'
 require_literal "$railway_doc" '`MIGRATOR_DATABASE_URL` is forbidden'
 
-# Provider safety: reject concurrent/transitional deploys, require a preconfigured singleton, then stop the prior worker.
+# Provider safety: reject concurrent/transitional deploys, prove the configured singleton from region config even while offline, then stop the prior worker.
 require_literal "$workflow" 'concurrent or transitional Railway deployment already exists'
 require_literal "$workflow" 'BUILDING|DEPLOYING|INITIALIZING|WAITING|QUEUED|REMOVING'
 reject_literal "$workflow" 'railway scale'
 require_literal "$workflow" 'railway service list --environment staging --json'
-require_literal "$workflow" '.replicas.configured'
+require_literal "$workflow" '.regions[].configured'
+reject_literal "$workflow" '.replicas.configured'
 require_literal "$workflow" 'Railway service must be preconfigured with exactly one replica before canonical deploy'
 require_literal "$workflow" 'railway down'
 require_literal "$workflow" '--yes'
