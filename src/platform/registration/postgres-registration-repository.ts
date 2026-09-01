@@ -80,7 +80,9 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
     return row === undefined ? null : draftRecord(row);
   }
 
-  public async saveDraft(input: SaveRegistrationDraftWrite): Promise<RegistrationDraftRecord | null> {
+  public async saveDraft(
+    input: SaveRegistrationDraftWrite,
+  ): Promise<RegistrationDraftRecord | null> {
     if (input.expectedRevision === null) {
       const inserted = await this.client.query<DraftRow>(
         `INSERT INTO registration_drafts(
