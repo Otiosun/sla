@@ -56,4 +56,21 @@ describe("registration draft validation", () => {
       }
     }
   });
+
+  it("rejects invalid starter and region identifiers", () => {
+    const result = validateRegistrationDraft({
+      ...completeDraft,
+      starterFormId: "starter-charmander",
+      regionId: "zhoulia",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "VALIDATION_FAILED",
+        message: "Registration draft is invalid",
+        details: { fields: ["starterFormId", "regionId"] },
+      },
+    });
+  });
 });
