@@ -32,6 +32,26 @@ const snapshot: IncidentCenterView = {
       riskTier: null,
       attempts: 8,
       occurredAt: "2026-09-01T13:00:00.000Z",
+      runbook: {
+        key: "outbox-dead-letter",
+        title: "Mensagem em dead-letter",
+        summary:
+          "Trate o sinal como evidência persistente e preserve o estado para investigação antes de qualquer recuperação autorizada.",
+        steps: [
+          "Confirme correlationId, total de tentativas e horário de entrada em estado DEAD.",
+          "Compare o sinal com os metadados de dead-letter e com a saúde do runtime.",
+          "Documente a recorrência e encaminhe a recuperação para o fluxo privilegiado apropriado, fora desta superfície.",
+        ],
+        evidenceToCollect: [
+          "correlationId",
+          "attempts",
+          "occurredAt",
+          "dead-letter metadata",
+          "runtime health",
+        ],
+        escalation:
+          "Escalone para o responsável pelo fluxo de recuperação; a Central permanece somente observacional neste runbook.",
+      },
     },
   ],
 };
