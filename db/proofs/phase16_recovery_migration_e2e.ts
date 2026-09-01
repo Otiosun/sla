@@ -20,8 +20,8 @@ const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
 const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
-const EXPECTED_PREVIOUS_LATEST = "0033_admin_api_messaging_operations_rate_limit.sql";
-const EXPECTED_CURRENT_LATEST = "0034_admin_api_incident_read_rate_limit.sql";
+const EXPECTED_PREVIOUS_LATEST = "0034_admin_api_incident_read_rate_limit.sql";
+const EXPECTED_CURRENT_LATEST = "0035_admin_operation_audit_read_rate_limit.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -55,7 +55,8 @@ async function rateLimitInsertAllowed(
     | "content.search"
     | "runtime.health.read"
     | "messaging.operations.read"
-    | "incident.read",
+    | "incident.read"
+    | "audit.read",
 ): Promise<boolean> {
   try {
     await pool.query(
@@ -76,7 +77,8 @@ async function rateLimitBucketExists(
     | "content.search"
     | "runtime.health.read"
     | "messaging.operations.read"
-    | "incident.read",
+    | "incident.read"
+    | "audit.read",
 ): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
     `SELECT EXISTS (
@@ -209,7 +211,7 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the Incident Center migration");
+    throw new Error("N-1 limiter relation is missing before the AdminOperation audit migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error(
@@ -266,11 +268,17 @@ try {
   if (!(await rateLimitBucketExists("messaging.operations.read"))) {
     throw new Error("N-1 messaging.operations.read probe did not persist its limiter bucket");
   }
-  if (await rateLimitInsertAllowed("incident.read")) {
-    throw new Error("N-1 database unexpectedly allows incident.read before migration 0034");
+  if (!(await rateLimitInsertAllowed("incident.read"))) {
+    throw new Error("N-1 database lost the incident.read allowlist from migration 0034");
   }
-  if (await rateLimitBucketExists("incident.read")) {
-    throw new Error("Rejected N-1 incident.read probe unexpectedly persisted a limiter bucket");
+  if (!(await rateLimitBucketExists("incident.read"))) {
+    throw new Error("N-1 incident.read probe did not persist its limiter bucket");
+  }
+  if (await rateLimitInsertAllowed("audit.read")) {
+    throw new Error("N-1 database unexpectedly allows audit.read before migration 0035");
+  }
+  if (await rateLimitBucketExists("audit.read")) {
+    throw new Error("Rejected N-1 audit.read probe unexpectedly persisted a limiter bucket");
   }
 
   await pool.query(
@@ -353,35 +361,35 @@ try {
   }
 
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0034 regressed the durable Admin API access-session relation");
+    throw new Error("Migration 0035 regressed the durable Admin API access-session relation");
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
     !(await sessionRevocationCutoffShapeExists())
   ) {
     throw new Error(
-      "Migration 0034 regressed the environment-scoped principal session-revocation cutoff",
+      "Migration 0035 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0034 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0035 regressed the mutation.prepare limiter state from migration 0028",
     );
   }
   if (!(await rateLimitBucketExists("content.search"))) {
-    throw new Error("Migration 0034 regressed the Content Studio content.search limiter key");
+    throw new Error("Migration 0035 regressed the Content Studio content.search limiter key");
   }
   if (!(await rateLimitBucketExists("runtime.health.read"))) {
-    throw new Error("Migration 0034 regressed the runtime.health.read limiter key");
+    throw new Error("Migration 0035 regressed the runtime.health.read limiter key");
   }
   if (!(await rateLimitBucketExists("messaging.operations.read"))) {
-    throw new Error("Migration 0034 regressed the messaging.operations.read limiter key");
+    throw new Error("Migration 0035 regressed the messaging.operations.read limiter key");
   }
-  if (
-    !(await rateLimitInsertAllowed("incident.read")) ||
-    !(await rateLimitBucketExists("incident.read"))
-  ) {
-    throw new Error("Migration 0034 did not allow the incident.read limiter key");
+  if (!(await rateLimitBucketExists("incident.read"))) {
+    throw new Error("Migration 0035 regressed the incident.read limiter key");
+  }
+  if (!(await rateLimitInsertAllowed("audit.read")) || !(await rateLimitBucketExists("audit.read"))) {
+    throw new Error("Migration 0035 did not allow the audit.read limiter key");
   }
 
   const sessionAfter = await pool.query<{
@@ -411,7 +419,7 @@ try {
   );
   const durableSessionAfter = sessionAfter.rows[0];
   if (durableSessionAfter === undefined) {
-    throw new Error("Migration 0034 removed the durable access-session probe");
+    throw new Error("Migration 0035 removed the durable access-session probe");
   }
   if (
     durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
@@ -424,10 +432,10 @@ try {
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
-    throw new Error("Migration 0034 changed existing durable access-session state");
+    throw new Error("Migration 0035 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0034 invented a revocation cutoff for an existing environment");
+    throw new Error("Migration 0035 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -472,7 +480,8 @@ try {
       contentSearchAllowlistPreserved: true,
       runtimeHealthReadAllowlistPreserved: true,
       messagingOperationsReadAllowlistPreserved: true,
-      incidentReadAllowlistAdded: true,
+      incidentReadAllowlistPreserved: true,
+      auditReadAllowlistAdded: true,
       accessSessionStatePreserved: true,
       environmentScopedSessionRevocationCutoffPreserved: true,
       durableStatePreserved: true,
