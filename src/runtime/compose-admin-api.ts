@@ -10,7 +10,10 @@ import { AdminRequestAuthenticator } from "../adapters/admin-api/request-authent
 import { AdminSessionLogoutService } from "../adapters/admin-api/session-logout-service.js";
 import { AdminSessionService } from "../adapters/admin-api/session-service.js";
 import { ExternalAdminMutationEndpoint } from "../modules/anti-abuse/external-admin-endpoint.js";
-import { registerCatalogReleaseDiffRead } from "../modules/admin/catalog-release-definitions.js";
+import {
+  registerCatalogReleaseDiffRead,
+  registerCatalogReleaseValidationPreviewRead,
+} from "../modules/admin/catalog-release-definitions.js";
 import { ContentLibraryService } from "../modules/admin/content-library-service.js";
 import { ContentReleaseReadService } from "../modules/admin/content-release-read-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
@@ -70,7 +73,9 @@ export function createOperationalAdminApi(
   const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
   const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
   const catalogReleaseOwner = new CatalogReleaseAdminService(catalogReleaseRepository);
-  const contentReleaseReadRegistry = registerCatalogReleaseDiffRead(new AdminOperationRegistry());
+  const contentReleaseReadRegistry = registerCatalogReleaseValidationPreviewRead(
+    registerCatalogReleaseDiffRead(new AdminOperationRegistry()),
+  );
   const contentReleaseReadAuthorizer = new AdminService(
     contentReleaseReadRegistry,
     adminRepository,
