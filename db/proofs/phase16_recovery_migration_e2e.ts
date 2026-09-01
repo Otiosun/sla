@@ -20,8 +20,8 @@ const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
 const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
-const EXPECTED_PREVIOUS_LATEST = "0029_admin_api_access_sessions.sql";
-const EXPECTED_CURRENT_LATEST = "0030_admin_session_revocation_cutoff.sql";
+const EXPECTED_PREVIOUS_LATEST = "0030_admin_session_revocation_cutoff.sql";
+const EXPECTED_CURRENT_LATEST = "0031_admin_api_content_search_rate_limit.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -38,6 +38,40 @@ async function mutationPrepareBucketExists(): Promise<boolean> {
        FROM admin_api_rate_limit_buckets
        WHERE principal_id = $1::uuid
          AND operation = 'mutation.prepare'
+     ) AS exists`,
+    [PROBE_ADMIN_ID],
+  );
+  return result.rows[0]?.exists === true;
+}
+
+function postgresErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+async function contentSearchInsertAllowed(): Promise<boolean> {
+  try {
+    await pool.query(
+      `INSERT INTO admin_api_rate_limit_buckets(
+         principal_id, operation, window_started_at, request_count, updated_at
+       ) VALUES ($1::uuid, 'content.search', now(), 1, now())`,
+      [PROBE_ADMIN_ID],
+    );
+    return true;
+  } catch (error) {
+    if (postgresErrorCode(error) === "23514") return false;
+    throw error;
+  }
+}
+
+async function contentSearchBucketExists(): Promise<boolean> {
+  const result = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM admin_api_rate_limit_buckets
+       WHERE principal_id = $1::uuid
+         AND operation = 'content.search'
      ) AS exists`,
     [PROBE_ADMIN_ID],
   );
@@ -163,16 +197,19 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the session-cutoff migration");
+    throw new Error("N-1 limiter relation is missing before the content-search migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error(
       "N-1 database is missing the durable access-session relation from migration 0029",
     );
   }
-  if ((await sessionRevocationCutoffRelation()) !== null) {
+  if (
+    (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
+    !(await sessionRevocationCutoffShapeExists())
+  ) {
     throw new Error(
-      "N-1 database unexpectedly contains the 0030 session-revocation cutoff relation",
+      "N-1 database is missing the environment-scoped session-revocation cutoff from migration 0030",
     );
   }
 
@@ -196,6 +233,12 @@ try {
     throw new Error(
       "N-1 database did not preserve the mutation.prepare allowlist from migration 0028",
     );
+  }
+  if (await contentSearchInsertAllowed()) {
+    throw new Error("N-1 database unexpectedly allows content.search before migration 0031");
+  }
+  if (await contentSearchBucketExists()) {
+    throw new Error("Rejected N-1 content.search probe unexpectedly persisted a limiter bucket");
   }
 
   await pool.query(
@@ -278,20 +321,23 @@ try {
   }
 
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0030 regressed the durable Admin API access-session relation");
+    throw new Error("Migration 0031 regressed the durable Admin API access-session relation");
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
     !(await sessionRevocationCutoffShapeExists())
   ) {
     throw new Error(
-      "Migration 0030 did not create the environment-scoped principal session-revocation cutoff",
+      "Migration 0031 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0030 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0031 regressed the mutation.prepare limiter state from migration 0028",
     );
+  }
+  if (!(await contentSearchInsertAllowed()) || !(await contentSearchBucketExists())) {
+    throw new Error("Migration 0031 did not allow the Content Studio content.search limiter key");
   }
 
   const sessionAfter = await pool.query<{
@@ -321,7 +367,7 @@ try {
   );
   const durableSessionAfter = sessionAfter.rows[0];
   if (durableSessionAfter === undefined) {
-    throw new Error("Migration 0030 removed the durable access-session probe");
+    throw new Error("Migration 0031 removed the durable access-session probe");
   }
   if (
     durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
@@ -334,10 +380,10 @@ try {
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
-    throw new Error("Migration 0030 changed existing durable access-session state");
+    throw new Error("Migration 0031 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0030 invented a revocation cutoff for an existing environment");
+    throw new Error("Migration 0031 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -379,8 +425,9 @@ try {
       latestMigration: latest.fileName,
       runtimeHealthPreserved: true,
       mutationPrepareStatePreserved: true,
+      contentSearchAllowlistAdded: true,
       accessSessionStatePreserved: true,
-      environmentScopedSessionRevocationCutoffAdded: true,
+      environmentScopedSessionRevocationCutoffPreserved: true,
       durableStatePreserved: true,
       rerunConverged: true,
     }),
