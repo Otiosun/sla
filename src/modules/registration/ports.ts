@@ -21,6 +21,7 @@ export interface RegistrationRevisionRecord {
   readonly status: RegistrationRevisionStatus;
   readonly snapshot: RegistrationSnapshot;
   readonly revision: number;
+  readonly decidedByAdminPrincipalId?: string | null;
 }
 
 export interface SaveRegistrationDraftWrite {
@@ -35,7 +36,11 @@ export interface InsertRegistrationRevisionWrite {
   readonly snapshot: RegistrationSnapshot;
 }
 
-export type RegistrationIdempotentOperation = "SUBMIT";
+export type RegistrationIdempotentOperation =
+  | "SUBMIT"
+  | "REQUEST_CHANGES"
+  | "APPROVE"
+  | "REJECT";
 
 export interface RegistrationTransaction {
   loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null>;
@@ -56,6 +61,7 @@ export interface RegistrationTransaction {
     revisionId: string,
     expectedRevision: number,
     status: RegistrationRevisionStatus,
+    decidedByAdminPrincipalId?: string,
   ): Promise<RegistrationRevisionRecord | null>;
 }
 
