@@ -141,15 +141,11 @@ export class RegistrationService {
     return this.decideReview(input, "REQUEST_CHANGES", "CHANGES_REQUESTED", false);
   }
 
-  public async approve(
-    input: ReviewRegistrationInput,
-  ): Promise<Result<ReviewRegistrationResult>> {
+  public async approve(input: ReviewRegistrationInput): Promise<Result<ReviewRegistrationResult>> {
     return this.decideReview(input, "APPROVE", "APPROVED", true);
   }
 
-  public async reject(
-    input: ReviewRegistrationInput,
-  ): Promise<Result<ReviewRegistrationResult>> {
+  public async reject(input: ReviewRegistrationInput): Promise<Result<ReviewRegistrationResult>> {
     return this.decideReview(input, "REJECT", "REJECTED", true);
   }
 
@@ -199,10 +195,7 @@ export class RegistrationService {
       }
       if (current.status !== "SUBMITTED") {
         return err(
-          appError(
-            "INVALID_STATE_TRANSITION",
-            "Only submitted registration can be decided",
-          ),
+          appError("INVALID_STATE_TRANSITION", "Only submitted registration can be decided"),
         );
       }
 
