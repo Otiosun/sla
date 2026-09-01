@@ -1,3 +1,4 @@
+import type { CommandPolicyRequirement } from "../community/command-policy.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   IncomingMessage,
@@ -12,12 +13,21 @@ export interface CommandRouteDefinition {
   readonly aliases?: readonly string[];
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass?: "STANDARD" | "SENSITIVE";
+  readonly policy?: CommandPolicyRequirement;
+}
+
+export interface CommandRoutePolicyGate {
+  authorize(
+    context: MessageHandlerContext,
+    policy: CommandPolicyRequirement,
+  ): Promise<Result<void>>;
 }
 
 interface RegisteredRoute {
   readonly canonicalCommand: string;
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass: "STANDARD" | "SENSITIVE";
+  readonly policy: CommandPolicyRequirement | undefined;
 }
 
 function normalizeCommand(value: string): string {
@@ -43,7 +53,10 @@ function commandFromText(text: string | null): string | null {
 export class MessageRouter implements MessageRouterPort {
   private readonly routes = new Map<string, RegisteredRoute>();
 
-  constructor(definitions: readonly CommandRouteDefinition[] = []) {
+  constructor(
+    definitions: readonly CommandRouteDefinition[] = [],
+    private readonly policyGate?: CommandRoutePolicyGate,
+  ) {
     for (const definition of definitions) {
       this.register(definition);
     }
@@ -71,6 +84,7 @@ export class MessageRouter implements MessageRouterPort {
       canonicalCommand,
       handler: definition.handler,
       rateLimitClass: definition.rateLimitClass ?? "STANDARD",
+      policy: definition.policy,
     };
     for (const routeKey of pendingKeys) {
       this.routes.set(routeKey, route);
@@ -104,6 +118,18 @@ export class MessageRouter implements MessageRouterPort {
           correlationId: context.correlationId,
         }),
       );
+    }
+    if (route.policy !== undefined) {
+      if (this.policyGate === undefined) {
+        return err(
+          appError("ACTION_INVALID", "Protected messaging command has no policy gate", {
+            command: route.canonicalCommand,
+            correlationId: context.correlationId,
+          }),
+        );
+      }
+      const authorized = await this.policyGate.authorize(context, route.policy);
+      if (!authorized.ok) return authorized;
     }
     return route.handler.handle(context);
   }
