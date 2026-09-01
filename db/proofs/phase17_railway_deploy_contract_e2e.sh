@@ -61,9 +61,11 @@ reject_literal "$workflow" ':staging'
 reject_literal "$workflow" 'docker build'
 reject_literal "$workflow" 'railway up'
 
-# Railway's variable-list API returns secret values. Canonical CI must not enumerate them.
+# Railway's variable-list API returns secret values. Canonical CI must not enumerate/decrypt them.
 reject_literal "$workflow" 'railway variable list'
 reject_literal "$workflow" 'railway variables'
+reject_literal "$workflow" 'railway environment config'
+reject_literal "$workflow" 'decryptVariables:true'
 reject_literal "$workflow" 'MIGRATOR_DATABASE_URL:'
 reject_literal "$workflow" 'STAGING_MIGRATOR_DATABASE_URL'
 require_literal "$railway_doc" 'The Railway service must have these variables before a canonical deployment:'
@@ -71,12 +73,17 @@ require_literal "$railway_doc" '`DATABASE_URL`'
 require_literal "$railway_doc" '`WHATSAPP_AUTH_KEY_BASE64`'
 require_literal "$railway_doc" '`MIGRATOR_DATABASE_URL` is forbidden'
 
-# Provider safety: reject concurrent/transitional deploys, require a preconfigured singleton, then stop the prior worker.
+# Provider safety: reject concurrent/transitional deploys, prove singleton from read-only environment config even while offline, then stop the prior worker.
 require_literal "$workflow" 'concurrent or transitional Railway deployment already exists'
 require_literal "$workflow" 'BUILDING|DEPLOYING|INITIALIZING|WAITING|QUEUED|REMOVING'
 reject_literal "$workflow" 'railway scale'
 require_literal "$workflow" 'railway service list --environment staging --json'
-require_literal "$workflow" '.replicas.configured'
+require_literal "$workflow" 'railway api'
+require_literal "$workflow" 'projectToken { projectId environmentId }'
+require_literal "$workflow" 'config(decryptVariables:false)'
+require_literal "$workflow" 'multiRegionConfig'
+require_literal "$workflow" 'numReplicas'
+reject_literal "$workflow" '.replicas.configured'
 require_literal "$workflow" 'Railway service must be preconfigured with exactly one replica before canonical deploy'
 require_literal "$workflow" 'railway down'
 require_literal "$workflow" '--yes'
