@@ -8,7 +8,8 @@ import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -40,7 +41,10 @@ async function expectPgCode(promise: Promise<unknown>, expectedCode: string): Pr
     await promise;
     throw new Error(`Expected PostgreSQL error code ${expectedCode}`);
   } catch (error) {
-    if (error instanceof Error && error.message === `Expected PostgreSQL error code ${expectedCode}`) {
+    if (
+      error instanceof Error &&
+      error.message === `Expected PostgreSQL error code ${expectedCode}`
+    ) {
       throw error;
     }
     expect(error).toMatchObject({ code: expectedCode });
