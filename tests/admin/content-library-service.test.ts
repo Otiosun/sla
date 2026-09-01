@@ -62,4 +62,20 @@ describe("ContentLibraryService", () => {
     expect(authorizeRead).not.toHaveBeenCalled();
     expect(searchContent).not.toHaveBeenCalled();
   });
+
+  it("rejects malformed opaque cursors before touching authorization or persistence", async () => {
+    const authorizeRead = vi.fn();
+    const searchContent = vi.fn();
+    const service = new ContentLibraryService({ authorizeRead }, { searchContent });
+
+    await expect(
+      service.search({
+        principalId: PRINCIPAL_ID,
+        correlationId: CORRELATION_ID,
+        cursor: "not-a-content-library-cursor",
+      }),
+    ).rejects.toMatchObject({ code: "ADMIN_INVALID_INPUT" });
+    expect(authorizeRead).not.toHaveBeenCalled();
+    expect(searchContent).not.toHaveBeenCalled();
+  });
 });
