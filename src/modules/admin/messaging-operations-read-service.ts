@@ -54,7 +54,9 @@ export class MessagingOperationsReadService {
     private readonly repository: MessagingOperationsReadRepository,
   ) {}
 
-  public async getSnapshot(request: MessagingOperationsReadRequest): Promise<MessagingOperationsView> {
+  public async getSnapshot(
+    request: MessagingOperationsReadRequest,
+  ): Promise<MessagingOperationsView> {
     await this.authorizer.authorizeRead({
       principalId: request.principalId,
       operationType: "messaging.operations.read",
