@@ -314,9 +314,7 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (dependencies.readFacade.getMessagingOperations === undefined) {
       throw new Error("Messaging operations read boundary is not configured");
     }
-    return dependencies.readFacade.getMessagingOperations(
-      trustedRequestContext(identity, request),
-    );
+    return dependencies.readFacade.getMessagingOperations(trustedRequestContext(identity, request));
   });
 
   server.get("/admin/v1/content/releases/diff", async (request, reply) => {
