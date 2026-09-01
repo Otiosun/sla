@@ -108,7 +108,11 @@ describe("AdminOperationAuditReadService", () => {
       },
       timeline: [
         { kind: "PROPOSED", occurredAt: "2026-09-01T12:00:00.000Z" },
-        { kind: "APPROVAL", decision: "APPROVED", occurredAt: "2026-09-01T12:03:00.000Z" },
+        {
+          kind: "APPROVAL",
+          decision: "APPROVED",
+          occurredAt: "2026-09-01T12:03:00.000Z",
+        },
         { kind: "CHANGE", occurredAt: "2026-09-01T12:04:00.000Z" },
         { kind: "AUDIT", occurredAt: "2026-09-01T12:04:00.000Z" },
       ],
@@ -123,7 +127,7 @@ describe("AdminOperationAuditReadService", () => {
       "metadata",
       "request_fingerprint",
       "idempotency_key",
-      "reason\":",
+      'reason":',
       "approvalReason",
       "sql",
       "payload",
