@@ -56,7 +56,9 @@ export class CommunityService {
     });
   }
 
-  public async registerGroup(input: RegisterCommunityGroupInput): Promise<Result<CommunityGroupRecord>> {
+  public async registerGroup(
+    input: RegisterCommunityGroupInput,
+  ): Promise<Result<CommunityGroupRecord>> {
     const provider = required(input.provider, "Community provider");
     if (!provider.ok) return provider;
     const chatRef = required(input.chatRef, "Community chatRef");
@@ -76,7 +78,9 @@ export class CommunityService {
     });
   }
 
-  public async renameGroup(input: RenameCommunityGroupInput): Promise<Result<CommunityGroupRecord>> {
+  public async renameGroup(
+    input: RenameCommunityGroupInput,
+  ): Promise<Result<CommunityGroupRecord>> {
     const id = required(input.groupId, "Community group id");
     if (!id.ok) return id;
     const name = required(input.displayName, "Community display name");
@@ -110,7 +114,9 @@ export class CommunityService {
     });
   }
 
-  public async retireGroup(input: RetireCommunityGroupInput): Promise<Result<CommunityGroupRecord>> {
+  public async retireGroup(
+    input: RetireCommunityGroupInput,
+  ): Promise<Result<CommunityGroupRecord>> {
     const id = required(input.groupId, "Community group id");
     if (!id.ok) return id;
     const expected = revision(input.expectedRevision);
@@ -123,7 +129,9 @@ export class CommunityService {
     });
   }
 
-  public async listActiveGroupsByRole(role: CommunityGroupRole): Promise<readonly CommunityGroupRecord[]> {
+  public async listActiveGroupsByRole(
+    role: CommunityGroupRole,
+  ): Promise<readonly CommunityGroupRecord[]> {
     return this.repository.read(async (tx) =>
       (await tx.listGroupsByRole(role)).filter((group) => group.status === "ACTIVE"),
     );
@@ -138,7 +146,9 @@ export class CommunityService {
       const group = await tx.loadGroupById(id.value);
       if (group === null) return err(appError("NOT_FOUND", "Community group not found"));
       if (group.status !== "ACTIVE" || group.role !== "RECEPTION") {
-        return err(appError("INVALID_STATE_TRANSITION", "Staff assignment requires active Reception"));
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Staff assignment requires active Reception"),
+        );
       }
       await tx.assignReceptionStaff(group.id, principal.value);
       return ok(undefined);
