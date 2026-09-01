@@ -55,11 +55,31 @@ export function registerCatalogReleaseDiffRead(
   return registry;
 }
 
+export function registerCatalogReleaseValidationPreviewRead(
+  registry: AdminOperationRegistry,
+): AdminOperationRegistry {
+  registry.register(
+    defineAdminOperation<CatalogReleaseLifecycleInput>({
+      kind: "READ",
+      operationType: "content.release.validation_preview",
+      capabilityKey: "content.validate",
+      riskTier: 3,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: CatalogReleaseLifecycleInputSchema,
+      target: (input) => ({ type: "CONTENT_RELEASE", id: input.releaseId }),
+    }),
+  );
+
+  return registry;
+}
+
 export function registerPhase12CCatalogReleaseOperations(
   registry: AdminOperationRegistry,
   port: AdminCatalogReleaseOperationPort,
 ): AdminOperationRegistry {
   registerCatalogReleaseDiffRead(registry);
+  registerCatalogReleaseValidationPreviewRead(registry);
 
   registry.register(
     defineAdminOperation<CatalogReleaseLifecycleInput>({
