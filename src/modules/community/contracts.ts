@@ -1,10 +1,4 @@
-export const COMMUNITY_GROUP_ROLES = [
-  "RECEPTION",
-  "GAME",
-  "PVP",
-  "COMMUNITY",
-  "STAFF",
-] as const;
+export const COMMUNITY_GROUP_ROLES = ["RECEPTION", "GAME", "PVP", "COMMUNITY", "STAFF"] as const;
 
 export type CommunityGroupRole = (typeof COMMUNITY_GROUP_ROLES)[number];
 
