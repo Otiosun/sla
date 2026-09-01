@@ -12,7 +12,9 @@ const readPolicy = {
   requiredApprovals: 0,
 } as const;
 
-export function registerIncidentCenterRead(registry: AdminOperationRegistry): AdminOperationRegistry {
+export function registerIncidentCenterRead(
+  registry: AdminOperationRegistry,
+): AdminOperationRegistry {
   registry.register(
     defineAdminOperation({
       kind: "READ",
