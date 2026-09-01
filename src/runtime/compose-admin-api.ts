@@ -68,7 +68,10 @@ export function createOperationalAdminApi(
   const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
   const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
   const catalogReleaseOwner = new CatalogReleaseAdminService(catalogReleaseRepository);
-  const contentReleaseReadService = new ContentReleaseReadService(adminService, catalogReleaseOwner);
+  const contentReleaseReadService = new ContentReleaseReadService(
+    adminService,
+    catalogReleaseOwner,
+  );
   const readFacade = new AdminReadFacade(
     player360Service,
     contentLibraryService,
