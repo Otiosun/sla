@@ -1,0 +1,26 @@
+name: Railway Staging Contract Proof
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-staging-contract-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: railway staging deploy contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prove Railway staging deployment contract
+        shell: bash
+        run: bash db/proofs/phase17_railway_deploy_contract_e2e.sh
