@@ -1,9 +1,4 @@
-import {
-  appError,
-  err,
-  ok,
-  type Result,
-} from "../../shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 
 export function validateRegistrationDraft(
@@ -32,11 +27,7 @@ export function validateRegistrationDraft(
 
   if (invalidFields.length > 0) {
     return err(
-      appError(
-        "VALIDATION_FAILED",
-        "Registration draft is invalid",
-        { fields: invalidFields },
-      ),
+      appError("VALIDATION_FAILED", "Registration draft is invalid", { fields: invalidFields }),
     );
   }
 
