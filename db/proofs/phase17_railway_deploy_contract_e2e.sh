@@ -71,18 +71,19 @@ require_literal "$railway_doc" '`DATABASE_URL`'
 require_literal "$railway_doc" '`WHATSAPP_AUTH_KEY_BASE64`'
 require_literal "$railway_doc" '`MIGRATOR_DATABASE_URL` is forbidden'
 
-# Provider safety: reject concurrent/transitional deploys, then allow exactly one configured replica.
+# Provider safety: reject concurrent/transitional deploys, require a preconfigured singleton, then stop the prior worker.
 require_literal "$workflow" 'concurrent or transitional Railway deployment already exists'
 require_literal "$workflow" 'BUILDING|DEPLOYING|INITIALIZING|WAITING|QUEUED|REMOVING'
-require_literal "$workflow" 'railway scale'
-require_literal "$workflow" 'us-east=1'
-require_literal "$workflow" 'us-west=0'
-require_literal "$workflow" 'eu-west=0'
-require_literal "$workflow" 'southeast-asia=0'
+reject_literal "$workflow" 'railway scale'
+require_literal "$workflow" 'railway service list --environment staging --json'
+require_literal "$workflow" '.replicas.configured'
+require_literal "$workflow" 'Railway service must be preconfigured with exactly one replica before canonical deploy'
 require_literal "$workflow" 'railway down'
 require_literal "$workflow" '--yes'
 require_literal "$workflow" 'REMOVED'
 require_literal "$workflow" 'previous Railway deployment did not stop before replacement'
+require_literal "$railway_doc" 'exactly one configured replica'
+require_literal "$railway_doc" 'Project Token'
 
 # Exact revision is staged without its own redeploy, then the exact Docker image becomes the source.
 require_literal "$workflow" 'railway variable set DEPLOY_REVISION=${GITHUB_SHA}'
