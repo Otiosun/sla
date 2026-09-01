@@ -388,7 +388,10 @@ try {
   if (!(await rateLimitBucketExists("incident.read"))) {
     throw new Error("Migration 0035 regressed the incident.read limiter key");
   }
-  if (!(await rateLimitInsertAllowed("audit.read")) || !(await rateLimitBucketExists("audit.read"))) {
+  if (
+    !(await rateLimitInsertAllowed("audit.read")) ||
+    !(await rateLimitBucketExists("audit.read"))
+  ) {
     throw new Error("Migration 0035 did not allow the audit.read limiter key");
   }
 
