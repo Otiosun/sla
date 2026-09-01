@@ -68,7 +68,12 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
     saveIdempotencyReceipt: async (operation, idempotencyKey, revisionId) => {
       this.receipts.set(`${operation}:${idempotencyKey}`, revisionId);
     },
-    updateRevisionStatus: async (revisionId, expectedRevision, status) => {
+    updateRevisionStatus: async (
+      revisionId,
+      expectedRevision,
+      status,
+      decidedByAdminPrincipalId,
+    ) => {
       const index = this.revisions.findIndex((entry) => entry.id === revisionId);
       if (index === -1) return null;
       const current = this.revisions[index];
@@ -77,6 +82,7 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
         ...current,
         status,
         revision: current.revision + 1,
+        ...(decidedByAdminPrincipalId === undefined ? {} : { decidedByAdminPrincipalId }),
       };
       this.revisions[index] = updated;
       return updated;
@@ -177,28 +183,22 @@ describe("registration administrative review", () => {
   });
 
   it("refuses idempotency-key reuse for a different review", async () => {
-    const firstFixture = await submittedFixture();
-    const first = await firstFixture.service.approve({
-      reviewId: firstFixture.submitted.id,
-      expectedRevision: firstFixture.submitted.revision,
+    const fixture = await submittedFixture();
+    const first = await fixture.service.approve({
+      reviewId: fixture.submitted.id,
+      expectedRevision: fixture.submitted.revision,
       actor: { adminPrincipalId: "admin-a" },
       idempotencyKey: "shared-key",
     });
     if (!first.ok) throw first.error;
 
-    const secondPlayerId = createPlayerId();
-    await firstFixture.service.saveDraft({
-      playerId: secondPlayerId,
-      draft: snapshot(),
-      expectedRevision: firstFixture.repository.draft?.revision ?? null,
-    });
-    const second = await firstFixture.service.submit({
-      playerId: secondPlayerId,
-      idempotencyKey: "submit-second-player",
+    const second = await fixture.service.submit({
+      playerId: fixture.playerId,
+      idempotencyKey: "submit-second-review",
     });
     if (!second.ok) throw second.error;
 
-    const collision = await firstFixture.service.approve({
+    const collision = await fixture.service.approve({
       reviewId: second.value.id,
       expectedRevision: second.value.revision,
       actor: { adminPrincipalId: "admin-a" },
