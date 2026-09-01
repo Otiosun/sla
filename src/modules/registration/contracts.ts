@@ -21,3 +21,7 @@ export interface RegistrationSnapshot {
   readonly regionId: string;
   readonly schemaVersion: number;
 }
+
+export interface RegistrationReviewActor {
+  readonly adminPrincipalId: string;
+}
