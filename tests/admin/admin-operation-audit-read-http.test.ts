@@ -66,7 +66,7 @@ function setup() {
       getSession: vi.fn(async () => ({
         principalId: PRINCIPAL_ID,
         roles: ["SENIOR_ADMIN"],
-        capabilities: [{ key: "admin_operation.read", riskTier: 0 as const }],
+        capabilities: [{ key: "audit.read", riskTier: 0 as const }],
         scopes: [{ scopeType: "GLOBAL" as const, scopeId: null }],
         environment: "staging" as const,
       })),
@@ -97,7 +97,7 @@ describe("Admin API operation audit reconstruction read", () => {
     expect(response.json()).toEqual(snapshot);
     expect(consume).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
-      operation: "admin_operation.read",
+      operation: "audit.read",
     });
     expect(getAdminOperationAudit).toHaveBeenCalledWith(
       {
