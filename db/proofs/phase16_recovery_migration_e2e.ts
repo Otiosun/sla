@@ -259,7 +259,9 @@ try {
     throw new Error("N-1 runtime.health.read probe did not persist its limiter bucket");
   }
   if (!(await rateLimitInsertAllowed("messaging.operations.read"))) {
-    throw new Error("N-1 database lost the messaging.operations.read allowlist from migration 0033");
+    throw new Error(
+      "N-1 database lost the messaging.operations.read allowlist from migration 0033",
+    );
   }
   if (!(await rateLimitBucketExists("messaging.operations.read"))) {
     throw new Error("N-1 messaging.operations.read probe did not persist its limiter bucket");
