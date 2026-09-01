@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAdminApiServer } from "../../src/adapters/admin-api/fastify-server.js";
+import type { IncidentCenterView } from "../../src/modules/admin/incident-center-read-contracts.js";
 
 const TOKEN = "x".repeat(64);
 const ORIGIN = "https://admin-staging.example.com";
@@ -18,7 +19,7 @@ const identity = {
   },
 };
 
-const snapshot = {
+const snapshot: IncidentCenterView = {
   signals: [
     {
       source: "OUTBOX",
