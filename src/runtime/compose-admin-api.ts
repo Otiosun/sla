@@ -19,6 +19,8 @@ import { ContentReleaseReadService } from "../modules/admin/content-release-read
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
+import { registerRuntimeWhatsappHealthRead } from "../modules/admin/runtime-health-definitions.js";
+import { RuntimeWhatsappHealthService } from "../modules/admin/runtime-health-service.js";
 import { AdminService } from "../modules/admin/service.js";
 import { CatalogReleaseAdminService } from "../modules/catalog/release-admin-service.js";
 import { PostgresAdminAccessSessionRepository } from "../platform/admin/postgres-admin-access-session-repository.js";
@@ -27,6 +29,7 @@ import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admi
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
+import { PostgresRuntimeWhatsappHealthRepository } from "../platform/admin/postgres-runtime-whatsapp-health-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
 import { PostgresCatalogReleaseAdminRepository } from "../platform/catalog/postgres-catalog-release-admin-repository.js";
 import { PostgresContentLibraryRepository } from "../platform/catalog/postgres-content-library-repository.js";
@@ -84,10 +87,17 @@ export function createOperationalAdminApi(
     contentReleaseReadAuthorizer,
     catalogReleaseOwner,
   );
+  const runtimeHealthReadRegistry = registerRuntimeWhatsappHealthRead(new AdminOperationRegistry());
+  const runtimeHealthReadAuthorizer = new AdminService(runtimeHealthReadRegistry, adminRepository);
+  const runtimeHealthReadService = new RuntimeWhatsappHealthService(
+    runtimeHealthReadAuthorizer,
+    new PostgresRuntimeWhatsappHealthRepository(pool),
+  );
   const readFacade = new AdminReadFacade(
     player360Service,
     contentLibraryService,
     contentReleaseReadService,
+    runtimeHealthReadService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
