@@ -85,7 +85,9 @@ function outboxMetadata(row: OutboxMetadataRow): MessagingOutboxMetadataEvidence
   };
 }
 
-export class PostgresMessagingOperationsReadRepository implements MessagingOperationsReadRepository {
+export class PostgresMessagingOperationsReadRepository
+  implements MessagingOperationsReadRepository
+{
   public constructor(private readonly pool: Pool) {}
 
   public async readSnapshot(limit: number): Promise<MessagingOperationsEvidence> {
