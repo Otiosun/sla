@@ -71,7 +71,10 @@ export function createOperationalAdminApi(
   const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
   const catalogReleaseOwner = new CatalogReleaseAdminService(catalogReleaseRepository);
   const contentReleaseReadRegistry = registerCatalogReleaseDiffRead(new AdminOperationRegistry());
-  const contentReleaseReadAuthorizer = new AdminService(contentReleaseReadRegistry, adminRepository);
+  const contentReleaseReadAuthorizer = new AdminService(
+    contentReleaseReadRegistry,
+    adminRepository,
+  );
   const contentReleaseReadService = new ContentReleaseReadService(
     contentReleaseReadAuthorizer,
     catalogReleaseOwner,
