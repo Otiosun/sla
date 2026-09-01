@@ -111,7 +111,10 @@ export function createOperationalAdminApi(
     new PostgresMessagingOperationsReadRepository(pool),
   );
   const incidentCenterReadRegistry = registerIncidentCenterRead(new AdminOperationRegistry());
-  const incidentCenterReadAuthorizer = new AdminService(incidentCenterReadRegistry, adminRepository);
+  const incidentCenterReadAuthorizer = new AdminService(
+    incidentCenterReadRegistry,
+    adminRepository,
+  );
   const incidentCenterReadService = new IncidentCenterReadService(
     incidentCenterReadAuthorizer,
     new PostgresIncidentCenterReadRepository(pool),
