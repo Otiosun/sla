@@ -10,6 +10,7 @@ import { AdminRequestAuthenticator } from "../adapters/admin-api/request-authent
 import { AdminSessionLogoutService } from "../adapters/admin-api/session-logout-service.js";
 import { AdminSessionService } from "../adapters/admin-api/session-service.js";
 import { ExternalAdminMutationEndpoint } from "../modules/anti-abuse/external-admin-endpoint.js";
+import { AdminOperationAuditReadService } from "../modules/admin/admin-operation-audit-read-service.js";
 import {
   registerCatalogReleaseDiffRead,
   registerCatalogReleaseValidationPreviewRead,
@@ -30,6 +31,7 @@ import { CatalogReleaseAdminService } from "../modules/catalog/release-admin-ser
 import { PostgresAdminAccessSessionRepository } from "../platform/admin/postgres-admin-access-session-repository.js";
 import { PostgresAdminApiRateLimiter } from "../platform/admin/postgres-admin-api-rate-limiter.js";
 import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admin-identity-repository.js";
+import { PostgresAdminOperationAuditReadRepository } from "../platform/admin/postgres-admin-operation-audit-read-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
 import { PostgresIncidentCenterReadRepository } from "../platform/admin/postgres-incident-center-read-repository.js";
@@ -119,6 +121,10 @@ export function createOperationalAdminApi(
     incidentCenterReadAuthorizer,
     new PostgresIncidentCenterReadRepository(pool),
   );
+  const adminOperationAuditReadService = new AdminOperationAuditReadService(
+    adminService,
+    new PostgresAdminOperationAuditReadRepository(pool),
+  );
   const readFacade = new AdminReadFacade(
     player360Service,
     contentLibraryService,
@@ -126,6 +132,7 @@ export function createOperationalAdminApi(
     runtimeHealthReadService,
     messagingOperationsReadService,
     incidentCenterReadService,
+    adminOperationAuditReadService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
