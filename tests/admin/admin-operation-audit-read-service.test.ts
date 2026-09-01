@@ -78,8 +78,8 @@ const evidence = {
 };
 
 describe("AdminOperationAuditReadService", () => {
-  it("authorizes a global admin-operation read and projects an allowlisted causal timeline", async () => {
-    const authorizeRead = vi.fn(async () => ({ type: "ADMIN_OPERATION", id: null }));
+  it("authorizes the canonical global audit read and projects an allowlisted causal timeline", async () => {
+    const authorizeRead = vi.fn(async () => ({ type: "ADMIN_OPERATION", id: OPERATION_ID }));
     const reconstruct = vi.fn(async () => evidence);
     const service = new AdminOperationAuditReadService({ authorizeRead }, { reconstruct });
 
@@ -91,7 +91,7 @@ describe("AdminOperationAuditReadService", () => {
 
     expect(authorizeRead).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
-      operationType: "admin.operation.audit.read",
+      operationType: "admin.operation.audit",
       input: { operationId: OPERATION_ID },
       correlationId: CORRELATION_ID,
     });
