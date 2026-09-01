@@ -103,10 +103,7 @@ export interface AdminApiServerDependencies {
   readonly sessionService: Pick<AdminSessionService, "getSession">;
   readonly readFacade: Pick<AdminReadFacade, "searchPlayers" | "getPlayer"> &
     Partial<
-      Pick<
-        AdminReadFacade,
-        "searchContent" | "listUnpublishedContent" | "diffContentRelease"
-      >
+      Pick<AdminReadFacade, "searchContent" | "listUnpublishedContent" | "diffContentRelease">
     >;
   readonly mutationFacade: Pick<AdminMutationFacade, "prepareMutation">;
   readonly rateLimiter: AdminApiRateLimiter;
