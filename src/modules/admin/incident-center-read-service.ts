@@ -23,7 +23,8 @@ export interface IncidentCenterReadRequest {
 const ADMIN_OPERATION_FAILED_RUNBOOK: IncidentRunbookView = Object.freeze({
   key: "admin-operation-failed",
   title: "Falha em operação administrativa",
-  summary: "Preserve a correlação e confirme o contexto da operação antes de escalar a investigação.",
+  summary:
+    "Preserve a correlação e confirme o contexto da operação antes de escalar a investigação.",
   steps: Object.freeze([
     "Confirme correlationId, tipo da operação, alvo e horário do sinal.",
     "Compare o sinal com a trilha de auditoria e com o estado atual do alvo, sem executar correções.",
@@ -43,7 +44,8 @@ const ADMIN_OPERATION_FAILED_RUNBOOK: IncidentRunbookView = Object.freeze({
 const INBOX_FAILED_RUNBOOK: IncidentRunbookView = Object.freeze({
   key: "inbox-processing-failed",
   title: "Falha no processamento de entrada",
-  summary: "Investigue o processamento da mensagem recebida sem expor conteúdo bruto nem alterar a fila.",
+  summary:
+    "Investigue o processamento da mensagem recebida sem expor conteúdo bruto nem alterar a fila.",
   steps: Object.freeze([
     "Confirme correlationId, tentativas e horário do sinal.",
     "Compare o sinal com a saúde do runtime e com os metadados operacionais da Inbox.",
@@ -63,7 +65,8 @@ const INBOX_FAILED_RUNBOOK: IncidentRunbookView = Object.freeze({
 const OUTBOX_FAILED_RUNBOOK: IncidentRunbookView = Object.freeze({
   key: "outbox-delivery-failed",
   title: "Falha temporária de saída",
-  summary: "Verifique a evidência de entrega sem reenviar, reprocessar ou alterar a fila pela Central.",
+  summary:
+    "Verifique a evidência de entrega sem reenviar, reprocessar ou alterar a fila pela Central.",
   steps: Object.freeze([
     "Confirme correlationId, tentativas e horário do sinal.",
     "Compare o sinal com a saúde do runtime e com os metadados operacionais da Outbox.",
