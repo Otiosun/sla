@@ -8,18 +8,12 @@ interface MechanicalRegistrationPort {
     playerId: PlayerId,
     input: { readonly trainerName: string },
   ): Promise<Result<unknown>>;
-  selectRegion(
-    playerId: PlayerId,
-    input: { readonly regionId: string },
-  ): Promise<Result<unknown>>;
+  selectRegion(playerId: PlayerId, input: { readonly regionId: string }): Promise<Result<unknown>>;
 }
 
 interface MechanicalStarterPort {
   prepareStarterSelection(playerId: PlayerId): Promise<Result<unknown>>;
-  grantStarter(
-    playerId: PlayerId,
-    input: { readonly formId: string },
-  ): Promise<Result<unknown>>;
+  grantStarter(playerId: PlayerId, input: { readonly formId: string }): Promise<Result<unknown>>;
   completeOnboarding(playerId: PlayerId): Promise<Result<unknown>>;
 }
 
@@ -84,7 +78,10 @@ export class PlayerProvisioningService {
     return this.activate(review, access.value);
   }
 
-  public async suspend(playerId: PlayerId, expectedRevision: number): Promise<Result<PlayerAccessRecord>> {
+  public async suspend(
+    playerId: PlayerId,
+    expectedRevision: number,
+  ): Promise<Result<PlayerAccessRecord>> {
     return this.accessRepository.transaction(async (tx) => {
       const current = await tx.load(playerId);
       if (current.status !== "ACTIVE") {
@@ -97,7 +94,10 @@ export class PlayerProvisioningService {
     });
   }
 
-  public async restore(playerId: PlayerId, expectedRevision: number): Promise<Result<PlayerAccessRecord>> {
+  public async restore(
+    playerId: PlayerId,
+    expectedRevision: number,
+  ): Promise<Result<PlayerAccessRecord>> {
     return this.accessRepository.transaction(async (tx) => {
       const current = await tx.load(playerId);
       if (current.status !== "SUSPENDED") {
