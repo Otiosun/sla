@@ -85,12 +85,7 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
       await insertPlayer(pool, playerId, asOf);
     }
 
-    await insertProgressActivity(
-      pool,
-      player24h,
-      new Date("2026-09-01T00:00:00.000Z"),
-      "24h",
-    );
+    await insertProgressActivity(pool, player24h, new Date("2026-09-01T00:00:00.000Z"), "24h");
 
     await insertProgressActivity(
       pool,
@@ -131,12 +126,7 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
       "lapsed-old",
     );
 
-    await insertProgressActivity(
-      pool,
-      player30dOnly,
-      new Date("2026-08-12T12:00:00.000Z"),
-      "30d",
-    );
+    await insertProgressActivity(pool, player30dOnly, new Date("2026-08-12T12:00:00.000Z"), "30d");
     await insertProgressActivity(
       pool,
       playerOutside30d,
