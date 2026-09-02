@@ -289,7 +289,9 @@ try {
     throw new Error("N-1 audit.read probe did not persist its limiter bucket");
   }
   if (await rateLimitInsertAllowed("economy.analytics.read")) {
-    throw new Error("N-1 database unexpectedly allows economy.analytics.read before migration 0036");
+    throw new Error(
+      "N-1 database unexpectedly allows economy.analytics.read before migration 0036",
+    );
   }
   if (await rateLimitBucketExists("economy.analytics.read")) {
     throw new Error(
