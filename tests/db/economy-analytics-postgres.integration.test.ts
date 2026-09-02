@@ -86,13 +86,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     await pool.query(
       `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
       VALUES ($1,$2,$3,-20,'F8_3_TEST','sink','aggregate proof','SYSTEM','f8.3-test','sink',$4,80,$5)`,
-      [
-        "00000000-0000-4000-8000-000000000001",
-        players[0],
-        currency,
-        randomUUID(),
-        sameTimestamp,
-      ],
+      ["00000000-0000-4000-8000-000000000001", players[0], currency, randomUUID(), sameTimestamp],
     );
     await pool.query(
       `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
