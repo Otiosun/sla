@@ -19,7 +19,7 @@ export function registerEconomyAnalyticsRead(
     defineAdminOperation({
       kind: "READ",
       operationType: "economy.analytics.read",
-      capabilityKey: "player.read",
+      capabilityKey: "economy.read",
       riskTier: 0,
       authorizationMode: "GLOBAL_ONLY",
       policy: readPolicy,
