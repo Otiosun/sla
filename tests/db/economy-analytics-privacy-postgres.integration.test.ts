@@ -26,6 +26,14 @@ async function insertPlayers(pool: Pool, count: number): Promise<string[]> {
   return players;
 }
 
+function firstPlayer(players: readonly string[]): string {
+  const player = players[0];
+  if (player === undefined) {
+    throw new Error("Privacy proof requires at least one player");
+  }
+  return player;
+}
+
 async function insertCurrency(pool: Pool, slug: string): Promise<string> {
   const id = randomUUID();
   await pool.query(
@@ -92,7 +100,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository privacy threshold", () =
         [playerId, currencyId],
       );
     }
-    await insertLedger(pool, players[0]!, currencyId, "single-actor");
+    await insertLedger(pool, firstPlayer(players), currencyId, "single-actor");
 
     const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
       "production",
@@ -112,7 +120,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository privacy threshold", () =
         [playerId, currencyId],
       );
     }
-    await insertLedger(pool, players[0]!, currencyId, "single-recent-actor");
+    await insertLedger(pool, firstPlayer(players), currencyId, "single-recent-actor");
 
     const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
       "production",
@@ -133,7 +141,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository privacy threshold", () =
     }
     await pool.query(
       "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 777)",
-      [players[0], currencyId],
+      [firstPlayer(players), currencyId],
     );
 
     const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
