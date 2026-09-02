@@ -6,10 +6,9 @@ import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
 
-function context(input: {
-  readonly chatRef?: string;
-  readonly senderRef?: string;
-} = {}): MessageHandlerContext {
+function context(
+  input: { readonly chatRef?: string; readonly senderRef?: string } = {},
+): MessageHandlerContext {
   return {
     inboxMessageId: "00000000-0000-4000-8000-000000000701",
     correlationId: "00000000-0000-4000-8000-000000000702",
@@ -28,11 +27,13 @@ function context(input: {
   };
 }
 
-function dependencies(input: {
-  readonly player?: "MISSING" | "PENDING" | "ACTIVE_COMPLETE" | "ACTIVE_INCOMPLETE";
-  readonly group?: "RECEPTION" | "WORLD" | "UNKNOWN";
-  readonly adminCapabilities?: readonly string[];
-} = {}) {
+function dependencies(
+  input: {
+    readonly player?: "MISSING" | "PENDING" | "ACTIVE_COMPLETE" | "ACTIVE_INCOMPLETE";
+    readonly group?: "RECEPTION" | "WORLD" | "UNKNOWN";
+    readonly adminCapabilities?: readonly string[];
+  } = {},
+) {
   const player = input.player ?? "PENDING";
   const group = input.group ?? "RECEPTION";
   return {
@@ -71,15 +72,17 @@ function dependencies(input: {
             }),
     },
     access: {
-      load: async () => ({
-        playerId: PLAYER_ID,
-        status: player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE" ? "ACTIVE" : "PENDING",
-        approvedReviewId:
-          player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE"
-            ? "00000000-0000-4000-8000-000000000713"
-            : null,
-        revision: player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE" ? 2 : 0,
-      } as const),
+      load: async () =>
+        ({
+          playerId: PLAYER_ID,
+          status:
+            player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE" ? "ACTIVE" : "PENDING",
+          approvedReviewId:
+            player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE"
+              ? "00000000-0000-4000-8000-000000000713"
+              : null,
+          revision: player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE" ? 2 : 0,
+        }) as const,
     },
     admins: {
       capabilitiesFor: async () => input.adminCapabilities ?? [],
