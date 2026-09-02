@@ -66,7 +66,9 @@ describe("registration freeform ingress", () => {
 
     expect(await registration.admits(message({ text: "Liora Vale" }))).toBe(true);
     expect(
-      await registration.admits(message({ text: "Charmander observa o mato.", chatRef: "game@g.us" })),
+      await registration.admits(
+        message({ text: "Charmander observa o mato.", chatRef: "game@g.us" }),
+      ),
     ).toBe(false);
     expect(await registration.admits(message({ text: "$ficha" }))).toBe(false);
   });
