@@ -15,9 +15,9 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const EXPECTED_PREVIOUS_LATEST = "0028_player_access.sql";
-const EXPECTED_CURRENT_LATEST = "0029_community_groups.sql";
-const EXPECTED_CURRENT_RELATION = "community_groups";
+const EXPECTED_PREVIOUS_LATEST = "0029_community_groups.sql";
+const EXPECTED_CURRENT_LATEST = "0030_registration_message_refs.sql";
+const EXPECTED_CURRENT_RELATION = "registration_message_refs";
 
 const pool = new Pool({
   connectionString: databaseUrl,
