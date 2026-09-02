@@ -90,8 +90,8 @@ async function insertPokemonActivity(
   await pool.query(
     `INSERT INTO pokemon_history_events(
        id, pokemon_instance_id, event_type, payload, actor_type, occurred_at
-     ) VALUES ($1, $2, 'F8_2_TEST', '{}'::jsonb, 'SYSTEM', $3)`,
-    [randomUUID(), pokemonId, occurredAt],
+     ) VALUES ($1, $2, $3, '{}'::jsonb, 'SYSTEM', $4)`,
+    [randomUUID(), pokemonId, `F8_2_TEST_${suffix}`, occurredAt],
   );
 }
 
