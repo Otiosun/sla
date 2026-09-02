@@ -1,7 +1,7 @@
 import type { CommunityChatContext } from "../community/contracts.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { ok, type Result } from "../../shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
   type RegistrationConversationField,
   type RegistrationConversationSession,
@@ -23,10 +23,24 @@ interface PlayerIdentityResolver {
   }): Promise<Result<{ readonly playerId: PlayerId; readonly state: string }>>;
 }
 
+interface RegistrationSetup {
+  readonly regionId: string;
+  readonly regionDisplayName: string;
+  readonly starterOptions: readonly {
+    readonly formId: string;
+    readonly displayName: string;
+  }[];
+}
+
+interface RegistrationSetupLoader {
+  load(): Promise<Result<RegistrationSetup>>;
+}
+
 export interface RegistrationConversationResolverDependencies {
   readonly sessions: RegistrationConversationSessions;
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
+  readonly setup: RegistrationSetupLoader;
 }
 
 const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
@@ -89,6 +103,51 @@ function hasOnboardingCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("onboarding");
 }
 
+function normalizedChoice(value: string): string {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, " ");
+}
+
+function resolveCanonicalStarterFormId(
+  rawValue: string,
+  setup: RegistrationSetup,
+): Result<string> {
+  const value = rawValue.trim();
+  if (/^[1-9]\d*$/.test(value)) {
+    const index = Number(value);
+    if (Number.isSafeInteger(index)) {
+      const option = setup.starterOptions[index - 1];
+      if (option !== undefined) return ok(option.formId);
+    }
+  }
+
+  const normalized = normalizedChoice(value);
+  const matches = setup.starterOptions.filter(
+    (option) =>
+      option.formId === value || normalizedChoice(option.displayName) === normalized,
+  );
+  if (matches.length !== 1) {
+    return err(
+      appError("VALIDATION_FAILED", "Pokémon inicial inválido ou ambíguo", {
+        fields: ["starterFormId"],
+      }),
+    );
+  }
+  const match = matches[0];
+  if (match === undefined) {
+    return err(
+      appError("VALIDATION_FAILED", "Pokémon inicial inválido ou ambíguo", {
+        fields: ["starterFormId"],
+      }),
+    );
+  }
+  return ok(match.formId);
+}
+
 export class RegistrationConversationResolver {
   public constructor(private readonly dependencies: RegistrationConversationResolverDependencies) {}
 
@@ -124,13 +183,25 @@ export class RegistrationConversationResolver {
     }
 
     if (active.mode === "GUIDED") {
-      const applied = this.dependencies.sessions.applyGuidedAnswer(player.value.playerId, text);
+      let answer = text;
+      if (active.currentField === "starterFormId") {
+        const setup = await this.dependencies.setup.load();
+        if (!setup.ok) return setup;
+        const starterFormId = resolveCanonicalStarterFormId(text, setup.value);
+        if (!starterFormId.ok) return starterFormId;
+        answer = starterFormId.value;
+      }
+      const applied = this.dependencies.sessions.applyGuidedAnswer(player.value.playerId, answer);
       if (!applied.ok) return applied;
       return textResult(context, player.value.playerId, guidedPrompt(applied.value));
     }
 
     const parsed = parseFullRegistrationTemplate(text);
     if (!parsed.ok) return parsed;
+    const setup = await this.dependencies.setup.load();
+    if (!setup.ok) return setup;
+    const starterFormId = resolveCanonicalStarterFormId(parsed.value.starterFormId, setup.value);
+    if (!starterFormId.ok) return starterFormId;
 
     const fields = [
       ["trainerName", parsed.value.trainerName],
@@ -139,7 +210,7 @@ export class RegistrationConversationResolver {
       ["appearance", parsed.value.appearance],
       ["personality", parsed.value.personality],
       ["backstory", parsed.value.backstory],
-      ["starterFormId", parsed.value.starterFormId],
+      ["starterFormId", starterFormId.value],
     ] as const satisfies readonly (readonly [RegistrationConversationField, string | number])[];
 
     for (const [field, value] of fields) {
