@@ -101,6 +101,14 @@ function providerExternalMessageId(result: unknown): string | null {
   return typeof key.id === "string" && key.id.length > 0 ? key.id : null;
 }
 
+export function baileysOutboundMessageId(message: PendingOutboxMessage): string {
+  const messageId = message.id.replaceAll("-", "").toUpperCase();
+  if (!/^[0-9A-F]{32}$/.test(messageId)) {
+    throw new Error("Baileys outbox id must be a UUID-compatible 32-hex message id");
+  }
+  return messageId;
+}
+
 export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   readonly channel = "whatsapp" as const;
 
@@ -176,9 +184,16 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       if (socket === null || this.stopped) {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
-      const sent = await socket.sendMessage(message.destinationRef, outboundContent(message));
+      const messageId = baileysOutboundMessageId(message);
+      const sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
+        messageId,
+      });
+      const returnedMessageId = providerExternalMessageId(sent);
+      if (returnedMessageId !== messageId) {
+        throw new Error("Baileys provider did not preserve the deterministic outbound message id");
+      }
       this.metrics.increment("whatsapp.outgoing.total");
-      return { providerExternalMessageId: providerExternalMessageId(sent) };
+      return { providerExternalMessageId: messageId };
     } catch (error) {
       result = "error";
       this.metrics.increment("whatsapp.outgoing.errors_total");
