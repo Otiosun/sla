@@ -5,7 +5,7 @@ import { ok, type Result } from "../../shared-kernel/result.js";
 import {
   type RegistrationConversationField,
   type RegistrationConversationSession,
-  RegistrationConversationSessions,
+  type RegistrationConversationSessions,
   parseFullRegistrationTemplate,
 } from "./conversation-session.js";
 
@@ -66,6 +66,25 @@ function guidedPrompt(session: RegistrationConversationSession): string {
   return `📝 *${FIELD_LABELS[session.currentField]}*\n\nEnvie sua resposta. Nada será salvo definitivamente até você usar \`$salvar\` ou confirmar a ficha.`;
 }
 
+function fullTemplatePrompt(): string {
+  return [
+    "📋 *FICHA COMPLETA*",
+    "",
+    "Preencha e envie o modelo abaixo de uma vez:",
+    "",
+    "Nome:",
+    "Idade:",
+    "Gênero / pronomes:",
+    "Aparência:",
+    "Personalidade:",
+    "História / resumo:",
+    "Pokémon inicial:",
+    "",
+    "A região é Zhoulia e será preenchida automaticamente.",
+    "Nada será persistido até `$salvar` ou a confirmação final.",
+  ].join("\n");
+}
+
 function hasOnboardingCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("onboarding");
 }
@@ -93,6 +112,16 @@ export class RegistrationConversationResolver {
 
     const active = this.dependencies.sessions.get(player.value.playerId);
     if (active === null) return ok(null);
+
+    if (active.mode === "CHOOSING") {
+      const chosen = this.dependencies.sessions.chooseMode(player.value.playerId, text);
+      if (!chosen.ok) return chosen;
+      return textResult(
+        context,
+        player.value.playerId,
+        chosen.value.mode === "GUIDED" ? guidedPrompt(chosen.value) : fullTemplatePrompt(),
+      );
+    }
 
     if (active.mode === "GUIDED") {
       const applied = this.dependencies.sessions.applyGuidedAnswer(player.value.playerId, text);
