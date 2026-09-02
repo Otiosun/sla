@@ -325,9 +325,7 @@ describe("registration WhatsApp commands", () => {
     expect(result).toMatchObject({
       ok: true,
       value: {
-        outgoing: [
-          { payload: { text: expect.stringMatching(/análise[\s\S]*\$editar sim/i) } },
-        ],
+        outgoing: [{ payload: { text: expect.stringMatching(/análise[\s\S]*\$editar sim/i) } }],
       },
     });
     expect(deps.withdrawalInputs).toEqual([]);
