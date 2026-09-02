@@ -6,7 +6,8 @@ import { PostgresRegistrationSetupLoader } from "../../src/platform/registration
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -50,10 +51,10 @@ async function seedSetup(client: PoolClient) {
     [releaseId, rulesetId],
   );
   await client.query("INSERT INTO pokemon_types(id, slug) VALUES ($1, 'fire')", [typeId]);
-  await client.query(
-    "INSERT INTO regions(id, slug) VALUES ($1, 'zhoulia'), ($2, 'other-region')",
-    [zhouliaId, otherRegionId],
-  );
+  await client.query("INSERT INTO regions(id, slug) VALUES ($1, 'zhoulia'), ($2, 'other-region')", [
+    zhouliaId,
+    otherRegionId,
+  ]);
 
   const species = [
     [charmanderSpeciesId, 4, "charmander"],
@@ -61,10 +62,11 @@ async function seedSetup(client: PoolClient) {
     [hiddenSpeciesId, 1, "hiddenmon"],
   ] as const;
   for (const [id, dex, slug] of species) {
-    await client.query(
-      "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, $2, $3)",
-      [id, dex, slug],
-    );
+    await client.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, $2, $3)", [
+      id,
+      dex,
+      slug,
+    ]);
   }
   const forms = [
     [charmanderFormId, charmanderSpeciesId],
