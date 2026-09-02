@@ -123,28 +123,24 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
              SELECT count(*)::text AS mismatch_count
              FROM wallet_balances balance
              LEFT JOIN LATERAL (
-               SELECT ledger.balance_after
+               SELECT COALESCE(sum(ledger.delta), 0) AS reconstructed_amount
                FROM wallet_ledger ledger
                WHERE ledger.player_id = balance.player_id
                  AND ledger.currency_id = balance.currency_id
                  AND ledger.created_at < $1::timestamptz
-               ORDER BY ledger.created_at DESC, ledger.id DESC
-               LIMIT 1
-             ) latest ON TRUE
-             WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.amount
+             ) reconstructed ON TRUE
+             WHERE reconstructed.reconstructed_amount <> balance.amount
            ), inventory_mismatches AS (
              SELECT count(*)::text AS mismatch_count
              FROM inventory_balances balance
              LEFT JOIN LATERAL (
-               SELECT ledger.balance_after
+               SELECT COALESCE(sum(ledger.delta), 0) AS reconstructed_quantity
                FROM inventory_ledger ledger
                WHERE ledger.player_id = balance.player_id
                  AND ledger.item_id = balance.item_id
                  AND ledger.created_at < $1::timestamptz
-               ORDER BY ledger.created_at DESC, ledger.id DESC
-               LIMIT 1
-             ) latest ON TRUE
-             WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.quantity
+             ) reconstructed ON TRUE
+             WHERE reconstructed.reconstructed_quantity <> balance.quantity
            )
            SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
                   inventory_mismatches.mismatch_count AS inventory_projection_mismatches
@@ -167,8 +163,8 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
             netFlowUnits: inventory.net_flow_units,
             totalUnitsHeld: inventory.total_units_held,
           },
-          walletProjectionMismatches: Number(anomalies.wallet_projection_mismatches),
-          inventoryProjectionMismatches: Number(anomalies.inventory_projection_mismatches),
+          walletProjectionMismatches: anomalies.wallet_projection_mismatches,
+          inventoryProjectionMismatches: anomalies.inventory_projection_mismatches,
         };
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
