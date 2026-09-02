@@ -151,4 +151,51 @@ describe.sequential("PostgresEconomyAnalyticsRepository privacy threshold", () =
 
     expect(result.currencies.map((currency) => currency.slug)).not.toContain("f8-3-balance-leak");
   });
+
+  it("keeps a recent-flow aggregate visible when five real transactors contribute", async () => {
+    const players = await insertPlayers(pool, 5);
+    const currencyId = await insertCurrency(pool, "f8-3-safe-flow");
+
+    for (const [index, playerId] of players.entries()) {
+      await insertLedger(pool, playerId, currencyId, `safe-real-flow-${index}`, 20 + index);
+    }
+
+    const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
+      "production",
+      asOf,
+    );
+
+    expect(result.currencies.find((currency) => currency.slug === "f8-3-safe-flow")).toMatchObject({
+      inflow: "110",
+      outflow: "0",
+      netFlow: "110",
+      totalBalance: "0",
+    });
+  });
+
+  it("keeps a balance-only aggregate visible when five nonzero holders contribute", async () => {
+    const players = await insertPlayers(pool, 5);
+    const currencyId = await insertCurrency(pool, "f8-3-safe-balance");
+
+    for (const playerId of players) {
+      await pool.query(
+        "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 10)",
+        [playerId, currencyId],
+      );
+    }
+
+    const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
+      "production",
+      asOf,
+    );
+
+    expect(
+      result.currencies.find((currency) => currency.slug === "f8-3-safe-balance"),
+    ).toMatchObject({
+      inflow: "0",
+      outflow: "0",
+      netFlow: "0",
+      totalBalance: "50",
+    });
+  });
 });
