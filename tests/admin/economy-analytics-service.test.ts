@@ -28,8 +28,8 @@ describe("EconomyAnalyticsService", () => {
         netFlowUnits: "50",
         totalUnitsHeld: "700",
       },
-      walletProjectionMismatches: 2,
-      inventoryProjectionMismatches: 1,
+      walletProjectionMismatches: "2",
+      inventoryProjectionMismatches: "1",
     }));
     const service = new EconomyAnalyticsService(
       { authorizeRead },
@@ -71,8 +71,8 @@ describe("EconomyAnalyticsService", () => {
         totalUnitsHeld: "700",
       },
       anomalies: {
-        walletProjectionMismatches: 2,
-        inventoryProjectionMismatches: 1,
+        walletProjectionMismatches: "2",
+        inventoryProjectionMismatches: "1",
       },
     });
 
