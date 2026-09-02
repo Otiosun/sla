@@ -5,6 +5,7 @@ import type {
   EconomyCurrencyAggregateEvidence,
 } from "../../modules/admin/economy-analytics-service.js";
 import type { AdminEnvironment } from "../../modules/admin/contracts.js";
+import { withTransaction } from "../db/transaction.js";
 
 const MIN_CURRENCY_PARTICIPANTS = 5;
 const MAX_CURRENCIES = 32;
@@ -50,118 +51,124 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
   ): Promise<EconomyAnalyticsAggregateEvidence> {
     void environment;
 
-    const [currencyResult, inventoryResult, anomalyResult] = await Promise.all([
-      this.pool.query<CurrencyRow>(
-        `WITH wallet_flow AS (
-           SELECT currency_id,
-                  COALESCE(sum(delta) FILTER (WHERE delta > 0), 0)::text AS inflow,
-                  COALESCE(sum(-delta) FILTER (WHERE delta < 0), 0)::text AS outflow,
-                  COALESCE(sum(delta), 0)::text AS net_flow
-           FROM wallet_ledger
-           WHERE created_at >= $1::timestamptz - interval '30 days'
-             AND created_at < $1::timestamptz
-           GROUP BY currency_id
-         ), wallet_balance AS (
-           SELECT currency_id, COALESCE(sum(amount), 0)::text AS total_balance
-           FROM wallet_balances
-           GROUP BY currency_id
-         ), participants AS (
-           SELECT currency_id, count(DISTINCT player_id) AS participant_count
-           FROM (
-             SELECT currency_id, player_id
-             FROM wallet_balances
-             UNION
-             SELECT currency_id, player_id
+    return withTransaction(
+      this.pool,
+      async (client) => {
+        const currencyResult = await client.query<CurrencyRow>(
+          `WITH wallet_flow AS (
+             SELECT currency_id,
+                    COALESCE(sum(delta) FILTER (WHERE delta > 0), 0)::text AS inflow,
+                    COALESCE(sum(-delta) FILTER (WHERE delta < 0), 0)::text AS outflow,
+                    COALESCE(sum(delta), 0)::text AS net_flow
              FROM wallet_ledger
              WHERE created_at >= $1::timestamptz - interval '30 days'
                AND created_at < $1::timestamptz
-           ) participant
-           GROUP BY currency_id
-         )
-         SELECT currency.slug,
-                currency.display_name,
-                COALESCE(flow.inflow, '0') AS inflow,
-                COALESCE(flow.outflow, '0') AS outflow,
-                COALESCE(flow.net_flow, '0') AS net_flow,
-                COALESCE(balance.total_balance, '0') AS total_balance
-         FROM currency_definitions currency
-         JOIN participants ON participants.currency_id = currency.id
-         LEFT JOIN wallet_flow flow ON flow.currency_id = currency.id
-         LEFT JOIN wallet_balance balance ON balance.currency_id = currency.id
-         WHERE participants.participant_count >= $2
-           AND (flow.currency_id IS NOT NULL OR balance.currency_id IS NOT NULL)
-         ORDER BY currency.slug
-         LIMIT $3`,
-        [asOf, MIN_CURRENCY_PARTICIPANTS, MAX_CURRENCIES + 1],
-      ),
-      this.pool.query<InventoryRow>(
-        `WITH flow AS (
-           SELECT COALESCE(sum(delta) FILTER (WHERE delta > 0), 0)::text AS inflow_units,
-                  COALESCE(sum(-delta) FILTER (WHERE delta < 0), 0)::text AS outflow_units,
-                  COALESCE(sum(delta), 0)::text AS net_flow_units
-           FROM inventory_ledger
-           WHERE created_at >= $1::timestamptz - interval '30 days'
-             AND created_at < $1::timestamptz
-         ), balance AS (
-           SELECT COALESCE(sum(quantity), 0)::text AS total_units_held
-           FROM inventory_balances
-         )
-         SELECT flow.inflow_units,
-                flow.outflow_units,
-                flow.net_flow_units,
-                balance.total_units_held
-         FROM flow CROSS JOIN balance`,
-        [asOf],
-      ),
-      this.pool.query<AnomalyRow>(
-        `WITH wallet_mismatches AS (
-           SELECT count(*)::text AS mismatch_count
-           FROM wallet_balances balance
-           LEFT JOIN LATERAL (
-             SELECT ledger.balance_after
-             FROM wallet_ledger ledger
-             WHERE ledger.player_id = balance.player_id
-               AND ledger.currency_id = balance.currency_id
-             ORDER BY ledger.created_at DESC, ledger.id DESC
-             LIMIT 1
-           ) latest ON TRUE
-           WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.amount
-         ), inventory_mismatches AS (
-           SELECT count(*)::text AS mismatch_count
-           FROM inventory_balances balance
-           LEFT JOIN LATERAL (
-             SELECT ledger.balance_after
-             FROM inventory_ledger ledger
-             WHERE ledger.player_id = balance.player_id
-               AND ledger.item_id = balance.item_id
-             ORDER BY ledger.created_at DESC, ledger.id DESC
-             LIMIT 1
-           ) latest ON TRUE
-           WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.quantity
-         )
-         SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
-                inventory_mismatches.mismatch_count AS inventory_projection_mismatches
-         FROM wallet_mismatches CROSS JOIN inventory_mismatches`,
-      ),
-    ]);
+             GROUP BY currency_id
+           ), wallet_balance AS (
+             SELECT currency_id, COALESCE(sum(amount), 0)::text AS total_balance
+             FROM wallet_balances
+             GROUP BY currency_id
+           ), participants AS (
+             SELECT currency_id, count(DISTINCT player_id) AS participant_count
+             FROM (
+               SELECT currency_id, player_id
+               FROM wallet_balances
+               UNION
+               SELECT currency_id, player_id
+               FROM wallet_ledger
+               WHERE created_at >= $1::timestamptz - interval '30 days'
+                 AND created_at < $1::timestamptz
+             ) participant
+             GROUP BY currency_id
+           )
+           SELECT currency.slug,
+                  currency.display_name,
+                  COALESCE(flow.inflow, '0') AS inflow,
+                  COALESCE(flow.outflow, '0') AS outflow,
+                  COALESCE(flow.net_flow, '0') AS net_flow,
+                  COALESCE(balance.total_balance, '0') AS total_balance
+           FROM currency_definitions currency
+           JOIN participants ON participants.currency_id = currency.id
+           LEFT JOIN wallet_flow flow ON flow.currency_id = currency.id
+           LEFT JOIN wallet_balance balance ON balance.currency_id = currency.id
+           WHERE participants.participant_count >= $2
+             AND (flow.currency_id IS NOT NULL OR balance.currency_id IS NOT NULL)
+           ORDER BY currency.slug
+           LIMIT $3`,
+          [asOf, MIN_CURRENCY_PARTICIPANTS, MAX_CURRENCIES + 1],
+        );
 
-    const inventory = inventoryResult.rows[0];
-    const anomalies = anomalyResult.rows[0];
-    if (inventory === undefined || anomalies === undefined) {
-      throw new Error("Economy analytics aggregate query returned no row");
-    }
+        const inventoryResult = await client.query<InventoryRow>(
+          `WITH flow AS (
+             SELECT COALESCE(sum(delta) FILTER (WHERE delta > 0), 0)::text AS inflow_units,
+                    COALESCE(sum(-delta) FILTER (WHERE delta < 0), 0)::text AS outflow_units,
+                    COALESCE(sum(delta), 0)::text AS net_flow_units
+             FROM inventory_ledger
+             WHERE created_at >= $1::timestamptz - interval '30 days'
+               AND created_at < $1::timestamptz
+           ), balance AS (
+             SELECT COALESCE(sum(quantity), 0)::text AS total_units_held
+             FROM inventory_balances
+           )
+           SELECT flow.inflow_units,
+                  flow.outflow_units,
+                  flow.net_flow_units,
+                  balance.total_units_held
+           FROM flow CROSS JOIN balance`,
+          [asOf],
+        );
 
-    return {
-      currencies: currencyResult.rows.slice(0, MAX_CURRENCIES).map(currencyEvidence),
-      currenciesTruncated: currencyResult.rows.length > MAX_CURRENCIES,
-      inventory: {
-        inflowUnits: inventory.inflow_units,
-        outflowUnits: inventory.outflow_units,
-        netFlowUnits: inventory.net_flow_units,
-        totalUnitsHeld: inventory.total_units_held,
+        const anomalyResult = await client.query<AnomalyRow>(
+          `WITH wallet_mismatches AS (
+             SELECT count(*)::text AS mismatch_count
+             FROM wallet_balances balance
+             LEFT JOIN LATERAL (
+               SELECT ledger.balance_after
+               FROM wallet_ledger ledger
+               WHERE ledger.player_id = balance.player_id
+                 AND ledger.currency_id = balance.currency_id
+               ORDER BY ledger.created_at DESC, ledger.id DESC
+               LIMIT 1
+             ) latest ON TRUE
+             WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.amount
+           ), inventory_mismatches AS (
+             SELECT count(*)::text AS mismatch_count
+             FROM inventory_balances balance
+             LEFT JOIN LATERAL (
+               SELECT ledger.balance_after
+               FROM inventory_ledger ledger
+               WHERE ledger.player_id = balance.player_id
+                 AND ledger.item_id = balance.item_id
+               ORDER BY ledger.created_at DESC, ledger.id DESC
+               LIMIT 1
+             ) latest ON TRUE
+             WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.quantity
+           )
+           SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
+                  inventory_mismatches.mismatch_count AS inventory_projection_mismatches
+           FROM wallet_mismatches CROSS JOIN inventory_mismatches`,
+        );
+
+        const inventory = inventoryResult.rows[0];
+        const anomalies = anomalyResult.rows[0];
+        if (inventory === undefined || anomalies === undefined) {
+          throw new Error("Economy analytics aggregate query returned no row");
+        }
+
+        return {
+          currencies: currencyResult.rows.slice(0, MAX_CURRENCIES).map(currencyEvidence),
+          currenciesTruncated: currencyResult.rows.length > MAX_CURRENCIES,
+          inventory: {
+            inflowUnits: inventory.inflow_units,
+            outflowUnits: inventory.outflow_units,
+            netFlowUnits: inventory.net_flow_units,
+            totalUnitsHeld: inventory.total_units_held,
+          },
+          walletProjectionMismatches: Number(anomalies.wallet_projection_mismatches),
+          inventoryProjectionMismatches: Number(anomalies.inventory_projection_mismatches),
+        };
       },
-      walletProjectionMismatches: Number(anomalies.wallet_projection_mismatches),
-      inventoryProjectionMismatches: Number(anomalies.inventory_projection_mismatches),
-    };
+      { isolationLevel: "REPEATABLE READ", readOnly: true },
+    );
   }
 }
