@@ -59,26 +59,17 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
              SELECT currency_id,
                     COALESCE(sum(delta) FILTER (WHERE delta > 0), 0)::text AS inflow,
                     COALESCE(sum(-delta) FILTER (WHERE delta < 0), 0)::text AS outflow,
-                    COALESCE(sum(delta), 0)::text AS net_flow
+                    COALESCE(sum(delta), 0)::text AS net_flow,
+                    count(DISTINCT player_id) AS participant_count
              FROM wallet_ledger
              WHERE created_at >= $1::timestamptz - interval '30 days'
                AND created_at < $1::timestamptz
              GROUP BY currency_id
            ), wallet_balance AS (
-             SELECT currency_id, COALESCE(sum(amount), 0)::text AS total_balance
+             SELECT currency_id,
+                    COALESCE(sum(amount), 0)::text AS total_balance,
+                    count(DISTINCT player_id) FILTER (WHERE amount <> 0) AS participant_count
              FROM wallet_balances
-             GROUP BY currency_id
-           ), participants AS (
-             SELECT currency_id, count(DISTINCT player_id) AS participant_count
-             FROM (
-               SELECT currency_id, player_id
-               FROM wallet_balances
-               UNION
-               SELECT currency_id, player_id
-               FROM wallet_ledger
-               WHERE created_at >= $1::timestamptz - interval '30 days'
-                 AND created_at < $1::timestamptz
-             ) participant
              GROUP BY currency_id
            )
            SELECT currency.slug,
@@ -88,11 +79,18 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
                   COALESCE(flow.net_flow, '0') AS net_flow,
                   COALESCE(balance.total_balance, '0') AS total_balance
            FROM currency_definitions currency
-           JOIN participants ON participants.currency_id = currency.id
            LEFT JOIN wallet_flow flow ON flow.currency_id = currency.id
            LEFT JOIN wallet_balance balance ON balance.currency_id = currency.id
-           WHERE participants.participant_count >= $2
-             AND (flow.currency_id IS NOT NULL OR balance.currency_id IS NOT NULL)
+           WHERE (flow.currency_id IS NULL OR flow.participant_count >= $2)
+             AND (
+               balance.currency_id IS NULL
+               OR balance.participant_count = 0
+               OR balance.participant_count >= $2
+             )
+             AND (
+               flow.currency_id IS NOT NULL
+               OR (balance.currency_id IS NOT NULL AND balance.participant_count > 0)
+             )
            ORDER BY currency.slug
            LIMIT $3`,
           [asOf, MIN_CURRENCY_PARTICIPANTS, MAX_CURRENCIES + 1],
