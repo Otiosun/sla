@@ -136,7 +136,9 @@ function fichaText(session: RegistrationConversationSession, setup: Registration
     `Pokémon inicial: ${starterName}`,
     `Região: ${setup.regionDisplayName}`,
     "",
-    session.dirty ? "⚠️ Existem alterações não salvas." : "Nenhuma alteração não salva nesta sessão.",
+    session.dirty
+      ? "⚠️ Existem alterações não salvas."
+      : "Nenhuma alteração não salva nesta sessão.",
   ].join("\n");
 }
 
@@ -191,7 +193,9 @@ export function createRegistrationWhatsAppRoutes(
     if (!player.ok) return player;
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
-      return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
+      return err(
+        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."),
+      );
     }
     const setup = await dependencies.setup.load();
     return setup.ok ? reply(context, player.value, fichaText(session, setup.value)) : setup;
