@@ -101,6 +101,7 @@ export interface BaileysSocketLike {
   sendMessage(
     jid: string,
     content: { readonly text: string; readonly mentions?: readonly string[] },
+    options?: { readonly messageId?: string },
   ): Promise<unknown>;
   end(error?: Error): void;
 }
