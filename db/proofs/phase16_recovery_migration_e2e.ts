@@ -87,13 +87,19 @@ async function rateLimitBucketExists(operation: RateLimitOperation): Promise<boo
   return result.rows[0]?.exists === true;
 }
 
-async function requireRateLimitAllowed(operation: RateLimitOperation, context: string): Promise<void> {
+async function requireRateLimitAllowed(
+  operation: RateLimitOperation,
+  context: string,
+): Promise<void> {
   if (!(await rateLimitInsertAllowed(operation)) || !(await rateLimitBucketExists(operation))) {
     throw new Error(`${context}: ${operation}`);
   }
 }
 
-async function requireRateLimitDenied(operation: RateLimitOperation, context: string): Promise<void> {
+async function requireRateLimitDenied(
+  operation: RateLimitOperation,
+  context: string,
+): Promise<void> {
   if (await rateLimitInsertAllowed(operation)) {
     throw new Error(`${context} unexpectedly allowed: ${operation}`);
   }
@@ -224,7 +230,9 @@ try {
     throw new Error("N-1 limiter relation is missing before the analytics migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("N-1 database is missing the durable access-session relation from migration 0029");
+    throw new Error(
+      "N-1 database is missing the durable access-session relation from migration 0029",
+    );
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
@@ -257,20 +265,11 @@ try {
 
   await requireRateLimitAllowed("content.search", "N-1 lost migration 0031 key");
   await requireRateLimitAllowed("runtime.health.read", "N-1 lost migration 0032 key");
-  await requireRateLimitAllowed(
-    "messaging.operations.read",
-    "N-1 lost migration 0033 key",
-  );
+  await requireRateLimitAllowed("messaging.operations.read", "N-1 lost migration 0033 key");
   await requireRateLimitAllowed("incident.read", "N-1 lost migration 0034 key");
   await requireRateLimitAllowed("audit.read", "N-1 lost migration 0035 key");
-  await requireRateLimitDenied(
-    "player.activity.read",
-    "N-1 database before migration 0036",
-  );
-  await requireRateLimitDenied(
-    "economy.analytics.read",
-    "N-1 database before migration 0036",
-  );
+  await requireRateLimitDenied("player.activity.read", "N-1 database before migration 0036");
+  await requireRateLimitDenied("economy.analytics.read", "N-1 database before migration 0036");
 
   await pool.query(
     `INSERT INTO admin_access_sessions(
@@ -421,7 +420,8 @@ try {
     durableSessionAfter.status !== durableSessionBefore.status ||
     durableSessionAfter.created_at.getTime() !== durableSessionBefore.created_at.getTime() ||
     durableSessionAfter.last_seen_at.getTime() !== durableSessionBefore.last_seen_at.getTime() ||
-    durableSessionAfter.idle_expires_at.getTime() !== durableSessionBefore.idle_expires_at.getTime() ||
+    durableSessionAfter.idle_expires_at.getTime() !==
+      durableSessionBefore.idle_expires_at.getTime() ||
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
