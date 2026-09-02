@@ -151,4 +151,35 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     expect(result.walletProjectionMismatches).toBe("0");
     expect(JSON.stringify(result)).not.toContain(players[0]);
   });
+
+  it("does not report a committed post-asOf wallet mutation as projection drift", async () => {
+    const playerId = randomUUID();
+    const currencyId = randomUUID();
+    await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
+    await pool.query(
+      "INSERT INTO currency_definitions(id, slug, display_name, allows_negative) VALUES ($1, $2, 'Race proof', FALSE)",
+      [currencyId, `race-${currencyId}`],
+    );
+    await pool.query(
+      "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 10)",
+      [playerId, currencyId],
+    );
+    await pool.query(
+      `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
+       VALUES ($1,$2,$3,10,'F8_3_RACE','post-asof','race proof','SYSTEM','f8.3-race','credit',$4,10,$5)`,
+      [
+        randomUUID(),
+        playerId,
+        currencyId,
+        randomUUID(),
+        new Date("2026-09-02T12:00:01.000Z"),
+      ],
+    );
+
+    const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
+      "production",
+      asOf,
+    );
+    expect(result.walletProjectionMismatches).toBe("0");
+  });
 });
