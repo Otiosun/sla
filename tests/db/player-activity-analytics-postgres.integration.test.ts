@@ -50,10 +50,19 @@ async function insertInventoryActivity(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO inventory_ledger(
-       id, player_id, item_id, delta, source_type, source_id, actor_type,
-       idempotency_scope, idempotency_key, created_at
-     ) VALUES ($1, $2, $3, 1, 'F8_2_TEST', $4, 'SYSTEM', 'f8.2-test', $5, $6)`,
-    [randomUUID(), playerId, itemId, `source-${suffix}`, `inventory-${suffix}`, occurredAt],
+       id, player_id, item_id, delta, source_type, source_id, reason, actor_type,
+       idempotency_scope, idempotency_key, correlation_id, created_at
+     ) VALUES ($1, $2, $3, 1, 'F8_2_TEST', $4, $5, 'SYSTEM', 'f8.2-test', $6, $7, $8)`,
+    [
+      randomUUID(),
+      playerId,
+      itemId,
+      `source-${suffix}`,
+      `reason-${suffix}`,
+      `inventory-${suffix}`,
+      randomUUID(),
+      occurredAt,
+    ],
   );
 }
 
@@ -66,10 +75,19 @@ async function insertWalletActivity(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO wallet_ledger(
-       id, player_id, currency_id, delta, source_type, source_id, actor_type,
-       idempotency_scope, idempotency_key, created_at
-     ) VALUES ($1, $2, $3, 1, 'F8_2_TEST', $4, 'SYSTEM', 'f8.2-test', $5, $6)`,
-    [randomUUID(), playerId, currencyId, `source-${suffix}`, `wallet-${suffix}`, occurredAt],
+       id, player_id, currency_id, delta, source_type, source_id, reason, actor_type,
+       idempotency_scope, idempotency_key, correlation_id, created_at
+     ) VALUES ($1, $2, $3, 1, 'F8_2_TEST', $4, $5, 'SYSTEM', 'f8.2-test', $6, $7, $8)`,
+    [
+      randomUUID(),
+      playerId,
+      currencyId,
+      `source-${suffix}`,
+      `reason-${suffix}`,
+      `wallet-${suffix}`,
+      randomUUID(),
+      occurredAt,
+    ],
   );
 }
 
