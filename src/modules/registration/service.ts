@@ -65,6 +65,15 @@ function normalizeIdempotencyKey(value: string): Result<string> {
 export class RegistrationService {
   public constructor(private readonly repository: RegistrationRepository) {}
 
+  public async getDraft(playerId: PlayerId): Promise<Result<RegistrationDraftRecord>> {
+    return this.repository.read(async (tx) => {
+      const draft = await tx.loadDraft(playerId);
+      return draft === null
+        ? err(appError("NOT_FOUND", "Registration draft not found"))
+        : ok(draft);
+    });
+  }
+
   public async saveDraft(
     input: SaveRegistrationDraftInput,
   ): Promise<Result<RegistrationDraftRecord>> {
