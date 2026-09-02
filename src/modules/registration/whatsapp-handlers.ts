@@ -213,9 +213,7 @@ export function createRegistrationWhatsAppRoutes(
       );
     }
     if (session.mode === "CHOOSING") {
-      return err(
-        appError("INVALID_STATE_TRANSITION", "Escolha o modo da ficha antes de salvar."),
-      );
+      return err(appError("INVALID_STATE_TRANSITION", "Escolha o modo da ficha antes de salvar."));
     }
 
     const saved = await dependencies.registration.saveDraft({
