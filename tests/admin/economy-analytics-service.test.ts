@@ -31,11 +31,7 @@ describe("EconomyAnalyticsService", () => {
       walletProjectionMismatches: "2",
       inventoryProjectionMismatches: "1",
     }));
-    const service = new EconomyAnalyticsService(
-      { authorizeRead },
-      { readAggregate },
-      () => AS_OF,
-    );
+    const service = new EconomyAnalyticsService({ authorizeRead }, { readAggregate }, () => AS_OF);
 
     const result = await service.getAggregate({
       principalId: PRINCIPAL_ID,
