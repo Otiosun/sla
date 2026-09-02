@@ -23,6 +23,10 @@ export interface CommandRoutePolicyGate {
   ): Promise<Result<void>>;
 }
 
+export interface MessageConversationResolver {
+  resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>>;
+}
+
 interface RegisteredRoute {
   readonly canonicalCommand: string;
   readonly handler: MessageRouteHandler;
@@ -56,6 +60,7 @@ export class MessageRouter implements MessageRouterPort {
   constructor(
     definitions: readonly CommandRouteDefinition[] = [],
     private readonly policyGate?: CommandRoutePolicyGate,
+    private readonly conversationResolver?: MessageConversationResolver,
   ) {
     for (const definition of definitions) {
       this.register(definition);
@@ -108,7 +113,7 @@ export class MessageRouter implements MessageRouterPort {
   async dispatch(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
     const command = commandFromText(context.message.text);
     if (command === null) {
-      return ok(null);
+      return this.conversationResolver?.resolve(context) ?? ok(null);
     }
     const route = this.routes.get(command);
     if (route === undefined) {
