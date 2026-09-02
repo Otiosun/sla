@@ -15,6 +15,12 @@ function dbUrl(name: string) {
   return url.toString();
 }
 
+function playerAt(players: readonly string[], index: number): string {
+  const player = players[index];
+  if (player === undefined) throw new Error(`Missing player fixture at index ${index}`);
+  return player;
+}
+
 async function insertWalletLedger(
   pool: Pool,
   input: {
@@ -92,12 +98,13 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
 
     for (let index = 0; index < 5; index += 1) {
       const amount = index === 0 ? 80 : 1;
+      const playerId = playerAt(players, index);
       await pool.query(
         "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, $3)",
-        [players[index], currency, amount],
+        [playerId, currency, amount],
       );
       await insertWalletLedger(pool, {
-        playerId: players[index],
+        playerId,
         currencyId: currency,
         delta: index === 0 ? 100 : 1,
         sourceId: `source-${index}`,
@@ -108,8 +115,9 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
           index === 0 ? new Date("2026-08-03T12:00:00.000Z") : new Date("2026-09-01T00:00:00.000Z"),
       });
     }
+    const primaryPlayerId = playerAt(players, 0);
     await insertWalletLedger(pool, {
-      playerId: players[0],
+      playerId: primaryPlayerId,
       currencyId: currency,
       delta: -20,
       sourceId: "sink",
@@ -119,7 +127,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       createdAt: new Date("2026-08-20T00:00:00.000Z"),
     });
     await insertWalletLedger(pool, {
-      playerId: players[0],
+      playerId: primaryPlayerId,
       currencyId: currency,
       delta: 999,
       sourceId: "future",
@@ -129,7 +137,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       createdAt: new Date("2026-09-03T00:00:00.000Z"),
     });
     await insertWalletLedger(pool, {
-      playerId: players[5],
+      playerId: playerAt(players, 5),
       currencyId: privateCurrency,
       delta: 50,
       sourceId: "private",
@@ -141,7 +149,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
 
     await pool.query(
       "INSERT INTO inventory_balances(player_id, item_id, quantity) VALUES ($1,$2,7)",
-      [players[0], item],
+      [primaryPlayerId, item],
     );
     await pool.query(
       `INSERT INTO inventory_ledger(
@@ -153,7 +161,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
                  'f8.3-test','inventory-sink',$7,6,$8)`,
       [
         randomUUID(),
-        players[0],
+        primaryPlayerId,
         item,
         randomUUID(),
         new Date("2026-08-10T00:00:00.000Z"),
@@ -186,7 +194,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     });
     expect(result.inventoryProjectionMismatches).toBe("1");
     expect(result.walletProjectionMismatches).toBe("1");
-    expect(JSON.stringify(result)).not.toContain(players[0]);
+    expect(JSON.stringify(result)).not.toContain(primaryPlayerId);
   });
 
   it("does not infer final ledger state from UUID order when timestamps tie", async () => {
