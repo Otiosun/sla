@@ -41,6 +41,60 @@ async function insertProgressActivity(
   );
 }
 
+async function insertInventoryActivity(
+  pool: Pool,
+  playerId: string,
+  itemId: string,
+  occurredAt: Date,
+  suffix: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO inventory_ledger(
+       id, player_id, item_id, delta, source_type, source_id, actor_type,
+       idempotency_scope, idempotency_key, created_at
+     ) VALUES ($1, $2, $3, 1, 'F8_2_TEST', $4, 'SYSTEM', 'f8.2-test', $5, $6)`,
+    [randomUUID(), playerId, itemId, `source-${suffix}`, `inventory-${suffix}`, occurredAt],
+  );
+}
+
+async function insertWalletActivity(
+  pool: Pool,
+  playerId: string,
+  currencyId: string,
+  occurredAt: Date,
+  suffix: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO wallet_ledger(
+       id, player_id, currency_id, delta, source_type, source_id, actor_type,
+       idempotency_scope, idempotency_key, created_at
+     ) VALUES ($1, $2, $3, 1, 'F8_2_TEST', $4, 'SYSTEM', 'f8.2-test', $5, $6)`,
+    [randomUUID(), playerId, currencyId, `source-${suffix}`, `wallet-${suffix}`, occurredAt],
+  );
+}
+
+async function insertPokemonActivity(
+  pool: Pool,
+  playerId: string,
+  formId: string,
+  occurredAt: Date,
+  suffix: string,
+): Promise<void> {
+  const pokemonId = randomUUID();
+  await pool.query(
+    `INSERT INTO pokemon_instances(
+       id, owner_player_id, form_id, level, current_hp, origin_type
+     ) VALUES ($1, $2, $3, 1, 10, 'F8_2_TEST')`,
+    [pokemonId, playerId, formId],
+  );
+  await pool.query(
+    `INSERT INTO pokemon_history_events(
+       id, pokemon_instance_id, event_type, payload, actor_type, occurred_at
+     ) VALUES ($1, $2, 'F8_2_TEST', '{}'::jsonb, 'SYSTEM', $3)`,
+    [randomUUID(), pokemonId, occurredAt],
+  );
+}
+
 describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
   const dbName = `pokemon_player_activity_${process.pid}_${Date.now()}`;
   const asOf = new Date("2026-09-01T12:00:00.000Z");
@@ -145,6 +199,104 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
       last24Hours: 2,
       last7Days: 4,
       last30Days: 5,
+      returningPlayers7Days: 1,
+    });
+  });
+
+  it("aggregates inventory, wallet, and Pokemon history without double-counting players", async () => {
+    const secondAsOf = new Date("2026-10-15T12:00:00.000Z");
+    const inventoryOnly = randomUUID();
+    const walletReturning = randomUUID();
+    const pokemonOnly = randomUUID();
+    const crossLedger = randomUUID();
+    const itemId = randomUUID();
+    const currencyId = randomUUID();
+    const speciesId = randomUUID();
+    const formId = randomUUID();
+
+    for (const playerId of [inventoryOnly, walletReturning, pokemonOnly, crossLedger]) {
+      await insertPlayer(pool, playerId, secondAsOf);
+    }
+
+    await pool.query("INSERT INTO items(id, slug) VALUES ($1, 'f8-2-analytics-item')", [itemId]);
+    await pool.query(
+      `INSERT INTO currency_definitions(id, slug, display_name, allows_negative)
+       VALUES ($1, 'f8-2-analytics-currency', 'F8.2 Analytics Currency', FALSE)`,
+      [currencyId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 32000, 'f8-2-analytics-species')",
+      [speciesId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'f8-2-analytics-form')",
+      [formId, speciesId],
+    );
+
+    await insertInventoryActivity(
+      pool,
+      inventoryOnly,
+      itemId,
+      new Date("2026-10-15T00:00:00.000Z"),
+      "inventory-only",
+    );
+
+    await insertWalletActivity(
+      pool,
+      walletReturning,
+      currencyId,
+      new Date("2026-10-10T12:00:00.000Z"),
+      "wallet-current",
+    );
+    await insertWalletActivity(
+      pool,
+      walletReturning,
+      currencyId,
+      new Date("2026-10-05T12:00:00.000Z"),
+      "wallet-prior",
+    );
+
+    await insertPokemonActivity(
+      pool,
+      pokemonOnly,
+      formId,
+      new Date("2026-09-20T12:00:00.000Z"),
+      "pokemon-only",
+    );
+
+    await insertProgressActivity(
+      pool,
+      crossLedger,
+      new Date("2026-10-14T12:00:00.000Z"),
+      "cross-progress",
+    );
+    await insertInventoryActivity(
+      pool,
+      crossLedger,
+      itemId,
+      new Date("2026-10-14T00:00:00.000Z"),
+      "cross-inventory",
+    );
+    await insertWalletActivity(
+      pool,
+      crossLedger,
+      currencyId,
+      new Date("2026-10-12T12:00:00.000Z"),
+      "cross-wallet",
+    );
+    await insertPokemonActivity(
+      pool,
+      crossLedger,
+      formId,
+      new Date("2026-10-13T12:00:00.000Z"),
+      "cross-pokemon",
+    );
+
+    const repository = new PostgresPlayerActivityAnalyticsRepository(pool);
+    await expect(repository.readAggregate("production", secondAsOf)).resolves.toEqual({
+      last24Hours: 2,
+      last7Days: 3,
+      last30Days: 4,
       returningPlayers7Days: 1,
     });
   });
