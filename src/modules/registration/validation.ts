@@ -8,9 +8,7 @@ function normalizedDraft(input: RegistrationDraftInput): RegistrationDraftInput 
   return {
     ...(input.trainerName === undefined ? {} : { trainerName: input.trainerName.trim() }),
     ...(input.age === undefined ? {} : { age: input.age }),
-    ...(input.genderPronouns === undefined
-      ? {}
-      : { genderPronouns: input.genderPronouns.trim() }),
+    ...(input.genderPronouns === undefined ? {} : { genderPronouns: input.genderPronouns.trim() }),
     ...(input.appearance === undefined ? {} : { appearance: input.appearance.trim() }),
     ...(input.personality === undefined ? {} : { personality: input.personality.trim() }),
     ...(input.backstory === undefined ? {} : { backstory: input.backstory.trim() }),
@@ -29,10 +27,7 @@ export function normalizeRegistrationDraft(
   if (normalized.trainerName !== undefined && normalized.trainerName.length === 0) {
     invalidFields.push("trainerName");
   }
-  if (
-    normalized.age !== undefined &&
-    (!Number.isInteger(normalized.age) || normalized.age <= 0)
-  ) {
+  if (normalized.age !== undefined && (!Number.isInteger(normalized.age) || normalized.age <= 0)) {
     invalidFields.push("age");
   }
   if (normalized.genderPronouns !== undefined && normalized.genderPronouns.length === 0) {
@@ -89,15 +84,8 @@ export function validateRegistrationDraft(
     );
   }
 
-  const {
-    trainerName,
-    age,
-    genderPronouns,
-    appearance,
-    personality,
-    backstory,
-    starterFormId,
-  } = normalized;
+  const { trainerName, age, genderPronouns, appearance, personality, backstory, starterFormId } =
+    normalized;
   if (
     trainerName === undefined ||
     age === undefined ||
