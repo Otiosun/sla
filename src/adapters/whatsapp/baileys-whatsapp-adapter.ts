@@ -1,4 +1,5 @@
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
+import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
 import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
 import type {
   WhatsAppAdapter,
@@ -66,7 +67,10 @@ function statusCodeFromError(error: unknown): number | null {
   return null;
 }
 
-function textPayload(message: PendingOutboxMessage): string {
+function outboundContent(message: PendingOutboxMessage): {
+  readonly text: string;
+  readonly mentions?: readonly string[];
+} {
   if (message.channel !== "whatsapp") {
     throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
   }
@@ -77,7 +81,24 @@ function textPayload(message: PendingOutboxMessage): string {
   if (typeof text !== "string" || text.length === 0 || text.length > 32_768) {
     throw new Error("Baileys TEXT outbound payload requires non-empty text up to 32768 chars");
   }
-  return text;
+
+  const mentions = message.payload.mentions;
+  if (mentions === undefined) return { text };
+  if (
+    !Array.isArray(mentions) ||
+    mentions.length > 64 ||
+    mentions.some((mention) => typeof mention !== "string" || mention.trim().length === 0)
+  ) {
+    throw new Error("Baileys TEXT outbound mentions must be an array of up to 64 non-empty JIDs");
+  }
+  return { text, mentions: mentions as readonly string[] };
+}
+
+function providerExternalMessageId(result: unknown): string | null {
+  if (typeof result !== "object" || result === null || !("key" in result)) return null;
+  const key = result.key;
+  if (typeof key !== "object" || key === null || !("id" in key)) return null;
+  return typeof key.id === "string" && key.id.length > 0 ? key.id : null;
 }
 
 export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
@@ -147,7 +168,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     socket?.end();
   }
 
-  async send(message: PendingOutboxMessage): Promise<void> {
+  async send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt> {
     const startedAtMs = monotonicNowMs();
     let result: "success" | "error" = "success";
     try {
@@ -155,8 +176,9 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       if (socket === null || this.stopped) {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
-      await socket.sendMessage(message.destinationRef, { text: textPayload(message) });
+      const sent = await socket.sendMessage(message.destinationRef, outboundContent(message));
       this.metrics.increment("whatsapp.outgoing.total");
+      return { providerExternalMessageId: providerExternalMessageId(sent) };
     } catch (error) {
       result = "error";
       this.metrics.increment("whatsapp.outgoing.errors_total");
@@ -223,52 +245,47 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   ): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
 
-    if (update.qr && this.onQr) {
-      await this.onQr(update.qr);
+    if (typeof update.qr === "string" && update.qr.length > 0) {
+      this.metrics.increment("whatsapp.auth.qr_total");
+      await this.onQr?.(update.qr);
     }
 
     if (update.connection === "open") {
       this.metrics.increment("whatsapp.connection.open_total");
-      await this.notifyConnectionState("CONNECTED");
+      await this.onConnectionState?.("CONNECTED");
       return;
     }
     if (update.connection !== "close") return;
 
     this.metrics.increment("whatsapp.connection.close_total");
-    if (this.socket === socket) this.socket = null;
-    await this.notifyConnectionState("DISCONNECTED");
+    await this.onConnectionState?.("DISCONNECTED");
+    if (this.socket === socket) {
+      this.socket = null;
+    }
 
-    const statusCode = statusCodeFromError(update.lastDisconnect?.error);
-    if (statusCode === loggedOutStatusCode) {
-      this.metrics.increment("whatsapp.connection.logged_out_total");
-      if (this.onLoggedOut) await this.onLoggedOut();
+    if (statusCodeFromError(update.lastDisconnect?.error) === loggedOutStatusCode) {
+      this.stopped = true;
+      this.generation += 1;
+      this.incomingHandler = null;
+      this.metrics.increment("whatsapp.auth.logged_out_total");
+      await this.onLoggedOut?.();
       return;
     }
 
     this.scheduleReconnect(generation);
   }
 
-  private async notifyConnectionState(state: WhatsAppProviderConnectionState): Promise<void> {
-    if (this.onConnectionState === undefined) return;
-    try {
-      await this.onConnectionState(state);
-    } catch (error) {
-      this.onProviderError(error);
-    }
-  }
-
   private scheduleReconnect(generation: number): void {
     if (this.stopped || generation !== this.generation || this.reconnectTimer !== null) return;
-
-    this.metrics.increment("whatsapp.reconnect.scheduled_total");
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (this.stopped || generation !== this.generation) return;
+      if (this.stopped || generation !== this.generation || this.socket !== null) return;
       try {
         this.connect();
       } catch (error) {
+        this.metrics.increment("whatsapp.connection.reconnect_errors_total");
         this.onProviderError(error);
-        this.scheduleReconnect(this.generation);
+        this.scheduleReconnect(generation);
       }
     }, this.reconnectDelayMs);
   }
