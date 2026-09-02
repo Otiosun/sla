@@ -8,6 +8,10 @@ import type {
 import type { ContentLibraryService } from "../../modules/admin/content-library-service.js";
 import type { ContentReleaseReadService } from "../../modules/admin/content-release-read-service.js";
 import { AdminEnvironmentSchema } from "../../modules/admin/contracts.js";
+import type {
+  EconomyAnalyticsService,
+  EconomyAnalyticsView,
+} from "../../modules/admin/economy-analytics-service.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
 import type { IncidentCenterView } from "../../modules/admin/incident-center-read-contracts.js";
 import type { IncidentCenterReadService } from "../../modules/admin/incident-center-read-service.js";
@@ -45,6 +49,7 @@ type MessagingOperationsReader = Pick<MessagingOperationsReadService, "getSnapsh
 type IncidentCenterReader = Pick<IncidentCenterReadService, "getSnapshot">;
 type AdminOperationAuditReader = Pick<AdminOperationAuditReadService, "get">;
 type PlayerActivityAnalyticsReader = Pick<PlayerActivityAnalyticsService, "getAggregate">;
+type EconomyAnalyticsReader = Pick<EconomyAnalyticsService, "getAggregate">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -92,6 +97,7 @@ export class AdminReadFacade {
     private readonly incidentCenter?: IncidentCenterReader,
     private readonly adminOperationAudit?: AdminOperationAuditReader,
     private readonly playerActivityAnalytics?: PlayerActivityAnalyticsReader,
+    private readonly economyAnalytics?: EconomyAnalyticsReader,
   ) {}
 
   public async searchPlayers(
@@ -128,6 +134,18 @@ export class AdminReadFacade {
       throw new Error("Player activity analytics read boundary is not configured");
     }
     return this.playerActivityAnalytics.getAggregate({
+      principalId: context.principalId,
+      environment: AdminEnvironmentSchema.parse(context.environment),
+      correlationId: context.correlationId,
+    });
+  }
+
+  public async getEconomyAnalytics(rawContext: unknown): Promise<EconomyAnalyticsView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.economyAnalytics === undefined) {
+      throw new Error("Economy analytics read boundary is not configured");
+    }
+    return this.economyAnalytics.getAggregate({
       principalId: context.principalId,
       environment: AdminEnvironmentSchema.parse(context.environment),
       correlationId: context.correlationId,
