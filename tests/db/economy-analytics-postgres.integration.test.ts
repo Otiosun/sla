@@ -40,7 +40,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("reconciles projection by commutative ledger deltas, suppresses low-cardinality currencies, and excludes future rows", async () => {
+  it("reconciles projection by commutative ledger deltas, respects currency policy, suppresses low-cardinality currencies, and excludes future rows", async () => {
     const players = [
       randomUUID(),
       randomUUID(),
@@ -62,7 +62,8 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
 
     const sameTimestamp = new Date("2026-08-20T00:00:00.000Z");
     for (const [index, playerId] of players.slice(0, 5).entries()) {
-      const amount = index === 0 ? 80 : 1;
+      const amount = index === 0 ? 80 : index === 4 ? -5 : 1;
+      const delta = index === 0 ? 100 : index === 4 ? -5 : 1;
       await pool.query(
         "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, $3)",
         [playerId, currency, amount],
@@ -74,11 +75,11 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
           index === 0 ? "ffffffff-ffff-4fff-8fff-ffffffffffff" : randomUUID(),
           playerId,
           currency,
-          index === 0 ? 100 : 1,
+          delta,
           `source-${index}`,
-          `credit-${index}`,
+          `flow-${index}`,
           randomUUID(),
-          index === 0 ? 100 : 1,
+          delta,
           index === 0 ? sameTimestamp : new Date("2026-09-01T00:00:00.000Z"),
         ],
       );
@@ -133,10 +134,10 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       {
         slug: "f8-3-visible",
         displayName: "Visible",
-        inflow: "104",
-        outflow: "20",
-        netFlow: "84",
-        totalBalance: "84",
+        inflow: "103",
+        outflow: "25",
+        netFlow: "78",
+        totalBalance: "78",
       },
     ]);
     expect(result.currenciesTruncated).toBe(false);
@@ -146,8 +147,8 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       netFlowUnits: "7",
       totalUnitsHeld: "8",
     });
-    expect(result.inventoryProjectionMismatches).toBe(1);
-    expect(result.walletProjectionMismatches).toBe(0);
+    expect(result.inventoryProjectionMismatches).toBe("1");
+    expect(result.walletProjectionMismatches).toBe("0");
     expect(JSON.stringify(result)).not.toContain(players[0]);
   });
 });
