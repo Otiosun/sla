@@ -117,33 +117,34 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
         );
 
         const anomalyResult = await client.query<AnomalyRow>(
-          `WITH wallet_mismatches AS (
+          `WITH wallet_ledger_totals AS (
+             SELECT player_id, currency_id, sum(delta) AS reconstructed_amount
+             FROM wallet_ledger
+             GROUP BY player_id, currency_id
+           ), wallet_mismatches AS (
              SELECT count(*)::text AS mismatch_count
              FROM wallet_balances balance
-             LEFT JOIN LATERAL (
-               SELECT COALESCE(sum(ledger.delta), 0) AS reconstructed_amount
-               FROM wallet_ledger ledger
-               WHERE ledger.player_id = balance.player_id
-                 AND ledger.currency_id = balance.currency_id
-                 AND ledger.created_at < $1::timestamptz
-             ) reconstructed ON TRUE
-             WHERE reconstructed.reconstructed_amount <> balance.amount
+             FULL OUTER JOIN wallet_ledger_totals ledger
+               ON ledger.player_id = balance.player_id
+              AND ledger.currency_id = balance.currency_id
+             WHERE COALESCE(balance.amount, 0::bigint)::numeric
+                   <> COALESCE(ledger.reconstructed_amount, 0::numeric)
+           ), inventory_ledger_totals AS (
+             SELECT player_id, item_id, sum(delta) AS reconstructed_quantity
+             FROM inventory_ledger
+             GROUP BY player_id, item_id
            ), inventory_mismatches AS (
              SELECT count(*)::text AS mismatch_count
              FROM inventory_balances balance
-             LEFT JOIN LATERAL (
-               SELECT COALESCE(sum(ledger.delta), 0) AS reconstructed_quantity
-               FROM inventory_ledger ledger
-               WHERE ledger.player_id = balance.player_id
-                 AND ledger.item_id = balance.item_id
-                 AND ledger.created_at < $1::timestamptz
-             ) reconstructed ON TRUE
-             WHERE reconstructed.reconstructed_quantity <> balance.quantity
+             FULL OUTER JOIN inventory_ledger_totals ledger
+               ON ledger.player_id = balance.player_id
+              AND ledger.item_id = balance.item_id
+             WHERE COALESCE(balance.quantity, 0::bigint)::numeric
+                   <> COALESCE(ledger.reconstructed_quantity, 0::numeric)
            )
            SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
                   inventory_mismatches.mismatch_count AS inventory_projection_mismatches
            FROM wallet_mismatches CROSS JOIN inventory_mismatches`,
-          [asOf],
         );
 
         const inventory = inventoryResult.rows[0];
