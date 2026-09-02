@@ -1,4 +1,5 @@
 import type { IncomingMessage, PendingOutboxMessage } from "../../modules/messaging/contracts.js";
+import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
 import type { WhatsAppAdapter, WhatsAppIncomingHandler } from "./adapter.js";
 
 export class FakeWhatsAppAdapter implements WhatsAppAdapter {
@@ -33,11 +34,12 @@ export class FakeWhatsAppAdapter implements WhatsAppAdapter {
     await handler(message);
   }
 
-  async send(message: PendingOutboxMessage): Promise<void> {
+  async send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt> {
     if (this.failuresRemaining > 0) {
       this.failuresRemaining -= 1;
       throw new Error("Simulated WhatsApp delivery failure");
     }
     this.sent.push(message);
+    return { providerExternalMessageId: `fake:${message.id}` };
   }
 }
