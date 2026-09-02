@@ -23,6 +23,8 @@ import { IncidentCenterReadService } from "../modules/admin/incident-center-read
 import { registerMessagingOperationsRead } from "../modules/admin/messaging-operations-definitions.js";
 import { MessagingOperationsReadService } from "../modules/admin/messaging-operations-read-service.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
+import { registerPlayerActivityAnalyticsRead } from "../modules/admin/player-activity-analytics-definitions.js";
+import { PlayerActivityAnalyticsService } from "../modules/admin/player-activity-analytics-service.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { registerRuntimeWhatsappHealthRead } from "../modules/admin/runtime-health-definitions.js";
 import { RuntimeWhatsappHealthService } from "../modules/admin/runtime-health-service.js";
@@ -36,6 +38,7 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
 import { PostgresIncidentCenterReadRepository } from "../platform/admin/postgres-incident-center-read-repository.js";
 import { PostgresMessagingOperationsReadRepository } from "../platform/admin/postgres-messaging-operations-read-repository.js";
+import { PostgresPlayerActivityAnalyticsRepository } from "../platform/admin/postgres-player-activity-analytics-repository.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresRuntimeWhatsappHealthRepository } from "../platform/admin/postgres-runtime-whatsapp-health-repository.js";
 import { PostgresMutationAdmission } from "../platform/anti-abuse/postgres-mutation-admission.js";
@@ -80,6 +83,17 @@ export function createOperationalAdminApi(
   const adminService = new AdminService(registry, adminRepository);
   const player360Repository = new PostgresPlayer360Repository(pool);
   const player360Service = new Player360Service(adminService, player360Repository);
+  const playerActivityAnalyticsReadRegistry = registerPlayerActivityAnalyticsRead(
+    new AdminOperationRegistry(),
+  );
+  const playerActivityAnalyticsReadService = new AdminService(
+    playerActivityAnalyticsReadRegistry,
+    adminRepository,
+  );
+  const playerActivityAnalyticsService = new PlayerActivityAnalyticsService(
+    playerActivityAnalyticsReadService,
+    new PostgresPlayerActivityAnalyticsRepository(pool),
+  );
   const contentLibraryRepository = new PostgresContentLibraryRepository(pool);
   const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
   const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
@@ -133,6 +147,7 @@ export function createOperationalAdminApi(
     messagingOperationsReadService,
     incidentCenterReadService,
     adminOperationAuditReadService,
+    playerActivityAnalyticsService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
