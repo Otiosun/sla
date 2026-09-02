@@ -474,11 +474,32 @@ export function createRegistrationWhatsAppRoutes(
 
     pendingConfirmations.delete(player.value);
     dependencies.sessions.clear(player.value);
-    return reply(
+    const playerReply = reply(
       context,
       player.value,
       "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
     );
+    if (!playerReply.ok) return playerReply;
+
+    return ok({
+      ...playerReply.value,
+      outgoing: [
+        ...playerReply.value.outgoing,
+        {
+          channel: "whatsapp",
+          destinationRef: context.message.chatRef,
+          messageType: "TEXT",
+          payload: {
+            text: `📋 Nova ficha de ${submitted.value.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+            registrationReview: {
+              reviewId: submitted.value.id,
+              reviewRevision: submitted.value.revision,
+            },
+          },
+          idempotencyKey: `registration-review-notification:${submitted.value.id}:${submitted.value.revision}`,
+        },
+      ],
+    });
   };
 
   return [
