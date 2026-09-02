@@ -124,6 +124,30 @@ describe("RegistrationConversationSessions", () => {
     expect(resumed.working.starterFormId).toBe(CHARMANDER_ID);
   });
 
+  it("tracks the persisted draft revision separately from unsaved working edits", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+
+    const resumed = sessions.start(playerId, {
+      mode: "GUIDED",
+      regionId: ZHOULIA_ID,
+      baseDraft: { trainerName: "Liora Vale", regionId: ZHOULIA_ID, schemaVersion: 1 },
+      baseRevision: 3,
+    });
+
+    expect(resumed).toMatchObject({
+      persistedRevision: 3,
+      dirty: false,
+      currentField: "age",
+    });
+
+    const changed = sessions.applyGuidedAnswer(playerId, "17");
+    expect(changed).toMatchObject({
+      ok: true,
+      value: { persistedRevision: 3, dirty: true, currentField: "genderPronouns" },
+    });
+  });
+
   it("parses a full template despite harmless spacing, casing and line-break variation", () => {
     const parsed = parseFullRegistrationTemplate(
       [
