@@ -7,9 +7,10 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined)
   throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+const requiredDatabaseUrl: string = databaseUrl;
 
 function dbUrl(name: string) {
-  const url = new URL(databaseUrl);
+  const url = new URL(requiredDatabaseUrl);
   url.pathname = `/${name}`;
   return url.toString();
 }
