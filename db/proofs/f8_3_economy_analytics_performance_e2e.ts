@@ -105,7 +105,8 @@ async function proveWalletTemporalPlan(pool: Pool): Promise<void> {
      SELECT currency_id,
             COALESCE(sum(delta) FILTER (WHERE delta > 0), 0) AS inflow,
             COALESCE(sum(-delta) FILTER (WHERE delta < 0), 0) AS outflow,
-            COALESCE(sum(delta), 0) AS net_flow
+            COALESCE(sum(delta), 0) AS net_flow,
+            count(DISTINCT player_id) AS participant_count
      FROM wallet_ledger
      WHERE created_at >= $1::timestamptz - interval '30 days'
        AND created_at < $1::timestamptz
