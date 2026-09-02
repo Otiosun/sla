@@ -2,7 +2,8 @@ import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { RegistrationDraftInput } from "./contracts.js";
 
-export type RegistrationConversationMode = "GUIDED" | "FULL";
+export type RegistrationEditingMode = "GUIDED" | "FULL";
+export type RegistrationConversationMode = "CHOOSING" | RegistrationEditingMode;
 export type RegistrationConversationField =
   | "trainerName"
   | "age"
@@ -32,10 +33,13 @@ export interface RegistrationConversationSession {
   readonly dirty: boolean;
 }
 
-export interface StartRegistrationConversationInput {
-  readonly mode: RegistrationConversationMode;
+export interface BeginRegistrationConversationInput {
   readonly regionId: string;
   readonly baseDraft?: RegistrationDraftInput;
+}
+
+export interface StartRegistrationConversationInput extends BeginRegistrationConversationInput {
+  readonly mode: RegistrationEditingMode;
 }
 
 export interface ParsedFullRegistrationTemplate {
@@ -90,6 +94,12 @@ function snapshot(session: MutableSession): RegistrationConversationSession {
   };
 }
 
+function workingDraft(input: BeginRegistrationConversationInput): MutableSession["working"] {
+  return input.baseDraft === undefined
+    ? { regionId: input.regionId, schemaVersion: 1 }
+    : { ...input.baseDraft, regionId: input.regionId };
+}
+
 function firstMissingField(
   working: MutableSession["working"],
 ): RegistrationConversationField | null {
@@ -132,6 +142,22 @@ function normalizedLabel(value: string): string {
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
     .replace(/\s+/g, " ");
+}
+
+function parseModeChoice(rawValue: string): RegistrationEditingMode | null {
+  switch (normalizedLabel(rawValue)) {
+    case "1":
+    case "guiado":
+    case "passo a passo":
+      return "GUIDED";
+    case "2":
+    case "completo":
+    case "ficha":
+    case "ficha completa":
+      return "FULL";
+    default:
+      return null;
+  }
 }
 
 function fieldForLabel(label: string): RegistrationConversationField | null {
@@ -244,15 +270,26 @@ export function parseFullRegistrationTemplate(
 export class RegistrationConversationSessions {
   private readonly sessions = new Map<PlayerId, MutableSession>();
 
+  public begin(
+    playerId: PlayerId,
+    input: BeginRegistrationConversationInput,
+  ): RegistrationConversationSession {
+    const session: MutableSession = {
+      playerId,
+      mode: "CHOOSING",
+      currentField: null,
+      working: workingDraft(input),
+      dirty: false,
+    };
+    this.sessions.set(playerId, session);
+    return snapshot(session);
+  }
+
   public start(
     playerId: PlayerId,
     input: StartRegistrationConversationInput,
   ): RegistrationConversationSession {
-    const base = input.baseDraft;
-    const working: MutableSession["working"] =
-      base === undefined
-        ? { regionId: input.regionId, schemaVersion: 1 }
-        : { ...base, regionId: input.regionId };
+    const working = workingDraft(input);
     const session: MutableSession = {
       playerId,
       mode: input.mode,
@@ -269,9 +306,33 @@ export class RegistrationConversationSessions {
     return session === undefined ? null : snapshot(session);
   }
 
+  public chooseMode(
+    playerId: PlayerId,
+    rawValue: string,
+  ): Result<RegistrationConversationSession> {
+    const session = this.sessions.get(playerId);
+    if (session === undefined) {
+      return err(appError("NOT_FOUND", "Registration conversation is not active"));
+    }
+    if (session.mode !== "CHOOSING") {
+      return err(
+        appError("INVALID_STATE_TRANSITION", "Registration mode has already been selected"),
+      );
+    }
+    const mode = parseModeChoice(rawValue);
+    if (mode === null) {
+      return err(
+        appError("VALIDATION_FAILED", "Escolha 1 para modo guiado ou 2 para ficha completa"),
+      );
+    }
+    session.mode = mode;
+    session.currentField = mode === "GUIDED" ? firstMissingField(session.working) : null;
+    return ok(snapshot(session));
+  }
+
   public switchMode(
     playerId: PlayerId,
-    mode: RegistrationConversationMode,
+    mode: RegistrationEditingMode,
   ): Result<RegistrationConversationSession> {
     const session = this.sessions.get(playerId);
     if (session === undefined) {
