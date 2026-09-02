@@ -188,8 +188,8 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
         netFlowUnits: "7",
         totalUnitsHeld: "7",
       });
-      expect(result.inventoryProjectionMismatches).toBe(1);
-      expect(result.walletProjectionMismatches).toBe(1);
+      expect(result.inventoryProjectionMismatches).toBe("1");
+      expect(result.walletProjectionMismatches).toBe("1");
       expect(JSON.stringify(result)).not.toContain(players[0]);
     },
   );
@@ -239,6 +239,6 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     );
     // The first fixture intentionally contains one future-dated durable ledger mismatch.
     // This second account itself is consistent: 100 - 20 = 80 regardless of UUID order.
-    expect(result.walletProjectionMismatches).toBe(1);
+    expect(result.walletProjectionMismatches).toBe("1");
   });
 });
