@@ -6,10 +6,7 @@ import type {
   CommunityGroupRole,
   RegisterCommunityGroupInput,
 } from "../../modules/community/contracts.js";
-import type {
-  CommunityRepository,
-  CommunityTransaction,
-} from "../../modules/community/ports.js";
+import type { CommunityRepository, CommunityTransaction } from "../../modules/community/ports.js";
 import { withTransaction } from "../db/transaction.js";
 
 interface CommunityGroupRow {
@@ -61,7 +58,9 @@ class PostgresCommunityTransaction implements CommunityTransaction {
     return row === undefined ? null : group(row);
   }
 
-  public async listGroupsByRole(role: CommunityGroupRole): Promise<readonly CommunityGroupRecord[]> {
+  public async listGroupsByRole(
+    role: CommunityGroupRole,
+  ): Promise<readonly CommunityGroupRecord[]> {
     const result = await this.client.query<CommunityGroupRow>(
       `${GROUP_SELECT} WHERE role = $1 ORDER BY created_at, id`,
       [role],
