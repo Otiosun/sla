@@ -55,9 +55,13 @@ export interface MessageRouterPort {
   dispatch(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>>;
 }
 
+export interface OutboundMessageReceipt {
+  readonly providerExternalMessageId: string | null;
+}
+
 export interface OutboundMessageAdapter {
   readonly channel: string;
-  send(message: PendingOutboxMessage): Promise<void>;
+  send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt>;
 }
 
 export interface MediaProcessorAdapter {
