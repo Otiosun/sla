@@ -41,6 +41,34 @@ function onboardingContext() {
 }
 
 describe("registration conversation routing", () => {
+  it("turns an explicit mode choice into the requested editor without choosing for the player", async () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.begin(playerId, { regionId: ZHOULIA_ID });
+    const resolver = new RegistrationConversationResolver({
+      sessions,
+      community: { resolveChat: async () => onboardingContext() },
+      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+    });
+    const router = new MessageRouter([], undefined, resolver);
+
+    const routed = await router.dispatch(context({ text: "1" }));
+
+    expect(routed).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "REGISTRATION_SESSION",
+        resultRefId: playerId,
+        outgoing: [{ payload: { text: expect.stringContaining("Nome do treinador") } }],
+      },
+    });
+    expect(sessions.get(playerId)).toMatchObject({
+      mode: "GUIDED",
+      currentField: "trainerName",
+      dirty: false,
+    });
+  });
+
   it("consumes normal text only for an active guided session in an onboarding-capable group", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
