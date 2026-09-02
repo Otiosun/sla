@@ -83,10 +83,14 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
         requirement.allowedPlayerAccess !== undefined &&
         !requirement.allowedPlayerAccess.includes("PENDING")
       ) {
-        return err(appError("PLAYER_INELIGIBLE", "Player access state does not allow this command"));
+        return err(
+          appError("PLAYER_INELIGIBLE", "Player access state does not allow this command"),
+        );
       }
       if (requirement.requiresMechanicalReady === true) {
-        return err(appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command"));
+        return err(
+          appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command"),
+        );
       }
       return ok(undefined);
     }
