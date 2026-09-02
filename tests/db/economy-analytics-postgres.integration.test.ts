@@ -14,6 +14,42 @@ function dbUrl(name: string) {
   return url.toString();
 }
 
+async function insertWalletLedger(
+  pool: Pool,
+  input: {
+    id?: string;
+    playerId: string;
+    currencyId: string;
+    delta: number;
+    sourceId: string;
+    idempotencyScope: string;
+    idempotencyKey: string;
+    balanceAfter: number;
+    createdAt: Date;
+    reason?: string;
+  },
+) {
+  await pool.query(
+    `INSERT INTO wallet_ledger(
+       id, player_id, currency_id, delta, source_type, source_id, reason, actor_type,
+       idempotency_scope, idempotency_key, correlation_id, balance_after, created_at
+     ) VALUES ($1,$2,$3,$4,'F8_3_TEST',$5,$6,'SYSTEM',$7,$8,$9,$10,$11)`,
+    [
+      input.id ?? randomUUID(),
+      input.playerId,
+      input.currencyId,
+      input.delta,
+      input.sourceId,
+      input.reason ?? "aggregate proof",
+      input.idempotencyScope,
+      input.idempotencyKey,
+      randomUUID(),
+      input.balanceAfter,
+      input.createdAt,
+    ],
+  );
+}
+
 describe.sequential("PostgresEconomyAnalyticsRepository", () => {
   const dbName = `pokemon_economy_analytics_${process.pid}_${Date.now()}`;
   const asOf = new Date("2026-09-02T12:00:00.000Z");
@@ -37,105 +73,125 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("separates sources/sinks, suppresses low-cardinality currencies, excludes future flow, and detects projection drift", async () => {
-    const players = Array.from({ length: 6 }, () => randomUUID());
-    for (const id of players) {
-      await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [id]);
-    }
-    const currency = randomUUID();
-    const privateCurrency = randomUUID();
-    const item = randomUUID();
-    await pool.query(
-      "INSERT INTO currency_definitions(id, slug, display_name, allows_negative) VALUES ($1, 'f8-3-visible', 'Visible', TRUE), ($2, 'f8-3-private', 'Private', FALSE)",
-      [currency, privateCurrency],
-    );
-    await pool.query("INSERT INTO items(id, slug) VALUES ($1, 'f8-3-item')", [item]);
-
-    for (let index = 0; index < 5; index += 1) {
-      const amount = index === 0 ? 80 : 1;
+  it(
+    "separates sources/sinks, suppresses low-cardinality currencies, excludes future flow, and detects projection drift",
+    async () => {
+      const players = Array.from({ length: 6 }, () => randomUUID());
+      for (const id of players) {
+        await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [id]);
+      }
+      const currency = randomUUID();
+      const privateCurrency = randomUUID();
+      const item = randomUUID();
       await pool.query(
-        "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, $3)",
-        [players[index], currency, amount],
+        `INSERT INTO currency_definitions(id, slug, display_name, allows_negative)
+         VALUES ($1, 'f8-3-visible', 'Visible', TRUE),
+                ($2, 'f8-3-private', 'Private', FALSE)`,
+        [currency, privateCurrency],
+      );
+      await pool.query("INSERT INTO items(id, slug) VALUES ($1, 'f8-3-item')", [item]);
+
+      for (let index = 0; index < 5; index += 1) {
+        const amount = index === 0 ? 80 : 1;
+        await pool.query(
+          "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, $3)",
+          [players[index], currency, amount],
+        );
+        await insertWalletLedger(pool, {
+          playerId: players[index],
+          currencyId: currency,
+          delta: index === 0 ? 100 : 1,
+          sourceId: `source-${index}`,
+          idempotencyScope: "f8.3-test",
+          idempotencyKey: `credit-${index}`,
+          balanceAfter: index === 0 ? 100 : 1,
+          createdAt:
+            index === 0
+              ? new Date("2026-08-03T12:00:00.000Z")
+              : new Date("2026-09-01T00:00:00.000Z"),
+        });
+      }
+      await insertWalletLedger(pool, {
+        playerId: players[0],
+        currencyId: currency,
+        delta: -20,
+        sourceId: "sink",
+        idempotencyScope: "f8.3-test",
+        idempotencyKey: "sink",
+        balanceAfter: 80,
+        createdAt: new Date("2026-08-20T00:00:00.000Z"),
+      });
+      await insertWalletLedger(pool, {
+        playerId: players[0],
+        currencyId: currency,
+        delta: 999,
+        sourceId: "future",
+        idempotencyScope: "f8.3-test",
+        idempotencyKey: "future",
+        balanceAfter: 1079,
+        createdAt: new Date("2026-09-03T00:00:00.000Z"),
+      });
+      await insertWalletLedger(pool, {
+        playerId: players[5],
+        currencyId: privateCurrency,
+        delta: 50,
+        sourceId: "private",
+        idempotencyScope: "f8.3-test",
+        idempotencyKey: "private",
+        balanceAfter: 50,
+        createdAt: new Date("2026-09-01T00:00:00.000Z"),
+      });
+
+      await pool.query(
+        "INSERT INTO inventory_balances(player_id, item_id, quantity) VALUES ($1,$2,7)",
+        [players[0], item],
       );
       await pool.query(
-        `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
-         VALUES ($1,$2,$3,$4,'F8_3_TEST',$5,'aggregate proof','SYSTEM','f8.3-test',$6,$7,$8,$9)`,
+        `INSERT INTO inventory_ledger(
+           id, player_id, item_id, delta, source_type, source_id, reason, actor_type,
+           idempotency_scope, idempotency_key, correlation_id, balance_after, created_at
+         ) VALUES ($1,$2,$3,10,'F8_3_TEST','inventory-source','aggregate proof','SYSTEM',
+                   'f8.3-test','inventory-source',$4,10,$5),
+                  ($6,$2,$3,-3,'F8_3_TEST','inventory-sink','aggregate proof','SYSTEM',
+                   'f8.3-test','inventory-sink',$7,6,$8)`,
         [
           randomUUID(),
-          players[index],
-          currency,
-          index === 0 ? 100 : 1,
-          `source-${index}`,
-          `credit-${index}`,
+          players[0],
+          item,
           randomUUID(),
-          index === 0 ? 100 : 1,
-          index === 0
-            ? new Date("2026-08-03T12:00:00.000Z")
-            : new Date("2026-09-01T00:00:00.000Z"),
+          new Date("2026-08-10T00:00:00.000Z"),
+          randomUUID(),
+          randomUUID(),
+          new Date("2026-08-20T00:00:00.000Z"),
         ],
       );
-    }
-    await pool.query(
-      `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
-       VALUES ($1,$2,$3,-20,'F8_3_TEST','sink','aggregate proof','SYSTEM','f8.3-test','sink',$4,80,$5)`,
-      [randomUUID(), players[0], currency, randomUUID(), new Date("2026-08-20T00:00:00.000Z")],
-    );
-    await pool.query(
-      `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
-       VALUES ($1,$2,$3,999,'F8_3_TEST','future','aggregate proof','SYSTEM','f8.3-test','future',$4,1079,$5)`,
-      [randomUUID(), players[0], currency, randomUUID(), new Date("2026-09-03T00:00:00.000Z")],
-    );
-    await pool.query(
-      `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
-       VALUES ($1,$2,$3,50,'F8_3_TEST','private','aggregate proof','SYSTEM','f8.3-test','private',$4,50,$5)`,
-      [randomUUID(), players[5], privateCurrency, randomUUID(), new Date("2026-09-01T00:00:00.000Z")],
-    );
 
-    await pool.query(
-      "INSERT INTO inventory_balances(player_id, item_id, quantity) VALUES ($1,$2,7)",
-      [players[0], item],
-    );
-    await pool.query(
-      `INSERT INTO inventory_ledger(id, player_id, item_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
-       VALUES ($1,$2,$3,10,'F8_3_TEST','inventory-source','aggregate proof','SYSTEM','f8.3-test','inventory-source',$4,10,$5),
-              ($6,$2,$3,-3,'F8_3_TEST','inventory-sink','aggregate proof','SYSTEM','f8.3-test','inventory-sink',$7,6,$8)`,
-      [
-        randomUUID(),
-        players[0],
-        item,
-        randomUUID(),
-        new Date("2026-08-10T00:00:00.000Z"),
-        randomUUID(),
-        randomUUID(),
-        new Date("2026-08-20T00:00:00.000Z"),
-      ],
-    );
-
-    const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
-      "production",
-      asOf,
-    );
-    expect(result.currencies).toEqual([
-      {
-        slug: "f8-3-visible",
-        displayName: "Visible",
-        inflow: "104",
-        outflow: "20",
-        netFlow: "84",
-        totalBalance: "84",
-      },
-    ]);
-    expect(result.currenciesTruncated).toBe(false);
-    expect(result.inventory).toEqual({
-      inflowUnits: "10",
-      outflowUnits: "3",
-      netFlowUnits: "7",
-      totalUnitsHeld: "7",
-    });
-    expect(result.inventoryProjectionMismatches).toBe(1);
-    expect(result.walletProjectionMismatches).toBe(1);
-    expect(JSON.stringify(result)).not.toContain(players[0]);
-  });
+      const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
+        "production",
+        asOf,
+      );
+      expect(result.currencies).toEqual([
+        {
+          slug: "f8-3-visible",
+          displayName: "Visible",
+          inflow: "104",
+          outflow: "20",
+          netFlow: "84",
+          totalBalance: "84",
+        },
+      ]);
+      expect(result.currenciesTruncated).toBe(false);
+      expect(result.inventory).toEqual({
+        inflowUnits: "10",
+        outflowUnits: "3",
+        netFlowUnits: "7",
+        totalUnitsHeld: "7",
+      });
+      expect(result.inventoryProjectionMismatches).toBe(1);
+      expect(result.walletProjectionMismatches).toBe(1);
+      expect(JSON.stringify(result)).not.toContain(players[0]);
+    },
+  );
 
   it("does not infer final ledger state from UUID order when timestamps tie", async () => {
     const playerId = randomUUID();
@@ -143,19 +199,38 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     const timestamp = new Date("2026-09-01T10:00:00.000Z");
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
     await pool.query(
-      "INSERT INTO currency_definitions(id, slug, display_name, allows_negative) VALUES ($1, $2, $3, FALSE)",
+      `INSERT INTO currency_definitions(id, slug, display_name, allows_negative)
+       VALUES ($1, $2, $3, FALSE)`,
       [currencyId, `tie-${currencyId}`, "Tie proof"],
     );
     await pool.query(
       "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 80)",
       [playerId, currencyId],
     );
-    await pool.query(
-      `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
-       VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff',$1,$2,100,'F8_3_TEST','credit','tie boundary','SYSTEM','f8.3-tie','credit',$3,100,$4),
-              ('00000000-0000-4000-8000-000000000001',$1,$2,-20,'F8_3_TEST','debit','tie boundary','SYSTEM','f8.3-tie','debit',$5,80,$4)`,
-      [playerId, currencyId, randomUUID(), timestamp, randomUUID()],
-    );
+    await insertWalletLedger(pool, {
+      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      playerId,
+      currencyId,
+      delta: 100,
+      sourceId: "credit",
+      idempotencyScope: "f8.3-tie",
+      idempotencyKey: "credit",
+      balanceAfter: 100,
+      createdAt: timestamp,
+      reason: "tie boundary",
+    });
+    await insertWalletLedger(pool, {
+      id: "00000000-0000-4000-8000-000000000001",
+      playerId,
+      currencyId,
+      delta: -20,
+      sourceId: "debit",
+      idempotencyScope: "f8.3-tie",
+      idempotencyKey: "debit",
+      balanceAfter: 80,
+      createdAt: timestamp,
+      reason: "tie boundary",
+    });
 
     const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
       "production",
