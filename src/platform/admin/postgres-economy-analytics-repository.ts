@@ -42,14 +42,6 @@ function currencyEvidence(row: CurrencyRow): EconomyCurrencyAggregateEvidence {
   };
 }
 
-function safeCount(value: string, label: string): number {
-  const parsed = BigInt(value);
-  if (parsed < 0n || parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`${label} exceeds safe transport range`);
-  }
-  return Number(parsed);
-}
-
 export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadRepository {
   public constructor(private readonly pool: Pool) {}
 
@@ -172,14 +164,8 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
             netFlowUnits: inventory.net_flow_units,
             totalUnitsHeld: inventory.total_units_held,
           },
-          walletProjectionMismatches: safeCount(
-            anomalies.wallet_projection_mismatches,
-            "wallet projection mismatch count",
-          ),
-          inventoryProjectionMismatches: safeCount(
-            anomalies.inventory_projection_mismatches,
-            "inventory projection mismatch count",
-          ),
+          walletProjectionMismatches: anomalies.wallet_projection_mismatches,
+          inventoryProjectionMismatches: anomalies.inventory_projection_mismatches,
         };
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
