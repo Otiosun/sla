@@ -40,7 +40,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("separates sources/sinks, suppresses low-cardinality currencies, bounds asOf, and detects projection drift", async () => {
+  it("reconciles projection by commutative ledger deltas, suppresses low-cardinality currencies, and excludes future rows", async () => {
     const players = [
       randomUUID(),
       randomUUID(),
@@ -60,6 +60,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     );
     await pool.query("INSERT INTO items(id, slug) VALUES ($1, 'f8-3-item')", [item]);
 
+    const sameTimestamp = new Date("2026-08-20T00:00:00.000Z");
     for (const [index, playerId] of players.slice(0, 5).entries()) {
       const amount = index === 0 ? 80 : 1;
       await pool.query(
@@ -70,7 +71,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
         `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
         VALUES ($1,$2,$3,$4,'F8_3_TEST',$5,'aggregate proof','SYSTEM','f8.3-test',$6,$7,$8,$9)`,
         [
-          randomUUID(),
+          index === 0 ? "ffffffff-ffff-4fff-8fff-ffffffffffff" : randomUUID(),
           playerId,
           currency,
           index === 0 ? 100 : 1,
@@ -78,14 +79,20 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
           `credit-${index}`,
           randomUUID(),
           index === 0 ? 100 : 1,
-          index === 0 ? new Date("2026-08-03T12:00:00.000Z") : new Date("2026-09-01T00:00:00.000Z"),
+          index === 0 ? sameTimestamp : new Date("2026-09-01T00:00:00.000Z"),
         ],
       );
     }
     await pool.query(
       `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
       VALUES ($1,$2,$3,-20,'F8_3_TEST','sink','aggregate proof','SYSTEM','f8.3-test','sink',$4,80,$5)`,
-      [randomUUID(), players[0], currency, randomUUID(), new Date("2026-08-20T00:00:00.000Z")],
+      [
+        "00000000-0000-4000-8000-000000000001",
+        players[0],
+        currency,
+        randomUUID(),
+        sameTimestamp,
+      ],
     );
     await pool.query(
       `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
@@ -105,13 +112,13 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     );
 
     await pool.query(
-      "INSERT INTO inventory_balances(player_id, item_id, quantity) VALUES ($1,$2,7)",
+      "INSERT INTO inventory_balances(player_id, item_id, quantity) VALUES ($1,$2,8)",
       [players[0], item],
     );
     await pool.query(
       `INSERT INTO inventory_ledger(id, player_id, item_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
       VALUES ($1,$2,$3,10,'F8_3_TEST','inventory-source','aggregate proof','SYSTEM','f8.3-test','inventory-source',$4,10,$5),
-             ($6,$2,$3,-3,'F8_3_TEST','inventory-sink','aggregate proof','SYSTEM','f8.3-test','inventory-sink',$7,6,$8)`,
+             ($6,$2,$3,-3,'F8_3_TEST','inventory-sink','aggregate proof','SYSTEM','f8.3-test','inventory-sink',$7,7,$8)`,
       [
         randomUUID(),
         players[0],
@@ -143,7 +150,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       inflowUnits: "10",
       outflowUnits: "3",
       netFlowUnits: "7",
-      totalUnitsHeld: "7",
+      totalUnitsHeld: "8",
     });
     expect(result.inventoryProjectionMismatches).toBe(1);
     expect(result.walletProjectionMismatches).toBe(0);
