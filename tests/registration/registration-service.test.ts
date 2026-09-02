@@ -30,6 +30,7 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
   public draft: RegistrationDraftRecord | null = null;
   public revisions: RegistrationRevisionRecord[] = [];
   public receipts = new Map<string, string>();
+  public transactionCalls = 0;
 
   private readonly tx: RegistrationTransaction = {
     loadDraft: async () => this.draft,
@@ -84,6 +85,7 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
   };
 
   public async transaction<T>(fn: (tx: RegistrationTransaction) => Promise<T>): Promise<T> {
+    this.transactionCalls += 1;
     return fn(this.tx);
   }
 
@@ -162,6 +164,64 @@ describe("registration draft lifecycle", () => {
       expectedRevision: null,
     });
     expect(stale).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+  });
+
+  it("atomically saves current values and submits that exact snapshot in one transaction", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    await service.saveDraft({ playerId, draft: snapshot(), expectedRevision: null });
+    repository.transactionCalls = 0;
+
+    const confirmed = await service.saveAndSubmit({
+      playerId,
+      draft: { ...snapshot(), trainerName: "Liora Confirmada" },
+      expectedDraftRevision: 0,
+      idempotencyKey: "confirm-atomic-1",
+    });
+
+    expect(confirmed).toMatchObject({
+      ok: true,
+      value: {
+        status: "SUBMITTED",
+        sequenceNo: 1,
+        replayed: false,
+        snapshot: { trainerName: "Liora Confirmada" },
+      },
+    });
+    expect(repository.transactionCalls).toBe(1);
+    expect(repository.draft).toMatchObject({
+      revision: 1,
+      snapshot: { trainerName: "Liora Confirmada" },
+    });
+    expect(repository.revisions).toHaveLength(1);
+    expect(repository.revisions[0]?.snapshot.trainerName).toBe("Liora Confirmada");
+  });
+
+  it("replays atomic confirmation before checking the now-stale draft revision", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    await service.saveDraft({ playerId, draft: snapshot(), expectedRevision: null });
+    const input = {
+      playerId,
+      draft: { ...snapshot(), trainerName: "Liora Confirmada" },
+      expectedDraftRevision: 0,
+      idempotencyKey: "confirm-atomic-replay",
+    } as const;
+
+    const first = await service.saveAndSubmit(input);
+    const replay = await service.saveAndSubmit(input);
+
+    expect(first).toMatchObject({ ok: true, value: { replayed: false } });
+    expect(replay).toMatchObject({
+      ok: true,
+      value: { replayed: true, snapshot: { trainerName: "Liora Confirmada" } },
+    });
+    expect(repository.draft?.revision).toBe(1);
+    expect(repository.revisions).toHaveLength(1);
   });
 
   it("submits one immutable revision and replays the same idempotency key", async () => {
