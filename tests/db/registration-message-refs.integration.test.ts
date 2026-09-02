@@ -45,6 +45,7 @@ describe.sequential("PostgresRegistrationMessageRefRepository", () => {
     const playerId = randomUUID();
     const reviewId = randomUUID();
     const outboxMessageId = randomUUID();
+    const correlationId = randomUUID();
 
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
     await pool.query(
@@ -55,9 +56,9 @@ describe.sequential("PostgresRegistrationMessageRefRepository", () => {
     );
     await pool.query(
       `INSERT INTO outbox_messages(
-         id, channel, destination_ref, message_type, payload, idempotency_key, status
-       ) VALUES ($1, 'whatsapp', 'reception@g.us', 'TEXT', '{}'::jsonb, $2, 'PENDING')`,
-      [outboxMessageId, `review-notification:${reviewId}`],
+         id, channel, destination_ref, message_type, payload, idempotency_key, status, correlation_id
+       ) VALUES ($1, 'whatsapp', 'reception@g.us', 'TEXT', '{}'::jsonb, $2, 'PENDING', $3)`,
+      [outboxMessageId, `review-notification:${reviewId}`, correlationId],
     );
 
     await repository.record({
