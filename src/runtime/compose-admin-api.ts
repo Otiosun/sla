@@ -98,7 +98,10 @@ export function createOperationalAdminApi(
     new PostgresPlayerActivityAnalyticsRepository(pool),
   );
   const economyAnalyticsReadRegistry = registerEconomyAnalyticsRead(new AdminOperationRegistry());
-  const economyAnalyticsReadService = new AdminService(economyAnalyticsReadRegistry, adminRepository);
+  const economyAnalyticsReadService = new AdminService(
+    economyAnalyticsReadRegistry,
+    adminRepository,
+  );
   const economyAnalyticsService = new EconomyAnalyticsService(
     economyAnalyticsReadService,
     new PostgresEconomyAnalyticsRepository(pool),
