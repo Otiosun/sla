@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { AdminService } from "../../src/modules/admin/service.js";
 import type { AdminOperationRepository } from "../../src/modules/admin/ports.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
 import { registerEconomyAnalyticsRead } from "../../src/modules/admin/economy-analytics-definitions.js";
 import { EconomyAnalyticsService } from "../../src/modules/admin/economy-analytics-service.js";
+import { AdminService } from "../../src/modules/admin/service.js";
 
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
 const CORRELATION_ID = "22222222-2222-4222-8222-222222222222";
@@ -30,8 +30,8 @@ describe("EconomyAnalyticsService", () => {
         netFlowUnits: "50",
         totalUnitsHeld: "700",
       },
-      walletProjectionMismatches: 2,
-      inventoryProjectionMismatches: 1,
+      walletProjectionMismatches: "2",
+      inventoryProjectionMismatches: "1",
     }));
     const service = new EconomyAnalyticsService({ authorizeRead }, { readAggregate }, () => AS_OF);
 
@@ -69,8 +69,8 @@ describe("EconomyAnalyticsService", () => {
         totalUnitsHeld: "700",
       },
       anomalies: {
-        walletProjectionMismatches: 2,
-        inventoryProjectionMismatches: 1,
+        walletProjectionMismatches: "2",
+        inventoryProjectionMismatches: "1",
       },
     });
 
