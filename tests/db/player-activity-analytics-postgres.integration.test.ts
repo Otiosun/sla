@@ -64,7 +64,7 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("counts distinct players in fixed windows and defines 7-day return from real prior-window activity", async () => {
+  it("counts fixed windows, distinct players, and prior-window returns", async () => {
     const player24h = randomUUID();
     const player7dDuplicate = randomUUID();
     const returningPlayer = randomUUID();
@@ -85,7 +85,12 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
       await insertPlayer(pool, playerId, asOf);
     }
 
-    await insertProgressActivity(pool, player24h, new Date("2026-09-01T00:00:00.000Z"), "24h");
+    await insertProgressActivity(
+      pool,
+      player24h,
+      new Date("2026-09-01T00:00:00.000Z"),
+      "24h",
+    );
 
     await insertProgressActivity(
       pool,
@@ -140,7 +145,10 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
     );
 
     // A fresh players.updated_at alone is deliberately not domain activity.
-    await pool.query("UPDATE players SET updated_at = $2 WHERE id = $1", [updatedAtOnlyPlayer, asOf]);
+    await pool.query("UPDATE players SET updated_at = $2 WHERE id = $1", [
+      updatedAtOnlyPlayer,
+      asOf,
+    ]);
 
     const repository = new PostgresPlayerActivityAnalyticsRepository(pool);
     await expect(repository.readAggregate("production", asOf)).resolves.toEqual({
