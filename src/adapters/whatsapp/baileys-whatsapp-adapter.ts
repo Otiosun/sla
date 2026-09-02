@@ -245,47 +245,52 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   ): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
 
-    if (typeof update.qr === "string" && update.qr.length > 0) {
-      this.metrics.increment("whatsapp.auth.qr_total");
-      await this.onQr?.(update.qr);
+    if (update.qr && this.onQr) {
+      await this.onQr(update.qr);
     }
 
     if (update.connection === "open") {
       this.metrics.increment("whatsapp.connection.open_total");
-      await this.onConnectionState?.("CONNECTED");
+      await this.notifyConnectionState("CONNECTED");
       return;
     }
     if (update.connection !== "close") return;
 
     this.metrics.increment("whatsapp.connection.close_total");
-    await this.onConnectionState?.("DISCONNECTED");
-    if (this.socket === socket) {
-      this.socket = null;
-    }
+    if (this.socket === socket) this.socket = null;
+    await this.notifyConnectionState("DISCONNECTED");
 
-    if (statusCodeFromError(update.lastDisconnect?.error) === loggedOutStatusCode) {
-      this.stopped = true;
-      this.generation += 1;
-      this.incomingHandler = null;
-      this.metrics.increment("whatsapp.auth.logged_out_total");
-      await this.onLoggedOut?.();
+    const statusCode = statusCodeFromError(update.lastDisconnect?.error);
+    if (statusCode === loggedOutStatusCode) {
+      this.metrics.increment("whatsapp.connection.logged_out_total");
+      if (this.onLoggedOut) await this.onLoggedOut();
       return;
     }
 
     this.scheduleReconnect(generation);
   }
 
+  private async notifyConnectionState(state: WhatsAppProviderConnectionState): Promise<void> {
+    if (this.onConnectionState === undefined) return;
+    try {
+      await this.onConnectionState(state);
+    } catch (error) {
+      this.onProviderError(error);
+    }
+  }
+
   private scheduleReconnect(generation: number): void {
     if (this.stopped || generation !== this.generation || this.reconnectTimer !== null) return;
+
+    this.metrics.increment("whatsapp.reconnect.scheduled_total");
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (this.stopped || generation !== this.generation || this.socket !== null) return;
+      if (this.stopped || generation !== this.generation) return;
       try {
         this.connect();
       } catch (error) {
-        this.metrics.increment("whatsapp.connection.reconnect_errors_total");
         this.onProviderError(error);
-        this.scheduleReconnect(generation);
+        this.scheduleReconnect(this.generation);
       }
     }, this.reconnectDelayMs);
   }
