@@ -29,6 +29,22 @@ export class PostgresPlayerActivityAnalyticsRepository
          FROM trainer_progress_ledger
          WHERE created_at >= $1::timestamptz - interval '30 days'
            AND created_at < $1::timestamptz
+         UNION ALL
+         SELECT player_id, created_at AS occurred_at
+         FROM inventory_ledger
+         WHERE created_at >= $1::timestamptz - interval '30 days'
+           AND created_at < $1::timestamptz
+         UNION ALL
+         SELECT player_id, created_at AS occurred_at
+         FROM wallet_ledger
+         WHERE created_at >= $1::timestamptz - interval '30 days'
+           AND created_at < $1::timestamptz
+         UNION ALL
+         SELECT pokemon.owner_player_id AS player_id, history.occurred_at
+         FROM pokemon_history_events history
+         JOIN pokemon_instances pokemon ON pokemon.id = history.pokemon_instance_id
+         WHERE history.occurred_at >= $1::timestamptz - interval '30 days'
+           AND history.occurred_at < $1::timestamptz
        ), per_player AS (
          SELECT player_id,
                 bool_or(
