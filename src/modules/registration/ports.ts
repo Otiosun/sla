@@ -1,5 +1,5 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import type { RegistrationSnapshot } from "./contracts.js";
+import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 
 export type RegistrationRevisionStatus =
   | "SUBMITTED"
@@ -10,7 +10,7 @@ export type RegistrationRevisionStatus =
 
 export interface RegistrationDraftRecord {
   readonly playerId: PlayerId;
-  readonly snapshot: RegistrationSnapshot;
+  readonly snapshot: RegistrationDraftInput;
   readonly revision: number;
 }
 
@@ -26,7 +26,7 @@ export interface RegistrationRevisionRecord {
 
 export interface SaveRegistrationDraftWrite {
   readonly playerId: PlayerId;
-  readonly snapshot: RegistrationSnapshot;
+  readonly snapshot: RegistrationDraftInput;
   readonly expectedRevision: number | null;
 }
 
