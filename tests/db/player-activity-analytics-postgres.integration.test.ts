@@ -318,4 +318,93 @@ describe.sequential("PostgresPlayerActivityAnalyticsRepository", () => {
       returningPlayers7Days: 1,
     });
   });
+
+  it("uses inclusive starts and exclusive ends for every server-owned window", async () => {
+    const boundaryAsOf = new Date("2026-12-15T12:00:00.000Z");
+    const at24hStart = randomUUID();
+    const at7dStart = randomUUID();
+    const at14dStartReturning = randomUUID();
+    const at7dNotPrior = randomUUID();
+    const at30dStart = randomUUID();
+    const atAsOf = randomUUID();
+    const future = randomUUID();
+    const before30d = randomUUID();
+
+    for (const playerId of [
+      at24hStart,
+      at7dStart,
+      at14dStartReturning,
+      at7dNotPrior,
+      at30dStart,
+      atAsOf,
+      future,
+      before30d,
+    ]) {
+      await insertPlayer(pool, playerId, boundaryAsOf);
+    }
+
+    await insertProgressActivity(
+      pool,
+      at24hStart,
+      new Date("2026-12-14T12:00:00.000Z"),
+      "boundary-24h-start",
+    );
+    await insertProgressActivity(
+      pool,
+      at7dStart,
+      new Date("2026-12-08T12:00:00.000Z"),
+      "boundary-7d-start",
+    );
+    await insertProgressActivity(
+      pool,
+      at14dStartReturning,
+      new Date("2026-12-14T12:00:00.000Z"),
+      "boundary-return-current",
+    );
+    await insertProgressActivity(
+      pool,
+      at14dStartReturning,
+      new Date("2026-12-01T12:00:00.000Z"),
+      "boundary-14d-start",
+    );
+    await insertProgressActivity(
+      pool,
+      at7dNotPrior,
+      new Date("2026-12-14T12:00:00.000Z"),
+      "boundary-not-prior-current",
+    );
+    await insertProgressActivity(
+      pool,
+      at7dNotPrior,
+      new Date("2026-12-08T12:00:00.000Z"),
+      "boundary-not-prior-7d-start",
+    );
+    await insertProgressActivity(
+      pool,
+      at30dStart,
+      new Date("2026-11-15T12:00:00.000Z"),
+      "boundary-30d-start",
+    );
+    await insertProgressActivity(pool, atAsOf, boundaryAsOf, "boundary-as-of-exclusive");
+    await insertProgressActivity(
+      pool,
+      future,
+      new Date("2026-12-15T12:00:00.001Z"),
+      "boundary-future",
+    );
+    await insertProgressActivity(
+      pool,
+      before30d,
+      new Date("2026-11-15T11:59:59.999Z"),
+      "boundary-before-30d",
+    );
+
+    const repository = new PostgresPlayerActivityAnalyticsRepository(pool);
+    await expect(repository.readAggregate("production", boundaryAsOf)).resolves.toEqual({
+      last24Hours: 3,
+      last7Days: 4,
+      last30Days: 5,
+      returningPlayers7Days: 1,
+    });
+  });
 });
