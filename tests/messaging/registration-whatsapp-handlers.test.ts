@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
-import type { RegistrationDraftRecord } from "../../src/modules/registration/ports.js";
+import type {
+  RegistrationDraftRecord,
+  RegistrationRevisionRecord,
+} from "../../src/modules/registration/ports.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
@@ -9,6 +12,7 @@ import { appError, err, ok } from "../../src/shared-kernel/result.js";
 const PLAYER_ID = createPlayerId();
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 const CHARMANDER_ID = "22222222-2222-4222-8222-222222222222";
+const REVIEW_ID = "00000000-0000-4000-8000-000000000401";
 
 function context(text: string): MessageHandlerContext {
   return {
@@ -43,15 +47,36 @@ function completedDraft() {
   } as const;
 }
 
+function review(
+  status: RegistrationRevisionRecord["status"] = "SUBMITTED",
+  revision = 0,
+): RegistrationRevisionRecord {
+  return {
+    id: REVIEW_ID,
+    playerId: PLAYER_ID,
+    sequenceNo: 1,
+    status,
+    snapshot: completedDraft(),
+    revision,
+  };
+}
+
 function dependencies(
   sessions = new RegistrationConversationSessions(),
   initialDraft: RegistrationDraftRecord | null = null,
+  initialReview: RegistrationRevisionRecord | null = null,
 ) {
   let persistedDraft = initialDraft;
+  let currentReview = initialReview;
   const submissionInputs: unknown[] = [];
+  const withdrawalInputs: unknown[] = [];
   return {
     sessions,
     submissionInputs,
+    withdrawalInputs,
+    setCurrentReview(next: RegistrationRevisionRecord | null) {
+      currentReview = next;
+    },
     players: {
       resolveOrCreatePlayer: async () =>
         ok({ playerId: PLAYER_ID, state: "NEW" as const, created: true }),
@@ -62,6 +87,10 @@ function dependencies(
         persistedDraft === null
           ? err(appError("NOT_FOUND", "Registration draft not found"))
           : ok(persistedDraft),
+      getCurrentReview: async () =>
+        currentReview === null
+          ? err(appError("NOT_FOUND", "Current registration review not found"))
+          : ok(currentReview),
       saveDraft: async (input: {
         readonly playerId: typeof PLAYER_ID;
         readonly draft: RegistrationDraftRecord["snapshot"];
@@ -78,15 +107,39 @@ function dependencies(
         readonly idempotencyKey: string;
       }) => {
         submissionInputs.push(input);
-        return ok({
-          id: "00000000-0000-4000-8000-000000000401",
+        currentReview = {
+          id: REVIEW_ID,
           playerId: input.playerId,
           sequenceNo: 1,
-          status: "SUBMITTED" as const,
+          status: "SUBMITTED",
           snapshot: input.draft,
           revision: 0,
-          replayed: false,
-        });
+        };
+        return ok({ ...currentReview, replayed: false });
+      },
+      withdraw: async (input: {
+        readonly playerId: typeof PLAYER_ID;
+        readonly revisionId: string;
+        readonly expectedRevision: number;
+      }) => {
+        withdrawalInputs.push(input);
+        if (currentReview === null || currentReview.id !== input.revisionId) {
+          return err(appError("NOT_FOUND", "Current registration review not found"));
+        }
+        if (currentReview.status !== "SUBMITTED") {
+          return err(
+            appError("INVALID_STATE_TRANSITION", "Only submitted registration can be withdrawn"),
+          );
+        }
+        if (currentReview.revision !== input.expectedRevision) {
+          return err(appError("REVISION_CONFLICT", "Registration review revision conflict"));
+        }
+        currentReview = {
+          ...currentReview,
+          status: "WITHDRAWN",
+          revision: currentReview.revision + 1,
+        };
+        return ok(currentReview);
       },
     },
     setup: {
@@ -110,7 +163,15 @@ function route(command: string, sessions = new RegistrationConversationSessions(
 describe("registration WhatsApp commands", () => {
   it("declares reception-only pending-player policy for the player registration commands", () => {
     const routes = createRegistrationWhatsAppRoutes(dependencies());
-    for (const command of ["registrar", "modo", "ficha", "salvar", "continuar", "confirmar"]) {
+    for (const command of [
+      "registrar",
+      "modo",
+      "ficha",
+      "salvar",
+      "continuar",
+      "editar",
+      "confirmar",
+    ]) {
       expect(routes.find((candidate) => candidate.command === command)?.policy).toEqual({
         requiredGroupCapabilities: ["onboarding"],
         allowedPlayerAccess: ["PENDING"],
@@ -245,6 +306,151 @@ describe("registration WhatsApp commands", () => {
       currentField: "age",
       working: { trainerName: "Liora Vale", regionId: ZHOULIA_ID },
     });
+  });
+
+  it("asks for explicit withdrawal confirmation before editing a submitted review", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(
+      sessions,
+      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
+      review("SUBMITTED", 2),
+    );
+    const editar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "editar",
+    );
+    if (editar === undefined) throw new Error("Missing registration route editar");
+
+    const result = await editar.handler.handle(context("$editar"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        outgoing: [
+          { payload: { text: expect.stringMatching(/análise[\s\S]*\$editar sim/i) } },
+        ],
+      },
+    });
+    expect(deps.withdrawalInputs).toEqual([]);
+    expect(sessions.get(PLAYER_ID)).toBeNull();
+  });
+
+  it("rejects direct submitted-review withdrawal without the preceding edit confirmation", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(
+      sessions,
+      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
+      review("SUBMITTED", 2),
+    );
+    const editar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "editar",
+    );
+    if (editar === undefined) throw new Error("Missing registration route editar");
+
+    expect(await editar.handler.handle(context("$editar sim"))).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+    expect(deps.withdrawalInputs).toEqual([]);
+    expect(sessions.get(PLAYER_ID)).toBeNull();
+  });
+
+  it("invalidates withdrawal confirmation if the submitted review changes before confirmation", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(
+      sessions,
+      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
+      review("SUBMITTED", 2),
+    );
+    const editar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "editar",
+    );
+    if (editar === undefined) throw new Error("Missing registration route editar");
+
+    expect(await editar.handler.handle(context("$editar"))).toMatchObject({ ok: true });
+    deps.setCurrentReview(review("SUBMITTED", 3));
+
+    expect(await editar.handler.handle(context("$editar sim"))).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+    expect(deps.withdrawalInputs).toEqual([]);
+    expect(sessions.get(PLAYER_ID)).toBeNull();
+  });
+
+  it("withdraws the exact submitted review and reopens its persisted draft after explicit confirmation", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(
+      sessions,
+      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
+      review("SUBMITTED", 2),
+    );
+    const editar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "editar",
+    );
+    if (editar === undefined) throw new Error("Missing registration route editar");
+
+    expect(await editar.handler.handle(context("$editar"))).toMatchObject({ ok: true });
+    const result = await editar.handler.handle(context("$editar sim"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outgoing: [{ payload: { text: expect.stringMatching(/edição.*aberta/i) } }] },
+    });
+    expect(deps.withdrawalInputs).toEqual([
+      { playerId: PLAYER_ID, revisionId: REVIEW_ID, expectedRevision: 2 },
+    ]);
+    expect(sessions.get(PLAYER_ID)).toMatchObject({
+      mode: "GUIDED",
+      persistedRevision: 4,
+      dirty: false,
+      working: completedDraft(),
+    });
+  });
+
+  it("reopens requested changes immediately while preserving the persisted ficha", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(
+      sessions,
+      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
+      review("CHANGES_REQUESTED", 1),
+    );
+    const editar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "editar",
+    );
+    if (editar === undefined) throw new Error("Missing registration route editar");
+
+    const result = await editar.handler.handle(context("$editar"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outgoing: [{ payload: { text: expect.stringMatching(/edição.*aberta/i) } }] },
+    });
+    expect(deps.withdrawalInputs).toEqual([]);
+    expect(sessions.get(PLAYER_ID)).toMatchObject({
+      mode: "GUIDED",
+      persistedRevision: 4,
+      dirty: false,
+      working: completedDraft(),
+    });
+  });
+
+  it("fails closed if an approved registration reaches the player edit route", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(
+      sessions,
+      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
+      review("APPROVED", 1),
+    );
+    const editar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "editar",
+    );
+    if (editar === undefined) throw new Error("Missing registration route editar");
+
+    expect(await editar.handler.handle(context("$editar"))).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+    expect(sessions.get(PLAYER_ID)).toBeNull();
   });
 
   it("previews a complete ficha without saving or submitting it", async () => {
