@@ -19,6 +19,7 @@ const DEFAULT_POLICIES: Readonly<Record<AdminApiRateLimitedOperation, AdminApiRa
   "session.read": { limit: 120, windowSeconds: 60 },
   "player.search": { limit: 60, windowSeconds: 60 },
   "player.read": { limit: 120, windowSeconds: 60 },
+  "player.activity.read": { limit: 30, windowSeconds: 60 },
   "content.search": { limit: 60, windowSeconds: 60 },
   "runtime.health.read": { limit: 60, windowSeconds: 60 },
   "messaging.operations.read": { limit: 60, windowSeconds: 60 },
@@ -57,6 +58,8 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
       "session.read": overrides["session.read"] ?? DEFAULT_POLICIES["session.read"],
       "player.search": overrides["player.search"] ?? DEFAULT_POLICIES["player.search"],
       "player.read": overrides["player.read"] ?? DEFAULT_POLICIES["player.read"],
+      "player.activity.read":
+        overrides["player.activity.read"] ?? DEFAULT_POLICIES["player.activity.read"],
       "content.search": overrides["content.search"] ?? DEFAULT_POLICIES["content.search"],
       "runtime.health.read":
         overrides["runtime.health.read"] ?? DEFAULT_POLICIES["runtime.health.read"],
@@ -70,6 +73,7 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
     validatePolicy("session.read", this.policies["session.read"]);
     validatePolicy("player.search", this.policies["player.search"]);
     validatePolicy("player.read", this.policies["player.read"]);
+    validatePolicy("player.activity.read", this.policies["player.activity.read"]);
     validatePolicy("content.search", this.policies["content.search"]);
     validatePolicy("runtime.health.read", this.policies["runtime.health.read"]);
     validatePolicy("messaging.operations.read", this.policies["messaging.operations.read"]);
