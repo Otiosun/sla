@@ -15,6 +15,7 @@ import type {
   MessagingRepository,
   MessageRouterPort,
   OutboundMessageAdapter,
+  OutboxDeliveryPreparation,
 } from "./ports.js";
 
 export interface ReceiveMessageResult {
@@ -276,6 +277,7 @@ export class OutboxWorker {
     private readonly repository: MessagingRepository,
     adapters: readonly OutboundMessageAdapter[],
     private readonly options: OutboxWorkerOptions,
+    private readonly deliveryPreparation?: OutboxDeliveryPreparation,
   ) {
     this.adapters = new Map(adapters.map((adapter) => [adapter.channel, adapter]));
   }
@@ -302,6 +304,7 @@ export class OutboxWorker {
         continue;
       }
       try {
+        await this.deliveryPreparation?.prepare(message);
         await adapter.send(message);
         await this.repository.markOutboxSent(message.id);
         sent += 1;
