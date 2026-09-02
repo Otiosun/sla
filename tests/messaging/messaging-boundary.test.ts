@@ -105,6 +105,57 @@ describe("messaging boundary", () => {
 
     expect(received.map((incoming) => incoming.externalMessageId)).toEqual(["msg-command"]);
   });
+
+  it("admits only explicitly eligible freeform traffic for conversational flows", async () => {
+    const adapter = new FakeWhatsAppAdapter();
+    const received: IncomingMessage[] = [];
+    const messaging = {
+      async receive(incoming: IncomingMessage) {
+        received.push(incoming);
+        return ok({
+          status: "PROCESSED" as const,
+          inboxMessageId: "00000000-0000-4000-8000-000000000012",
+          correlationId: "00000000-0000-4000-8000-000000000013",
+          resultRefType: null,
+          resultRefId: null,
+        });
+      },
+    } as unknown as MessagingService;
+    const outboxWorker = {
+      async runOnce() {
+        return { claimed: 0, sent: 0, failed: 0 };
+      },
+    } as unknown as OutboxWorker;
+    const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
+      admitFreeform: async (incoming) => incoming.chatRef === "reception@g.us",
+    });
+
+    await runtime.start();
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-scene",
+      chatRef: "world@g.us",
+      text: "Charmander observa o mato em silêncio.",
+    });
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-registration-answer",
+      chatRef: "reception@g.us",
+      text: "Liora Vale",
+    });
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-command-2",
+      chatRef: "world@g.us",
+      text: "$menu",
+    });
+    await runtime.stop();
+
+    expect(received.map((incoming) => incoming.externalMessageId)).toEqual([
+      "msg-registration-answer",
+      "msg-command-2",
+    ]);
+  });
 });
 
 describe("fake whatsapp adapter", () => {
