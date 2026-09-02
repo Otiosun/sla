@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AdminAuthorizationSnapshot, AdminOperationRecord } from "../../src/modules/admin/contracts.js";
+import type {
+  AdminAuthorizationSnapshot,
+  AdminOperationRecord,
+} from "../../src/modules/admin/contracts.js";
 import { registerEconomyAnalyticsRead } from "../../src/modules/admin/economy-analytics-definitions.js";
 import { ADMIN_ERROR_CODES } from "../../src/modules/admin/errors.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
