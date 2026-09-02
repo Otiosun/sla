@@ -1,5 +1,9 @@
 import type { CommunityChatContext } from "../community/contracts.js";
-import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import type {
+  IncomingMessage,
+  MessageHandlerContext,
+  MessageHandlerResult,
+} from "../messaging/contracts.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
@@ -146,6 +150,25 @@ function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetu
 
 export class RegistrationConversationResolver {
   public constructor(private readonly dependencies: RegistrationConversationResolverDependencies) {}
+
+  public async admits(message: IncomingMessage): Promise<boolean> {
+    const text = message.text;
+    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
+
+    const community = await this.dependencies.community.resolveChat({
+      provider: message.provider,
+      chatRef: message.chatRef,
+    });
+    if (!hasOnboardingCapability(community)) return false;
+
+    const player = await this.dependencies.players.resolvePlayer({
+      provider: message.provider,
+      externalId: message.senderRef,
+    });
+    if (!player.ok) return false;
+
+    return this.dependencies.sessions.get(player.value.playerId) !== null;
+  }
 
   public async resolve(
     context: MessageHandlerContext,
