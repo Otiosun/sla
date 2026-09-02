@@ -8,6 +8,7 @@ import { ok } from "../../src/shared-kernel/result.js";
 
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 const CHARMANDER_ID = "22222222-2222-4222-8222-222222222222";
+const SQUIRTLE_ID = "33333333-3333-4333-8333-333333333333";
 
 function context(input: {
   readonly text: string;
@@ -40,6 +41,17 @@ function onboardingContext() {
   };
 }
 
+function registrationSetup() {
+  return {
+    regionId: ZHOULIA_ID,
+    regionDisplayName: "Zhoulia",
+    starterOptions: [
+      { formId: CHARMANDER_ID, displayName: "Charmander" },
+      { formId: SQUIRTLE_ID, displayName: "Squirtle" },
+    ],
+  } as const;
+}
+
 describe("registration conversation routing", () => {
   it("turns an explicit mode choice into the requested editor without choosing for the player", async () => {
     const playerId = createPlayerId();
@@ -49,6 +61,7 @@ describe("registration conversation routing", () => {
       sessions,
       community: { resolveChat: async () => onboardingContext() },
       players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
     });
     const router = new MessageRouter([], undefined, resolver);
 
@@ -77,6 +90,7 @@ describe("registration conversation routing", () => {
       sessions,
       community: { resolveChat: async () => onboardingContext() },
       players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
     });
     const router = new MessageRouter([], undefined, resolver);
 
@@ -97,6 +111,41 @@ describe("registration conversation routing", () => {
     });
   });
 
+  it("canonicalizes a guided starter index before storing it in the working draft", async () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(playerId, {
+      mode: "GUIDED",
+      regionId: ZHOULIA_ID,
+      baseDraft: {
+        trainerName: "Liora Vale",
+        age: 17,
+        genderPronouns: "ela/dela",
+        appearance: "Cabelos negros.",
+        personality: "Curiosa.",
+        backstory: "Uma história curta.",
+        regionId: ZHOULIA_ID,
+        schemaVersion: 1,
+      },
+    });
+    expect(sessions.get(playerId)?.currentField).toBe("starterFormId");
+    const resolver = new RegistrationConversationResolver({
+      sessions,
+      community: { resolveChat: async () => onboardingContext() },
+      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
+    });
+    const router = new MessageRouter([], undefined, resolver);
+
+    const routed = await router.dispatch(context({ text: "2" }));
+
+    expect(routed).toMatchObject({ ok: true });
+    expect(sessions.get(playerId)).toMatchObject({
+      currentField: null,
+      working: { starterFormId: SQUIRTLE_ID },
+    });
+  });
+
   it("ignores normal text in a group without onboarding capability and leaves the session untouched", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
@@ -112,6 +161,7 @@ describe("registration conversation routing", () => {
         }),
       },
       players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
     });
     const router = new MessageRouter([], undefined, resolver);
 
@@ -133,6 +183,7 @@ describe("registration conversation routing", () => {
       sessions,
       community: { resolveChat: async () => onboardingContext() },
       players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
     });
     const router = new MessageRouter([], undefined, resolver);
 
@@ -142,7 +193,7 @@ describe("registration conversation routing", () => {
     });
   });
 
-  it("applies a full ficha template to the ephemeral working session without submitting it", async () => {
+  it("applies a full ficha template and canonicalizes a starter display name without submitting it", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
     sessions.start(playerId, { mode: "FULL", regionId: ZHOULIA_ID });
@@ -150,6 +201,7 @@ describe("registration conversation routing", () => {
       sessions,
       community: { resolveChat: async () => onboardingContext() },
       players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
     });
     const router = new MessageRouter([], undefined, resolver);
     const ficha = [
@@ -159,7 +211,7 @@ describe("registration conversation routing", () => {
       "Aparência: Cabelos negros e casaco de viagem.",
       "Personalidade: Curiosa e competitiva.",
       "História: Saiu de casa para pesquisar Pokémon raros.",
-      `Inicial: ${CHARMANDER_ID}`,
+      "Inicial: Charmander",
     ].join("\n");
 
     const routed = await router.dispatch(context({ text: ficha }));
