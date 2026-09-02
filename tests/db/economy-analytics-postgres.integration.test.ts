@@ -74,9 +74,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
           `credit-${index}`,
           randomUUID(),
           index === 0 ? 100 : 1,
-          index === 0
-            ? new Date("2026-08-03T12:00:00.000Z")
-            : new Date("2026-09-01T00:00:00.000Z"),
+          index === 0 ? new Date("2026-08-03T12:00:00.000Z") : new Date("2026-09-01T00:00:00.000Z"),
         ],
       );
     }
