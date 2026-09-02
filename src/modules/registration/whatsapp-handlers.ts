@@ -27,7 +27,10 @@ export interface RegistrationSetup {
 export interface RegistrationWhatsAppDependencies {
   readonly sessions: RegistrationConversationSessions;
   readonly players: Pick<PlayerRegistrationService, "resolveOrCreatePlayer" | "resolvePlayer">;
-  readonly registration: Pick<RegistrationService, "getDraft" | "saveDraft" | "saveAndSubmit">;
+  readonly registration: Pick<
+    RegistrationService,
+    "getDraft" | "getCurrentReview" | "saveDraft" | "saveAndSubmit" | "withdraw"
+  >;
   readonly setup: { load(): Promise<Result<RegistrationSetup>> };
 }
 
@@ -192,10 +195,37 @@ async function existingPlayer(
   return resolved.ok ? ok(resolved.value.playerId) : resolved;
 }
 
+async function openPersistedDraft(
+  dependencies: RegistrationWhatsAppDependencies,
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+): Promise<Result<MessageHandlerResult>> {
+  const draft = await dependencies.registration.getDraft(playerId);
+  if (!draft.ok) {
+    return err(
+      draft.error.code === "NOT_FOUND"
+        ? appError("NOT_FOUND", "Nenhum rascunho salvo para editar.")
+        : draft.error,
+    );
+  }
+
+  const resumed = dependencies.sessions.start(playerId, {
+    mode: "GUIDED",
+    regionId: draft.value.snapshot.regionId,
+    baseDraft: draft.value.snapshot,
+    baseRevision: draft.value.revision,
+  });
+  return reply(context, playerId, `✏️ Edição aberta.\n\n${guidedPrompt(resumed)}`);
+}
+
 export function createRegistrationWhatsAppRoutes(
   dependencies: RegistrationWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
   const pendingConfirmations = new Map<PlayerId, string>();
+  const pendingWithdrawals = new Map<
+    PlayerId,
+    { readonly reviewId: string; readonly revision: number }
+  >();
 
   const register: Handler = async (context) => {
     const player = await dependencies.players.resolveOrCreatePlayer(identity(context));
@@ -203,6 +233,7 @@ export function createRegistrationWhatsAppRoutes(
     const setup = await dependencies.setup.load();
     if (!setup.ok) return setup;
     pendingConfirmations.delete(player.value.playerId);
+    pendingWithdrawals.delete(player.value.playerId);
     dependencies.sessions.begin(player.value.playerId, { regionId: setup.value.regionId });
     return reply(
       context,
@@ -227,6 +258,7 @@ export function createRegistrationWhatsAppRoutes(
       return err(appError("VALIDATION_FAILED", "Use `$modo guiado` ou `$modo completo`."));
     }
     pendingConfirmations.delete(player.value);
+    pendingWithdrawals.delete(player.value);
     const switched = dependencies.sessions.switchMode(player.value, selected);
     if (!switched.ok) return switched;
     if (selected === "GUIDED") return reply(context, player.value, guidedPrompt(switched.value));
@@ -261,6 +293,7 @@ export function createRegistrationWhatsAppRoutes(
     }
 
     pendingConfirmations.delete(player.value);
+    pendingWithdrawals.delete(player.value);
     const saved = await dependencies.registration.saveDraft({
       playerId: player.value,
       draft: session.working,
@@ -296,6 +329,7 @@ export function createRegistrationWhatsAppRoutes(
     if (!setup.ok) return setup;
 
     pendingConfirmations.delete(player.value);
+    pendingWithdrawals.delete(player.value);
     const resumed = dependencies.sessions.start(player.value, {
       mode: "GUIDED",
       regionId: setup.value.regionId,
@@ -305,9 +339,92 @@ export function createRegistrationWhatsAppRoutes(
     return reply(context, player.value, `↩️ Rascunho retomado.\n\n${guidedPrompt(resumed)}`);
   };
 
+  const edit: Handler = async (context) => {
+    const player = await existingPlayer(dependencies, context);
+    if (!player.ok) return player;
+    pendingConfirmations.delete(player.value);
+
+    const editArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
+    if (editArg !== undefined && editArg !== "sim") {
+      return err(appError("VALIDATION_FAILED", "Use `$editar` ou `$editar sim`."));
+    }
+
+    if (editArg === "sim") {
+      const pending = pendingWithdrawals.get(player.value);
+      if (pending === undefined) {
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Nenhuma retirada de revisão está aguardando confirmação.",
+          ),
+        );
+      }
+
+      const current = await dependencies.registration.getCurrentReview(player.value);
+      if (
+        !current.ok ||
+        current.value.id !== pending.reviewId ||
+        current.value.revision !== pending.revision ||
+        current.value.status !== "SUBMITTED"
+      ) {
+        pendingWithdrawals.delete(player.value);
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "A revisão em análise mudou. Use `$editar` novamente antes de retirar.",
+          ),
+        );
+      }
+
+      const withdrawn = await dependencies.registration.withdraw({
+        playerId: player.value,
+        revisionId: pending.reviewId,
+        expectedRevision: pending.revision,
+      });
+      if (!withdrawn.ok) return withdrawn;
+
+      pendingWithdrawals.delete(player.value);
+      return openPersistedDraft(dependencies, context, player.value);
+    }
+
+    const current = await dependencies.registration.getCurrentReview(player.value);
+    if (!current.ok) {
+      if (current.error.code === "NOT_FOUND") {
+        pendingWithdrawals.delete(player.value);
+        return openPersistedDraft(dependencies, context, player.value);
+      }
+      return current;
+    }
+
+    if (current.value.status === "SUBMITTED") {
+      pendingWithdrawals.set(player.value, {
+        reviewId: current.value.id,
+        revision: current.value.revision,
+      });
+      return reply(
+        context,
+        player.value,
+        "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `$editar sim`.",
+      );
+    }
+
+    pendingWithdrawals.delete(player.value);
+    if (current.value.status === "CHANGES_REQUESTED" || current.value.status === "WITHDRAWN") {
+      return openPersistedDraft(dependencies, context, player.value);
+    }
+
+    return err(
+      appError(
+        "INVALID_STATE_TRANSITION",
+        "Esta revisão não pode ser reaberta para edição neste estado.",
+      ),
+    );
+  };
+
   const confirm: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
+    pendingWithdrawals.delete(player.value);
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
@@ -370,6 +487,7 @@ export function createRegistrationWhatsAppRoutes(
     { command: "ficha", handler: new FunctionalHandler(ficha), policy: POLICY },
     { command: "salvar", handler: new FunctionalHandler(save), policy: POLICY },
     { command: "continuar", handler: new FunctionalHandler(continueDraft), policy: POLICY },
+    { command: "editar", handler: new FunctionalHandler(edit), policy: POLICY },
     { command: "confirmar", handler: new FunctionalHandler(confirm), policy: POLICY },
   ];
 }
