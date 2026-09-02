@@ -14,11 +14,25 @@ const databaseUrl = (() => {
 const PLAYER_COUNT = 1_500;
 const CURRENCY_COUNT = 8;
 const ITEM_COUNT = 12;
+const EXPLAIN_BUDGET_MS = 750;
 const SEQUENTIAL_BUDGET_MS = 1_250;
 const CONCURRENT_BUDGET_MS = 5_000;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+function executionTimeMs(plan: unknown): number {
+  if (!Array.isArray(plan)) throw new Error("EXPLAIN JSON did not return an array");
+  const root = plan[0];
+  if (typeof root !== "object" || root === null || !("Execution Time" in root)) {
+    throw new Error(`EXPLAIN ANALYZE did not expose Execution Time: ${JSON.stringify(plan)}`);
+  }
+  const value = (root as { readonly "Execution Time": unknown })["Execution Time"];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid EXPLAIN execution time: ${String(value)}`);
+  }
+  return value;
 }
 
 async function seedEconomyFixture(pool: Pool): Promise<void> {
@@ -156,7 +170,88 @@ async function proveIndexes(pool: Pool): Promise<void> {
   );
 }
 
-function assertAggregate(result: Awaited<ReturnType<PostgresEconomyAnalyticsRepository["readAggregate"]>>): void {
+async function proveExplainAnalyze(pool: Pool): Promise<void> {
+  const asOf = new Date(Date.now() + 1_000);
+  const timings: Record<string, number> = {};
+
+  const walletFlow = await pool.query<{ "QUERY PLAN": unknown }>(
+    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+     SELECT currency_id,
+            sum(delta) FILTER (WHERE delta > 0) AS inflow,
+            sum(-delta) FILTER (WHERE delta < 0) AS outflow,
+            sum(delta) AS net_flow
+     FROM wallet_ledger
+     WHERE created_at >= $1::timestamptz - interval '30 days'
+       AND created_at < $1::timestamptz
+     GROUP BY currency_id`,
+    [asOf],
+  );
+  timings.walletFlow = executionTimeMs(walletFlow.rows[0]?.["QUERY PLAN"]);
+
+  const inventoryFlow = await pool.query<{ "QUERY PLAN": unknown }>(
+    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+     SELECT sum(delta) FILTER (WHERE delta > 0) AS inflow_units,
+            sum(-delta) FILTER (WHERE delta < 0) AS outflow_units,
+            sum(delta) AS net_flow_units
+     FROM inventory_ledger
+     WHERE created_at >= $1::timestamptz - interval '30 days'
+       AND created_at < $1::timestamptz`,
+    [asOf],
+  );
+  timings.inventoryFlow = executionTimeMs(inventoryFlow.rows[0]?.["QUERY PLAN"]);
+
+  const walletReconciliation = await pool.query<{ "QUERY PLAN": unknown }>(
+    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+     WITH reconstructed AS (
+       SELECT player_id, currency_id, sum(delta) AS amount
+       FROM wallet_ledger
+       WHERE created_at < $1::timestamptz
+       GROUP BY player_id, currency_id
+     )
+     SELECT count(*)
+     FROM wallet_balances balance
+     FULL OUTER JOIN reconstructed
+       ON reconstructed.player_id = balance.player_id
+      AND reconstructed.currency_id = balance.currency_id
+     WHERE COALESCE(reconstructed.amount, 0) <> COALESCE(balance.amount, 0)`,
+    [asOf],
+  );
+  timings.walletReconciliation = executionTimeMs(walletReconciliation.rows[0]?.["QUERY PLAN"]);
+
+  const inventoryReconciliation = await pool.query<{ "QUERY PLAN": unknown }>(
+    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+     WITH reconstructed AS (
+       SELECT player_id, item_id, sum(delta) AS quantity
+       FROM inventory_ledger
+       WHERE created_at < $1::timestamptz
+       GROUP BY player_id, item_id
+     )
+     SELECT count(*)
+     FROM inventory_balances balance
+     FULL OUTER JOIN reconstructed
+       ON reconstructed.player_id = balance.player_id
+      AND reconstructed.item_id = balance.item_id
+     WHERE COALESCE(reconstructed.quantity, 0) <> COALESCE(balance.quantity, 0)`,
+    [asOf],
+  );
+  timings.inventoryReconciliation = executionTimeMs(
+    inventoryReconciliation.rows[0]?.["QUERY PLAN"],
+  );
+
+  for (const [name, elapsedMs] of Object.entries(timings)) {
+    assert(
+      elapsedMs <= EXPLAIN_BUDGET_MS,
+      `F8.3 ${name} EXPLAIN exceeded budget: ${elapsedMs.toFixed(2)}ms > ${EXPLAIN_BUDGET_MS}ms`,
+    );
+  }
+  process.stdout.write(
+    `${JSON.stringify({ phase: "F8.3-explain", executionMs: timings, budgetMs: EXPLAIN_BUDGET_MS })}\n`,
+  );
+}
+
+function assertAggregate(
+  result: Awaited<ReturnType<PostgresEconomyAnalyticsRepository["readAggregate"]>>,
+): void {
   assert(result.currencies.length === CURRENCY_COUNT, `Expected ${CURRENCY_COUNT} currencies`);
   assert(!result.currenciesTruncated, "Performance fixture unexpectedly truncated currencies");
   for (const currency of result.currencies) {
@@ -235,9 +330,10 @@ async function main(): Promise<void> {
   try {
     await seedEconomyFixture(pool);
     await proveIndexes(pool);
+    await proveExplainAnalyze(pool);
     await proveAggregateBudget(pool);
     process.stdout.write(
-      "F8.3 economy analytics performance proof passed: bounded aggregate correctness, temporal indexes, sequential latency, concurrent latency and pool drain are within budget.\n",
+      "F8.3 economy analytics performance proof passed: bounded aggregate correctness, EXPLAIN ANALYZE, temporal indexes, sequential latency, concurrent latency and pool drain are within budget.\n",
     );
   } finally {
     await pool.end();
