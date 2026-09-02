@@ -12,7 +12,7 @@ import type {
   RegistrationRevisionRecord,
   RegistrationRevisionStatus,
 } from "./ports.js";
-import { validateRegistrationDraft } from "./validation.js";
+import { normalizeRegistrationDraft, validateRegistrationDraft } from "./validation.js";
 
 export interface SaveRegistrationDraftInput {
   readonly playerId: PlayerId;
@@ -46,6 +46,10 @@ export interface ReviewRegistrationResult extends RegistrationRevisionRecord {
   readonly replayed: boolean;
 }
 
+function draftCopy(draft: RegistrationDraftInput): RegistrationDraftInput {
+  return { ...draft };
+}
+
 function snapshotCopy(snapshot: RegistrationSnapshot): RegistrationSnapshot {
   return { ...snapshot };
 }
@@ -64,13 +68,13 @@ export class RegistrationService {
   public async saveDraft(
     input: SaveRegistrationDraftInput,
   ): Promise<Result<RegistrationDraftRecord>> {
-    const validation = validateRegistrationDraft(input.draft);
+    const validation = normalizeRegistrationDraft(input.draft);
     if (!validation.ok) return validation;
 
     return this.repository.transaction(async (tx) => {
       const saved = await tx.saveDraft({
         playerId: input.playerId,
-        snapshot: snapshotCopy(validation.value),
+        snapshot: draftCopy(validation.value),
         expectedRevision: input.expectedRevision,
       });
       return saved === null
