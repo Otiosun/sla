@@ -21,14 +21,18 @@ function outbox(payload: Readonly<Record<string, unknown>>): PendingOutboxMessag
 }
 
 describe("Baileys outbox mentions and provider receipt", () => {
-  it("sends real mentions and returns the provider external message id", async () => {
-    const sent: Array<{ jid: string; content: unknown }> = [];
+  it("sends real mentions with a deterministic provider message id and returns that exact id", async () => {
+    const sent: Array<{
+      jid: string;
+      content: unknown;
+      options: { readonly messageId?: string } | undefined;
+    }> = [];
     const events: BaileysEventSource = { on: () => {} };
     const socket: BaileysSocketLike = {
       ev: events,
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, content });
-        return { key: { id: "3EB0REVIEWMESSAGE" } };
+      sendMessage: async (jid, content, options?: { readonly messageId?: string }) => {
+        sent.push({ jid, content, options });
+        return { key: { id: options?.messageId ?? "provider-generated-id" } };
       },
       end: () => {},
     };
@@ -52,8 +56,11 @@ describe("Baileys outbox mentions and provider receipt", () => {
           text: "Nova ficha aguardando revisão. @5511999999999",
           mentions: ["5511999999999@s.whatsapp.net"],
         },
+        options: { messageId: "00000000000040008000000000000801" },
       },
     ]);
-    expect(receipt).toEqual({ providerExternalMessageId: "3EB0REVIEWMESSAGE" });
+    expect(receipt).toEqual({
+      providerExternalMessageId: "00000000000040008000000000000801",
+    });
   });
 });
