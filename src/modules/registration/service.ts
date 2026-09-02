@@ -125,7 +125,10 @@ export class RegistrationService {
     return this.repository.transaction(async (tx) => {
       const replay = await tx.loadIdempotencyReceipt("SUBMIT", key);
       if (replay !== null) {
-        if (replay.playerId !== input.playerId || !sameSnapshot(replay.snapshot, validation.value)) {
+        if (
+          replay.playerId !== input.playerId ||
+          !sameSnapshot(replay.snapshot, validation.value)
+        ) {
           return err(
             appError(
               "FINGERPRINT_MISMATCH",
