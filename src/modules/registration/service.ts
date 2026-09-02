@@ -20,6 +20,13 @@ export interface SaveRegistrationDraftInput {
   readonly expectedRevision: number | null;
 }
 
+export interface SaveAndSubmitRegistrationInput {
+  readonly playerId: PlayerId;
+  readonly draft: RegistrationDraftInput;
+  readonly expectedDraftRevision: number | null;
+  readonly idempotencyKey: string;
+}
+
 export interface SubmitRegistrationInput {
   readonly playerId: PlayerId;
   readonly idempotencyKey: string;
@@ -52,6 +59,20 @@ function draftCopy(draft: RegistrationDraftInput): RegistrationDraftInput {
 
 function snapshotCopy(snapshot: RegistrationSnapshot): RegistrationSnapshot {
   return { ...snapshot };
+}
+
+function sameSnapshot(left: RegistrationSnapshot, right: RegistrationSnapshot): boolean {
+  return (
+    left.trainerName === right.trainerName &&
+    left.age === right.age &&
+    left.genderPronouns === right.genderPronouns &&
+    left.appearance === right.appearance &&
+    left.personality === right.personality &&
+    left.backstory === right.backstory &&
+    left.starterFormId === right.starterFormId &&
+    left.regionId === right.regionId &&
+    left.schemaVersion === right.schemaVersion
+  );
 }
 
 function normalizeIdempotencyKey(value: string): Result<string> {
@@ -89,6 +110,55 @@ export class RegistrationService {
       return saved === null
         ? err(appError("REVISION_CONFLICT", "Registration draft revision conflict"))
         : ok(saved);
+    });
+  }
+
+  public async saveAndSubmit(
+    input: SaveAndSubmitRegistrationInput,
+  ): Promise<Result<SubmitRegistrationResult>> {
+    const validation = validateRegistrationDraft(input.draft);
+    if (!validation.ok) return validation;
+    const keyResult = normalizeIdempotencyKey(input.idempotencyKey);
+    if (!keyResult.ok) return keyResult;
+    const key = keyResult.value;
+
+    return this.repository.transaction(async (tx) => {
+      const replay = await tx.loadIdempotencyReceipt("SUBMIT", key);
+      if (replay !== null) {
+        if (replay.playerId !== input.playerId || !sameSnapshot(replay.snapshot, validation.value)) {
+          return err(
+            appError(
+              "FINGERPRINT_MISMATCH",
+              "Registration idempotency key belongs to another confirmation",
+            ),
+          );
+        }
+        return ok({ ...replay, replayed: true });
+      }
+
+      const current = await tx.loadCurrentRevision(input.playerId);
+      if (current?.status === "SUBMITTED") {
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Registration review is already submitted"),
+        );
+      }
+
+      const saved = await tx.saveDraft({
+        playerId: input.playerId,
+        snapshot: draftCopy(validation.value),
+        expectedRevision: input.expectedDraftRevision,
+      });
+      if (saved === null) {
+        return err(appError("REVISION_CONFLICT", "Registration draft revision conflict"));
+      }
+
+      const inserted = await tx.insertRevision({
+        playerId: input.playerId,
+        sequenceNo: (current?.sequenceNo ?? 0) + 1,
+        snapshot: snapshotCopy(validation.value),
+      });
+      await tx.saveIdempotencyReceipt("SUBMIT", key, inserted.id);
+      return ok({ ...inserted, replayed: false });
     });
   }
 
