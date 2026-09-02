@@ -34,7 +34,8 @@ export const OPERATIONAL_METRICS_CATALOG = [
   {
     key: "admin_operation_failure_rate",
     operationalQuestion: "A proporção de falhas administrativas está aumentando?",
-    operatorAction: "Comparar a proporção recente por tipo e risco e verificar a trilha operacional.",
+    operatorAction:
+      "Comparar a proporção recente por tipo e risco e verificar a trilha operacional.",
     source: "admin_operations",
     unit: "ratio",
     window: "15m",
@@ -79,7 +80,8 @@ export const OPERATIONAL_METRICS_CATALOG = [
   {
     key: "messaging_outbox_dead_count",
     operationalQuestion: "Existem saídas persistentes em estado terminal de entrega?",
-    operatorAction: "Preservar a evidência e encaminhar a recuperação ao fluxo privilegiado apropriado.",
+    operatorAction:
+      "Preservar a evidência e encaminhar a recuperação ao fluxo privilegiado apropriado.",
     source: "messaging_outbox",
     unit: "count",
     window: "instant",
@@ -88,7 +90,8 @@ export const OPERATIONAL_METRICS_CATALOG = [
   {
     key: "runtime_heartbeat_age_seconds",
     operationalQuestion: "Há quanto tempo o runtime não registra heartbeat?",
-    operatorAction: "Comparar idade do heartbeat com o estado do runtime e escalar degradação persistente.",
+    operatorAction:
+      "Comparar idade do heartbeat com o estado do runtime e escalar degradação persistente.",
     source: "runtime_instances",
     unit: "seconds",
     window: "instant",
