@@ -64,6 +64,10 @@ export interface OutboundMessageAdapter {
   send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt>;
 }
 
+export interface OutboxDeliveryPreparation {
+  prepare(message: PendingOutboxMessage): Promise<void>;
+}
+
 export interface MediaProcessorAdapter {
   readonly processorKey: string;
   process(job: PendingMediaJob): Promise<void>;
