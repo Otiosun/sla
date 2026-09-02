@@ -120,7 +120,9 @@ export class AdminReadFacade {
     });
   }
 
-  public async getPlayerActivityAnalytics(rawContext: unknown): Promise<PlayerActivityAnalyticsView> {
+  public async getPlayerActivityAnalytics(
+    rawContext: unknown,
+  ): Promise<PlayerActivityAnalyticsView> {
     const context = parsePrincipalContext(rawContext);
     if (this.playerActivityAnalytics === undefined) {
       throw new Error("Player activity analytics read boundary is not configured");
