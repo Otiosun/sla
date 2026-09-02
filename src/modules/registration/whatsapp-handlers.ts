@@ -1,15 +1,16 @@
-import type { PlayerRegistrationService } from "../player/registration-service.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type {
   RegistrationConversationField,
   RegistrationConversationSession,
   RegistrationConversationSessions,
   RegistrationEditingMode,
 } from "./conversation-session.js";
+import type { RegistrationService } from "./service.js";
 
 export interface RegistrationStarterOption {
   readonly formId: string;
@@ -25,6 +26,7 @@ export interface RegistrationSetup {
 export interface RegistrationWhatsAppDependencies {
   readonly sessions: RegistrationConversationSessions;
   readonly players: Pick<PlayerRegistrationService, "resolveOrCreatePlayer" | "resolvePlayer">;
+  readonly registration: Pick<RegistrationService, "getDraft" | "saveDraft">;
   readonly setup: { load(): Promise<Result<RegistrationSetup>> };
 }
 
@@ -201,9 +203,69 @@ export function createRegistrationWhatsAppRoutes(
     return setup.ok ? reply(context, player.value, fichaText(session, setup.value)) : setup;
   };
 
+  const save: Handler = async (context) => {
+    const player = await existingPlayer(dependencies, context);
+    if (!player.ok) return player;
+    const session = dependencies.sessions.get(player.value);
+    if (session === null) {
+      return err(
+        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."),
+      );
+    }
+    if (session.mode === "CHOOSING") {
+      return err(
+        appError("INVALID_STATE_TRANSITION", "Escolha o modo da ficha antes de salvar."),
+      );
+    }
+
+    const saved = await dependencies.registration.saveDraft({
+      playerId: player.value,
+      draft: session.working,
+      expectedRevision: session.persistedRevision,
+    });
+    if (!saved.ok) return saved;
+
+    const clean = dependencies.sessions.start(player.value, {
+      mode: session.mode,
+      regionId: saved.value.snapshot.regionId,
+      baseDraft: saved.value.snapshot,
+      baseRevision: saved.value.revision,
+    });
+    return reply(
+      context,
+      player.value,
+      `💾 Rascunho salvo.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean) : "Use `$ficha` para revisar ou continue editando."}`,
+    );
+  };
+
+  const continueDraft: Handler = async (context) => {
+    const player = await existingPlayer(dependencies, context);
+    if (!player.ok) return player;
+    const draft = await dependencies.registration.getDraft(player.value);
+    if (!draft.ok) {
+      return err(
+        draft.error.code === "NOT_FOUND"
+          ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `$registrar` para começar.")
+          : draft.error,
+      );
+    }
+    const setup = await dependencies.setup.load();
+    if (!setup.ok) return setup;
+
+    const resumed = dependencies.sessions.start(player.value, {
+      mode: "GUIDED",
+      regionId: setup.value.regionId,
+      baseDraft: draft.value.snapshot,
+      baseRevision: draft.value.revision,
+    });
+    return reply(context, player.value, `↩️ Rascunho retomado.\n\n${guidedPrompt(resumed)}`);
+  };
+
   return [
     { command: "registrar", handler: new FunctionalHandler(register), policy: POLICY },
     { command: "modo", handler: new FunctionalHandler(mode), policy: POLICY },
     { command: "ficha", handler: new FunctionalHandler(ficha), policy: POLICY },
+    { command: "salvar", handler: new FunctionalHandler(save), policy: POLICY },
+    { command: "continuar", handler: new FunctionalHandler(continueDraft), policy: POLICY },
   ];
 }
