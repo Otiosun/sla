@@ -14,6 +14,10 @@ import type { IncidentCenterReadService } from "../../modules/admin/incident-cen
 import type { MessagingOperationsView } from "../../modules/admin/messaging-operations-read-contracts.js";
 import type { MessagingOperationsReadService } from "../../modules/admin/messaging-operations-read-service.js";
 import type {
+  PlayerActivityAnalyticsService,
+  PlayerActivityAnalyticsView,
+} from "../../modules/admin/player-activity-analytics-service.js";
+import type {
   Player360SearchResultView,
   Player360View,
 } from "../../modules/admin/player360-contracts.js";
@@ -40,6 +44,7 @@ type RuntimeHealthReader = Pick<RuntimeWhatsappHealthService, "getLatest">;
 type MessagingOperationsReader = Pick<MessagingOperationsReadService, "getSnapshot">;
 type IncidentCenterReader = Pick<IncidentCenterReadService, "getSnapshot">;
 type AdminOperationAuditReader = Pick<AdminOperationAuditReadService, "get">;
+type PlayerActivityAnalyticsReader = Pick<PlayerActivityAnalyticsService, "getAggregate">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -86,6 +91,7 @@ export class AdminReadFacade {
     private readonly messagingOperations?: MessagingOperationsReader,
     private readonly incidentCenter?: IncidentCenterReader,
     private readonly adminOperationAudit?: AdminOperationAuditReader,
+    private readonly playerActivityAnalytics?: PlayerActivityAnalyticsReader,
   ) {}
 
   public async searchPlayers(
@@ -111,6 +117,18 @@ export class AdminReadFacade {
       principalId: context.principalId,
       correlationId: context.correlationId,
       playerId,
+    });
+  }
+
+  public async getPlayerActivityAnalytics(rawContext: unknown): Promise<PlayerActivityAnalyticsView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.playerActivityAnalytics === undefined) {
+      throw new Error("Player activity analytics read boundary is not configured");
+    }
+    return this.playerActivityAnalytics.getAggregate({
+      principalId: context.principalId,
+      environment: AdminEnvironmentSchema.parse(context.environment),
+      correlationId: context.correlationId,
     });
   }
 
