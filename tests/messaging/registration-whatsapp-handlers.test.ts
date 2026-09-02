@@ -8,6 +8,7 @@ import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
+const CHARMANDER_ID = "22222222-2222-4222-8222-222222222222";
 
 function context(text: string): MessageHandlerContext {
   return {
@@ -28,13 +29,29 @@ function context(text: string): MessageHandlerContext {
   };
 }
 
+function completedDraft() {
+  return {
+    trainerName: "Liora Vale",
+    age: 17,
+    genderPronouns: "ela/dela",
+    appearance: "Cabelos negros e casaco de viagem.",
+    personality: "Curiosa e competitiva.",
+    backstory: "Saiu de casa para pesquisar Pokémon raros.",
+    starterFormId: CHARMANDER_ID,
+    regionId: ZHOULIA_ID,
+    schemaVersion: 1,
+  } as const;
+}
+
 function dependencies(
   sessions = new RegistrationConversationSessions(),
   initialDraft: RegistrationDraftRecord | null = null,
 ) {
   let persistedDraft = initialDraft;
+  const submissionInputs: unknown[] = [];
   return {
     sessions,
+    submissionInputs,
     players: {
       resolveOrCreatePlayer: async () =>
         ok({ playerId: PLAYER_ID, state: "NEW" as const, created: true }),
@@ -54,13 +71,30 @@ function dependencies(
         persistedDraft = { playerId: input.playerId, snapshot: input.draft, revision };
         return ok(persistedDraft);
       },
+      saveAndSubmit: async (input: {
+        readonly playerId: typeof PLAYER_ID;
+        readonly draft: ReturnType<typeof completedDraft>;
+        readonly expectedDraftRevision: number | null;
+        readonly idempotencyKey: string;
+      }) => {
+        submissionInputs.push(input);
+        return ok({
+          id: "00000000-0000-4000-8000-000000000401",
+          playerId: input.playerId,
+          sequenceNo: 1,
+          status: "SUBMITTED" as const,
+          snapshot: input.draft,
+          revision: 0,
+          replayed: false,
+        });
+      },
     },
     setup: {
       load: async () =>
         ok({
           regionId: ZHOULIA_ID,
           regionDisplayName: "Zhoulia",
-          starterOptions: [],
+          starterOptions: [{ formId: CHARMANDER_ID, displayName: "Charmander" }],
         }),
     },
   };
@@ -76,7 +110,7 @@ function route(command: string, sessions = new RegistrationConversationSessions(
 describe("registration WhatsApp commands", () => {
   it("declares reception-only pending-player policy for the player registration commands", () => {
     const routes = createRegistrationWhatsAppRoutes(dependencies());
-    for (const command of ["registrar", "modo", "ficha", "salvar", "continuar"]) {
+    for (const command of ["registrar", "modo", "ficha", "salvar", "continuar", "confirmar"]) {
       expect(routes.find((candidate) => candidate.command === command)?.policy).toEqual({
         requiredGroupCapabilities: ["onboarding"],
         allowedPlayerAccess: ["PENDING"],
@@ -211,5 +245,125 @@ describe("registration WhatsApp commands", () => {
       currentField: "age",
       working: { trainerName: "Liora Vale", regionId: ZHOULIA_ID },
     });
+  });
+
+  it("previews a complete ficha without saving or submitting it", async () => {
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(PLAYER_ID, {
+      mode: "FULL",
+      regionId: ZHOULIA_ID,
+      baseDraft: completedDraft(),
+      baseRevision: 4,
+    });
+    sessions.setField(PLAYER_ID, "personality", "Curiosa, competitiva e paciente.");
+    const deps = dependencies(sessions);
+    const confirmar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "confirmar",
+    );
+    if (confirmar === undefined) throw new Error("Missing registration route confirmar");
+
+    const result = await confirmar.handler.handle(context("$confirmar"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        outgoing: [
+          {
+            payload: {
+              text: expect.stringMatching(
+                /CONFIRMAÇÃO[\s\S]*Liora Vale[\s\S]*Charmander[\s\S]*Zhoulia[\s\S]*\$confirmar sim/i,
+              ),
+            },
+          },
+        ],
+      },
+    });
+    expect(deps.submissionInputs).toEqual([]);
+    expect(sessions.get(PLAYER_ID)).not.toBeNull();
+  });
+
+  it("rejects final confirmation when the player has not previewed the exact current ficha", async () => {
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(PLAYER_ID, {
+      mode: "FULL",
+      regionId: ZHOULIA_ID,
+      baseDraft: completedDraft(),
+      baseRevision: 4,
+    });
+    const deps = dependencies(sessions);
+    const confirmar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "confirmar",
+    );
+    if (confirmar === undefined) throw new Error("Missing registration route confirmar");
+
+    const result = await confirmar.handler.handle(context("$confirmar sim"));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+    expect(deps.submissionInputs).toEqual([]);
+  });
+
+  it("invalidates a preview if the working ficha changes before final confirmation", async () => {
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(PLAYER_ID, {
+      mode: "FULL",
+      regionId: ZHOULIA_ID,
+      baseDraft: completedDraft(),
+      baseRevision: 4,
+    });
+    const deps = dependencies(sessions);
+    const confirmar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "confirmar",
+    );
+    if (confirmar === undefined) throw new Error("Missing registration route confirmar");
+
+    expect(await confirmar.handler.handle(context("$confirmar"))).toMatchObject({ ok: true });
+    sessions.setField(PLAYER_ID, "personality", "Agora mudou depois do preview.");
+
+    expect(await confirmar.handler.handle(context("$confirmar sim"))).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+    expect(deps.submissionInputs).toEqual([]);
+  });
+
+  it("atomically saves and submits the exact previewed ficha on explicit final confirmation", async () => {
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(PLAYER_ID, {
+      mode: "FULL",
+      regionId: ZHOULIA_ID,
+      baseDraft: completedDraft(),
+      baseRevision: 4,
+    });
+    sessions.setField(PLAYER_ID, "personality", "Curiosa, competitiva e paciente.");
+    const deps = dependencies(sessions);
+    const confirmar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "confirmar",
+    );
+    if (confirmar === undefined) throw new Error("Missing registration route confirmar");
+
+    expect(await confirmar.handler.handle(context("$confirmar"))).toMatchObject({ ok: true });
+    const result = await confirmar.handler.handle(context("$confirmar sim"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        outgoing: [{ payload: { text: expect.stringMatching(/enviada.*análise/i) } }],
+      },
+    });
+    expect(deps.submissionInputs).toEqual([
+      {
+        playerId: PLAYER_ID,
+        draft: {
+          ...completedDraft(),
+          personality: "Curiosa, competitiva e paciente.",
+        },
+        expectedDraftRevision: 4,
+        idempotencyKey: "inbox:whatsapp:$confirmar sim:registration-submit",
+      },
+    ]);
+    expect(sessions.get(PLAYER_ID)).toBeNull();
   });
 });
