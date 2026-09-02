@@ -24,6 +24,43 @@ function completedDraft() {
 }
 
 describe("RegistrationConversationSessions", () => {
+  it("begins without choosing guided or full mode for the player", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+
+    expect(sessions.begin(playerId, { regionId: ZHOULIA_ID })).toMatchObject({
+      playerId,
+      mode: "CHOOSING",
+      currentField: null,
+      dirty: false,
+      working: { regionId: ZHOULIA_ID, schemaVersion: 1 },
+    });
+  });
+
+  it("accepts explicit mode choice and rejects invalid choices without mutating the session", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.begin(playerId, { regionId: ZHOULIA_ID });
+
+    expect(sessions.chooseMode(playerId, "3")).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
+    });
+    expect(sessions.get(playerId)).toMatchObject({ mode: "CHOOSING", currentField: null });
+
+    expect(sessions.chooseMode(playerId, "1")).toMatchObject({
+      ok: true,
+      value: { mode: "GUIDED", currentField: "trainerName" },
+    });
+
+    const secondPlayer = createPlayerId();
+    sessions.begin(secondPlayer, { regionId: ZHOULIA_ID, baseDraft: completedDraft() });
+    expect(sessions.chooseMode(secondPlayer, "2")).toMatchObject({
+      ok: true,
+      value: { mode: "FULL", currentField: null, working: { trainerName: "Liora Vale" } },
+    });
+  });
+
   it("keeps guided answers ephemeral and advances one field at a time", () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
