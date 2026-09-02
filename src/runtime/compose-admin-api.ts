@@ -18,6 +18,8 @@ import {
 import { ContentLibraryService } from "../modules/admin/content-library-service.js";
 import { ContentReleaseReadService } from "../modules/admin/content-release-read-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
+import { registerEconomyAnalyticsRead } from "../modules/admin/economy-analytics-definitions.js";
+import { EconomyAnalyticsService } from "../modules/admin/economy-analytics-service.js";
 import { registerIncidentCenterRead } from "../modules/admin/incident-center-definitions.js";
 import { IncidentCenterReadService } from "../modules/admin/incident-center-read-service.js";
 import { registerMessagingOperationsRead } from "../modules/admin/messaging-operations-definitions.js";
@@ -36,6 +38,7 @@ import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admi
 import { PostgresAdminOperationAuditReadRepository } from "../platform/admin/postgres-admin-operation-audit-read-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
+import { PostgresEconomyAnalyticsRepository } from "../platform/admin/postgres-economy-analytics-repository.js";
 import { PostgresIncidentCenterReadRepository } from "../platform/admin/postgres-incident-center-read-repository.js";
 import { PostgresMessagingOperationsReadRepository } from "../platform/admin/postgres-messaging-operations-read-repository.js";
 import { PostgresPlayerActivityAnalyticsRepository } from "../platform/admin/postgres-player-activity-analytics-repository.js";
@@ -94,6 +97,15 @@ export function createOperationalAdminApi(
     playerActivityAnalyticsReadService,
     new PostgresPlayerActivityAnalyticsRepository(pool),
   );
+  const economyAnalyticsReadRegistry = registerEconomyAnalyticsRead(new AdminOperationRegistry());
+  const economyAnalyticsReadService = new AdminService(
+    economyAnalyticsReadRegistry,
+    adminRepository,
+  );
+  const economyAnalyticsService = new EconomyAnalyticsService(
+    economyAnalyticsReadService,
+    new PostgresEconomyAnalyticsRepository(pool),
+  );
   const contentLibraryRepository = new PostgresContentLibraryRepository(pool);
   const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
   const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
@@ -148,6 +160,7 @@ export function createOperationalAdminApi(
     incidentCenterReadService,
     adminOperationAuditReadService,
     playerActivityAnalyticsService,
+    economyAnalyticsService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
