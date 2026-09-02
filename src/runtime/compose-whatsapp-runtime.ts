@@ -11,6 +11,7 @@ import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-p
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
+import { withOperationalWorldPolicy } from "../modules/messaging/operational-command-policy.js";
 import { createOperationalUxRoutes } from "../modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
@@ -95,14 +96,16 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   });
 
   const legacyRoutes = withOperationalCommandAliases(
-    createOperationalUxRoutes({
-      registration: playerRegistration,
-      starter,
-      world,
-      encounter,
-      battle,
-      reads,
-    }).filter((definition) => definition.command !== "registrar"),
+    withOperationalWorldPolicy(
+      createOperationalUxRoutes({
+        registration: playerRegistration,
+        starter,
+        world,
+        encounter,
+        battle,
+        reads,
+      }).filter((definition) => definition.command !== "registrar"),
+    ),
   );
   const registrationRoutes = createRegistrationWhatsAppRoutes({
     sessions,
