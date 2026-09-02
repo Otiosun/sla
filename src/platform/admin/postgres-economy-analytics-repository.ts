@@ -42,6 +42,14 @@ function currencyEvidence(row: CurrencyRow): EconomyCurrencyAggregateEvidence {
   };
 }
 
+function safeCount(value: string, label: string): number {
+  const parsed = BigInt(value);
+  if (parsed < 0n || parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} exceeds safe transport range`);
+  }
+  return Number(parsed);
+}
+
 export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadRepository {
   public constructor(private readonly pool: Pool) {}
 
@@ -119,32 +127,32 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
         );
 
         const anomalyResult = await client.query<AnomalyRow>(
-          `WITH wallet_mismatches AS (
+          `WITH wallet_ledger_totals AS (
+             SELECT player_id, currency_id, sum(delta) AS ledger_amount
+             FROM wallet_ledger
+             WHERE created_at < $1::timestamptz
+             GROUP BY player_id, currency_id
+           ), wallet_mismatches AS (
              SELECT count(*)::text AS mismatch_count
              FROM wallet_balances balance
-             LEFT JOIN LATERAL (
-               SELECT ledger.balance_after
-               FROM wallet_ledger ledger
-               WHERE ledger.player_id = balance.player_id
-                 AND ledger.currency_id = balance.currency_id
-                 AND ledger.created_at < $1::timestamptz
-               ORDER BY ledger.created_at DESC, ledger.id DESC
-               LIMIT 1
-             ) latest ON TRUE
-             WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.amount
+             FULL OUTER JOIN wallet_ledger_totals ledger
+               ON ledger.player_id = balance.player_id
+              AND ledger.currency_id = balance.currency_id
+             WHERE COALESCE(balance.amount, 0::bigint)::numeric
+                   <> COALESCE(ledger.ledger_amount, 0::numeric)
+           ), inventory_ledger_totals AS (
+             SELECT player_id, item_id, sum(delta) AS ledger_quantity
+             FROM inventory_ledger
+             WHERE created_at < $1::timestamptz
+             GROUP BY player_id, item_id
            ), inventory_mismatches AS (
              SELECT count(*)::text AS mismatch_count
              FROM inventory_balances balance
-             LEFT JOIN LATERAL (
-               SELECT ledger.balance_after
-               FROM inventory_ledger ledger
-               WHERE ledger.player_id = balance.player_id
-                 AND ledger.item_id = balance.item_id
-                 AND ledger.created_at < $1::timestamptz
-               ORDER BY ledger.created_at DESC, ledger.id DESC
-               LIMIT 1
-             ) latest ON TRUE
-             WHERE latest.balance_after IS NULL OR latest.balance_after <> balance.quantity
+             FULL OUTER JOIN inventory_ledger_totals ledger
+               ON ledger.player_id = balance.player_id
+              AND ledger.item_id = balance.item_id
+             WHERE COALESCE(balance.quantity, 0::bigint)::numeric
+                   <> COALESCE(ledger.ledger_quantity, 0::numeric)
            )
            SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
                   inventory_mismatches.mismatch_count AS inventory_projection_mismatches
@@ -167,8 +175,14 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
             netFlowUnits: inventory.net_flow_units,
             totalUnitsHeld: inventory.total_units_held,
           },
-          walletProjectionMismatches: Number(anomalies.wallet_projection_mismatches),
-          inventoryProjectionMismatches: Number(anomalies.inventory_projection_mismatches),
+          walletProjectionMismatches: safeCount(
+            anomalies.wallet_projection_mismatches,
+            "wallet projection mismatch count",
+          ),
+          inventoryProjectionMismatches: safeCount(
+            anomalies.inventory_projection_mismatches,
+            "inventory projection mismatch count",
+          ),
         };
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
