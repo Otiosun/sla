@@ -146,6 +146,39 @@ describe("registration draft lifecycle", () => {
     });
   });
 
+  it("reports when there is no current registration review", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    expect(await service.getCurrentReview(playerId)).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+  });
+
+  it("reads the current submitted review with its optimistic revision", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    await service.saveDraft({ playerId, draft: snapshot(), expectedRevision: null });
+    const submitted = await service.submit({ playerId, idempotencyKey: "current-review-read" });
+    if (!submitted.ok) throw submitted.error;
+
+    expect(await service.getCurrentReview(playerId)).toMatchObject({
+      ok: true,
+      value: {
+        id: submitted.value.id,
+        playerId,
+        sequenceNo: 1,
+        status: "SUBMITTED",
+        revision: 0,
+        snapshot: snapshot(),
+      },
+    });
+  });
+
   it("persists a draft with optimistic revision and rejects a stale save", async () => {
     const repository = new InMemoryRegistrationRepository();
     const service = new RegistrationService(repository);
