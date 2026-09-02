@@ -65,7 +65,9 @@ export class PostgresRegistrationMessageRefRepository {
       providerExternalMessageId: input.providerExternalMessageId,
     });
     if (stored === null || !sameRef(stored, input)) {
-      throw new Error("Registration message ref conflicts with an existing provider message mapping");
+      throw new Error(
+        "Registration message ref conflicts with an existing provider message mapping",
+      );
     }
   }
 
