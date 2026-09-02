@@ -47,6 +47,8 @@ const PlayerGetTransportSchema = z
   })
   .strict();
 
+const PlayerActivityAnalyticsTransportSchema = z.object({}).strict();
+
 const ContentLibraryTransportSchema = z
   .object({
     query: z.string().trim().min(1).max(120).optional(),
@@ -84,6 +86,7 @@ export type AdminApiRateLimitedOperation =
   | "session.read"
   | "player.search"
   | "player.read"
+  | "player.activity.read"
   | "content.search"
   | "runtime.health.read"
   | "messaging.operations.read"
@@ -116,6 +119,7 @@ export interface AdminApiServerDependencies {
     Partial<
       Pick<
         AdminReadFacade,
+        | "getPlayerActivityAnalytics"
         | "searchContent"
         | "listUnpublishedContent"
         | "diffContentRelease"
@@ -290,6 +294,23 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (identity === null) return reply;
     const query = parseTransport(PlayerSearchTransportSchema, request.query);
     return dependencies.readFacade.searchPlayers(trustedRequestContext(identity, request), query);
+  });
+
+  server.get("/admin/v1/analytics/player-activity", async (request, reply) => {
+    const identity = await authenticateAndLimit(
+      request,
+      reply,
+      dependencies,
+      "player.activity.read",
+    );
+    if (identity === null) return reply;
+    parseTransport(PlayerActivityAnalyticsTransportSchema, request.query);
+    if (dependencies.readFacade.getPlayerActivityAnalytics === undefined) {
+      throw new Error("Player activity analytics read boundary is not configured");
+    }
+    return dependencies.readFacade.getPlayerActivityAnalytics(
+      trustedRequestContext(identity, request),
+    );
   });
 
   server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
