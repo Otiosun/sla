@@ -148,7 +148,10 @@ function fichaText(session: RegistrationConversationSession, setup: Registration
   ].join("\n");
 }
 
-function confirmationText(session: RegistrationConversationSession, setup: RegistrationSetup): string {
+function confirmationText(
+  session: RegistrationConversationSession,
+  setup: RegistrationSetup,
+): string {
   return [
     "✅ *CONFIRMAÇÃO DA FICHA*",
     "",
