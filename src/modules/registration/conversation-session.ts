@@ -30,12 +30,14 @@ export interface RegistrationConversationSession {
   readonly mode: RegistrationConversationMode;
   readonly currentField: RegistrationConversationField | null;
   readonly working: RegistrationConversationWorkingDraft;
+  readonly persistedRevision: number | null;
   readonly dirty: boolean;
 }
 
 export interface BeginRegistrationConversationInput {
   readonly regionId: string;
   readonly baseDraft?: RegistrationDraftInput;
+  readonly baseRevision?: number;
 }
 
 export interface StartRegistrationConversationInput extends BeginRegistrationConversationInput {
@@ -67,6 +69,7 @@ interface MutableSession {
     regionId: string;
     schemaVersion: number;
   };
+  persistedRevision: number | null;
   dirty: boolean;
 }
 
@@ -90,6 +93,7 @@ function snapshot(session: MutableSession): RegistrationConversationSession {
     mode: session.mode,
     currentField: session.currentField,
     working: copyWorking(session.working),
+    persistedRevision: session.persistedRevision,
     dirty: session.dirty,
   };
 }
@@ -279,6 +283,7 @@ export class RegistrationConversationSessions {
       mode: "CHOOSING",
       currentField: null,
       working: workingDraft(input),
+      persistedRevision: input.baseRevision ?? null,
       dirty: false,
     };
     this.sessions.set(playerId, session);
@@ -295,6 +300,7 @@ export class RegistrationConversationSessions {
       mode: input.mode,
       currentField: input.mode === "GUIDED" ? firstMissingField(working) : null,
       working,
+      persistedRevision: input.baseRevision ?? null,
       dirty: false,
     };
     this.sessions.set(playerId, session);
