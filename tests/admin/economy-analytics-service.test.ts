@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { AdminService } from "../../src/modules/admin/service.js";
+import type { AdminOperationRepository } from "../../src/modules/admin/ports.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
 import { registerEconomyAnalyticsRead } from "../../src/modules/admin/economy-analytics-definitions.js";
 import { EconomyAnalyticsService } from "../../src/modules/admin/economy-analytics-service.js";
@@ -89,15 +91,42 @@ describe("EconomyAnalyticsService", () => {
       expect(serialized).not.toContain(forbidden);
     }
   });
+
+  it("denies a principal that has player.read but lacks economy.read", async () => {
+    const registry = registerEconomyAnalyticsRead(new AdminOperationRegistry());
+    const repository = {
+      getAuthorizationSnapshot: vi.fn(async () => ({
+        principalId: PRINCIPAL_ID,
+        status: "ACTIVE" as const,
+        capabilities: [{ key: "player.read", riskTier: 0 as const }],
+        scopes: [{ scopeType: "GLOBAL" as const, scopeId: null }],
+      })),
+    } as unknown as AdminOperationRepository;
+    const readAggregate = vi.fn();
+    const service = new EconomyAnalyticsService(
+      new AdminService(registry, repository),
+      { readAggregate },
+      () => AS_OF,
+    );
+
+    await expect(
+      service.getAggregate({
+        principalId: PRINCIPAL_ID,
+        environment: "staging",
+        correlationId: CORRELATION_ID,
+      }),
+    ).rejects.toMatchObject({ code: "ADMIN_AUTHORIZATION_DENIED" });
+    expect(readAggregate).not.toHaveBeenCalled();
+  });
 });
 
 describe("economy analytics registry definition", () => {
-  it("is a zero-risk global READ reusing existing player.read authority", () => {
+  it("is a zero-risk global READ guarded by economy.read", () => {
     const registry = registerEconomyAnalyticsRead(new AdminOperationRegistry());
     const definition = registry.require("economy.analytics.read");
 
     expect(definition.kind).toBe("READ");
-    expect(definition.capabilityKey).toBe("player.read");
+    expect(definition.capabilityKey).toBe("economy.read");
     expect(definition.riskTier).toBe(0);
     expect(definition.authorizationMode).toBe("GLOBAL_ONLY");
     expect(definition.target({})).toEqual({ type: "SYSTEM", id: null });
