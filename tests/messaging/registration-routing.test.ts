@@ -9,7 +9,10 @@ import { ok } from "../../src/shared-kernel/result.js";
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 const CHARMANDER_ID = "22222222-2222-4222-8222-222222222222";
 
-function context(input: { readonly text: string; readonly chatRef?: string }): MessageHandlerContext {
+function context(input: {
+  readonly text: string;
+  readonly chatRef?: string;
+}): MessageHandlerContext {
   return {
     inboxMessageId: "00000000-0000-4000-8000-000000000101",
     correlationId: "00000000-0000-4000-8000-000000000102",
