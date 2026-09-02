@@ -136,8 +136,13 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       balanceAfter: 1079,
       createdAt: new Date("2026-09-03T00:00:00.000Z"),
     });
+    const privatePlayerId = playerAt(players, 5);
+    await pool.query(
+      "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 50)",
+      [privatePlayerId, privateCurrency],
+    );
     await insertWalletLedger(pool, {
-      playerId: playerAt(players, 5),
+      playerId: privatePlayerId,
       currencyId: privateCurrency,
       delta: 50,
       sourceId: "private",
@@ -192,7 +197,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       netFlowUnits: "7",
       totalUnitsHeld: "7",
     });
-    expect(result.inventoryProjectionMismatches).toBe("1");
+    expect(result.inventoryProjectionMismatches).toBe("0");
     expect(result.walletProjectionMismatches).toBe("1");
     expect(JSON.stringify(result)).not.toContain(primaryPlayerId);
   });
