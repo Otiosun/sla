@@ -109,7 +109,11 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     players: playerRegistration,
     registration,
     setup,
-  });
+  }).map((definition) =>
+    definition.command === "registrar"
+      ? { ...definition, rateLimitClass: "SENSITIVE" as const }
+      : definition,
+  );
   const router = new MessageRouter(
     [...legacyRoutes, ...registrationRoutes],
     policyGate,
