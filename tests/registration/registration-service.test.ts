@@ -123,6 +123,27 @@ describe("registration draft lifecycle", () => {
     expect(repository.revisions).toHaveLength(0);
   });
 
+  it("reads the persisted partial draft and its optimistic revision", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    await service.saveDraft({
+      playerId,
+      draft: { trainerName: "Liora Vale", regionId: REGION_ID, schemaVersion: 1 },
+      expectedRevision: null,
+    });
+
+    expect(await service.getDraft(playerId)).toMatchObject({
+      ok: true,
+      value: {
+        playerId,
+        revision: 0,
+        snapshot: { trainerName: "Liora Vale", regionId: REGION_ID, schemaVersion: 1 },
+      },
+    });
+  });
+
   it("persists a draft with optimistic revision and rejects a stale save", async () => {
     const repository = new InMemoryRegistrationRepository();
     const service = new RegistrationService(repository);
