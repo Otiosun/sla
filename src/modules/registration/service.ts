@@ -95,6 +95,15 @@ export class RegistrationService {
     });
   }
 
+  public async getCurrentReview(playerId: PlayerId): Promise<Result<RegistrationRevisionRecord>> {
+    return this.repository.read(async (tx) => {
+      const current = await tx.loadCurrentRevision(playerId);
+      return current === null
+        ? err(appError("NOT_FOUND", "Current registration review not found"))
+        : ok(current);
+    });
+  }
+
   public async saveDraft(
     input: SaveRegistrationDraftInput,
   ): Promise<Result<RegistrationDraftRecord>> {
