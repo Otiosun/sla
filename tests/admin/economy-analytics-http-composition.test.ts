@@ -26,7 +26,7 @@ function setup() {
     currencies: [],
     currenciesTruncated: false,
     inventory: { inflowUnits: "0", outflowUnits: "0", netFlowUnits: "0", totalUnitsHeld: "0" },
-    anomalies: { walletProjectionMismatches: 0, inventoryProjectionMismatches: 0 },
+    anomalies: { walletProjectionMismatches: "0", inventoryProjectionMismatches: "0" },
   });
   const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 60 });
   const server = createAdminApiServer({
@@ -60,6 +60,7 @@ describe("F8.3 economy analytics HTTP composition", () => {
       window: "30d",
       currencies: [],
       currenciesTruncated: false,
+      anomalies: { walletProjectionMismatches: "0", inventoryProjectionMismatches: "0" },
     });
     expect(consume).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
