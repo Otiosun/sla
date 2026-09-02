@@ -49,6 +49,43 @@ const PlayerGetTransportSchema = z
 
 const PlayerActivityAnalyticsTransportSchema = z.object({}).strict();
 const EconomyAnalyticsTransportSchema = z.object({}).strict();
+const signedIntegerString = z.string().regex(/^-?\d+$/);
+const nonNegativeIntegerString = z.string().regex(/^\d+$/);
+const EconomyAnalyticsOutputSchema = z
+  .object({
+    asOf: z.string().datetime(),
+    window: z.literal("30d"),
+    currencies: z
+      .array(
+        z
+          .object({
+            slug: z.string().trim().min(1).max(128),
+            displayName: z.string().trim().min(1).max(160),
+            inflow: nonNegativeIntegerString,
+            outflow: nonNegativeIntegerString,
+            netFlow: signedIntegerString,
+            totalBalance: signedIntegerString,
+          })
+          .strict(),
+      )
+      .max(32),
+    currenciesTruncated: z.boolean(),
+    inventory: z
+      .object({
+        inflowUnits: nonNegativeIntegerString,
+        outflowUnits: nonNegativeIntegerString,
+        netFlowUnits: signedIntegerString,
+        totalUnitsHeld: nonNegativeIntegerString,
+      })
+      .strict(),
+    anomalies: z
+      .object({
+        walletProjectionMismatches: nonNegativeIntegerString,
+        inventoryProjectionMismatches: nonNegativeIntegerString,
+      })
+      .strict(),
+  })
+  .strict();
 
 const ContentLibraryTransportSchema = z
   .object({
@@ -144,6 +181,14 @@ function invalidTransportInput(): AdminError {
 function parseTransport<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw invalidTransportInput();
+  return parsed.data;
+}
+
+function parseTrustedOutput<T>(schema: z.ZodType<T>, value: unknown, boundary: string): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`${boundary} returned an invalid administrative response`);
+  }
   return parsed.data;
 }
 
@@ -328,7 +373,10 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     if (dependencies.readFacade.getEconomyAnalytics === undefined) {
       throw new Error("Economy analytics read boundary is not configured");
     }
-    return dependencies.readFacade.getEconomyAnalytics(trustedRequestContext(identity, request));
+    const output = await dependencies.readFacade.getEconomyAnalytics(
+      trustedRequestContext(identity, request),
+    );
+    return parseTrustedOutput(EconomyAnalyticsOutputSchema, output, "Economy analytics boundary");
   });
 
   server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
