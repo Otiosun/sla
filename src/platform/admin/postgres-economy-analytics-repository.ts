@@ -127,6 +127,7 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
                FROM wallet_ledger ledger
                WHERE ledger.player_id = balance.player_id
                  AND ledger.currency_id = balance.currency_id
+                 AND ledger.created_at < $1::timestamptz
                ORDER BY ledger.created_at DESC, ledger.id DESC
                LIMIT 1
              ) latest ON TRUE
@@ -139,6 +140,7 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
                FROM inventory_ledger ledger
                WHERE ledger.player_id = balance.player_id
                  AND ledger.item_id = balance.item_id
+                 AND ledger.created_at < $1::timestamptz
                ORDER BY ledger.created_at DESC, ledger.id DESC
                LIMIT 1
              ) latest ON TRUE
@@ -147,6 +149,7 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
            SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
                   inventory_mismatches.mismatch_count AS inventory_projection_mismatches
            FROM wallet_mismatches CROSS JOIN inventory_mismatches`,
+          [asOf],
         );
 
         const inventory = inventoryResult.rows[0];
