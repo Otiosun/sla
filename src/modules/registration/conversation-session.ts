@@ -306,10 +306,7 @@ export class RegistrationConversationSessions {
     return session === undefined ? null : snapshot(session);
   }
 
-  public chooseMode(
-    playerId: PlayerId,
-    rawValue: string,
-  ): Result<RegistrationConversationSession> {
+  public chooseMode(playerId: PlayerId, rawValue: string): Result<RegistrationConversationSession> {
     const session = this.sessions.get(playerId);
     if (session === undefined) {
       return err(appError("NOT_FOUND", "Registration conversation is not active"));
