@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
+import type { RegistrationDraftRecord } from "../../src/modules/registration/ports.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
@@ -27,13 +28,32 @@ function context(text: string): MessageHandlerContext {
   };
 }
 
-function dependencies(sessions = new RegistrationConversationSessions()) {
+function dependencies(
+  sessions = new RegistrationConversationSessions(),
+  initialDraft: RegistrationDraftRecord | null = null,
+) {
+  let persistedDraft = initialDraft;
   return {
     sessions,
     players: {
       resolveOrCreatePlayer: async () =>
         ok({ playerId: PLAYER_ID, state: "NEW" as const, created: true }),
       resolvePlayer: async () => ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
+    },
+    registration: {
+      getDraft: async () =>
+        persistedDraft === null
+          ? err(appError("NOT_FOUND", "Registration draft not found"))
+          : ok(persistedDraft),
+      saveDraft: async (input: {
+        readonly playerId: typeof PLAYER_ID;
+        readonly draft: RegistrationDraftRecord["snapshot"];
+        readonly expectedRevision: number | null;
+      }) => {
+        const revision = (persistedDraft?.revision ?? -1) + 1;
+        persistedDraft = { playerId: input.playerId, snapshot: input.draft, revision };
+        return ok(persistedDraft);
+      },
     },
     setup: {
       load: async () =>
@@ -56,7 +76,7 @@ function route(command: string, sessions = new RegistrationConversationSessions(
 describe("registration WhatsApp commands", () => {
   it("declares reception-only pending-player policy for the player registration commands", () => {
     const routes = createRegistrationWhatsAppRoutes(dependencies());
-    for (const command of ["registrar", "modo", "ficha"]) {
+    for (const command of ["registrar", "modo", "ficha", "salvar", "continuar"]) {
       expect(routes.find((candidate) => candidate.command === command)?.policy).toEqual({
         requiredGroupCapabilities: ["onboarding"],
         allowedPlayerAccess: ["PENDING"],
@@ -134,6 +154,62 @@ describe("registration WhatsApp commands", () => {
           },
         ],
       },
+    });
+  });
+
+  it("saves the current partial session with optimistic revision and marks it clean", async () => {
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(PLAYER_ID, { mode: "GUIDED", regionId: ZHOULIA_ID });
+    sessions.applyGuidedAnswer(PLAYER_ID, "Liora Vale");
+    const deps = dependencies(sessions);
+    const salvar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "salvar",
+    );
+    if (salvar === undefined) throw new Error("Missing registration route salvar");
+
+    const result = await salvar.handler.handle(context("$salvar"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outgoing: [{ payload: { text: expect.stringMatching(/rascunho.*salv/i) } }] },
+    });
+    expect(sessions.get(PLAYER_ID)).toMatchObject({
+      mode: "GUIDED",
+      persistedRevision: 0,
+      dirty: false,
+      currentField: "age",
+      working: { trainerName: "Liora Vale" },
+    });
+  });
+
+  it("continues from a persisted partial draft after the in-memory session is gone", async () => {
+    const sessions = new RegistrationConversationSessions();
+    const deps = dependencies(sessions, {
+      playerId: PLAYER_ID,
+      revision: 4,
+      snapshot: {
+        trainerName: "Liora Vale",
+        regionId: ZHOULIA_ID,
+        schemaVersion: 1,
+      },
+    });
+    const continuar = createRegistrationWhatsAppRoutes(deps).find(
+      (candidate) => candidate.command === "continuar",
+    );
+    if (continuar === undefined) throw new Error("Missing registration route continuar");
+
+    const result = await continuar.handler.handle(context("$continuar"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outgoing: [{ payload: { text: expect.stringMatching(/idade/i) } }] },
+    });
+    expect(sessions.get(PLAYER_ID)).toMatchObject({
+      mode: "GUIDED",
+      persistedRevision: 4,
+      dirty: false,
+      currentField: "age",
+      working: { trainerName: "Liora Vale", regionId: ZHOULIA_ID },
     });
   });
 });
