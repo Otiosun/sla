@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { RegistrationSnapshot } from "../../modules/registration/contracts.js";
+import type {
+  RegistrationDraftInput,
+  RegistrationSnapshot,
+} from "../../modules/registration/contracts.js";
 import type {
   InsertRegistrationRevisionWrite,
   RegistrationDraftRecord,
@@ -11,7 +14,10 @@ import type {
   RegistrationTransaction,
   SaveRegistrationDraftWrite,
 } from "../../modules/registration/ports.js";
-import { validateRegistrationDraft } from "../../modules/registration/validation.js";
+import {
+  normalizeRegistrationDraft,
+  validateRegistrationDraft,
+} from "../../modules/registration/validation.js";
 import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
@@ -37,11 +43,20 @@ function asPlayerId(value: string): PlayerId {
   return parsed.value;
 }
 
+function asDraft(value: unknown): RegistrationDraftInput {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Database returned an invalid registration draft");
+  }
+  const validated = normalizeRegistrationDraft(value as RegistrationDraftInput);
+  if (!validated.ok) throw new Error("Database returned an invalid registration draft");
+  return validated.value;
+}
+
 function asSnapshot(value: unknown): RegistrationSnapshot {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Database returned an invalid registration snapshot");
   }
-  const validated = validateRegistrationDraft(value as RegistrationSnapshot);
+  const validated = validateRegistrationDraft(value as RegistrationDraftInput);
   if (!validated.ok) throw new Error("Database returned an invalid registration snapshot");
   return validated.value;
 }
@@ -49,7 +64,7 @@ function asSnapshot(value: unknown): RegistrationSnapshot {
 function draftRecord(row: DraftRow): RegistrationDraftRecord {
   return {
     playerId: asPlayerId(row.player_id),
-    snapshot: asSnapshot(row.snapshot_json),
+    snapshot: asDraft(row.snapshot_json),
     revision: Number(row.revision),
   };
 }
