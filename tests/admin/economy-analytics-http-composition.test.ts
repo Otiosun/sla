@@ -49,18 +49,37 @@ function setup() {
 describe("F8.3 economy analytics HTTP composition", () => {
   it("exposes one bounded global read with trusted server context", async () => {
     const { server, getEconomyAnalytics, consume } = setup();
-    const response = await server.inject({ method: "GET", url: "/admin/v1/analytics/economy", headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN } });
+    const response = await server.inject({
+      method: "GET",
+      url: "/admin/v1/analytics/economy",
+      headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
+    });
     expect(response.statusCode).toBe(200);
     expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.json()).toMatchObject({ window: "30d", currencies: [], currenciesTruncated: false });
-    expect(consume).toHaveBeenCalledWith({ principalId: PRINCIPAL_ID, operation: "economy.analytics.read" });
-    expect(getEconomyAnalytics).toHaveBeenCalledWith({ principalId: PRINCIPAL_ID, environment: "staging", correlationId: response.headers["x-correlation-id"] });
+    expect(response.json()).toMatchObject({
+      window: "30d",
+      currencies: [],
+      currenciesTruncated: false,
+    });
+    expect(consume).toHaveBeenCalledWith({
+      principalId: PRINCIPAL_ID,
+      operation: "economy.analytics.read",
+    });
+    expect(getEconomyAnalytics).toHaveBeenCalledWith({
+      principalId: PRINCIPAL_ID,
+      environment: "staging",
+      correlationId: response.headers["x-correlation-id"],
+    });
   });
 
   it("rejects arbitrary windows and client-owned authority", async () => {
     const { server, getEconomyAnalytics } = setup();
     for (const query of ["window=7d", "principalId=attacker", "environment=production"]) {
-      const response = await server.inject({ method: "GET", url: `/admin/v1/analytics/economy?${query}`, headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN } });
+      const response = await server.inject({
+        method: "GET",
+        url: `/admin/v1/analytics/economy?${query}`,
+        headers: { origin: ORIGIN, "cf-access-jwt-assertion": TOKEN },
+      });
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: { code: "ADMIN_INVALID_INPUT" } });
     }
