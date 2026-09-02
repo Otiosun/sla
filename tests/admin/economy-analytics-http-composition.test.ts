@@ -32,8 +32,8 @@ function setup() {
       totalUnitsHeld: "0",
     },
     anomalies: {
-      walletProjectionMismatches: 0,
-      inventoryProjectionMismatches: 0,
+      walletProjectionMismatches: "0",
+      inventoryProjectionMismatches: "0",
     },
   });
   const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 60 });
@@ -68,6 +68,10 @@ describe("F8.3 economy analytics HTTP composition", () => {
       window: "30d",
       currencies: [],
       currenciesTruncated: false,
+      anomalies: {
+        walletProjectionMismatches: "0",
+        inventoryProjectionMismatches: "0",
+      },
     });
     expect(consume).toHaveBeenCalledWith({
       principalId: PRINCIPAL_ID,
