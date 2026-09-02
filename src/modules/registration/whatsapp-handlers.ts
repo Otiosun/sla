@@ -11,6 +11,7 @@ import type {
   RegistrationEditingMode,
 } from "./conversation-session.js";
 import type { RegistrationService } from "./service.js";
+import { validateRegistrationDraft } from "./validation.js";
 
 export interface RegistrationStarterOption {
   readonly formId: string;
@@ -26,7 +27,7 @@ export interface RegistrationSetup {
 export interface RegistrationWhatsAppDependencies {
   readonly sessions: RegistrationConversationSessions;
   readonly players: Pick<PlayerRegistrationService, "resolveOrCreatePlayer" | "resolvePlayer">;
-  readonly registration: Pick<RegistrationService, "getDraft" | "saveDraft">;
+  readonly registration: Pick<RegistrationService, "getDraft" | "saveDraft" | "saveAndSubmit">;
   readonly setup: { load(): Promise<Result<RegistrationSetup>> };
 }
 
@@ -120,12 +121,15 @@ function value(value: string | number | undefined): string {
   return value === undefined || String(value).trim().length === 0 ? "—" : String(value);
 }
 
+function starterDisplayName(starterFormId: string | undefined, setup: RegistrationSetup): string {
+  if (starterFormId === undefined) return "—";
+  return (
+    setup.starterOptions.find((option) => option.formId === starterFormId)?.displayName ??
+    starterFormId
+  );
+}
+
 function fichaText(session: RegistrationConversationSession, setup: RegistrationSetup): string {
-  const starter = session.working.starterFormId;
-  const starterName =
-    starter === undefined
-      ? "—"
-      : (setup.starterOptions.find((option) => option.formId === starter)?.displayName ?? starter);
   return [
     "📋 *FICHA ATUAL*",
     "",
@@ -135,13 +139,46 @@ function fichaText(session: RegistrationConversationSession, setup: Registration
     `Aparência: ${value(session.working.appearance)}`,
     `Personalidade: ${value(session.working.personality)}`,
     `História / resumo: ${value(session.working.backstory)}`,
-    `Pokémon inicial: ${starterName}`,
+    `Pokémon inicial: ${starterDisplayName(session.working.starterFormId, setup)}`,
     `Região: ${setup.regionDisplayName}`,
     "",
     session.dirty
       ? "⚠️ Existem alterações não salvas."
       : "Nenhuma alteração não salva nesta sessão.",
   ].join("\n");
+}
+
+function confirmationText(session: RegistrationConversationSession, setup: RegistrationSetup): string {
+  return [
+    "✅ *CONFIRMAÇÃO DA FICHA*",
+    "",
+    `Nome: ${value(session.working.trainerName)}`,
+    `Idade: ${value(session.working.age)}`,
+    `Gênero / pronomes: ${value(session.working.genderPronouns)}`,
+    `Aparência: ${value(session.working.appearance)}`,
+    `Personalidade: ${value(session.working.personality)}`,
+    `História / resumo: ${value(session.working.backstory)}`,
+    `Pokémon inicial: ${starterDisplayName(session.working.starterFormId, setup)}`,
+    `Região: ${setup.regionDisplayName}`,
+    "",
+    "Confira tudo acima. Nada foi enviado ainda.",
+    "Se estiver correto, use `$confirmar sim`.",
+  ].join("\n");
+}
+
+function confirmationFingerprint(session: RegistrationConversationSession): string {
+  return JSON.stringify({
+    persistedRevision: session.persistedRevision,
+    trainerName: session.working.trainerName,
+    age: session.working.age,
+    genderPronouns: session.working.genderPronouns,
+    appearance: session.working.appearance,
+    personality: session.working.personality,
+    backstory: session.working.backstory,
+    starterFormId: session.working.starterFormId,
+    regionId: session.working.regionId,
+    schemaVersion: session.working.schemaVersion,
+  });
 }
 
 async function existingPlayer(
@@ -155,11 +192,14 @@ async function existingPlayer(
 export function createRegistrationWhatsAppRoutes(
   dependencies: RegistrationWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
+  const pendingConfirmations = new Map<PlayerId, string>();
+
   const register: Handler = async (context) => {
     const player = await dependencies.players.resolveOrCreatePlayer(identity(context));
     if (!player.ok) return player;
     const setup = await dependencies.setup.load();
     if (!setup.ok) return setup;
+    pendingConfirmations.delete(player.value.playerId);
     dependencies.sessions.begin(player.value.playerId, { regionId: setup.value.regionId });
     return reply(
       context,
@@ -183,6 +223,7 @@ export function createRegistrationWhatsAppRoutes(
     if (selected === null) {
       return err(appError("VALIDATION_FAILED", "Use `$modo guiado` ou `$modo completo`."));
     }
+    pendingConfirmations.delete(player.value);
     const switched = dependencies.sessions.switchMode(player.value, selected);
     if (!switched.ok) return switched;
     if (selected === "GUIDED") return reply(context, player.value, guidedPrompt(switched.value));
@@ -216,6 +257,7 @@ export function createRegistrationWhatsAppRoutes(
       return err(appError("INVALID_STATE_TRANSITION", "Escolha o modo da ficha antes de salvar."));
     }
 
+    pendingConfirmations.delete(player.value);
     const saved = await dependencies.registration.saveDraft({
       playerId: player.value,
       draft: session.working,
@@ -250,6 +292,7 @@ export function createRegistrationWhatsAppRoutes(
     const setup = await dependencies.setup.load();
     if (!setup.ok) return setup;
 
+    pendingConfirmations.delete(player.value);
     const resumed = dependencies.sessions.start(player.value, {
       mode: "GUIDED",
       regionId: setup.value.regionId,
@@ -259,11 +302,71 @@ export function createRegistrationWhatsAppRoutes(
     return reply(context, player.value, `↩️ Rascunho retomado.\n\n${guidedPrompt(resumed)}`);
   };
 
+  const confirm: Handler = async (context) => {
+    const player = await existingPlayer(dependencies, context);
+    if (!player.ok) return player;
+    const session = dependencies.sessions.get(player.value);
+    if (session === null) {
+      return err(
+        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."),
+      );
+    }
+    if (session.mode === "CHOOSING") {
+      return err(
+        appError("INVALID_STATE_TRANSITION", "Escolha o modo da ficha antes de confirmar."),
+      );
+    }
+
+    const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
+    if (confirmationArg === undefined) {
+      const validation = validateRegistrationDraft(session.working);
+      if (!validation.ok) return validation;
+      const setup = await dependencies.setup.load();
+      if (!setup.ok) return setup;
+      pendingConfirmations.set(player.value, confirmationFingerprint(session));
+      return reply(context, player.value, confirmationText(session, setup.value));
+    }
+    if (confirmationArg !== "sim") {
+      return err(appError("VALIDATION_FAILED", "Use `$confirmar` ou `$confirmar sim`."));
+    }
+
+    const previewedFingerprint = pendingConfirmations.get(player.value);
+    if (
+      previewedFingerprint === undefined ||
+      previewedFingerprint !== confirmationFingerprint(session)
+    ) {
+      pendingConfirmations.delete(player.value);
+      return err(
+        appError(
+          "INVALID_STATE_TRANSITION",
+          "A ficha atual ainda não foi revisada. Use `$confirmar` novamente antes de enviar.",
+        ),
+      );
+    }
+
+    const submitted = await dependencies.registration.saveAndSubmit({
+      playerId: player.value,
+      draft: session.working,
+      expectedDraftRevision: session.persistedRevision,
+      idempotencyKey: `${context.idempotencyKey}:registration-submit`,
+    });
+    if (!submitted.ok) return submitted;
+
+    pendingConfirmations.delete(player.value);
+    dependencies.sessions.clear(player.value);
+    return reply(
+      context,
+      player.value,
+      "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+    );
+  };
+
   return [
     { command: "registrar", handler: new FunctionalHandler(register), policy: POLICY },
     { command: "modo", handler: new FunctionalHandler(mode), policy: POLICY },
     { command: "ficha", handler: new FunctionalHandler(ficha), policy: POLICY },
     { command: "salvar", handler: new FunctionalHandler(save), policy: POLICY },
     { command: "continuar", handler: new FunctionalHandler(continueDraft), policy: POLICY },
+    { command: "confirmar", handler: new FunctionalHandler(confirm), policy: POLICY },
   ];
 }
