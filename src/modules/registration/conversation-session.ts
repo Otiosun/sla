@@ -76,9 +76,7 @@ const GUIDED_FIELDS: readonly RegistrationConversationField[] = [
   "starterFormId",
 ];
 
-function copyWorking(
-  working: MutableSession["working"],
-): RegistrationConversationWorkingDraft {
+function copyWorking(working: MutableSession["working"]): RegistrationConversationWorkingDraft {
   return { ...working };
 }
 
@@ -104,7 +102,9 @@ function firstMissingField(
   return null;
 }
 
-function nextGuidedField(field: RegistrationConversationField): RegistrationConversationField | null {
+function nextGuidedField(
+  field: RegistrationConversationField,
+): RegistrationConversationField | null {
   const index = GUIDED_FIELDS.indexOf(field);
   return GUIDED_FIELDS[index + 1] ?? null;
 }
@@ -249,9 +249,10 @@ export class RegistrationConversationSessions {
     input: StartRegistrationConversationInput,
   ): RegistrationConversationSession {
     const base = input.baseDraft;
-    const working: MutableSession["working"] = base === undefined
-      ? { regionId: input.regionId, schemaVersion: 1 }
-      : { ...base, regionId: input.regionId };
+    const working: MutableSession["working"] =
+      base === undefined
+        ? { regionId: input.regionId, schemaVersion: 1 }
+        : { ...base, regionId: input.regionId };
     const session: MutableSession = {
       playerId,
       mode: input.mode,
@@ -311,7 +312,9 @@ export class RegistrationConversationSessions {
       return err(appError("NOT_FOUND", "Registration conversation is not active"));
     }
     if (session.mode !== "GUIDED" || session.currentField === null) {
-      return err(appError("INVALID_STATE_TRANSITION", "Guided registration is not awaiting an answer"));
+      return err(
+        appError("INVALID_STATE_TRANSITION", "Guided registration is not awaiting an answer"),
+      );
     }
 
     const field = session.currentField;
@@ -323,10 +326,7 @@ export class RegistrationConversationSessions {
       session.working[field] = parsed.value as string;
     }
     session.currentField = nextGuidedField(field);
-    while (
-      session.currentField !== null &&
-      session.working[session.currentField] !== undefined
-    ) {
+    while (session.currentField !== null && session.working[session.currentField] !== undefined) {
       session.currentField = nextGuidedField(session.currentField);
     }
     session.dirty = true;
