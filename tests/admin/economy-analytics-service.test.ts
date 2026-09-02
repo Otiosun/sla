@@ -92,12 +92,12 @@ describe("EconomyAnalyticsService", () => {
 });
 
 describe("economy analytics registry definition", () => {
-  it("is a zero-risk global READ reusing existing player.read authority", () => {
+  it("is a zero-risk global READ using the canonical economy.read authority", () => {
     const registry = registerEconomyAnalyticsRead(new AdminOperationRegistry());
     const definition = registry.require("economy.analytics.read");
 
     expect(definition.kind).toBe("READ");
-    expect(definition.capabilityKey).toBe("player.read");
+    expect(definition.capabilityKey).toBe("economy.read");
     expect(definition.riskTier).toBe(0);
     expect(definition.authorizationMode).toBe("GLOBAL_ONLY");
     expect(definition.target({})).toEqual({ type: "SYSTEM", id: null });
