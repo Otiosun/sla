@@ -27,8 +27,8 @@ export interface EconomyAnalyticsAggregateEvidence {
     readonly netFlowUnits: string;
     readonly totalUnitsHeld: string;
   };
-  readonly walletProjectionMismatches: number;
-  readonly inventoryProjectionMismatches: number;
+  readonly walletProjectionMismatches: string;
+  readonly inventoryProjectionMismatches: string;
 }
 
 export interface EconomyAnalyticsReadRepository {
@@ -56,8 +56,8 @@ export interface EconomyAnalyticsView {
     readonly totalUnitsHeld: string;
   };
   readonly anomalies: {
-    readonly walletProjectionMismatches: number;
-    readonly inventoryProjectionMismatches: number;
+    readonly walletProjectionMismatches: string;
+    readonly inventoryProjectionMismatches: string;
   };
 }
 
