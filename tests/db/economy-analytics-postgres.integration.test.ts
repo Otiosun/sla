@@ -4,9 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresEconomyAnalyticsRepository } from "../../src/platform/admin/postgres-economy-analytics-repository.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (databaseUrl === undefined)
-  throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+const databaseUrl = (() => {
+  const value = process.env.DATABASE_URL;
+  if (value === undefined) {
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  }
+  return value;
+})();
 function dbUrl(name: string) {
   const url = new URL(databaseUrl);
   url.pathname = `/${name}`;
