@@ -167,13 +167,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     await pool.query(
       `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
        VALUES ($1,$2,$3,10,'F8_3_RACE','post-asof','race proof','SYSTEM','f8.3-race','credit',$4,10,$5)`,
-      [
-        randomUUID(),
-        playerId,
-        currencyId,
-        randomUUID(),
-        new Date("2026-09-02T12:00:01.000Z"),
-      ],
+      [randomUUID(), playerId, currencyId, randomUUID(), new Date("2026-09-02T12:00:01.000Z")],
     );
 
     const result = await new PostgresEconomyAnalyticsRepository(pool).readAggregate(
