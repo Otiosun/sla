@@ -1,11 +1,11 @@
 export interface RegistrationDraftInput {
-  readonly trainerName: string;
-  readonly age: number;
-  readonly genderPronouns: string;
-  readonly appearance: string;
-  readonly personality: string;
-  readonly backstory: string;
-  readonly starterFormId: string;
+  readonly trainerName?: string;
+  readonly age?: number;
+  readonly genderPronouns?: string;
+  readonly appearance?: string;
+  readonly personality?: string;
+  readonly backstory?: string;
+  readonly starterFormId?: string;
   readonly regionId: string;
   readonly schemaVersion: number;
 }
