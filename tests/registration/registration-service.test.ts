@@ -93,6 +93,36 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
 }
 
 describe("registration draft lifecycle", () => {
+  it("persists an incomplete guided draft but refuses to submit it", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    const saved = await service.saveDraft({
+      playerId,
+      draft: {
+        trainerName: "Liora Vale",
+        age: 17,
+        regionId: REGION_ID,
+        schemaVersion: 1,
+      },
+      expectedRevision: null,
+    });
+
+    expect(saved).toMatchObject({
+      ok: true,
+      value: {
+        revision: 0,
+        snapshot: { trainerName: "Liora Vale", age: 17, regionId: REGION_ID },
+      },
+    });
+    expect(await service.submit({ playerId, idempotencyKey: "partial-submit" })).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
+    });
+    expect(repository.revisions).toHaveLength(0);
+  });
+
   it("persists a draft with optimistic revision and rejects a stale save", async () => {
     const repository = new InMemoryRegistrationRepository();
     const service = new RegistrationService(repository);
