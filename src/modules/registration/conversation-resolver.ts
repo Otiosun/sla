@@ -112,10 +112,7 @@ function normalizedChoice(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-function resolveCanonicalStarterFormId(
-  rawValue: string,
-  setup: RegistrationSetup,
-): Result<string> {
+function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetup): Result<string> {
   const value = rawValue.trim();
   if (/^[1-9]\d*$/.test(value)) {
     const index = Number(value);
@@ -127,8 +124,7 @@ function resolveCanonicalStarterFormId(
 
   const normalized = normalizedChoice(value);
   const matches = setup.starterOptions.filter(
-    (option) =>
-      option.formId === value || normalizedChoice(option.displayName) === normalized,
+    (option) => option.formId === value || normalizedChoice(option.displayName) === normalized,
   );
   if (matches.length !== 1) {
     return err(
