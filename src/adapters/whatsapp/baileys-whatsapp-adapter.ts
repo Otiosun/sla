@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
 import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
@@ -102,11 +103,14 @@ function providerExternalMessageId(result: unknown): string | null {
 }
 
 export function baileysOutboundMessageId(message: PendingOutboxMessage): string {
-  const messageId = message.id.replaceAll("-", "").toUpperCase();
-  if (!/^[0-9A-F]{32}$/.test(messageId)) {
-    throw new Error("Baileys outbox id must be a UUID-compatible 32-hex message id");
-  }
-  return messageId;
+  const compactUuid = message.id.replaceAll("-", "").toUpperCase();
+  if (/^[0-9A-F]{32}$/.test(compactUuid)) return compactUuid;
+
+  return createHash("sha256")
+    .update(`pokemon-rpg:baileys:${message.id}`)
+    .digest("hex")
+    .slice(0, 32)
+    .toUpperCase();
 }
 
 export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
