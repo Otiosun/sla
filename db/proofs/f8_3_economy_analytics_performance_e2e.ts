@@ -258,14 +258,23 @@ function assertAggregate(
     assert(currency.inflow === "165000", `Unexpected currency inflow: ${currency.inflow}`);
     assert(currency.outflow === "37500", `Unexpected currency outflow: ${currency.outflow}`);
     assert(currency.netFlow === "127500", `Unexpected currency net flow: ${currency.netFlow}`);
-    assert(currency.totalBalance === "127500", `Unexpected currency balance: ${currency.totalBalance}`);
+    assert(
+      currency.totalBalance === "127500",
+      `Unexpected currency balance: ${currency.totalBalance}`,
+    );
   }
   assert(result.inventory.inflowUnits === "216000", "Unexpected inventory inflow volume");
   assert(result.inventory.outflowUnits === "54000", "Unexpected inventory outflow volume");
   assert(result.inventory.netFlowUnits === "162000", "Unexpected inventory net volume");
   assert(result.inventory.totalUnitsHeld === "162001", "Unexpected inventory held volume");
-  assert(result.walletProjectionMismatches === "0", "Wallet reconciliation produced a false anomaly");
-  assert(result.inventoryProjectionMismatches === "1", "Inventory reconciliation missed the seeded drift");
+  assert(
+    result.walletProjectionMismatches === "0",
+    "Wallet reconciliation produced a false anomaly",
+  );
+  assert(
+    result.inventoryProjectionMismatches === "1",
+    "Inventory reconciliation missed the seeded drift",
+  );
 }
 
 async function proveAggregateBudget(pool: Pool): Promise<void> {
