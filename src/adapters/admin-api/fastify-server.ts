@@ -48,6 +48,7 @@ const PlayerGetTransportSchema = z
   .strict();
 
 const PlayerActivityAnalyticsTransportSchema = z.object({}).strict();
+const EconomyAnalyticsTransportSchema = z.object({}).strict();
 
 const ContentLibraryTransportSchema = z
   .object({
@@ -87,6 +88,7 @@ export type AdminApiRateLimitedOperation =
   | "player.search"
   | "player.read"
   | "player.activity.read"
+  | "economy.analytics.read"
   | "content.search"
   | "runtime.health.read"
   | "messaging.operations.read"
@@ -120,6 +122,7 @@ export interface AdminApiServerDependencies {
       Pick<
         AdminReadFacade,
         | "getPlayerActivityAnalytics"
+        | "getEconomyAnalytics"
         | "searchContent"
         | "listUnpublishedContent"
         | "diffContentRelease"
@@ -311,6 +314,21 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
     return dependencies.readFacade.getPlayerActivityAnalytics(
       trustedRequestContext(identity, request),
     );
+  });
+
+  server.get("/admin/v1/analytics/economy", async (request, reply) => {
+    const identity = await authenticateAndLimit(
+      request,
+      reply,
+      dependencies,
+      "economy.analytics.read",
+    );
+    if (identity === null) return reply;
+    parseTransport(EconomyAnalyticsTransportSchema, request.query);
+    if (dependencies.readFacade.getEconomyAnalytics === undefined) {
+      throw new Error("Economy analytics read boundary is not configured");
+    }
+    return dependencies.readFacade.getEconomyAnalytics(trustedRequestContext(identity, request));
   });
 
   server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
