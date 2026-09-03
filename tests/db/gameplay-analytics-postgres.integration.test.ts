@@ -219,13 +219,15 @@ describe.sequential("PostgresGameplayAnalyticsRepository", () => {
       {
         window: "24h",
         encounters: {
-          suppressed: false,
-          created: "5",
-          closed: "5",
-          captured: "2",
-          fled: "1",
-          expired: "1",
-          closedOther: "1",
+          created: { suppressed: false, count: "5" },
+          closures: {
+            suppressed: false,
+            closed: "5",
+            captured: "2",
+            fled: "1",
+            expired: "1",
+            closedOther: "1",
+          },
         },
         captures: { suppressed: true },
         trainerProgression: {
@@ -239,13 +241,15 @@ describe.sequential("PostgresGameplayAnalyticsRepository", () => {
       {
         window: "7d",
         encounters: {
-          suppressed: false,
-          created: "5",
-          closed: "5",
-          captured: "2",
-          fled: "1",
-          expired: "1",
-          closedOther: "1",
+          created: { suppressed: false, count: "5" },
+          closures: {
+            suppressed: false,
+            closed: "5",
+            captured: "2",
+            fled: "1",
+            expired: "1",
+            closedOther: "1",
+          },
         },
         captures: {
           suppressed: false,
@@ -264,13 +268,15 @@ describe.sequential("PostgresGameplayAnalyticsRepository", () => {
       {
         window: "30d",
         encounters: {
-          suppressed: false,
-          created: "5",
-          closed: "5",
-          captured: "2",
-          fled: "1",
-          expired: "1",
-          closedOther: "1",
+          created: { suppressed: false, count: "5" },
+          closures: {
+            suppressed: false,
+            closed: "5",
+            captured: "2",
+            fled: "1",
+            expired: "1",
+            closedOther: "1",
+          },
         },
         captures: {
           suppressed: false,
