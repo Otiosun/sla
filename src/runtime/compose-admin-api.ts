@@ -15,6 +15,8 @@ import {
   registerCatalogReleaseDiffRead,
   registerCatalogReleaseValidationPreviewRead,
 } from "../modules/admin/catalog-release-definitions.js";
+import { registerContentAnalyticsRead } from "../modules/admin/content-analytics-definitions.js";
+import { ContentAnalyticsService } from "../modules/admin/content-analytics-service.js";
 import { ContentLibraryService } from "../modules/admin/content-library-service.js";
 import { ContentReleaseReadService } from "../modules/admin/content-release-read-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
@@ -38,6 +40,7 @@ import { PostgresAdminIdentityRepository } from "../platform/admin/postgres-admi
 import { PostgresAdminOperationAuditReadRepository } from "../platform/admin/postgres-admin-operation-audit-read-repository.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminSessionRevocationPort } from "../platform/admin/postgres-admin-session-revocation-port.js";
+import { PostgresContentAnalyticsRepository } from "../platform/admin/postgres-content-analytics-repository.js";
 import { PostgresEconomyAnalyticsRepository } from "../platform/admin/postgres-economy-analytics-repository.js";
 import { PostgresIncidentCenterReadRepository } from "../platform/admin/postgres-incident-center-read-repository.js";
 import { PostgresMessagingOperationsReadRepository } from "../platform/admin/postgres-messaging-operations-read-repository.js";
@@ -106,6 +109,15 @@ export function createOperationalAdminApi(
     economyAnalyticsReadService,
     new PostgresEconomyAnalyticsRepository(pool),
   );
+  const contentAnalyticsReadRegistry = registerContentAnalyticsRead(new AdminOperationRegistry());
+  const contentAnalyticsReadService = new AdminService(
+    contentAnalyticsReadRegistry,
+    adminRepository,
+  );
+  const contentAnalyticsService = new ContentAnalyticsService(
+    contentAnalyticsReadService,
+    new PostgresContentAnalyticsRepository(pool),
+  );
   const contentLibraryRepository = new PostgresContentLibraryRepository(pool);
   const contentLibraryService = new ContentLibraryService(adminService, contentLibraryRepository);
   const catalogReleaseRepository = new PostgresCatalogReleaseAdminRepository(pool);
@@ -161,6 +173,7 @@ export function createOperationalAdminApi(
     adminOperationAuditReadService,
     playerActivityAnalyticsService,
     economyAnalyticsService,
+    contentAnalyticsService,
   );
   const mutationEndpoint = new ExternalAdminMutationEndpoint(
     adminService,
