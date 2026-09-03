@@ -4,6 +4,10 @@ import { AdminAccessSessionGuard } from "../adapters/admin-api/access-session-gu
 import { CloudflareAccessJwtVerifier } from "../adapters/admin-api/cloudflare-access-verifier.js";
 import { createAdminApiServer } from "../adapters/admin-api/fastify-server.js";
 import { AdminIdentityResolver } from "../adapters/admin-api/identity-resolver.js";
+import {
+  LocalDevAdminRequestAuthenticator,
+  LocalDevAdminSessionGuard,
+} from "../adapters/admin-api/local-dev-authenticator.js";
 import { AdminMutationFacade } from "../adapters/admin-api/mutation-facade.js";
 import { AdminReadFacade } from "../adapters/admin-api/read-facade.js";
 import { AdminRequestAuthenticator } from "../adapters/admin-api/request-authenticator.js";
@@ -66,14 +70,20 @@ export function createOperationalAdminApi(
   config: AppConfig,
 ): OperationalAdminApi | null {
   if (!config.adminApiEnabled) return null;
+  if (config.adminApiAllowedOrigin === null) {
+    throw new Error("Enabled Admin API is missing validated origin configuration");
+  }
+
+  const localDevPrincipalId = config.adminLocalDevPrincipalId;
+  const usesCloudflareAccess = localDevPrincipalId === null;
   if (
-    config.adminApiAllowedOrigin === null ||
-    config.adminAccessTeamDomain === null ||
-    config.adminAccessAudience === null
+    usesCloudflareAccess &&
+    (config.adminAccessTeamDomain === null || config.adminAccessAudience === null)
   ) {
-    throw new Error("Enabled Admin API is missing validated identity/origin configuration");
+    throw new Error("Enabled Admin API is missing validated identity configuration");
   }
   if (
+    usesCloudflareAccess &&
     (config.appEnv === "staging" || config.appEnv === "production") &&
     config.adminAccessPrivilegedAudience === null
   ) {
@@ -169,41 +179,48 @@ export function createOperationalAdminApi(
   const mutationFacade = new AdminMutationFacade(mutationEndpoint);
 
   const identityRepository = new PostgresAdminIdentityRepository(pool);
-  const identityResolver = new AdminIdentityResolver(
-    identityRepository,
-    adminEnvironment(config.appEnv),
-  );
-  const accessVerifier = new CloudflareAccessJwtVerifier({
-    teamDomain: config.adminAccessTeamDomain,
-    audience: config.adminAccessAudience,
-  });
-  const authenticator = new AdminRequestAuthenticator(accessVerifier, identityResolver);
+  const clock = new SystemClock();
+  const accessSessionRepository = new PostgresAdminAccessSessionRepository(pool);
+  const sessionService = new AdminSessionService(adminRepository, identityRepository);
+
+  const authenticator =
+    localDevPrincipalId === null
+      ? new AdminRequestAuthenticator(
+          new CloudflareAccessJwtVerifier({
+            teamDomain: config.adminAccessTeamDomain as string,
+            audience: config.adminAccessAudience as string,
+          }),
+          new AdminIdentityResolver(identityRepository, adminEnvironment(config.appEnv)),
+        )
+      : new LocalDevAdminRequestAuthenticator(localDevPrincipalId, adminRepository);
+  const sessionGuard =
+    localDevPrincipalId === null
+      ? new AdminAccessSessionGuard(
+          accessSessionRepository,
+          clock,
+          config.adminAccessSessionIdleTimeoutMs,
+        )
+      : new LocalDevAdminSessionGuard(localDevPrincipalId);
+
   const privilegedAuthenticator =
-    config.adminAccessPrivilegedAudience === null
+    localDevPrincipalId !== null || config.adminAccessPrivilegedAudience === null
       ? undefined
       : new AdminRequestAuthenticator(
           new CloudflareAccessJwtVerifier({
-            teamDomain: config.adminAccessTeamDomain,
+            teamDomain: config.adminAccessTeamDomain as string,
             audience: config.adminAccessPrivilegedAudience,
           }),
-          identityResolver,
+          new AdminIdentityResolver(identityRepository, adminEnvironment(config.appEnv)),
         );
-  const accessSessionRepository = new PostgresAdminAccessSessionRepository(pool);
-  const clock = new SystemClock();
-  const sessionGuard = new AdminAccessSessionGuard(
-    accessSessionRepository,
-    clock,
-    config.adminAccessSessionIdleTimeoutMs,
-  );
-  const sessionLogoutService = new AdminSessionLogoutService(accessSessionRepository, clock);
-  const sessionService = new AdminSessionService(adminRepository, identityRepository);
+  const sessionLogoutService =
+    localDevPrincipalId === null ? new AdminSessionLogoutService(accessSessionRepository, clock) : undefined;
   const rateLimiter = new PostgresAdminApiRateLimiter(pool);
   const server = createAdminApiServer({
     allowedOrigin: config.adminApiAllowedOrigin,
     authenticator,
     ...(privilegedAuthenticator === undefined ? {} : { privilegedAuthenticator }),
     sessionGuard,
-    sessionLogoutService,
+    ...(sessionLogoutService === undefined ? {} : { sessionLogoutService }),
     sessionService,
     readFacade,
     mutationFacade,
