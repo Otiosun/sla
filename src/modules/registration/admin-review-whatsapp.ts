@@ -2,8 +2,8 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
+import type { AuditedRegistrationReviewService } from "./admin-review-service.js";
 import type { RegistrationRevisionRecord } from "./ports.js";
-import type { RegistrationService } from "./service.js";
 
 interface RegistrationReviewMessageRef {
   readonly provider: string;
@@ -31,7 +31,7 @@ export interface RegistrationAdminWhatsAppDependencies {
   readonly messageRefs: RegistrationReviewMessageRefReader;
   readonly admins: RegistrationAdminPrincipalResolver;
   readonly registration: Pick<
-    RegistrationService,
+    AuditedRegistrationReviewService,
     "getReview" | "requestChanges" | "approve" | "reject"
   >;
 }
@@ -140,10 +140,12 @@ async function decide(
   if (!principal.ok) return principal;
 
   const input = {
+    principalId: principal.value,
     reviewId: reference.value.reviewId,
     expectedRevision: reference.value.reviewRevision,
-    actor: { adminPrincipalId: principal.value },
     idempotencyKey: `${context.idempotencyKey}:registration-review:${decision.toLocaleLowerCase()}`,
+    correlationId: context.correlationId,
+    sourceChannel: "WHATSAPP" as const,
   };
 
   const result =
@@ -169,7 +171,13 @@ export function createRegistrationAdminWhatsAppRoutes(
   const view = new FunctionalHandler(async (context) => {
     const reference = await resolveReplyRef(dependencies, context);
     if (!reference.ok) return reference;
-    const review = await dependencies.registration.getReview(reference.value.reviewId);
+    const principal = await resolveAdminPrincipal(dependencies, context);
+    if (!principal.ok) return principal;
+    const review = await dependencies.registration.getReview({
+      principalId: principal.value,
+      reviewId: reference.value.reviewId,
+      sourceChannel: "WHATSAPP",
+    });
     if (!review.ok) return review;
     return reviewReply(context, review.value.id, reviewText(review.value));
   });
