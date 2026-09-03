@@ -56,7 +56,9 @@ describe("reception/admin operation definitions", () => {
       expect(definition.policy.requiresExpectedRevision).toBe(true);
     }
 
-    expect(registry.require("registration.review.request_changes").policy.requiresReason).toBe(false);
+    expect(registry.require("registration.review.request_changes").policy.requiresReason).toBe(
+      false,
+    );
     expect(registry.require("registration.review.approve").policy.requiresReason).toBe(false);
     expect(registry.require("registration.review.reject").policy.requiresReason).toBe(false);
   });
