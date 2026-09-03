@@ -10,6 +10,8 @@ const GROUP_ID = "11111111-1111-4111-8111-111111111111";
 
 interface HarnessOptions {
   readonly knownReception?: boolean;
+  readonly playerKnown?: boolean;
+  readonly needsFirstWelcome?: boolean;
   readonly draft?: boolean;
   readonly reviewStatus?: RegistrationRevisionStatus | null;
   readonly accessStatus?: PlayerAccessStatus;
@@ -19,6 +21,42 @@ interface HarnessOptions {
 function harness(options: HarnessOptions = {}) {
   let registrationReads = 0;
   let welcomeClaims = 0;
+  let identityCreates = 0;
+  let identityReads = 0;
+  let welcomeAdmissionReads = 0;
+
+  const players = {
+    resolveOrCreatePlayer: async (_input: {
+      readonly provider: string;
+      readonly externalId: string;
+    }) => {
+      identityCreates += 1;
+      return ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false });
+    },
+    resolvePlayer: async (_input: { readonly provider: string; readonly externalId: string }) => {
+      identityReads += 1;
+      return options.playerKnown === false
+        ? err(appError("NOT_FOUND", "unknown player"))
+        : ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false });
+    },
+  };
+  const presence = {
+    claimFirstWelcome: async (_input: {
+      readonly groupId: string;
+      readonly playerId: string;
+    }) => {
+      welcomeClaims += 1;
+      return options.firstInteraction ?? true;
+    },
+    needsFirstWelcome: async (_input: {
+      readonly groupId: string;
+      readonly playerId: string;
+    }) => {
+      welcomeAdmissionReads += 1;
+      return options.needsFirstWelcome ?? true;
+    },
+  };
+
   const service = new ReceptionService({
     community: {
       resolveChat: async (_input: { readonly provider: string; readonly chatRef: string }) =>
@@ -31,12 +69,7 @@ function harness(options: HarnessOptions = {}) {
               capabilities: ["onboarding"] as const,
             },
     },
-    players: {
-      resolveOrCreatePlayer: async (_input: {
-        readonly provider: string;
-        readonly externalId: string;
-      }) => ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
-    },
+    players,
     registration: {
       getCurrentReview: async (_playerId: string) => {
         registrationReads += 1;
@@ -59,21 +92,16 @@ function harness(options: HarnessOptions = {}) {
         revision: options.accessStatus === "PENDING" || options.accessStatus === undefined ? 0 : 1,
       }),
     },
-    presence: {
-      claimFirstWelcome: async (_input: {
-        readonly groupId: string;
-        readonly playerId: string;
-      }) => {
-        welcomeClaims += 1;
-        return options.firstInteraction ?? true;
-      },
-    },
+    presence,
   });
 
   return {
     service,
     registrationReads: () => registrationReads,
     welcomeClaims: () => welcomeClaims,
+    identityCreates: () => identityCreates,
+    identityReads: () => identityReads,
+    welcomeAdmissionReads: () => welcomeAdmissionReads,
   };
 }
 
@@ -154,5 +182,33 @@ describe("ReceptionService state-aware first interaction", () => {
     expect(result.value).toBeNull();
     expect(repeated.welcomeClaims()).toBe(1);
     expect(repeated.registrationReads()).toBe(0);
+  });
+
+  it("admits an unknown identity in Reception without creating persistent identity during admission", async () => {
+    const unknown = harness({ playerKnown: false });
+
+    expect(await unknown.service.admitsFirstInteraction(INPUT)).toBe(true);
+    expect(unknown.identityReads()).toBe(1);
+    expect(unknown.identityCreates()).toBe(0);
+    expect(unknown.welcomeAdmissionReads()).toBe(0);
+  });
+
+  it("admits a known player only while the current Reception presence still needs a welcome", async () => {
+    const first = harness({ needsFirstWelcome: true });
+    expect(await first.service.admitsFirstInteraction(INPUT)).toBe(true);
+    expect(first.welcomeAdmissionReads()).toBe(1);
+
+    const repeated = harness({ needsFirstWelcome: false });
+    expect(await repeated.service.admitsFirstInteraction(INPUT)).toBe(false);
+    expect(repeated.welcomeAdmissionReads()).toBe(1);
+  });
+
+  it("does not perform identity or presence admission reads outside Reception", async () => {
+    const outside = harness({ knownReception: false });
+
+    expect(await outside.service.admitsFirstInteraction(INPUT)).toBe(false);
+    expect(outside.identityReads()).toBe(0);
+    expect(outside.identityCreates()).toBe(0);
+    expect(outside.welcomeAdmissionReads()).toBe(0);
   });
 });
