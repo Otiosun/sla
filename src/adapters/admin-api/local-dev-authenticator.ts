@@ -14,9 +14,7 @@ export class LocalDevAdminRequestAuthenticator {
     private readonly authorization: AdminAuthorizationSnapshotReader,
   ) {}
 
-  public async authenticate(
-    rawToken: unknown,
-  ): Promise<AuthenticatedAdminRequestContext> {
+  public async authenticate(rawToken: unknown): Promise<AuthenticatedAdminRequestContext> {
     if (rawToken !== undefined && rawToken !== null) throw unauthenticated();
 
     const snapshot = await this.authorization.getAuthorizationSnapshot(this.principalId);
