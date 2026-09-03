@@ -19,11 +19,13 @@ import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
+import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js";
 import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
 import { WorldService } from "../modules/world/service.js";
+import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
@@ -81,6 +83,8 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const registration = new RegistrationService(new PostgresRegistrationRepository(pool));
   const setup = new PostgresRegistrationSetupLoader(pool);
   const accessRepository = new PostgresPlayerAccessRepository(pool);
+  const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
+  const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
   const sessions = new RegistrationConversationSessions();
   const conversationResolver = new RegistrationConversationResolver({
     sessions,
@@ -94,9 +98,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     access: {
       load: async (playerId) => accessRepository.read(async (tx) => tx.load(playerId)),
     },
-    admins: {
-      capabilitiesFor: async () => [],
-    },
+    admins: adminIdentity,
   });
 
   const legacyRoutes = withOperationalCommandAliases(
@@ -121,8 +123,13 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
       ? { ...definition, rateLimitClass: "SENSITIVE" as const }
       : definition,
   );
+  const registrationAdminRoutes = createRegistrationAdminWhatsAppRoutes({
+    messageRefs,
+    admins: adminIdentity,
+    registration,
+  });
   const router = new MessageRouter(
-    [...legacyRoutes, ...registrationRoutes],
+    [...legacyRoutes, ...registrationRoutes, ...registrationAdminRoutes],
     policyGate,
     conversationResolver,
   );
