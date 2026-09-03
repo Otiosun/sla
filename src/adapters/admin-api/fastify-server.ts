@@ -49,6 +49,7 @@ const PlayerGetTransportSchema = z
 
 const PlayerActivityAnalyticsTransportSchema = z.object({}).strict();
 const EconomyAnalyticsTransportSchema = z.object({}).strict();
+const ContentAnalyticsTransportSchema = z.object({}).strict();
 const signedIntegerString = z.string().regex(/^-?\d+$/);
 const nonNegativeIntegerString = z.string().regex(/^\d+$/);
 const EconomyAnalyticsOutputSchema = z
@@ -82,6 +83,32 @@ const EconomyAnalyticsOutputSchema = z
       .object({
         walletProjectionMismatches: nonNegativeIntegerString,
         inventoryProjectionMismatches: nonNegativeIntegerString,
+      })
+      .strict(),
+  })
+  .strict();
+const ContentAnalyticsOutputSchema = z
+  .object({
+    asOf: z.string().datetime(),
+    window: z.literal("30d"),
+    encounters: z
+      .object({
+        created: nonNegativeIntegerString,
+        closed: nonNegativeIntegerString,
+      })
+      .strict(),
+    captures: z
+      .object({
+        attemptsCreated: nonNegativeIntegerString,
+        captured: nonNegativeIntegerString,
+        failed: nonNegativeIntegerString,
+      })
+      .strict(),
+    progression: z
+      .object({
+        xpAwards: nonNegativeIntegerString,
+        xpAwarded: nonNegativeIntegerString,
+        evolutions: nonNegativeIntegerString,
       })
       .strict(),
   })
@@ -126,6 +153,7 @@ export type AdminApiRateLimitedOperation =
   | "player.read"
   | "player.activity.read"
   | "economy.analytics.read"
+  | "content.analytics.read"
   | "content.search"
   | "runtime.health.read"
   | "messaging.operations.read"
@@ -160,6 +188,7 @@ export interface AdminApiServerDependencies {
         AdminReadFacade,
         | "getPlayerActivityAnalytics"
         | "getEconomyAnalytics"
+        | "getContentAnalytics"
         | "searchContent"
         | "listUnpublishedContent"
         | "diffContentRelease"
@@ -377,6 +406,24 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       trustedRequestContext(identity, request),
     );
     return parseTrustedOutput(EconomyAnalyticsOutputSchema, output, "Economy analytics boundary");
+  });
+
+  server.get("/admin/v1/analytics/content", async (request, reply) => {
+    const identity = await authenticateAndLimit(
+      request,
+      reply,
+      dependencies,
+      "content.analytics.read",
+    );
+    if (identity === null) return reply;
+    parseTransport(ContentAnalyticsTransportSchema, request.query);
+    if (dependencies.readFacade.getContentAnalytics === undefined) {
+      throw new Error("Content analytics read boundary is not configured");
+    }
+    const output = await dependencies.readFacade.getContentAnalytics(
+      trustedRequestContext(identity, request),
+    );
+    return parseTrustedOutput(ContentAnalyticsOutputSchema, output, "Content analytics boundary");
   });
 
   server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
