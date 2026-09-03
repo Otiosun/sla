@@ -122,6 +122,7 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
           `WITH wallet_ledger_totals AS (
              SELECT player_id, currency_id, sum(delta) AS ledger_amount
              FROM wallet_ledger
+             WHERE created_at < $1::timestamptz
              GROUP BY player_id, currency_id
            ), wallet_mismatches AS (
              SELECT count(*)::text AS mismatch_count
@@ -134,6 +135,7 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
            ), inventory_ledger_totals AS (
              SELECT player_id, item_id, sum(delta) AS ledger_quantity
              FROM inventory_ledger
+             WHERE created_at < $1::timestamptz
              GROUP BY player_id, item_id
            ), inventory_mismatches AS (
              SELECT count(*)::text AS mismatch_count
@@ -147,6 +149,7 @@ export class PostgresEconomyAnalyticsRepository implements EconomyAnalyticsReadR
            SELECT wallet_mismatches.mismatch_count AS wallet_projection_mismatches,
                   inventory_mismatches.mismatch_count AS inventory_projection_mismatches
            FROM wallet_mismatches CROSS JOIN inventory_mismatches`,
+          [asOf],
         );
 
         const inventory = inventoryResult.rows[0];
