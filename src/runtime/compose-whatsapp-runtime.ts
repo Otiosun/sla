@@ -7,6 +7,8 @@ import {
 import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
+import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
+import { ReceptionService } from "../modules/community/reception-service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../modules/community/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
@@ -31,6 +33,7 @@ import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgre
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
+import { PostgresReceptionPresenceRepository } from "../platform/community/postgres-reception-presence-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
@@ -85,6 +88,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const registration = new RegistrationService(new PostgresRegistrationRepository(pool));
   const setup = new PostgresRegistrationSetupLoader(pool);
   const accessRepository = new PostgresPlayerAccessRepository(pool);
+  const receptionPresence = new PostgresReceptionPresenceRepository(pool);
   const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
   const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
   const reviewMentions = new RegistrationReviewMentionResolver({
@@ -92,11 +96,24 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     admins: adminIdentity,
   });
   const sessions = new RegistrationConversationSessions();
-  const conversationResolver = new RegistrationConversationResolver({
+  const registrationConversationResolver = new RegistrationConversationResolver({
     sessions,
     community,
     players: playerRegistration,
     setup,
+  });
+  const reception = new ReceptionService({
+    community,
+    players: playerRegistration,
+    registration,
+    access: {
+      load: async (playerId) => accessRepository.read(async (tx) => tx.load(playerId)),
+    },
+    presence: receptionPresence,
+  });
+  const conversationResolver = new ReceptionAwareConversationResolver({
+    registration: registrationConversationResolver,
+    reception,
   });
   const policyGate = new RuntimeCommandPolicyGate({
     community,
