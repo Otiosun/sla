@@ -2,17 +2,19 @@ import type { Pool } from "pg";
 import {
   BaileysWhatsAppAdapter,
   type BaileysAuthBinding,
+  baileysOutboundMessageId,
 } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
-import { CommunityService } from "../modules/community/service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
+import { CommunityService } from "../modules/community/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
 import { withOperationalWorldPolicy } from "../modules/messaging/operational-command-policy.js";
 import { createOperationalUxRoutes } from "../modules/messaging/operational-ux-handlers.js";
+import type { OutboundMessageAdapter } from "../modules/messaging/ports.js";
 import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
@@ -31,8 +33,10 @@ import { PostgresMessagingRepository } from "../platform/messaging/postgres-mess
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
+import { PostgresRegistrationMessageRefRepository } from "../platform/registration/postgres-registration-message-ref-repository.js";
 import { PostgresRegistrationRepository } from "../platform/registration/postgres-registration-repository.js";
 import { PostgresRegistrationSetupLoader } from "../platform/registration/postgres-registration-setup-loader.js";
+import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
 
@@ -129,6 +133,31 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   };
 }
 
+export function createOperationalOutboxWorker(
+  pool: Pool,
+  messagingRepository: PostgresMessagingRepository,
+  adapter: OutboundMessageAdapter,
+): OutboxWorker {
+  const deliveryPreparation = new RegistrationReviewDeliveryPreparation({
+    provider: "baileys",
+    messageRefs: new PostgresRegistrationMessageRefRepository(pool),
+    providerMessageIdFor: baileysOutboundMessageId,
+  });
+
+  return new OutboxWorker(
+    messagingRepository,
+    [adapter],
+    {
+      batchSize: 50,
+      staleAfterMs: 30_000,
+      maxAttempts: 8,
+      baseBackoffMs: 1_000,
+      maxBackoffMs: 60_000,
+    },
+    deliveryPreparation,
+  );
+}
+
 export function createOperationalWhatsAppRuntime(
   options: OperationalWhatsAppRuntimeOptions,
 ): WhatsAppMessagingRuntime {
@@ -156,13 +185,7 @@ export function createOperationalWhatsAppRuntime(
     },
   });
 
-  const outboxWorker = new OutboxWorker(messagingRepository, [adapter], {
-    batchSize: 50,
-    staleAfterMs: 30_000,
-    maxAttempts: 8,
-    baseBackoffMs: 1_000,
-    maxBackoffMs: 60_000,
-  });
+  const outboxWorker = createOperationalOutboxWorker(options.pool, messagingRepository, adapter);
 
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitFreeform: composition.admitFreeform,
