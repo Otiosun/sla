@@ -40,34 +40,42 @@ export class PostgresContentAnalyticsRepository implements ContentAnalyticsReadR
       async (client) => {
         const encounters = await client.query<EncounterAggregateRow>(
           `SELECT
-             count(*) FILTER (
+             (
+               SELECT count(*)::text
+               FROM encounters
                WHERE created_at >= $1::timestamptz - interval '30 days'
                  AND created_at < $1::timestamptz
-             )::text AS created,
-             count(*) FILTER (
+             ) AS created,
+             (
+               SELECT count(*)::text
+               FROM encounters
                WHERE closed_at >= $1::timestamptz - interval '30 days'
                  AND closed_at < $1::timestamptz
-             )::text AS closed
-           FROM encounters`,
+             ) AS closed`,
           [asOf],
         );
         const captures = await client.query<CaptureAggregateRow>(
           `SELECT
-             count(*) FILTER (
+             (
+               SELECT count(*)::text
+               FROM capture_attempts
                WHERE created_at >= $1::timestamptz - interval '30 days'
                  AND created_at < $1::timestamptz
-             )::text AS attempts_created,
-             count(*) FILTER (
+             ) AS attempts_created,
+             (
+               SELECT count(*)::text
+               FROM capture_attempts
                WHERE status = 'CAPTURED'
                  AND resolved_at >= $1::timestamptz - interval '30 days'
                  AND resolved_at < $1::timestamptz
-             )::text AS captured,
-             count(*) FILTER (
+             ) AS captured,
+             (
+               SELECT count(*)::text
+               FROM capture_attempts
                WHERE status = 'FAILED'
                  AND resolved_at >= $1::timestamptz - interval '30 days'
                  AND resolved_at < $1::timestamptz
-             )::text AS failed
-           FROM capture_attempts`,
+             ) AS failed`,
           [asOf],
         );
         const xp = await client.query<ProgressionXpAggregateRow>(
