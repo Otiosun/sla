@@ -77,6 +77,7 @@ describe.sequential("F8.4 encounter cohort privacy", () => {
     for (let index = 0; index < players.length; index += 1) {
       const playerId = players[index];
       const closed = index === 0;
+      const createdAt = new Date(`2026-09-02T0${index + 1}:00:00.000Z`);
       await pool.query(
         `INSERT INTO encounters(
            id, player_id, area_id, status, content_release_id, ruleset_id,
@@ -87,14 +88,14 @@ describe.sequential("F8.4 encounter cohort privacy", () => {
           randomUUID(),
           playerId,
           areaId,
-          closed ? "FLED" : "ACTIVE",
+          closed ? "FLED" : "CREATED",
           releaseId,
           rulesetId,
           Buffer.alloc(32, index + 1),
           Buffer.alloc(12, index + 1),
           Buffer.alloc(16, index + 1),
-          new Date(`2026-09-02T0${index + 1}:00:00.000Z`),
-          new Date("2026-09-02T06:00:00.000Z"),
+          createdAt,
+          closed ? new Date("2026-09-02T06:00:00.000Z") : createdAt,
           closed ? new Date("2026-09-02T06:00:00.000Z") : null,
         ],
       );
