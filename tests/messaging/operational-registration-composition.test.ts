@@ -18,6 +18,46 @@ function message(text: string): IncomingMessage {
   };
 }
 
+function operationalPoolForUnknownReceptionIdentity(): Pool {
+  const query = async (sql: unknown) => {
+    const statement = String(sql);
+    if (
+      statement.startsWith("BEGIN") ||
+      statement === "COMMIT" ||
+      statement === "ROLLBACK"
+    ) {
+      return { rows: [], rowCount: null };
+    }
+    if (statement.includes("FROM community_groups") && statement.includes("provider = $1")) {
+      return {
+        rows: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            provider: "baileys",
+            chat_ref: "120363000000000001@g.us",
+            role: "RECEPTION",
+            display_name: "Recepção",
+            status: "ACTIVE",
+            revision: "0",
+          },
+        ],
+        rowCount: 1,
+      };
+    }
+    if (statement.includes("FROM community_group_capabilities")) {
+      return { rows: [{ capability_key: "onboarding" }], rowCount: 1 };
+    }
+    if (statement.includes("FROM player_identities")) {
+      return { rows: [], rowCount: 0 };
+    }
+    throw new Error(`Unexpected operational composition query: ${statement}`);
+  };
+
+  return {
+    connect: async () => ({ query, release: () => undefined }),
+  } as unknown as Pool;
+}
+
 describe("operational WhatsApp registration composition", () => {
   it("composes player registration and administrative review routes without legacy collisions", () => {
     const composition = createOperationalMessagingComposition(pool);
@@ -47,5 +87,13 @@ describe("operational WhatsApp registration composition", () => {
       sensitiveActionKey: "command:rejeitar",
     });
     expect(typeof composition.admitFreeform).toBe("function");
+  });
+
+  it("admits the first ordinary message from an unknown identity in active Reception", async () => {
+    const composition = createOperationalMessagingComposition(
+      operationalPoolForUnknownReceptionIdentity(),
+    );
+
+    expect(await composition.admitFreeform(message("oi"))).toBe(true);
   });
 });
