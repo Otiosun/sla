@@ -60,6 +60,11 @@ export class PostgresAdminOperationCompletion implements AdminOperationCompletio
           JSON.stringify(input.afterData),
         ],
       );
+
+      const auditTarget = input.auditTarget ?? {
+        type: input.operation.targetType,
+        id: input.operation.targetId,
+      };
       await client.query(
         `INSERT INTO audit_events(
            id, actor_type, actor_id, action, target_type, target_id, risk_tier, reason,
@@ -72,8 +77,8 @@ export class PostgresAdminOperationCompletion implements AdminOperationCompletio
           randomUUID(),
           input.actorPrincipalId,
           input.operation.operationType,
-          input.operation.targetType,
-          input.operation.targetId,
+          auditTarget.type,
+          auditTarget.id,
           input.operation.riskTier,
           input.operation.reason,
           JSON.stringify(input.beforeData),
@@ -83,6 +88,7 @@ export class PostgresAdminOperationCompletion implements AdminOperationCompletio
             requestFingerprint: input.operation.requestFingerprint,
             resourceType: input.resourceType,
             resourceId: input.resourceId,
+            ...input.auditMetadata,
           }),
           input.operation.correlationId,
           input.operation.id,
