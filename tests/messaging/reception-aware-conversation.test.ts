@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ReceptionAwareConversationResolver } from "../../src/modules/community/reception-conversation-resolver.js";
+import type { ReceptionFirstInteractionInput } from "../../src/modules/community/reception-service.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
@@ -78,7 +79,7 @@ describe("ReceptionAwareConversationResolver", () => {
         resolve: async () => ok(null),
       },
       reception: {
-        admitsFirstInteraction: async (input) => {
+        admitsFirstInteraction: async (input: ReceptionFirstInteractionInput) => {
           expect(input).toEqual({
             provider: "baileys",
             chatRef: "120363000000000001@g.us",
