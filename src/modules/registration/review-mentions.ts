@@ -1,10 +1,7 @@
 import type { CommunityCapability, CommunityGroupRole } from "../community/contracts.js";
 
 interface RegistrationReviewCommunityDirectory {
-  resolveChat(input: {
-    readonly provider: string;
-    readonly chatRef: string;
-  }): Promise<{
+  resolveChat(input: { readonly provider: string; readonly chatRef: string }): Promise<{
     readonly known: boolean;
     readonly groupId: string | null;
     readonly role: CommunityGroupRole | null;
@@ -26,7 +23,9 @@ export interface RegistrationReviewMentionResolverDependencies {
 }
 
 export class RegistrationReviewMentionResolver {
-  public constructor(private readonly dependencies: RegistrationReviewMentionResolverDependencies) {}
+  public constructor(
+    private readonly dependencies: RegistrationReviewMentionResolverDependencies,
+  ) {}
 
   public async mentionsFor(input: {
     readonly provider: string;
