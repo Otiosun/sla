@@ -11,13 +11,15 @@ const AS_OF = new Date("2026-09-02T12:00:00.000Z");
 
 const visibleWindow = {
   encounters: {
-    suppressed: false as const,
-    created: "12",
-    closed: "10",
-    captured: "4",
-    fled: "3",
-    expired: "2",
-    closedOther: "1",
+    created: { suppressed: false as const, count: "12" },
+    closures: {
+      suppressed: false as const,
+      closed: "10",
+      captured: "4",
+      fled: "3",
+      expired: "2",
+      closedOther: "1",
+    },
   },
   captures: {
     suppressed: false as const,
@@ -35,7 +37,10 @@ const visibleWindow = {
 };
 
 const suppressedWindow = {
-  encounters: { suppressed: true as const },
+  encounters: {
+    created: { suppressed: true as const },
+    closures: { suppressed: true as const },
+  },
   captures: { suppressed: true as const },
   trainerProgression: { suppressed: true as const },
 };
