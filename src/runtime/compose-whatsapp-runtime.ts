@@ -6,6 +6,9 @@ import {
 } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
+import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
+import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
+import { AdminService } from "../modules/admin/service.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import { ReceptionService } from "../modules/community/reception-service.js";
@@ -21,6 +24,7 @@ import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
+import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js";
@@ -29,6 +33,8 @@ import { withRegistrationReviewMentions } from "../modules/registration/review-n
 import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
 import { WorldService } from "../modules/world/service.js";
+import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
+import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
@@ -91,6 +97,13 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const receptionPresence = new PostgresReceptionPresenceRepository(pool);
   const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
   const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
+  const adminRegistry = registerReceptionAdminOperations(new AdminOperationRegistry());
+  const adminService = new AdminService(adminRegistry, new PostgresAdminRepository(pool));
+  const auditedRegistrationReview = new AuditedRegistrationReviewService({
+    admin: adminService,
+    registration,
+    completion: new PostgresAdminOperationCompletion(pool),
+  });
   const reviewMentions = new RegistrationReviewMentionResolver({
     community,
     admins: adminIdentity,
@@ -152,7 +165,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const registrationAdminRoutes = createRegistrationAdminWhatsAppRoutes({
     messageRefs,
     admins: adminIdentity,
-    registration,
+    registration: auditedRegistrationReview,
   });
   const router = new MessageRouter(
     [...legacyRoutes, ...registrationRoutes, ...registrationAdminRoutes],
