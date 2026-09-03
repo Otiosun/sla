@@ -1,5 +1,6 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { PlayerActivationAnnouncementPort } from "./provisioning-announcement.js";
 import type { RegistrationRepository, RegistrationRevisionRecord } from "./ports.js";
 import type { PlayerAccessRecord, PlayerAccessRepository } from "./player-access-ports.js";
 
@@ -36,6 +37,7 @@ export class PlayerProvisioningService {
     private readonly playerRegistration: MechanicalRegistrationPort,
     private readonly playerStarter: MechanicalStarterPort,
     private readonly world: MechanicalWorldPort,
+    private readonly announcements?: PlayerActivationAnnouncementPort,
   ) {}
 
   public async provisionApprovedPlayer(reviewId: string): Promise<Result<PlayerAccessRecord>> {
@@ -49,7 +51,7 @@ export class PlayerProvisioningService {
 
     const access = await this.ensureProvisioning(review);
     if (!access.ok) return access;
-    if (access.value.status === "ACTIVE") return access;
+    if (access.value.status === "ACTIVE") return this.finishActivation(review, access.value);
 
     const profile = await this.playerRegistration.createProfile(review.playerId, {
       trainerName: review.snapshot.trainerName,
@@ -75,7 +77,8 @@ export class PlayerProvisioningService {
     const location = await this.world.ensureInitialLocation({ playerId: review.playerId });
     if (!location.ok) return location;
 
-    return this.activate(review, access.value);
+    const activated = await this.activate(review, access.value);
+    return activated.ok ? this.finishActivation(review, activated.value) : activated;
   }
 
   public async suspend(
@@ -166,5 +169,27 @@ export class PlayerProvisioningService {
       }
       return revisionConflict("Player access changed before activation");
     });
+  }
+
+  private async finishActivation(
+    review: RegistrationRevisionRecord,
+    access: PlayerAccessRecord,
+  ): Promise<Result<PlayerAccessRecord>> {
+    if (this.announcements === undefined) return ok(access);
+    try {
+      await this.announcements.enqueueActivated({
+        reviewId: review.id,
+        playerId: review.playerId,
+        trainerName: review.snapshot.trainerName,
+      });
+    } catch {
+      return err(
+        appError(
+          "FEATURE_UNAVAILABLE",
+          "Player is active but Reception activation announcement is pending retry",
+        ),
+      );
+    }
+    return ok(access);
   }
 }
