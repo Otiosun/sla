@@ -8,6 +8,7 @@ import type { WhatsAppAdapter } from "./adapter.js";
 
 export interface WhatsAppMessagingRuntimeOptions {
   readonly admitFreeform?: (message: IncomingMessage) => Promise<boolean> | boolean;
+  readonly beforeOutboxFlush?: () => Promise<void>;
 }
 
 export class WhatsAppMessagingRuntime {
@@ -35,6 +36,7 @@ export class WhatsAppMessagingRuntime {
   }
 
   async flushOutbox(): Promise<OutboxWorkerRunResult> {
+    await this.options.beforeOutboxFlush?.();
     return this.outboxWorker.runOnce();
   }
 }
