@@ -88,7 +88,7 @@ describe("registration review notification", () => {
           }),
       },
       reviewMentions: {
-        mentionsFor: async (input) => {
+        mentionsFor: async (input: { readonly provider: string; readonly chatRef: string }) => {
           expect(input).toEqual({ provider: "baileys", chatRef: CHAT_REF });
           return STAFF_JIDS;
         },
