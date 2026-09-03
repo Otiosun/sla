@@ -8,6 +8,7 @@ const REVIEW_ID = "33333333-3333-4333-8333-333333333333";
 const PLAYER_ID = "44444444-4444-4444-8444-444444444444" as never;
 const ADMIN_ID = "55555555-5555-4555-8555-555555555555";
 const REPLY_ID = "00000000000040008000000000000921";
+const CORRELATION_ID = "77777777-7777-4777-8777-777777777777";
 
 function snapshot() {
   return {
@@ -40,7 +41,7 @@ function context(
 ): MessageHandlerContext {
   return {
     inboxMessageId: "66666666-6666-4666-8666-666666666666",
-    correlationId: "77777777-7777-4777-8777-777777777777",
+    correlationId: CORRELATION_ID,
     causationId: "66666666-6666-4666-8666-666666666666",
     idempotencyKey: `inbox:baileys:${text}`,
     message: {
@@ -58,8 +59,10 @@ function context(
 
 function dependencies(current = review(), approveConflict = false) {
   const decisions: Array<{ kind: string; input: unknown }> = [];
+  const reads: unknown[] = [];
   return {
     decisions,
+    reads,
     messageRefs: {
       findByProviderMessage: async (input: {
         readonly provider: string;
@@ -79,15 +82,16 @@ function dependencies(current = review(), approveConflict = false) {
       resolvePrincipal: async () => ({ principalId: ADMIN_ID }),
     },
     registration: {
-      getReview: async (reviewId: string) =>
-        reviewId === REVIEW_ID ? ok(current) : err(appError("NOT_FOUND", "review not found")),
+      getReview: async (input: unknown) => {
+        reads.push(input);
+        return ok(current);
+      },
       requestChanges: async (input: unknown) => {
         decisions.push({ kind: "REQUEST_CHANGES", input });
         return ok({
           ...current,
           status: "CHANGES_REQUESTED" as const,
           revision: current.revision + 1,
-          replayed: false,
         });
       },
       approve: async (input: unknown) => {
@@ -99,7 +103,6 @@ function dependencies(current = review(), approveConflict = false) {
           ...current,
           status: "APPROVED" as const,
           revision: current.revision + 1,
-          replayed: false,
         });
       },
       reject: async (input: unknown) => {
@@ -108,7 +111,6 @@ function dependencies(current = review(), approveConflict = false) {
           ...current,
           status: "REJECTED" as const,
           revision: current.revision + 1,
-          replayed: false,
         });
       },
     },
@@ -144,7 +146,7 @@ describe("registration admin review over WhatsApp", () => {
     });
   });
 
-  it("shows the exact immutable ficha resolved from the replied provider message", async () => {
+  it("shows the exact immutable ficha through the audited read boundary", async () => {
     const { found, deps } = route("verficha");
     const result = await found.handler.handle(context("$verficha"));
 
@@ -162,6 +164,13 @@ describe("registration admin review over WhatsApp", () => {
         ],
       },
     });
+    expect(deps.reads).toEqual([
+      {
+        principalId: ADMIN_ID,
+        reviewId: REVIEW_ID,
+        sourceChannel: "WHATSAPP",
+      },
+    ]);
     expect(deps.decisions).toEqual([]);
   });
 
@@ -181,10 +190,12 @@ describe("registration admin review over WhatsApp", () => {
       {
         kind: "APPROVE",
         input: {
+          principalId: ADMIN_ID,
           reviewId: REVIEW_ID,
           expectedRevision: 4,
-          actor: { adminPrincipalId: ADMIN_ID },
           idempotencyKey: "inbox:baileys:$aprovar:registration-review:approve",
+          correlationId: CORRELATION_ID,
+          sourceChannel: "WHATSAPP",
         },
       },
     ]);
@@ -196,10 +207,12 @@ describe("registration admin review over WhatsApp", () => {
     expect(adjust.deps.decisions[0]).toEqual({
       kind: "REQUEST_CHANGES",
       input: {
+        principalId: ADMIN_ID,
         reviewId: REVIEW_ID,
         expectedRevision: 4,
-        actor: { adminPrincipalId: ADMIN_ID },
         idempotencyKey: "inbox:baileys:$ajustes:registration-review:request_changes",
+        correlationId: CORRELATION_ID,
+        sourceChannel: "WHATSAPP",
       },
     });
 
@@ -210,11 +223,13 @@ describe("registration admin review over WhatsApp", () => {
     expect(reject.deps.decisions[0]).toEqual({
       kind: "REJECT",
       input: {
+        principalId: ADMIN_ID,
         reviewId: REVIEW_ID,
         expectedRevision: 4,
-        actor: { adminPrincipalId: ADMIN_ID },
         idempotencyKey:
           "inbox:baileys:$rejeitar qualquer comentário livre:registration-review:reject",
+        correlationId: CORRELATION_ID,
+        sourceChannel: "WHATSAPP",
       },
     });
   });
