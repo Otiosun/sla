@@ -22,6 +22,8 @@ import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js";
+import { RegistrationReviewMentionResolver } from "../modules/registration/review-mentions.js";
+import { withRegistrationReviewMentions } from "../modules/registration/review-notification-mentions.js";
 import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
 import { WorldService } from "../modules/world/service.js";
@@ -85,6 +87,10 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const accessRepository = new PostgresPlayerAccessRepository(pool);
   const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
   const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
+  const reviewMentions = new RegistrationReviewMentionResolver({
+    community,
+    admins: adminIdentity,
+  });
   const sessions = new RegistrationConversationSessions();
   const conversationResolver = new RegistrationConversationResolver({
     sessions,
@@ -113,15 +119,18 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
       }).filter((definition) => definition.command !== "registrar"),
     ),
   );
-  const registrationRoutes = createRegistrationWhatsAppRoutes({
-    sessions,
-    players: playerRegistration,
-    registration,
-    setup,
-  }).map((definition) =>
-    definition.command === "registrar"
-      ? { ...definition, rateLimitClass: "SENSITIVE" as const }
-      : definition,
+  const registrationRoutes = withRegistrationReviewMentions(
+    createRegistrationWhatsAppRoutes({
+      sessions,
+      players: playerRegistration,
+      registration,
+      setup,
+    }).map((definition) =>
+      definition.command === "registrar"
+        ? { ...definition, rateLimitClass: "SENSITIVE" as const }
+        : definition,
+    ),
+    reviewMentions,
   );
   const registrationAdminRoutes = createRegistrationAdminWhatsAppRoutes({
     messageRefs,
