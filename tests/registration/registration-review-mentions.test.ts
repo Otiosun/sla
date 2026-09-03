@@ -18,7 +18,10 @@ describe("RegistrationReviewMentionResolver", () => {
         listReceptionStaff: async () => [STAFF_B, STAFF_A],
       },
       admins: {
-        whatsAppJidsForPrincipals: async (input) => {
+        whatsAppJidsForPrincipals: async (input: {
+          readonly principalIds: readonly string[];
+          readonly requiredCapability: string;
+        }) => {
           expect(input).toEqual({
             principalIds: [STAFF_A, STAFF_B],
             requiredCapability: "player.registration.read",
