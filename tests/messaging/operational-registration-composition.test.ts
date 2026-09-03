@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
-import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
 import type { IncomingMessage } from "../../src/modules/messaging/contracts.js";
+import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
 
 const pool = {} as Pool;
 
@@ -19,7 +19,7 @@ function message(text: string): IncomingMessage {
 }
 
 describe("operational WhatsApp registration composition", () => {
-  it("composes the canonical registration router without colliding with the legacy registrar route", () => {
+  it("composes player registration and administrative review routes without legacy collisions", () => {
     const composition = createOperationalMessagingComposition(pool);
 
     expect(composition.router.classify(message("$registrar"))).toEqual({
@@ -29,6 +29,22 @@ describe("operational WhatsApp registration composition", () => {
     expect(composition.router.classify(message("$confirmar"))).toEqual({
       command: "confirmar",
       sensitiveActionKey: null,
+    });
+    expect(composition.router.classify(message("$verficha"))).toEqual({
+      command: "verficha",
+      sensitiveActionKey: null,
+    });
+    expect(composition.router.classify(message("$aprovar"))).toEqual({
+      command: "aprovar",
+      sensitiveActionKey: "command:aprovar",
+    });
+    expect(composition.router.classify(message("$ajustes"))).toEqual({
+      command: "ajustes",
+      sensitiveActionKey: "command:ajustes",
+    });
+    expect(composition.router.classify(message("$rejeitar"))).toEqual({
+      command: "rejeitar",
+      sensitiveActionKey: "command:rejeitar",
     });
     expect(typeof composition.admitFreeform).toBe("function");
   });
