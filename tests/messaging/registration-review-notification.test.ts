@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
+import { withRegistrationReviewMentions } from "../../src/modules/registration/review-notification-mentions.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
@@ -46,7 +47,7 @@ function completedDraft() {
 }
 
 describe("registration review notification", () => {
-  it("emits a separate reply anchor with real valid staff mentions after submission", async () => {
+  it("enriches the durable reply anchor with real valid staff mentions after submission", async () => {
     const sessions = new RegistrationConversationSessions();
     sessions.start(PLAYER_ID, {
       mode: "FULL",
@@ -55,7 +56,7 @@ describe("registration review notification", () => {
       baseRevision: 4,
     });
 
-    const routes = createRegistrationWhatsAppRoutes({
+    const baseRoutes = createRegistrationWhatsAppRoutes({
       sessions,
       players: {
         resolveOrCreatePlayer: async () =>
@@ -87,11 +88,11 @@ describe("registration review notification", () => {
             starterOptions: [{ formId: STARTER_ID, displayName: "Charmander" }],
           }),
       },
-      reviewMentions: {
-        mentionsFor: async (input: { readonly provider: string; readonly chatRef: string }) => {
-          expect(input).toEqual({ provider: "baileys", chatRef: CHAT_REF });
-          return STAFF_JIDS;
-        },
+    });
+    const routes = withRegistrationReviewMentions(baseRoutes, {
+      mentionsFor: async (input: { readonly provider: string; readonly chatRef: string }) => {
+        expect(input).toEqual({ provider: "baileys", chatRef: CHAT_REF });
+        return STAFF_JIDS;
       },
     });
     const confirm = routes.find((candidate) => candidate.command === "confirmar");
@@ -111,7 +112,7 @@ describe("registration review notification", () => {
             messageType: "TEXT",
             payload: {
               text: expect.stringMatching(
-                /nova ficha.*Liora Vale.*@5511888888888.*@5511999999999.*revisão/i,
+                /nova ficha.*Liora Vale.*revisão[\s\S]*@5511888888888.*@5511999999999/i,
               ),
               mentions: STAFF_JIDS,
               registrationReview: { reviewId: REVIEW_ID, reviewRevision: 0 },
