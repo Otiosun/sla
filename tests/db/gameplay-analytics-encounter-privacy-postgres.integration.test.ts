@@ -38,14 +38,14 @@ describe.sequential("F8.4 encounter cohort privacy", () => {
     areaId = randomUUID();
 
     await pool.query(
-      `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status, published_at)
-       VALUES ($1, $2, 1, 1, '{}'::jsonb, 'PUBLISHED', $3)`,
-      [rulesetId, `f8-4-privacy-${rulesetId}`, new Date("2026-08-01T00:00:00.000Z")],
+      `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+       VALUES ($1, $2, 1, 1, '{}'::jsonb, 'DRAFT')`,
+      [rulesetId, `f8-4-privacy-${rulesetId}`],
     );
     await pool.query(
-      `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id, published_at)
-       VALUES ($1, 99992, 'F8.4 privacy proof', 'PUBLISHED', $2, $3)`,
-      [releaseId, rulesetId, new Date("2026-08-01T00:00:00.000Z")],
+      `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+       VALUES ($1, 99992, 'F8.4 privacy proof', 'DRAFT', $2)`,
+      [releaseId, rulesetId],
     );
     await pool.query("INSERT INTO regions(id, slug) VALUES ($1, $2)", [
       regionId,
