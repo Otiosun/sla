@@ -34,6 +34,7 @@ const envSchema = z.object({
   ADMIN_ACCESS_TEAM_DOMAIN: z.string().url().optional(),
   ADMIN_ACCESS_AUDIENCE: z.string().trim().min(1).max(256).optional(),
   ADMIN_ACCESS_PRIVILEGED_AUDIENCE: z.string().trim().min(1).max(256).optional(),
+  ADMIN_LOCAL_DEV_PRINCIPAL_ID: z.string().uuid().optional(),
   ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS: positiveInteger(900_000),
 });
 
@@ -55,6 +56,7 @@ export interface AppConfig {
   readonly adminAccessTeamDomain: string | null;
   readonly adminAccessAudience: string | null;
   readonly adminAccessPrivilegedAudience: string | null;
+  readonly adminLocalDevPrincipalId: string | null;
   readonly adminAccessSessionIdleTimeoutMs: number;
 }
 
@@ -81,6 +83,15 @@ function normalizeOrigin(rawOrigin: string, appEnv: AppConfig["appEnv"]): string
   return url.origin;
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  const hostname = new URL(origin).hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
@@ -103,9 +114,48 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  const localDevPrincipalId = parsed.data.ADMIN_LOCAL_DEV_PRINCIPAL_ID;
+  if (localDevPrincipalId !== undefined) {
+    if (!parsed.data.ADMIN_API_ENABLED) {
+      throw new ConfigError(
+        "Invalid application configuration: local development admin auth requires the Admin API to be enabled",
+      );
+    }
+    if (parsed.data.APP_ENV !== "development") {
+      throw new ConfigError(
+        "Invalid application configuration: local development admin auth is allowed only in development",
+      );
+    }
+    if (!isLoopbackHost(parsed.data.ADMIN_API_HOST)) {
+      throw new ConfigError(
+        "Invalid application configuration: local development admin auth requires a loopback API host",
+      );
+    }
+    if (parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined) {
+      throw new ConfigError(
+        "Invalid application configuration: local development admin auth requires a loopback allowed origin",
+      );
+    }
+  }
+
+  const adminApiAllowedOrigin =
+    parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined
+      ? null
+      : normalizeOrigin(parsed.data.ADMIN_API_ALLOWED_ORIGIN, parsed.data.APP_ENV);
+
+  if (
+    localDevPrincipalId !== undefined &&
+    (adminApiAllowedOrigin === null || !isLoopbackOrigin(adminApiAllowedOrigin))
+  ) {
+    throw new ConfigError(
+      "Invalid application configuration: local development admin auth requires a loopback browser origin",
+    );
+  }
+
   if (
     parsed.data.ADMIN_API_ENABLED &&
-    (parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined ||
+    localDevPrincipalId === undefined &&
+    (adminApiAllowedOrigin === null ||
       parsed.data.ADMIN_ACCESS_TEAM_DOMAIN === undefined ||
       parsed.data.ADMIN_ACCESS_AUDIENCE === undefined)
   ) {
@@ -114,13 +164,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
-  const adminApiAllowedOrigin =
-    parsed.data.ADMIN_API_ALLOWED_ORIGIN === undefined
-      ? null
-      : normalizeOrigin(parsed.data.ADMIN_API_ALLOWED_ORIGIN, parsed.data.APP_ENV);
-
   const requiresPrivilegedAccessBoundary =
     parsed.data.ADMIN_API_ENABLED &&
+    localDevPrincipalId === undefined &&
     (parsed.data.APP_ENV === "staging" || parsed.data.APP_ENV === "production");
   if (
     requiresPrivilegedAccessBoundary &&
@@ -158,6 +204,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminAccessTeamDomain: parsed.data.ADMIN_ACCESS_TEAM_DOMAIN ?? null,
     adminAccessAudience: parsed.data.ADMIN_ACCESS_AUDIENCE ?? null,
     adminAccessPrivilegedAudience: parsed.data.ADMIN_ACCESS_PRIVILEGED_AUDIENCE ?? null,
+    adminLocalDevPrincipalId: localDevPrincipalId ?? null,
     adminAccessSessionIdleTimeoutMs: parsed.data.ADMIN_ACCESS_SESSION_IDLE_TIMEOUT_MS,
   };
 }

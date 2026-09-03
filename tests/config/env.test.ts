@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ConfigError, loadConfig } from "../../src/platform/config/env.js";
 
+const LOCAL_ADMIN_PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
+
 describe("loadConfig", () => {
   it("fails fast when DATABASE_URL is missing", () => {
     expect(() => loadConfig({ APP_ENV: "test" })).toThrow(ConfigError);
@@ -52,6 +54,7 @@ describe("loadConfig", () => {
     expect(config.adminAccessTeamDomain).toBeNull();
     expect(config.adminAccessAudience).toBeNull();
     expect(config.adminAccessPrivilegedAudience).toBeNull();
+    expect(config.adminLocalDevPrincipalId).toBeNull();
   });
 
   it("fails fast when Admin API is enabled without its Access boundary", () => {
@@ -62,6 +65,71 @@ describe("loadConfig", () => {
         ADMIN_API_ENABLED: "true",
       }),
     ).toThrow(/enabled Admin API requires allowed origin/);
+  });
+
+  it("accepts explicit local development admin auth only on loopback", () => {
+    const config = loadConfig({
+      APP_ENV: "development",
+      DATABASE_URL: "postgresql://pokemon:test@localhost:5432/pokemon_rpg",
+      ADMIN_API_ENABLED: "true",
+      ADMIN_API_HOST: "127.0.0.1",
+      ADMIN_API_PORT: "8787",
+      ADMIN_API_ALLOWED_ORIGIN: "http://localhost:5173",
+      ADMIN_LOCAL_DEV_PRINCIPAL_ID: LOCAL_ADMIN_PRINCIPAL_ID,
+    });
+
+    expect(config).toMatchObject({
+      appEnv: "development",
+      adminApiEnabled: true,
+      adminApiHost: "127.0.0.1",
+      adminApiAllowedOrigin: "http://localhost:5173",
+      adminAccessTeamDomain: null,
+      adminAccessAudience: null,
+      adminAccessPrivilegedAudience: null,
+      adminLocalDevPrincipalId: LOCAL_ADMIN_PRINCIPAL_ID,
+    });
+  });
+
+  it("rejects local development admin auth outside development", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "staging",
+        DATABASE_URL: "postgresql://runtime:test@localhost:5432/pokemon_rpg",
+        ADMIN_API_ENABLED: "true",
+        ADMIN_API_HOST: "127.0.0.1",
+        ADMIN_API_ALLOWED_ORIGIN: "https://admin-staging.example.com",
+        ADMIN_ACCESS_TEAM_DOMAIN: "https://pokemon-rpg.cloudflareaccess.com",
+        ADMIN_ACCESS_AUDIENCE: "control-center-audience",
+        ADMIN_ACCESS_PRIVILEGED_AUDIENCE: "control-center-privileged-audience",
+        ADMIN_LOCAL_DEV_PRINCIPAL_ID: LOCAL_ADMIN_PRINCIPAL_ID,
+      }),
+    ).toThrow(/local development admin auth.*development/i);
+  });
+
+  it("rejects local development admin auth when the API host is not loopback", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "development",
+        DATABASE_URL: "postgresql://pokemon:test@localhost:5432/pokemon_rpg",
+        ADMIN_API_ENABLED: "true",
+        ADMIN_API_HOST: "0.0.0.0",
+        ADMIN_API_ALLOWED_ORIGIN: "http://localhost:5173",
+        ADMIN_LOCAL_DEV_PRINCIPAL_ID: LOCAL_ADMIN_PRINCIPAL_ID,
+      }),
+    ).toThrow(/local development admin auth.*loopback/i);
+  });
+
+  it("rejects local development admin auth when the browser origin is not loopback", () => {
+    expect(() =>
+      loadConfig({
+        APP_ENV: "development",
+        DATABASE_URL: "postgresql://pokemon:test@localhost:5432/pokemon_rpg",
+        ADMIN_API_ENABLED: "true",
+        ADMIN_API_HOST: "127.0.0.1",
+        ADMIN_API_ALLOWED_ORIGIN: "http://admin.example.test:5173",
+        ADMIN_LOCAL_DEV_PRINCIPAL_ID: LOCAL_ADMIN_PRINCIPAL_ID,
+      }),
+    ).toThrow(/local development admin auth.*loopback/i);
   });
 
   it("requires an HTTPS exact admin origin in production without requiring a migrator secret", () => {
@@ -101,6 +169,7 @@ describe("loadConfig", () => {
       adminAccessTeamDomain: "https://pokemon-rpg.cloudflareaccess.com",
       adminAccessAudience: "control-center-audience",
       adminAccessPrivilegedAudience: "control-center-privileged-audience",
+      adminLocalDevPrincipalId: null,
       adminAccessSessionIdleTimeoutMs: 1_200_000,
     });
   });
@@ -131,6 +200,7 @@ describe("loadConfig", () => {
       adminAccessTeamDomain: null,
       adminAccessAudience: null,
       adminAccessPrivilegedAudience: null,
+      adminLocalDevPrincipalId: null,
       adminAccessSessionIdleTimeoutMs: 900_000,
     });
   });
