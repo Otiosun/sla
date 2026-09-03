@@ -213,7 +213,9 @@ export function createOperationalAdminApi(
           new AdminIdentityResolver(identityRepository, adminEnvironment(config.appEnv)),
         );
   const sessionLogoutService =
-    localDevPrincipalId === null ? new AdminSessionLogoutService(accessSessionRepository, clock) : undefined;
+    localDevPrincipalId === null
+      ? new AdminSessionLogoutService(accessSessionRepository, clock)
+      : undefined;
   const rateLimiter = new PostgresAdminApiRateLimiter(pool);
   const server = createAdminApiServer({
     allowedOrigin: config.adminApiAllowedOrigin,
