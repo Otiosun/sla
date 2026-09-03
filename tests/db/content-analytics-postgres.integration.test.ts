@@ -6,7 +6,8 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -68,7 +69,10 @@ describe.sequential("PostgresContentAnalyticsRepository", () => {
       [releaseId, rulesetId],
     );
     await pool.query("INSERT INTO regions(id, slug) VALUES ($1, 'f8-4-region')", [regionId]);
-    await pool.query("INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'f8-4-area')", [areaId, regionId]);
+    await pool.query("INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'f8-4-area')", [
+      areaId,
+      regionId,
+    ]);
     await pool.query(
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 8401, 'f8-4-species')",
       [speciesId],
@@ -255,7 +259,10 @@ describe.sequential("PostgresContentAnalyticsRepository", () => {
       );
     }
 
-    const result = await new PostgresContentAnalyticsRepository(pool).readAggregate("production", asOf);
+    const result = await new PostgresContentAnalyticsRepository(pool).readAggregate(
+      "production",
+      asOf,
+    );
 
     expect(result).toEqual({
       encounters: { created: "2", closed: "2" },
