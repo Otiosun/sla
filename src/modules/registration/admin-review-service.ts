@@ -14,15 +14,15 @@ interface AdminReviewBoundary {
 
 interface RegistrationReviewBoundary {
   getReview(reviewId: string): ReturnType<RegistrationService["getReview"]>;
-  requestChanges(input: Parameters<RegistrationService["requestChanges"]>[0]): ReturnType<
-    RegistrationService["requestChanges"]
-  >;
-  approve(input: Parameters<RegistrationService["approve"]>[0]): ReturnType<
-    RegistrationService["approve"]
-  >;
-  reject(input: Parameters<RegistrationService["reject"]>[0]): ReturnType<
-    RegistrationService["reject"]
-  >;
+  requestChanges(
+    input: Parameters<RegistrationService["requestChanges"]>[0],
+  ): ReturnType<RegistrationService["requestChanges"]>;
+  approve(
+    input: Parameters<RegistrationService["approve"]>[0],
+  ): ReturnType<RegistrationService["approve"]>;
+  reject(
+    input: Parameters<RegistrationService["reject"]>[0],
+  ): ReturnType<RegistrationService["reject"]>;
 }
 
 export interface AuditedRegistrationReviewDependencies {
