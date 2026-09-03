@@ -4,7 +4,9 @@ import {
   LocalDevAdminSessionGuard,
 } from "../../src/adapters/admin-api/local-dev-authenticator.js";
 import { AdminUnauthenticatedError } from "../../src/adapters/admin-api/request-authenticator.js";
-import type { AdminAuthorizationSnapshotReader } from "../../src/adapters/admin-api/session-service.js";
+import type {
+  AdminAuthorizationSnapshotReader,
+} from "../../src/adapters/admin-api/session-service.js";
 
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -50,7 +52,10 @@ describe("LocalDevAdminRequestAuthenticator", () => {
   });
 
   it("fails closed when the configured principal is disabled", async () => {
-    const authenticator = new LocalDevAdminRequestAuthenticator(PRINCIPAL_ID, authorization("DISABLED"));
+    const authenticator = new LocalDevAdminRequestAuthenticator(
+      PRINCIPAL_ID,
+      authorization("DISABLED"),
+    );
 
     await expect(authenticator.authenticate(undefined)).rejects.toBeInstanceOf(
       AdminUnauthenticatedError,
