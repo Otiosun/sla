@@ -49,10 +49,11 @@ describe.sequential("reception admin audit evidence", () => {
       ["community.group.manage", 3],
     ] as const) {
       const capabilityId = randomUUID();
-      await pool.query(
-        "INSERT INTO capabilities(id, key, risk_tier) VALUES ($1, $2, $3)",
-        [capabilityId, key, riskTier],
-      );
+      await pool.query("INSERT INTO capabilities(id, key, risk_tier) VALUES ($1, $2, $3)", [
+        capabilityId,
+        key,
+        riskTier,
+      ]);
       await pool.query(
         "INSERT INTO admin_role_capabilities(role_id, capability_id) VALUES ($1, $2)",
         [roleId, capabilityId],
