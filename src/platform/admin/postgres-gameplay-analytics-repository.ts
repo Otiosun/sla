@@ -13,7 +13,7 @@ import { withTransaction } from "../db/transaction.js";
 const MIN_PARTICIPANTS = 5;
 
 interface EncounterRow {
-  window: GameplayAnalyticsWindowKey;
+  window_key: GameplayAnalyticsWindowKey;
   participant_count: string;
   created: string;
   closed: string;
@@ -24,7 +24,7 @@ interface EncounterRow {
 }
 
 interface CaptureRow {
-  window: GameplayAnalyticsWindowKey;
+  window_key: GameplayAnalyticsWindowKey;
   participant_count: string;
   resolved: string;
   captured: string;
@@ -32,7 +32,7 @@ interface CaptureRow {
 }
 
 interface ProgressionRow {
-  window: GameplayAnalyticsWindowKey;
+  window_key: GameplayAnalyticsWindowKey;
   participant_count: string;
   adjustments: string;
   points_added: string;
@@ -80,11 +80,11 @@ function progressionAggregate(row: ProgressionRow): TrainerProgressionAggregate 
   };
 }
 
-function rowByWindow<T extends { readonly window: GameplayAnalyticsWindowKey }>(
+function rowByWindow<T extends { readonly window_key: GameplayAnalyticsWindowKey }>(
   rows: readonly T[],
   window: GameplayAnalyticsWindowKey,
 ): T {
-  const row = rows.find((candidate) => candidate.window === window);
+  const row = rows.find((candidate) => candidate.window_key === window);
   if (row === undefined) throw new Error(`Gameplay analytics query omitted ${window}`);
   return row;
 }
@@ -102,13 +102,13 @@ export class PostgresGameplayAnalyticsRepository implements GameplayAnalyticsRea
       this.pool,
       async (client) => {
         const encounterResult = await client.query<EncounterRow>(
-          `WITH windows(window, ordinal, from_at) AS (
+          `WITH windows(window_key, ordinal, from_at) AS (
              VALUES
                ('24h'::text, 1, $1::timestamptz - interval '24 hours'),
                ('7d'::text, 2, $1::timestamptz - interval '7 days'),
                ('30d'::text, 3, $1::timestamptz - interval '30 days')
            )
-           SELECT windows.window,
+           SELECT windows.window_key,
                   count(DISTINCT encounter.player_id) FILTER (
                     WHERE (encounter.created_at >= windows.from_at AND encounter.created_at < $1::timestamptz)
                        OR (encounter.closed_at >= windows.from_at AND encounter.closed_at < $1::timestamptz
@@ -148,19 +148,19 @@ export class PostgresGameplayAnalyticsRepository implements GameplayAnalyticsRea
              ON (encounter.created_at >= windows.from_at AND encounter.created_at < $1::timestamptz)
              OR (encounter.closed_at >= windows.from_at AND encounter.closed_at < $1::timestamptz
                  AND encounter.status IN ('CAPTURED','FLED','EXPIRED','CLOSED'))
-           GROUP BY windows.window, windows.ordinal
+           GROUP BY windows.window_key, windows.ordinal
            ORDER BY windows.ordinal`,
           [asOf],
         );
 
         const captureResult = await client.query<CaptureRow>(
-          `WITH windows(window, ordinal, from_at) AS (
+          `WITH windows(window_key, ordinal, from_at) AS (
              VALUES
                ('24h'::text, 1, $1::timestamptz - interval '24 hours'),
                ('7d'::text, 2, $1::timestamptz - interval '7 days'),
                ('30d'::text, 3, $1::timestamptz - interval '30 days')
            )
-           SELECT windows.window,
+           SELECT windows.window_key,
                   count(DISTINCT attempt.player_id)::text AS participant_count,
                   count(attempt.id)::text AS resolved,
                   count(*) FILTER (WHERE attempt.status = 'CAPTURED')::text AS captured,
@@ -170,19 +170,19 @@ export class PostgresGameplayAnalyticsRepository implements GameplayAnalyticsRea
              ON attempt.resolved_at >= windows.from_at
             AND attempt.resolved_at < $1::timestamptz
             AND attempt.status IN ('CAPTURED','FAILED')
-           GROUP BY windows.window, windows.ordinal
+           GROUP BY windows.window_key, windows.ordinal
            ORDER BY windows.ordinal`,
           [asOf],
         );
 
         const progressionResult = await client.query<ProgressionRow>(
-          `WITH windows(window, ordinal, from_at) AS (
+          `WITH windows(window_key, ordinal, from_at) AS (
              VALUES
                ('24h'::text, 1, $1::timestamptz - interval '24 hours'),
                ('7d'::text, 2, $1::timestamptz - interval '7 days'),
                ('30d'::text, 3, $1::timestamptz - interval '30 days')
            )
-           SELECT windows.window,
+           SELECT windows.window_key,
                   count(DISTINCT ledger.player_id)::text AS participant_count,
                   count(ledger.id)::text AS adjustments,
                   COALESCE(sum(ledger.delta) FILTER (WHERE ledger.delta > 0), 0)::text AS points_added,
@@ -192,7 +192,7 @@ export class PostgresGameplayAnalyticsRepository implements GameplayAnalyticsRea
            LEFT JOIN trainer_progress_ledger ledger
              ON ledger.created_at >= windows.from_at
             AND ledger.created_at < $1::timestamptz
-           GROUP BY windows.window, windows.ordinal
+           GROUP BY windows.window_key, windows.ordinal
            ORDER BY windows.ordinal`,
           [asOf],
         );
