@@ -21,11 +21,7 @@ function message(text: string): IncomingMessage {
 function operationalPoolForUnknownReceptionIdentity(): Pool {
   const query = async (sql: unknown) => {
     const statement = String(sql);
-    if (
-      statement.startsWith("BEGIN") ||
-      statement === "COMMIT" ||
-      statement === "ROLLBACK"
-    ) {
+    if (statement.startsWith("BEGIN") || statement === "COMMIT" || statement === "ROLLBACK") {
       return { rows: [], rowCount: null };
     }
     if (statement.includes("FROM community_groups") && statement.includes("provider = $1")) {
