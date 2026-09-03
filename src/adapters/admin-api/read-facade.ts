@@ -13,6 +13,10 @@ import type {
   EconomyAnalyticsView,
 } from "../../modules/admin/economy-analytics-service.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";
+import type {
+  GameplayAnalyticsService,
+  GameplayAnalyticsView,
+} from "../../modules/admin/gameplay-analytics-service.js";
 import type { IncidentCenterView } from "../../modules/admin/incident-center-read-contracts.js";
 import type { IncidentCenterReadService } from "../../modules/admin/incident-center-read-service.js";
 import type { MessagingOperationsView } from "../../modules/admin/messaging-operations-read-contracts.js";
@@ -50,6 +54,7 @@ type IncidentCenterReader = Pick<IncidentCenterReadService, "getSnapshot">;
 type AdminOperationAuditReader = Pick<AdminOperationAuditReadService, "get">;
 type PlayerActivityAnalyticsReader = Pick<PlayerActivityAnalyticsService, "getAggregate">;
 type EconomyAnalyticsReader = Pick<EconomyAnalyticsService, "getAggregate">;
+type GameplayAnalyticsReader = Pick<GameplayAnalyticsService, "getAggregate">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -98,6 +103,7 @@ export class AdminReadFacade {
     private readonly adminOperationAudit?: AdminOperationAuditReader,
     private readonly playerActivityAnalytics?: PlayerActivityAnalyticsReader,
     private readonly economyAnalytics?: EconomyAnalyticsReader,
+    private readonly gameplayAnalytics?: GameplayAnalyticsReader,
   ) {}
 
   public async searchPlayers(
@@ -146,6 +152,18 @@ export class AdminReadFacade {
       throw new Error("Economy analytics read boundary is not configured");
     }
     return this.economyAnalytics.getAggregate({
+      principalId: context.principalId,
+      environment: AdminEnvironmentSchema.parse(context.environment),
+      correlationId: context.correlationId,
+    });
+  }
+
+  public async getGameplayAnalytics(rawContext: unknown): Promise<GameplayAnalyticsView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.gameplayAnalytics === undefined) {
+      throw new Error("Gameplay analytics read boundary is not configured");
+    }
+    return this.gameplayAnalytics.getAggregate({
       principalId: context.principalId,
       environment: AdminEnvironmentSchema.parse(context.environment),
       correlationId: context.correlationId,

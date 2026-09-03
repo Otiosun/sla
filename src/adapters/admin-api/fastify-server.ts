@@ -49,6 +49,7 @@ const PlayerGetTransportSchema = z
 
 const PlayerActivityAnalyticsTransportSchema = z.object({}).strict();
 const EconomyAnalyticsTransportSchema = z.object({}).strict();
+const GameplayAnalyticsTransportSchema = z.object({}).strict();
 const signedIntegerString = z.string().regex(/^-?\d+$/);
 const nonNegativeIntegerString = z.string().regex(/^\d+$/);
 const EconomyAnalyticsOutputSchema = z
@@ -84,6 +85,79 @@ const EconomyAnalyticsOutputSchema = z
         inventoryProjectionMismatches: nonNegativeIntegerString,
       })
       .strict(),
+  })
+  .strict();
+
+const GameplaySuppressedAggregateSchema = z.object({ suppressed: z.literal(true) }).strict();
+const GameplayEncounterCreatedAggregateSchema = z.union([
+  GameplaySuppressedAggregateSchema,
+  z
+    .object({
+      suppressed: z.literal(false),
+      count: nonNegativeIntegerString,
+    })
+    .strict(),
+]);
+const GameplayEncounterClosuresAggregateSchema = z.union([
+  GameplaySuppressedAggregateSchema,
+  z
+    .object({
+      suppressed: z.literal(false),
+      closed: nonNegativeIntegerString,
+      captured: nonNegativeIntegerString,
+      fled: nonNegativeIntegerString,
+      expired: nonNegativeIntegerString,
+      closedOther: nonNegativeIntegerString,
+    })
+    .strict(),
+]);
+const GameplayEncounterAggregateSchema = z
+  .object({
+    created: GameplayEncounterCreatedAggregateSchema,
+    closures: GameplayEncounterClosuresAggregateSchema,
+  })
+  .strict();
+const GameplayCaptureAggregateSchema = z.union([
+  GameplaySuppressedAggregateSchema,
+  z
+    .object({
+      suppressed: z.literal(false),
+      resolved: nonNegativeIntegerString,
+      captured: nonNegativeIntegerString,
+      failed: nonNegativeIntegerString,
+    })
+    .strict(),
+]);
+const GameplayProgressionAggregateSchema = z.union([
+  GameplaySuppressedAggregateSchema,
+  z
+    .object({
+      suppressed: z.literal(false),
+      adjustments: nonNegativeIntegerString,
+      pointsAdded: nonNegativeIntegerString,
+      pointsRemoved: nonNegativeIntegerString,
+      netPoints: signedIntegerString,
+    })
+    .strict(),
+]);
+function gameplayWindowOutputSchema(window: "24h" | "7d" | "30d") {
+  return z
+    .object({
+      window: z.literal(window),
+      encounters: GameplayEncounterAggregateSchema,
+      captures: GameplayCaptureAggregateSchema,
+      trainerProgression: GameplayProgressionAggregateSchema,
+    })
+    .strict();
+}
+const GameplayAnalyticsOutputSchema = z
+  .object({
+    asOf: z.string().datetime(),
+    windows: z.tuple([
+      gameplayWindowOutputSchema("24h"),
+      gameplayWindowOutputSchema("7d"),
+      gameplayWindowOutputSchema("30d"),
+    ]),
   })
   .strict();
 
@@ -126,6 +200,7 @@ export type AdminApiRateLimitedOperation =
   | "player.read"
   | "player.activity.read"
   | "economy.analytics.read"
+  | "gameplay.analytics.read"
   | "content.search"
   | "runtime.health.read"
   | "messaging.operations.read"
@@ -160,6 +235,7 @@ export interface AdminApiServerDependencies {
         AdminReadFacade,
         | "getPlayerActivityAnalytics"
         | "getEconomyAnalytics"
+        | "getGameplayAnalytics"
         | "searchContent"
         | "listUnpublishedContent"
         | "diffContentRelease"
@@ -377,6 +453,24 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
       trustedRequestContext(identity, request),
     );
     return parseTrustedOutput(EconomyAnalyticsOutputSchema, output, "Economy analytics boundary");
+  });
+
+  server.get("/admin/v1/analytics/gameplay", async (request, reply) => {
+    const identity = await authenticateAndLimit(
+      request,
+      reply,
+      dependencies,
+      "gameplay.analytics.read",
+    );
+    if (identity === null) return reply;
+    parseTransport(GameplayAnalyticsTransportSchema, request.query);
+    if (dependencies.readFacade.getGameplayAnalytics === undefined) {
+      throw new Error("Gameplay analytics read boundary is not configured");
+    }
+    const output = await dependencies.readFacade.getGameplayAnalytics(
+      trustedRequestContext(identity, request),
+    );
+    return parseTrustedOutput(GameplayAnalyticsOutputSchema, output, "Gameplay analytics boundary");
   });
 
   server.get("/admin/v1/runtime/whatsapp/health", async (request, reply) => {
