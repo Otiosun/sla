@@ -92,4 +92,64 @@ describe.sequential("PostgresAdminWhatsAppIdentityResolver", () => {
       await resolver.resolvePrincipal({ provider: "discord", externalId: "same-looking-id" }),
     ).toBeNull();
   });
+
+  it("returns mentionable JIDs only for active requested principals with the required capability", async () => {
+    const allowedPrincipal = randomUUID();
+    const noCapabilityPrincipal = randomUUID();
+    const disabledPrincipal = randomUUID();
+    const nonWhatsAppPrincipal = randomUUID();
+    const roleId = randomUUID();
+    const capabilityId = randomUUID();
+    const allowedJid = "5511777777777@s.whatsapp.net";
+
+    await pool.query(
+      `INSERT INTO admin_principals(id, identity_ref, status) VALUES
+       ($1, $2, 'ACTIVE'),
+       ($3, $4, 'ACTIVE'),
+       ($5, $6, 'DISABLED'),
+       ($7, $8, 'ACTIVE')`,
+      [
+        allowedPrincipal,
+        `whatsapp:${allowedJid}`,
+        noCapabilityPrincipal,
+        "whatsapp:5511666666666@s.whatsapp.net",
+        disabledPrincipal,
+        "whatsapp:5511555555555@s.whatsapp.net",
+        nonWhatsAppPrincipal,
+        "control-center:staff-1",
+      ],
+    );
+    await pool.query(
+      "INSERT INTO admin_roles(id, slug, name) VALUES ($1, 'RECEPTION_MENTION_TEST', 'Reception Mention')",
+      [roleId],
+    );
+    await pool.query(
+      "INSERT INTO capabilities(id, key, risk_tier) VALUES ($1, 'player.registration.read', 0)",
+      [capabilityId],
+    );
+    await pool.query(
+      `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES
+       ($1, $2), ($3, $2), ($4, $2)`,
+      [allowedPrincipal, roleId, disabledPrincipal, nonWhatsAppPrincipal],
+    );
+    await pool.query(
+      "INSERT INTO admin_role_capabilities(role_id, capability_id) VALUES ($1, $2)",
+      [roleId, capabilityId],
+    );
+
+    const resolver = new PostgresAdminWhatsAppIdentityResolver(pool);
+
+    expect(
+      await resolver.whatsAppJidsForPrincipals({
+        principalIds: [
+          noCapabilityPrincipal,
+          allowedPrincipal,
+          disabledPrincipal,
+          nonWhatsAppPrincipal,
+          allowedPrincipal,
+        ],
+        requiredCapability: "player.registration.read",
+      }),
+    ).toEqual([allowedJid]);
+  });
 });
