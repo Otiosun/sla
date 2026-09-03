@@ -28,6 +28,8 @@ import { AuditedRegistrationReviewService } from "../modules/registration/admin-
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js";
+import { PlayerProvisioningService } from "../modules/registration/provisioning-service.js";
+import { PlayerProvisioningWorker } from "../modules/registration/provisioning-worker.js";
 import { RegistrationReviewMentionResolver } from "../modules/registration/review-mentions.js";
 import { withRegistrationReviewMentions } from "../modules/registration/review-notification-mentions.js";
 import { RegistrationService } from "../modules/registration/service.js";
@@ -46,6 +48,8 @@ import { PostgresMessagingRepository } from "../platform/messaging/postgres-mess
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
+import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
+import { PostgresReceptionActivationAnnouncement } from "../platform/registration/postgres-reception-activation-announcement.js";
 import { PostgresRegistrationMessageRefRepository } from "../platform/registration/postgres-registration-message-ref-repository.js";
 import { PostgresRegistrationRepository } from "../platform/registration/postgres-registration-repository.js";
 import { PostgresRegistrationSetupLoader } from "../platform/registration/postgres-registration-setup-loader.js";
@@ -68,6 +72,7 @@ export interface OperationalWhatsAppRuntimeOptions {
 export interface OperationalMessagingComposition {
   readonly router: MessageRouter;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
+  readonly runMaintenance: () => Promise<void>;
 }
 
 function errorKind(error: unknown): string {
@@ -91,7 +96,8 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const reads = new PostgresOperationalUxReadModel(pool);
 
   const community = new CommunityService(new PostgresCommunityRepository(pool));
-  const registration = new RegistrationService(new PostgresRegistrationRepository(pool));
+  const registrationRepository = new PostgresRegistrationRepository(pool);
+  const registration = new RegistrationService(registrationRepository);
   const setup = new PostgresRegistrationSetupLoader(pool);
   const accessRepository = new PostgresPlayerAccessRepository(pool);
   const receptionPresence = new PostgresReceptionPresenceRepository(pool);
@@ -104,6 +110,18 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     registration,
     completion: new PostgresAdminOperationCompletion(pool),
   });
+  const provisioning = new PlayerProvisioningService(
+    registrationRepository,
+    accessRepository,
+    playerRegistration,
+    starter,
+    world,
+    new PostgresReceptionActivationAnnouncement(pool),
+  );
+  const provisioningWorker = new PlayerProvisioningWorker(
+    new PostgresProvisioningCandidateSource(pool),
+    provisioning,
+  );
   const reviewMentions = new RegistrationReviewMentionResolver({
     community,
     admins: adminIdentity,
@@ -176,6 +194,9 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   return {
     router,
     admitFreeform: (message) => conversationResolver.admits(message),
+    runMaintenance: async () => {
+      await provisioningWorker.runOnce();
+    },
   };
 }
 
@@ -235,5 +256,6 @@ export function createOperationalWhatsAppRuntime(
 
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitFreeform: composition.admitFreeform,
+    beforeOutboxFlush: composition.runMaintenance,
   });
 }
