@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { registerGameplayAnalyticsRead } from "../../src/modules/admin/gameplay-analytics-definitions.js";
 import { GameplayAnalyticsService } from "../../src/modules/admin/gameplay-analytics-service.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
+import type { AdminOperationRepository } from "../../src/modules/admin/ports.js";
+import { AdminService } from "../../src/modules/admin/service.js";
 
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
 const CORRELATION_ID = "22222222-2222-4222-8222-222222222222";
@@ -89,6 +91,36 @@ describe("GameplayAnalyticsService", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("denies principals without world.read even if they can read players and progression", async () => {
+    const registry = registerGameplayAnalyticsRead(new AdminOperationRegistry());
+    const repository = {
+      getAuthorizationSnapshot: vi.fn(async () => ({
+        principalId: PRINCIPAL_ID,
+        status: "ACTIVE" as const,
+        capabilities: [
+          { key: "player.read", riskTier: 0 as const },
+          { key: "progression.read", riskTier: 0 as const },
+        ],
+        scopes: [{ scopeType: "GLOBAL" as const, scopeId: null }],
+      })),
+    } as unknown as AdminOperationRepository;
+    const readAggregate = vi.fn();
+    const service = new GameplayAnalyticsService(
+      new AdminService(registry, repository),
+      { readAggregate },
+      () => AS_OF,
+    );
+
+    await expect(
+      service.getAggregate({
+        principalId: PRINCIPAL_ID,
+        environment: "staging",
+        correlationId: CORRELATION_ID,
+      }),
+    ).rejects.toMatchObject({ code: "ADMIN_AUTHORIZATION_DENIED" });
+    expect(readAggregate).not.toHaveBeenCalled();
   });
 });
 
