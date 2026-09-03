@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../../src/platform/admin/postgres-admin-whatsapp-identity-resolver.js";
+import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -48,9 +49,10 @@ describe.sequential("PostgresAdminWhatsAppIdentityResolver", () => {
       "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
       [principalId, `whatsapp:${jid}`],
     );
-    await pool.query("INSERT INTO admin_roles(id, slug, name) VALUES ($1, 'RECEPTION_TEST', 'Reception')", [
-      roleId,
-    ]);
+    await pool.query(
+      "INSERT INTO admin_roles(id, slug, name) VALUES ($1, 'RECEPTION_TEST', 'Reception')",
+      [roleId],
+    );
     await pool.query(
       "INSERT INTO capabilities(id, key, risk_tier) VALUES ($1, 'player.registration.approve', 2)",
       [capabilityId],
@@ -59,10 +61,10 @@ describe.sequential("PostgresAdminWhatsAppIdentityResolver", () => {
       principalId,
       roleId,
     ]);
-    await pool.query("INSERT INTO admin_role_capabilities(role_id, capability_id) VALUES ($1, $2)", [
-      roleId,
-      capabilityId,
-    ]);
+    await pool.query(
+      "INSERT INTO admin_role_capabilities(role_id, capability_id) VALUES ($1, $2)",
+      [roleId, capabilityId],
+    );
 
     const resolver = new PostgresAdminWhatsAppIdentityResolver(pool);
 
