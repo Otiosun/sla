@@ -19,25 +19,32 @@ const identity = {
 const servers: ReturnType<typeof createAdminApiServer>[] = [];
 afterEach(async () => Promise.all(servers.splice(0).map((server) => server.close())));
 
+function suppressedEncounters() {
+  return {
+    created: { suppressed: true },
+    closures: { suppressed: true },
+  } as const;
+}
+
 function setup() {
   const getGameplayAnalytics = vi.fn().mockResolvedValue({
     asOf: "2026-09-02T12:30:00.000Z",
     windows: [
       {
         window: "24h",
-        encounters: { suppressed: true },
+        encounters: suppressedEncounters(),
         captures: { suppressed: true },
         trainerProgression: { suppressed: true },
       },
       {
         window: "7d",
-        encounters: { suppressed: true },
+        encounters: suppressedEncounters(),
         captures: { suppressed: true },
         trainerProgression: { suppressed: true },
       },
       {
         window: "30d",
-        encounters: { suppressed: true },
+        encounters: suppressedEncounters(),
         captures: { suppressed: true },
         trainerProgression: { suppressed: true },
       },
@@ -77,19 +84,19 @@ describe("F8.4 gameplay analytics HTTP composition", () => {
       windows: [
         {
           window: "24h",
-          encounters: { suppressed: true },
+          encounters: suppressedEncounters(),
           captures: { suppressed: true },
           trainerProgression: { suppressed: true },
         },
         {
           window: "7d",
-          encounters: { suppressed: true },
+          encounters: suppressedEncounters(),
           captures: { suppressed: true },
           trainerProgression: { suppressed: true },
         },
         {
           window: "30d",
-          encounters: { suppressed: true },
+          encounters: suppressedEncounters(),
           captures: { suppressed: true },
           trainerProgression: { suppressed: true },
         },
@@ -127,19 +134,19 @@ describe("F8.4 gameplay analytics HTTP composition", () => {
       windows: [
         {
           window: "24h",
-          encounters: { suppressed: true },
+          encounters: suppressedEncounters(),
           captures: { suppressed: true },
           trainerProgression: { suppressed: true },
         },
         {
           window: "7d",
-          encounters: { suppressed: true },
+          encounters: suppressedEncounters(),
           captures: { suppressed: true },
           trainerProgression: { suppressed: true },
         },
         {
           window: "30d",
-          encounters: { suppressed: true },
+          encounters: suppressedEncounters(),
           captures: { suppressed: true },
           trainerProgression: { suppressed: true },
         },
