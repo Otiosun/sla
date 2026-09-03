@@ -90,3 +90,6 @@ jobs:
 
       - name: Run F8.3 economy analytics temporal-plan proof
         run: node --import tsx db/proofs/f8_3_economy_analytics_performance_e2e.ts
+
+      - name: Run F8.4 content analytics temporal-plan proof
+        run: node --import tsx db/proofs/f8_4_content_analytics_performance_e2e.ts
