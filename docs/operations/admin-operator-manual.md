@@ -16,6 +16,7 @@ The source of truth for permissions remains code, especially `src/modules/admin/
 - Do not approve your own operation when independent approval is required.
 - Do not expose sensitive player data, credentials, WhatsApp auth material, secrets or backup artifacts in tickets, chat, Drive or logs.
 - `admin.override.invariant` is a Tier 4 capability, not permission for ad-hoc SQL or unregistered writes.
+- WhatsApp group-admin status is never RPG authorization. Administrative authority comes from an active AdminPrincipal, registered capabilities and scope.
 
 ## Roles
 
@@ -23,6 +24,9 @@ The canonical role-to-capability mapping is `ADMIN_ROLE_CAPABILITIES` in `src/mo
 
 | Role | Intended operational use |
 | --- | --- |
+| `RECEPTION_MOD` | Least-privilege Reception review: read submitted ficha, request changes, approve or reject. |
+| `ADMIN` | Broad day-to-day administration over registered operations up to Tier 3; still subject to capability, scope, validation, idempotency and audit gates. |
+| `MASTER_ADMIN` | Full registered capability catalog. Broad authority does not bypass Registry policy, validation, idempotency, expected revisions or audit. |
 | `SUPPORT` | Player support, basic player/Pokémon/world/battle reads and low-risk support corrections. |
 | `GAME_MASTER` | Narrative/game-master support around encounters, battles, rewards and effects. |
 | `ECONOMY_ADMIN` | Economy, inventory and progression adjustments plus low-risk batch tooling. |
@@ -32,7 +36,32 @@ The canonical role-to-capability mapping is `ADMIN_ROLE_CAPABILITIES` in `src/mo
 | `SENIOR_ADMIN` | Canonical capabilities whose registered risk tier is at most 3. |
 | `OWNER_SECURITY_ADMIN` | Full registered capability catalog, including Tier 4 security/role operations. Use only where that breadth is actually required. |
 
-Least privilege is mandatory. Being operationally convenient is not a reason to assign `OWNER_SECURITY_ADMIN`.
+Least privilege is mandatory. Being operationally convenient is not a reason to assign `OWNER_SECURITY_ADMIN`, `MASTER_ADMIN` or another broader role when `RECEPTION_MOD` is sufficient.
+
+## Reception and WhatsApp configuration
+
+Reception authorization is data-driven. Never hardcode a group name, phone number or JID into command handlers.
+
+A production Reception setup requires all of the following to agree:
+
+1. the WhatsApp group is registered by provider plus exact `chatRef`/JID in the Community Group Registry;
+2. the group role is `RECEPTION` and the required capabilities include `onboarding` and/or `admin.review` for the intended surface;
+3. each reviewer exists as an active AdminPrincipal with a namespaced WhatsApp identity (`whatsapp:<jid>`);
+4. each reviewer has the required granular capability, normally through `RECEPTION_MOD` or another authorized role;
+5. each reviewer intended to receive submission notifications is assigned as Reception staff for that registered group;
+6. the principal has a scope compatible with the target player when the operation uses subject authorization.
+
+Renaming the WhatsApp group does not change authority because lookup uses provider + `chatRef`/JID. Leaving/rejoining does not reset player data. Removing a user from a group is not the same as suspending `PlayerAccess`.
+
+Registration review operations are shared backend operations, independent of UI transport. WhatsApp uses `sourceChannel=WHATSAPP`; the Control Center uses `sourceChannel=CONTROL_CENTER`. Both must pass the same AdminOperation Registry and leave the same durable audit evidence. The registration review operations are:
+
+- `registration.review.read` → `player.registration.read`;
+- `registration.review.request_changes` → `player.registration.request_changes`;
+- `registration.review.approve` → `player.registration.approve`;
+- `registration.review.reject` → `player.registration.reject`;
+- `registration.review.reopen` → `player.registration.reopen`.
+
+Player access and Community administration use the registered capabilities `player.access.suspend`, `player.access.restore`, `community.group.manage` and `community.reception.staff.manage`. Do not reproduce those mutations with raw SQL or transport-specific code.
 
 ## Scopes
 
