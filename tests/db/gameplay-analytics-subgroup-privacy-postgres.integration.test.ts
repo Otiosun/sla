@@ -98,7 +98,8 @@ describe.sequential("F8.4 gameplay subgroup privacy", () => {
       const encounterId = randomUUID();
       encounterIds.push(encounterId);
       const createdAt = new Date(`2026-09-02T0${index + 1}:00:00.000Z`);
-      const closedAt = new Date(`2026-09-02T0${index + 6}:00:00.000Z`);
+      const closedHour = String(index + 6).padStart(2, "0");
+      const closedAt = new Date(`2026-09-02T${closedHour}:00:00.000Z`);
       const encounterStatus = index === 0 ? "CAPTURED" : "FLED";
       await pool.query(
         `INSERT INTO encounters(
