@@ -9,6 +9,16 @@ export interface ClaimReceptionFirstWelcomeInput {
 export class PostgresReceptionPresenceRepository {
   public constructor(private readonly pool: Pool) {}
 
+  public async needsFirstWelcome(input: ClaimReceptionFirstWelcomeInput): Promise<boolean> {
+    const result = await this.pool.query<{ needs_welcome: boolean }>(
+      `SELECT last_welcome_at IS NULL AS needs_welcome
+       FROM community_member_presence
+       WHERE group_id = $1 AND player_id = $2`,
+      [input.groupId, input.playerId],
+    );
+    return result.rows[0]?.needs_welcome ?? true;
+  }
+
   public async claimFirstWelcome(input: ClaimReceptionFirstWelcomeInput): Promise<boolean> {
     const result = await this.pool.query<{ claimed: number }>(
       `INSERT INTO community_member_presence(
