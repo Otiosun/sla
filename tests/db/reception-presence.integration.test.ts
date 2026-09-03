@@ -54,6 +54,8 @@ describe.sequential("PostgresReceptionPresenceRepository", () => {
     );
 
     const repository = new PostgresReceptionPresenceRepository(pool);
+    expect(await repository.needsFirstWelcome({ groupId, playerId: playerId.value })).toBe(true);
+
     const attempts = await Promise.all(
       Array.from({ length: 12 }, () =>
         repository.claimFirstWelcome({ groupId, playerId: playerId.value }),
@@ -62,6 +64,7 @@ describe.sequential("PostgresReceptionPresenceRepository", () => {
 
     expect(attempts.filter(Boolean)).toHaveLength(1);
     expect(await repository.claimFirstWelcome({ groupId, playerId: playerId.value })).toBe(false);
+    expect(await repository.needsFirstWelcome({ groupId, playerId: playerId.value })).toBe(false);
 
     const stored = await pool.query<{
       presence_generation: string;
