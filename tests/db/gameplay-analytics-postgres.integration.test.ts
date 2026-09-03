@@ -159,8 +159,14 @@ describe.sequential("PostgresGameplayAnalyticsRepository", () => {
       await pool.query(
         `INSERT INTO capture_attempts(
            id, player_id, encounter_id, ball_item_id, idempotency_key, status,
-           probability_basis_points, roll_basis_points, pokemon_instance_id, created_at, resolved_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,5000,1000,$7,$8,$8)`,
+           probability_basis_points, roll_basis_points, pokemon_instance_id, created_at, resolved_at,
+           request_fingerprint, source_encounter_status, correlation_id,
+           rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version, rng_counter,
+           breakdown
+         ) VALUES (
+           $1,$2,$3,$4,$5,$6,5000,1000,$7,$8,$8,
+           $9,'ENGAGED',$10,$11,$12,$13,1,1,'{}'::jsonb
+         )`,
         [
           randomUUID(),
           players[index],
@@ -170,6 +176,11 @@ describe.sequential("PostgresGameplayAnalyticsRepository", () => {
           status,
           pokemonInstanceId,
           resolvedAt,
+          `${index + 1}`.repeat(64).slice(0, 64),
+          randomUUID(),
+          Buffer.alloc(32, index + 1),
+          Buffer.alloc(12, index + 1),
+          Buffer.alloc(16, index + 1),
         ],
       );
     }
