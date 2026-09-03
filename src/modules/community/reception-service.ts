@@ -5,6 +5,10 @@ import type { RegistrationRevisionStatus } from "../registration/ports.js";
 import type { CommunityChatContext } from "./contracts.js";
 
 interface ReceptionPlayerResolver {
+  resolvePlayer(input: {
+    readonly provider: string;
+    readonly externalId: string;
+  }): Promise<Result<{ readonly playerId: PlayerId }>>;
   resolveOrCreatePlayer(input: {
     readonly provider: string;
     readonly externalId: string;
@@ -23,6 +27,10 @@ interface ReceptionAccessReader {
 }
 
 interface ReceptionPresenceWriter {
+  needsFirstWelcome(input: {
+    readonly groupId: string;
+    readonly playerId: PlayerId;
+  }): Promise<boolean>;
   claimFirstWelcome(input: {
     readonly groupId: string;
     readonly playerId: PlayerId;
@@ -55,6 +63,18 @@ export interface ReceptionWelcome {
   readonly text: string;
 }
 
+function isReception(group: CommunityChatContext): group is CommunityChatContext & {
+  readonly known: true;
+  readonly groupId: string;
+} {
+  return (
+    group.known &&
+    group.groupId !== null &&
+    group.role === "RECEPTION" &&
+    group.capabilities.includes("onboarding")
+  );
+}
+
 function reviewText(status: RegistrationRevisionStatus): string {
   switch (status) {
     case "SUBMITTED":
@@ -73,6 +93,25 @@ function reviewText(status: RegistrationRevisionStatus): string {
 export class ReceptionService {
   public constructor(private readonly dependencies: ReceptionServiceDependencies) {}
 
+  public async admitsFirstInteraction(input: ReceptionFirstInteractionInput): Promise<boolean> {
+    const group = await this.dependencies.community.resolveChat({
+      provider: input.provider,
+      chatRef: input.chatRef,
+    });
+    if (!isReception(group)) return false;
+
+    const player = await this.dependencies.players.resolvePlayer({
+      provider: input.provider,
+      externalId: input.externalId,
+    });
+    if (!player.ok) return player.error.code === "NOT_FOUND";
+
+    return this.dependencies.presence.needsFirstWelcome({
+      groupId: group.groupId,
+      playerId: player.value.playerId,
+    });
+  }
+
   public async firstInteraction(
     input: ReceptionFirstInteractionInput,
   ): Promise<Result<ReceptionWelcome | null>> {
@@ -80,14 +119,7 @@ export class ReceptionService {
       provider: input.provider,
       chatRef: input.chatRef,
     });
-    if (
-      !group.known ||
-      group.groupId === null ||
-      group.role !== "RECEPTION" ||
-      !group.capabilities.includes("onboarding")
-    ) {
-      return ok(null);
-    }
+    if (!isReception(group)) return ok(null);
 
     const player = await this.dependencies.players.resolveOrCreatePlayer({
       provider: input.provider,
