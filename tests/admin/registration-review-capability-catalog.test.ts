@@ -4,24 +4,49 @@ import {
   ADMIN_ROLE_CAPABILITIES,
 } from "../../src/modules/admin/registry-catalog.js";
 
-const REVIEW_CAPABILITIES = [
+const REGISTRATION_CAPABILITIES = [
+  "player.registration.read",
+  "player.registration.request_changes",
+  "player.registration.approve",
+  "player.registration.reject",
+  "player.registration.reopen",
+  "player.access.suspend",
+  "player.access.restore",
+  "community.group.manage",
+  "community.reception.staff.manage",
+] as const;
+
+const RECEPTION_REVIEW_CAPABILITIES = [
   "player.registration.read",
   "player.registration.request_changes",
   "player.registration.approve",
   "player.registration.reject",
 ] as const;
 
-describe("registration review admin capability catalog", () => {
-  it("registers granular review capabilities with bounded risk and grants them to senior/owner roles", () => {
+describe("registration and reception admin capability catalog", () => {
+  it("registers the complete least-privilege capability surface", () => {
     const risks = new Map<string, number>(ADMIN_CAPABILITIES);
-    expect(risks.get("player.registration.read")).toBe(0);
-    expect(risks.get("player.registration.request_changes")).toBe(1);
-    expect(risks.get("player.registration.approve")).toBe(2);
-    expect(risks.get("player.registration.reject")).toBe(2);
 
-    for (const capability of REVIEW_CAPABILITIES) {
-      expect(ADMIN_ROLE_CAPABILITIES.SENIOR_ADMIN).toContain(capability);
+    for (const capability of REGISTRATION_CAPABILITIES) {
+      expect(risks.has(capability)).toBe(true);
+    }
+  });
+
+  it("packages capabilities in roles without making role names the authorization primitive", () => {
+    for (const capability of RECEPTION_REVIEW_CAPABILITIES) {
+      expect(ADMIN_ROLE_CAPABILITIES.RECEPTION_MOD).toContain(capability);
+    }
+
+    for (const capability of REGISTRATION_CAPABILITIES) {
+      expect(ADMIN_ROLE_CAPABILITIES.ADMIN).toContain(capability);
+      expect(ADMIN_ROLE_CAPABILITIES.MASTER_ADMIN).toContain(capability);
       expect(ADMIN_ROLE_CAPABILITIES.OWNER_SECURITY_ADMIN).toContain(capability);
     }
+  });
+
+  it("does not grant unrelated high-risk administration to Reception moderators", () => {
+    expect(ADMIN_ROLE_CAPABILITIES.RECEPTION_MOD).not.toContain("admin.role.manage");
+    expect(ADMIN_ROLE_CAPABILITIES.RECEPTION_MOD).not.toContain("content.publish");
+    expect(ADMIN_ROLE_CAPABILITIES.RECEPTION_MOD).not.toContain("admin.override.invariant");
   });
 });
