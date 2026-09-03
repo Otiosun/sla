@@ -120,15 +120,7 @@ async function seedContentHistory(pool: Pool): Promise<void> {
               END AS observed_at
        FROM generate_series(1, $7::integer) AS generated(series)
      ) seeded`,
-    [
-      playerId,
-      areaId,
-      releaseId,
-      rulesetId,
-      AS_OF,
-      RECENT_ROWS_PER_DOMAIN,
-      TOTAL_ROWS_PER_DOMAIN,
-    ],
+    [playerId, areaId, releaseId, rulesetId, AS_OF, RECENT_ROWS_PER_DOMAIN, TOTAL_ROWS_PER_DOMAIN],
   );
 
   const encounterId = await pool.query<{ id: string }>(
@@ -174,14 +166,7 @@ async function seedContentHistory(pool: Pool): Promise<void> {
               END AS observed_at
        FROM generate_series(1, $6::integer) AS generated(series)
      ) seeded`,
-    [
-      playerId,
-      sourceEncounterId,
-      itemId,
-      AS_OF,
-      RECENT_ROWS_PER_DOMAIN,
-      TOTAL_ROWS_PER_DOMAIN,
-    ],
+    [playerId, sourceEncounterId, itemId, AS_OF, RECENT_ROWS_PER_DOMAIN, TOTAL_ROWS_PER_DOMAIN],
   );
 
   await pool.query(
@@ -272,10 +257,7 @@ async function provePlan(
   const explain = await pool.query<{ "QUERY PLAN": unknown }>(sql, [AS_OF]);
   const plan = explain.rows[0]?.["QUERY PLAN"];
   const text = planText(plan);
-  assert(
-    text.includes(expectedIndex),
-    `${label} did not use ${expectedIndex}: ${text}`,
-  );
+  assert(text.includes(expectedIndex), `${label} did not use ${expectedIndex}: ${text}`);
   assertExecutedFastEnough(plan, label);
 }
 
