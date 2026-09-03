@@ -34,7 +34,10 @@ function review(revision = 4, status: RegistrationRevisionRecord["status"] = "SU
   } satisfies RegistrationRevisionRecord;
 }
 
-function context(text: string, replyToExternalMessageId: string | null = REPLY_ID): MessageHandlerContext {
+function context(
+  text: string,
+  replyToExternalMessageId: string | null = REPLY_ID,
+): MessageHandlerContext {
   return {
     inboxMessageId: "66666666-6666-4666-8666-666666666666",
     correlationId: "77777777-7777-4777-8777-777777777777",
