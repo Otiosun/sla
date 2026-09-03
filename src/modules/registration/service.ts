@@ -104,6 +104,15 @@ export class RegistrationService {
     });
   }
 
+  public async getReview(reviewId: string): Promise<Result<RegistrationRevisionRecord>> {
+    return this.repository.read(async (tx) => {
+      const review = await tx.loadRevisionById(reviewId);
+      return review === null
+        ? err(appError("NOT_FOUND", "Registration review not found"))
+        : ok(review);
+    });
+  }
+
   public async saveDraft(
     input: SaveRegistrationDraftInput,
   ): Promise<Result<RegistrationDraftRecord>> {
