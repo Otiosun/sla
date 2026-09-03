@@ -41,17 +41,11 @@ function harness(options: HarnessOptions = {}) {
     },
   };
   const presence = {
-    claimFirstWelcome: async (_input: {
-      readonly groupId: string;
-      readonly playerId: string;
-    }) => {
+    claimFirstWelcome: async (_input: { readonly groupId: string; readonly playerId: string }) => {
       welcomeClaims += 1;
       return options.firstInteraction ?? true;
     },
-    needsFirstWelcome: async (_input: {
-      readonly groupId: string;
-      readonly playerId: string;
-    }) => {
+    needsFirstWelcome: async (_input: { readonly groupId: string; readonly playerId: string }) => {
       welcomeAdmissionReads += 1;
       return options.needsFirstWelcome ?? true;
     },
