@@ -14,7 +14,8 @@ const MIN_PARTICIPANTS = 5;
 
 interface EncounterRow {
   window_key: GameplayAnalyticsWindowKey;
-  participant_count: string;
+  created_participant_count: string;
+  closure_participant_count: string;
   created: string;
   closed: string;
   captured: string;
@@ -47,15 +48,20 @@ function suppressed(participantCount: string): boolean {
 }
 
 function encounterAggregate(row: EncounterRow): EncounterAggregate {
-  if (suppressed(row.participant_count)) return { suppressed: true };
   return {
-    suppressed: false,
-    created: row.created,
-    closed: row.closed,
-    captured: row.captured,
-    fled: row.fled,
-    expired: row.expired,
-    closedOther: row.closed_other,
+    created: suppressed(row.created_participant_count)
+      ? { suppressed: true }
+      : { suppressed: false, count: row.created },
+    closures: suppressed(row.closure_participant_count)
+      ? { suppressed: true }
+      : {
+          suppressed: false,
+          closed: row.closed,
+          captured: row.captured,
+          fled: row.fled,
+          expired: row.expired,
+          closedOther: row.closed_other,
+        },
   };
 }
 
@@ -110,10 +116,14 @@ export class PostgresGameplayAnalyticsRepository implements GameplayAnalyticsRea
            )
            SELECT windows.window_key,
                   count(DISTINCT encounter.player_id) FILTER (
-                    WHERE (encounter.created_at >= windows.from_at AND encounter.created_at < $1::timestamptz)
-                       OR (encounter.closed_at >= windows.from_at AND encounter.closed_at < $1::timestamptz
-                           AND encounter.status IN ('CAPTURED','FLED','EXPIRED','CLOSED'))
-                  )::text AS participant_count,
+                    WHERE encounter.created_at >= windows.from_at
+                      AND encounter.created_at < $1::timestamptz
+                  )::text AS created_participant_count,
+                  count(DISTINCT encounter.player_id) FILTER (
+                    WHERE encounter.closed_at >= windows.from_at
+                      AND encounter.closed_at < $1::timestamptz
+                      AND encounter.status IN ('CAPTURED','FLED','EXPIRED','CLOSED')
+                  )::text AS closure_participant_count,
                   count(*) FILTER (
                     WHERE encounter.created_at >= windows.from_at
                       AND encounter.created_at < $1::timestamptz
