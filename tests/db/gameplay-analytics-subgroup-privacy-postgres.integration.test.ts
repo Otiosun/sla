@@ -61,10 +61,10 @@ describe.sequential("F8.4 gameplay subgroup privacy", () => {
       regionId,
       `f8-4-subgroup-area-${areaId}`,
     ]);
-    await pool.query(
-      "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9993, $2)",
-      [speciesId, `f8-4-subgroup-mon-${speciesId}`],
-    );
+    await pool.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9993, $2)", [
+      speciesId,
+      `f8-4-subgroup-mon-${speciesId}`,
+    ]);
     await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'base')", [
       formId,
       speciesId,
