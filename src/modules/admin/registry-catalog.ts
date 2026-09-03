@@ -23,6 +23,9 @@ export const ADMIN_CAPABILITIES = [
   ["battle.support", 1],
   ["player.registration.approve", 2],
   ["player.registration.reject", 2],
+  ["player.registration.reopen", 2],
+  ["player.access.restore", 2],
+  ["community.reception.staff.manage", 2],
   ["progression.adjust", 2],
   ["progression.unlock.manage", 2],
   ["inventory.adjust", 2],
@@ -30,6 +33,8 @@ export const ADMIN_CAPABILITIES = [
   ["reward.grant", 2],
   ["effect.apply", 2],
   ["effect.remove", 2],
+  ["player.access.suspend", 3],
+  ["community.group.manage", 3],
   ["pokemon.create", 3],
   ["pokemon.edit.basic", 3],
   ["pokemon.edit.mechanics", 3],
@@ -62,7 +67,20 @@ export const ADMIN_CAPABILITIES = [
 
 export type AdminCapabilityKey = (typeof ADMIN_CAPABILITIES)[number][0];
 
+const RECEPTION_REVIEW_CAPABILITIES = [
+  "player.registration.read",
+  "player.registration.request_changes",
+  "player.registration.approve",
+  "player.registration.reject",
+] as const satisfies readonly AdminCapabilityKey[];
+
+const SENIOR_CAPABILITIES = ADMIN_CAPABILITIES.filter(([, risk]) => risk <= 3).map(([key]) => key);
+const OWNER_CAPABILITIES = ADMIN_CAPABILITIES.map(([key]) => key);
+
 export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapabilityKey[]>> = {
+  RECEPTION_MOD: RECEPTION_REVIEW_CAPABILITIES,
+  ADMIN: SENIOR_CAPABILITIES,
+  MASTER_ADMIN: OWNER_CAPABILITIES,
   SUPPORT: [
     "player.read",
     "pokemon.read",
@@ -123,6 +141,6 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
   ],
   CONTENT_EDITOR: ["content.draft.create", "content.draft.edit", "content.validate"],
   CONTENT_PUBLISHER: ["content.validate", "content.publish", "content.archive"],
-  SENIOR_ADMIN: ADMIN_CAPABILITIES.filter(([, risk]) => risk <= 3).map(([key]) => key),
-  OWNER_SECURITY_ADMIN: ADMIN_CAPABILITIES.map(([key]) => key),
+  SENIOR_ADMIN: SENIOR_CAPABILITIES,
+  OWNER_SECURITY_ADMIN: OWNER_CAPABILITIES,
 };
