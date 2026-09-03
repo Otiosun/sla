@@ -63,9 +63,9 @@ describe("RegistrationReviewMentionResolver", () => {
       },
     });
 
-    expect(
-      await resolver.mentionsFor({ provider: "baileys", chatRef: "reception@g.us" }),
-    ).toEqual([]);
+    expect(await resolver.mentionsFor({ provider: "baileys", chatRef: "reception@g.us" })).toEqual(
+      [],
+    );
     expect(staffReads).toBe(0);
     expect(adminReads).toBe(0);
   });
