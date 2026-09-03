@@ -4,15 +4,10 @@ import {
   LocalDevAdminSessionGuard,
 } from "../../src/adapters/admin-api/local-dev-authenticator.js";
 import { AdminUnauthenticatedError } from "../../src/adapters/admin-api/request-authenticator.js";
-import type {
-  AdminAuthorizationSnapshotReader,
-} from "../../src/adapters/admin-api/session-service.js";
 
 const PRINCIPAL_ID = "11111111-1111-4111-8111-111111111111";
 
-function authorization(
-  status: "ACTIVE" | "DISABLED" = "ACTIVE",
-): AdminAuthorizationSnapshotReader {
+function authorization(status: "ACTIVE" | "DISABLED" = "ACTIVE") {
   return {
     getAuthorizationSnapshot: vi.fn(async (principalId: string) => ({
       principalId,
@@ -41,7 +36,7 @@ describe("LocalDevAdminRequestAuthenticator", () => {
   });
 
   it("fails closed when the configured principal does not exist", async () => {
-    const reader: AdminAuthorizationSnapshotReader = {
+    const reader = {
       getAuthorizationSnapshot: vi.fn(async () => null),
     };
     const authenticator = new LocalDevAdminRequestAuthenticator(PRINCIPAL_ID, reader);
