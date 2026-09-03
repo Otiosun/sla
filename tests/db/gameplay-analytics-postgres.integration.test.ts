@@ -6,7 +6,8 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -56,8 +57,14 @@ describe.sequential("PostgresGameplayAnalyticsRepository", () => {
       areaId,
       regionId,
     ]);
-    await pool.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9991, 'f8-4-mon')", [speciesId]);
-    await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'base')", [formId, speciesId]);
+    await pool.query(
+      "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9991, 'f8-4-mon')",
+      [speciesId],
+    );
+    await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'base')", [
+      formId,
+      speciesId,
+    ]);
     await pool.query("INSERT INTO items(id, slug) VALUES ($1, 'f8-4-ball')", [ballItemId]);
   }, 30_000);
 
