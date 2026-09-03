@@ -107,6 +107,9 @@ jobs:
       - name: Run PostgreSQL Admin Audit Reconstruction E2E
         run: node --import tsx db/proofs/phase12_admin_audit_reconstruction_e2e.ts
 
+      - name: Run PostgreSQL Admin API Mutation Correlation E2E
+        run: node --import tsx db/proofs/phase12_admin_api_mutation_correlation_e2e.ts
+
       - name: Seed canonical catalog for release lifecycle E2E
         run: pnpm db:seed:phase4
 

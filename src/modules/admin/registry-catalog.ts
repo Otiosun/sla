@@ -13,6 +13,9 @@ export const ADMIN_CAPABILITIES = [
   ["effects.read", 0],
   ["audit.read", 0],
   ["admin_operation.read", 0],
+  ["runtime.health.read", 0],
+  ["messaging.operations.read", 0],
+  ["incident.read", 0],
   ["player.profile.edit", 1],
   ["player.location.correct", 1],
   ["player.onboarding.support", 1],
@@ -53,6 +56,7 @@ export const ADMIN_CAPABILITIES = [
   ["admin.role.assign", 4],
   ["admin.role.manage", 4],
   ["admin.capability.manage", 4],
+  ["admin.session.revoke", 4],
   ["admin.override.invariant", 4],
 ] as const;
 

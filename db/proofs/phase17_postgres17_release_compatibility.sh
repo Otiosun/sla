@@ -107,6 +107,7 @@ DATABASE_URL="$runtime_url" \
 MIGRATOR_DATABASE_URL="$migrator_url" \
   pnpm db:verify
 
+expected_migration_count="$(find db/migrations -maxdepth 1 -type f -name '*.sql' -print | wc -l | tr -d '[:space:]')"
 migration_count="$(docker exec \
   --env "PGPASSWORD=${runtime_password}" \
   "$container" psql \
@@ -116,8 +117,8 @@ migration_count="$(docker exec \
   --tuples-only \
   --no-align \
   --command "SELECT count(*) FROM schema_migrations;")"
-if [[ "$migration_count" != "26" ]]; then
-  echo "expected 26 applied migrations on PostgreSQL 17.6, got ${migration_count}" >&2
+if [[ "$migration_count" != "$expected_migration_count" ]]; then
+  echo "expected ${expected_migration_count} applied migrations on PostgreSQL 17.6, got ${migration_count}" >&2
   exit 1
 fi
 
