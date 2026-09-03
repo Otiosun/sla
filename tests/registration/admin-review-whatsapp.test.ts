@@ -53,7 +53,7 @@ function context(text: string, replyToExternalMessageId: string | null = REPLY_I
   };
 }
 
-function dependencies(current = review()) {
+function dependencies(current = review(), approveConflict = false) {
   const decisions: Array<{ kind: string; input: unknown }> = [];
   return {
     decisions,
@@ -80,15 +80,33 @@ function dependencies(current = review()) {
         reviewId === REVIEW_ID ? ok(current) : err(appError("NOT_FOUND", "review not found")),
       requestChanges: async (input: unknown) => {
         decisions.push({ kind: "REQUEST_CHANGES", input });
-        return ok({ ...current, status: "CHANGES_REQUESTED" as const, revision: current.revision + 1, replayed: false });
+        return ok({
+          ...current,
+          status: "CHANGES_REQUESTED" as const,
+          revision: current.revision + 1,
+          replayed: false,
+        });
       },
       approve: async (input: unknown) => {
         decisions.push({ kind: "APPROVE", input });
-        return ok({ ...current, status: "APPROVED" as const, revision: current.revision + 1, replayed: false });
+        if (approveConflict) {
+          return err(appError("REVISION_CONFLICT", "Registration review revision conflict"));
+        }
+        return ok({
+          ...current,
+          status: "APPROVED" as const,
+          revision: current.revision + 1,
+          replayed: false,
+        });
       },
       reject: async (input: unknown) => {
         decisions.push({ kind: "REJECT", input });
-        return ok({ ...current, status: "REJECTED" as const, revision: current.revision + 1, replayed: false });
+        return ok({
+          ...current,
+          status: "REJECTED" as const,
+          revision: current.revision + 1,
+          replayed: false,
+        });
       },
     },
   };
@@ -183,16 +201,17 @@ describe("registration admin review over WhatsApp", () => {
     });
 
     const reject = route("rejeitar");
-    expect(await reject.found.handler.handle(context("$rejeitar qualquer comentário livre"))).toMatchObject({
-      ok: true,
-    });
+    expect(
+      await reject.found.handler.handle(context("$rejeitar qualquer comentário livre")),
+    ).toMatchObject({ ok: true });
     expect(reject.deps.decisions[0]).toEqual({
       kind: "REJECT",
       input: {
         reviewId: REVIEW_ID,
         expectedRevision: 4,
         actor: { adminPrincipalId: ADMIN_ID },
-        idempotencyKey: "inbox:baileys:$rejeitar qualquer comentário livre:registration-review:reject",
+        idempotencyKey:
+          "inbox:baileys:$rejeitar qualquer comentário livre:registration-review:reject",
       },
     });
   });
@@ -207,11 +226,7 @@ describe("registration admin review over WhatsApp", () => {
   });
 
   it("propagates an explicit revision conflict from an obsolete reply anchor", async () => {
-    const deps = dependencies(review(5));
-    deps.registration.approve = async (input: unknown) => {
-      deps.decisions.push({ kind: "APPROVE", input });
-      return err(appError("REVISION_CONFLICT", "Registration review revision conflict"));
-    };
+    const deps = dependencies(review(5), true);
     const { found } = route("aprovar", deps);
 
     expect(await found.handler.handle(context("$aprovar"))).toMatchObject({
