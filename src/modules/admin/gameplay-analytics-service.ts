@@ -4,17 +4,28 @@ export type GameplayAnalyticsWindowKey = "24h" | "7d" | "30d";
 
 export type SuppressedAggregate = { readonly suppressed: true };
 
-export type EncounterAggregate =
+export type EncounterCreatedAggregate =
   | SuppressedAggregate
   | {
       readonly suppressed: false;
-      readonly created: string;
+      readonly count: string;
+    };
+
+export type EncounterClosureAggregate =
+  | SuppressedAggregate
+  | {
+      readonly suppressed: false;
       readonly closed: string;
       readonly captured: string;
       readonly fled: string;
       readonly expired: string;
       readonly closedOther: string;
     };
+
+export interface EncounterAggregate {
+  readonly created: EncounterCreatedAggregate;
+  readonly closures: EncounterClosureAggregate;
+}
 
 export type CaptureAggregate =
   | SuppressedAggregate
