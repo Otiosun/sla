@@ -20,8 +20,8 @@ const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
 const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
-const EXPECTED_PREVIOUS_LATEST = "0035_admin_operation_audit_read_rate_limit.sql";
-const EXPECTED_CURRENT_LATEST = "0036_admin_economy_analytics_read_indexes.sql";
+const EXPECTED_PREVIOUS_LATEST = "0036_admin_economy_analytics_read_indexes.sql";
+const EXPECTED_CURRENT_LATEST = "0037_admin_gameplay_analytics_read_indexes.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -37,7 +37,8 @@ type ReadRateLimitOperation =
   | "messaging.operations.read"
   | "incident.read"
   | "audit.read"
-  | "economy.analytics.read";
+  | "economy.analytics.read"
+  | "gameplay.analytics.read";
 
 async function mutationPrepareBucketExists(): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
@@ -213,7 +214,7 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the economy analytics migration");
+    throw new Error("N-1 limiter relation is missing before the gameplay analytics migration");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error(
@@ -228,11 +229,21 @@ try {
       "N-1 database is missing the environment-scoped session-revocation cutoff from migration 0030",
     );
   }
-  if (await indexExists("idx_wallet_ledger_created_currency")) {
-    throw new Error("N-1 database unexpectedly has the F8.3 wallet analytics index");
+  if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
+    throw new Error("N-1 database is missing the F8.3 wallet analytics index from migration 0036");
   }
-  if (await indexExists("idx_inventory_ledger_created")) {
-    throw new Error("N-1 database unexpectedly has the F8.3 inventory analytics index");
+  if (!(await indexExists("idx_inventory_ledger_created"))) {
+    throw new Error("N-1 database is missing the F8.3 inventory analytics index from migration 0036");
+  }
+  for (const indexName of [
+    "idx_encounters_created_player",
+    "idx_encounters_closed_status_player",
+    "idx_capture_attempts_resolved_status_player",
+    "idx_trainer_progress_ledger_created_player",
+  ]) {
+    if (await indexExists(indexName)) {
+      throw new Error(`N-1 database unexpectedly has the F8.4 gameplay analytics index ${indexName}`);
+    }
   }
 
   await pool.query(
@@ -288,14 +299,20 @@ try {
   if (!(await rateLimitBucketExists("audit.read"))) {
     throw new Error("N-1 audit.read probe did not persist its limiter bucket");
   }
-  if (await rateLimitInsertAllowed("economy.analytics.read")) {
+  if (!(await rateLimitInsertAllowed("economy.analytics.read"))) {
+    throw new Error("N-1 database lost the economy.analytics.read allowlist from migration 0036");
+  }
+  if (!(await rateLimitBucketExists("economy.analytics.read"))) {
+    throw new Error("N-1 economy.analytics.read probe did not persist its limiter bucket");
+  }
+  if (await rateLimitInsertAllowed("gameplay.analytics.read")) {
     throw new Error(
-      "N-1 database unexpectedly allows economy.analytics.read before migration 0036",
+      "N-1 database unexpectedly allows gameplay.analytics.read before migration 0037",
     );
   }
-  if (await rateLimitBucketExists("economy.analytics.read")) {
+  if (await rateLimitBucketExists("gameplay.analytics.read")) {
     throw new Error(
-      "Rejected N-1 economy.analytics.read probe unexpectedly persisted a limiter bucket",
+      "Rejected N-1 gameplay.analytics.read probe unexpectedly persisted a limiter bucket",
     );
   }
 
@@ -379,47 +396,60 @@ try {
   }
 
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0036 regressed the durable Admin API access-session relation");
+    throw new Error("Migration 0037 regressed the durable Admin API access-session relation");
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
     !(await sessionRevocationCutoffShapeExists())
   ) {
     throw new Error(
-      "Migration 0036 regressed the environment-scoped principal session-revocation cutoff",
+      "Migration 0037 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0036 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0037 regressed the mutation.prepare limiter state from migration 0028",
     );
   }
   if (!(await rateLimitBucketExists("content.search"))) {
-    throw new Error("Migration 0036 regressed the Content Studio content.search limiter key");
+    throw new Error("Migration 0037 regressed the Content Studio content.search limiter key");
   }
   if (!(await rateLimitBucketExists("runtime.health.read"))) {
-    throw new Error("Migration 0036 regressed the runtime.health.read limiter key");
+    throw new Error("Migration 0037 regressed the runtime.health.read limiter key");
   }
   if (!(await rateLimitBucketExists("messaging.operations.read"))) {
-    throw new Error("Migration 0036 regressed the messaging.operations.read limiter key");
+    throw new Error("Migration 0037 regressed the messaging.operations.read limiter key");
   }
   if (!(await rateLimitBucketExists("incident.read"))) {
-    throw new Error("Migration 0036 regressed the incident.read limiter key");
+    throw new Error("Migration 0037 regressed the incident.read limiter key");
   }
   if (!(await rateLimitBucketExists("audit.read"))) {
-    throw new Error("Migration 0036 regressed the audit.read limiter key from migration 0035");
+    throw new Error("Migration 0037 regressed the audit.read limiter key from migration 0035");
+  }
+  if (!(await rateLimitBucketExists("economy.analytics.read"))) {
+    throw new Error("Migration 0037 regressed the economy.analytics.read limiter key from migration 0036");
   }
   if (
-    !(await rateLimitInsertAllowed("economy.analytics.read")) ||
-    !(await rateLimitBucketExists("economy.analytics.read"))
+    !(await rateLimitInsertAllowed("gameplay.analytics.read")) ||
+    !(await rateLimitBucketExists("gameplay.analytics.read"))
   ) {
-    throw new Error("Migration 0036 did not allow the economy.analytics.read limiter key");
+    throw new Error("Migration 0037 did not allow the gameplay.analytics.read limiter key");
   }
   if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
-    throw new Error("Migration 0036 did not add the bounded wallet analytics index");
+    throw new Error("Migration 0037 regressed the bounded wallet analytics index from migration 0036");
   }
   if (!(await indexExists("idx_inventory_ledger_created"))) {
-    throw new Error("Migration 0036 did not add the bounded inventory analytics index");
+    throw new Error("Migration 0037 regressed the bounded inventory analytics index from migration 0036");
+  }
+  for (const indexName of [
+    "idx_encounters_created_player",
+    "idx_encounters_closed_status_player",
+    "idx_capture_attempts_resolved_status_player",
+    "idx_trainer_progress_ledger_created_player",
+  ]) {
+    if (!(await indexExists(indexName))) {
+      throw new Error(`Migration 0037 did not add the bounded gameplay analytics index ${indexName}`);
+    }
   }
 
   const sessionAfter = await pool.query<{
@@ -449,7 +479,7 @@ try {
   );
   const durableSessionAfter = sessionAfter.rows[0];
   if (durableSessionAfter === undefined) {
-    throw new Error("Migration 0036 removed the durable access-session probe");
+    throw new Error("Migration 0037 removed the durable access-session probe");
   }
   if (
     durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
@@ -462,10 +492,10 @@ try {
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
-    throw new Error("Migration 0036 changed existing durable access-session state");
+    throw new Error("Migration 0037 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0036 invented a revocation cutoff for an existing environment");
+    throw new Error("Migration 0037 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
@@ -512,8 +542,10 @@ try {
       messagingOperationsReadAllowlistPreserved: true,
       incidentReadAllowlistPreserved: true,
       auditReadAllowlistPreserved: true,
-      economyAnalyticsReadAllowlistAdded: true,
-      economyAnalyticsIndexesAdded: true,
+      economyAnalyticsReadAllowlistPreserved: true,
+      economyAnalyticsIndexesPreserved: true,
+      gameplayAnalyticsReadAllowlistAdded: true,
+      gameplayAnalyticsIndexesAdded: true,
       accessSessionStatePreserved: true,
       environmentScopedSessionRevocationCutoffPreserved: true,
       durableStatePreserved: true,
