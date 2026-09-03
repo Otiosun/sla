@@ -40,7 +40,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("reconciles projection by commutative ledger deltas, respects currency policy, suppresses low-cardinality currencies, and excludes future rows", async () => {
+  it("reconciles projection by commutative ledger deltas, respects currency policy, suppresses low-cardinality currencies, and excludes future rows from flow", async () => {
     const players = [
       randomUUID(),
       randomUUID(),
@@ -95,6 +95,15 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
       [randomUUID(), players[0], currency, randomUUID(), new Date("2026-09-03T00:00:00.000Z")],
     );
     await pool.query(
+      "UPDATE wallet_balances SET amount = 1079 WHERE player_id = $1 AND currency_id = $2",
+      [players[0], currency],
+    );
+
+    await pool.query(
+      "INSERT INTO wallet_balances(player_id, currency_id, amount) VALUES ($1, $2, 50)",
+      [players[5], privateCurrency],
+    );
+    await pool.query(
       `INSERT INTO wallet_ledger(id, player_id, currency_id, delta, source_type, source_id, reason, actor_type, idempotency_scope, idempotency_key, correlation_id, balance_after, created_at)
       VALUES ($1,$2,$3,50,'F8_3_TEST','private','aggregate proof','SYSTEM','f8.3-test','private',$4,50,$5)`,
       [
@@ -137,7 +146,7 @@ describe.sequential("PostgresEconomyAnalyticsRepository", () => {
         inflow: "103",
         outflow: "25",
         netFlow: "78",
-        totalBalance: "78",
+        totalBalance: "1077",
       },
     ]);
     expect(result.currenciesTruncated).toBe(false);
