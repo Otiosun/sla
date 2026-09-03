@@ -2,6 +2,10 @@ import { z } from "zod";
 import type { AdminOperationAuditView } from "../../modules/admin/admin-operation-audit-read-contracts.js";
 import type { AdminOperationAuditReadService } from "../../modules/admin/admin-operation-audit-read-service.js";
 import type {
+  ContentAnalyticsService,
+  ContentAnalyticsView,
+} from "../../modules/admin/content-analytics-service.js";
+import type {
   ContentLibrarySearchResultView,
   ContentUnpublishedReleaseView,
 } from "../../modules/admin/content-library-contracts.js";
@@ -50,6 +54,7 @@ type IncidentCenterReader = Pick<IncidentCenterReadService, "getSnapshot">;
 type AdminOperationAuditReader = Pick<AdminOperationAuditReadService, "get">;
 type PlayerActivityAnalyticsReader = Pick<PlayerActivityAnalyticsService, "getAggregate">;
 type EconomyAnalyticsReader = Pick<EconomyAnalyticsService, "getAggregate">;
+type ContentAnalyticsReader = Pick<ContentAnalyticsService, "getAggregate">;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -98,6 +103,7 @@ export class AdminReadFacade {
     private readonly adminOperationAudit?: AdminOperationAuditReader,
     private readonly playerActivityAnalytics?: PlayerActivityAnalyticsReader,
     private readonly economyAnalytics?: EconomyAnalyticsReader,
+    private readonly contentAnalytics?: ContentAnalyticsReader,
   ) {}
 
   public async searchPlayers(
@@ -146,6 +152,18 @@ export class AdminReadFacade {
       throw new Error("Economy analytics read boundary is not configured");
     }
     return this.economyAnalytics.getAggregate({
+      principalId: context.principalId,
+      environment: AdminEnvironmentSchema.parse(context.environment),
+      correlationId: context.correlationId,
+    });
+  }
+
+  public async getContentAnalytics(rawContext: unknown): Promise<ContentAnalyticsView> {
+    const context = parsePrincipalContext(rawContext);
+    if (this.contentAnalytics === undefined) {
+      throw new Error("Content analytics read boundary is not configured");
+    }
+    return this.contentAnalytics.getAggregate({
       principalId: context.principalId,
       environment: AdminEnvironmentSchema.parse(context.environment),
       correlationId: context.correlationId,
