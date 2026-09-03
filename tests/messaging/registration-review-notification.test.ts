@@ -72,7 +72,7 @@ describe("registration review notification", () => {
             playerId: input.playerId,
             sequenceNo: 2,
             status: "SUBMITTED" as const,
-            snapshot: input.draft,
+            snapshot: completedDraft(),
             revision: 0,
             replayed: false,
           }),
