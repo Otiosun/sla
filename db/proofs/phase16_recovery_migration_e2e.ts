@@ -233,7 +233,9 @@ try {
     throw new Error("N-1 database is missing the F8.3 wallet analytics index from migration 0036");
   }
   if (!(await indexExists("idx_inventory_ledger_created"))) {
-    throw new Error("N-1 database is missing the F8.3 inventory analytics index from migration 0036");
+    throw new Error(
+      "N-1 database is missing the F8.3 inventory analytics index from migration 0036",
+    );
   }
   for (const indexName of [
     "idx_encounters_created_player",
@@ -242,7 +244,9 @@ try {
     "idx_trainer_progress_ledger_created_player",
   ]) {
     if (await indexExists(indexName)) {
-      throw new Error(`N-1 database unexpectedly has the F8.4 gameplay analytics index ${indexName}`);
+      throw new Error(
+        `N-1 database unexpectedly has the F8.4 gameplay analytics index ${indexName}`,
+      );
     }
   }
 
@@ -427,7 +431,9 @@ try {
     throw new Error("Migration 0037 regressed the audit.read limiter key from migration 0035");
   }
   if (!(await rateLimitBucketExists("economy.analytics.read"))) {
-    throw new Error("Migration 0037 regressed the economy.analytics.read limiter key from migration 0036");
+    throw new Error(
+      "Migration 0037 regressed the economy.analytics.read limiter key from migration 0036",
+    );
   }
   if (
     !(await rateLimitInsertAllowed("gameplay.analytics.read")) ||
@@ -436,10 +442,14 @@ try {
     throw new Error("Migration 0037 did not allow the gameplay.analytics.read limiter key");
   }
   if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
-    throw new Error("Migration 0037 regressed the bounded wallet analytics index from migration 0036");
+    throw new Error(
+      "Migration 0037 regressed the bounded wallet analytics index from migration 0036",
+    );
   }
   if (!(await indexExists("idx_inventory_ledger_created"))) {
-    throw new Error("Migration 0037 regressed the bounded inventory analytics index from migration 0036");
+    throw new Error(
+      "Migration 0037 regressed the bounded inventory analytics index from migration 0036",
+    );
   }
   for (const indexName of [
     "idx_encounters_created_player",
@@ -448,7 +458,9 @@ try {
     "idx_trainer_progress_ledger_created_player",
   ]) {
     if (!(await indexExists(indexName))) {
-      throw new Error(`Migration 0037 did not add the bounded gameplay analytics index ${indexName}`);
+      throw new Error(
+        `Migration 0037 did not add the bounded gameplay analytics index ${indexName}`,
+      );
     }
   }
 
