@@ -89,12 +89,20 @@ const EconomyAnalyticsOutputSchema = z
   .strict();
 
 const GameplaySuppressedAggregateSchema = z.object({ suppressed: z.literal(true) }).strict();
-const GameplayEncounterAggregateSchema = z.union([
+const GameplayEncounterCreatedAggregateSchema = z.union([
   GameplaySuppressedAggregateSchema,
   z
     .object({
       suppressed: z.literal(false),
-      created: nonNegativeIntegerString,
+      count: nonNegativeIntegerString,
+    })
+    .strict(),
+]);
+const GameplayEncounterClosuresAggregateSchema = z.union([
+  GameplaySuppressedAggregateSchema,
+  z
+    .object({
+      suppressed: z.literal(false),
       closed: nonNegativeIntegerString,
       captured: nonNegativeIntegerString,
       fled: nonNegativeIntegerString,
@@ -103,6 +111,12 @@ const GameplayEncounterAggregateSchema = z.union([
     })
     .strict(),
 ]);
+const GameplayEncounterAggregateSchema = z
+  .object({
+    created: GameplayEncounterCreatedAggregateSchema,
+    closures: GameplayEncounterClosuresAggregateSchema,
+  })
+  .strict();
 const GameplayCaptureAggregateSchema = z.union([
   GameplaySuppressedAggregateSchema,
   z
