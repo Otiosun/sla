@@ -10,6 +10,7 @@ const REGION_ID = "11111111-1111-4111-8111-111111111111";
 const STARTER_ID = "22222222-2222-4222-8222-222222222222";
 const REVIEW_ID = "33333333-3333-4333-8333-333333333333";
 const CHAT_REF = "120363000000000001@g.us";
+const STAFF_JIDS = ["5511888888888@s.whatsapp.net", "5511999999999@s.whatsapp.net"] as const;
 
 function context(text: string): MessageHandlerContext {
   return {
@@ -45,7 +46,7 @@ function completedDraft() {
 }
 
 describe("registration review notification", () => {
-  it("emits a separate reply anchor after the exact previewed ficha is submitted", async () => {
+  it("emits a separate reply anchor with real valid staff mentions after submission", async () => {
     const sessions = new RegistrationConversationSessions();
     sessions.start(PLAYER_ID, {
       mode: "FULL",
@@ -86,6 +87,12 @@ describe("registration review notification", () => {
             starterOptions: [{ formId: STARTER_ID, displayName: "Charmander" }],
           }),
       },
+      reviewMentions: {
+        mentionsFor: async (input) => {
+          expect(input).toEqual({ provider: "baileys", chatRef: CHAT_REF });
+          return STAFF_JIDS;
+        },
+      },
     });
     const confirm = routes.find((candidate) => candidate.command === "confirmar");
     if (confirm === undefined) throw new Error("Missing confirmar route");
@@ -103,7 +110,10 @@ describe("registration review notification", () => {
             destinationRef: CHAT_REF,
             messageType: "TEXT",
             payload: {
-              text: expect.stringMatching(/nova ficha.*Liora Vale.*revisão/i),
+              text: expect.stringMatching(
+                /nova ficha.*Liora Vale.*@5511888888888.*@5511999999999.*revisão/i,
+              ),
+              mentions: STAFF_JIDS,
               registrationReview: { reviewId: REVIEW_ID, reviewRevision: 0 },
             },
             idempotencyKey: `registration-review-notification:${REVIEW_ID}:0`,
