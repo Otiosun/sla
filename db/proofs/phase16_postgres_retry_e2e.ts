@@ -30,6 +30,10 @@ function firstAttemptBarrier(): () => Promise<void> {
   };
 }
 
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 const pool = new Pool({ connectionString: databaseUrl, max: 8 });
 const deadlockTable = identifier("phase16_deadlock");
 const serializationTable = identifier("phase16_serialization");
@@ -178,11 +182,11 @@ try {
         safety: { kind: "IDEMPOTENT_MUTATION", idempotencyKey: key },
         transaction: { isolationLevel: "SERIALIZABLE" },
         maxAttempts: 3,
-        baseDelayMs: 0,
-        maxDelayMs: 0,
+        baseDelayMs: 25,
+        maxDelayMs: 25,
         jitterRatio: 0,
         rng: new DeterministicRandomSource(1602),
-        sleep: () => Promise.resolve(),
+        sleep,
       },
     );
   };
