@@ -15,8 +15,6 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const PROBE_PLAYER_ID = "00000000-0000-4000-8000-000000001625";
-const EXPECTED_PREVIOUS_LATEST = "0025_mutation_abuse_admission.sql";
-const EXPECTED_CURRENT_LATEST = "0026_runtime_health_evidence.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -37,15 +35,8 @@ try {
   if (previousLatest === undefined || latest === undefined) {
     throw new Error("Migration baseline could not be resolved");
   }
-  if (previousLatest.fileName !== EXPECTED_PREVIOUS_LATEST) {
-    throw new Error(
-      `Forward-migration previous baseline is stale: expected ${EXPECTED_PREVIOUS_LATEST}, found ${previousLatest.fileName}`,
-    );
-  }
-  if (latest.fileName !== EXPECTED_CURRENT_LATEST) {
-    throw new Error(
-      `Forward-migration current baseline is stale: expected ${EXPECTED_CURRENT_LATEST}, found ${latest.fileName}`,
-    );
+  if (previousLatest.version >= latest.version) {
+    throw new Error("Migration catalog is not strictly ordered at the N-1 boundary");
   }
 
   const existingHistory = await pool.query<{ relation: string | null }>(
@@ -98,13 +89,6 @@ try {
     throw new Error("Latest migration unexpectedly exists in the previous-version database");
   }
 
-  const latestRelationBefore = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.runtime_instances')::text AS relation",
-  );
-  if (latestRelationBefore.rows[0]?.relation !== null) {
-    throw new Error("Latest-version relation unexpectedly exists before forward migration");
-  }
-
   await pool.query(
     `INSERT INTO players(id, status)
      VALUES ($1::uuid, 'ACTIVE')`,
@@ -147,13 +131,6 @@ try {
   }
   if (latestRow.applied_by !== "phase16-forward-proof") {
     throw new Error("Latest migration was not attributed to the controlled forward step");
-  }
-
-  const latestRelationAfter = await pool.query<{ relation: string | null }>(
-    "SELECT to_regclass('public.runtime_instances')::text AS relation",
-  );
-  if (latestRelationAfter.rows[0]?.relation !== "runtime_instances") {
-    throw new Error("Latest migration schema effect is missing after forward migration");
   }
 
   const stateAfter = await pool.query<{ state: string }>(

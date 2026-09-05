@@ -16,7 +16,11 @@ import type {
 } from "../../src/modules/messaging/contracts.js";
 
 class FakeBaileysSocket implements BaileysSocketLike {
-  readonly sent: Array<{ jid: string; content: { readonly text: string } }> = [];
+  readonly sent: Array<{
+    jid: string;
+    content: { readonly text: string };
+    options: { readonly messageId?: string } | undefined;
+  }> = [];
   ended = false;
 
   private readonly listeners = new Map<string, Array<(value: unknown) => void>>();
@@ -29,9 +33,13 @@ class FakeBaileysSocket implements BaileysSocketLike {
     },
   };
 
-  async sendMessage(jid: string, content: { readonly text: string }): Promise<unknown> {
-    this.sent.push({ jid, content });
-    return {};
+  async sendMessage(
+    jid: string,
+    content: { readonly text: string },
+    options?: { readonly messageId?: string },
+  ): Promise<unknown> {
+    this.sent.push({ jid, content, options });
+    return { key: { id: options?.messageId ?? null } };
   }
 
   end(): void {
@@ -228,7 +236,11 @@ describe("BaileysWhatsAppAdapter", () => {
 
     await adapter.send(outbox());
     expect(socket.sent).toEqual([
-      { jid: "5511999999999@s.whatsapp.net", content: { text: "Olá" } },
+      {
+        jid: "5511999999999@s.whatsapp.net",
+        content: { text: "Olá" },
+        options: { messageId: "EA3F80A3C269F3F2A59AD8ACABF449A5" },
+      },
     ]);
     await expect(adapter.send(outbox({ messageType: "IMAGE" }))).rejects.toThrow(
       "Unsupported Baileys outbound message type",
