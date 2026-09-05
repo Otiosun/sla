@@ -145,6 +145,7 @@ async function prepareZhouliaRelease(pool: Pool): Promise<{
 
   unwrap("validate reception proof release", await catalog.validateRelease(releaseId));
   unwrap("publish reception proof release", await catalog.publishRelease(releaseId));
+  unwrap("activate reception proof release", await catalog.activateRelease(releaseId));
 
   const setup = unwrap("load Zhoulia registration setup", await new PostgresRegistrationSetupLoader(pool).load());
   assert.equal(setup.regionId, regionId);
