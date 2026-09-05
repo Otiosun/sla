@@ -7,9 +7,7 @@ import type {
 import { playerActivationAnnouncementIdempotencyKey } from "../../modules/registration/provisioning-announcement.js";
 import { withTransaction } from "../db/transaction.js";
 
-export class PostgresReceptionActivationAnnouncement
-  implements PlayerActivationAnnouncementPort
-{
+export class PostgresReceptionActivationAnnouncement implements PlayerActivationAnnouncementPort {
   public constructor(private readonly pool: Pool) {}
 
   public async enqueueActivated(input: PlayerActivationAnnouncementInput): Promise<void> {
