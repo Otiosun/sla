@@ -7,6 +7,8 @@ Baseline when this document was created: `main` at `d48d473dcb9f43ef474aea732636
 
 This document separates deliberately deferred enhancements from unresolved 1.0 acceptance work. A deferred item listed here does not block 1.0. An open Phase 17 acceptance gate does not become post-1.0 work merely because it depends on external infrastructure, provider state, UAT, or a release ceremony.
 
+This boundary applies to the WhatsApp bot/backend release. It does not redefine the scope or delivery status of the separate Pokémon Control Center/public-site tracks.
+
 ## Still required for 1.0 acceptance
 
 The following Phase 17 items remain part of the 1.0 release and are **not** backlog:
@@ -60,14 +62,6 @@ The current deterministic PVP foundation can ship without these extensions:
 - broader Party/social convenience features that are not required by the accepted 1v1/PVE flow.
 
 Any future expansion must reuse the Battle/Encounter ownership and deterministic turn-resolution boundaries instead of creating a second mechanical engine.
-
-### Future administrative surfaces
-
-A dedicated web/API/admin-panel surface is an optional future presentation layer, not a prerequisite for the current engine/admin contract. If added later it must:
-
-- reuse `AdminOperationRegistry`, `AdminService`, RBAC/scopes, risk tiers, confirmation/approval, audit, idempotency, and domain owners;
-- never expose generic SQL, unrestricted PATCH, or raw invariant-bypassing mutations;
-- receive a new surface-specific authorization/security review before production use.
 
 ## Backlog governance
 
