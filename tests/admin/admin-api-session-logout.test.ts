@@ -64,4 +64,75 @@ describe("Admin API current-session logout", () => {
     expect(logoutCurrent).toHaveBeenCalledWith(identity);
     expect(response.json()).toEqual({ logoutPath: "/cdn-cgi/access/logout" });
   });
+
+  it("does not revoke the session when the logout rate limit is exhausted", async () => {
+    const authenticate = vi.fn().mockResolvedValue(identity);
+    const authorize = vi.fn().mockResolvedValue(identity);
+    const logoutCurrent = vi.fn();
+    const consume = vi.fn().mockResolvedValue({ allowed: false, retryAfterSeconds: 17 });
+    const server = createAdminApiServer({
+      allowedOrigin: ORIGIN,
+      authenticator: { authenticate },
+      sessionGuard: { authorize },
+      sessionLogoutService: { logoutCurrent },
+      sessionService: { getSession: vi.fn() },
+      readFacade: { searchPlayers: vi.fn(), getPlayer: vi.fn() },
+      mutationFacade: { prepareMutation: vi.fn() },
+      rateLimiter: { consume },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/admin/v1/session/logout",
+      headers: {
+        origin: ORIGIN,
+        "cf-access-jwt-assertion": TOKEN,
+        "x-control-center-csrf": "1",
+      },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers["retry-after"]).toBe("17");
+    expect(logoutCurrent).not.toHaveBeenCalled();
+    expect(response.json()).toMatchObject({ error: { code: "ADMIN_RATE_LIMITED" } });
+  });
+
+  it("answers the exact-origin logout preflight without authentication, rate limiting, or revocation", async () => {
+    const authenticate = vi.fn();
+    const authorize = vi.fn();
+    const logoutCurrent = vi.fn();
+    const consume = vi.fn();
+    const server = createAdminApiServer({
+      allowedOrigin: ORIGIN,
+      authenticator: { authenticate },
+      sessionGuard: { authorize },
+      sessionLogoutService: { logoutCurrent },
+      sessionService: { getSession: vi.fn() },
+      readFacade: { searchPlayers: vi.fn(), getPlayer: vi.fn() },
+      mutationFacade: { prepareMutation: vi.fn() },
+      rateLimiter: { consume },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "OPTIONS",
+      url: "/admin/v1/session/logout",
+      headers: {
+        origin: ORIGIN,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "x-control-center-csrf",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
+    expect(response.headers["access-control-allow-methods"]).toBe("POST");
+    expect(response.headers["access-control-allow-headers"]).toBe("x-control-center-csrf");
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+    expect(consume).not.toHaveBeenCalled();
+    expect(logoutCurrent).not.toHaveBeenCalled();
+  });
 });
