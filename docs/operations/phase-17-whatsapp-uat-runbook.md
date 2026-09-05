@@ -33,17 +33,17 @@ For every step, record expected result, actual result, PASS/FAIL, and evidence r
    - Expected: the runtime recognizes the actor/group under the canonical Reception policy and does not grant game-world capabilities.
 2. Start registration with `$registrar`.
    - Expected: a registration session starts without creating a Pokémon or granting ACTIVE access.
-3. Choose one registration mode: guided or full form.
-   - Expected: both modes operate on the same draft model; switching modes must not create a second character/draft authority.
-4. Fill all required fields:
+3. Choose guided or full-form registration, enter at least one value, switch to the other mode, and continue from the same draft.
+   - Expected: both modes operate on the same draft model; switching modes preserves captured values and does not create a second character/draft authority.
+4. Fill all player-supplied required fields:
    - name;
    - age;
    - gender/pronouns;
    - appearance;
    - personality;
    - history/summary;
-   - starter intent;
-   - canonical region Zhoulia.
+   - starter intent.
+   - Expected: region is not requested from the player; the system keeps the canonical real region as Zhoulia.
 5. Edit at least one field before submission.
    - Expected: the edited value becomes the current draft value without producing an immutable submitted revision yet.
 6. Run `$salvar`.
