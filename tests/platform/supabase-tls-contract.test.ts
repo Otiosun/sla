@@ -49,7 +49,7 @@ describe("Supabase staging TLS contract", () => {
     expect(smokeEnd).toBeGreaterThan(smokeStart);
 
     const smokeStep = workflow.slice(smokeStart, smokeEnd);
-    const caPath = "${{ github.workspace }}/certs/supabase/prod-ca-2021.crt";
+    const caPath = "$" + "{{ github.workspace }}/certs/supabase/prod-ca-2021.crt";
 
     expect(smokeStep).toContain(`DATABASE_SSL_ROOT_CERT_FILE: ${caPath}`);
     expect(smokeStep).toContain(`NODE_EXTRA_CA_CERTS: ${caPath}`);
