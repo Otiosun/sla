@@ -269,14 +269,44 @@ jobs:
         shell: bash
         env:
           DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+          DATABASE_SSL_ROOT_CERT_FILE: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt
+          PGSSLROOTCERT: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt
           WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
           DEPLOY_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [[ ! -f "$DATABASE_SSL_ROOT_CERT_FILE" ]]; then
+            echo "canonical Supabase root CA is missing from the checked-out revision" >&2
+            exit 64
+          fi
+
+          set +e
+          strict_database_url="$(
+            DATABASE_URL="$DATABASE_URL" node --input-type=module -e '
+              try {
+                const raw = process.env.DATABASE_URL;
+                if (!raw) process.exit(64);
+                const url = new URL(raw);
+                if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") process.exit(64);
+                url.searchParams.set("sslmode", "verify-full");
+                process.stdout.write(url.toString());
+              } catch {
+                process.exit(64);
+              }
+            '
+          )"
+          normalize_status=$?
+          set -e
+          if [[ "$normalize_status" -ne 0 || -z "$strict_database_url" ]]; then
+            echo "staging runtime database URL could not be normalized to verify-full TLS" >&2
+            exit 64
+          fi
+
           smoke_json=""
           for attempt in {1..12}; do
             set +e
-            smoke_json="$(pnpm --silent run ops:smoke:application)"
+            smoke_json="$(DATABASE_URL="$strict_database_url" pnpm --silent run ops:smoke:application)"
             smoke_status=$?
             set -e
 
