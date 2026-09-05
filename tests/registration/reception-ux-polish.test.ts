@@ -14,7 +14,7 @@ const BULBASAUR_ID = "33333333-3333-4333-8333-333333333333";
 const SQUIRTLE_ID = "44444444-4444-4444-8444-444444444444";
 const REVIEW_ID = "55555555-5555-4555-8555-555555555555";
 
-function context(text: string): MessageHandlerContext {
+function context(text: string, replyToExternalMessageId: string | null = null): MessageHandlerContext {
   return {
     inboxMessageId: "66666666-6666-4666-8666-666666666666",
     correlationId: "77777777-7777-4777-8777-777777777777",
@@ -28,7 +28,7 @@ function context(text: string): MessageHandlerContext {
       occurredAt: "2026-09-05T18:00:00.000Z",
       text,
       mediaRefs: [],
-      replyToExternalMessageId: null,
+      replyToExternalMessageId,
     },
   };
 }
@@ -72,7 +72,12 @@ describe("Reception UX polish", () => {
         getDraft: async () => err(appError("NOT_FOUND", "no draft")),
       },
       access: {
-        load: async () => ({ playerId: PLAYER_ID, status: "PENDING" as const, revision: 0 }),
+        load: async () => ({
+          playerId: PLAYER_ID,
+          status: "PENDING" as const,
+          approvedReviewId: null,
+          revision: 0,
+        }),
       },
       presence: {
         needsFirstWelcome: async () => true,
@@ -167,7 +172,9 @@ describe("Reception UX polish", () => {
           reviewRevision: 4,
         }),
       },
-      admins: { resolvePrincipal: async () => ({ principalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }) },
+      admins: {
+        resolvePrincipal: async () => ({ principalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+      },
       setup: { load: async () => ok(setup()) },
       registration: {
         getReview: async () =>
@@ -199,9 +206,7 @@ describe("Reception UX polish", () => {
     );
     if (route === undefined) throw new Error("Missing verficha route");
 
-    const adminContext = context("$verficha");
-    adminContext.message.replyToExternalMessageId = "review-message";
-    const result = await route.handler.handle(adminContext);
+    const result = await route.handler.handle(context("$verficha", "review-message"));
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error("Expected admin ficha");
     const text = result.value.outgoing[0]?.payload.text;
