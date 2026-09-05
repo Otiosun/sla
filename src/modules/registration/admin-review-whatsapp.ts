@@ -3,7 +3,7 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { AuditedRegistrationReviewService } from "./admin-review-service.js";
-import type { RegistrationRevisionRecord } from "./ports.js";
+import type { RegistrationRevisionRecord, RegistrationRevisionStatus } from "./ports.js";
 
 interface RegistrationReviewMessageRef {
   readonly provider: string;
@@ -27,6 +27,19 @@ interface RegistrationAdminPrincipalResolver {
   }): Promise<{ readonly principalId: string } | null>;
 }
 
+interface RegistrationReviewDisplaySetup {
+  readonly regionId: string;
+  readonly regionDisplayName: string;
+  readonly starterOptions: readonly {
+    readonly formId: string;
+    readonly displayName: string;
+  }[];
+}
+
+interface RegistrationReviewDisplaySetupLoader {
+  load(): Promise<Result<RegistrationReviewDisplaySetup>>;
+}
+
 export interface RegistrationAdminWhatsAppDependencies {
   readonly messageRefs: RegistrationReviewMessageRefReader;
   readonly admins: RegistrationAdminPrincipalResolver;
@@ -34,6 +47,7 @@ export interface RegistrationAdminWhatsAppDependencies {
     AuditedRegistrationReviewService,
     "getReview" | "requestChanges" | "approve" | "reject"
   >;
+  readonly setup?: RegistrationReviewDisplaySetupLoader;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -66,11 +80,46 @@ function reviewReply(
   });
 }
 
-function reviewText(review: RegistrationRevisionRecord): string {
+function statusDisplayName(status: RegistrationRevisionStatus): string {
+  switch (status) {
+    case "SUBMITTED":
+      return "Em análise";
+    case "CHANGES_REQUESTED":
+      return "Ajustes solicitados";
+    case "APPROVED":
+      return "Aprovada";
+    case "REJECTED":
+      return "Rejeitada";
+    case "WITHDRAWN":
+      return "Retirada";
+  }
+}
+
+function starterDisplayName(
+  review: RegistrationRevisionRecord,
+  setup: RegistrationReviewDisplaySetup | undefined,
+): string {
+  if (setup === undefined) return "Selecionado";
+  return (
+    setup.starterOptions.find((option) => option.formId === review.snapshot.starterFormId)
+      ?.displayName ?? "Selecionado"
+  );
+}
+
+function regionDisplayName(
+  review: RegistrationRevisionRecord,
+  setup: RegistrationReviewDisplaySetup | undefined,
+): string {
+  return setup?.regionId === review.snapshot.regionId ? setup.regionDisplayName : "Configurada";
+}
+
+function reviewText(
+  review: RegistrationRevisionRecord,
+  setup: RegistrationReviewDisplaySetup | undefined,
+): string {
   return [
     `📋 *FICHA #${review.sequenceNo}*`,
-    `Status: ${review.status}`,
-    `Revisão: ${review.revision}`,
+    `Situação: ${statusDisplayName(review.status)}`,
     "",
     `Nome: ${review.snapshot.trainerName}`,
     `Idade: ${review.snapshot.age}`,
@@ -78,8 +127,8 @@ function reviewText(review: RegistrationRevisionRecord): string {
     `Aparência: ${review.snapshot.appearance}`,
     `Personalidade: ${review.snapshot.personality}`,
     `História / resumo: ${review.snapshot.backstory}`,
-    `Pokémon inicial: ${review.snapshot.starterFormId}`,
-    `Região: ${review.snapshot.regionId}`,
+    `Pokémon inicial: ${starterDisplayName(review, setup)}`,
+    `Região: ${regionDisplayName(review, setup)}`,
   ].join("\n");
 }
 
@@ -158,7 +207,7 @@ async function decide(
 
   const text =
     decision === "APPROVE"
-      ? "✅ Ficha aprovada. O provisionamento mecânico pode prosseguir."
+      ? "✅ Ficha aprovada. A liberação do treinador foi iniciada."
       : decision === "REQUEST_CHANGES"
         ? "📝 Ajustes solicitados. A ficha poderá ser reaberta preservando os dados enviados."
         : "⛔ Ficha rejeitada.";
@@ -179,7 +228,15 @@ export function createRegistrationAdminWhatsAppRoutes(
       sourceChannel: "WHATSAPP",
     });
     if (!review.ok) return review;
-    return reviewReply(context, review.value.id, reviewText(review.value));
+
+    let setup: RegistrationReviewDisplaySetup | undefined;
+    if (dependencies.setup !== undefined) {
+      const loaded = await dependencies.setup.load();
+      if (!loaded.ok) return err(loaded.error);
+      setup = loaded.value;
+    }
+
+    return reviewReply(context, review.value.id, reviewText(review.value, setup));
   });
 
   return [
