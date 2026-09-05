@@ -17,6 +17,7 @@ export type AdminApiRateLimitPolicyOverrides = Partial<
 
 const DEFAULT_POLICIES: Readonly<Record<AdminApiRateLimitedOperation, AdminApiRateLimitPolicy>> = {
   "session.read": { limit: 120, windowSeconds: 60 },
+  "session.logout": { limit: 60, windowSeconds: 60 },
   "player.search": { limit: 60, windowSeconds: 60 },
   "player.read": { limit: 120, windowSeconds: 60 },
   "player.activity.read": { limit: 30, windowSeconds: 60 },
@@ -57,6 +58,7 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
     this.pool = pool;
     this.policies = {
       "session.read": overrides["session.read"] ?? DEFAULT_POLICIES["session.read"],
+      "session.logout": overrides["session.logout"] ?? DEFAULT_POLICIES["session.logout"],
       "player.search": overrides["player.search"] ?? DEFAULT_POLICIES["player.search"],
       "player.read": overrides["player.read"] ?? DEFAULT_POLICIES["player.read"],
       "player.activity.read":
@@ -74,6 +76,7 @@ export class PostgresAdminApiRateLimiter implements AdminApiRateLimiter {
     };
 
     validatePolicy("session.read", this.policies["session.read"]);
+    validatePolicy("session.logout", this.policies["session.logout"]);
     validatePolicy("player.search", this.policies["player.search"]);
     validatePolicy("player.read", this.policies["player.read"]);
     validatePolicy("player.activity.read", this.policies["player.activity.read"]);
