@@ -368,7 +368,7 @@ async function main(): Promise<void> {
       revision: number;
       snapshot_json: { starterFormId: string };
     }>(
-      `SELECT id, sequence_no, status, revision, snapshot_json
+      `SELECT id, sequence_no::integer AS sequence_no, status, revision::integer AS revision, snapshot_json
        FROM registration_revisions WHERE player_id = $1 ORDER BY sequence_no`,
       [playerId],
     );
@@ -449,7 +449,7 @@ async function main(): Promise<void> {
       revision: number;
       snapshot_json: { trainerName: string; personality: string; starterFormId: string };
     }>(
-      `SELECT id, sequence_no, status, revision, snapshot_json
+      `SELECT id, sequence_no::integer AS sequence_no, status, revision::integer AS revision, snapshot_json
        FROM registration_revisions WHERE player_id = $1 ORDER BY sequence_no`,
       [playerId],
     );
