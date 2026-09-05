@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("Admin API current-session logout", () => {
-  it("revokes the current durable session before returning the fixed Access logout path", async () => {
+  it("rate-limits the authenticated session before revocation and returns the fixed Access logout path", async () => {
     const authenticate = vi.fn().mockResolvedValue(identity);
     const authorize = vi.fn().mockResolvedValue(identity);
     const logoutCurrent = vi
@@ -57,8 +57,11 @@ describe("Admin API current-session logout", () => {
     expect(response.statusCode).toBe(200);
     expect(authenticate).toHaveBeenCalledWith(TOKEN);
     expect(authorize).toHaveBeenCalledWith(identity);
+    expect(consume).toHaveBeenCalledWith({
+      principalId: PRINCIPAL_ID,
+      operation: "session.logout",
+    });
     expect(logoutCurrent).toHaveBeenCalledWith(identity);
-    expect(consume).not.toHaveBeenCalled();
     expect(response.json()).toEqual({ logoutPath: "/cdn-cgi/access/logout" });
   });
 });
