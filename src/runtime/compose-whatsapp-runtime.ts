@@ -184,6 +184,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     messageRefs,
     admins: adminIdentity,
     registration: auditedRegistrationReview,
+    setup,
   });
   const router = new MessageRouter(
     [...legacyRoutes, ...registrationRoutes, ...registrationAdminRoutes],
