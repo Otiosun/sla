@@ -14,7 +14,10 @@ const BULBASAUR_ID = "33333333-3333-4333-8333-333333333333";
 const SQUIRTLE_ID = "44444444-4444-4444-8444-444444444444";
 const REVIEW_ID = "55555555-5555-4555-8555-555555555555";
 
-function context(text: string, replyToExternalMessageId: string | null = null): MessageHandlerContext {
+function context(
+  text: string,
+  replyToExternalMessageId: string | null = null,
+): MessageHandlerContext {
   return {
     inboxMessageId: "66666666-6666-4666-8666-666666666666",
     correlationId: "77777777-7777-4777-8777-777777777777",
@@ -45,7 +48,9 @@ function setup() {
   } as const;
 }
 
-function outgoingText(result: Awaited<ReturnType<RegistrationConversationResolver["resolve"]>>): string {
+function outgoingText(
+  result: Awaited<ReturnType<RegistrationConversationResolver["resolve"]>>,
+): string {
   if (!result.ok || result.value === null) throw new Error("Expected outgoing registration text");
   const text = result.value.outgoing[0]?.payload.text;
   if (typeof text !== "string") throw new Error("Expected text payload");
