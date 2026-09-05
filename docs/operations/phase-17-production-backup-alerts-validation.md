@@ -38,7 +38,7 @@ Classification: **external backup configuration/secrets are absent, inaccessible
 
 ### 2.1 Backup implementation
 
-`script/operations/postgres-backup.sh` / `scripts/operations/postgres-backup.sh` (canonical path: `scripts/operations/postgres-backup.sh`) already enforces:
+`scripts/operations/postgres-backup.sh` already enforces:
 
 - PostgreSQL client image pinned to PostgreSQL 18.6 by immutable digest;
 - required `DATABASE_URL`;
@@ -54,7 +54,7 @@ Classification: **external backup configuration/secrets are absent, inaccessible
 - deletion only inside the controlled backup prefix;
 - default retention of 30 days.
 
-The scheduled workflow runs daily at **03:20 UTC**.
+The scheduled workflow runs daily at **03:20 UTC** and also supports manual `workflow_dispatch`.
 
 ### 2.2 Alert model
 
@@ -111,19 +111,29 @@ Secondary/escalation recipient:
 Evidence bundle/reference:
 ```
 
-Required backup inputs for the current workflow:
+The current workflow maps these GitHub Actions secret names into the backup process:
 
-- `DATABASE_URL`;
-- `BACKUP_S3_BUCKET`;
-- `AWS_ACCESS_KEY_ID`;
-- `AWS_SECRET_ACCESS_KEY`;
-- `AWS_REGION`;
-- optional `AWS_SESSION_TOKEN`;
-- optional `AWS_ENDPOINT_URL` for S3-compatible non-AWS storage;
-- optional `BACKUP_S3_PREFIX` (default `pokemon-rpg/postgres`);
-- optional `BACKUP_RETENTION_DAYS` (default `30`).
+| Actions secret | Runtime environment variable | Required by script |
+| --- | --- | --- |
+| `PRODUCTION_DATABASE_URL` | `DATABASE_URL` | yes |
+| `BACKUP_S3_BUCKET` | `BACKUP_S3_BUCKET` | yes |
+| `BACKUP_AWS_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | yes |
+| `BACKUP_AWS_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | yes |
+| `BACKUP_AWS_REGION` | `AWS_REGION` | yes |
+| `BACKUP_AWS_SESSION_TOKEN` | `AWS_SESSION_TOKEN` | no |
+| `BACKUP_S3_ENDPOINT_URL` | `AWS_ENDPOINT_URL` | no |
 
-The final secret layer may be repository-level, environment-level or another supported external injection path, but the selected model must be deliberate, least-privilege and auditable. Do **not** add `environment: production` to the workflow solely on assumption; only do so if the accepted secret-custody design actually uses the GitHub `production` Environment.
+The workflow fixes:
+
+- `BACKUP_S3_PREFIX=pokemon-rpg/postgres`;
+- `BACKUP_RETENTION_DAYS=30`.
+
+Important current behavior: the backup job does **not** declare a GitHub Environment. Therefore GitHub Environment-scoped secrets are not automatically available to this job merely because they exist in an Environment named `production`. The accepted custody design must choose one of these paths deliberately:
+
+1. provide the required secrets through a repository/organization Actions secret scope that the current workflow can read; or
+2. explicitly adopt a GitHub `production` Environment and update the workflow to declare that environment, with the resulting approval/protection semantics reviewed as a separate configuration change.
+
+Do **not** add `environment: production` merely as a guess. First establish where the production backup secrets are intended to live and who owns that boundary.
 
 ## 5. Backup configuration review
 
@@ -135,12 +145,12 @@ The final secret layer may be repository-level, environment-level or another sup
    - Expected: sufficient for logical backup, no unnecessary migration/superuser privileges.
 4. Review storage credentials.
    - Expected: least privilege for required upload/list/retention deletion operations inside the intended bucket/prefix.
-5. Verify credentials are injected through the accepted external secret layer.
+5. Verify credentials are injected through the accepted external secret layer under the exact names consumed by the workflow.
    - Expected: values remain outside Git and logs.
-6. Verify production storage retention policy is at least the canonical 30-day requirement.
+6. Verify production retention is **at least 30 days**. Any reduction below 30 days requires an explicit canonical policy change; it must not be done merely to simplify storage management.
 7. Verify storage access is reviewed under Phase 17.14.
 8. Verify object encryption/storage-policy expectations are compatible with the script's `--sse AES256` upload contract.
-9. If an S3-compatible endpoint is used, verify `AWS_ENDPOINT_URL` and region behavior against that provider without disabling TLS validation.
+9. If an S3-compatible endpoint is used, verify `BACKUP_S3_ENDPOINT_URL` / `AWS_ENDPOINT_URL` and region behavior against that provider without disabling TLS validation.
 
 If any required input is unavailable or custody is unknown, result: **BLOCKED**.
 
@@ -148,7 +158,7 @@ If any required input is unavailable or custody is unknown, result: **BLOCKED**.
 
 After configuration is in place, execute the canonical workflow rather than reproducing the commands manually as the primary proof.
 
-10. Trigger or wait for a scheduled `PostgreSQL Backup Automation` execution against the accepted production source/storage configuration.
+10. Trigger `workflow_dispatch` or wait for a scheduled `PostgreSQL Backup Automation` execution against the accepted production source/storage configuration.
 11. Confirm the job receives non-empty required configuration without printing secret values.
 12. Confirm `pg_dump` completes.
 13. Confirm the dump is structurally validated by `pg_restore --list` before upload.
@@ -207,7 +217,7 @@ PASS requires successful restore from the **same real stored production artifact
 
 ## 9. Retention proof
 
-35. Confirm the configured retention is 30 days or stricter only if approved.
+35. Confirm configured production retention is at least 30 days.
 36. Confirm object listing can determine expired objects under the controlled prefix.
 37. Verify the retention path refuses to delete outside the configured prefix.
 38. Prefer non-destructive provider-side evidence of retention configuration/history when the environment is too new to contain 30-day-old objects.
@@ -246,10 +256,10 @@ If there is no actual backend or delivery channel, 17.13 is **BLOCKED**.
 
 ## 11. Backup failure CRITICAL delivery test
 
-The current real failed scheduled backup is already a valid operational condition: latest scheduled backup failure must be CRITICAL.
+The observed failed scheduled backup is a real operational condition matching the policy: a latest scheduled backup failure must be CRITICAL while it remains the current state.
 
 47. Configure the monitoring backend to observe the latest scheduled backup result.
-48. Confirm the latest failure produces a CRITICAL condition without lowering/rewriting the canonical policy.
+48. Confirm the current/latest failure condition produces a CRITICAL without lowering/rewriting the canonical policy.
 49. Confirm a real notification is delivered to the intended operator/channel.
 50. Record delivery timestamp and alert reference.
 51. Confirm the alert contains enough non-secret context to identify:
@@ -343,7 +353,7 @@ Evidence bundle/reference:
 - checksum is independently recomputed and matches;
 - the exact stored production artifact is restored successfully into a disposable PostgreSQL target;
 - representative durable state is verified after restore;
-- production retention configuration satisfies the canonical minimum;
+- production retention configuration satisfies the canonical minimum of 30 days;
 - a real monitoring backend is connected;
 - latest scheduled backup failure is interpreted as immediate CRITICAL;
 - a real CRITICAL notification reaches and is acknowledged by an intended operator;
@@ -356,6 +366,6 @@ Until all criteria pass, **17.13 remains open and progress remains 98.00%**.
 
 ## 16. Current expected next action
 
-The repository does **not** currently need a code workaround for the observed backup failure. The next operational action is to provision/confirm the external production backup configuration and monitoring receiver, then run this validation.
+The repository does **not** currently need a code workaround for the observed backup failure. The next operational action is to provision/confirm the external production backup configuration under the exact secret names consumed by the workflow and select/configure the monitoring receiver, then run this validation.
 
 If subsequent evidence shows that correctly provisioned secrets still do not reach the workflow, that becomes a separate workflow-scoping/configuration defect. Diagnose that specific failure before modifying `backup-automation.yml`.
