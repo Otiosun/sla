@@ -36,4 +36,27 @@ describe("Supabase staging TLS contract", () => {
     );
     expect(dockerfile).toContain("ENV NODE_EXTRA_CA_CERTS=/app/certs/supabase/prod-ca-2021.crt");
   });
+
+  it("keeps the Railway provider-live smoke on pinned verify-full TLS", () => {
+    const workflow = readFileSync(
+      repoFile(".github/workflows/railway-staging-runtime-deploy.yml"),
+      "utf8",
+    );
+    const smokeStep = workflow
+      .split("      - name: Prove exact provider-live post-deploy smoke\n", 2)[1]
+      ?.split("\n      - name:", 1)[0];
+    const githubWorkspace = "$" + "{{ github.workspace }}";
+
+    expect(smokeStep).toBeDefined();
+    expect(smokeStep).toContain(
+      `NODE_EXTRA_CA_CERTS: ${githubWorkspace}/certs/supabase/prod-ca-2021.crt`,
+    );
+    expect(smokeStep).toContain(
+      `PGSSLROOTCERT: ${githubWorkspace}/certs/supabase/prod-ca-2021.crt`,
+    );
+    expect(smokeStep).toContain('url.searchParams.get("sslmode") !== "verify-full"');
+    expect(smokeStep).toContain("STAGING_RUNTIME_DATABASE_URL must use sslmode=verify-full");
+    expect(smokeStep).not.toContain("NODE_TLS_REJECT_UNAUTHORIZED");
+    expect(smokeStep).not.toContain("rejectUnauthorized: false");
+  });
 });
