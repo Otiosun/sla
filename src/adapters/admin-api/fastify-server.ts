@@ -122,6 +122,7 @@ const AdminOperationAuditParamsSchema = z.object({ operationId: z.string().uuid(
 
 export type AdminApiRateLimitedOperation =
   | "session.read"
+  | "session.logout"
   | "player.search"
   | "player.read"
   | "player.activity.read"
@@ -331,8 +332,9 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
   });
 
   if (dependencies.sessionLogoutService !== undefined) {
-    server.post("/admin/v1/session/logout", async (request) => {
-      const identity = await authenticateSession(request, dependencies);
+    server.post("/admin/v1/session/logout", async (request, reply) => {
+      const identity = await authenticateAndLimit(request, reply, dependencies, "session.logout");
+      if (identity === null) return reply;
       return dependencies.sessionLogoutService?.logoutCurrent(identity);
     });
   }
