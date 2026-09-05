@@ -83,10 +83,7 @@ function starterOptionsText(setup: RegistrationSetup): string {
     .join("\n");
 }
 
-function guidedPrompt(
-  session: RegistrationConversationSession,
-  setup?: RegistrationSetup,
-): string {
+function guidedPrompt(session: RegistrationConversationSession, setup?: RegistrationSetup): string {
   if (session.currentField === null) {
     return "✅ Ficha preenchida. Use `$ficha` para revisar ou `$confirmar` para conferir o envio. Se quiser continuar depois, use `$salvar`.";
   }
@@ -234,11 +231,7 @@ export class RegistrationConversationResolver {
       if (applied.value.currentField === "starterFormId") {
         const setup = await this.dependencies.setup.load();
         if (!setup.ok) return setup;
-        return textResult(
-          context,
-          player.value.playerId,
-          guidedPrompt(applied.value, setup.value),
-        );
+        return textResult(context, player.value.playerId, guidedPrompt(applied.value, setup.value));
       }
 
       return textResult(context, player.value.playerId, guidedPrompt(applied.value));
