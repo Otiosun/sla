@@ -327,7 +327,11 @@ async function main(): Promise<void> {
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$salvar"));
 
     const partial = await pool.query<{ trainer_name: string | null; age: number | null; appearance: string | null }>(
-      "SELECT trainer_name, age, appearance FROM registration_drafts WHERE player_id = $1",
+      `SELECT snapshot_json ->> 'trainerName' AS trainer_name,
+              (snapshot_json ->> 'age')::integer AS age,
+              snapshot_json ->> 'appearance' AS appearance
+       FROM registration_drafts
+       WHERE player_id = $1`,
       [playerId],
     );
     assert.deepEqual(partial.rows[0], { trainer_name: "Liora Vale", age: 17, appearance: null });
@@ -412,7 +416,10 @@ async function main(): Promise<void> {
     assert.equal(changed.rows[0]?.status, "CHANGES_REQUESTED");
 
     const firstDraft = await pool.query<{ trainer_name: string; starter_form_id: string }>(
-      "SELECT trainer_name, starter_form_id FROM registration_drafts WHERE player_id = $1",
+      `SELECT snapshot_json ->> 'trainerName' AS trainer_name,
+              snapshot_json ->> 'starterFormId' AS starter_form_id
+       FROM registration_drafts
+       WHERE player_id = $1`,
       [playerId],
     );
     assert.equal(firstDraft.rows[0]?.trainer_name, "Liora Vale");
