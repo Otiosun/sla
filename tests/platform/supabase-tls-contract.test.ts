@@ -45,13 +45,14 @@ describe("Supabase staging TLS contract", () => {
     const smokeStep = workflow
       .split("      - name: Prove exact provider-live post-deploy smoke\n", 2)[1]
       ?.split("\n      - name:", 1)[0];
+    const githubWorkspace = "$" + "{{ github.workspace }}";
 
     expect(smokeStep).toBeDefined();
     expect(smokeStep).toContain(
-      "NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt",
+      `NODE_EXTRA_CA_CERTS: ${githubWorkspace}/certs/supabase/prod-ca-2021.crt`,
     );
     expect(smokeStep).toContain(
-      "PGSSLROOTCERT: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt",
+      `PGSSLROOTCERT: ${githubWorkspace}/certs/supabase/prod-ca-2021.crt`,
     );
     expect(smokeStep).toContain('url.searchParams.get("sslmode") !== "verify-full"');
     expect(smokeStep).toContain("STAGING_RUNTIME_DATABASE_URL must use sslmode=verify-full");
