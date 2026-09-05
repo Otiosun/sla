@@ -23,5 +23,13 @@
       "semicolons": "always",
       "trailingCommas": "all"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["db/proofs/reception_registration_e2e.ts"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

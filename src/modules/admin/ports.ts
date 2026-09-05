@@ -38,6 +38,8 @@ export interface CompleteAdminOperationInput {
   readonly beforeData: Readonly<Record<string, unknown>>;
   readonly afterData: Readonly<Record<string, unknown>>;
   readonly result: Readonly<Record<string, unknown>>;
+  readonly auditTarget?: AdminTarget;
+  readonly auditMetadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface AdminOperationRepository {

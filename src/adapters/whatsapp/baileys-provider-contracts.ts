@@ -98,7 +98,11 @@ export interface BaileysEventSourceLike {
 
 export interface BaileysSocketLike {
   readonly ev: BaileysEventSourceLike;
-  sendMessage(jid: string, content: { readonly text: string }): Promise<unknown>;
+  sendMessage(
+    jid: string,
+    content: { readonly text: string; readonly mentions?: readonly string[] },
+    options?: { readonly messageId?: string },
+  ): Promise<unknown>;
   end(error?: Error): void;
 }
 
