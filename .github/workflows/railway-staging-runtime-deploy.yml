@@ -271,8 +271,33 @@ jobs:
           DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
           WHATSAPP_SESSION_KEY: ${{ secrets.STAGING_WHATSAPP_SESSION_KEY }}
           DEPLOY_REVISION: ${{ github.sha }}
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt
+          PGSSLROOTCERT: ${{ github.workspace }}/certs/supabase/prod-ca-2021.crt
         run: |
           set -euo pipefail
+
+          if [[ ! -r "$NODE_EXTRA_CA_CERTS" ]]; then
+            echo "canonical Supabase CA is missing or unreadable" >&2
+            exit 64
+          fi
+          if [[ "$NODE_EXTRA_CA_CERTS" != "$PGSSLROOTCERT" ]]; then
+            echo "Node and PostgreSQL TLS trust roots must match" >&2
+            exit 64
+          fi
+
+          node --input-type=module -e '
+            const raw = process.env.DATABASE_URL;
+            if (!raw) {
+              console.error("STAGING_RUNTIME_DATABASE_URL is required");
+              process.exit(64);
+            }
+            const url = new URL(raw);
+            if (url.searchParams.get("sslmode") !== "verify-full") {
+              console.error("STAGING_RUNTIME_DATABASE_URL must use sslmode=verify-full");
+              process.exit(64);
+            }
+          '
+
           smoke_json=""
           for attempt in {1..12}; do
             set +e
