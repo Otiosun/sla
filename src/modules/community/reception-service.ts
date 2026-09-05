@@ -174,7 +174,14 @@ export class ReceptionService {
 
     return ok({
       playerId: player.value.playerId,
-      text: "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `$registrar` para começar.",
+      text: [
+        "🎒 *Bem-vindo a Zhoulia.*",
+        "",
+        "É aqui que sua jornada como treinador começa.",
+        "Antes de seguir para o mundo, vamos montar sua ficha.",
+        "",
+        "Use `$registrar` para iniciar. Você poderá revisar tudo antes de enviar.",
+      ].join("\n"),
     });
   }
 }
