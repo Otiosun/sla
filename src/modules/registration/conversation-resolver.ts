@@ -77,11 +77,29 @@ function textResult(
   });
 }
 
-function guidedPrompt(session: RegistrationConversationSession): string {
+function starterOptionsText(setup: RegistrationSetup): string {
+  return setup.starterOptions
+    .map((option, index) => `${index + 1}. ${option.displayName}`)
+    .join("\n");
+}
+
+function guidedPrompt(
+  session: RegistrationConversationSession,
+  setup?: RegistrationSetup,
+): string {
   if (session.currentField === null) {
-    return "✅ Todos os campos da sessão estão preenchidos. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` para conferir antes do envio.";
+    return "✅ Ficha preenchida. Use `$ficha` para revisar ou `$confirmar` para conferir o envio. Se quiser continuar depois, use `$salvar`.";
   }
-  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nEnvie sua resposta. Nada será salvo definitivamente até você usar \`$salvar\` ou confirmar a ficha.`;
+  if (session.currentField === "starterFormId" && setup !== undefined) {
+    return [
+      "🔥 *Pokémon inicial*",
+      "",
+      starterOptionsText(setup),
+      "",
+      "Responda com o número ou o nome.",
+    ].join("\n");
+  }
+  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nEnvie sua resposta.`;
 }
 
 function fullTemplatePrompt(): string {
@@ -212,6 +230,17 @@ export class RegistrationConversationResolver {
       }
       const applied = this.dependencies.sessions.applyGuidedAnswer(player.value.playerId, answer);
       if (!applied.ok) return applied;
+
+      if (applied.value.currentField === "starterFormId") {
+        const setup = await this.dependencies.setup.load();
+        if (!setup.ok) return setup;
+        return textResult(
+          context,
+          player.value.playerId,
+          guidedPrompt(applied.value, setup.value),
+        );
+      }
+
       return textResult(context, player.value.playerId, guidedPrompt(applied.value));
     }
 
