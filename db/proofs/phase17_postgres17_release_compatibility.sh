@@ -16,6 +16,12 @@ if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
+expected_migration_count="$(find db/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' | wc -l | tr -d '[:space:]')"
+if [[ ! "$expected_migration_count" =~ ^[1-9][0-9]*$ ]]; then
+  echo "could not derive canonical migration count" >&2
+  exit 1
+fi
+
 cleanup() {
   docker rm --force "$container" >/dev/null 2>&1 || true
 }
@@ -116,8 +122,8 @@ migration_count="$(docker exec \
   --tuples-only \
   --no-align \
   --command "SELECT count(*) FROM schema_migrations;")"
-if [[ "$migration_count" != "30" ]]; then
-  echo "expected 30 applied migrations on PostgreSQL 17.6, got ${migration_count}" >&2
+if [[ "$migration_count" != "$expected_migration_count" ]]; then
+  echo "expected ${expected_migration_count} applied migrations on PostgreSQL 17.6, got ${migration_count}" >&2
   exit 1
 fi
 
