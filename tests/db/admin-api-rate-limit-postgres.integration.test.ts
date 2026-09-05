@@ -116,4 +116,31 @@ describe.sequential("PostgresAdminApiRateLimiter", () => {
     );
     expect(bucket.rows[0]?.request_count).toBe(1);
   });
+
+  it("persists and enforces an independent session.logout budget", async () => {
+    const limiter = new PostgresAdminApiRateLimiter(firstPool, {
+      "session.logout": { limit: 1, windowSeconds: 60 },
+    });
+
+    const first = await limiter.consume({
+      principalId: PRINCIPAL_ID,
+      operation: "session.logout",
+    });
+    const second = await limiter.consume({
+      principalId: PRINCIPAL_ID,
+      operation: "session.logout",
+    });
+
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(false);
+    expect(second.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+
+    const bucket = await firstPool.query<{ request_count: number }>(
+      `SELECT request_count
+       FROM admin_api_rate_limit_buckets
+       WHERE principal_id = $1 AND operation = 'session.logout'`,
+      [PRINCIPAL_ID],
+    );
+    expect(bucket.rows[0]?.request_count).toBe(2);
+  });
 });
