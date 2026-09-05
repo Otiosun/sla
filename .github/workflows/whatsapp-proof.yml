@@ -97,3 +97,6 @@ jobs:
 
       - name: Run Phase 17 duplicate/restart/send-failure/stale-action E2E
         run: node --import tsx db/proofs/phase17_failure_e2e.ts
+
+      - name: Run Reception registration end-to-end proof
+        run: node --import tsx db/proofs/reception_registration_e2e.ts
