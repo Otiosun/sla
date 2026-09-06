@@ -145,9 +145,7 @@ async function proveGuidedJourney(pool: Pool): Promise<void> {
   let promptId = latestPromptId(registered.sent);
   const modePromptId = promptId;
 
-  const replyToHuman = await harness.deliver(
-    incoming(GUIDED_PLAYER_JID, "1", "HUMAN-MESSAGE-ID"),
-  );
+  const replyToHuman = await harness.deliver(incoming(GUIDED_PLAYER_JID, "1", "HUMAN-MESSAGE-ID"));
   assert.equal(replyToHuman.admitted, false);
   assert.equal(replyToHuman.sent.length, 0);
 
@@ -197,9 +195,7 @@ async function proveGuidedJourney(pool: Pool): Promise<void> {
   assert.match(String(chooseName.sent.at(-1)?.payload.text ?? ""), /Corrigindo.*Nome/s);
   promptId = latestPromptId(chooseName.sent);
 
-  const corrected = await harness.deliver(
-    incoming(GUIDED_PLAYER_JID, "Liora Nova", promptId),
-  );
+  const corrected = await harness.deliver(incoming(GUIDED_PLAYER_JID, "Liora Nova", promptId));
   assert.equal(corrected.admitted, true);
   assert.match(String(corrected.sent.at(-1)?.payload.text ?? ""), /FICHA PRONTA PARA REVISÃO/);
   assert.match(String(corrected.sent.at(-1)?.payload.text ?? ""), /Nome: Liora Nova/);
