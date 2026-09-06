@@ -174,7 +174,9 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
     return row === undefined ? null : draftRecord(row);
   }
 
-  public async loadConversation(playerId: PlayerId): Promise<RegistrationConversationRecord | null> {
+  public async loadConversation(
+    playerId: PlayerId,
+  ): Promise<RegistrationConversationRecord | null> {
     const result = await this.client.query<ConversationRow>(
       `SELECT player_id, chat_ref, state, editing_mode, current_field, edit_field,
               active_prompt_outbox_idempotency_key, draft_revision::text,
