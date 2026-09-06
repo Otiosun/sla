@@ -408,6 +408,34 @@ export class RegistrationConversationResolver {
     return ok({ draft: { regionId: setup.regionId, schemaVersion: 1 }, revision: null });
   }
 
+  private async contextualRetry(
+    context: MessageHandlerContext,
+    playerId: PlayerId,
+    conversation: RegistrationConversationRecord,
+    expectedDraftRevision: number | null,
+    message: string,
+    prompt: string,
+  ): Promise<Result<MessageHandlerResult>> {
+    const registration = this.dependencies.registration;
+    if (registration === undefined) {
+      return err(appError("ACTION_INVALID", "Persisted Registration service is unavailable"));
+    }
+    const saved = await registration.saveConversationCheckpoint({
+      playerId,
+      chatRef: context.message.chatRef,
+      state: conversation.state,
+      editingMode: conversation.editingMode,
+      currentField: conversation.currentField,
+      editField: conversation.editField,
+      activePromptOutboxIdempotencyKey: conversationOutboxKey(context),
+      expectedConversationRevision: conversation.revision,
+      expectedDraftRevision,
+      inboxMessageId: context.inboxMessageId,
+    });
+    if (!saved.ok) return saved;
+    return persistedTextResult(context, playerId, renderValidationRetry(message, prompt));
+  }
+
   private async resolvePersisted(
     context: MessageHandlerContext,
     playerId: PlayerId,
@@ -437,8 +465,13 @@ export class RegistrationConversationResolver {
     if (conversation.state === "MODE_SELECT") {
       const selected = parsePersistedModeChoice(text);
       if (selected === null) {
-        return err(
-          appError("VALIDATION_FAILED", "Escolha 1 para modo guiado ou 2 para ficha completa"),
+        return this.contextualRetry(
+          context,
+          playerId,
+          conversation,
+          persistedDraft.value.revision,
+          "Escolha 1 para modo guiado ou 2 para ficha completa.",
+          renderModeSelect(),
         );
       }
 
@@ -518,13 +551,35 @@ export class RegistrationConversationResolver {
       }
 
       let parsedValue = parseGuidedValue(field, text);
-      if (!parsedValue.ok) return parsedValue;
+      if (!parsedValue.ok) {
+        return this.contextualRetry(
+          context,
+          playerId,
+          conversation,
+          persistedDraft.value.revision,
+          parsedValue.error.message,
+          renderGuidedField(
+            field,
+            field === "starterFormId"
+              ? { starterOptions: starterDisplayNames(setup.value) }
+              : {},
+          ),
+        );
+      }
       if (field === "starterFormId") {
         const starter = resolveCanonicalStarterFormId(text, setup.value);
-        if (!starter.ok) return starter;
+        if (!starter.ok) {
+          return this.contextualRetry(
+            context,
+            playerId,
+            conversation,
+            persistedDraft.value.revision,
+            starter.error.message,
+            renderGuidedField(field, { starterOptions: starterDisplayNames(setup.value) }),
+          );
+        }
         parsedValue = ok(starter.value);
       }
-      if (!parsedValue.ok) return parsedValue;
 
       const draft: RegistrationDraftInput = {
         ...persistedDraft.value.draft,
@@ -798,7 +853,14 @@ export class RegistrationConversationResolver {
         return persistedTextResult(context, playerId, renderRestartConfirm());
       }
 
-      return err(appError("VALIDATION_FAILED", "Escolha 1, 2 ou 3"));
+      return this.contextualRetry(
+        context,
+        playerId,
+        conversation,
+        persistedDraft.value.revision,
+        "Escolha 1, 2 ou 3.",
+        renderResumeMenu(),
+      );
     }
 
     if (conversation.state === "RESTART_CONFIRM") {
@@ -845,7 +907,14 @@ export class RegistrationConversationResolver {
         return persistedTextResult(context, playerId, renderModeSelect());
       }
 
-      return err(appError("VALIDATION_FAILED", "Escolha 1 para recomeçar ou 2 para cancelar"));
+      return this.contextualRetry(
+        context,
+        playerId,
+        conversation,
+        persistedDraft.value.revision,
+        "Escolha 1 para recomeçar ou 2 para cancelar.",
+        renderRestartConfirm(),
+      );
     }
 
     if (conversation.state === "REVIEW") {
@@ -884,18 +953,29 @@ export class RegistrationConversationResolver {
         return persistedTextResult(context, playerId, renderPause());
       }
 
-      return err(
-        appError(
-          "VALIDATION_FAILED",
-          "Escolha 1 para enviar, 2 para corrigir ou 3 para continuar depois",
-        ),
+      const complete = validateRegistrationDraft(persistedDraft.value.draft);
+      if (!complete.ok) return complete;
+      return this.contextualRetry(
+        context,
+        playerId,
+        conversation,
+        persistedDraft.value.revision,
+        "Escolha 1 para enviar, 2 para corrigir ou 3 para continuar depois.",
+        reviewText(complete.value, setup.value),
       );
     }
 
     if (conversation.state === "EDIT_SELECT") {
       const selected = parseEditFieldChoice(text);
       if (selected === null) {
-        return err(appError("VALIDATION_FAILED", "Escolha um campo de 1 a 7 ou 8 para voltar"));
+        return this.contextualRetry(
+          context,
+          playerId,
+          conversation,
+          persistedDraft.value.revision,
+          "Escolha um campo de 1 a 7 ou 8 para voltar.",
+          renderEditSelect(),
+        );
       }
 
       if (selected === "BACK") {
@@ -947,13 +1027,35 @@ export class RegistrationConversationResolver {
       }
 
       let parsedValue = parseGuidedValue(field, text);
-      if (!parsedValue.ok) return parsedValue;
+      if (!parsedValue.ok) {
+        return this.contextualRetry(
+          context,
+          playerId,
+          conversation,
+          persistedDraft.value.revision,
+          parsedValue.error.message,
+          renderEditField(
+            field,
+            field === "starterFormId"
+              ? { starterOptions: starterDisplayNames(setup.value) }
+              : {},
+          ),
+        );
+      }
       if (field === "starterFormId") {
         const starter = resolveCanonicalStarterFormId(text, setup.value);
-        if (!starter.ok) return starter;
+        if (!starter.ok) {
+          return this.contextualRetry(
+            context,
+            playerId,
+            conversation,
+            persistedDraft.value.revision,
+            starter.error.message,
+            renderEditField(field, { starterOptions: starterDisplayNames(setup.value) }),
+          );
+        }
         parsedValue = ok(starter.value);
       }
-      if (!parsedValue.ok) return parsedValue;
 
       const draft: RegistrationDraftInput = {
         ...persistedDraft.value.draft,
