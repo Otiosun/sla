@@ -142,7 +142,8 @@ function harness(initialConversation: RegistrationConversationRecord) {
     },
     replyIntent: {
       isExpectedReply: async (input: ReplyIntentInput) =>
-        input.expectedOutboxIdempotencyKey === currentConversation.activePromptOutboxIdempotencyKey &&
+        input.expectedOutboxIdempotencyKey ===
+          currentConversation.activePromptOutboxIdempotencyKey &&
         input.replyToExternalMessageId === CURRENT_PROMPT_ID,
     },
   } as never);
