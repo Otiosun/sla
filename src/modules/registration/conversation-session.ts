@@ -214,7 +214,7 @@ export function parseFullRegistrationTemplate(
         if (values.has(field)) duplicates.add(field);
         const inlineValue = line.slice(colonIndex + 1).trim();
         if (inlineValue.length > 0) values.set(field, inlineValue);
-        currentField = inlineValue.length === 0 ? field : null;
+        currentField = field;
         continue;
       }
     }
@@ -225,7 +225,6 @@ export function parseFullRegistrationTemplate(
       } else {
         values.set(currentField, line);
       }
-      currentField = null;
     }
   }
 
