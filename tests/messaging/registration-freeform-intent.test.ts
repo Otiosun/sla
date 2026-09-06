@@ -208,7 +208,9 @@ describe("registration freeform intent", () => {
     expectCurrentPrompt(sessions, playerId);
     const router = new MessageRouter([], undefined, resolverFor(sessions, playerId));
 
-    const routed = await router.dispatch(context("E também tipo uma apresentação", CURRENT_PROMPT_ID));
+    const routed = await router.dispatch(
+      context("E também tipo uma apresentação", CURRENT_PROMPT_ID),
+    );
 
     expect(routed).toEqual({ ok: true, value: null });
   });
