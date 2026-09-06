@@ -678,7 +678,10 @@ export class RegistrationConversationResolver {
       }
 
       return err(
-        appError("VALIDATION_FAILED", "Escolha 1 para enviar, 2 para corrigir ou 3 para continuar depois"),
+        appError(
+          "VALIDATION_FAILED",
+          "Escolha 1 para enviar, 2 para corrigir ou 3 para continuar depois",
+        ),
       );
     }
 
@@ -725,9 +728,7 @@ export class RegistrationConversationResolver {
         playerId,
         renderEditField(
           selected,
-          selected === "starterFormId"
-            ? { starterOptions: starterDisplayNames(setup.value) }
-            : {},
+          selected === "starterFormId" ? { starterOptions: starterDisplayNames(setup.value) } : {},
         ),
       );
     }
