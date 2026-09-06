@@ -162,7 +162,8 @@ function harness(input: {
     },
     replyIntent: {
       isExpectedReply: async (reply: ReplyIntentInput) =>
-        reply.expectedOutboxIdempotencyKey === currentConversation.activePromptOutboxIdempotencyKey &&
+        reply.expectedOutboxIdempotencyKey ===
+          currentConversation.activePromptOutboxIdempotencyKey &&
         reply.replyToExternalMessageId === providerMessageId(reply.expectedOutboxIdempotencyKey),
     },
   } as never);
@@ -276,9 +277,7 @@ describe("persisted Registration contextual validation", () => {
     });
     const reviewRouter = new MessageRouter([], undefined, review.resolver);
 
-    const invalidReview = await reviewRouter.dispatch(
-      messageContext("9", INITIAL_PROMPT_ID, "14"),
-    );
+    const invalidReview = await reviewRouter.dispatch(messageContext("9", INITIAL_PROMPT_ID, "14"));
 
     expectContextualRetry(invalidReview, "📋 FICHA PRONTA PARA REVISÃO");
     expect(review.getConversation().state).toBe("REVIEW");
