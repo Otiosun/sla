@@ -144,10 +144,10 @@ function hasOnboardingCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("onboarding");
 }
 
-function isAwaitingReply(session: RegistrationConversationSession): boolean {
+function isLogicallyAwaitingReply(session: RegistrationConversationSession): boolean {
   if (session.mode === "CHOOSING") return true;
   if (session.mode === "GUIDED") return session.currentField !== null;
-  return !session.dirty;
+  return true;
 }
 
 function normalizedChoice(value: string): string {
@@ -198,7 +198,7 @@ export class RegistrationConversationResolver {
     message: IncomingMessage,
     session: RegistrationConversationSession,
   ): Promise<boolean> {
-    if (!isAwaitingReply(session)) return false;
+    if (!isLogicallyAwaitingReply(session)) return false;
     const replyToExternalMessageId = message.replyToExternalMessageId;
     if (replyToExternalMessageId === null) return false;
 
