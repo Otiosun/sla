@@ -100,3 +100,6 @@ jobs:
 
       - name: Run Reception registration end-to-end proof
         run: node --import tsx db/proofs/reception_registration_e2e.ts
+
+      - name: Run Reception conversation v2 runtime-admission proof
+        run: node --import tsx db/proofs/reception_conversation_v2_e2e.ts
