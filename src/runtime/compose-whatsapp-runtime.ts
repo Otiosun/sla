@@ -32,7 +32,7 @@ import { PlayerProvisioningWorker } from "../modules/registration/provisioning-w
 import { RegistrationReviewMentionResolver } from "../modules/registration/review-mentions.js";
 import { withRegistrationReviewMentions } from "../modules/registration/review-notification-mentions.js";
 import { RegistrationService } from "../modules/registration/service.js";
-import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
+import { createRegistrationWhatsAppRoutesV2 } from "../modules/registration/whatsapp-handlers-v2.js";
 import { WorldService } from "../modules/world/service.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
@@ -56,7 +56,6 @@ import { PostgresRegistrationSetupLoader } from "../platform/registration/postgr
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
-import { appError, err } from "../shared-kernel/result.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
 
@@ -80,35 +79,6 @@ export interface OperationalMessagingComposition {
 function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
-
-function legacyRegistrationUnavailable() {
-  return err(
-    appError(
-      "INVALID_STATE_TRANSITION",
-      "Legacy in-memory registration sessions are disabled in the operational runtime",
-    ),
-  );
-}
-
-// Registration v2 persists every meaningful conversational transition in PostgreSQL.
-// This stateless sentinel exists only because legacy command fallbacks still share the
-// same route factory during migration. It deliberately stores nothing and fails closed.
-const STATELESS_LEGACY_REGISTRATION_SESSIONS = {
-  clear: () => undefined,
-  get: () => null,
-  begin: () => {
-    throw new Error("Legacy in-memory registration sessions are disabled");
-  },
-  start: () => {
-    throw new Error("Legacy in-memory registration sessions are disabled");
-  },
-  expectReply: legacyRegistrationUnavailable,
-  clearExpectedReply: legacyRegistrationUnavailable,
-  chooseMode: legacyRegistrationUnavailable,
-  switchMode: legacyRegistrationUnavailable,
-  setField: legacyRegistrationUnavailable,
-  applyGuidedAnswer: legacyRegistrationUnavailable,
-} as never;
 
 export function createOperationalMessagingComposition(pool: Pool): OperationalMessagingComposition {
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
@@ -199,8 +169,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     ),
   );
   const registrationRoutes = withRegistrationReviewMentions(
-    createRegistrationWhatsAppRoutes({
-      sessions: STATELESS_LEGACY_REGISTRATION_SESSIONS,
+    createRegistrationWhatsAppRoutesV2({
       players: playerRegistration,
       registration,
       setup,
