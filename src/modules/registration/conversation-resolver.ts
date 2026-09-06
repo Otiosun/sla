@@ -6,6 +6,7 @@ import type {
 } from "../messaging/contracts.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { renderFullForm, renderGuidedField } from "./conversation-renderer.js";
 import {
   type RegistrationConversationField,
   type RegistrationConversationSession,
@@ -57,16 +58,6 @@ export interface RegistrationConversationResolverDependencies {
   readonly replyIntent?: RegistrationReplyIntentVerifier;
 }
 
-const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
-  trainerName: "Nome do treinador",
-  age: "Idade",
-  genderPronouns: "Gênero / pronomes",
-  appearance: "Aparência",
-  personality: "Personalidade",
-  backstory: "História / resumo",
-  starterFormId: "Pokémon inicial",
-};
-
 function conversationOutboxKey(context: MessageHandlerContext): string {
   return `${context.idempotencyKey}:registration-conversation`;
 }
@@ -99,45 +90,30 @@ function textResult(
   });
 }
 
-function starterOptionsText(setup: RegistrationSetup): string {
-  return setup.starterOptions
-    .map((option, index) => `${index + 1}. ${option.displayName}`)
-    .join("\n");
+function starterDisplayNames(setup: RegistrationSetup): readonly string[] {
+  return setup.starterOptions.map((option) => option.displayName);
 }
 
-function guidedPrompt(session: RegistrationConversationSession, setup?: RegistrationSetup): string {
+function renderGuidedSessionPrompt(
+  session: RegistrationConversationSession,
+  setup?: RegistrationSetup,
+  modeSelected = false,
+): string {
   if (session.currentField === null) {
     return "✅ Ficha preenchida. Use `$ficha` para revisar ou `$confirmar` para conferir o envio. Se quiser continuar depois, use `$salvar`.";
   }
-  if (session.currentField === "starterFormId" && setup !== undefined) {
-    return [
-      "🔥 *Pokémon inicial*",
-      "",
-      starterOptionsText(setup),
-      "",
-      "Responda a esta mensagem com o número ou o nome.",
-    ].join("\n");
-  }
-  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nResponda a esta mensagem.`;
-}
 
-function fullTemplatePrompt(): string {
-  return [
-    "📋 *FICHA COMPLETA*",
-    "",
-    "Preencha o modelo abaixo e envie respondendo a esta mensagem:",
-    "",
-    "Nome:",
-    "Idade:",
-    "Gênero / pronomes:",
-    "Aparência:",
-    "Personalidade:",
-    "História / resumo:",
-    "Pokémon inicial:",
-    "",
-    "A região é Zhoulia e será preenchida automaticamente.",
-    "Nada será persistido até `$salvar` ou a confirmação final.",
-  ].join("\n");
+  if (session.currentField === "starterFormId" && setup !== undefined) {
+    return renderGuidedField(session.currentField, {
+      starterOptions: starterDisplayNames(setup),
+      modeSelected,
+    });
+  }
+
+  return renderGuidedField(
+    session.currentField,
+    modeSelected ? { modeSelected: true } : {},
+  );
 }
 
 function hasOnboardingCapability(context: CommunityChatContext): boolean {
@@ -262,10 +238,26 @@ export class RegistrationConversationResolver {
     if (active.mode === "CHOOSING") {
       const chosen = this.dependencies.sessions.chooseMode(player.value.playerId, text);
       if (!chosen.ok) return chosen;
+
+      if (chosen.value.mode === "GUIDED") {
+        return textResult(
+          context,
+          player.value.playerId,
+          renderGuidedSessionPrompt(chosen.value, undefined, true),
+          this.dependencies.sessions,
+          true,
+        );
+      }
+
+      const setup = await this.dependencies.setup.load();
+      if (!setup.ok) return setup;
       return textResult(
         context,
         player.value.playerId,
-        chosen.value.mode === "GUIDED" ? guidedPrompt(chosen.value) : fullTemplatePrompt(),
+        renderFullForm({
+          regionDisplayName: setup.value.regionDisplayName,
+          starterOptions: starterDisplayNames(setup.value),
+        }),
         this.dependencies.sessions,
         true,
       );
@@ -289,7 +281,7 @@ export class RegistrationConversationResolver {
         return textResult(
           context,
           player.value.playerId,
-          guidedPrompt(applied.value, setup.value),
+          renderGuidedSessionPrompt(applied.value, setup.value),
           this.dependencies.sessions,
           true,
         );
@@ -298,7 +290,7 @@ export class RegistrationConversationResolver {
       return textResult(
         context,
         player.value.playerId,
-        guidedPrompt(applied.value),
+        renderGuidedSessionPrompt(applied.value),
         this.dependencies.sessions,
         applied.value.currentField !== null,
       );
