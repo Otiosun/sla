@@ -30,7 +30,10 @@ import { RegistrationConversationResolver } from "../modules/registration/conver
 import { PlayerProvisioningService } from "../modules/registration/provisioning-service.js";
 import { PlayerProvisioningWorker } from "../modules/registration/provisioning-worker.js";
 import { RegistrationReviewMentionResolver } from "../modules/registration/review-mentions.js";
-import { withRegistrationReviewMentions } from "../modules/registration/review-notification-mentions.js";
+import {
+  withRegistrationReviewConversationMentions,
+  withRegistrationReviewMentions,
+} from "../modules/registration/review-notification-mentions.js";
 import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutesV2 } from "../modules/registration/whatsapp-handlers-v2.js";
 import { WorldService } from "../modules/world/service.js";
@@ -127,13 +130,16 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     community,
     admins: adminIdentity,
   });
-  const registrationConversationResolver = new RegistrationConversationResolver({
-    registration,
-    community,
-    players: playerRegistration,
-    setup,
-    replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
-  });
+  const registrationConversationResolver = withRegistrationReviewConversationMentions(
+    new RegistrationConversationResolver({
+      registration,
+      community,
+      players: playerRegistration,
+      setup,
+      replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
+    }),
+    reviewMentions,
+  );
   const reception = new ReceptionService({
     community,
     players: playerRegistration,
