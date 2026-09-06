@@ -21,8 +21,7 @@ const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
 const EXPECTED_PREVIOUS_LATEST = "0036_admin_economy_analytics_read_indexes.sql";
-const EXPECTED_CURRENT_LATEST =
-  "0037_admin_api_session_logout_and_player_activity_rate_limits.sql";
+const EXPECTED_CURRENT_LATEST = "0037_admin_api_session_logout_and_player_activity_rate_limits.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
