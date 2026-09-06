@@ -90,7 +90,9 @@ function harness() {
       getConversation: async () => ok(conversation()),
       saveConversationCheckpoint: async (input: Record<string, unknown>) => {
         checkpoints.push(input);
-        return err(appError("ACTION_INVALID", "submitted review must not change conversation state"));
+        return err(
+          appError("ACTION_INVALID", "submitted review must not change conversation state"),
+        );
       },
       submit: async () => {
         submitCalls += 1;
@@ -124,10 +126,7 @@ function harness() {
   };
 }
 
-function route(
-  routes: ReturnType<typeof createRegistrationWhatsAppRoutesV2>,
-  command: string,
-) {
+function route(routes: ReturnType<typeof createRegistrationWhatsAppRoutesV2>, command: string) {
   const found = routes.find((candidate) => candidate.command === command);
   if (found === undefined) throw new Error(`Missing v2 registration route ${command}`);
   return found;
