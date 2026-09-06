@@ -13,13 +13,17 @@ import {
 } from "./conversation-state.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 import {
+  renderDraftProgress,
   renderEditAcknowledgement,
   renderEditField,
   renderEditSelect,
   renderFullForm,
   renderGuidedAcknowledgement,
   renderGuidedField,
+  renderModeSelect,
   renderPause,
+  renderRestartConfirm,
+  renderResumeMenu,
   renderReview,
   renderValidationRetry,
 } from "./conversation-renderer.js";
@@ -72,7 +76,7 @@ export interface RegistrationConversationResolverDependencies {
   readonly sessions?: RegistrationConversationSessions;
   readonly registration?: Pick<
     RegistrationService,
-    "getConversation" | "getDraft" | "saveConversationCheckpoint"
+    "getConversation" | "getDraft" | "resetMutableRegistration" | "saveConversationCheckpoint"
   >;
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
@@ -192,7 +196,9 @@ function isPersistedStateAwaitingReply(conversation: RegistrationConversationRec
     conversation.state === "FULL_FORM" ||
     conversation.state === "REVIEW" ||
     conversation.state === "EDIT_SELECT" ||
-    conversation.state === "EDIT_FIELD"
+    conversation.state === "EDIT_FIELD" ||
+    conversation.state === "RESUME_MENU" ||
+    conversation.state === "RESTART_CONFIRM"
   );
 }
 
@@ -319,6 +325,21 @@ function reviewText(snapshot: RegistrationSnapshot, setup: RegistrationSetup): s
   });
 }
 
+function draftProgressText(draft: RegistrationDraftInput, setup: RegistrationSetup): string {
+  return renderDraftProgress({
+    ...(draft.trainerName === undefined ? {} : { trainerName: draft.trainerName }),
+    ...(draft.age === undefined ? {} : { age: draft.age }),
+    ...(draft.genderPronouns === undefined ? {} : { genderPronouns: draft.genderPronouns }),
+    ...(draft.appearance === undefined ? {} : { appearance: draft.appearance }),
+    ...(draft.personality === undefined ? {} : { personality: draft.personality }),
+    ...(draft.backstory === undefined ? {} : { backstory: draft.backstory }),
+    ...(draft.starterFormId === undefined
+      ? {}
+      : { starterDisplayName: starterDisplayName(draft.starterFormId, setup) }),
+    regionDisplayName: setup.regionDisplayName,
+  });
+}
+
 export class RegistrationConversationResolver {
   public constructor(private readonly dependencies: RegistrationConversationResolverDependencies) {}
 
@@ -401,8 +422,9 @@ export class RegistrationConversationResolver {
         : err(conversationResult.error);
     }
     const conversation = conversationResult.value;
-    if (!(await this.hasPersistedExpectedReplyIntent(context.message, conversation)))
+    if (!(await this.hasPersistedExpectedReplyIntent(context.message, conversation))) {
       return ok(null);
+    }
 
     const text = context.message.text;
     if (text === null) return ok(null);
@@ -639,6 +661,191 @@ export class RegistrationConversationResolver {
       });
       if (!saved.ok) return saved;
       return persistedTextResult(context, playerId, reviewText(complete.value, setup.value));
+    }
+
+    if (conversation.state === "RESUME_MENU") {
+      const choice = normalizedChoice(text);
+
+      if (choice === "1") {
+        if (conversation.editingMode === "FULL") {
+          const saved = await registration.saveConversationCheckpoint({
+            playerId,
+            chatRef: context.message.chatRef,
+            state: "FULL_FORM",
+            editingMode: "FULL",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: nextPromptKey,
+            expectedConversationRevision: conversation.revision,
+            expectedDraftRevision: persistedDraft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          return persistedTextResult(
+            context,
+            playerId,
+            renderFullForm({
+              regionDisplayName: setup.value.regionDisplayName,
+              starterOptions: starterDisplayNames(setup.value),
+            }),
+          );
+        }
+
+        if (conversation.editingMode !== "GUIDED") {
+          return err(
+            appError("INVALID_STATE_TRANSITION", "Registration resume has no editing mode"),
+          );
+        }
+
+        const currentField = firstMissingField(persistedDraft.value.draft);
+        if (currentField === null) {
+          const complete = validateRegistrationDraft(persistedDraft.value.draft);
+          if (!complete.ok) return complete;
+          const saved = await registration.saveConversationCheckpoint({
+            playerId,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: "GUIDED",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: nextPromptKey,
+            expectedConversationRevision: conversation.revision,
+            expectedDraftRevision: persistedDraft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          return persistedTextResult(context, playerId, reviewText(complete.value, setup.value));
+        }
+
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "GUIDED_FIELD",
+          editingMode: "GUIDED",
+          currentField,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          renderGuidedField(
+            currentField,
+            currentField === "starterFormId"
+              ? { starterOptions: starterDisplayNames(setup.value) }
+              : {},
+          ),
+        );
+      }
+
+      if (choice === "2") {
+        const complete = validateRegistrationDraft(persistedDraft.value.draft);
+        if (complete.ok) {
+          const saved = await registration.saveConversationCheckpoint({
+            playerId,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: conversation.editingMode,
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: nextPromptKey,
+            expectedConversationRevision: conversation.revision,
+            expectedDraftRevision: persistedDraft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          return persistedTextResult(context, playerId, reviewText(complete.value, setup.value));
+        }
+
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "RESUME_MENU",
+          editingMode: conversation.editingMode,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          `${draftProgressText(persistedDraft.value.draft, setup.value)}\n\n${renderResumeMenu()}`,
+        );
+      }
+
+      if (choice === "3") {
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "RESTART_CONFIRM",
+          editingMode: conversation.editingMode,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(context, playerId, renderRestartConfirm());
+      }
+
+      return err(appError("VALIDATION_FAILED", "Escolha 1, 2 ou 3"));
+    }
+
+    if (conversation.state === "RESTART_CONFIRM") {
+      const choice = normalizedChoice(text);
+
+      if (choice === "2") {
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "RESUME_MENU",
+          editingMode: conversation.editingMode,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(context, playerId, renderResumeMenu());
+      }
+
+      if (choice === "1") {
+        const reset = await registration.resetMutableRegistration({
+          playerId,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+        });
+        if (!reset.ok) return reset;
+
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "MODE_SELECT",
+          editingMode: null,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: null,
+          expectedDraftRevision: null,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(context, playerId, renderModeSelect());
+      }
+
+      return err(appError("VALIDATION_FAILED", "Escolha 1 para recomeçar ou 2 para cancelar"));
     }
 
     if (conversation.state === "REVIEW") {
