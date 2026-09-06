@@ -44,6 +44,8 @@ export interface SaveRegistrationConversationWrite {
   readonly currentField: RegistrationConversationField | null;
   readonly editField: RegistrationConversationField | null;
   readonly activePromptOutboxIdempotencyKey: string | null;
+  readonly pendingReviewId?: string | null;
+  readonly pendingReviewRevision?: number | null;
   readonly draftRevision: number | null;
   readonly lastInboxMessageId: string | null;
   readonly expectedRevision: number | null;
