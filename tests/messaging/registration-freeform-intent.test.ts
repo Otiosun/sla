@@ -27,7 +27,10 @@ function context(text: string): MessageHandlerContext {
   };
 }
 
-function resolverFor(sessions: RegistrationConversationSessions, playerId: ReturnType<typeof createPlayerId>) {
+function resolverFor(
+  sessions: RegistrationConversationSessions,
+  playerId: ReturnType<typeof createPlayerId>,
+) {
   return new RegistrationConversationResolver({
     sessions,
     community: {
@@ -38,7 +41,9 @@ function resolverFor(sessions: RegistrationConversationSessions, playerId: Retur
         capabilities: ["onboarding" as const, "player.basic" as const],
       }),
     },
-    players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+    players: {
+      resolvePlayer: async () => ok({ playerId, state: "NEW" as const }),
+    },
     setup: {
       load: async () =>
         ok({
