@@ -470,6 +470,7 @@ export class RegistrationConversationResolver {
         if (!starter.ok) return starter;
         parsedValue = ok(starter.value);
       }
+      if (!parsedValue.ok) return parsedValue;
 
       const draft: RegistrationDraftInput = {
         ...persistedDraft.value.draft,
