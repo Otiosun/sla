@@ -76,7 +76,11 @@ export interface RegistrationConversationResolverDependencies {
   readonly sessions?: RegistrationConversationSessions;
   readonly registration?: Pick<
     RegistrationService,
-    "getConversation" | "getDraft" | "resetMutableRegistration" | "saveConversationCheckpoint"
+    | "getConversation"
+    | "getDraft"
+    | "resetMutableRegistration"
+    | "saveConversationCheckpoint"
+    | "submit"
   >;
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
@@ -116,6 +120,43 @@ function persistedTextResult(
         messageType: "TEXT",
         payload: { text, replyTo: replyContext(context) },
         idempotencyKey: conversationOutboxKey(context),
+      },
+    ],
+  });
+}
+
+function persistedSubmissionResult(
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+  review: {
+    readonly id: string;
+    readonly revision: number;
+    readonly snapshot: RegistrationSnapshot;
+  },
+): Result<MessageHandlerResult> {
+  const playerReply = persistedTextResult(
+    context,
+    playerId,
+    "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+  );
+  if (!playerReply.ok) return playerReply;
+
+  return ok({
+    ...playerReply.value,
+    outgoing: [
+      ...playerReply.value.outgoing,
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: {
+          text: `📋 Nova ficha de ${review.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+          registrationReview: {
+            reviewId: review.id,
+            reviewRevision: review.revision,
+          },
+        },
+        idempotencyKey: `registration-review-notification:${review.id}:${review.revision}`,
       },
     ],
   });
@@ -918,6 +959,56 @@ export class RegistrationConversationResolver {
 
     if (conversation.state === "REVIEW") {
       const choice = normalizedChoice(text);
+      if (choice === "1") {
+        const complete = validateRegistrationDraft(persistedDraft.value.draft);
+        if (!complete.ok) return complete;
+
+        if (conversation.draftRevision !== persistedDraft.value.revision) {
+          const saved = await registration.saveConversationCheckpoint({
+            playerId,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: conversation.editingMode,
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: nextPromptKey,
+            expectedConversationRevision: conversation.revision,
+            expectedDraftRevision: persistedDraft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          return persistedTextResult(
+            context,
+            playerId,
+            renderValidationRetry(
+              "Sua ficha mudou desde a última revisão. Confira a versão atual antes de enviar.",
+              reviewText(complete.value, setup.value),
+            ),
+          );
+        }
+
+        const submitted = await registration.submit({
+          playerId,
+          idempotencyKey: `${context.idempotencyKey}:registration-submit`,
+        });
+        if (!submitted.ok) return submitted;
+
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "SUBMITTED",
+          editingMode: conversation.editingMode,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: null,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedSubmissionResult(context, playerId, submitted.value);
+      }
+
       if (choice === "2") {
         const saved = await registration.saveConversationCheckpoint({
           playerId,
