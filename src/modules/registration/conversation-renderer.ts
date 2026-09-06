@@ -98,11 +98,18 @@ export function renderGuidedField(
           numberedOptions(options.starterOptions ?? []),
           "",
           copy.question,
+          "",
+          "Responda a esta mensagem.",
         ]
           .filter((line, index, lines) => line.length > 0 || lines[index - 1]?.length !== 0)
           .join("\n")
           .trim()
-      : [`📝 ${copy.progress} — ${copy.label}`, copy.question].join("\n");
+      : [
+          `📝 ${copy.progress} — ${copy.label}`,
+          copy.question,
+          "",
+          "Responda a esta mensagem.",
+        ].join("\n");
 
   if (!options.modeSelected) return prompt;
 
