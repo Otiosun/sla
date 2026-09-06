@@ -131,6 +131,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const sessions = new RegistrationConversationSessions();
   const registrationConversationResolver = new RegistrationConversationResolver({
     sessions,
+    registration,
     community,
     players: playerRegistration,
     setup,
