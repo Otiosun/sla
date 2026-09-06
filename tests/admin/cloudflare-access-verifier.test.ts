@@ -187,9 +187,7 @@ describe("CloudflareAccessJwtVerifier", () => {
 
     nowMs += 1_001;
     await expect(
-      accessVerifier.verify(
-        tokenFor(validClaims(), { alg: "RS256", kid: rotatedKid, typ: "JWT" }),
-      ),
+      accessVerifier.verify(tokenFor(validClaims(), { alg: "RS256", kid: rotatedKid, typ: "JWT" })),
     ).resolves.toBeDefined();
 
     expect(fetchCalls).toBe(2);
