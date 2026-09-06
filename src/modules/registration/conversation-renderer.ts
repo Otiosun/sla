@@ -195,10 +195,7 @@ export function renderEditSelect(): string {
 }
 
 export function renderPause(): string {
-  return [
-    "💾 Seu progresso está salvo.",
-    "Quando quiser continuar, use `$registrar`.",
-  ].join("\n");
+  return ["💾 Seu progresso está salvo.", "Quando quiser continuar, use `$registrar`."].join("\n");
 }
 
 export function renderResumeMenu(): string {
@@ -212,12 +209,9 @@ export function renderResumeMenu(): string {
 }
 
 export function renderRestartConfirm(): string {
-  return [
-    "⚠️ Recomeçar apaga o rascunho atual.",
-    "",
-    "1 — Sim, recomeçar",
-    "2 — Cancelar",
-  ].join("\n");
+  return ["⚠️ Recomeçar apaga o rascunho atual.", "", "1 — Sim, recomeçar", "2 — Cancelar"].join(
+    "\n",
+  );
 }
 
 export function renderValidationRetry(message: string, prompt: string): string {
