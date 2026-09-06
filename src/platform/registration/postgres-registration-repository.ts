@@ -174,6 +174,10 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
     return row === undefined ? null : draftRecord(row);
   }
 
+  public async deleteDraft(playerId: PlayerId): Promise<void> {
+    await this.client.query("DELETE FROM registration_drafts WHERE player_id = $1", [playerId]);
+  }
+
   public async loadConversation(
     playerId: PlayerId,
   ): Promise<RegistrationConversationRecord | null> {
@@ -241,6 +245,12 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
     );
     const row = updated.rows[0];
     return row === undefined ? null : conversationRecord(row);
+  }
+
+  public async deleteConversation(playerId: PlayerId): Promise<void> {
+    await this.client.query("DELETE FROM registration_conversations WHERE player_id = $1", [
+      playerId,
+    ]);
   }
 
   public async loadCurrentRevision(playerId: PlayerId): Promise<RegistrationRevisionRecord | null> {
