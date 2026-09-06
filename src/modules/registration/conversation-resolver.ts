@@ -126,6 +126,11 @@ function hasExplicitReplyIntent(message: IncomingMessage): boolean {
   return message.replyToExternalMessageId !== null;
 }
 
+function isCompactModeChoice(text: string): boolean {
+  const choice = text.trim();
+  return choice === "1" || choice === "2";
+}
+
 function normalizedChoice(value: string): string {
   return value
     .trim()
@@ -172,14 +177,7 @@ export class RegistrationConversationResolver {
 
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
-    if (
-      text === null ||
-      text.trim().length === 0 ||
-      text.trim().startsWith("$") ||
-      !hasExplicitReplyIntent(message)
-    ) {
-      return false;
-    }
+    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
 
     const community = await this.dependencies.community.resolveChat({
       provider: message.provider,
@@ -193,21 +191,18 @@ export class RegistrationConversationResolver {
     });
     if (!player.ok) return false;
 
-    return this.dependencies.sessions.get(player.value.playerId) !== null;
+    const active = this.dependencies.sessions.get(player.value.playerId);
+    if (active === null) return false;
+    return (
+      hasExplicitReplyIntent(message) || (active.mode === "CHOOSING" && isCompactModeChoice(text))
+    );
   }
 
   public async resolve(
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
     const text = context.message.text;
-    if (
-      text === null ||
-      text.trim().length === 0 ||
-      text.trim().startsWith("$") ||
-      !hasExplicitReplyIntent(context.message)
-    ) {
-      return ok(null);
-    }
+    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return ok(null);
 
     const community = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
@@ -223,6 +218,12 @@ export class RegistrationConversationResolver {
 
     const active = this.dependencies.sessions.get(player.value.playerId);
     if (active === null) return ok(null);
+    if (
+      !hasExplicitReplyIntent(context.message) &&
+      !(active.mode === "CHOOSING" && isCompactModeChoice(text))
+    ) {
+      return ok(null);
+    }
 
     if (active.mode === "CHOOSING") {
       const chosen = this.dependencies.sessions.chooseMode(player.value.playerId, text);
