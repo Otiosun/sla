@@ -202,7 +202,7 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
       input.activePromptOutboxIdempotencyKey,
       input.draftRevision,
       input.lastInboxMessageId,
-    ] as const;
+    ];
 
     if (input.expectedRevision === null) {
       const inserted = await this.client.query<ConversationRow>(
