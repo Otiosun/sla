@@ -45,8 +45,12 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
       };
       return this.draft;
     },
+    deleteDraft: async () => {
+      this.draft = null;
+    },
     loadConversation: async () => null,
     saveConversation: async () => null,
+    deleteConversation: async () => undefined,
     loadCurrentRevision: async () => this.revisions.at(-1) ?? null,
     loadRevisionById: async (revisionId) =>
       this.revisions.find((entry) => entry.id === revisionId) ?? null,
