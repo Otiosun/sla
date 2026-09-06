@@ -65,10 +65,7 @@ describe("Registration review mentions on conversation submission", () => {
           }),
       },
       {
-        mentionsFor: async () => [
-          "5511888888888@s.whatsapp.net",
-          "5511999999999@s.whatsapp.net",
-        ],
+        mentionsFor: async () => ["5511888888888@s.whatsapp.net", "5511999999999@s.whatsapp.net"],
       },
     );
 
