@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import type { IncomingMessage } from "../../src/modules/messaging/contracts.js";
@@ -102,5 +103,22 @@ describe("operational WhatsApp registration composition", () => {
 
     expect(await composition.admitFreeform(message("oi"))).toBe(false);
     expect(await composition.admitFreeform(message("@alguem tá on?"))).toBe(false);
+  });
+
+  it("keeps production Reception state free of process-local conversation authorities", async () => {
+    const compositionSource = await readFile(
+      new URL("../../src/runtime/compose-whatsapp-runtime.ts", import.meta.url),
+      "utf8",
+    );
+    const handlerSource = await readFile(
+      new URL("../../src/modules/registration/whatsapp-handlers.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(compositionSource).not.toContain("new RegistrationConversationSessions(");
+    expect(compositionSource).not.toContain(
+      'import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js"',
+    );
+    expect(handlerSource).not.toContain("pendingConfirmations = new Map");
   });
 });
