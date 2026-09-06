@@ -82,7 +82,11 @@ class RegistrationReviewMentionHandler implements MessageRouteHandler {
   ) {}
 
   public async handle(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
-    return decorateRegistrationReviewResult(context, await this.delegate.handle(context), this.mentions);
+    return decorateRegistrationReviewResult(
+      context,
+      await this.delegate.handle(context),
+      this.mentions,
+    );
   }
 }
 
