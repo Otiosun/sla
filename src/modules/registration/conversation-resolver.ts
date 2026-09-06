@@ -364,10 +364,13 @@ export class RegistrationConversationResolver {
 
     const conversationResult = await registration.getConversation(playerId);
     if (!conversationResult.ok) {
-      return conversationResult.error.code === "NOT_FOUND" ? ok(null) : err(conversationResult.error);
+      return conversationResult.error.code === "NOT_FOUND"
+        ? ok(null)
+        : err(conversationResult.error);
     }
     const conversation = conversationResult.value;
-    if (!(await this.hasPersistedExpectedReplyIntent(context.message, conversation))) return ok(null);
+    if (!(await this.hasPersistedExpectedReplyIntent(context.message, conversation)))
+      return ok(null);
 
     const text = context.message.text;
     if (text === null) return ok(null);
@@ -521,9 +524,7 @@ export class RegistrationConversationResolver {
       if (!saved.ok) return saved;
       const prompt = renderGuidedField(
         nextField,
-        nextField === "starterFormId"
-          ? { starterOptions: starterDisplayNames(setup.value) }
-          : {},
+        nextField === "starterFormId" ? { starterOptions: starterDisplayNames(setup.value) } : {},
       );
       return persistedTextResult(context, playerId, `${acknowledgement}\n\n${prompt}`);
     }
@@ -627,7 +628,9 @@ export class RegistrationConversationResolver {
     if (!player.ok) return false;
 
     if (this.dependencies.registration !== undefined) {
-      const conversation = await this.dependencies.registration.getConversation(player.value.playerId);
+      const conversation = await this.dependencies.registration.getConversation(
+        player.value.playerId,
+      );
       return conversation.ok
         ? this.hasPersistedExpectedReplyIntent(message, conversation.value)
         : false;
