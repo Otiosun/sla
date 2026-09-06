@@ -163,4 +163,35 @@ describe("CloudflareAccessJwtVerifier", () => {
 
     expect(fetchCalls).toBe(1);
   });
+
+  it("refreshes JWKS after the cache window so legitimate key rotation is not blocked", async () => {
+    const rotatedKid = "rotated-signing-key";
+    const rotatedPublicJwk = { ...publicJwk, kid: rotatedKid };
+    let nowMs = NOW_MS;
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      fetchCalls += 1;
+      const keys = fetchCalls === 1 ? [publicJwk] : [rotatedPublicJwk];
+      return new Response(JSON.stringify({ keys }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const accessVerifier = new CloudflareAccessJwtVerifier(
+      { teamDomain: TEAM_DOMAIN, audience: AUDIENCE, jwksCacheTtlMs: 1_000 },
+      { fetchImpl, now: () => nowMs },
+    );
+
+    await expect(accessVerifier.verify(tokenFor(validClaims()))).resolves.toBeDefined();
+    expect(fetchCalls).toBe(1);
+
+    nowMs += 1_001;
+    await expect(
+      accessVerifier.verify(
+        tokenFor(validClaims(), { alg: "RS256", kid: rotatedKid, typ: "JWT" }),
+      ),
+    ).resolves.toBeDefined();
+
+    expect(fetchCalls).toBe(2);
+  });
 });
