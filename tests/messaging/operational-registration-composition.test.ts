@@ -82,14 +82,25 @@ describe("operational WhatsApp registration composition", () => {
       command: "rejeitar",
       sensitiveActionKey: "command:rejeitar",
     });
+    expect(typeof composition.admitCommand).toBe("function");
     expect(typeof composition.admitFreeform).toBe("function");
   });
 
-  it("admits the first ordinary message from an unknown identity in active Reception", async () => {
+  it("admits only registered command tokens", () => {
+    const composition = createOperationalMessagingComposition(pool);
+
+    expect(composition.admitCommand(message("$registrar"))).toBe(true);
+    expect(composition.admitCommand(message("$Menu"))).toBe(true);
+    expect(composition.admitCommand(message("$registro"))).toBe(false);
+    expect(composition.admitCommand(message("$naoexiste"))).toBe(false);
+  });
+
+  it("does not admit ordinary first-message chatter merely because it is in Reception", async () => {
     const composition = createOperationalMessagingComposition(
       operationalPoolForUnknownReceptionIdentity(),
     );
 
-    expect(await composition.admitFreeform(message("oi"))).toBe(true);
+    expect(await composition.admitFreeform(message("oi"))).toBe(false);
+    expect(await composition.admitFreeform(message("@alguem tá on?"))).toBe(false);
   });
 });
