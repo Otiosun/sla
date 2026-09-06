@@ -15,6 +15,7 @@ const databaseUrl = (() => {
 })();
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";
+const STARTER_ID = "22222222-2222-4222-8222-222222222222";
 const RECEPTION_JID = "120363000000900123@g.us";
 
 function databaseUrlFor(name: string): string {
@@ -116,6 +117,76 @@ describe.sequential("registration conversation persistence", () => {
         currentField: "age",
         activePromptOutboxIdempotencyKey: "registration:prompt:age:1",
         draftRevision: 0,
+      },
+    });
+  });
+
+  it("deletes only mutable draft/conversation and preserves immutable review history", async () => {
+    const playerId = createPlayerId();
+    await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
+
+    const draft = {
+      trainerName: "Liora Vale",
+      age: 17,
+      genderPronouns: "ela/dela",
+      appearance: "Cabelos negros e casaco de viagem.",
+      personality: "Curiosa e competitiva.",
+      backstory: "Saiu de casa para pesquisar Pokémon raros.",
+      starterFormId: STARTER_ID,
+      regionId: REGION_ID,
+      schemaVersion: 1,
+    };
+
+    const checkpoint = await service.saveConversationCheckpoint({
+      playerId,
+      chatRef: RECEPTION_JID,
+      state: "REVIEW",
+      editingMode: "GUIDED",
+      currentField: null,
+      editField: null,
+      activePromptOutboxIdempotencyKey: "registration:prompt:review:1",
+      expectedConversationRevision: null,
+      expectedDraftRevision: null,
+      inboxMessageId: randomUUID(),
+      draft,
+    });
+    expect(checkpoint.ok).toBe(true);
+    if (!checkpoint.ok) return;
+
+    const submitted = await service.saveAndSubmit({
+      playerId,
+      draft,
+      expectedDraftRevision: checkpoint.value.draft?.revision ?? null,
+      idempotencyKey: `registration-reset-safety:${playerId}`,
+    });
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) return;
+
+    const mutableDraft = await service.getDraft(playerId);
+    expect(mutableDraft.ok).toBe(true);
+    if (!mutableDraft.ok) return;
+
+    const reset = await service.resetMutableRegistration({
+      playerId,
+      expectedConversationRevision: checkpoint.value.conversation.revision,
+      expectedDraftRevision: mutableDraft.value.revision,
+    });
+    expect(reset).toEqual({ ok: true, value: { reset: true } });
+
+    await expect(service.getConversation(playerId)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+    await expect(service.getDraft(playerId)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+    await expect(service.getReview(submitted.value.id)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        id: submitted.value.id,
+        playerId,
+        status: "SUBMITTED",
       },
     });
   });
