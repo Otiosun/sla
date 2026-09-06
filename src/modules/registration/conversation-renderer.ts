@@ -250,6 +250,8 @@ export function renderReview(input: RegistrationReviewRenderInput): string {
     `Pokémon inicial: ${input.starterDisplayName}`,
     `Região: ${input.regionDisplayName}`,
     "",
+    "Responda a esta mensagem com o número da opção:",
+    "",
     "1 — Enviar para análise",
     "2 — Corrigir alguma informação",
     "3 — Continuar depois",
@@ -275,6 +277,8 @@ export function renderEditSelect(): string {
   return [
     "✏️ O que deseja corrigir?",
     "",
+    "Responda a esta mensagem com o número da opção:",
+    "",
     "1 — Nome",
     "2 — Idade",
     "3 — Gênero / pronomes",
@@ -294,6 +298,8 @@ export function renderResumeMenu(): string {
   return [
     "🎒 Você já tem uma ficha em andamento.",
     "",
+    "Responda a esta mensagem com o número da opção:",
+    "",
     "1 — Continuar de onde parei",
     "2 — Ver ficha atual",
     "3 — Recomeçar",
@@ -301,9 +307,14 @@ export function renderResumeMenu(): string {
 }
 
 export function renderRestartConfirm(): string {
-  return ["⚠️ Recomeçar apaga o rascunho atual.", "", "1 — Sim, recomeçar", "2 — Cancelar"].join(
-    "\n",
-  );
+  return [
+    "⚠️ Recomeçar apaga o rascunho atual.",
+    "",
+    "Responda a esta mensagem com 1 ou 2:",
+    "",
+    "1 — Sim, recomeçar",
+    "2 — Cancelar",
+  ].join("\n");
 }
 
 export function renderValidationRetry(message: string, prompt: string): string {
