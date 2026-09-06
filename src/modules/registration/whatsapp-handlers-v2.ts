@@ -105,6 +105,10 @@ function persistedReply(
   });
 }
 
+function noOpenRegistration() {
+  return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
+}
+
 function parseMode(value: string | undefined): RegistrationConversationEditingMode | null {
   const normalized = (value ?? "")
     .trim()
@@ -169,6 +173,10 @@ function firstMissingField(draft: RegistrationDraftInput): RegistrationConversat
 
 function starterNames(setup: RegistrationSetupV2): readonly string[] {
   return setup.starterOptions.map((option) => option.displayName);
+}
+
+function guidedOptions(field: RegistrationConversationField, setup: RegistrationSetupV2) {
+  return field === "starterFormId" ? { starterOptions: starterNames(setup) } : {};
 }
 
 async function existingPlayer(
@@ -289,12 +297,7 @@ async function resumeDraft(
   return persistedReply(
     context,
     playerId,
-    renderGuidedField(
-      currentField,
-      currentField === "starterFormId"
-        ? { starterOptions: starterNames(setup.value) }
-        : {},
-    ),
+    renderGuidedField(currentField, guidedOptions(currentField, setup.value)),
   );
 }
 
@@ -411,9 +414,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
-    if (conversation.value === null) {
-      return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
-    }
+    if (conversation.value === null) return noOpenRegistration();
 
     const setup = await dependencies.setup.load();
     if (!setup.ok) return setup;
@@ -473,12 +474,7 @@ export function createRegistrationWhatsAppRoutesV2(
     return persistedReply(
       context,
       player.value,
-      renderGuidedField(
-        currentField,
-        currentField === "starterFormId"
-          ? { starterOptions: starterNames(setup.value) }
-          : {},
-      ),
+      renderGuidedField(currentField, guidedOptions(currentField, setup.value)),
     );
   };
 
@@ -488,9 +484,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
-    if (conversation.value === null) {
-      return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
-    }
+    if (conversation.value === null) return noOpenRegistration();
 
     const draft = await dependencies.registration.getDraft(player.value);
     if (!draft.ok) return draft;
@@ -520,9 +514,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
-    if (conversation.value === null) {
-      return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
-    }
+    if (conversation.value === null) return noOpenRegistration();
 
     const draft = await dependencies.registration.getDraft(player.value);
     if (!draft.ok && draft.error.code !== "NOT_FOUND") return draft;
@@ -556,9 +548,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
-    if (conversation.value === null) {
-      return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
-    }
+    if (conversation.value === null) return noOpenRegistration();
 
     const draft = await dependencies.registration.getDraft(player.value);
     if (!draft.ok) return draft;
@@ -687,9 +677,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
-    if (conversation.value === null) {
-      return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
-    }
+    if (conversation.value === null) return noOpenRegistration();
 
     const draft = await dependencies.registration.getDraft(player.value);
     if (!draft.ok) return draft;
