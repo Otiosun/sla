@@ -126,7 +126,9 @@ export class RegistrationService {
     });
   }
 
-  public async getConversation(playerId: PlayerId): Promise<Result<RegistrationConversationRecord>> {
+  public async getConversation(
+    playerId: PlayerId,
+  ): Promise<Result<RegistrationConversationRecord>> {
     return this.repository.read(async (tx) => {
       const conversation = await tx.loadConversation(playerId);
       return conversation === null
