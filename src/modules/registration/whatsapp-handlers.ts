@@ -4,12 +4,14 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import { renderResumeMenu, renderReview } from "./conversation-renderer.js";
 import type {
   RegistrationConversationField,
   RegistrationConversationSession,
   RegistrationConversationSessions,
   RegistrationEditingMode,
 } from "./conversation-session.js";
+import type { RegistrationSnapshot } from "./contracts.js";
 import type { RegistrationService } from "./service.js";
 import { validateRegistrationDraft } from "./validation.js";
 
@@ -178,6 +180,19 @@ function starterDisplayName(starterFormId: string | undefined, setup: Registrati
   );
 }
 
+function persistedReviewText(snapshot: RegistrationSnapshot, setup: RegistrationSetup): string {
+  return renderReview({
+    trainerName: snapshot.trainerName,
+    age: snapshot.age,
+    genderPronouns: snapshot.genderPronouns,
+    appearance: snapshot.appearance,
+    personality: snapshot.personality,
+    backstory: snapshot.backstory,
+    starterDisplayName: starterDisplayName(snapshot.starterFormId, setup),
+    regionDisplayName: setup.regionDisplayName,
+  });
+}
+
 function fichaText(session: RegistrationConversationSession, setup: RegistrationSetup): string {
   return [
     "📋 *FICHA ATUAL*",
@@ -313,6 +328,102 @@ export function createRegistrationWhatsAppRoutes(
       const currentDraft = await dependencies.registration.getDraft(player.value.playerId);
       if (!currentDraft.ok && currentDraft.error.code !== "NOT_FOUND") return currentDraft;
 
+      const currentReview = await dependencies.registration.getCurrentReview(player.value.playerId);
+      if (!currentReview.ok && currentReview.error.code !== "NOT_FOUND") return currentReview;
+
+      const expectedConversationRevision = currentConversation.ok
+        ? currentConversation.value.revision
+        : null;
+      const expectedDraftRevision = currentDraft.ok ? currentDraft.value.revision : null;
+      const editingMode = currentConversation.ok
+        ? (currentConversation.value.editingMode ?? "GUIDED")
+        : "GUIDED";
+
+      if (
+        currentReview.ok &&
+        (currentReview.value.status === "SUBMITTED" ||
+          currentReview.value.status === "APPROVED" ||
+          currentReview.value.status === "REJECTED")
+      ) {
+        const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+          playerId: player.value.playerId,
+          chatRef: context.message.chatRef,
+          state: "SUBMITTED",
+          editingMode,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: null,
+          expectedConversationRevision,
+          expectedDraftRevision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+
+        dependencies.sessions.clear(player.value.playerId);
+        if (currentReview.value.status === "SUBMITTED") {
+          return persistedReply(
+            context,
+            player.value.playerId,
+            "📨 Sua ficha já foi enviada e está em análise pela equipe.",
+          );
+        }
+        if (currentReview.value.status === "APPROVED") {
+          return persistedReply(
+            context,
+            player.value.playerId,
+            "✅ Sua ficha já foi aprovada. Seu cadastro de treinador está concluído.",
+          );
+        }
+        return persistedReply(
+          context,
+          player.value.playerId,
+          "⛔ Sua ficha foi rejeitada. Fale com a equipe da Recepção antes de iniciar outra revisão.",
+        );
+      }
+
+      if (currentDraft.ok) {
+        const complete = validateRegistrationDraft(currentDraft.value.snapshot);
+        if (complete.ok) {
+          const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+            playerId: player.value.playerId,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode,
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+            expectedConversationRevision,
+            expectedDraftRevision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+
+          dependencies.sessions.clear(player.value.playerId);
+          return persistedReply(
+            context,
+            player.value.playerId,
+            persistedReviewText(complete.value, setup.value),
+          );
+        }
+
+        const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+          playerId: player.value.playerId,
+          chatRef: context.message.chatRef,
+          state: "RESUME_MENU",
+          editingMode,
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+          expectedConversationRevision,
+          expectedDraftRevision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+
+        dependencies.sessions.clear(player.value.playerId);
+        return persistedReply(context, player.value.playerId, renderResumeMenu());
+      }
+
       const saved = await saveConversationCheckpoint.call(dependencies.registration, {
         playerId: player.value.playerId,
         chatRef: context.message.chatRef,
@@ -321,10 +432,8 @@ export function createRegistrationWhatsAppRoutes(
         currentField: null,
         editField: null,
         activePromptOutboxIdempotencyKey: commandOutboxKey(context),
-        expectedConversationRevision: currentConversation.ok
-          ? currentConversation.value.revision
-          : null,
-        expectedDraftRevision: currentDraft.ok ? currentDraft.value.revision : null,
+        expectedConversationRevision,
+        expectedDraftRevision: null,
         inboxMessageId: context.inboxMessageId,
       });
       if (!saved.ok) return saved;
