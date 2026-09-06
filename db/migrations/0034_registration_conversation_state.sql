@@ -14,6 +14,7 @@ CREATE TABLE registration_conversations (
     'PAUSED',
     'RESUME_MENU',
     'RESTART_CONFIRM',
+    'WITHDRAW_CONFIRM',
     'SUBMITTED'
   )),
   editing_mode TEXT NULL CHECK (
