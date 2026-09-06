@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { RegistrationConversationRecord } from "../../src/modules/registration/conversation-state.js";
 import { RegistrationService } from "../../src/modules/registration/service.js";
 import type {
   RegistrationDraftRecord,
@@ -11,6 +12,7 @@ import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";
 const STARTER_FORM_ID = "22222222-2222-4222-8222-222222222222";
+const RECEPTION_JID = "120363000000000001@g.us";
 
 function snapshot() {
   return {
@@ -28,6 +30,7 @@ function snapshot() {
 
 class InMemoryRegistrationRepository implements RegistrationRepository {
   public draft: RegistrationDraftRecord | null = null;
+  public conversation: RegistrationConversationRecord | null = null;
   public revisions: RegistrationRevisionRecord[] = [];
   public receipts = new Map<string, string>();
 
@@ -48,9 +51,30 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
     deleteDraft: async () => {
       this.draft = null;
     },
-    loadConversation: async () => null,
-    saveConversation: async () => null,
-    deleteConversation: async () => undefined,
+    loadConversation: async () => this.conversation,
+    saveConversation: async (input) => {
+      const currentRevision = this.conversation?.revision ?? null;
+      if (currentRevision !== input.expectedRevision) return null;
+      this.conversation = {
+        playerId: input.playerId,
+        chatRef: input.chatRef,
+        state: input.state,
+        editingMode: input.editingMode,
+        currentField: input.currentField,
+        editField: input.editField,
+        activePromptOutboxIdempotencyKey: input.activePromptOutboxIdempotencyKey,
+        pendingReviewId: input.pendingReviewId ?? null,
+        pendingReviewRevision: input.pendingReviewRevision ?? null,
+        draftRevision: input.draftRevision,
+        lastInboxMessageId: input.lastInboxMessageId,
+        flowVersion: 2,
+        revision: (currentRevision ?? -1) + 1,
+      };
+      return this.conversation;
+    },
+    deleteConversation: async () => {
+      this.conversation = null;
+    },
     loadCurrentRevision: async () => this.revisions.at(-1) ?? null,
     loadRevisionById: async (revisionId) =>
       this.revisions.find((entry) => entry.id === revisionId) ?? null,
@@ -116,9 +140,29 @@ async function submittedFixture() {
   return { repository, service, playerId, submitted: submitted.value };
 }
 
+async function persistWithdrawConfirmation(
+  service: RegistrationService,
+  playerId: ReturnType<typeof createPlayerId>,
+) {
+  const result = await service.saveConversationCheckpoint({
+    playerId,
+    chatRef: RECEPTION_JID,
+    state: "WITHDRAW_CONFIRM",
+    editingMode: "GUIDED",
+    currentField: null,
+    editField: null,
+    activePromptOutboxIdempotencyKey: null,
+    expectedConversationRevision: null,
+    expectedDraftRevision: 0,
+    inboxMessageId: randomUUID(),
+  });
+  if (!result.ok) throw result.error;
+}
+
 describe("registration administrative review", () => {
   it("allows only the current submitted review to be decided", async () => {
     const { service, playerId, submitted } = await submittedFixture();
+    await persistWithdrawConfirmation(service, playerId);
     const withdrawn = await service.withdraw({
       playerId,
       revisionId: submitted.id,
