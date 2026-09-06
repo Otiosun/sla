@@ -41,7 +41,10 @@ function outbox(payload: Readonly<Record<string, unknown>>): PendingOutboxMessag
 describe("durable WhatsApp outbound reply context", () => {
   it("maps persisted reply context to a Baileys quoted message", async () => {
     const socket = new QuoteSocket();
-    const adapter = new BaileysWhatsAppAdapter({ auth: authBinding(), socketFactory: () => socket });
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
     await adapter.start(async () => {});
 
     await adapter.send(
@@ -78,7 +81,10 @@ describe("durable WhatsApp outbound reply context", () => {
 
   it("preserves the existing provider send shape when reply context is absent", async () => {
     const socket = new QuoteSocket();
-    const adapter = new BaileysWhatsAppAdapter({ auth: authBinding(), socketFactory: () => socket });
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
     await adapter.start(async () => {});
 
     await adapter.send(outbox({ text: "Olá" }));
@@ -94,7 +100,10 @@ describe("durable WhatsApp outbound reply context", () => {
 
   it("fails delivery when persisted reply context is malformed", async () => {
     const socket = new QuoteSocket();
-    const adapter = new BaileysWhatsAppAdapter({ auth: authBinding(), socketFactory: () => socket });
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
     await adapter.start(async () => {});
 
     await expect(
