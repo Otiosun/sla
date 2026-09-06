@@ -236,7 +236,10 @@ export class RegistrationService {
       const currentDraft = await tx.loadDraft(input.playerId);
 
       if (
-        !sameExpectedRevision(currentConversation?.revision ?? null, input.expectedConversationRevision) ||
+        !sameExpectedRevision(
+          currentConversation?.revision ?? null,
+          input.expectedConversationRevision,
+        ) ||
         !sameExpectedRevision(currentDraft?.revision ?? null, input.expectedDraftRevision)
       ) {
         return err(appError("REVISION_CONFLICT", "Registration reset revision conflict"));
