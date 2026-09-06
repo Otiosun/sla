@@ -35,6 +35,8 @@ export interface SaveRegistrationConversationCheckpointInput {
   readonly currentField: RegistrationConversationField | null;
   readonly editField: RegistrationConversationField | null;
   readonly activePromptOutboxIdempotencyKey: string | null;
+  readonly pendingReviewId?: string | null;
+  readonly pendingReviewRevision?: number | null;
   readonly expectedConversationRevision: number | null;
   readonly expectedDraftRevision: number | null;
   readonly inboxMessageId: string;
@@ -190,6 +192,8 @@ export class RegistrationService {
         }
       }
 
+      const pendingReviewId = input.pendingReviewId ?? null;
+      const pendingReviewRevision = input.pendingReviewRevision ?? null;
       const prospective: RegistrationConversationRecord = {
         playerId: input.playerId,
         chatRef,
@@ -198,6 +202,8 @@ export class RegistrationService {
         currentField: input.currentField,
         editField: input.editField,
         activePromptOutboxIdempotencyKey: input.activePromptOutboxIdempotencyKey,
+        pendingReviewId,
+        pendingReviewRevision,
         draftRevision: savedDraft?.revision ?? null,
         lastInboxMessageId: inboxMessageId,
         flowVersion: 2,
@@ -215,6 +221,8 @@ export class RegistrationService {
         currentField: input.currentField,
         editField: input.editField,
         activePromptOutboxIdempotencyKey: input.activePromptOutboxIdempotencyKey,
+        pendingReviewId,
+        pendingReviewRevision,
         draftRevision: savedDraft?.revision ?? null,
         lastInboxMessageId: inboxMessageId,
         expectedRevision: input.expectedConversationRevision,
