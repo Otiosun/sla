@@ -117,12 +117,8 @@ describe("operational WhatsApp registration composition", () => {
 
     expect(compositionSource).not.toContain("new RegistrationConversationSessions(");
     expect(compositionSource).not.toContain("RegistrationConversationSessions");
-    expect(compositionSource).not.toContain(
-      'from "../modules/registration/whatsapp-handlers.js"',
-    );
-    expect(compositionSource).toContain(
-      'from "../modules/registration/whatsapp-handlers-v2.js"',
-    );
+    expect(compositionSource).not.toContain('from "../modules/registration/whatsapp-handlers.js"');
+    expect(compositionSource).toContain('from "../modules/registration/whatsapp-handlers-v2.js"');
     expect(persistedHandlerSource).not.toContain("RegistrationConversationSessions");
     expect(persistedHandlerSource).not.toContain("new Map");
     expect(persistedHandlerSource).not.toContain("pendingConfirmations");
