@@ -196,6 +196,41 @@ async function loadConversation(
   return conversation.error.code === "NOT_FOUND" ? ok(null) : err(conversation.error);
 }
 
+async function immutableReviewStatusReply(
+  dependencies: RegistrationWhatsAppV2Dependencies,
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+): Promise<Result<MessageHandlerResult> | null> {
+  const review = await dependencies.registration.getCurrentReview(playerId);
+  if (!review.ok) {
+    return review.error.code === "NOT_FOUND" ? null : err(review.error);
+  }
+
+  if (review.value.status === "SUBMITTED") {
+    return persistedReply(
+      context,
+      playerId,
+      "📨 Sua ficha já foi enviada e está em análise pela equipe.",
+    );
+  }
+  if (review.value.status === "APPROVED") {
+    return persistedReply(
+      context,
+      playerId,
+      "✅ Sua ficha já foi aprovada. Seu cadastro de treinador está concluído.",
+    );
+  }
+  if (review.value.status === "REJECTED") {
+    return persistedReply(
+      context,
+      playerId,
+      "⛔ Sua ficha foi rejeitada. Fale com a equipe da Recepção antes de iniciar outra revisão.",
+    );
+  }
+
+  return null;
+}
+
 async function savePromptState(
   dependencies: RegistrationWhatsAppV2Dependencies,
   context: MessageHandlerContext,
@@ -407,6 +442,13 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
+    const immutableReview = await immutableReviewStatusReply(
+      dependencies,
+      context,
+      player.value,
+    );
+    if (immutableReview !== null) return immutableReview;
+
     const selected = parseMode(args(context).join(" "));
     if (selected === null) {
       return err(appError("VALIDATION_FAILED", "Use `$modo guiado` ou `$modo completo`."));
@@ -482,6 +524,13 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
+    const immutableReview = await immutableReviewStatusReply(
+      dependencies,
+      context,
+      player.value,
+    );
+    if (immutableReview !== null) return immutableReview;
+
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
     if (conversation.value === null) return noOpenRegistration();
@@ -512,6 +561,13 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
+    const immutableReview = await immutableReviewStatusReply(
+      dependencies,
+      context,
+      player.value,
+    );
+    if (immutableReview !== null) return immutableReview;
+
     const conversation = await loadConversation(dependencies, player.value);
     if (!conversation.ok) return conversation;
     if (conversation.value === null) return noOpenRegistration();
@@ -534,6 +590,14 @@ export function createRegistrationWhatsAppRoutesV2(
   const continueDraft: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
+
+    const immutableReview = await immutableReviewStatusReply(
+      dependencies,
+      context,
+      player.value,
+    );
+    if (immutableReview !== null) return immutableReview;
+
     return resumeDraft(dependencies, context, player.value);
   };
 
@@ -669,6 +733,13 @@ export function createRegistrationWhatsAppRoutesV2(
   const confirm: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
+
+    const immutableReview = await immutableReviewStatusReply(
+      dependencies,
+      context,
+      player.value,
+    );
+    if (immutableReview !== null) return immutableReview;
 
     const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (confirmationArg !== undefined && confirmationArg !== "sim") {
