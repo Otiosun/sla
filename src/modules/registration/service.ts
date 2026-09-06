@@ -47,6 +47,12 @@ export interface SaveRegistrationConversationCheckpointResult {
   readonly replayed: boolean;
 }
 
+export interface ResetMutableRegistrationInput {
+  readonly playerId: PlayerId;
+  readonly expectedConversationRevision: number;
+  readonly expectedDraftRevision: number | null;
+}
+
 export interface SaveAndSubmitRegistrationInput {
   readonly playerId: PlayerId;
   readonly draft: RegistrationDraftInput;
@@ -218,6 +224,27 @@ export class RegistrationService {
       }
 
       return ok({ conversation: savedConversation, draft: savedDraft, replayed: false });
+    });
+  }
+
+  public async resetMutableRegistration(
+    input: ResetMutableRegistrationInput,
+  ): Promise<Result<{ readonly reset: true }>> {
+    return this.repository.transaction(async (tx) => {
+      await tx.lockPlayer(input.playerId);
+      const currentConversation = await tx.loadConversation(input.playerId);
+      const currentDraft = await tx.loadDraft(input.playerId);
+
+      if (
+        !sameExpectedRevision(currentConversation?.revision ?? null, input.expectedConversationRevision) ||
+        !sameExpectedRevision(currentDraft?.revision ?? null, input.expectedDraftRevision)
+      ) {
+        return err(appError("REVISION_CONFLICT", "Registration reset revision conflict"));
+      }
+
+      await tx.deleteConversation(input.playerId);
+      await tx.deleteDraft(input.playerId);
+      return ok({ reset: true as const });
     });
   }
 
