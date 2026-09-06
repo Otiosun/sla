@@ -30,7 +30,8 @@ export interface RegistrationWhatsAppDependencies {
   readonly registration: Pick<
     RegistrationService,
     "getDraft" | "getCurrentReview" | "saveDraft" | "saveAndSubmit" | "withdraw"
-  >;
+  > &
+    Partial<Pick<RegistrationService, "getConversation" | "saveConversationCheckpoint">>;
   readonly setup: { load(): Promise<Result<RegistrationSetup>> };
 }
 
@@ -70,6 +71,14 @@ function commandOutboxKey(context: MessageHandlerContext): string {
   return `${context.idempotencyKey}:registration-command`;
 }
 
+function replyContext(context: MessageHandlerContext) {
+  return {
+    externalMessageId: context.message.externalMessageId,
+    senderRef: context.message.senderRef,
+    text: context.message.text ?? "",
+  };
+}
+
 function reply(
   context: MessageHandlerContext,
   playerId: PlayerId,
@@ -96,6 +105,26 @@ function reply(
         messageType: "TEXT",
         payload: { text },
         idempotencyKey,
+      },
+    ],
+  });
+}
+
+function persistedReply(
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+  text: string,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "REGISTRATION_SESSION",
+    resultRefId: playerId,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text, replyTo: replyContext(context) },
+        idempotencyKey: commandOutboxKey(context),
       },
     ],
   });
@@ -241,6 +270,18 @@ async function openPersistedDraft(
   );
 }
 
+function registrationModePrompt(): string {
+  return [
+    "🎒 *CRIAÇÃO DE TREINADOR*",
+    "",
+    "Como prefere montar sua ficha?",
+    "1. Quero ser guiado passo a passo",
+    "2. Quero preencher a ficha completa",
+    "",
+    "Responda a esta mensagem com `1` ou `2`. Nada será definido só por começar o cadastro.",
+  ].join("\n");
+}
+
 export function createRegistrationWhatsAppRoutes(
   dependencies: RegistrationWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
@@ -257,19 +298,46 @@ export function createRegistrationWhatsAppRoutes(
     if (!setup.ok) return setup;
     pendingConfirmations.delete(player.value.playerId);
     pendingWithdrawals.delete(player.value.playerId);
+
+    const getConversation = dependencies.registration.getConversation;
+    const saveConversationCheckpoint = dependencies.registration.saveConversationCheckpoint;
+    if (getConversation !== undefined && saveConversationCheckpoint !== undefined) {
+      const currentConversation = await getConversation.call(
+        dependencies.registration,
+        player.value.playerId,
+      );
+      if (!currentConversation.ok && currentConversation.error.code !== "NOT_FOUND") {
+        return currentConversation;
+      }
+
+      const currentDraft = await dependencies.registration.getDraft(player.value.playerId);
+      if (!currentDraft.ok && currentDraft.error.code !== "NOT_FOUND") return currentDraft;
+
+      const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+        playerId: player.value.playerId,
+        chatRef: context.message.chatRef,
+        state: "MODE_SELECT",
+        editingMode: null,
+        currentField: null,
+        editField: null,
+        activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+        expectedConversationRevision: currentConversation.ok
+          ? currentConversation.value.revision
+          : null,
+        expectedDraftRevision: currentDraft.ok ? currentDraft.value.revision : null,
+        inboxMessageId: context.inboxMessageId,
+      });
+      if (!saved.ok) return saved;
+
+      dependencies.sessions.clear(player.value.playerId);
+      return persistedReply(context, player.value.playerId, registrationModePrompt());
+    }
+
     dependencies.sessions.begin(player.value.playerId, { regionId: setup.value.regionId });
     return reply(
       context,
       player.value.playerId,
-      [
-        "🎒 *CRIAÇÃO DE TREINADOR*",
-        "",
-        "Como prefere montar sua ficha?",
-        "1. Quero ser guiado passo a passo",
-        "2. Quero preencher a ficha completa",
-        "",
-        "Responda a esta mensagem com `1` ou `2`. Nada será definido só por começar o cadastro.",
-      ].join("\n"),
+      registrationModePrompt(),
       dependencies.sessions,
       true,
     );
