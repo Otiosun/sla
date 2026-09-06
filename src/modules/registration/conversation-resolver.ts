@@ -93,17 +93,17 @@ function guidedPrompt(session: RegistrationConversationSession, setup?: Registra
       "",
       starterOptionsText(setup),
       "",
-      "Responda com o número ou o nome.",
+      "Responda a esta mensagem com o número ou o nome.",
     ].join("\n");
   }
-  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nEnvie sua resposta.`;
+  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nResponda a esta mensagem.`;
 }
 
 function fullTemplatePrompt(): string {
   return [
     "📋 *FICHA COMPLETA*",
     "",
-    "Preencha e envie o modelo abaixo de uma vez:",
+    "Preencha o modelo abaixo e envie respondendo a esta mensagem:",
     "",
     "Nome:",
     "Idade:",
@@ -120,6 +120,10 @@ function fullTemplatePrompt(): string {
 
 function hasOnboardingCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("onboarding");
+}
+
+function hasExplicitReplyIntent(message: IncomingMessage): boolean {
+  return message.replyToExternalMessageId !== null;
 }
 
 function normalizedChoice(value: string): string {
@@ -168,7 +172,14 @@ export class RegistrationConversationResolver {
 
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
+    if (
+      text === null ||
+      text.trim().length === 0 ||
+      text.trim().startsWith("$") ||
+      !hasExplicitReplyIntent(message)
+    ) {
+      return false;
+    }
 
     const community = await this.dependencies.community.resolveChat({
       provider: message.provider,
@@ -189,7 +200,14 @@ export class RegistrationConversationResolver {
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
     const text = context.message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return ok(null);
+    if (
+      text === null ||
+      text.trim().length === 0 ||
+      text.trim().startsWith("$") ||
+      !hasExplicitReplyIntent(context.message)
+    ) {
+      return ok(null);
+    }
 
     const community = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
