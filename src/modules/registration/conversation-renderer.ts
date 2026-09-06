@@ -25,6 +25,17 @@ export interface RegistrationReviewRenderInput {
   readonly regionDisplayName: string;
 }
 
+export interface RegistrationDraftProgressRenderInput {
+  readonly trainerName?: string;
+  readonly age?: number;
+  readonly genderPronouns?: string;
+  readonly appearance?: string;
+  readonly personality?: string;
+  readonly backstory?: string;
+  readonly starterDisplayName?: string;
+  readonly regionDisplayName: string;
+}
+
 const FIELD_COPY: Readonly<
   Record<
     RegistrationConversationField,
@@ -74,6 +85,11 @@ const FIELD_COPY: Readonly<
 
 function numberedOptions(options: readonly string[]): string {
   return options.map((option, index) => `${index + 1}. ${option}`).join("\n");
+}
+
+function draftValue(value: string | number | undefined): string {
+  if (value === undefined || String(value).trim().length === 0) return "—";
+  return String(value).trim();
 }
 
 export function renderModeSelect(): string {
@@ -237,6 +253,21 @@ export function renderReview(input: RegistrationReviewRenderInput): string {
     "1 — Enviar para análise",
     "2 — Corrigir alguma informação",
     "3 — Continuar depois",
+  ].join("\n");
+}
+
+export function renderDraftProgress(input: RegistrationDraftProgressRenderInput): string {
+  return [
+    "📋 FICHA EM ANDAMENTO",
+    "",
+    `Nome: ${draftValue(input.trainerName)}`,
+    `Idade: ${draftValue(input.age)}`,
+    `Gênero / pronomes: ${draftValue(input.genderPronouns)}`,
+    `Aparência: ${draftValue(input.appearance)}`,
+    `Personalidade: ${draftValue(input.personality)}`,
+    `História / resumo: ${draftValue(input.backstory)}`,
+    `Pokémon inicial: ${draftValue(input.starterDisplayName)}`,
+    `Região: ${input.regionDisplayName}`,
   ].join("\n");
 }
 
