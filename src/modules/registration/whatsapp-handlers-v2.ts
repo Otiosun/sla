@@ -442,11 +442,7 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
-    const immutableReview = await immutableReviewStatusReply(
-      dependencies,
-      context,
-      player.value,
-    );
+    const immutableReview = await immutableReviewStatusReply(dependencies, context, player.value);
     if (immutableReview !== null) return immutableReview;
 
     const selected = parseMode(args(context).join(" "));
@@ -524,11 +520,7 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
-    const immutableReview = await immutableReviewStatusReply(
-      dependencies,
-      context,
-      player.value,
-    );
+    const immutableReview = await immutableReviewStatusReply(dependencies, context, player.value);
     if (immutableReview !== null) return immutableReview;
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -561,11 +553,7 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
-    const immutableReview = await immutableReviewStatusReply(
-      dependencies,
-      context,
-      player.value,
-    );
+    const immutableReview = await immutableReviewStatusReply(dependencies, context, player.value);
     if (immutableReview !== null) return immutableReview;
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -591,11 +579,7 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
-    const immutableReview = await immutableReviewStatusReply(
-      dependencies,
-      context,
-      player.value,
-    );
+    const immutableReview = await immutableReviewStatusReply(dependencies, context, player.value);
     if (immutableReview !== null) return immutableReview;
 
     return resumeDraft(dependencies, context, player.value);
@@ -734,11 +718,7 @@ export function createRegistrationWhatsAppRoutesV2(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
 
-    const immutableReview = await immutableReviewStatusReply(
-      dependencies,
-      context,
-      player.value,
-    );
+    const immutableReview = await immutableReviewStatusReply(dependencies, context, player.value);
     if (immutableReview !== null) return immutableReview;
 
     const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
