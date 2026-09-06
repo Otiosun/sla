@@ -43,12 +43,28 @@ CREATE TABLE registration_conversations (
     )
   ),
   active_prompt_outbox_idempotency_key TEXT NULL,
+  pending_review_id UUID NULL REFERENCES registration_revisions(id),
+  pending_review_revision BIGINT NULL CHECK (
+    pending_review_revision IS NULL OR pending_review_revision >= 0
+  ),
   draft_revision BIGINT NULL CHECK (draft_revision IS NULL OR draft_revision >= 0),
   last_inbox_message_id UUID NULL,
   flow_version INTEGER NOT NULL DEFAULT 2 CHECK (flow_version = 2),
   revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (
+    (
+      state = 'WITHDRAW_CONFIRM'
+      AND active_prompt_outbox_idempotency_key IS NULL
+      AND pending_review_id IS NOT NULL
+      AND pending_review_revision IS NOT NULL
+    ) OR (
+      state <> 'WITHDRAW_CONFIRM'
+      AND pending_review_id IS NULL
+      AND pending_review_revision IS NULL
+    )
+  )
 );
 
 CREATE INDEX idx_registration_conversations_active_prompt
