@@ -104,6 +104,8 @@ export class CloudflareAccessJwtVerifier {
   private readonly now: () => number;
   private readonly fetchImpl: typeof fetch;
   private readonly keyCache = new Map<string, CachedJwk>();
+  private jwksExpiresAtMs = 0;
+  private refreshInFlight: Promise<void> | null = null;
 
   public constructor(
     config: CloudflareAccessVerifierConfig,
@@ -177,8 +179,11 @@ export class CloudflareAccessJwtVerifier {
   }
 
   private async resolveKey(kid: string): Promise<ReturnType<typeof createPublicKey>> {
+    const nowMs = this.now();
     const cached = this.keyCache.get(kid);
-    if (cached && cached.expiresAtMs > this.now()) return cached.key;
+    if (cached && cached.expiresAtMs > nowMs) return cached.key;
+
+    if (this.jwksExpiresAtMs > nowMs) throw denied();
 
     await this.refreshKeys();
     const refreshed = this.keyCache.get(kid);
@@ -187,6 +192,21 @@ export class CloudflareAccessJwtVerifier {
   }
 
   private async refreshKeys(): Promise<void> {
+    if (this.refreshInFlight !== null) {
+      await this.refreshInFlight;
+      return;
+    }
+
+    const refresh = this.fetchAndCacheKeys();
+    this.refreshInFlight = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (this.refreshInFlight === refresh) this.refreshInFlight = null;
+    }
+  }
+
+  private async fetchAndCacheKeys(): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
     try {
@@ -208,6 +228,7 @@ export class CloudflareAccessJwtVerifier {
       }
       this.keyCache.clear();
       for (const [kid, value] of next) this.keyCache.set(kid, value);
+      this.jwksExpiresAtMs = expiresAtMs;
     } catch (error) {
       if (error instanceof AdminError) throw error;
       throw denied();
