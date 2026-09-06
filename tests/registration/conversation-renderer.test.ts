@@ -38,6 +38,7 @@ describe("registration conversation renderer", () => {
       const text = renderGuidedField(field, { starterOptions });
       expect(text).toContain(progress);
       expect(text).toContain(label);
+      expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
     }
   });
 
