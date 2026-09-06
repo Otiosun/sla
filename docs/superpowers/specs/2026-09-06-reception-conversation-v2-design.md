@@ -176,7 +176,7 @@ GUIDED_FIELD                FULL_FORM
   +------------+--------------+
                v
              REVIEW
-        +------+------+ 
+        +------+------+
         |             |
         | 1           | 2
         v             v
@@ -191,14 +191,16 @@ REVIEW -- 3 --> PAUSED
 PAUSED -- $registrar --> RESUME_MENU
 
 RESUME_MENU
-  1 -> estado de continuação derivado do progresso
-  2 -> REVIEW/visualização atual
+  1 -> estado de continuação derivado do draft
+  2 -> VIEW_CURRENT -> RESUME_MENU
   3 -> RESTART_CONFIRM
 
 RESTART_CONFIRM
-  confirmar -> novo MODE_SELECT
-  cancelar   -> RESUME_MENU
+  1 -> novo MODE_SELECT
+  2 -> RESUME_MENU
 ```
+
+`VIEW_CURRENT` é somente uma visualização do que já foi preenchido. Ele não transforma draft incompleto em `REVIEW`.
 
 `SUBMITTED`, `CHANGES_REQUESTED`, `APPROVED`, `REJECTED` e `WITHDRAWN` continuam pertencendo ao domínio de revisão. O `$registrar` deve interpretar esses estados e apresentar a próxima ação válida sem abrir cadastro duplicado.
 
@@ -242,7 +244,16 @@ Informa que o cadastro já foi concluído. Não reinicia onboarding.
 
 ### Recomeçar
 
-É destrutivo e exige confirmação específica. Nunca deve apagar progresso por uma única escolha acidental.
+É destrutivo e exige uma segunda escolha explícita:
+
+```text
+⚠️ Recomeçar apaga o rascunho atual.
+
+1 — Sim, recomeçar
+2 — Cancelar
+```
+
+Nunca apagar progresso por uma única escolha acidental.
 
 ---
 
@@ -334,7 +345,15 @@ Continuar tolerando variantes normalizadas já previstas, mas sem interpretaçã
 
 Cabeçalhos desconhecidos não devem deslocar conteúdo para o campo errado.
 
-### 7.4 Resultado
+### 7.4 Estabilidade das opções apresentadas
+
+Quando um prompt oferece opções numeradas de starter, a interpretação do número deve usar o conjunto e a ordem exibidos naquele prompt, não uma lista recalculada posteriormente.
+
+O contexto do prompt deve persistir os IDs/opções necessárias para manter essa semântica estável.
+
+Depois de resolver a escolha exibida, o starter escolhido ainda deve ser revalidado contra a configuração canônica atual. Se deixou de ser permitido, o bot explica a mudança e emite um novo prompt de starter sem apagar os outros campos.
+
+### 7.5 Resultado
 
 Ficha completa válida converge diretamente para `REVIEW`, igual ao modo guiado.
 
@@ -443,6 +462,8 @@ Falha inesperada de sistema deve:
 - incluir código de suporte;
 - fornecer caminho claro de retry.
 
+Quando for seguro repetir a mesma entrada, a mensagem técnica de retry pode se tornar o novo prompt ativo da mesma etapa. Caso contrário, `$registrar` deve reconstruir a próxima ação segura a partir do estado persistido.
+
 O código de suporte deve ser reservado para erro técnico, não para erro normal de preenchimento.
 
 ---
@@ -456,15 +477,20 @@ Introduzir persistência explícita da conversa, conceitualmente em uma tabela c
 Campos mínimos esperados:
 
 - `player_id` PK/FK;
+- `provider`;
 - `chat_ref`;
 - `state`;
 - `editing_mode` nullable;
 - `current_field` nullable;
 - `active_prompt_outbox_idempotency_key` nullable;
+- `active_prompt_kind` nullable;
+- `active_prompt_context_json` nullable;
 - `flow_version`;
 - `revision` para CAS/concorrência;
 - `created_at`;
 - `updated_at`.
+
+`active_prompt_context_json` deve conter apenas dados necessários para interpretar de forma estável o prompt que foi mostrado, por exemplo a ordem/IDs das opções de starter. Não deve virar um segundo draft ou um depósito genérico de estado.
 
 A implementação pode ajustar nomes às convenções do projeto, mas os invariantes devem permanecer.
 
@@ -475,6 +501,7 @@ O prompt ativo deve apontar para a mensagem durável de Outbox, não para um val
 A validação de reply continua baseada em correlação entre:
 
 - jogador;
+- provider;
 - chat;
 - prompt ativo;
 - Outbox realmente enviada;
@@ -487,6 +514,16 @@ O comportamento atual introduzido pela PR #155 é a base e deve ser preservado/e
 Se o estado persistido referenciar um prompt que não existe, não foi enviado ou ficou inconsistente após crash, `$registrar` deve detectar essa condição e regenerar o prompt atual de forma idempotente.
 
 Nunca deixar o jogador preso porque um ID de prompt ficou órfão.
+
+### 10.4 Consistência de transição
+
+Uma resposta válida não pode atualizar somente metade do estado lógico.
+
+No mínimo, draft e conversation state/revision devem ser persistidos na mesma transação PostgreSQL ou por operação de repository equivalente com CAS.
+
+Se a criação/entrega do Outbox falhar depois da transição de domínio, o estado deve permanecer recuperável pelo mecanismo da seção 10.3. O sistema não pode avançar o draft se a própria persistência do draft falhou.
+
+A submissão continua usando a operação atômica de save + immutable review já existente no domínio Registration.
 
 ---
 
@@ -502,10 +539,13 @@ replyToExternalMessageId?: string
 
 O adapter Baileys é responsável por transformar isso no formato correto do provider.
 
+Se o provider exigir mais contexto do que apenas o ID externo, o adapter pode reconstruir esse contexto a partir do envelope inbound persistido ou de uma estrutura provider-specific interna ao adapter. Esse detalhe não deve vazar para Registration.
+
 Invariantes:
 
-- ausência de suporte a quote não pode impedir o envio do texto;
 - quando houver dados suficientes, o quote deve apontar para a mensagem exata do jogador;
+- falha em montar quote não pode corromper a transição nem o Outbox;
+- fallback para texto sem quote é aceitável apenas como degradação operacional, deve ser observável e não pode ser o comportamento normal da Recepção;
 - não usar menção como substituto obrigatório do quote;
 - o comportamento deve ter testes de adapter e de composição.
 
@@ -552,11 +592,14 @@ O fluxo normal é conversacional, mas comandos existentes permanecem registrados
 - `$continuar` — alias para retomada contextual;
 - `$modo` — atalho avançado para troca de modo quando o estado permitir;
 - `$editar` — permanece para fluxo pós-submissão/revisão;
-- `$confirmar` — compatibilidade; deve levar à revisão, não criar um segundo fluxo paralelo.
+- `$confirmar` — compatibilidade; renderiza/retorna à revisão atual;
+- `$confirmar sim` — compatibilidade; só pode submeter se o estado atual for `REVIEW` e o draft persistido ainda corresponder ao snapshot revisado.
 
 Comandos desconhecidos continuam silenciosos.
 
 Comando conhecido em estado inválido pode responder com mensagem contextual, porque existe intenção explícita e reconhecida.
+
+Nenhum comando de compatibilidade pode criar uma segunda state machine paralela.
 
 ---
 
@@ -641,7 +684,7 @@ Permanece responsável por provar que o reply aponta ao prompt ativo realmente e
 
 ### `RegistrationConversationRepository`
 
-Persistência isolada de state/CAS.
+Persistência isolada de state/CAS e operações transacionais necessárias para manter draft + conversation consistentes.
 
 ### `RegistrationFullFormParser`
 
@@ -693,6 +736,7 @@ Não remover a proteção de prompt exato durante a transição.
 - validação contextual por campo;
 - menu de correção;
 - restart confirmation;
+- estabilidade de opções numeradas por prompt;
 - revalidação de starter.
 
 ### Messaging
@@ -708,7 +752,8 @@ Não remover a proteção de prompt exato durante a transição.
 - confirmação visual da resposta + próxima pergunta;
 - guided termina automaticamente em REVIEW;
 - full termina automaticamente em REVIEW;
-- correção de um campo retorna a REVIEW.
+- correção de um campo retorna a REVIEW;
+- visualização de draft incompleto não o transforma em REVIEW.
 
 ### PostgreSQL integration
 
@@ -719,12 +764,13 @@ Não remover a proteção de prompt exato durante a transição.
 - draft e conversation permanecem consistentes;
 - submit cria exatamente uma revisão;
 - pause/resume não perde dados;
-- restart confirmado cria novo draft/conversation corretamente.
+- restart confirmado cria novo draft/conversation corretamente;
+- prompt órfão é recuperável por `$registrar`.
 
 ### Adapter Baileys
 
 - outbound reply referencia mensagem correta;
-- ausência de quote permitido degrada para texto sem perder entrega;
+- degradação sem quote é observável;
 - provider external message ID continua determinístico para correlação de prompt.
 
 ### E2E Reception
@@ -747,7 +793,7 @@ Cenário mínimo realista:
 14. enviar;
 15. revisão administrativa continua funcional.
 
-Outro E2E equivalente deve cobrir FULL com conteúdo multilinha.
+Outro E2E equivalente deve cobrir FULL com conteúdo multilinha e alteração de catálogo entre emissão do prompt de starter e resposta.
 
 ---
 
@@ -767,6 +813,7 @@ A v2 só pode ser considerada concluída quando todos os itens abaixo forem verd
 - erros de usuário são específicos e não exibem código técnico;
 - erros técnicos preservam estado e possuem código de suporte;
 - ficha completa aceita blocos multilinha corretamente;
+- opções numeradas continuam significando o que foi mostrado naquele prompt;
 - bot responde visualmente à mensagem do jogador quando suportado;
 - concorrência não permite avanço duplicado;
 - submissão continua explícita e cria revisão imutável;
@@ -784,7 +831,7 @@ A v2 só pode ser considerada concluída quando todos os itens abaixo forem verd
 - workflow engine genérico para todo o RPG;
 - redesign completo da revisão administrativa;
 - mudança das regras de provisionamento pós-aprovação;
-- conteúdo textual final de branding/copy beyond o necessário para UX funcional.
+- conteúdo textual final de branding/copy além do necessário para UX funcional.
 
 A arquitetura deve permitir evolução futura, mas não deve transformar a Recepção v2 em um workflow engine universal antes de existir necessidade real.
 
