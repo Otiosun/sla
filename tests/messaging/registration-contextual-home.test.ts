@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
 import type { RegistrationConversationRecord } from "../../src/modules/registration/conversation-state.js";
-import type { RegistrationDraftInput } from "../../src/modules/registration/contracts.js";
+import type {
+  RegistrationDraftInput,
+  RegistrationSnapshot,
+} from "../../src/modules/registration/contracts.js";
 import type { RegistrationRevisionRecord } from "../../src/modules/registration/ports.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
@@ -32,7 +35,7 @@ function context(suffix: string): MessageHandlerContext {
   };
 }
 
-function completeDraft(): RegistrationDraftInput {
+function completeDraft(): RegistrationSnapshot {
   return {
     trainerName: "Liora Vale",
     age: 17,
