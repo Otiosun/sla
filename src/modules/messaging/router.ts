@@ -96,6 +96,11 @@ export class MessageRouter implements MessageRouterPort {
     }
   }
 
+  admitsCommand(message: IncomingMessage): boolean {
+    const command = commandFromText(message.text);
+    return command !== null && this.routes.has(command);
+  }
+
   classify(message: IncomingMessage): MessageRoutingMetadata {
     const command = commandFromText(message.text);
     if (command === null) {
