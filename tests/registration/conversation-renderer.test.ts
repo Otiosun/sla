@@ -50,9 +50,7 @@ describe("registration conversation renderer", () => {
   });
 
   it("echoes short answers but does not repeat long narrative fields", () => {
-    expect(renderGuidedAcknowledgement("trainerName", "Killian")).toBe(
-      "✅ 1/7 — Nome: Killian",
-    );
+    expect(renderGuidedAcknowledgement("trainerName", "Killian")).toBe("✅ 1/7 — Nome: Killian");
     expect(renderGuidedAcknowledgement("age", 19)).toBe("✅ 2/7 — Idade: 19");
     expect(renderGuidedAcknowledgement("starterFormId", "Charmander")).toBe(
       "✅ 7/7 — Pokémon inicial: Charmander",
@@ -65,9 +63,7 @@ describe("registration conversation renderer", () => {
     expect(renderGuidedAcknowledgement("personality", "Texto longo")).toBe(
       "✅ Personalidade recebida.",
     );
-    expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe(
-      "✅ História recebida.",
-    );
+    expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe("✅ História recebida.");
   });
 
   it("confirms full-form mode and includes current starter options plus the complete template", () => {
@@ -105,9 +101,11 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("Pokémon inicial: Charmander");
     expect(text).toContain("Região: Zhoulia");
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
-    expect(text.endsWith("1 — Enviar para análise\n2 — Corrigir alguma informação\n3 — Continuar depois")).toBe(
-      true,
-    );
+    expect(
+      text.endsWith(
+        "1 — Enviar para análise\n2 — Corrigir alguma informação\n3 — Continuar depois",
+      ),
+    ).toBe(true);
   });
 
   it("renders edit, pause, resume and destructive restart choices explicitly", () => {
