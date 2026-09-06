@@ -332,6 +332,16 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
   });
 
   if (dependencies.sessionLogoutService !== undefined) {
+    server.options("/admin/v1/session/logout", async (request, reply) => {
+      if (request.headers.origin !== dependencies.allowedOrigin) {
+        throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Origin denied");
+      }
+      reply.header("access-control-allow-methods", "POST");
+      reply.header("access-control-allow-headers", CONTROL_CENTER_CSRF_HEADER);
+      reply.header("vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+      return reply.code(204).send();
+    });
+
     server.post("/admin/v1/session/logout", async (request, reply) => {
       const identity = await authenticateAndLimit(request, reply, dependencies, "session.logout");
       if (identity === null) return reply;
