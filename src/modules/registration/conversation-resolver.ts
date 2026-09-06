@@ -578,6 +578,7 @@ export class RegistrationConversationResolver {
         }
         parsedValue = ok(starter.value);
       }
+      if (!parsedValue.ok) return parsedValue;
 
       const draft: RegistrationDraftInput = {
         ...persistedDraft.value.draft,
@@ -1052,6 +1053,7 @@ export class RegistrationConversationResolver {
         }
         parsedValue = ok(starter.value);
       }
+      if (!parsedValue.ok) return parsedValue;
 
       const draft: RegistrationDraftInput = {
         ...persistedDraft.value.draft,
