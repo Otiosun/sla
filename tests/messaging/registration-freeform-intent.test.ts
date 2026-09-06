@@ -8,7 +8,7 @@ import { ok } from "../../src/shared-kernel/result.js";
 
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 
-function context(text: string): MessageHandlerContext {
+function context(text: string, replyToExternalMessageId: string | null = null): MessageHandlerContext {
   return {
     inboxMessageId: "00000000-0000-4000-8000-000000000101",
     correlationId: "00000000-0000-4000-8000-000000000102",
@@ -22,7 +22,7 @@ function context(text: string): MessageHandlerContext {
       occurredAt: "2026-09-06T01:05:00.000Z",
       text,
       mediaRefs: [],
-      replyToExternalMessageId: null,
+      replyToExternalMessageId,
     },
   };
 }
@@ -82,6 +82,29 @@ describe("registration freeform intent", () => {
       currentField: "trainerName",
       working: { regionId: ZHOULIA_ID },
       dirty: false,
+    });
+  });
+
+  it("still consumes an explicit reply while a guided registration field is active", async () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(playerId, { mode: "GUIDED", regionId: ZHOULIA_ID });
+    const router = new MessageRouter([], undefined, resolverFor(sessions, playerId));
+
+    const routed = await router.dispatch(context("Liora Vale", "bot-registration-prompt"));
+
+    expect(routed).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "REGISTRATION_SESSION",
+        resultRefId: playerId,
+      },
+    });
+    expect(sessions.get(playerId)).toMatchObject({
+      mode: "GUIDED",
+      currentField: "age",
+      working: { trainerName: "Liora Vale", regionId: ZHOULIA_ID },
+      dirty: true,
     });
   });
 });
