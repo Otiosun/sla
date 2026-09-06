@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
+import {
+  type PendingOutboxMessage,
+  WhatsAppReplyContextSchema,
+} from "../../modules/messaging/contracts.js";
 import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
 import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
 import type {
@@ -13,6 +16,7 @@ import type {
   BaileysEventSourceLike,
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
+  BaileysQuotedMessageLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "./baileys-provider-contracts.js";
@@ -93,6 +97,24 @@ function outboundContent(message: PendingOutboxMessage): {
     throw new Error("Baileys TEXT outbound mentions must be an array of up to 64 non-empty JIDs");
   }
   return { text, mentions: mentions as readonly string[] };
+}
+
+function outboundQuotedMessage(
+  message: PendingOutboxMessage,
+): BaileysQuotedMessageLike | undefined {
+  const candidate = message.payload.replyTo;
+  if (candidate === undefined) return undefined;
+
+  const reply = WhatsAppReplyContextSchema.parse(candidate);
+  return {
+    key: {
+      remoteJid: message.destinationRef,
+      id: reply.externalMessageId,
+      participant: reply.senderRef,
+      fromMe: false,
+    },
+    message: { conversation: reply.text },
+  };
 }
 
 function providerExternalMessageId(result: unknown): string | null {
@@ -189,8 +211,10 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
       const messageId = baileysOutboundMessageId(message);
+      const quoted = outboundQuotedMessage(message);
       const sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
         messageId,
+        ...(quoted === undefined ? {} : { quoted }),
       });
       const returnedMessageId = providerExternalMessageId(sent);
       if (returnedMessageId !== messageId) {

@@ -1,4 +1,10 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import type {
+  RegistrationConversationEditingMode,
+  RegistrationConversationField,
+  RegistrationConversationRecord,
+  RegistrationConversationState,
+} from "./conversation-state.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 
 export type RegistrationRevisionStatus =
@@ -30,6 +36,21 @@ export interface SaveRegistrationDraftWrite {
   readonly expectedRevision: number | null;
 }
 
+export interface SaveRegistrationConversationWrite {
+  readonly playerId: PlayerId;
+  readonly chatRef: string;
+  readonly state: RegistrationConversationState;
+  readonly editingMode: RegistrationConversationEditingMode | null;
+  readonly currentField: RegistrationConversationField | null;
+  readonly editField: RegistrationConversationField | null;
+  readonly activePromptOutboxIdempotencyKey: string | null;
+  readonly pendingReviewId?: string | null;
+  readonly pendingReviewRevision?: number | null;
+  readonly draftRevision: number | null;
+  readonly lastInboxMessageId: string | null;
+  readonly expectedRevision: number | null;
+}
+
 export interface InsertRegistrationRevisionWrite {
   readonly playerId: PlayerId;
   readonly sequenceNo: number;
@@ -39,8 +60,15 @@ export interface InsertRegistrationRevisionWrite {
 export type RegistrationIdempotentOperation = "SUBMIT" | "REQUEST_CHANGES" | "APPROVE" | "REJECT";
 
 export interface RegistrationTransaction {
+  lockPlayer(playerId: PlayerId): Promise<void>;
   loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null>;
   saveDraft(input: SaveRegistrationDraftWrite): Promise<RegistrationDraftRecord | null>;
+  deleteDraft(playerId: PlayerId): Promise<void>;
+  loadConversation(playerId: PlayerId): Promise<RegistrationConversationRecord | null>;
+  saveConversation(
+    input: SaveRegistrationConversationWrite,
+  ): Promise<RegistrationConversationRecord | null>;
+  deleteConversation(playerId: PlayerId): Promise<void>;
   loadCurrentRevision(playerId: PlayerId): Promise<RegistrationRevisionRecord | null>;
   loadRevisionById(revisionId: string): Promise<RegistrationRevisionRecord | null>;
   loadIdempotencyReceipt(

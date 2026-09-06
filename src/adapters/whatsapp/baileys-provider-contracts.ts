@@ -50,6 +50,18 @@ export interface BaileysMessageLike {
   readonly message?: BaileysMessageContentLike | null;
 }
 
+export interface BaileysQuotedMessageLike {
+  readonly key: {
+    readonly id: string;
+    readonly remoteJid: string;
+    readonly participant: string;
+    readonly fromMe: false;
+  };
+  readonly message: {
+    readonly conversation: string;
+  };
+}
+
 export interface BaileysMessagesUpsertLike {
   readonly type: string;
   readonly messages: readonly BaileysMessageLike[];
@@ -101,7 +113,10 @@ export interface BaileysSocketLike {
   sendMessage(
     jid: string,
     content: { readonly text: string; readonly mentions?: readonly string[] },
-    options?: { readonly messageId?: string },
+    options?: {
+      readonly messageId?: string;
+      readonly quoted?: BaileysQuotedMessageLike;
+    },
   ): Promise<unknown>;
   end(error?: Error): void;
 }

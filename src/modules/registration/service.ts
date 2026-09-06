@@ -1,5 +1,12 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import {
+  registrationConversationInvariant,
+  type RegistrationConversationEditingMode,
+  type RegistrationConversationField,
+  type RegistrationConversationRecord,
+  type RegistrationConversationState,
+} from "./conversation-state.js";
 import type {
   RegistrationDraftInput,
   RegistrationReviewActor,
@@ -18,6 +25,34 @@ export interface SaveRegistrationDraftInput {
   readonly playerId: PlayerId;
   readonly draft: RegistrationDraftInput;
   readonly expectedRevision: number | null;
+}
+
+export interface SaveRegistrationConversationCheckpointInput {
+  readonly playerId: PlayerId;
+  readonly chatRef: string;
+  readonly state: RegistrationConversationState;
+  readonly editingMode: RegistrationConversationEditingMode | null;
+  readonly currentField: RegistrationConversationField | null;
+  readonly editField: RegistrationConversationField | null;
+  readonly activePromptOutboxIdempotencyKey: string | null;
+  readonly pendingReviewId?: string | null;
+  readonly pendingReviewRevision?: number | null;
+  readonly expectedConversationRevision: number | null;
+  readonly expectedDraftRevision: number | null;
+  readonly inboxMessageId: string;
+  readonly draft?: RegistrationDraftInput;
+}
+
+export interface SaveRegistrationConversationCheckpointResult {
+  readonly conversation: RegistrationConversationRecord;
+  readonly draft: RegistrationDraftRecord | null;
+  readonly replayed: boolean;
+}
+
+export interface ResetMutableRegistrationInput {
+  readonly playerId: PlayerId;
+  readonly expectedConversationRevision: number;
+  readonly expectedDraftRevision: number | null;
 }
 
 export interface SaveAndSubmitRegistrationInput {
@@ -83,6 +118,10 @@ function normalizeIdempotencyKey(value: string): Result<string> {
   return ok(key);
 }
 
+function sameExpectedRevision(actual: number | null, expected: number | null): boolean {
+  return actual === expected;
+}
+
 export class RegistrationService {
   public constructor(private readonly repository: RegistrationRepository) {}
 
@@ -92,6 +131,149 @@ export class RegistrationService {
       return draft === null
         ? err(appError("NOT_FOUND", "Registration draft not found"))
         : ok(draft);
+    });
+  }
+
+  public async getConversation(
+    playerId: PlayerId,
+  ): Promise<Result<RegistrationConversationRecord>> {
+    return this.repository.read(async (tx) => {
+      const conversation = await tx.loadConversation(playerId);
+      return conversation === null
+        ? err(appError("NOT_FOUND", "Registration conversation not found"))
+        : ok(conversation);
+    });
+  }
+
+  public async saveConversationCheckpoint(
+    input: SaveRegistrationConversationCheckpointInput,
+  ): Promise<Result<SaveRegistrationConversationCheckpointResult>> {
+    const chatRef = input.chatRef.trim();
+    const inboxMessageId = input.inboxMessageId.trim();
+    if (chatRef.length === 0 || inboxMessageId.length === 0) {
+      return err(appError("VALIDATION_FAILED", "Registration conversation checkpoint is invalid"));
+    }
+
+    const normalizedDraft =
+      input.draft === undefined ? null : normalizeRegistrationDraft(input.draft);
+    if (normalizedDraft !== null && !normalizedDraft.ok) return normalizedDraft;
+
+    return this.repository.transaction(async (tx) => {
+      await tx.lockPlayer(input.playerId);
+      const currentConversation = await tx.loadConversation(input.playerId);
+      const currentDraft = await tx.loadDraft(input.playerId);
+
+      if (
+        currentConversation !== null &&
+        currentConversation.lastInboxMessageId === inboxMessageId
+      ) {
+        return ok({ conversation: currentConversation, draft: currentDraft, replayed: true });
+      }
+
+      if (
+        !sameExpectedRevision(
+          currentConversation?.revision ?? null,
+          input.expectedConversationRevision,
+        ) ||
+        !sameExpectedRevision(currentDraft?.revision ?? null, input.expectedDraftRevision)
+      ) {
+        return err(appError("REVISION_CONFLICT", "Registration conversation revision conflict"));
+      }
+
+      let savedDraft = currentDraft;
+      if (normalizedDraft?.ok) {
+        savedDraft = await tx.saveDraft({
+          playerId: input.playerId,
+          snapshot: draftCopy(normalizedDraft.value),
+          expectedRevision: input.expectedDraftRevision,
+        });
+        if (savedDraft === null) {
+          return err(appError("REVISION_CONFLICT", "Registration draft revision conflict"));
+        }
+      }
+
+      let pendingReviewId = input.pendingReviewId ?? null;
+      let pendingReviewRevision = input.pendingReviewRevision ?? null;
+      if (
+        input.state === "WITHDRAW_CONFIRM" &&
+        pendingReviewId === null &&
+        pendingReviewRevision === null
+      ) {
+        const currentReview = await tx.loadCurrentRevision(input.playerId);
+        if (currentReview === null || currentReview.status !== "SUBMITTED") {
+          return err(
+            appError(
+              "INVALID_STATE_TRANSITION",
+              "No submitted registration review is available for withdrawal confirmation",
+            ),
+          );
+        }
+        pendingReviewId = currentReview.id;
+        pendingReviewRevision = currentReview.revision;
+      }
+
+      const prospective: RegistrationConversationRecord = {
+        playerId: input.playerId,
+        chatRef,
+        state: input.state,
+        editingMode: input.editingMode,
+        currentField: input.currentField,
+        editField: input.editField,
+        activePromptOutboxIdempotencyKey: input.activePromptOutboxIdempotencyKey,
+        pendingReviewId,
+        pendingReviewRevision,
+        draftRevision: savedDraft?.revision ?? null,
+        lastInboxMessageId: inboxMessageId,
+        flowVersion: 2,
+        revision: currentConversation === null ? 0 : currentConversation.revision + 1,
+      };
+      if (!registrationConversationInvariant(prospective)) {
+        return err(appError("VALIDATION_FAILED", "Registration conversation state is invalid"));
+      }
+
+      const savedConversation = await tx.saveConversation({
+        playerId: input.playerId,
+        chatRef,
+        state: input.state,
+        editingMode: input.editingMode,
+        currentField: input.currentField,
+        editField: input.editField,
+        activePromptOutboxIdempotencyKey: input.activePromptOutboxIdempotencyKey,
+        pendingReviewId,
+        pendingReviewRevision,
+        draftRevision: savedDraft?.revision ?? null,
+        lastInboxMessageId: inboxMessageId,
+        expectedRevision: input.expectedConversationRevision,
+      });
+      if (savedConversation === null) {
+        return err(appError("REVISION_CONFLICT", "Registration conversation revision conflict"));
+      }
+
+      return ok({ conversation: savedConversation, draft: savedDraft, replayed: false });
+    });
+  }
+
+  public async resetMutableRegistration(
+    input: ResetMutableRegistrationInput,
+  ): Promise<Result<{ readonly reset: true }>> {
+    return this.repository.transaction(async (tx) => {
+      await tx.lockPlayer(input.playerId);
+      const currentConversation = await tx.loadConversation(input.playerId);
+      const currentDraft = await tx.loadDraft(input.playerId);
+
+      if (
+        !sameExpectedRevision(
+          currentConversation?.revision ?? null,
+          input.expectedConversationRevision,
+        ) ||
+        !sameExpectedRevision(currentDraft?.revision ?? null, input.expectedDraftRevision)
+      ) {
+        return err(appError("REVISION_CONFLICT", "Registration reset revision conflict"));
+      }
+
+      await tx.deleteConversation(input.playerId);
+      await tx.deleteDraft(input.playerId);
+      return ok({ reset: true as const });
     });
   }
 
@@ -219,18 +401,42 @@ export class RegistrationService {
     input: WithdrawRegistrationInput,
   ): Promise<Result<RegistrationRevisionRecord>> {
     return this.repository.transaction(async (tx) => {
-      const current = await tx.loadCurrentRevision(input.playerId);
-      if (current === null || current.id !== input.revisionId) {
-        return err(appError("NOT_FOUND", "Current registration review not found"));
-      }
-      if (current.status !== "SUBMITTED") {
+      await tx.lockPlayer(input.playerId);
+      const conversation = await tx.loadConversation(input.playerId);
+      if (
+        conversation === null ||
+        conversation.state !== "WITHDRAW_CONFIRM" ||
+        conversation.pendingReviewId === null ||
+        conversation.pendingReviewRevision === null ||
+        conversation.pendingReviewId !== input.revisionId ||
+        conversation.pendingReviewRevision !== input.expectedRevision
+      ) {
         return err(
-          appError("INVALID_STATE_TRANSITION", "Only submitted registration can be withdrawn"),
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Registration review withdrawal is not confirmed for this exact revision",
+          ),
         );
       }
+
+      const current = await tx.loadCurrentRevision(input.playerId);
+      if (
+        current === null ||
+        current.id !== conversation.pendingReviewId ||
+        current.revision !== conversation.pendingReviewRevision ||
+        current.status !== "SUBMITTED"
+      ) {
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Submitted registration review changed after withdrawal confirmation",
+          ),
+        );
+      }
+
       const updated = await tx.updateRevisionStatus(
-        current.id,
-        input.expectedRevision,
+        conversation.pendingReviewId,
+        conversation.pendingReviewRevision,
         "WITHDRAWN",
       );
       return updated === null

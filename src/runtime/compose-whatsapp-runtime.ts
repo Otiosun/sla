@@ -27,13 +27,15 @@ import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../modules/registration/conversation-resolver.js";
-import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js";
 import { PlayerProvisioningService } from "../modules/registration/provisioning-service.js";
 import { PlayerProvisioningWorker } from "../modules/registration/provisioning-worker.js";
 import { RegistrationReviewMentionResolver } from "../modules/registration/review-mentions.js";
-import { withRegistrationReviewMentions } from "../modules/registration/review-notification-mentions.js";
+import {
+  withRegistrationReviewConversationMentions,
+  withRegistrationReviewMentions,
+} from "../modules/registration/review-notification-mentions.js";
 import { RegistrationService } from "../modules/registration/service.js";
-import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
+import { createRegistrationWhatsAppRoutesV2 } from "../modules/registration/whatsapp-handlers-v2.js";
 import { WorldService } from "../modules/world/service.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
@@ -128,14 +130,16 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     community,
     admins: adminIdentity,
   });
-  const sessions = new RegistrationConversationSessions();
-  const registrationConversationResolver = new RegistrationConversationResolver({
-    sessions,
-    community,
-    players: playerRegistration,
-    setup,
-    replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
-  });
+  const registrationConversationResolver = withRegistrationReviewConversationMentions(
+    new RegistrationConversationResolver({
+      registration,
+      community,
+      players: playerRegistration,
+      setup,
+      replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
+    }),
+    reviewMentions,
+  );
   const reception = new ReceptionService({
     community,
     players: playerRegistration,
@@ -171,8 +175,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     ),
   );
   const registrationRoutes = withRegistrationReviewMentions(
-    createRegistrationWhatsAppRoutes({
-      sessions,
+    createRegistrationWhatsAppRoutesV2({
       players: playerRegistration,
       registration,
       setup,

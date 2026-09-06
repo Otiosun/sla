@@ -3,6 +3,16 @@ import { z } from "zod";
 
 const boundedRef = z.string().trim().min(1).max(512);
 
+export const WhatsAppReplyContextSchema = z
+  .object({
+    externalMessageId: boundedRef,
+    senderRef: boundedRef,
+    text: z.string().max(32_768),
+  })
+  .strict();
+
+export type WhatsAppReplyContext = z.infer<typeof WhatsAppReplyContextSchema>;
+
 export const MediaReferenceSchema = z
   .object({
     providerMediaId: boundedRef,

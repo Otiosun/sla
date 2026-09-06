@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
+  RegistrationConversationEditingMode,
+  RegistrationConversationField,
+  RegistrationConversationRecord,
+  RegistrationConversationState,
+} from "../../modules/registration/conversation-state.js";
+import type {
   RegistrationDraftInput,
   RegistrationSnapshot,
 } from "../../modules/registration/contracts.js";
@@ -12,6 +18,7 @@ import type {
   RegistrationRevisionRecord,
   RegistrationRevisionStatus,
   RegistrationTransaction,
+  SaveRegistrationConversationWrite,
   SaveRegistrationDraftWrite,
 } from "../../modules/registration/ports.js";
 import {
@@ -24,6 +31,22 @@ import { withTransaction } from "../db/transaction.js";
 interface DraftRow {
   readonly player_id: string;
   readonly snapshot_json: unknown;
+  readonly revision: string;
+}
+
+interface ConversationRow {
+  readonly player_id: string;
+  readonly chat_ref: string;
+  readonly state: RegistrationConversationState;
+  readonly editing_mode: RegistrationConversationEditingMode | null;
+  readonly current_field: RegistrationConversationField | null;
+  readonly edit_field: RegistrationConversationField | null;
+  readonly active_prompt_outbox_idempotency_key: string | null;
+  readonly pending_review_id: string | null;
+  readonly pending_review_revision: string | null;
+  readonly draft_revision: string | null;
+  readonly last_inbox_message_id: string | null;
+  readonly flow_version: number;
   readonly revision: string;
 }
 
@@ -69,6 +92,26 @@ function draftRecord(row: DraftRow): RegistrationDraftRecord {
   };
 }
 
+function conversationRecord(row: ConversationRow): RegistrationConversationRecord {
+  if (row.flow_version !== 2) throw new Error("Database returned an unsupported registration flow");
+  return {
+    playerId: asPlayerId(row.player_id),
+    chatRef: row.chat_ref,
+    state: row.state,
+    editingMode: row.editing_mode,
+    currentField: row.current_field,
+    editField: row.edit_field,
+    activePromptOutboxIdempotencyKey: row.active_prompt_outbox_idempotency_key,
+    pendingReviewId: row.pending_review_id,
+    pendingReviewRevision:
+      row.pending_review_revision === null ? null : Number(row.pending_review_revision),
+    draftRevision: row.draft_revision === null ? null : Number(row.draft_revision),
+    lastInboxMessageId: row.last_inbox_message_id,
+    flowVersion: 2,
+    revision: Number(row.revision),
+  };
+}
+
 function revisionRecord(row: RevisionRow): RegistrationRevisionRecord {
   return {
     id: row.id,
@@ -83,6 +126,12 @@ function revisionRecord(row: RevisionRow): RegistrationRevisionRecord {
 
 class PostgresRegistrationTransaction implements RegistrationTransaction {
   public constructor(private readonly client: PoolClient) {}
+
+  public async lockPlayer(playerId: PlayerId): Promise<void> {
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `registration-player:${playerId}`,
+    ]);
+  }
 
   public async loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null> {
     const result = await this.client.query<DraftRow>(
@@ -130,10 +179,94 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
     return row === undefined ? null : draftRecord(row);
   }
 
-  public async loadCurrentRevision(playerId: PlayerId): Promise<RegistrationRevisionRecord | null> {
-    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      `registration-player:${playerId}`,
+  public async deleteDraft(playerId: PlayerId): Promise<void> {
+    await this.client.query("DELETE FROM registration_drafts WHERE player_id = $1", [playerId]);
+  }
+
+  public async loadConversation(
+    playerId: PlayerId,
+  ): Promise<RegistrationConversationRecord | null> {
+    const result = await this.client.query<ConversationRow>(
+      `SELECT player_id, chat_ref, state, editing_mode, current_field, edit_field,
+              active_prompt_outbox_idempotency_key, pending_review_id,
+              pending_review_revision::text, draft_revision::text,
+              last_inbox_message_id::text, flow_version, revision::text
+       FROM registration_conversations
+       WHERE player_id = $1`,
+      [playerId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : conversationRecord(row);
+  }
+
+  public async saveConversation(
+    input: SaveRegistrationConversationWrite,
+  ): Promise<RegistrationConversationRecord | null> {
+    const values = [
+      input.playerId,
+      input.chatRef,
+      input.state,
+      input.editingMode,
+      input.currentField,
+      input.editField,
+      input.activePromptOutboxIdempotencyKey,
+      input.pendingReviewId ?? null,
+      input.pendingReviewRevision ?? null,
+      input.draftRevision,
+      input.lastInboxMessageId,
+    ];
+
+    if (input.expectedRevision === null) {
+      const inserted = await this.client.query<ConversationRow>(
+        `INSERT INTO registration_conversations(
+           player_id, chat_ref, state, editing_mode, current_field, edit_field,
+           active_prompt_outbox_idempotency_key, pending_review_id, pending_review_revision,
+           draft_revision, last_inbox_message_id, flow_version, revision, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 2, 0, now(), now())
+         ON CONFLICT (player_id) DO NOTHING
+         RETURNING player_id, chat_ref, state, editing_mode, current_field, edit_field,
+                   active_prompt_outbox_idempotency_key, pending_review_id,
+                   pending_review_revision::text, draft_revision::text,
+                   last_inbox_message_id::text, flow_version, revision::text`,
+        values,
+      );
+      const row = inserted.rows[0];
+      return row === undefined ? null : conversationRecord(row);
+    }
+
+    const updated = await this.client.query<ConversationRow>(
+      `UPDATE registration_conversations
+       SET chat_ref = $2,
+           state = $3,
+           editing_mode = $4,
+           current_field = $5,
+           edit_field = $6,
+           active_prompt_outbox_idempotency_key = $7,
+           pending_review_id = $8,
+           pending_review_revision = $9,
+           draft_revision = $10,
+           last_inbox_message_id = $11,
+           revision = revision + 1,
+           updated_at = now()
+       WHERE player_id = $1 AND revision = $12
+       RETURNING player_id, chat_ref, state, editing_mode, current_field, edit_field,
+                 active_prompt_outbox_idempotency_key, pending_review_id,
+                 pending_review_revision::text, draft_revision::text,
+                 last_inbox_message_id::text, flow_version, revision::text`,
+      [...values, input.expectedRevision],
+    );
+    const row = updated.rows[0];
+    return row === undefined ? null : conversationRecord(row);
+  }
+
+  public async deleteConversation(playerId: PlayerId): Promise<void> {
+    await this.client.query("DELETE FROM registration_conversations WHERE player_id = $1", [
+      playerId,
     ]);
+  }
+
+  public async loadCurrentRevision(playerId: PlayerId): Promise<RegistrationRevisionRecord | null> {
+    await this.lockPlayer(playerId);
     const result = await this.client.query<RevisionRow>(
       `SELECT id, player_id, sequence_no::text, status, snapshot_json, revision::text,
               decided_by_admin_principal_id

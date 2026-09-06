@@ -176,6 +176,45 @@ describe("RegistrationConversationSessions", () => {
     });
   });
 
+  it("accumulates multiline full-form content until the next recognized field header", () => {
+    const parsed = parseFullRegistrationTemplate(
+      [
+        "Nome: Liora Vale",
+        "Idade: 17",
+        "Pronomes: ela/dela",
+        "Aparência: Cabelos negros.",
+        "Usa um casaco de viagem.",
+        "Carrega uma mochila pequena.",
+        "Personalidade:",
+        "Curiosa e competitiva.",
+        "Cautelosa quando não conhece o lugar.",
+        "História: Saiu de casa para pesquisar Pokémon raros.",
+        "Passou um ano ajudando no laboratório da cidade.",
+        `Inicial: ${SQUIRTLE_ID}`,
+      ].join("\n"),
+    );
+
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        trainerName: "Liora Vale",
+        age: 17,
+        genderPronouns: "ela/dela",
+        appearance: [
+          "Cabelos negros.",
+          "Usa um casaco de viagem.",
+          "Carrega uma mochila pequena.",
+        ].join("\n"),
+        personality: ["Curiosa e competitiva.", "Cautelosa quando não conhece o lugar."].join("\n"),
+        backstory: [
+          "Saiu de casa para pesquisar Pokémon raros.",
+          "Passou um ano ajudando no laboratório da cidade.",
+        ].join("\n"),
+        starterFormId: SQUIRTLE_ID,
+      },
+    });
+  });
+
   it("rejects ambiguous duplicate fields instead of guessing", () => {
     const parsed = parseFullRegistrationTemplate(
       [

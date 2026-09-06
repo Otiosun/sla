@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { RegistrationConversationRecord } from "../../src/modules/registration/conversation-state.js";
 import { RegistrationService } from "../../src/modules/registration/service.js";
 import type {
   RegistrationDraftRecord,
@@ -11,6 +12,7 @@ import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";
 const STARTER_FORM_ID = "22222222-2222-4222-8222-222222222222";
+const RECEPTION_JID = "120363000000000001@g.us";
 
 function snapshot() {
   return {
@@ -28,11 +30,13 @@ function snapshot() {
 
 class InMemoryRegistrationRepository implements RegistrationRepository {
   public draft: RegistrationDraftRecord | null = null;
+  public conversation: RegistrationConversationRecord | null = null;
   public revisions: RegistrationRevisionRecord[] = [];
   public receipts = new Map<string, string>();
   public transactionCalls = 0;
 
   private readonly tx: RegistrationTransaction = {
+    lockPlayer: async () => undefined,
     loadDraft: async () => this.draft,
     saveDraft: async (input) => {
       const currentRevision = this.draft?.revision ?? null;
@@ -44,6 +48,33 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
         revision: nextRevision,
       };
       return this.draft;
+    },
+    deleteDraft: async () => {
+      this.draft = null;
+    },
+    loadConversation: async () => this.conversation,
+    saveConversation: async (input) => {
+      const currentRevision = this.conversation?.revision ?? null;
+      if (currentRevision !== input.expectedRevision) return null;
+      this.conversation = {
+        playerId: input.playerId,
+        chatRef: input.chatRef,
+        state: input.state,
+        editingMode: input.editingMode,
+        currentField: input.currentField,
+        editField: input.editField,
+        activePromptOutboxIdempotencyKey: input.activePromptOutboxIdempotencyKey,
+        pendingReviewId: input.pendingReviewId ?? null,
+        pendingReviewRevision: input.pendingReviewRevision ?? null,
+        draftRevision: input.draftRevision,
+        lastInboxMessageId: input.lastInboxMessageId,
+        flowVersion: 2,
+        revision: (currentRevision ?? -1) + 1,
+      };
+      return this.conversation;
+    },
+    deleteConversation: async () => {
+      this.conversation = null;
     },
     loadCurrentRevision: async () => this.revisions.at(-1) ?? null,
     loadRevisionById: async (revisionId) =>
@@ -92,6 +123,27 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
   public async read<T>(fn: (tx: RegistrationTransaction) => Promise<T>): Promise<T> {
     return fn(this.tx);
   }
+}
+
+async function persistWithdrawConfirmation(
+  service: RegistrationService,
+  playerId: ReturnType<typeof createPlayerId>,
+  expectedDraftRevision: number,
+) {
+  const confirmation = await service.saveConversationCheckpoint({
+    playerId,
+    chatRef: RECEPTION_JID,
+    state: "WITHDRAW_CONFIRM",
+    editingMode: "GUIDED",
+    currentField: null,
+    editField: null,
+    activePromptOutboxIdempotencyKey: null,
+    expectedConversationRevision: null,
+    expectedDraftRevision,
+    inboxMessageId: randomUUID(),
+  });
+  if (!confirmation.ok) throw confirmation.error;
+  return confirmation.value.conversation;
 }
 
 describe("registration draft lifecycle", () => {
@@ -288,7 +340,29 @@ describe("registration draft lifecycle", () => {
     expect(repository.revisions[0]?.snapshot.trainerName).toBe("Liora Vale");
   });
 
-  it("withdraws the current submitted revision before editing again", async () => {
+  it("rejects withdrawal without a persisted exact-review confirmation", async () => {
+    const repository = new InMemoryRegistrationRepository();
+    const service = new RegistrationService(repository);
+    const playerId = createPlayerId();
+
+    await service.saveDraft({ playerId, draft: snapshot(), expectedRevision: null });
+    const submitted = await service.submit({ playerId, idempotencyKey: "msg-confirm-direct" });
+    if (!submitted.ok) throw submitted.error;
+
+    expect(
+      await service.withdraw({
+        playerId,
+        revisionId: submitted.value.id,
+        expectedRevision: submitted.value.revision,
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+    expect(repository.revisions.at(-1)?.status).toBe("SUBMITTED");
+  });
+
+  it("withdraws the exact submitted revision after persisted confirmation", async () => {
     const repository = new InMemoryRegistrationRepository();
     const service = new RegistrationService(repository);
     const playerId = createPlayerId();
@@ -296,6 +370,13 @@ describe("registration draft lifecycle", () => {
     await service.saveDraft({ playerId, draft: snapshot(), expectedRevision: null });
     const submitted = await service.submit({ playerId, idempotencyKey: "msg-confirm-2" });
     if (!submitted.ok) throw submitted.error;
+
+    const confirmation = await persistWithdrawConfirmation(service, playerId, 0);
+    expect(confirmation).toMatchObject({
+      state: "WITHDRAW_CONFIRM",
+      pendingReviewId: submitted.value.id,
+      pendingReviewRevision: submitted.value.revision,
+    });
 
     const withdrawn = await service.withdraw({
       playerId,

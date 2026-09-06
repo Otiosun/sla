@@ -202,10 +202,15 @@ export function parseFullRegistrationTemplate(
   const values = new Map<RegistrationConversationField, string>();
   const duplicates = new Set<RegistrationConversationField>();
   let currentField: RegistrationConversationField | null = null;
+  let pendingBlankLine = false;
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (line.length === 0) continue;
+
+    if (line.length === 0) {
+      if (currentField !== null && values.has(currentField)) pendingBlankLine = true;
+      continue;
+    }
 
     const colonIndex = line.indexOf(":");
     if (colonIndex >= 0) {
@@ -214,18 +219,20 @@ export function parseFullRegistrationTemplate(
         if (values.has(field)) duplicates.add(field);
         const inlineValue = line.slice(colonIndex + 1).trim();
         if (inlineValue.length > 0) values.set(field, inlineValue);
-        currentField = inlineValue.length === 0 ? field : null;
+        currentField = field;
+        pendingBlankLine = false;
         continue;
       }
     }
 
     if (currentField !== null) {
-      if (values.has(currentField)) {
-        values.set(currentField, `${values.get(currentField)}\n${line}`);
-      } else {
+      const currentValue = values.get(currentField);
+      if (currentValue === undefined) {
         values.set(currentField, line);
+      } else {
+        values.set(currentField, `${currentValue}${pendingBlankLine ? "\n\n" : "\n"}${line}`);
       }
-      currentField = null;
+      pendingBlankLine = false;
     }
   }
 

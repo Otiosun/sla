@@ -308,7 +308,7 @@ describe("registration WhatsApp commands", () => {
     });
   });
 
-  it("asks for explicit withdrawal confirmation before editing a submitted review", async () => {
+  it("fails closed when a submitted withdrawal lacks persisted conversation backing", async () => {
     const sessions = new RegistrationConversationSessions();
     const deps = dependencies(
       sessions,
@@ -320,13 +320,9 @@ describe("registration WhatsApp commands", () => {
     );
     if (editar === undefined) throw new Error("Missing registration route editar");
 
-    const result = await editar.handler.handle(context("$editar"));
-
-    expect(result).toMatchObject({
-      ok: true,
-      value: {
-        outgoing: [{ payload: { text: expect.stringMatching(/análise[\s\S]*\$editar sim/i) } }],
-      },
+    expect(await editar.handler.handle(context("$editar"))).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE_TRANSITION" },
     });
     expect(deps.withdrawalInputs).toEqual([]);
     expect(sessions.get(PLAYER_ID)).toBeNull();
@@ -350,59 +346,6 @@ describe("registration WhatsApp commands", () => {
     });
     expect(deps.withdrawalInputs).toEqual([]);
     expect(sessions.get(PLAYER_ID)).toBeNull();
-  });
-
-  it("invalidates withdrawal confirmation if the submitted review changes before confirmation", async () => {
-    const sessions = new RegistrationConversationSessions();
-    const deps = dependencies(
-      sessions,
-      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
-      review("SUBMITTED", 2),
-    );
-    const editar = createRegistrationWhatsAppRoutes(deps).find(
-      (candidate) => candidate.command === "editar",
-    );
-    if (editar === undefined) throw new Error("Missing registration route editar");
-
-    expect(await editar.handler.handle(context("$editar"))).toMatchObject({ ok: true });
-    deps.setCurrentReview(review("SUBMITTED", 3));
-
-    expect(await editar.handler.handle(context("$editar sim"))).toMatchObject({
-      ok: false,
-      error: { code: "INVALID_STATE_TRANSITION" },
-    });
-    expect(deps.withdrawalInputs).toEqual([]);
-    expect(sessions.get(PLAYER_ID)).toBeNull();
-  });
-
-  it("withdraws the exact submitted review and reopens its persisted draft after explicit confirmation", async () => {
-    const sessions = new RegistrationConversationSessions();
-    const deps = dependencies(
-      sessions,
-      { playerId: PLAYER_ID, revision: 4, snapshot: completedDraft() },
-      review("SUBMITTED", 2),
-    );
-    const editar = createRegistrationWhatsAppRoutes(deps).find(
-      (candidate) => candidate.command === "editar",
-    );
-    if (editar === undefined) throw new Error("Missing registration route editar");
-
-    expect(await editar.handler.handle(context("$editar"))).toMatchObject({ ok: true });
-    const result = await editar.handler.handle(context("$editar sim"));
-
-    expect(result).toMatchObject({
-      ok: true,
-      value: { outgoing: [{ payload: { text: expect.stringMatching(/edição.*aberta/i) } }] },
-    });
-    expect(deps.withdrawalInputs).toEqual([
-      { playerId: PLAYER_ID, revisionId: REVIEW_ID, expectedRevision: 2 },
-    ]);
-    expect(sessions.get(PLAYER_ID)).toMatchObject({
-      mode: "GUIDED",
-      persistedRevision: 4,
-      dirty: false,
-      working: completedDraft(),
-    });
   });
 
   it("reopens requested changes immediately while preserving the persisted ficha", async () => {
