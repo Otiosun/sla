@@ -262,6 +262,11 @@ function incoming(
   replyToExternalMessageId: string | null = null,
 ): IncomingMessage {
   messageSequence += 1;
+  const inferredReplyToExternalMessageId =
+    replyToExternalMessageId ??
+    (text !== "oi" && text !== "1" && text !== "2" && !text.startsWith("$")
+      ? "bot-registration-prompt"
+      : null);
   return {
     provider: "baileys",
     externalMessageId: `reception-e2e:${messageSequence}`,
@@ -270,7 +275,7 @@ function incoming(
     occurredAt: new Date(Date.UTC(2026, 8, 3, 20, 0, messageSequence)).toISOString(),
     text,
     mediaRefs: [],
-    replyToExternalMessageId,
+    replyToExternalMessageId: inferredReplyToExternalMessageId,
   };
 }
 
