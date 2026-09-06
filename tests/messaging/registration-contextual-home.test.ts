@@ -58,7 +58,8 @@ function conversation(
     editingMode: state === "MODE_SELECT" ? null : "GUIDED",
     currentField: state === "GUIDED_FIELD" ? "age" : null,
     editField: null,
-    activePromptOutboxIdempotencyKey: state === "PAUSED" || state === "SUBMITTED" ? null : "old:prompt",
+    activePromptOutboxIdempotencyKey:
+      state === "PAUSED" || state === "SUBMITTED" ? null : "old:prompt",
     draftRevision: 2,
     lastInboxMessageId: null,
     flowVersion: 2,
@@ -83,13 +84,14 @@ function harness(input: {
   readonly review?: RegistrationRevisionRecord;
 }) {
   let currentConversation = input.conversation;
-  let currentDraft = input.draft;
+  const currentDraft = input.draft;
   const checkpoints: Array<Record<string, unknown>> = [];
 
   const dependencies = {
     sessions: new RegistrationConversationSessions(),
     players: {
-      resolveOrCreatePlayer: async () => ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
+      resolveOrCreatePlayer: async () =>
+        ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
       resolvePlayer: async () => ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
     },
     registration: {
@@ -114,7 +116,9 @@ function harness(input: {
           editingMode: checkpoint.editingMode as RegistrationConversationRecord["editingMode"],
           currentField: checkpoint.currentField as RegistrationConversationRecord["currentField"],
           editField: checkpoint.editField as RegistrationConversationRecord["editField"],
-          activePromptOutboxIdempotencyKey: checkpoint.activePromptOutboxIdempotencyKey as string | null,
+          activePromptOutboxIdempotencyKey: checkpoint.activePromptOutboxIdempotencyKey as
+            | string
+            | null,
           draftRevision: currentDraft === undefined ? null : 2,
           lastInboxMessageId: String(checkpoint.inboxMessageId),
           flowVersion: 2,
@@ -166,7 +170,9 @@ describe("contextual $registrar home", () => {
 
     const result = await state.registrar.handler.handle(context("02"));
 
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("📋 FICHA PRONTA PARA REVISÃO");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain(
+      "📋 FICHA PRONTA PARA REVISÃO",
+    );
     expect(state.checkpoints[0]).toMatchObject({ state: "REVIEW" });
   });
 
@@ -180,7 +186,9 @@ describe("contextual $registrar home", () => {
     const result = await state.registrar.handler.handle(context("03"));
 
     expect(result.ok && result.value.outgoing[0]?.payload.text).toMatch(/análise|analise/i);
-    expect(result.ok && result.value.outgoing[0]?.payload.text).not.toContain("Escolha como prefere");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).not.toContain(
+      "Escolha como prefere",
+    );
     expect(state.checkpoints.at(-1)).toMatchObject({
       state: "SUBMITTED",
       activePromptOutboxIdempotencyKey: null,
@@ -197,6 +205,8 @@ describe("contextual $registrar home", () => {
     const result = await state.registrar.handler.handle(context("04"));
 
     expect(result.ok && result.value.outgoing[0]?.payload.text).toMatch(/aprovad|conclu/i);
-    expect(result.ok && result.value.outgoing[0]?.payload.text).not.toContain("Escolha como prefere");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).not.toContain(
+      "Escolha como prefere",
+    );
   });
 });
