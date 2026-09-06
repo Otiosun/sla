@@ -62,8 +62,7 @@ describe("registration conversation routing", () => {
     const routes = createRegistrationWhatsAppRoutes({
       sessions,
       players: {
-        resolveOrCreatePlayer: async () =>
-          ok({ playerId, state: "NEW" as const, created: false }),
+        resolveOrCreatePlayer: async () => ok({ playerId, state: "NEW" as const, created: false }),
         resolvePlayer: async () => ok({ playerId, state: "NEW" as const, created: false }),
       },
       registration: {
