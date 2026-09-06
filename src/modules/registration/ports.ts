@@ -61,10 +61,12 @@ export interface RegistrationTransaction {
   lockPlayer(playerId: PlayerId): Promise<void>;
   loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null>;
   saveDraft(input: SaveRegistrationDraftWrite): Promise<RegistrationDraftRecord | null>;
+  deleteDraft(playerId: PlayerId): Promise<void>;
   loadConversation(playerId: PlayerId): Promise<RegistrationConversationRecord | null>;
   saveConversation(
     input: SaveRegistrationConversationWrite,
   ): Promise<RegistrationConversationRecord | null>;
+  deleteConversation(playerId: PlayerId): Promise<void>;
   loadCurrentRevision(playerId: PlayerId): Promise<RegistrationRevisionRecord | null>;
   loadRevisionById(revisionId: string): Promise<RegistrationRevisionRecord | null>;
   loadIdempotencyReceipt(
