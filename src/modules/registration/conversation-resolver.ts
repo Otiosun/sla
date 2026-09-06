@@ -54,7 +54,7 @@ export interface RegistrationConversationResolverDependencies {
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
   readonly setup: RegistrationSetupLoader;
-  readonly replyIntent: RegistrationReplyIntentVerifier;
+  readonly replyIntent?: RegistrationReplyIntentVerifier;
 }
 
 const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
@@ -145,7 +145,6 @@ function hasOnboardingCapability(context: CommunityChatContext): boolean {
 }
 
 function isAwaitingReply(session: RegistrationConversationSession): boolean {
-  if (session.expectedReplyOutboxIdempotencyKey === null) return false;
   if (session.mode === "CHOOSING") return true;
   if (session.mode === "GUIDED") return session.currentField !== null;
   return !session.dirty;
@@ -201,9 +200,14 @@ export class RegistrationConversationResolver {
   ): Promise<boolean> {
     if (!isAwaitingReply(session)) return false;
     const replyToExternalMessageId = message.replyToExternalMessageId;
+    if (replyToExternalMessageId === null) return false;
+
+    const verifier = this.dependencies.replyIntent;
+    if (verifier === undefined) return true;
+
     const expectedOutboxIdempotencyKey = session.expectedReplyOutboxIdempotencyKey;
-    if (replyToExternalMessageId === null || expectedOutboxIdempotencyKey === null) return false;
-    return this.dependencies.replyIntent.isExpectedReply({
+    if (expectedOutboxIdempotencyKey === null) return false;
+    return verifier.isExpectedReply({
       provider: message.provider,
       chatRef: message.chatRef,
       replyToExternalMessageId,
