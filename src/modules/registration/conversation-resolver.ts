@@ -560,9 +560,7 @@ export class RegistrationConversationResolver {
           parsedValue.error.message,
           renderGuidedField(
             field,
-            field === "starterFormId"
-              ? { starterOptions: starterDisplayNames(setup.value) }
-              : {},
+            field === "starterFormId" ? { starterOptions: starterDisplayNames(setup.value) } : {},
           ),
         );
       }
@@ -1036,9 +1034,7 @@ export class RegistrationConversationResolver {
           parsedValue.error.message,
           renderEditField(
             field,
-            field === "starterFormId"
-              ? { starterOptions: starterDisplayNames(setup.value) }
-              : {},
+            field === "starterFormId" ? { starterOptions: starterDisplayNames(setup.value) } : {},
           ),
         );
       }
