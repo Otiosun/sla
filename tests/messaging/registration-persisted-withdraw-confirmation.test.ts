@@ -110,7 +110,11 @@ function harness() {
     },
     withdraw: async (input: Record<string, unknown>) => {
       withdrawals.push(input);
-      currentReview = { ...currentReview, status: "WITHDRAWN", revision: currentReview.revision + 1 };
+      currentReview = {
+        ...currentReview,
+        status: "WITHDRAWN",
+        revision: currentReview.revision + 1,
+      };
       return ok(currentReview);
     },
     saveDraft: async () => err(appError("ACTION_INVALID", "unused saveDraft")),
@@ -121,8 +125,7 @@ function harness() {
     players: {
       resolveOrCreatePlayer: async () =>
         ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
-      resolvePlayer: async () =>
-        ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
+      resolvePlayer: async () => ok({ playerId: PLAYER_ID, state: "NEW" as const, created: false }),
     },
     registration,
     setup: {
