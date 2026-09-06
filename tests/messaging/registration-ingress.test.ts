@@ -9,7 +9,11 @@ const PLAYER_ID = createPlayerId();
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 const RECEPTION = "120363000000000001@g.us";
 
-function message(input: { readonly text: string; readonly chatRef?: string }): IncomingMessage {
+function message(input: {
+  readonly text: string;
+  readonly chatRef?: string;
+  readonly replyToExternalMessageId?: string | null;
+}): IncomingMessage {
   return {
     provider: "baileys",
     externalMessageId: `ingress-${input.text}`,
@@ -18,7 +22,7 @@ function message(input: { readonly text: string; readonly chatRef?: string }): I
     occurredAt: "2026-09-02T04:15:00.000Z",
     text: input.text,
     mediaRefs: [],
-    replyToExternalMessageId: null,
+    replyToExternalMessageId: input.replyToExternalMessageId ?? null,
   };
 }
 
@@ -59,23 +63,40 @@ function resolver(input: {
 }
 
 describe("registration freeform ingress", () => {
-  it("admits ordinary text only for an active registration session in an onboarding-capable group", async () => {
+  it("admits explicit replies only for an active registration session in an onboarding-capable group", async () => {
     const sessions = new RegistrationConversationSessions();
     sessions.start(PLAYER_ID, { mode: "GUIDED", regionId: ZHOULIA_ID });
     const registration = resolver({ sessions });
 
-    expect(await registration.admits(message({ text: "Liora Vale" }))).toBe(true);
     expect(
       await registration.admits(
-        message({ text: "Charmander observa o mato.", chatRef: "game@g.us" }),
+        message({ text: "Liora Vale", replyToExternalMessageId: "bot-registration-prompt" }),
+      ),
+    ).toBe(true);
+    expect(await registration.admits(message({ text: "Liora Vale" }))).toBe(false);
+    expect(
+      await registration.admits(
+        message({
+          text: "Charmander observa o mato.",
+          chatRef: "game@g.us",
+          replyToExternalMessageId: "bot-registration-prompt",
+        }),
       ),
     ).toBe(false);
-    expect(await registration.admits(message({ text: "$ficha" }))).toBe(false);
+    expect(
+      await registration.admits(
+        message({ text: "$ficha", replyToExternalMessageId: "bot-registration-prompt" }),
+      ),
+    ).toBe(false);
   });
 
   it("rejects ordinary text when no registration session exists", async () => {
     const registration = resolver({ sessions: new RegistrationConversationSessions() });
 
-    expect(await registration.admits(message({ text: "Liora Vale" }))).toBe(false);
+    expect(
+      await registration.admits(
+        message({ text: "Liora Vale", replyToExternalMessageId: "bot-registration-prompt" }),
+      ),
+    ).toBe(false);
   });
 });

@@ -125,7 +125,9 @@ describe("Reception UX polish", () => {
       setup: { load: async () => ok(setup()) },
     });
 
-    const text = outgoingText(await resolver.resolve(context("Liora Vale")));
+    const text = outgoingText(
+      await resolver.resolve(context("Liora Vale", "bot-registration-prompt")),
+    );
     expect(text).toMatch(/Idade/i);
     expect(text).not.toMatch(/Nada será salvo definitivamente/i);
     expect(text.length).toBeLessThan(90);
@@ -157,7 +159,9 @@ describe("Reception UX polish", () => {
     });
 
     const text = outgoingText(
-      await resolver.resolve(context("Saiu de casa para pesquisar Pokémon raros.")),
+      await resolver.resolve(
+        context("Saiu de casa para pesquisar Pokémon raros.", "bot-registration-prompt"),
+      ),
     );
     expect(text).toMatch(/Pokémon inicial/i);
     expect(text).toMatch(/1\. Bulbasaur/);

@@ -32,6 +32,7 @@ export interface RegistrationConversationSession {
   readonly working: RegistrationConversationWorkingDraft;
   readonly persistedRevision: number | null;
   readonly dirty: boolean;
+  readonly expectedReplyOutboxIdempotencyKey: string | null;
 }
 
 export interface BeginRegistrationConversationInput {
@@ -71,6 +72,7 @@ interface MutableSession {
   };
   persistedRevision: number | null;
   dirty: boolean;
+  expectedReplyOutboxIdempotencyKey: string | null;
 }
 
 const GUIDED_FIELDS: readonly RegistrationConversationField[] = [
@@ -95,6 +97,7 @@ function snapshot(session: MutableSession): RegistrationConversationSession {
     working: copyWorking(session.working),
     persistedRevision: session.persistedRevision,
     dirty: session.dirty,
+    expectedReplyOutboxIdempotencyKey: session.expectedReplyOutboxIdempotencyKey,
   };
 }
 
@@ -285,6 +288,7 @@ export class RegistrationConversationSessions {
       working: workingDraft(input),
       persistedRevision: input.baseRevision ?? null,
       dirty: false,
+      expectedReplyOutboxIdempotencyKey: null,
     };
     this.sessions.set(playerId, session);
     return snapshot(session);
@@ -302,6 +306,7 @@ export class RegistrationConversationSessions {
       working,
       persistedRevision: input.baseRevision ?? null,
       dirty: false,
+      expectedReplyOutboxIdempotencyKey: null,
     };
     this.sessions.set(playerId, session);
     return snapshot(session);
@@ -310,6 +315,31 @@ export class RegistrationConversationSessions {
   public get(playerId: PlayerId): RegistrationConversationSession | null {
     const session = this.sessions.get(playerId);
     return session === undefined ? null : snapshot(session);
+  }
+
+  public expectReply(
+    playerId: PlayerId,
+    outboxIdempotencyKey: string,
+  ): Result<RegistrationConversationSession> {
+    const session = this.sessions.get(playerId);
+    if (session === undefined) {
+      return err(appError("NOT_FOUND", "Registration conversation is not active"));
+    }
+    const key = outboxIdempotencyKey.trim();
+    if (key.length === 0) {
+      return err(appError("VALIDATION_FAILED", "Expected registration reply key is empty"));
+    }
+    session.expectedReplyOutboxIdempotencyKey = key;
+    return ok(snapshot(session));
+  }
+
+  public clearExpectedReply(playerId: PlayerId): Result<RegistrationConversationSession> {
+    const session = this.sessions.get(playerId);
+    if (session === undefined) {
+      return err(appError("NOT_FOUND", "Registration conversation is not active"));
+    }
+    session.expectedReplyOutboxIdempotencyKey = null;
+    return ok(snapshot(session));
   }
 
   public chooseMode(playerId: PlayerId, rawValue: string): Result<RegistrationConversationSession> {
@@ -330,6 +360,7 @@ export class RegistrationConversationSessions {
     }
     session.mode = mode;
     session.currentField = mode === "GUIDED" ? firstMissingField(session.working) : null;
+    session.expectedReplyOutboxIdempotencyKey = null;
     return ok(snapshot(session));
   }
 
@@ -343,6 +374,7 @@ export class RegistrationConversationSessions {
     }
     session.mode = mode;
     session.currentField = mode === "GUIDED" ? firstMissingField(session.working) : null;
+    session.expectedReplyOutboxIdempotencyKey = null;
     return ok(snapshot(session));
   }
 
@@ -363,6 +395,7 @@ export class RegistrationConversationSessions {
       session.working[field] = parsed.value as string;
     }
     session.dirty = true;
+    session.expectedReplyOutboxIdempotencyKey = null;
     if (session.mode === "GUIDED") session.currentField = firstMissingField(session.working);
     return ok(snapshot(session));
   }
@@ -394,6 +427,7 @@ export class RegistrationConversationSessions {
       session.currentField = nextGuidedField(session.currentField);
     }
     session.dirty = true;
+    session.expectedReplyOutboxIdempotencyKey = null;
     return ok(snapshot(session));
   }
 

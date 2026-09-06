@@ -66,11 +66,26 @@ function identity(context: MessageHandlerContext) {
   return { provider: context.message.provider, externalId: context.message.senderRef };
 }
 
+function commandOutboxKey(context: MessageHandlerContext): string {
+  return `${context.idempotencyKey}:registration-command`;
+}
+
 function reply(
   context: MessageHandlerContext,
   playerId: PlayerId,
   text: string,
+  sessions?: RegistrationConversationSessions,
+  expectsReply = false,
 ): Result<MessageHandlerResult> {
+  const idempotencyKey = commandOutboxKey(context);
+  if (expectsReply) {
+    if (sessions === undefined) {
+      return err(appError("ACTION_INVALID", "Registration prompt session tracker is unavailable"));
+    }
+    const tracked = sessions.expectReply(playerId, idempotencyKey);
+    if (!tracked.ok) return tracked;
+  }
+
   return ok({
     resultRefType: "REGISTRATION_SESSION",
     resultRefId: playerId,
@@ -80,7 +95,7 @@ function reply(
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: { text },
-        idempotencyKey: `${context.idempotencyKey}:registration-command`,
+        idempotencyKey,
       },
     ],
   });
@@ -99,12 +114,14 @@ function parseMode(value: string | undefined): RegistrationEditingMode | null {
 function guidedPrompt(session: RegistrationConversationSession): string {
   return session.currentField === null
     ? "✅ Todos os campos atuais estão preenchidos. Use `$ficha` para revisar."
-    : `📝 *${LABELS[session.currentField]}*\n\nEnvie sua resposta.`;
+    : `📝 *${LABELS[session.currentField]}*\n\nResponda a esta mensagem.`;
 }
 
 function fullTemplate(setup: RegistrationSetup): string {
   return [
     "📋 *FICHA COMPLETA*",
+    "",
+    "Preencha o modelo e envie respondendo a esta mensagem:",
     "",
     "Nome:",
     "Idade:",
@@ -116,7 +133,7 @@ function fullTemplate(setup: RegistrationSetup): string {
     "",
     `Região: ${setup.regionDisplayName}`,
     "",
-    "Envie a ficha preenchida. Nada é definitivo nesta etapa.",
+    "Nada é definitivo nesta etapa.",
   ].join("\n");
 }
 
@@ -215,7 +232,13 @@ async function openPersistedDraft(
     baseDraft: draft.value.snapshot,
     baseRevision: draft.value.revision,
   });
-  return reply(context, playerId, `✏️ Edição aberta.\n\n${guidedPrompt(resumed)}`);
+  return reply(
+    context,
+    playerId,
+    `✏️ Edição aberta.\n\n${guidedPrompt(resumed)}`,
+    dependencies.sessions,
+    resumed.currentField !== null,
+  );
 }
 
 export function createRegistrationWhatsAppRoutes(
@@ -245,8 +268,10 @@ export function createRegistrationWhatsAppRoutes(
         "1. Quero ser guiado passo a passo",
         "2. Quero preencher a ficha completa",
         "",
-        "Responda `1` ou `2`. Nada será definido só por começar o cadastro.",
+        "Responda a esta mensagem com `1` ou `2`. Nada será definido só por começar o cadastro.",
       ].join("\n"),
+      dependencies.sessions,
+      true,
     );
   };
 
@@ -261,9 +286,19 @@ export function createRegistrationWhatsAppRoutes(
     pendingWithdrawals.delete(player.value);
     const switched = dependencies.sessions.switchMode(player.value, selected);
     if (!switched.ok) return switched;
-    if (selected === "GUIDED") return reply(context, player.value, guidedPrompt(switched.value));
+    if (selected === "GUIDED") {
+      return reply(
+        context,
+        player.value,
+        guidedPrompt(switched.value),
+        dependencies.sessions,
+        switched.value.currentField !== null,
+      );
+    }
     const setup = await dependencies.setup.load();
-    return setup.ok ? reply(context, player.value, fullTemplate(setup.value)) : setup;
+    return setup.ok
+      ? reply(context, player.value, fullTemplate(setup.value), dependencies.sessions, true)
+      : setup;
   };
 
   const ficha: Handler = async (context) => {
@@ -310,7 +345,9 @@ export function createRegistrationWhatsAppRoutes(
     return reply(
       context,
       player.value,
-      `💾 Rascunho salvo.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean) : "Use `$ficha` para revisar ou continue editando."}`,
+      `💾 Rascunho salvo.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean) : "Use `$ficha` para revisar ou `$modo completo` para reenviar a ficha completa."}`,
+      dependencies.sessions,
+      clean.mode === "GUIDED" && clean.currentField !== null,
     );
   };
 
@@ -336,7 +373,13 @@ export function createRegistrationWhatsAppRoutes(
       baseDraft: draft.value.snapshot,
       baseRevision: draft.value.revision,
     });
-    return reply(context, player.value, `↩️ Rascunho retomado.\n\n${guidedPrompt(resumed)}`);
+    return reply(
+      context,
+      player.value,
+      `↩️ Rascunho retomado.\n\n${guidedPrompt(resumed)}`,
+      dependencies.sessions,
+      resumed.currentField !== null,
+    );
   };
 
   const edit: Handler = async (context) => {

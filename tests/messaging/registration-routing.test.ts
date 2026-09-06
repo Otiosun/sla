@@ -13,6 +13,7 @@ const SQUIRTLE_ID = "33333333-3333-4333-8333-333333333333";
 function context(input: {
   readonly text: string;
   readonly chatRef?: string;
+  readonly replyToExternalMessageId?: string | null;
 }): MessageHandlerContext {
   return {
     inboxMessageId: "00000000-0000-4000-8000-000000000101",
@@ -27,7 +28,7 @@ function context(input: {
       occurredAt: "2026-09-01T23:40:00.000Z",
       text: input.text,
       mediaRefs: [],
-      replyToExternalMessageId: null,
+      replyToExternalMessageId: input.replyToExternalMessageId ?? "bot-registration-prompt",
     },
   };
 }

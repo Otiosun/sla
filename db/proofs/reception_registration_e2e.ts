@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { baileysOutboundMessageId } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import type { IncomingMessage, MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
-import { MessagingService } from "../../src/modules/messaging/service.js";
+import { MessagingService, type OutboxWorker } from "../../src/modules/messaging/service.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
 import { PlayerProvisioningService } from "../../src/modules/registration/provisioning-service.js";
@@ -38,7 +39,10 @@ const WORLD_CHAT = "120363000000009002@g.us";
 const PLAYER_JID = "5511999999001@s.whatsapp.net";
 const ADMIN_JID = "5511999999002@s.whatsapp.net";
 
-function unwrap<T>(label: string, result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }): T {
+function unwrap<T>(
+  label: string,
+  result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } },
+): T {
   if (result.ok) return result.value;
   throw new Error(`${label} failed [${result.error.code}]: ${result.error.message}`);
 }
@@ -147,12 +151,17 @@ async function prepareZhouliaRelease(pool: Pool): Promise<{
   unwrap("publish reception proof release", await catalog.publishRelease(releaseId));
   unwrap("activate reception proof release", await catalog.activateRelease(releaseId));
 
-  const setup = unwrap("load Zhoulia registration setup", await new PostgresRegistrationSetupLoader(pool).load());
+  const setup = unwrap(
+    "load Zhoulia registration setup",
+    await new PostgresRegistrationSetupLoader(pool).load(),
+  );
   assert.equal(setup.regionId, regionId);
   assert.ok(setup.starterOptions.length >= 2);
   const first = setup.starterOptions[0]?.displayName;
   const second = setup.starterOptions[1]?.displayName;
-  if (first === undefined || second === undefined) throw new Error("Starter display names are unavailable");
+  if (first === undefined || second === undefined) {
+    throw new Error("Starter display names are unavailable");
+  }
   return { regionId, starterNames: [first, second] };
 }
 
@@ -274,6 +283,14 @@ function incoming(
   };
 }
 
+interface ProofHarness {
+  readonly adapter: FakeWhatsAppAdapter;
+  readonly outboxWorker: OutboxWorker;
+  lastRegistrationPromptId: string | null;
+}
+
+const harnessByService = new WeakMap<MessagingService, ProofHarness>();
+
 function messaging(pool: Pool) {
   const composition = createOperationalMessagingComposition(pool);
   const repository = new PostgresMessagingRepository(pool);
@@ -282,12 +299,43 @@ function messaging(pool: Pool) {
     chat: { policyKey: "reception.e2e.chat", maxEvents: 1_000, windowMs: 60_000 },
     sensitiveAction: { policyKey: "reception.e2e.sensitive", maxEvents: 500, windowMs: 60_000 },
   });
+  const adapter = new FakeWhatsAppAdapter();
+  const outboxWorker = createOperationalOutboxWorker(pool, repository, adapter);
+  harnessByService.set(service, {
+    adapter,
+    outboxWorker,
+    lastRegistrationPromptId: null,
+  });
   return { composition, repository, service };
 }
 
+function registrationPromptId(
+  messages: readonly { id: string; payload: { text?: unknown } }[],
+): string | null {
+  const prompt = [...messages].reverse().find((message) => {
+    const text = message.payload.text;
+    return typeof text === "string" && /respond(?:a|endo) a esta mensagem/i.test(text);
+  });
+  return prompt === undefined ? null : baileysOutboundMessageId(prompt as never);
+}
+
 async function receive(service: MessagingService, message: IncomingMessage): Promise<string> {
-  const result = unwrap(`receive ${message.text ?? "<freeform>"}`, await service.receive(message));
+  const harness = harnessByService.get(service);
+  if (harness === undefined) throw new Error("Reception E2E messaging harness is missing");
+
+  const text = message.text?.trim() ?? "";
+  const freeform = text.length > 0 && !text.startsWith("$");
+  const prepared =
+    freeform && harness.lastRegistrationPromptId !== null
+      ? { ...message, replyToExternalMessageId: harness.lastRegistrationPromptId }
+      : message;
+
+  const sentBefore = harness.adapter.sent.length;
+  const result = unwrap(`receive ${prepared.text ?? "<freeform>"}`, await service.receive(prepared));
   assert.equal(result.status, "PROCESSED");
+
+  await harness.outboxWorker.runOnce();
+  harness.lastRegistrationPromptId = registrationPromptId(harness.adapter.sent.slice(sentBefore));
   return result.inboxMessageId;
 }
 
@@ -326,7 +374,11 @@ async function main(): Promise<void> {
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "ela/dela"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$salvar"));
 
-    const partial = await pool.query<{ trainer_name: string | null; age: number | null; appearance: string | null }>(
+    const partial = await pool.query<{
+      trainer_name: string | null;
+      age: number | null;
+      appearance: string | null;
+    }>(
       `SELECT snapshot_json ->> 'trainerName' AS trainer_name,
               (snapshot_json ->> 'age')::integer AS age,
               snapshot_json ->> 'appearance' AS appearance
@@ -347,6 +399,7 @@ async function main(): Promise<void> {
         fullFicha(starterNames[0], "Curiosa e competitiva.", "Saiu de casa para pesquisar Pokémon raros."),
       ),
     );
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -378,12 +431,19 @@ async function main(): Promise<void> {
     assert.equal(firstReview.sequence_no, 1);
     assert.equal(firstReview.status, "SUBMITTED");
 
-    const setup = unwrap("reload registration setup", await new PostgresRegistrationSetupLoader(pool).load());
-    const expectedStarter = setup.starterOptions.find((option) => option.displayName === starterNames[1]);
+    const setup = unwrap(
+      "reload registration setup",
+      await new PostgresRegistrationSetupLoader(pool).load(),
+    );
+    const expectedStarter = setup.starterOptions.find(
+      (option) => option.displayName === starterNames[1],
+    );
     if (expectedStarter === undefined) throw new Error("Changed starter is absent from setup");
     assert.equal(firstReview.snapshot_json.starterFormId, expectedStarter.formId);
 
-    const notification = await pool.query<{ payload: { mentions?: string[]; registrationReview?: unknown } }>(
+    const notification = await pool.query<{
+      payload: { mentions?: string[]; registrationReview?: unknown };
+    }>(
       `SELECT payload
        FROM outbox_messages
        WHERE payload ? 'registrationReview'
@@ -476,7 +536,10 @@ async function main(): Promise<void> {
       runtime.service,
       incoming(ADMIN_JID, RECEPTION_CHAT, "$aprovar", secondReplyId),
     );
-    const approved = await pool.query<{ status: string; decided_by_admin_principal_id: string }>(
+    const approved = await pool.query<{
+      status: string;
+      decided_by_admin_principal_id: string;
+    }>(
       `SELECT status, decided_by_admin_principal_id
        FROM registration_revisions WHERE id = $1`,
       [secondReview.id],
@@ -499,15 +562,23 @@ async function main(): Promise<void> {
     const accessRepository = new PostgresPlayerAccessRepository(pool);
     const playerRepository = new PostgresPlayerOnboardingRepository(pool);
     const realRegistration = new PlayerRegistrationService(playerRepository);
-    const realStarter = new PlayerStarterService(playerRepository, new SystemClock(), new CryptoRandomSource());
-    const realWorld = new WorldService(new PostgresWorldRepository(pool), { enabled: true, reason: null });
+    const realStarter = new PlayerStarterService(
+      playerRepository,
+      new SystemClock(),
+      new CryptoRandomSource(),
+    );
+    const realWorld = new WorldService(new PostgresWorldRepository(pool), {
+      enabled: true,
+      reason: null,
+    });
     const candidateSource = new PostgresProvisioningCandidateSource(pool);
 
     const failingProvisioning = new PlayerProvisioningService(
       registrationRepository,
       accessRepository,
       {
-        createProfile: async () => err(appError("FEATURE_UNAVAILABLE", "proof pause after PROVISIONING")),
+        createProfile: async () =>
+          err(appError("FEATURE_UNAVAILABLE", "proof pause after PROVISIONING")),
         selectRegion: (id, input) => realRegistration.selectRegion(id, input),
       },
       realStarter,
@@ -569,18 +640,29 @@ async function main(): Promise<void> {
       location_count: 1,
     });
 
-    const announcement = await pool.query<{ status: string; destination_ref: string; payload: { text?: string } }>(
+    const groupId = (
+      await pool.query<{ id: string }>("SELECT id FROM community_groups WHERE chat_ref = $1", [
+        RECEPTION_CHAT,
+      ])
+    ).rows[0]?.id;
+    const announcement = await pool.query<{
+      status: string;
+      destination_ref: string;
+      payload: { text?: string };
+    }>(
       `SELECT status, destination_ref, payload
        FROM outbox_messages
        WHERE idempotency_key = $1`,
-      [`registration-activated:${secondReview.id}:${(await pool.query<{ id: string }>("SELECT id FROM community_groups WHERE chat_ref = $1", [RECEPTION_CHAT])).rows[0]?.id}`],
+      [`registration-activated:${secondReview.id}:${groupId}`],
     );
     assert.equal(announcement.rows[0]?.status, "PENDING");
     assert.equal(announcement.rows[0]?.destination_ref, RECEPTION_CHAT);
     assert.match(announcement.rows[0]?.payload.text ?? "", /Liora Vale/);
 
     const location = unwrap("load active location", await realWorld.getLocation(playerId as never));
-    const route = location.connections.find((candidate) => candidate.destinationSlug === "zhoulia-road");
+    const route = location.connections.find(
+      (candidate) => candidate.destinationSlug === "zhoulia-road",
+    );
     if (route === undefined) throw new Error("Zhoulia world route is missing after provisioning");
     const commandText = `$ir ${route.destinationSlug} v${location.revision}`;
     const receptionContext = directContext(PLAYER_JID, RECEPTION_CHAT, commandText);
@@ -591,11 +673,10 @@ async function main(): Promise<void> {
     const worldContext = directContext(PLAYER_JID, WORLD_CHAT, commandText);
     const allowed = await runtime.composition.router.dispatch(worldContext);
     assert.equal(allowed.ok, true);
-    if (!allowed.ok) throw new Error(`World travel was denied in world-capable group: ${allowed.error.code}`);
-    assert.match(
-      String(allowed.value?.outgoing[0]?.payload.text ?? ""),
-      /Estrada de Zhoulia/,
-    );
+    if (!allowed.ok) {
+      throw new Error(`World travel was denied in world-capable group: ${allowed.error.code}`);
+    }
+    assert.match(String(allowed.value?.outgoing[0]?.payload.text ?? ""), /Estrada de Zhoulia/);
 
     console.log("Reception registration E2E proof passed");
   } finally {

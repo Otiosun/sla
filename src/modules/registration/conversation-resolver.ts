@@ -40,11 +40,21 @@ interface RegistrationSetupLoader {
   load(): Promise<Result<RegistrationSetup>>;
 }
 
+export interface RegistrationReplyIntentVerifier {
+  isExpectedReply(input: {
+    readonly provider: string;
+    readonly chatRef: string;
+    readonly replyToExternalMessageId: string;
+    readonly expectedOutboxIdempotencyKey: string;
+  }): Promise<boolean>;
+}
+
 export interface RegistrationConversationResolverDependencies {
   readonly sessions: RegistrationConversationSessions;
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
   readonly setup: RegistrationSetupLoader;
+  readonly replyIntent?: RegistrationReplyIntentVerifier;
 }
 
 const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
@@ -57,11 +67,23 @@ const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
   starterFormId: "Pokémon inicial",
 };
 
+function conversationOutboxKey(context: MessageHandlerContext): string {
+  return `${context.idempotencyKey}:registration-conversation`;
+}
+
 function textResult(
   context: MessageHandlerContext,
   playerId: PlayerId,
   text: string,
+  sessions: RegistrationConversationSessions,
+  expectsReply: boolean,
 ): Result<MessageHandlerResult> {
+  const idempotencyKey = conversationOutboxKey(context);
+  const tracked = expectsReply
+    ? sessions.expectReply(playerId, idempotencyKey)
+    : sessions.clearExpectedReply(playerId);
+  if (!tracked.ok) return tracked;
+
   return ok({
     resultRefType: "REGISTRATION_SESSION",
     resultRefId: playerId,
@@ -71,7 +93,7 @@ function textResult(
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: { text },
-        idempotencyKey: `${context.idempotencyKey}:registration-conversation`,
+        idempotencyKey,
       },
     ],
   });
@@ -93,17 +115,17 @@ function guidedPrompt(session: RegistrationConversationSession, setup?: Registra
       "",
       starterOptionsText(setup),
       "",
-      "Responda com o número ou o nome.",
+      "Responda a esta mensagem com o número ou o nome.",
     ].join("\n");
   }
-  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nEnvie sua resposta.`;
+  return `📝 *${FIELD_LABELS[session.currentField]}*\n\nResponda a esta mensagem.`;
 }
 
 function fullTemplatePrompt(): string {
   return [
     "📋 *FICHA COMPLETA*",
     "",
-    "Preencha e envie o modelo abaixo de uma vez:",
+    "Preencha o modelo abaixo e envie respondendo a esta mensagem:",
     "",
     "Nome:",
     "Idade:",
@@ -120,6 +142,12 @@ function fullTemplatePrompt(): string {
 
 function hasOnboardingCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("onboarding");
+}
+
+function isLogicallyAwaitingReply(session: RegistrationConversationSession): boolean {
+  if (session.mode === "CHOOSING") return true;
+  if (session.mode === "GUIDED") return session.currentField !== null;
+  return true;
 }
 
 function normalizedChoice(value: string): string {
@@ -166,6 +194,27 @@ function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetu
 export class RegistrationConversationResolver {
   public constructor(private readonly dependencies: RegistrationConversationResolverDependencies) {}
 
+  private async hasExpectedReplyIntent(
+    message: IncomingMessage,
+    session: RegistrationConversationSession,
+  ): Promise<boolean> {
+    if (!isLogicallyAwaitingReply(session)) return false;
+    const replyToExternalMessageId = message.replyToExternalMessageId;
+    if (replyToExternalMessageId === null) return false;
+
+    const verifier = this.dependencies.replyIntent;
+    if (verifier === undefined) return true;
+
+    const expectedOutboxIdempotencyKey = session.expectedReplyOutboxIdempotencyKey;
+    if (expectedOutboxIdempotencyKey === null) return false;
+    return verifier.isExpectedReply({
+      provider: message.provider,
+      chatRef: message.chatRef,
+      replyToExternalMessageId,
+      expectedOutboxIdempotencyKey,
+    });
+  }
+
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
     if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
@@ -182,7 +231,9 @@ export class RegistrationConversationResolver {
     });
     if (!player.ok) return false;
 
-    return this.dependencies.sessions.get(player.value.playerId) !== null;
+    const active = this.dependencies.sessions.get(player.value.playerId);
+    if (active === null) return false;
+    return this.hasExpectedReplyIntent(message, active);
   }
 
   public async resolve(
@@ -204,7 +255,9 @@ export class RegistrationConversationResolver {
     if (!player.ok) return ok(null);
 
     const active = this.dependencies.sessions.get(player.value.playerId);
-    if (active === null) return ok(null);
+    if (active === null || !(await this.hasExpectedReplyIntent(context.message, active))) {
+      return ok(null);
+    }
 
     if (active.mode === "CHOOSING") {
       const chosen = this.dependencies.sessions.chooseMode(player.value.playerId, text);
@@ -213,6 +266,8 @@ export class RegistrationConversationResolver {
         context,
         player.value.playerId,
         chosen.value.mode === "GUIDED" ? guidedPrompt(chosen.value) : fullTemplatePrompt(),
+        this.dependencies.sessions,
+        true,
       );
     }
 
@@ -231,10 +286,22 @@ export class RegistrationConversationResolver {
       if (applied.value.currentField === "starterFormId") {
         const setup = await this.dependencies.setup.load();
         if (!setup.ok) return setup;
-        return textResult(context, player.value.playerId, guidedPrompt(applied.value, setup.value));
+        return textResult(
+          context,
+          player.value.playerId,
+          guidedPrompt(applied.value, setup.value),
+          this.dependencies.sessions,
+          true,
+        );
       }
 
-      return textResult(context, player.value.playerId, guidedPrompt(applied.value));
+      return textResult(
+        context,
+        player.value.playerId,
+        guidedPrompt(applied.value),
+        this.dependencies.sessions,
+        applied.value.currentField !== null,
+      );
     }
 
     const parsed = parseFullRegistrationTemplate(text);
@@ -263,6 +330,8 @@ export class RegistrationConversationResolver {
       context,
       player.value.playerId,
       "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` quando quiser conferir o envio.",
+      this.dependencies.sessions,
+      false,
     );
   }
 }

@@ -51,6 +51,7 @@ import { PostgresPlayerAccessRepository } from "../platform/registration/postgre
 import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
 import { PostgresReceptionActivationAnnouncement } from "../platform/registration/postgres-reception-activation-announcement.js";
 import { PostgresRegistrationMessageRefRepository } from "../platform/registration/postgres-registration-message-ref-repository.js";
+import { PostgresRegistrationReplyIntentVerifier } from "../platform/registration/postgres-registration-reply-intent-verifier.js";
 import { PostgresRegistrationRepository } from "../platform/registration/postgres-registration-repository.js";
 import { PostgresRegistrationSetupLoader } from "../platform/registration/postgres-registration-setup-loader.js";
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
@@ -71,6 +72,7 @@ export interface OperationalWhatsAppRuntimeOptions {
 
 export interface OperationalMessagingComposition {
   readonly router: MessageRouter;
+  readonly admitCommand: (message: IncomingMessage) => boolean;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
   readonly runMaintenance: () => Promise<void>;
 }
@@ -132,6 +134,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     community,
     players: playerRegistration,
     setup,
+    replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
   });
   const reception = new ReceptionService({
     community,
@@ -194,7 +197,8 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
 
   return {
     router,
-    admitFreeform: (message) => conversationResolver.admits(message),
+    admitCommand: (message) => router.admitsCommand(message),
+    admitFreeform: (message) => registrationConversationResolver.admits(message),
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
     },
@@ -256,6 +260,7 @@ export function createOperationalWhatsAppRuntime(
   const outboxWorker = createOperationalOutboxWorker(options.pool, messagingRepository, adapter);
 
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
+    admitCommand: composition.admitCommand,
     admitFreeform: composition.admitFreeform,
     beforeOutboxFlush: composition.runMaintenance,
   });

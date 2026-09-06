@@ -7,6 +7,7 @@ import type {
 import type { WhatsAppAdapter } from "./adapter.js";
 
 export interface WhatsAppMessagingRuntimeOptions {
+  readonly admitCommand?: (message: IncomingMessage) => Promise<boolean> | boolean;
   readonly admitFreeform?: (message: IncomingMessage) => Promise<boolean> | boolean;
   readonly beforeOutboxFlush?: () => Promise<void>;
 }
@@ -23,7 +24,10 @@ export class WhatsAppMessagingRuntime {
     await this.adapter.start(async (message) => {
       const text = message.text?.trimStart();
       const commandCandidate = text?.startsWith("$") ?? false;
-      if (!commandCandidate) {
+      if (commandCandidate) {
+        const admitCommand = this.options.admitCommand;
+        if (admitCommand !== undefined && !(await admitCommand(message))) return;
+      } else {
         const admitFreeform = this.options.admitFreeform;
         if (admitFreeform === undefined || !(await admitFreeform(message))) return;
       }

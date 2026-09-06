@@ -106,6 +106,46 @@ describe("messaging boundary", () => {
     expect(received.map((incoming) => incoming.externalMessageId)).toEqual(["msg-command"]);
   });
 
+  it("drops unknown command candidates before the inbox when strict command admission is configured", async () => {
+    const adapter = new FakeWhatsAppAdapter();
+    const received: IncomingMessage[] = [];
+    const messaging = {
+      async receive(incoming: IncomingMessage) {
+        received.push(incoming);
+        return ok({
+          status: "PROCESSED" as const,
+          inboxMessageId: "00000000-0000-4000-8000-000000000014",
+          correlationId: "00000000-0000-4000-8000-000000000015",
+          resultRefType: null,
+          resultRefId: null,
+        });
+      },
+    } as unknown as MessagingService;
+    const outboxWorker = {
+      async runOnce() {
+        return { claimed: 0, sent: 0, failed: 0 };
+      },
+    } as unknown as OutboxWorker;
+    const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
+      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "$menu",
+    });
+
+    await runtime.start();
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-unknown-command",
+      text: "$registro",
+    });
+    await adapter.inject({
+      ...message,
+      externalMessageId: "msg-known-command",
+      text: "$Menu",
+    });
+    await runtime.stop();
+
+    expect(received.map((incoming) => incoming.externalMessageId)).toEqual(["msg-known-command"]);
+  });
+
   it("admits only explicitly eligible freeform traffic for conversational flows", async () => {
     const adapter = new FakeWhatsAppAdapter();
     const received: IncomingMessage[] = [];
