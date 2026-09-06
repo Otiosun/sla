@@ -110,10 +110,7 @@ function renderGuidedSessionPrompt(
     });
   }
 
-  return renderGuidedField(
-    session.currentField,
-    modeSelected ? { modeSelected: true } : {},
-  );
+  return renderGuidedField(session.currentField, modeSelected ? { modeSelected: true } : {});
 }
 
 function hasOnboardingCapability(context: CommunityChatContext): boolean {
