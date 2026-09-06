@@ -86,7 +86,31 @@ function harness() {
     getDraft: async () => ok({ playerId: PLAYER_ID, snapshot: snapshot(), revision: 2 }),
     getCurrentReview: async () => ok(currentReview),
     saveConversationCheckpoint: async (checkpoint: Record<string, unknown>) => {
-      checkpoints.push(checkpoint);
+      let pendingReviewId = (checkpoint.pendingReviewId ?? null) as string | null;
+      let pendingReviewRevision = (checkpoint.pendingReviewRevision ?? null) as number | null;
+      if (
+        checkpoint.state === "WITHDRAW_CONFIRM" &&
+        pendingReviewId === null &&
+        pendingReviewRevision === null
+      ) {
+        if (currentReview.status !== "SUBMITTED") {
+          return err(
+            appError(
+              "INVALID_STATE_TRANSITION",
+              "No submitted registration review is available for withdrawal confirmation",
+            ),
+          );
+        }
+        pendingReviewId = currentReview.id;
+        pendingReviewRevision = currentReview.revision;
+      }
+
+      const resolvedCheckpoint = {
+        ...checkpoint,
+        pendingReviewId,
+        pendingReviewRevision,
+      };
+      checkpoints.push(resolvedCheckpoint);
       const nextConversation: RegistrationConversationRecord = {
         ...currentConversation,
         chatRef: String(checkpoint.chatRef),
@@ -97,8 +121,8 @@ function harness() {
         activePromptOutboxIdempotencyKey: checkpoint.activePromptOutboxIdempotencyKey as
           | string
           | null,
-        pendingReviewId: (checkpoint.pendingReviewId ?? null) as string | null,
-        pendingReviewRevision: (checkpoint.pendingReviewRevision ?? null) as number | null,
+        pendingReviewId,
+        pendingReviewRevision,
         lastInboxMessageId: String(checkpoint.inboxMessageId),
         revision: currentConversation.revision + 1,
       };
@@ -109,6 +133,21 @@ function harness() {
       return ok({ conversation: currentConversation, draft: null, replayed: false });
     },
     withdraw: async (input: Record<string, unknown>) => {
+      if (
+        currentConversation.state !== "WITHDRAW_CONFIRM" ||
+        currentConversation.pendingReviewId !== input.revisionId ||
+        currentConversation.pendingReviewRevision !== input.expectedRevision ||
+        currentReview.id !== currentConversation.pendingReviewId ||
+        currentReview.revision !== currentConversation.pendingReviewRevision ||
+        currentReview.status !== "SUBMITTED"
+      ) {
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Registration review withdrawal is not confirmed for this exact revision",
+          ),
+        );
+      }
       withdrawals.push(input);
       currentReview = {
         ...currentReview,
