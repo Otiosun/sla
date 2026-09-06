@@ -309,10 +309,12 @@ function messaging(pool: Pool) {
   return { composition, repository, service };
 }
 
-function registrationPromptId(messages: readonly { id: string; payload: { text?: unknown } }[]): string | null {
+function registrationPromptId(
+  messages: readonly { id: string; payload: { text?: unknown } }[],
+): string | null {
   const prompt = [...messages].reverse().find((message) => {
     const text = message.payload.text;
-    return typeof text === "string" && /responda a esta mensagem/i.test(text);
+    return typeof text === "string" && /respond(?:a|endo) a esta mensagem/i.test(text);
   });
   return prompt === undefined ? null : baileysOutboundMessageId(prompt as never);
 }
