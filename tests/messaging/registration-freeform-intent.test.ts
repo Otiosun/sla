@@ -56,6 +56,21 @@ function resolverFor(
 }
 
 describe("registration freeform intent", () => {
+  it("still accepts a compact mode choice without requiring a reply", async () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.begin(playerId, { regionId: ZHOULIA_ID });
+    const router = new MessageRouter([], undefined, resolverFor(sessions, playerId));
+
+    const routed = await router.dispatch(context("2"));
+
+    expect(routed).toMatchObject({
+      ok: true,
+      value: { resultRefType: "REGISTRATION_SESSION", resultRefId: playerId },
+    });
+    expect(sessions.get(playerId)).toMatchObject({ mode: "FULL", dirty: false });
+  });
+
   it("ignores unrelated normal text while a full registration session is open", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
