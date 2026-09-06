@@ -62,8 +62,9 @@ describe("registration conversation routing", () => {
     const routes = createRegistrationWhatsAppRoutes({
       sessions,
       players: {
-        resolveOrCreatePlayer: async () => ok({ playerId, state: "NEW" as const }),
-        resolvePlayer: async () => ok({ playerId, state: "NEW" as const }),
+        resolveOrCreatePlayer: async () =>
+          ok({ playerId, state: "NEW" as const, created: false }),
+        resolvePlayer: async () => ok({ playerId, state: "NEW" as const, created: false }),
       },
       registration: {
         getDraft: async () => err(appError("NOT_FOUND", "No draft")),
