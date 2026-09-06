@@ -11,8 +11,11 @@ const REVIEW_ID = "33333333-3333-4333-8333-333333333333";
 
 function repositoryWith(review: RegistrationRevisionRecord): RegistrationRepository {
   const tx: RegistrationTransaction = {
+    lockPlayer: async () => undefined,
     loadDraft: async () => null,
     saveDraft: async () => null,
+    loadConversation: async () => null,
+    saveConversation: async () => null,
     loadCurrentRevision: async () => review,
     loadRevisionById: async (revisionId) => (revisionId === review.id ? review : null),
     loadIdempotencyReceipt: async () => null,
