@@ -33,6 +33,8 @@ export interface RegistrationConversationRecord {
   readonly currentField: RegistrationConversationField | null;
   readonly editField: RegistrationConversationField | null;
   readonly activePromptOutboxIdempotencyKey: string | null;
+  readonly pendingReviewId?: string | null;
+  readonly pendingReviewRevision?: number | null;
   readonly draftRevision: number | null;
   readonly lastInboxMessageId: string | null;
   readonly flowVersion: 2;
@@ -41,16 +43,28 @@ export interface RegistrationConversationRecord {
 
 export function registrationConversationInvariant(record: RegistrationConversationRecord): boolean {
   if (record.chatRef.trim().length === 0 || record.revision < 0) return false;
+  const pendingReviewId = record.pendingReviewId ?? null;
+  const pendingReviewRevision = record.pendingReviewRevision ?? null;
+  const hasPendingReviewId = pendingReviewId !== null && pendingReviewId.trim().length > 0;
+  const hasPendingReviewRevision =
+    pendingReviewRevision !== null &&
+    Number.isSafeInteger(pendingReviewRevision) &&
+    pendingReviewRevision >= 0;
+
+  if (record.state === "WITHDRAW_CONFIRM") {
+    return (
+      record.activePromptOutboxIdempotencyKey === null &&
+      hasPendingReviewId &&
+      hasPendingReviewRevision
+    );
+  }
+  if (pendingReviewId !== null || pendingReviewRevision !== null) return false;
   if (record.state === "GUIDED_FIELD") {
     return record.editingMode === "GUIDED" && record.currentField !== null;
   }
   if (record.state === "FULL_FORM") return record.editingMode === "FULL";
   if (record.state === "EDIT_FIELD") return record.editField !== null;
-  if (
-    record.state === "PAUSED" ||
-    record.state === "WITHDRAW_CONFIRM" ||
-    record.state === "SUBMITTED"
-  ) {
+  if (record.state === "PAUSED" || record.state === "SUBMITTED") {
     return record.activePromptOutboxIdempotencyKey === null;
   }
   return true;
