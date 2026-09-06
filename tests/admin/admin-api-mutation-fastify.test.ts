@@ -42,7 +42,7 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
 });
 
-function setup() {
+function setup(includePrivilegedAuthenticator = true) {
   const authenticate = vi.fn(async (rawToken: unknown) => {
     if (rawToken !== TOKEN) throw new AdminUnauthenticatedError("invalid token detail");
     return identity;
@@ -95,7 +95,7 @@ function setup() {
   const dependencies = {
     allowedOrigin: ORIGIN,
     authenticator: { authenticate },
-    privilegedAuthenticator: { authenticate },
+    ...(includePrivilegedAuthenticator ? { privilegedAuthenticator: { authenticate } } : {}),
     sessionGuard: { authorize },
     sessionService: { getSession },
     readFacade: { searchPlayers, getPlayer },
@@ -165,6 +165,49 @@ describe("Admin API mutation preparation HTTP boundary", () => {
       },
       replayed: false,
     });
+  });
+
+  it("fails closed when the privileged Access authenticator is not configured", async () => {
+    const { server, authenticate, consume, prepareMutationEndpoint } = setup(false);
+    const response = await server.inject({
+      method: "POST",
+      url: "/admin/v1/operations/prepare",
+      headers: {
+        origin: ORIGIN,
+        "cf-access-jwt-assertion": TOKEN,
+        [CSRF_HEADER]: CSRF_VALUE,
+      },
+      payload: clientBody,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(consume).not.toHaveBeenCalled();
+    expect(prepareMutationEndpoint).not.toHaveBeenCalled();
+  });
+
+  it("keeps mutation lifecycle endpoints outside the HTTP surface", async () => {
+    const { server, authenticate, consume, prepareMutationEndpoint } = setup();
+
+    for (const action of ["simulate", "confirm", "approve", "apply"] as const) {
+      const response = await server.inject({
+        method: "POST",
+        url: `/admin/v1/operations/${OPERATION_ID}/${action}`,
+        headers: {
+          origin: ORIGIN,
+          "cf-access-jwt-assertion": TOKEN,
+          [CSRF_HEADER]: CSRF_VALUE,
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({ error: { code: "ADMIN_TARGET_NOT_FOUND" } });
+    }
+
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(consume).not.toHaveBeenCalled();
+    expect(prepareMutationEndpoint).not.toHaveBeenCalled();
   });
 
   it("rejects PREPARE when the durable session is inactive before rate limiting", async () => {
