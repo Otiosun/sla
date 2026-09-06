@@ -22,6 +22,7 @@ export type RegistrationConversationState =
   | "PAUSED"
   | "RESUME_MENU"
   | "RESTART_CONFIRM"
+  | "WITHDRAW_CONFIRM"
   | "SUBMITTED";
 
 export interface RegistrationConversationRecord {
@@ -45,7 +46,11 @@ export function registrationConversationInvariant(record: RegistrationConversati
   }
   if (record.state === "FULL_FORM") return record.editingMode === "FULL";
   if (record.state === "EDIT_FIELD") return record.editField !== null;
-  if (record.state === "PAUSED" || record.state === "SUBMITTED") {
+  if (
+    record.state === "PAUSED" ||
+    record.state === "WITHDRAW_CONFIRM" ||
+    record.state === "SUBMITTED"
+  ) {
     return record.activePromptOutboxIdempotencyKey === null;
   }
   return true;
