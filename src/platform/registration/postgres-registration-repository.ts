@@ -42,6 +42,8 @@ interface ConversationRow {
   readonly current_field: RegistrationConversationField | null;
   readonly edit_field: RegistrationConversationField | null;
   readonly active_prompt_outbox_idempotency_key: string | null;
+  readonly pending_review_id: string | null;
+  readonly pending_review_revision: string | null;
   readonly draft_revision: string | null;
   readonly last_inbox_message_id: string | null;
   readonly flow_version: number;
@@ -100,6 +102,9 @@ function conversationRecord(row: ConversationRow): RegistrationConversationRecor
     currentField: row.current_field,
     editField: row.edit_field,
     activePromptOutboxIdempotencyKey: row.active_prompt_outbox_idempotency_key,
+    pendingReviewId: row.pending_review_id,
+    pendingReviewRevision:
+      row.pending_review_revision === null ? null : Number(row.pending_review_revision),
     draftRevision: row.draft_revision === null ? null : Number(row.draft_revision),
     lastInboxMessageId: row.last_inbox_message_id,
     flowVersion: 2,
@@ -183,7 +188,8 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
   ): Promise<RegistrationConversationRecord | null> {
     const result = await this.client.query<ConversationRow>(
       `SELECT player_id, chat_ref, state, editing_mode, current_field, edit_field,
-              active_prompt_outbox_idempotency_key, draft_revision::text,
+              active_prompt_outbox_idempotency_key, pending_review_id,
+              pending_review_revision::text, draft_revision::text,
               last_inbox_message_id::text, flow_version, revision::text
        FROM registration_conversations
        WHERE player_id = $1`,
@@ -204,6 +210,8 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
       input.currentField,
       input.editField,
       input.activePromptOutboxIdempotencyKey,
+      input.pendingReviewId ?? null,
+      input.pendingReviewRevision ?? null,
       input.draftRevision,
       input.lastInboxMessageId,
     ];
@@ -212,12 +220,13 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
       const inserted = await this.client.query<ConversationRow>(
         `INSERT INTO registration_conversations(
            player_id, chat_ref, state, editing_mode, current_field, edit_field,
-           active_prompt_outbox_idempotency_key, draft_revision, last_inbox_message_id,
-           flow_version, revision, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 2, 0, now(), now())
+           active_prompt_outbox_idempotency_key, pending_review_id, pending_review_revision,
+           draft_revision, last_inbox_message_id, flow_version, revision, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 2, 0, now(), now())
          ON CONFLICT (player_id) DO NOTHING
          RETURNING player_id, chat_ref, state, editing_mode, current_field, edit_field,
-                   active_prompt_outbox_idempotency_key, draft_revision::text,
+                   active_prompt_outbox_idempotency_key, pending_review_id,
+                   pending_review_revision::text, draft_revision::text,
                    last_inbox_message_id::text, flow_version, revision::text`,
         values,
       );
@@ -233,13 +242,16 @@ class PostgresRegistrationTransaction implements RegistrationTransaction {
            current_field = $5,
            edit_field = $6,
            active_prompt_outbox_idempotency_key = $7,
-           draft_revision = $8,
-           last_inbox_message_id = $9,
+           pending_review_id = $8,
+           pending_review_revision = $9,
+           draft_revision = $10,
+           last_inbox_message_id = $11,
            revision = revision + 1,
            updated_at = now()
-       WHERE player_id = $1 AND revision = $10
+       WHERE player_id = $1 AND revision = $12
        RETURNING player_id, chat_ref, state, editing_mode, current_field, edit_field,
-                 active_prompt_outbox_idempotency_key, draft_revision::text,
+                 active_prompt_outbox_idempotency_key, pending_review_id,
+                 pending_review_revision::text, draft_revision::text,
                  last_inbox_message_id::text, flow_version, revision::text`,
       [...values, input.expectedRevision],
     );
