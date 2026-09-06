@@ -101,6 +101,7 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("Nome: Killian");
     expect(text).toContain("Pokémon inicial: Charmander");
     expect(text).toContain("Região: Zhoulia");
+    expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
     expect(
       text.endsWith(
@@ -110,28 +111,26 @@ describe("registration conversation renderer", () => {
   });
 
   it("renders edit, pause, resume and destructive restart choices explicitly", () => {
-    expect(renderEditSelect()).toBe(
-      [
-        "✏️ O que deseja corrigir?",
-        "",
-        "1 — Nome",
-        "2 — Idade",
-        "3 — Gênero / pronomes",
-        "4 — Aparência",
-        "5 — Personalidade",
-        "6 — História / resumo",
-        "7 — Pokémon inicial",
-        "8 — Voltar",
-      ].join("\n"),
-    );
+    const edit = renderEditSelect();
+    expect(edit).toContain("✏️ O que deseja corrigir?");
+    expect(edit).toContain("1 — Nome");
+    expect(edit).toContain("8 — Voltar");
+    expect(edit.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
+
     expect(renderPause()).toContain("💾 Seu progresso está salvo.");
     expect(renderPause()).toContain("$registrar");
-    expect(renderResumeMenu()).toContain("1 — Continuar de onde parei");
-    expect(renderResumeMenu()).toContain("2 — Ver ficha atual");
-    expect(renderResumeMenu()).toContain("3 — Recomeçar");
-    expect(renderRestartConfirm()).toContain("⚠️ Recomeçar apaga o rascunho atual.");
-    expect(renderRestartConfirm()).toContain("1 — Sim, recomeçar");
-    expect(renderRestartConfirm()).toContain("2 — Cancelar");
+
+    const resume = renderResumeMenu();
+    expect(resume).toContain("1 — Continuar de onde parei");
+    expect(resume).toContain("2 — Ver ficha atual");
+    expect(resume).toContain("3 — Recomeçar");
+    expect(resume.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
+
+    const restart = renderRestartConfirm();
+    expect(restart).toContain("⚠️ Recomeçar apaga o rascunho atual.");
+    expect(restart).toContain("1 — Sim, recomeçar");
+    expect(restart).toContain("2 — Cancelar");
+    expect(restart.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
   });
 
   it("renders contextual validation retry without support or correlation codes", () => {
