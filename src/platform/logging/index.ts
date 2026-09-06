@@ -17,16 +17,34 @@ export interface LogSink {
 }
 
 const sensitiveKeys = new Set([
+  "accesstoken",
+  "accesstokenraw",
+  "accessassertion",
   "apikey",
   "authorization",
+  "cfaccessjwtassertion",
+  "clientsecret",
+  "clienttoken",
+  "connectionstring",
   "cookie",
+  "credential",
+  "credentials",
+  "databasepassword",
+  "databaseurl",
   "jid",
   "password",
   "phone",
   "phonenumber",
+  "privatekey",
   "seed",
   "secret",
+  "session",
   "token",
+  "tokenfingerprint",
+  "webhooksecret",
+  "webhooksignature",
+  "whatsappauthkey",
+  "whatsappauthkeybase64",
 ]);
 
 function redactString(value: string): string {
