@@ -33,6 +33,7 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
   public transactionCalls = 0;
 
   private readonly tx: RegistrationTransaction = {
+    lockPlayer: async () => undefined,
     loadDraft: async () => this.draft,
     saveDraft: async (input) => {
       const currentRevision = this.draft?.revision ?? null;
@@ -45,6 +46,8 @@ class InMemoryRegistrationRepository implements RegistrationRepository {
       };
       return this.draft;
     },
+    loadConversation: async () => null,
+    saveConversation: async () => null,
     loadCurrentRevision: async () => this.revisions.at(-1) ?? null,
     loadRevisionById: async (revisionId) =>
       this.revisions.find((entry) => entry.id === revisionId) ?? null,
