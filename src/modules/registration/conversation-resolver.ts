@@ -1,18 +1,32 @@
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { CommunityChatContext } from "../community/contracts.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
   MessageHandlerResult,
 } from "../messaging/contracts.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import { renderFullForm, renderGuidedField } from "./conversation-renderer.js";
+import {
+  REGISTRATION_CONVERSATION_FIELDS,
+  type RegistrationConversationField as PersistedRegistrationConversationField,
+  type RegistrationConversationRecord,
+} from "./conversation-state.js";
+import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
+import {
+  renderFullForm,
+  renderGuidedAcknowledgement,
+  renderGuidedField,
+  renderReview,
+  renderValidationRetry,
+} from "./conversation-renderer.js";
 import {
   type RegistrationConversationField,
   type RegistrationConversationSession,
   type RegistrationConversationSessions,
   parseFullRegistrationTemplate,
 } from "./conversation-session.js";
+import type { RegistrationService } from "./service.js";
+import { validateRegistrationDraft } from "./validation.js";
 
 interface CommunityContextResolver {
   resolveChat(input: {
@@ -51,15 +65,52 @@ export interface RegistrationReplyIntentVerifier {
 }
 
 export interface RegistrationConversationResolverDependencies {
-  readonly sessions: RegistrationConversationSessions;
+  readonly sessions?: RegistrationConversationSessions;
+  readonly registration?: Pick<
+    RegistrationService,
+    "getConversation" | "getDraft" | "saveConversationCheckpoint"
+  >;
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
   readonly setup: RegistrationSetupLoader;
   readonly replyIntent?: RegistrationReplyIntentVerifier;
 }
 
+interface PersistedDraftState {
+  readonly draft: RegistrationDraftInput;
+  readonly revision: number | null;
+}
+
 function conversationOutboxKey(context: MessageHandlerContext): string {
   return `${context.idempotencyKey}:registration-conversation`;
+}
+
+function replyContext(context: MessageHandlerContext) {
+  return {
+    externalMessageId: context.message.externalMessageId,
+    senderRef: context.message.senderRef,
+    text: context.message.text ?? "",
+  };
+}
+
+function persistedTextResult(
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+  text: string,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "REGISTRATION_SESSION",
+    resultRefId: playerId,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text, replyTo: replyContext(context) },
+        idempotencyKey: conversationOutboxKey(context),
+      },
+    ],
+  });
 }
 
 function textResult(
@@ -94,6 +145,13 @@ function starterDisplayNames(setup: RegistrationSetup): readonly string[] {
   return setup.starterOptions.map((option) => option.displayName);
 }
 
+function starterDisplayName(starterFormId: string, setup: RegistrationSetup): string {
+  return (
+    setup.starterOptions.find((option) => option.formId === starterFormId)?.displayName ??
+    starterFormId
+  );
+}
+
 function renderGuidedSessionPrompt(
   session: RegistrationConversationSession,
   setup?: RegistrationSetup,
@@ -123,6 +181,14 @@ function isLogicallyAwaitingReply(session: RegistrationConversationSession): boo
   return true;
 }
 
+function isPersistedStateHandledByTask4(conversation: RegistrationConversationRecord): boolean {
+  return (
+    conversation.state === "MODE_SELECT" ||
+    conversation.state === "GUIDED_FIELD" ||
+    conversation.state === "FULL_FORM"
+  );
+}
+
 function normalizedChoice(value: string): string {
   return value
     .trim()
@@ -130,6 +196,50 @@ function normalizedChoice(value: string): string {
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
     .replace(/\s+/g, " ");
+}
+
+function parsePersistedModeChoice(value: string): "GUIDED" | "FULL" | null {
+  switch (normalizedChoice(value)) {
+    case "1":
+    case "guiado":
+    case "passo a passo":
+      return "GUIDED";
+    case "2":
+    case "completo":
+    case "ficha":
+    case "ficha completa":
+      return "FULL";
+    default:
+      return null;
+  }
+}
+
+function firstMissingField(
+  draft: RegistrationDraftInput,
+): PersistedRegistrationConversationField | null {
+  for (const field of REGISTRATION_CONVERSATION_FIELDS) {
+    const value = draft[field];
+    if (value === undefined || (typeof value === "string" && value.trim().length === 0)) {
+      return field;
+    }
+  }
+  return null;
+}
+
+function parseGuidedValue(
+  field: PersistedRegistrationConversationField,
+  rawValue: string,
+): Result<string | number> {
+  const value = rawValue.trim();
+  if (field === "age") {
+    const age = Number(value);
+    return Number.isSafeInteger(age) && age > 0
+      ? ok(age)
+      : err(appError("VALIDATION_FAILED", "Idade inválida", { fields: [field] }));
+  }
+  return value.length > 0
+    ? ok(value)
+    : err(appError("VALIDATION_FAILED", "Resposta vazia", { fields: [field] }));
 }
 
 function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetup): Result<string> {
@@ -164,6 +274,19 @@ function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetu
   return ok(match.formId);
 }
 
+function reviewText(snapshot: RegistrationSnapshot, setup: RegistrationSetup): string {
+  return renderReview({
+    trainerName: snapshot.trainerName,
+    age: snapshot.age,
+    genderPronouns: snapshot.genderPronouns,
+    appearance: snapshot.appearance,
+    personality: snapshot.personality,
+    backstory: snapshot.backstory,
+    starterDisplayName: starterDisplayName(snapshot.starterFormId, setup),
+    regionDisplayName: setup.regionDisplayName,
+  });
+}
+
 export class RegistrationConversationResolver {
   public constructor(private readonly dependencies: RegistrationConversationResolverDependencies) {}
 
@@ -188,6 +311,305 @@ export class RegistrationConversationResolver {
     });
   }
 
+  private async hasPersistedExpectedReplyIntent(
+    message: IncomingMessage,
+    conversation: RegistrationConversationRecord,
+  ): Promise<boolean> {
+    if (!isPersistedStateHandledByTask4(conversation)) return false;
+    if (conversation.chatRef !== message.chatRef) return false;
+    const replyToExternalMessageId = message.replyToExternalMessageId;
+    const expectedOutboxIdempotencyKey = conversation.activePromptOutboxIdempotencyKey;
+    const verifier = this.dependencies.replyIntent;
+    if (
+      replyToExternalMessageId === null ||
+      expectedOutboxIdempotencyKey === null ||
+      verifier === undefined
+    ) {
+      return false;
+    }
+
+    return verifier.isExpectedReply({
+      provider: message.provider,
+      chatRef: message.chatRef,
+      replyToExternalMessageId,
+      expectedOutboxIdempotencyKey,
+    });
+  }
+
+  private async loadPersistedDraft(
+    playerId: PlayerId,
+    setup: RegistrationSetup,
+  ): Promise<Result<PersistedDraftState>> {
+    const registration = this.dependencies.registration;
+    if (registration === undefined) {
+      return err(appError("ACTION_INVALID", "Persisted Registration service is unavailable"));
+    }
+    const current = await registration.getDraft(playerId);
+    if (current.ok) {
+      return ok({
+        draft: { ...current.value.snapshot, regionId: setup.regionId },
+        revision: current.value.revision,
+      });
+    }
+    if (current.error.code !== "NOT_FOUND") return err(current.error);
+    return ok({ draft: { regionId: setup.regionId, schemaVersion: 1 }, revision: null });
+  }
+
+  private async resolvePersisted(
+    context: MessageHandlerContext,
+    playerId: PlayerId,
+  ): Promise<Result<MessageHandlerResult | null>> {
+    const registration = this.dependencies.registration;
+    if (registration === undefined) return ok(null);
+
+    const conversationResult = await registration.getConversation(playerId);
+    if (!conversationResult.ok) {
+      return conversationResult.error.code === "NOT_FOUND" ? ok(null) : err(conversationResult.error);
+    }
+    const conversation = conversationResult.value;
+    if (!(await this.hasPersistedExpectedReplyIntent(context.message, conversation))) return ok(null);
+
+    const text = context.message.text;
+    if (text === null) return ok(null);
+    const setup = await this.dependencies.setup.load();
+    if (!setup.ok) return setup;
+    const persistedDraft = await this.loadPersistedDraft(playerId, setup.value);
+    if (!persistedDraft.ok) return persistedDraft;
+    const nextPromptKey = conversationOutboxKey(context);
+
+    if (conversation.state === "MODE_SELECT") {
+      const selected = parsePersistedModeChoice(text);
+      if (selected === null) {
+        return err(
+          appError("VALIDATION_FAILED", "Escolha 1 para modo guiado ou 2 para ficha completa"),
+        );
+      }
+
+      if (selected === "GUIDED") {
+        const currentField = firstMissingField(persistedDraft.value.draft);
+        if (currentField === null) {
+          const complete = validateRegistrationDraft(persistedDraft.value.draft);
+          if (!complete.ok) return complete;
+          const saved = await registration.saveConversationCheckpoint({
+            playerId,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: "GUIDED",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: nextPromptKey,
+            expectedConversationRevision: conversation.revision,
+            expectedDraftRevision: persistedDraft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          return persistedTextResult(context, playerId, reviewText(complete.value, setup.value));
+        }
+
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "GUIDED_FIELD",
+          editingMode: "GUIDED",
+          currentField,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          renderGuidedField(
+            currentField,
+            currentField === "starterFormId"
+              ? { starterOptions: starterDisplayNames(setup.value), modeSelected: true }
+              : { modeSelected: true },
+          ),
+        );
+      }
+
+      const saved = await registration.saveConversationCheckpoint({
+        playerId,
+        chatRef: context.message.chatRef,
+        state: "FULL_FORM",
+        editingMode: "FULL",
+        currentField: null,
+        editField: null,
+        activePromptOutboxIdempotencyKey: nextPromptKey,
+        expectedConversationRevision: conversation.revision,
+        expectedDraftRevision: persistedDraft.value.revision,
+        inboxMessageId: context.inboxMessageId,
+      });
+      if (!saved.ok) return saved;
+      return persistedTextResult(
+        context,
+        playerId,
+        renderFullForm({
+          regionDisplayName: setup.value.regionDisplayName,
+          starterOptions: starterDisplayNames(setup.value),
+        }),
+      );
+    }
+
+    if (conversation.state === "GUIDED_FIELD") {
+      const field = conversation.currentField;
+      if (field === null) {
+        return err(appError("INVALID_STATE_TRANSITION", "Guided registration has no active field"));
+      }
+
+      let parsedValue = parseGuidedValue(field, text);
+      if (!parsedValue.ok) return parsedValue;
+      if (field === "starterFormId") {
+        const starter = resolveCanonicalStarterFormId(text, setup.value);
+        if (!starter.ok) return starter;
+        parsedValue = ok(starter.value);
+      }
+
+      const draft: RegistrationDraftInput = {
+        ...persistedDraft.value.draft,
+        [field]: parsedValue.value,
+        regionId: setup.value.regionId,
+        schemaVersion: 1,
+      };
+      const nextField = firstMissingField(draft);
+      const acknowledgementValue =
+        field === "starterFormId"
+          ? starterDisplayName(String(parsedValue.value), setup.value)
+          : parsedValue.value;
+      const acknowledgement = renderGuidedAcknowledgement(field, acknowledgementValue);
+
+      if (nextField === null) {
+        const complete = validateRegistrationDraft(draft);
+        if (!complete.ok) return complete;
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "REVIEW",
+          editingMode: "GUIDED",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+          draft,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          `${acknowledgement}\n\n${reviewText(complete.value, setup.value)}`,
+        );
+      }
+
+      const saved = await registration.saveConversationCheckpoint({
+        playerId,
+        chatRef: context.message.chatRef,
+        state: "GUIDED_FIELD",
+        editingMode: "GUIDED",
+        currentField: nextField,
+        editField: null,
+        activePromptOutboxIdempotencyKey: nextPromptKey,
+        expectedConversationRevision: conversation.revision,
+        expectedDraftRevision: persistedDraft.value.revision,
+        inboxMessageId: context.inboxMessageId,
+        draft,
+      });
+      if (!saved.ok) return saved;
+      const prompt = renderGuidedField(
+        nextField,
+        nextField === "starterFormId"
+          ? { starterOptions: starterDisplayNames(setup.value) }
+          : {},
+      );
+      return persistedTextResult(context, playerId, `${acknowledgement}\n\n${prompt}`);
+    }
+
+    if (conversation.state === "FULL_FORM") {
+      const fullPrompt = renderFullForm({
+        regionDisplayName: setup.value.regionDisplayName,
+        starterOptions: starterDisplayNames(setup.value),
+      });
+      const parsed = parseFullRegistrationTemplate(text);
+      if (!parsed.ok) {
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "FULL_FORM",
+          editingMode: "FULL",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          renderValidationRetry("Confira os campos da ficha e tente novamente.", fullPrompt),
+        );
+      }
+
+      const starter = resolveCanonicalStarterFormId(parsed.value.starterFormId, setup.value);
+      if (!starter.ok) {
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "FULL_FORM",
+          editingMode: "FULL",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: nextPromptKey,
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          renderValidationRetry("Escolha um Pokémon inicial válido.", fullPrompt),
+        );
+      }
+
+      const draft: RegistrationDraftInput = {
+        trainerName: parsed.value.trainerName,
+        age: parsed.value.age,
+        genderPronouns: parsed.value.genderPronouns,
+        appearance: parsed.value.appearance,
+        personality: parsed.value.personality,
+        backstory: parsed.value.backstory,
+        starterFormId: starter.value,
+        regionId: setup.value.regionId,
+        schemaVersion: 1,
+      };
+      const complete = validateRegistrationDraft(draft);
+      if (!complete.ok) return complete;
+      const saved = await registration.saveConversationCheckpoint({
+        playerId,
+        chatRef: context.message.chatRef,
+        state: "REVIEW",
+        editingMode: "FULL",
+        currentField: null,
+        editField: null,
+        activePromptOutboxIdempotencyKey: nextPromptKey,
+        expectedConversationRevision: conversation.revision,
+        expectedDraftRevision: persistedDraft.value.revision,
+        inboxMessageId: context.inboxMessageId,
+        draft,
+      });
+      if (!saved.ok) return saved;
+      return persistedTextResult(context, playerId, reviewText(complete.value, setup.value));
+    }
+
+    return ok(null);
+  }
+
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
     if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
@@ -204,7 +626,16 @@ export class RegistrationConversationResolver {
     });
     if (!player.ok) return false;
 
-    const active = this.dependencies.sessions.get(player.value.playerId);
+    if (this.dependencies.registration !== undefined) {
+      const conversation = await this.dependencies.registration.getConversation(player.value.playerId);
+      return conversation.ok
+        ? this.hasPersistedExpectedReplyIntent(message, conversation.value)
+        : false;
+    }
+
+    const sessions = this.dependencies.sessions;
+    if (sessions === undefined) return false;
+    const active = sessions.get(player.value.playerId);
     if (active === null) return false;
     return this.hasExpectedReplyIntent(message, active);
   }
@@ -227,13 +658,19 @@ export class RegistrationConversationResolver {
     });
     if (!player.ok) return ok(null);
 
-    const active = this.dependencies.sessions.get(player.value.playerId);
+    if (this.dependencies.registration !== undefined) {
+      return this.resolvePersisted(context, player.value.playerId);
+    }
+
+    const sessions = this.dependencies.sessions;
+    if (sessions === undefined) return ok(null);
+    const active = sessions.get(player.value.playerId);
     if (active === null || !(await this.hasExpectedReplyIntent(context.message, active))) {
       return ok(null);
     }
 
     if (active.mode === "CHOOSING") {
-      const chosen = this.dependencies.sessions.chooseMode(player.value.playerId, text);
+      const chosen = sessions.chooseMode(player.value.playerId, text);
       if (!chosen.ok) return chosen;
 
       if (chosen.value.mode === "GUIDED") {
@@ -241,7 +678,7 @@ export class RegistrationConversationResolver {
           context,
           player.value.playerId,
           renderGuidedSessionPrompt(chosen.value, undefined, true),
-          this.dependencies.sessions,
+          sessions,
           true,
         );
       }
@@ -255,7 +692,7 @@ export class RegistrationConversationResolver {
           regionDisplayName: setup.value.regionDisplayName,
           starterOptions: starterDisplayNames(setup.value),
         }),
-        this.dependencies.sessions,
+        sessions,
         true,
       );
     }
@@ -269,7 +706,7 @@ export class RegistrationConversationResolver {
         if (!starterFormId.ok) return starterFormId;
         answer = starterFormId.value;
       }
-      const applied = this.dependencies.sessions.applyGuidedAnswer(player.value.playerId, answer);
+      const applied = sessions.applyGuidedAnswer(player.value.playerId, answer);
       if (!applied.ok) return applied;
 
       if (applied.value.currentField === "starterFormId") {
@@ -279,7 +716,7 @@ export class RegistrationConversationResolver {
           context,
           player.value.playerId,
           renderGuidedSessionPrompt(applied.value, setup.value),
-          this.dependencies.sessions,
+          sessions,
           true,
         );
       }
@@ -288,7 +725,7 @@ export class RegistrationConversationResolver {
         context,
         player.value.playerId,
         renderGuidedSessionPrompt(applied.value),
-        this.dependencies.sessions,
+        sessions,
         applied.value.currentField !== null,
       );
     }
@@ -311,7 +748,7 @@ export class RegistrationConversationResolver {
     ] as const satisfies readonly (readonly [RegistrationConversationField, string | number])[];
 
     for (const [field, value] of fields) {
-      const applied = this.dependencies.sessions.setField(player.value.playerId, field, value);
+      const applied = sessions.setField(player.value.playerId, field, value);
       if (!applied.ok) return applied;
     }
 
@@ -319,7 +756,7 @@ export class RegistrationConversationResolver {
       context,
       player.value.playerId,
       "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` quando quiser conferir o envio.",
-      this.dependencies.sessions,
+      sessions,
       false,
     );
   }
