@@ -53,10 +53,7 @@ function draft(): RegistrationDraftInput {
   };
 }
 
-function conversation(
-  playerId: PlayerId,
-  draftRevision = 2,
-): RegistrationConversationRecord {
+function conversation(playerId: PlayerId, draftRevision = 2): RegistrationConversationRecord {
   return {
     playerId,
     chatRef: CHAT_REF,
@@ -72,7 +69,10 @@ function conversation(
   };
 }
 
-function harness(input: { readonly draftRevision?: number; readonly conversationDraftRevision?: number }) {
+function harness(input: {
+  readonly draftRevision?: number;
+  readonly conversationDraftRevision?: number;
+}) {
   const playerId = createPlayerId();
   let currentConversation = conversation(playerId, input.conversationDraftRevision ?? 2);
   const currentDraft = draft();
@@ -147,7 +147,8 @@ function harness(input: { readonly draftRevision?: number; readonly conversation
     },
     replyIntent: {
       isExpectedReply: async (intent: ReplyIntentInput) =>
-        intent.expectedOutboxIdempotencyKey === currentConversation.activePromptOutboxIdempotencyKey &&
+        intent.expectedOutboxIdempotencyKey ===
+          currentConversation.activePromptOutboxIdempotencyKey &&
         intent.replyToExternalMessageId === CURRENT_PROMPT_ID,
     },
   } as never);
