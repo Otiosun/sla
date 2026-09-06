@@ -4,14 +4,25 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
-import { renderResumeMenu, renderReview } from "./conversation-renderer.js";
+import {
+  REGISTRATION_CONVERSATION_FIELDS,
+  type RegistrationConversationField as PersistedRegistrationConversationField,
+} from "./conversation-state.js";
+import {
+  renderDraftProgress,
+  renderFullForm,
+  renderGuidedField,
+  renderPause,
+  renderResumeMenu,
+  renderReview,
+} from "./conversation-renderer.js";
 import type {
   RegistrationConversationField,
   RegistrationConversationSession,
   RegistrationConversationSessions,
   RegistrationEditingMode,
 } from "./conversation-session.js";
-import type { RegistrationSnapshot } from "./contracts.js";
+import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 import type { RegistrationService } from "./service.js";
 import { validateRegistrationDraft } from "./validation.js";
 
@@ -33,7 +44,9 @@ export interface RegistrationWhatsAppDependencies {
     RegistrationService,
     "getDraft" | "getCurrentReview" | "saveDraft" | "saveAndSubmit" | "withdraw"
   > &
-    Partial<Pick<RegistrationService, "getConversation" | "saveConversationCheckpoint">>;
+    Partial<
+      Pick<RegistrationService, "getConversation" | "saveConversationCheckpoint" | "submit">
+    >;
   readonly setup: { load(): Promise<Result<RegistrationSetup>> };
 }
 
@@ -191,6 +204,33 @@ function persistedReviewText(snapshot: RegistrationSnapshot, setup: Registration
     starterDisplayName: starterDisplayName(snapshot.starterFormId, setup),
     regionDisplayName: setup.regionDisplayName,
   });
+}
+
+function persistedDraftText(draft: RegistrationDraftInput, setup: RegistrationSetup): string {
+  return renderDraftProgress({
+    ...(draft.trainerName === undefined ? {} : { trainerName: draft.trainerName }),
+    ...(draft.age === undefined ? {} : { age: draft.age }),
+    ...(draft.genderPronouns === undefined ? {} : { genderPronouns: draft.genderPronouns }),
+    ...(draft.appearance === undefined ? {} : { appearance: draft.appearance }),
+    ...(draft.personality === undefined ? {} : { personality: draft.personality }),
+    ...(draft.backstory === undefined ? {} : { backstory: draft.backstory }),
+    ...(draft.starterFormId === undefined
+      ? {}
+      : { starterDisplayName: starterDisplayName(draft.starterFormId, setup) }),
+    regionDisplayName: setup.regionDisplayName,
+  });
+}
+
+function firstMissingPersistedField(
+  draft: RegistrationDraftInput,
+): PersistedRegistrationConversationField | null {
+  for (const field of REGISTRATION_CONVERSATION_FIELDS) {
+    const current = draft[field];
+    if (current === undefined || (typeof current === "string" && current.trim().length === 0)) {
+      return field;
+    }
+  }
+  return null;
 }
 
 function fichaText(session: RegistrationConversationSession, setup: RegistrationSetup): string {
@@ -461,6 +501,99 @@ export function createRegistrationWhatsAppRoutes(
     }
     pendingConfirmations.delete(player.value);
     pendingWithdrawals.delete(player.value);
+
+    const getConversation = dependencies.registration.getConversation;
+    const saveConversationCheckpoint = dependencies.registration.saveConversationCheckpoint;
+    if (getConversation !== undefined && saveConversationCheckpoint !== undefined) {
+      const conversation = await getConversation.call(dependencies.registration, player.value);
+      if (conversation.ok) {
+        const setup = await dependencies.setup.load();
+        if (!setup.ok) return setup;
+        const draft = await dependencies.registration.getDraft(player.value);
+        if (!draft.ok && draft.error.code !== "NOT_FOUND") return draft;
+        const draftSnapshot: RegistrationDraftInput = draft.ok
+          ? { ...draft.value.snapshot, regionId: setup.value.regionId }
+          : { regionId: setup.value.regionId, schemaVersion: 1 };
+        const draftRevision = draft.ok ? draft.value.revision : null;
+
+        if (selected === "FULL") {
+          const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+            playerId: player.value,
+            chatRef: context.message.chatRef,
+            state: "FULL_FORM",
+            editingMode: "FULL",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+            expectedConversationRevision: conversation.value.revision,
+            expectedDraftRevision: draftRevision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          dependencies.sessions.clear(player.value);
+          return persistedReply(
+            context,
+            player.value,
+            renderFullForm({
+              regionDisplayName: setup.value.regionDisplayName,
+              starterOptions: setup.value.starterOptions.map((option) => option.displayName),
+            }),
+          );
+        }
+
+        const currentField = firstMissingPersistedField(draftSnapshot);
+        if (currentField === null) {
+          const complete = validateRegistrationDraft(draftSnapshot);
+          if (!complete.ok) return complete;
+          const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+            playerId: player.value,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: "GUIDED",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+            expectedConversationRevision: conversation.value.revision,
+            expectedDraftRevision: draftRevision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          dependencies.sessions.clear(player.value);
+          return persistedReply(
+            context,
+            player.value,
+            persistedReviewText(complete.value, setup.value),
+          );
+        }
+
+        const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+          playerId: player.value,
+          chatRef: context.message.chatRef,
+          state: "GUIDED_FIELD",
+          editingMode: "GUIDED",
+          currentField,
+          editField: null,
+          activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+          expectedConversationRevision: conversation.value.revision,
+          expectedDraftRevision: draftRevision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        dependencies.sessions.clear(player.value);
+        return persistedReply(
+          context,
+          player.value,
+          renderGuidedField(
+            currentField,
+            currentField === "starterFormId"
+              ? { starterOptions: setup.value.starterOptions.map((option) => option.displayName) }
+              : {},
+          ),
+        );
+      }
+      if (conversation.error.code !== "NOT_FOUND") return conversation;
+    }
+
     const switched = dependencies.sessions.switchMode(player.value, selected);
     if (!switched.ok) return switched;
     if (selected === "GUIDED") {
@@ -481,6 +614,27 @@ export function createRegistrationWhatsAppRoutes(
   const ficha: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
+
+    const getConversation = dependencies.registration.getConversation;
+    if (getConversation !== undefined) {
+      const conversation = await getConversation.call(dependencies.registration, player.value);
+      if (conversation.ok) {
+        const draft = await dependencies.registration.getDraft(player.value);
+        if (!draft.ok) return draft;
+        const setup = await dependencies.setup.load();
+        if (!setup.ok) return setup;
+        const complete = validateRegistrationDraft(draft.value.snapshot);
+        return persistedReply(
+          context,
+          player.value,
+          complete.ok
+            ? persistedReviewText(complete.value, setup.value)
+            : persistedDraftText(draft.value.snapshot, setup.value),
+        );
+      }
+      if (conversation.error.code !== "NOT_FOUND") return conversation;
+    }
+
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
@@ -494,6 +648,33 @@ export function createRegistrationWhatsAppRoutes(
   const save: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
+
+    const getConversation = dependencies.registration.getConversation;
+    const saveConversationCheckpoint = dependencies.registration.saveConversationCheckpoint;
+    if (getConversation !== undefined && saveConversationCheckpoint !== undefined) {
+      const conversation = await getConversation.call(dependencies.registration, player.value);
+      if (conversation.ok) {
+        const draft = await dependencies.registration.getDraft(player.value);
+        if (!draft.ok && draft.error.code !== "NOT_FOUND") return draft;
+        const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+          playerId: player.value,
+          chatRef: context.message.chatRef,
+          state: "PAUSED",
+          editingMode: conversation.value.editingMode ?? "GUIDED",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: null,
+          expectedConversationRevision: conversation.value.revision,
+          expectedDraftRevision: draft.ok ? draft.value.revision : null,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        dependencies.sessions.clear(player.value);
+        return persistedReply(context, player.value, renderPause());
+      }
+      if (conversation.error.code !== "NOT_FOUND") return conversation;
+    }
+
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
@@ -544,6 +725,92 @@ export function createRegistrationWhatsAppRoutes(
 
     pendingConfirmations.delete(player.value);
     pendingWithdrawals.delete(player.value);
+
+    const getConversation = dependencies.registration.getConversation;
+    const saveConversationCheckpoint = dependencies.registration.saveConversationCheckpoint;
+    if (getConversation !== undefined && saveConversationCheckpoint !== undefined) {
+      const conversation = await getConversation.call(dependencies.registration, player.value);
+      if (conversation.ok) {
+        const complete = validateRegistrationDraft(draft.value.snapshot);
+        if (complete.ok) {
+          const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+            playerId: player.value,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: conversation.value.editingMode ?? "GUIDED",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+            expectedConversationRevision: conversation.value.revision,
+            expectedDraftRevision: draft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          dependencies.sessions.clear(player.value);
+          return persistedReply(
+            context,
+            player.value,
+            persistedReviewText(complete.value, setup.value),
+          );
+        }
+
+        if (conversation.value.editingMode === "FULL") {
+          const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+            playerId: player.value,
+            chatRef: context.message.chatRef,
+            state: "FULL_FORM",
+            editingMode: "FULL",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+            expectedConversationRevision: conversation.value.revision,
+            expectedDraftRevision: draft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          dependencies.sessions.clear(player.value);
+          return persistedReply(
+            context,
+            player.value,
+            renderFullForm({
+              regionDisplayName: setup.value.regionDisplayName,
+              starterOptions: setup.value.starterOptions.map((option) => option.displayName),
+            }),
+          );
+        }
+
+        const currentField = firstMissingPersistedField(draft.value.snapshot);
+        if (currentField === null) {
+          return err(appError("INVALID_STATE_TRANSITION", "Registration draft cannot be resumed"));
+        }
+        const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+          playerId: player.value,
+          chatRef: context.message.chatRef,
+          state: "GUIDED_FIELD",
+          editingMode: "GUIDED",
+          currentField,
+          editField: null,
+          activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+          expectedConversationRevision: conversation.value.revision,
+          expectedDraftRevision: draft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        dependencies.sessions.clear(player.value);
+        return persistedReply(
+          context,
+          player.value,
+          renderGuidedField(
+            currentField,
+            currentField === "starterFormId"
+              ? { starterOptions: setup.value.starterOptions.map((option) => option.displayName) }
+              : {},
+          ),
+        );
+      }
+      if (conversation.error.code !== "NOT_FOUND") return conversation;
+    }
+
     const resumed = dependencies.sessions.start(player.value, {
       mode: "GUIDED",
       regionId: setup.value.regionId,
@@ -645,6 +912,110 @@ export function createRegistrationWhatsAppRoutes(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
     pendingWithdrawals.delete(player.value);
+
+    const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
+    if (confirmationArg !== undefined && confirmationArg !== "sim") {
+      return err(appError("VALIDATION_FAILED", "Use `$confirmar` ou `$confirmar sim`."));
+    }
+
+    const getConversation = dependencies.registration.getConversation;
+    const saveConversationCheckpoint = dependencies.registration.saveConversationCheckpoint;
+    const submit = dependencies.registration.submit;
+    if (
+      getConversation !== undefined &&
+      saveConversationCheckpoint !== undefined &&
+      submit !== undefined
+    ) {
+      const conversation = await getConversation.call(dependencies.registration, player.value);
+      if (conversation.ok) {
+        const draft = await dependencies.registration.getDraft(player.value);
+        if (!draft.ok) return draft;
+        const validation = validateRegistrationDraft(draft.value.snapshot);
+        if (!validation.ok) return validation;
+        const setup = await dependencies.setup.load();
+        if (!setup.ok) return setup;
+
+        if (confirmationArg === undefined) {
+          const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+            playerId: player.value,
+            chatRef: context.message.chatRef,
+            state: "REVIEW",
+            editingMode: conversation.value.editingMode ?? "GUIDED",
+            currentField: null,
+            editField: null,
+            activePromptOutboxIdempotencyKey: commandOutboxKey(context),
+            expectedConversationRevision: conversation.value.revision,
+            expectedDraftRevision: draft.value.revision,
+            inboxMessageId: context.inboxMessageId,
+          });
+          if (!saved.ok) return saved;
+          dependencies.sessions.clear(player.value);
+          return persistedReply(
+            context,
+            player.value,
+            persistedReviewText(validation.value, setup.value),
+          );
+        }
+
+        if (conversation.value.state !== "REVIEW") {
+          return err(
+            appError(
+              "INVALID_STATE_TRANSITION",
+              "A ficha atual ainda não foi revisada. Use `$confirmar` novamente antes de enviar.",
+            ),
+          );
+        }
+
+        const submitted = await submit.call(dependencies.registration, {
+          playerId: player.value,
+          idempotencyKey: `${context.idempotencyKey}:registration-submit`,
+        });
+        if (!submitted.ok) return submitted;
+
+        const saved = await saveConversationCheckpoint.call(dependencies.registration, {
+          playerId: player.value,
+          chatRef: context.message.chatRef,
+          state: "SUBMITTED",
+          editingMode: conversation.value.editingMode ?? "GUIDED",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: null,
+          expectedConversationRevision: conversation.value.revision,
+          expectedDraftRevision: draft.value.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+
+        dependencies.sessions.clear(player.value);
+        const playerReply = persistedReply(
+          context,
+          player.value,
+          "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+        );
+        if (!playerReply.ok) return playerReply;
+        return ok({
+          ...playerReply.value,
+          outgoing: [
+            ...playerReply.value.outgoing,
+            {
+              channel: "whatsapp",
+              destinationRef: context.message.chatRef,
+              messageType: "TEXT",
+              payload: {
+                text: `📋 Nova ficha de ${submitted.value.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+                registrationReview: {
+                  reviewId: submitted.value.id,
+                  reviewRevision: submitted.value.revision,
+                },
+              },
+              idempotencyKey: `registration-review-notification:${submitted.value.id}:${submitted.value.revision}`,
+            },
+          ],
+        });
+      }
+      if (conversation.error.code !== "NOT_FOUND") return conversation;
+    }
+
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
@@ -657,7 +1028,6 @@ export function createRegistrationWhatsAppRoutes(
       );
     }
 
-    const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (confirmationArg === undefined) {
       const validation = validateRegistrationDraft(session.working);
       if (!validation.ok) return validation;
@@ -665,9 +1035,6 @@ export function createRegistrationWhatsAppRoutes(
       if (!setup.ok) return setup;
       pendingConfirmations.set(player.value, confirmationFingerprint(session));
       return reply(context, player.value, confirmationText(session, setup.value));
-    }
-    if (confirmationArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$confirmar` ou `$confirmar sim`."));
     }
 
     const previewedFingerprint = pendingConfirmations.get(player.value);
