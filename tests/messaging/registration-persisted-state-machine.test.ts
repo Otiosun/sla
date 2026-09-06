@@ -104,13 +104,12 @@ function harness(input: {
         ...currentConversation,
         chatRef: String(checkpoint.chatRef),
         state: checkpoint.state as RegistrationConversationRecord["state"],
-        editingMode:
-          checkpoint.editingMode as RegistrationConversationRecord["editingMode"],
-        currentField:
-          checkpoint.currentField as RegistrationConversationRecord["currentField"],
+        editingMode: checkpoint.editingMode as RegistrationConversationRecord["editingMode"],
+        currentField: checkpoint.currentField as RegistrationConversationRecord["currentField"],
         editField: checkpoint.editField as RegistrationConversationRecord["editField"],
-        activePromptOutboxIdempotencyKey:
-          checkpoint.activePromptOutboxIdempotencyKey as string | null,
+        activePromptOutboxIdempotencyKey: checkpoint.activePromptOutboxIdempotencyKey as
+          | string
+          | null,
         draftRevision,
         lastInboxMessageId: String(checkpoint.inboxMessageId),
         revision: currentConversation.revision + 1,
@@ -178,9 +177,9 @@ describe("persisted Registration conversation state machine", () => {
     await expect(
       resolver.admits(messageContext("1", HUMAN_MESSAGE_ID, "02").message),
     ).resolves.toBe(false);
-    await expect(
-      resolver.admits(messageContext("1", OLD_PROMPT_ID, "03").message),
-    ).resolves.toBe(false);
+    await expect(resolver.admits(messageContext("1", OLD_PROMPT_ID, "03").message)).resolves.toBe(
+      false,
+    );
     await expect(
       resolver.admits(messageContext("1", CURRENT_PROMPT_ID, "04").message),
     ).resolves.toBe(true);
@@ -222,7 +221,7 @@ describe("persisted Registration conversation state machine", () => {
       editingMode: "GUIDED",
       currentField: "trainerName",
       inboxMessageId: context.inboxMessageId,
-      activePromptOutboxIdempotencyKey: context.idempotencyKey + ":registration-conversation",
+      activePromptOutboxIdempotencyKey: `${context.idempotencyKey}:registration-conversation`,
       expectedConversationRevision: 4,
       expectedDraftRevision: null,
     });
@@ -254,7 +253,9 @@ describe("persisted Registration conversation state machine", () => {
       },
     });
     expect(state.getDraft()).toMatchObject({ trainerName: "Liora Vale" });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("✅ 1/7 — Nome: Liora Vale");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
+      "✅ 1/7 — Nome: Liora Vale",
+    );
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("📝 2/7 — Idade");
   });
 
@@ -308,7 +309,7 @@ describe("persisted Registration conversation state machine", () => {
       state: "FULL_FORM",
       editingMode: "FULL",
       currentField: null,
-      activePromptOutboxIdempotencyKey: context.idempotencyKey + ":registration-conversation",
+      activePromptOutboxIdempotencyKey: `${context.idempotencyKey}:registration-conversation`,
     });
     expect(state.checkpoints[0]).not.toHaveProperty("draft");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("⚠️");
