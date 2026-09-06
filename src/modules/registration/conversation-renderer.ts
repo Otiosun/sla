@@ -5,6 +5,10 @@ export interface RegistrationGuidedRenderOptions {
   readonly modeSelected?: boolean;
 }
 
+export interface RegistrationEditFieldRenderOptions {
+  readonly starterOptions?: readonly string[];
+}
+
 export interface RegistrationFullFormRenderOptions {
   readonly regionDisplayName: string;
   readonly starterOptions: readonly string[];
@@ -140,6 +144,56 @@ export function renderGuidedAcknowledgement(
       return "✅ História recebida.";
     case "starterFormId":
       return `✅ 7/7 — Pokémon inicial: ${String(value).trim()}`;
+  }
+}
+
+export function renderEditField(
+  field: RegistrationConversationField,
+  options: RegistrationEditFieldRenderOptions = {},
+): string {
+  const copy = FIELD_COPY[field];
+  if (field === "starterFormId") {
+    return [
+      `✏️ Corrigindo — ${copy.label}`,
+      "",
+      numberedOptions(options.starterOptions ?? []),
+      "",
+      copy.question,
+      "",
+      "Envie o novo valor respondendo a esta mensagem.",
+    ]
+      .filter((line, index, lines) => line.length > 0 || lines[index - 1]?.length !== 0)
+      .join("\n")
+      .trim();
+  }
+
+  return [
+    `✏️ Corrigindo — ${copy.label}`,
+    copy.question,
+    "",
+    "Envie o novo valor respondendo a esta mensagem.",
+  ].join("\n");
+}
+
+export function renderEditAcknowledgement(
+  field: RegistrationConversationField,
+  value: string | number,
+): string {
+  switch (field) {
+    case "trainerName":
+      return `✅ Nome atualizado: ${String(value).trim()}`;
+    case "age":
+      return `✅ Idade atualizada: ${String(value).trim()}`;
+    case "genderPronouns":
+      return `✅ Gênero / pronomes atualizados: ${String(value).trim()}`;
+    case "appearance":
+      return "✅ Aparência atualizada.";
+    case "personality":
+      return "✅ Personalidade atualizada.";
+    case "backstory":
+      return "✅ História atualizada.";
+    case "starterFormId":
+      return `✅ Pokémon inicial atualizado: ${String(value).trim()}`;
   }
 }
 
