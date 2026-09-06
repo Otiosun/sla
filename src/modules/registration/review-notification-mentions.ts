@@ -104,8 +104,13 @@ class RegistrationReviewMentionConversation implements RegistrationReviewConvers
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
     const result = await this.delegate.resolve(context);
-    if (!result.ok || result.value === null) return result;
-    return decorateRegistrationReviewResult(context, result, this.mentions);
+    if (!result.ok) return result;
+    if (result.value === null) return result;
+    return decorateRegistrationReviewResult(
+      context,
+      { ok: true, value: result.value },
+      this.mentions,
+    );
   }
 }
 
