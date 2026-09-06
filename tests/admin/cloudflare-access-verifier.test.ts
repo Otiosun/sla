@@ -114,4 +114,53 @@ describe("CloudflareAccessJwtVerifier", () => {
       verifier().verify(tokenFor(validClaims(), { alg: "HS256", kid: KID, typ: "JWT" })),
     ).rejects.toMatchObject({ code: ADMIN_ERROR_CODES.AUTHORIZATION_DENIED });
   });
+
+  it("coalesces concurrent JWKS refreshes instead of amplifying unauthenticated requests", async () => {
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      fetchCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response(JSON.stringify({ keys: [publicJwk] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const accessVerifier = new CloudflareAccessJwtVerifier(
+      { teamDomain: TEAM_DOMAIN, audience: AUDIENCE },
+      { fetchImpl, now: () => NOW_MS },
+    );
+    const token = tokenFor(validClaims());
+
+    await Promise.all([accessVerifier.verify(token), accessVerifier.verify(token)]);
+
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("does not repeatedly refetch JWKS for attacker-controlled unknown kids inside a fresh key window", async () => {
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ keys: [publicJwk] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const accessVerifier = new CloudflareAccessJwtVerifier(
+      { teamDomain: TEAM_DOMAIN, audience: AUDIENCE },
+      { fetchImpl, now: () => NOW_MS },
+    );
+
+    await expect(
+      accessVerifier.verify(
+        tokenFor(validClaims(), { alg: "RS256", kid: "attacker-kid-1", typ: "JWT" }),
+      ),
+    ).rejects.toMatchObject({ code: ADMIN_ERROR_CODES.AUTHORIZATION_DENIED });
+    await expect(
+      accessVerifier.verify(
+        tokenFor(validClaims(), { alg: "RS256", kid: "attacker-kid-2", typ: "JWT" }),
+      ),
+    ).rejects.toMatchObject({ code: ADMIN_ERROR_CODES.AUTHORIZATION_DENIED });
+
+    expect(fetchCalls).toBe(1);
+  });
 });
