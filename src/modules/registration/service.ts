@@ -192,8 +192,26 @@ export class RegistrationService {
         }
       }
 
-      const pendingReviewId = input.pendingReviewId ?? null;
-      const pendingReviewRevision = input.pendingReviewRevision ?? null;
+      let pendingReviewId = input.pendingReviewId ?? null;
+      let pendingReviewRevision = input.pendingReviewRevision ?? null;
+      if (
+        input.state === "WITHDRAW_CONFIRM" &&
+        pendingReviewId === null &&
+        pendingReviewRevision === null
+      ) {
+        const currentReview = await tx.loadCurrentRevision(input.playerId);
+        if (currentReview === null || currentReview.status !== "SUBMITTED") {
+          return err(
+            appError(
+              "INVALID_STATE_TRANSITION",
+              "No submitted registration review is available for withdrawal confirmation",
+            ),
+          );
+        }
+        pendingReviewId = currentReview.id;
+        pendingReviewRevision = currentReview.revision;
+      }
+
       const prospective: RegistrationConversationRecord = {
         playerId: input.playerId,
         chatRef,
@@ -383,18 +401,42 @@ export class RegistrationService {
     input: WithdrawRegistrationInput,
   ): Promise<Result<RegistrationRevisionRecord>> {
     return this.repository.transaction(async (tx) => {
-      const current = await tx.loadCurrentRevision(input.playerId);
-      if (current === null || current.id !== input.revisionId) {
-        return err(appError("NOT_FOUND", "Current registration review not found"));
-      }
-      if (current.status !== "SUBMITTED") {
+      await tx.lockPlayer(input.playerId);
+      const conversation = await tx.loadConversation(input.playerId);
+      if (
+        conversation === null ||
+        conversation.state !== "WITHDRAW_CONFIRM" ||
+        conversation.pendingReviewId === null ||
+        conversation.pendingReviewRevision === null ||
+        conversation.pendingReviewId !== input.revisionId ||
+        conversation.pendingReviewRevision !== input.expectedRevision
+      ) {
         return err(
-          appError("INVALID_STATE_TRANSITION", "Only submitted registration can be withdrawn"),
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Registration review withdrawal is not confirmed for this exact revision",
+          ),
         );
       }
+
+      const current = await tx.loadCurrentRevision(input.playerId);
+      if (
+        current === null ||
+        current.id !== conversation.pendingReviewId ||
+        current.revision !== conversation.pendingReviewRevision ||
+        current.status !== "SUBMITTED"
+      ) {
+        return err(
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Submitted registration review changed after withdrawal confirmation",
+          ),
+        );
+      }
+
       const updated = await tx.updateRevisionStatus(
-        current.id,
-        input.expectedRevision,
+        conversation.pendingReviewId,
+        conversation.pendingReviewRevision,
         "WITHDRAWN",
       );
       return updated === null
