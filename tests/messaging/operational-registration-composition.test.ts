@@ -110,15 +110,21 @@ describe("operational WhatsApp registration composition", () => {
       new URL("../../src/runtime/compose-whatsapp-runtime.ts", import.meta.url),
       "utf8",
     );
-    const handlerSource = await readFile(
-      new URL("../../src/modules/registration/whatsapp-handlers.ts", import.meta.url),
+    const persistedHandlerSource = await readFile(
+      new URL("../../src/modules/registration/whatsapp-handlers-v2.ts", import.meta.url),
       "utf8",
     );
 
     expect(compositionSource).not.toContain("new RegistrationConversationSessions(");
+    expect(compositionSource).not.toContain("RegistrationConversationSessions");
     expect(compositionSource).not.toContain(
-      'import { RegistrationConversationSessions } from "../modules/registration/conversation-session.js"',
+      'from "../modules/registration/whatsapp-handlers.js"',
     );
-    expect(handlerSource).not.toContain("pendingConfirmations = new Map");
+    expect(compositionSource).toContain(
+      'from "../modules/registration/whatsapp-handlers-v2.js"',
+    );
+    expect(persistedHandlerSource).not.toContain("RegistrationConversationSessions");
+    expect(persistedHandlerSource).not.toContain("new Map");
+    expect(persistedHandlerSource).not.toContain("pendingConfirmations");
   });
 });
