@@ -8,7 +8,10 @@ import { ok } from "../../src/shared-kernel/result.js";
 
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 
-function context(text: string, replyToExternalMessageId: string | null = null): MessageHandlerContext {
+function context(
+  text: string,
+  replyToExternalMessageId: string | null = null,
+): MessageHandlerContext {
   return {
     inboxMessageId: "00000000-0000-4000-8000-000000000101",
     correlationId: "00000000-0000-4000-8000-000000000102",
