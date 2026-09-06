@@ -40,11 +40,21 @@ interface RegistrationSetupLoader {
   load(): Promise<Result<RegistrationSetup>>;
 }
 
+export interface RegistrationReplyIntentVerifier {
+  isExpectedReply(input: {
+    readonly provider: string;
+    readonly chatRef: string;
+    readonly replyToExternalMessageId: string;
+    readonly expectedOutboxIdempotencyKey: string;
+  }): Promise<boolean>;
+}
+
 export interface RegistrationConversationResolverDependencies {
   readonly sessions: RegistrationConversationSessions;
   readonly community: CommunityContextResolver;
   readonly players: PlayerIdentityResolver;
   readonly setup: RegistrationSetupLoader;
+  readonly replyIntent: RegistrationReplyIntentVerifier;
 }
 
 const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
@@ -57,11 +67,23 @@ const FIELD_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
   starterFormId: "Pokémon inicial",
 };
 
+function conversationOutboxKey(context: MessageHandlerContext): string {
+  return `${context.idempotencyKey}:registration-conversation`;
+}
+
 function textResult(
   context: MessageHandlerContext,
   playerId: PlayerId,
   text: string,
+  sessions: RegistrationConversationSessions,
+  expectsReply: boolean,
 ): Result<MessageHandlerResult> {
+  const idempotencyKey = conversationOutboxKey(context);
+  const tracked = expectsReply
+    ? sessions.expectReply(playerId, idempotencyKey)
+    : sessions.clearExpectedReply(playerId);
+  if (!tracked.ok) return tracked;
+
   return ok({
     resultRefType: "REGISTRATION_SESSION",
     resultRefId: playerId,
@@ -71,7 +93,7 @@ function textResult(
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: { text },
-        idempotencyKey: `${context.idempotencyKey}:registration-conversation`,
+        idempotencyKey,
       },
     ],
   });
@@ -122,13 +144,11 @@ function hasOnboardingCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("onboarding");
 }
 
-function hasExplicitReplyIntent(message: IncomingMessage): boolean {
-  return message.replyToExternalMessageId !== null;
-}
-
-function isCompactModeChoice(text: string): boolean {
-  const choice = text.trim();
-  return choice === "1" || choice === "2";
+function isAwaitingReply(session: RegistrationConversationSession): boolean {
+  if (session.expectedReplyOutboxIdempotencyKey === null) return false;
+  if (session.mode === "CHOOSING") return true;
+  if (session.mode === "GUIDED") return session.currentField !== null;
+  return !session.dirty;
 }
 
 function normalizedChoice(value: string): string {
@@ -175,6 +195,22 @@ function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetu
 export class RegistrationConversationResolver {
   public constructor(private readonly dependencies: RegistrationConversationResolverDependencies) {}
 
+  private async hasExpectedReplyIntent(
+    message: IncomingMessage,
+    session: RegistrationConversationSession,
+  ): Promise<boolean> {
+    if (!isAwaitingReply(session)) return false;
+    const replyToExternalMessageId = message.replyToExternalMessageId;
+    const expectedOutboxIdempotencyKey = session.expectedReplyOutboxIdempotencyKey;
+    if (replyToExternalMessageId === null || expectedOutboxIdempotencyKey === null) return false;
+    return this.dependencies.replyIntent.isExpectedReply({
+      provider: message.provider,
+      chatRef: message.chatRef,
+      replyToExternalMessageId,
+      expectedOutboxIdempotencyKey,
+    });
+  }
+
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
     if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
@@ -193,9 +229,7 @@ export class RegistrationConversationResolver {
 
     const active = this.dependencies.sessions.get(player.value.playerId);
     if (active === null) return false;
-    return (
-      hasExplicitReplyIntent(message) || (active.mode === "CHOOSING" && isCompactModeChoice(text))
-    );
+    return this.hasExpectedReplyIntent(message, active);
   }
 
   public async resolve(
@@ -217,11 +251,7 @@ export class RegistrationConversationResolver {
     if (!player.ok) return ok(null);
 
     const active = this.dependencies.sessions.get(player.value.playerId);
-    if (active === null) return ok(null);
-    if (
-      !hasExplicitReplyIntent(context.message) &&
-      !(active.mode === "CHOOSING" && isCompactModeChoice(text))
-    ) {
+    if (active === null || !(await this.hasExpectedReplyIntent(context.message, active))) {
       return ok(null);
     }
 
@@ -232,6 +262,8 @@ export class RegistrationConversationResolver {
         context,
         player.value.playerId,
         chosen.value.mode === "GUIDED" ? guidedPrompt(chosen.value) : fullTemplatePrompt(),
+        this.dependencies.sessions,
+        true,
       );
     }
 
@@ -250,10 +282,22 @@ export class RegistrationConversationResolver {
       if (applied.value.currentField === "starterFormId") {
         const setup = await this.dependencies.setup.load();
         if (!setup.ok) return setup;
-        return textResult(context, player.value.playerId, guidedPrompt(applied.value, setup.value));
+        return textResult(
+          context,
+          player.value.playerId,
+          guidedPrompt(applied.value, setup.value),
+          this.dependencies.sessions,
+          true,
+        );
       }
 
-      return textResult(context, player.value.playerId, guidedPrompt(applied.value));
+      return textResult(
+        context,
+        player.value.playerId,
+        guidedPrompt(applied.value),
+        this.dependencies.sessions,
+        applied.value.currentField !== null,
+      );
     }
 
     const parsed = parseFullRegistrationTemplate(text);
@@ -282,6 +326,8 @@ export class RegistrationConversationResolver {
       context,
       player.value.playerId,
       "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` quando quiser conferir o envio.",
+      this.dependencies.sessions,
+      false,
     );
   }
 }
