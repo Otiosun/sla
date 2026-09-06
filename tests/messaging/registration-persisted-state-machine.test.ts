@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
-import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
+import {
+  RegistrationConversationResolver,
+  type RegistrationReplyIntentVerifier,
+} from "../../src/modules/registration/conversation-resolver.js";
 import type { RegistrationConversationRecord } from "../../src/modules/registration/conversation-state.js";
 import type { RegistrationDraftInput } from "../../src/modules/registration/contracts.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
@@ -16,6 +19,8 @@ const CURRENT_PROMPT_ID = "BOT-CURRENT-PROMPT";
 const OLD_PROMPT_ID = "BOT-OLD-PROMPT";
 const HUMAN_MESSAGE_ID = "HUMAN-MESSAGE";
 const ACTIVE_KEY = "registration:active-prompt";
+
+type ReplyIntentInput = Parameters<RegistrationReplyIntentVerifier["isExpectedReply"]>[0];
 
 function messageContext(
   text: string,
@@ -154,9 +159,9 @@ function harness(input: {
         }),
     },
     replyIntent: {
-      isExpectedReply: async ({ expectedOutboxIdempotencyKey, replyToExternalMessageId }) =>
-        expectedOutboxIdempotencyKey === ACTIVE_KEY &&
-        replyToExternalMessageId === CURRENT_PROMPT_ID,
+      isExpectedReply: async (input: ReplyIntentInput) =>
+        input.expectedOutboxIdempotencyKey === ACTIVE_KEY &&
+        input.replyToExternalMessageId === CURRENT_PROMPT_ID,
     },
   } as never);
 
