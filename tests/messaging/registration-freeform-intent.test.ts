@@ -215,12 +215,12 @@ describe("registration freeform intent", () => {
     expect(routed).toEqual({ ok: true, value: null });
   });
 
-  it("ignores further replies after a full form has already been consumed", async () => {
+  it("ignores further replies after a full form prompt has already been consumed", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
     sessions.start(playerId, { mode: "FULL", regionId: ZHOULIA_ID });
-    sessions.setField(playerId, "trainerName", "Liora Vale");
     expectCurrentPrompt(sessions, playerId);
+    sessions.setField(playerId, "trainerName", "Liora Vale");
     const router = new MessageRouter([], undefined, resolverFor(sessions, playerId));
 
     const routed = await router.dispatch(context("qualquer coisa", CURRENT_PROMPT_ID));
