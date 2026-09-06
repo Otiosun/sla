@@ -7,6 +7,7 @@ import {
   incomingMessageIdempotencyKey,
   type IncomingMessage,
   type PendingOutboxMessage,
+  WhatsAppReplyContextSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import type { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
@@ -32,6 +33,22 @@ describe("messaging boundary", () => {
     expect(
       IncomingMessageSchema.safeParse({ ...message, rawProviderPayload: { secret: true } }).success,
     ).toBe(false);
+  });
+
+  it("keeps persisted WhatsApp reply context strict and provider-opaque", () => {
+    const reply = {
+      externalMessageId: "wamid-replied-to",
+      senderRef: "120572650455159@lid",
+      text: "19",
+    };
+
+    expect(WhatsAppReplyContextSchema.parse(reply)).toEqual(reply);
+    expect(WhatsAppReplyContextSchema.safeParse({ ...reply, externalMessageId: "" }).success).toBe(
+      false,
+    );
+    expect(WhatsAppReplyContextSchema.safeParse({ ...reply, providerSecret: true }).success).toBe(
+      false,
+    );
   });
 
   it("routes only explicit commands and leaves freeform campaign text untouched", async () => {
