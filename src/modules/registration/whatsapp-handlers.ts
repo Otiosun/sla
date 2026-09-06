@@ -44,9 +44,7 @@ export interface RegistrationWhatsAppDependencies {
     RegistrationService,
     "getDraft" | "getCurrentReview" | "saveDraft" | "saveAndSubmit" | "withdraw"
   > &
-    Partial<
-      Pick<RegistrationService, "getConversation" | "saveConversationCheckpoint" | "submit">
-    >;
+    Partial<Pick<RegistrationService, "getConversation" | "saveConversationCheckpoint" | "submit">>;
   readonly setup: { load(): Promise<Result<RegistrationSetup>> };
 }
 
