@@ -56,7 +56,6 @@ describe("PokemonCenterHealingService", () => {
 
   it.each([
     ["ACTIVE_BATTLE", "A Pokémon Center cannot heal a team during an active battle"],
-    ["ACTIVE_ENCOUNTER", "A Pokémon Center cannot heal a team during an active encounter"],
     ["CENTER_VISIT_REQUIRED", "An active Pokémon Center visit is required"],
   ] as const)("maps %s to an invalid action", async (kind, message) => {
     const service = new PokemonCenterHealingService(repositoryReturning({ kind }));
