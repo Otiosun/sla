@@ -145,10 +145,7 @@ export function isMartCatalogPromptKey(key: string): boolean {
   return key.endsWith(":mart:catalog");
 }
 
-export function parseMartQuantityReply(
-  text: string,
-  selected: MartCatalogItem,
-): bigint | null {
+export function parseMartQuantityReply(text: string, selected: MartCatalogItem): bigint | null {
   const match = /^\s*(.+?)\s*\/\s*([0-9]+)\s*$/.exec(text);
   if (match === null) return null;
   if (match[1]?.localeCompare(selected.displayName, undefined, { sensitivity: "accent" }) !== 0) {

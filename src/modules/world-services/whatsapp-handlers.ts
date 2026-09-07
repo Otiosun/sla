@@ -6,11 +6,7 @@ import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { WorldServiceKind } from "./contracts.js";
-import {
-  renderMartCatalog,
-  renderWorldServiceEntry,
-  renderWorldServiceExit,
-} from "./renderer.js";
+import { renderMartCatalog, renderWorldServiceEntry, renderWorldServiceExit } from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 const WORLD_SERVICE_POLICY = {

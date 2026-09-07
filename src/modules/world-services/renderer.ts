@@ -120,10 +120,7 @@ export function renderMartItemSelection(item: MartCatalogItem): string {
   ].join("\n");
 }
 
-export function renderMartPurchaseSuccess(
-  item: MartCatalogItem,
-  result: PurchaseResult,
-): string {
+export function renderMartPurchaseSuccess(item: MartCatalogItem, result: PurchaseResult): string {
   const before = result.inventoryQuantity - result.itemQuantity;
   return [
     "　　　　　✦ *𝗖𝗢𝗠𝗣𝗥𝗔 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
