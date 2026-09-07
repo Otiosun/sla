@@ -60,8 +60,7 @@ function activeSession(
     areaId: AREA_ID,
     serviceKind: kind,
     state: "OPEN",
-    sceneProofId:
-      kind === "PC" ? null : "00000000-0000-4000-8000-000000000802",
+    sceneProofId: kind === "PC" ? null : "00000000-0000-4000-8000-000000000802",
     expectedReplyOutboxIdempotencyKey: null,
     expectedReplyExternalMessageId: null,
     revision: 0n,
@@ -164,8 +163,9 @@ function resolverFixture(session: WorldServiceSessionRecord | null) {
     recordSceneProof: vi.fn(async () => ok(proof)),
   };
   const replyIntent = {
-    isExpectedReply: vi.fn(async (input: { replyToExternalMessageId: string }) =>
-      input.replyToExternalMessageId === CURRENT_PROMPT,
+    isExpectedReply: vi.fn(
+      async (input: { replyToExternalMessageId: string }) =>
+        input.replyToExternalMessageId === CURRENT_PROMPT,
     ),
   };
   const resolver = new WorldServiceConversationResolver({
@@ -282,9 +282,10 @@ describe("World Services WhatsApp", () => {
       ok: true,
       value: null,
     });
-    expect(
-      await fixture.resolver.resolve(context("1", "WA-WORLD-SERVICE-STALE", "43")),
-    ).toEqual({ ok: true, value: null });
+    expect(await fixture.resolver.resolve(context("1", "WA-WORLD-SERVICE-STALE", "43"))).toEqual({
+      ok: true,
+      value: null,
+    });
   });
 
   it("consumes only a reply bound to the exact active service prompt", async () => {
