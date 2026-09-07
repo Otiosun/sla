@@ -26,6 +26,11 @@ export interface WorldServiceWhatsAppDependencies {
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
 
+interface WorldServicePromptAnchor {
+  readonly playerId: PlayerId;
+  readonly expectedRevision: bigint;
+}
+
 class FunctionalHandler implements MessageRouteHandler {
   public constructor(private readonly handler: Handler) {}
 
@@ -53,6 +58,7 @@ function textResult(
   context: MessageHandlerContext,
   text: string,
   resultRefId: string,
+  prompt: WorldServicePromptAnchor | null = null,
 ): Result<MessageHandlerResult> {
   return ok({
     resultRefType: "WORLD_SERVICE_SESSION",
@@ -62,7 +68,16 @@ function textResult(
         channel: "whatsapp",
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
-        payload: { text },
+        payload:
+          prompt === null
+            ? { text }
+            : {
+                text,
+                worldServicePrompt: {
+                  playerId: prompt.playerId,
+                  expectedRevision: prompt.expectedRevision.toString(),
+                },
+              },
         idempotencyKey: `${context.idempotencyKey}:world-service`,
       },
     ],
@@ -87,7 +102,10 @@ function openHandler(
     });
     if (!opened.ok) return opened;
 
-    return textResult(context, renderWorldServiceEntry(serviceKind), opened.value.sessionId);
+    return textResult(context, renderWorldServiceEntry(serviceKind), opened.value.sessionId, {
+      playerId: player.value,
+      expectedRevision: opened.value.revision,
+    });
   };
 }
 
