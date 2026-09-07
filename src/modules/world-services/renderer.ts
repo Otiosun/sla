@@ -55,10 +55,24 @@ export function renderWorldServiceEntry(kind: WorldServiceKind): string {
         "　　　*𝗖𝗘𝗡𝗧𝗥𝗢 𝗣𝗢𝗞É𝗠𝗢𝗡*",
         "　　　　Vila dos Arrozais",
         "",
+        "━━━━━━━━━━━━━━━━━━",
+        "",
+        "> _Ao atravessar a porta, um pequeno sino anuncia sua chegada._",
+        "",
+        "_O ambiente é fresco e tranquilo. O som suave das máquinas se mistura às conversas dos treinadores e aos chamados ocasionais de alguns Pokémon._",
+        "",
+        "　　　　　♡ *𝗥𝗘𝗖𝗘𝗣ÇÃ𝗢*",
+        "",
+        "ᯓ *𝗘𝗡𝗙𝗘𝗥𝗠𝗘𝗜𝗥𝗔 𝗛𝗔𝗡𝗔*",
+        "",
+        "👩‍⚕️ _— Olá! Bem-vindo ao Centro Pokémon. Espero que sua jornada esteja sendo tranquila. Posso ajudá-lo com alguma coisa?_",
+        "",
         "♡　`/curar`",
         "▣　`/pc`",
         "ᯓ　`/conversar`",
         "‹　`/sair`",
+        "",
+        "　　　　　　♡",
       ].join("\n");
     case "PC":
       return [
@@ -165,6 +179,46 @@ export function renderMartInsufficientFunds(
     "> _Você não possui dinheiro suficiente para realizar essa compra._",
     "",
     "🧑‍🌾 _— Talvez seja melhor dar uma olhada nas tarefas da vila antes de voltar..._",
+  ].join("\n");
+}
+
+export function renderCenterConversationMenu(): string {
+  return [
+    "ᯓ *𝗖𝗢𝗡𝗩𝗘𝗥𝗦𝗔*",
+    "　Centro Pokémon · Recepção",
+    "",
+    "> _Você observa quem está disponível para conversar no salão._",
+    "",
+    "`01` Enfermeira Hana",
+    "`02` Funcionário do Centro",
+    "",
+    "› _Responda com o número da pessoa._",
+  ].join("\n");
+}
+
+export function renderCenterHanaConversation(): string {
+  return [
+    "♡ *𝗘𝗡𝗙𝗘𝗥𝗠𝗘𝗜𝗥𝗔 𝗛𝗔𝗡𝗔*",
+    "　Enfermeira Hana · Recepção",
+    "",
+    "> _Hana apoia as mãos no balcão e lhe dedica um sorriso tranquilo._",
+    "",
+    "👩‍⚕️ _— A Vila dos Arrozais é o primeiro lugar onde muitos treinadores aprendem a cuidar da própria equipe. Saber quando parar, recuperar seus Pokémon e observar como eles estão também faz parte da jornada._",
+    "",
+    "‹　`/conversar`",
+  ].join("\n");
+}
+
+export function renderCenterEmployeeConversation(): string {
+  return [
+    "▣ *𝗢𝗥𝗜𝗘𝗡𝗧𝗔ÇÃ𝗢*",
+    "　Funcionário do Centro · Suporte",
+    "",
+    "> _Um dos funcionários se aproxima do terminal e aponta para a tela do sistema._",
+    "",
+    "_— Um treinador pode carregar no máximo seis Pokémon na equipe. Os demais ficam guardados nas caixas do PC e podem ser organizados ou trazidos de volta quando houver espaço._",
+    "",
+    "‹　`/conversar`",
   ].join("\n");
 }
 
