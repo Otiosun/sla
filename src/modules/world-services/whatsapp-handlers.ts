@@ -184,10 +184,13 @@ export function createWorldServiceWhatsAppRoutes(
 
     const sellable = await dependencies.economy.listSellableInventory(player.value);
     if (!sellable.ok) return sellable;
-    const prompt = sellable.value.length === 0 ? null : {
-      playerId: player.value,
-      expectedRevision: active.value.revision,
-    };
+    const prompt =
+      sellable.value.length === 0
+        ? null
+        : {
+            playerId: player.value,
+            expectedRevision: active.value.revision,
+          };
 
     return textResult(
       context,
