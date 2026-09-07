@@ -3,10 +3,7 @@ import type {
   IncomingMessage,
   PendingOutboxMessage,
 } from "../../src/modules/messaging/contracts.js";
-import type {
-  MessagingService,
-  OutboxWorker,
-} from "../../src/modules/messaging/service.js";
+import type { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
 import type {
   WhatsAppAdapter,
   WhatsAppIncomingHandler,
