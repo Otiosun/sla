@@ -18,6 +18,8 @@ const SESSION_ID = "00000000-0000-4000-8000-000000002402";
 const CHAT_REF = "120363000000002401@g.us";
 const PROMPT_ID = "WA-PC-DEPOSIT-LIST";
 const PROMPT_KEY = "inbox:x:world-service:center:pc:deposit:list";
+const CONFIRM_PROMPT_ID = "WA-PC-DEPOSIT-CONFIRM";
+const CONFIRM_PROMPT_KEY = `inbox:x:world-service:center:pc:deposit:confirm:${TEAM_POKEMON_ID}`;
 
 const STORAGE: PokemonPcStorageSnapshot = {
   playerId: PLAYER_ID,
@@ -85,7 +87,10 @@ function context(
   };
 }
 
-function session(): WorldServiceSessionRecord {
+function session(
+  expectedReplyOutboxIdempotencyKey = PROMPT_KEY,
+  expectedReplyExternalMessageId = PROMPT_ID,
+): WorldServiceSessionRecord {
   return {
     sessionId: SESSION_ID,
     playerId: PLAYER_ID,
@@ -93,8 +98,8 @@ function session(): WorldServiceSessionRecord {
     serviceKind: "POKEMON_CENTER",
     state: "OPEN",
     sceneProofId: "00000000-0000-4000-8000-000000002403",
-    expectedReplyOutboxIdempotencyKey: PROMPT_KEY,
-    expectedReplyExternalMessageId: PROMPT_ID,
+    expectedReplyOutboxIdempotencyKey,
+    expectedReplyExternalMessageId,
     revision: 8n,
     createdAt: new Date("2026-09-07T12:50:00.000Z"),
     updatedAt: new Date("2026-09-07T12:55:00.000Z"),
@@ -102,13 +107,26 @@ function session(): WorldServiceSessionRecord {
   };
 }
 
-function fixture() {
+function fixture(options?: {
+  readonly promptKey?: string;
+  readonly promptId?: string;
+}) {
+  const promptKey = options?.promptKey ?? PROMPT_KEY;
+  const promptId = options?.promptId ?? PROMPT_ID;
   const getStorage = vi.fn(async () => ok(STORAGE));
-  const deposit = vi.fn();
+  const deposit = vi.fn(async () =>
+    ok({
+      kind: "APPLIED" as const,
+      pokemonInstanceId: TEAM_POKEMON_ID,
+      fromSlotNo: 1,
+      boxNo: 1,
+      slotNo: 2,
+    }),
+  );
   const replyIntent = {
     isExpectedReply: vi.fn(
       async (input: { replyToExternalMessageId: string }) =>
-        input.replyToExternalMessageId === PROMPT_ID,
+        input.replyToExternalMessageId === promptId,
     ),
   };
   const dependencies = {
@@ -128,7 +146,7 @@ function fixture() {
       getLocation: vi.fn(),
     },
     sessions: {
-      loadActiveSession: async () => ok(session()),
+      loadActiveSession: async () => ok(session(promptKey, promptId)),
       recordSceneProof: vi.fn(),
     },
     replyIntent,
@@ -178,5 +196,42 @@ describe("Pokemon PC deposit conversation", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toBeNull();
+  });
+
+  it("mutates storage only after an exact confirmation reply and renders the applied destination", async () => {
+    const current = fixture({
+      promptKey: CONFIRM_PROMPT_KEY,
+      promptId: CONFIRM_PROMPT_ID,
+    });
+
+    const result = await current.resolver.resolve(context("01", CONFIRM_PROMPT_ID, "03"));
+
+    expect(current.deposit).toHaveBeenCalledOnce();
+    expect(current.deposit).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: TEAM_POKEMON_ID,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗔𝗥𝗠𝗔𝗭𝗘𝗡𝗔𝗗𝗢");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Caixa 01");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Vaga 02");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Posição 01");
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:pc:deposit:result");
+  });
+
+  it("cancels an exact deposit confirmation without mutating storage", async () => {
+    const current = fixture({
+      promptKey: CONFIRM_PROMPT_KEY,
+      promptId: CONFIRM_PROMPT_ID,
+    });
+
+    const result = await current.resolver.resolve(context("02", CONFIRM_PROMPT_ID, "04"));
+
+    expect(current.deposit).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢");
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:pc:deposit:cancelled");
   });
 });
