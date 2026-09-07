@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { RulesetConfigSchema } from "../../modules/catalog/contracts.js";
 import { calculatePokemonStats } from "../../modules/pokemon/stats.js";
-import type {
-  HealPokemonCenterTeamInput,
-  PokemonCenterHealingChanges,
-  PokemonCenterHealingPersistenceResult,
-  PokemonCenterHealingRepository,
+import {
+  POKEMON_CENTER_HEALABLE_CONDITIONS,
+  type HealPokemonCenterTeamInput,
+  type PokemonCenterHealingChanges,
+  type PokemonCenterHealingPersistenceResult,
+  type PokemonCenterHealingRepository,
 } from "../../modules/world-services/healing-service.js";
 import { withTransaction } from "../db/transaction.js";
 
@@ -187,17 +188,6 @@ export class PostgresPokemonCenterHealingRepository implements PokemonCenterHeal
         );
         if (activeBattle.rows[0]?.active === true) return { kind: "ACTIVE_BATTLE" };
 
-        const activeEncounter = await client.query<{ active: boolean }>(
-          `SELECT EXISTS (
-             SELECT 1
-             FROM encounters
-             WHERE player_id = $1
-               AND status IN ('CREATED', 'PRESENTED', 'ENGAGED', 'CAPTURE_RESOLVING', 'IN_BATTLE')
-           ) AS active`,
-          [input.playerId],
-        );
-        if (activeEncounter.rows[0]?.active === true) return { kind: "ACTIVE_ENCOUNTER" };
-
         const existingClaim = await client.query<HealingClaimRow>(
           `SELECT player_id, session_id,
                   healed_pokemon_count, hp_restored_pokemon_count,
@@ -297,8 +287,9 @@ export class PostgresPokemonCenterHealingRepository implements PokemonCenterHeal
         const deletedConditions = await client.query<{ pokemon_instance_id: string }>(
           `DELETE FROM pokemon_persistent_conditions
            WHERE pokemon_instance_id = ANY($1::uuid[])
+             AND condition_key = ANY($2::text[])
            RETURNING pokemon_instance_id`,
-          [pokemonIds],
+          [pokemonIds, POKEMON_CENTER_HEALABLE_CONDITIONS],
         );
         const statusesClearedByPokemon = new Map<string, number>();
         for (const condition of deletedConditions.rows) {
