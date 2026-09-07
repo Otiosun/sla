@@ -13,6 +13,7 @@ import type {
 import {
   sceneProofInvalid,
   sceneProofRequired,
+  worldServiceNestedOnly,
   worldServiceRevisionConflict,
   worldServiceVisitConflict,
   worldServiceVisitNotFound,
@@ -76,6 +77,7 @@ export class WorldServiceSessionService {
   ): Promise<Result<WorldServiceSessionRecord>> {
     const areaId = validUuid("areaId", input.areaId);
     if (!areaId.ok) return areaId;
+    if (input.serviceKind === "PC") return err(worldServiceNestedOnly());
     const now = this.clock.now();
 
     return this.repository.transaction(async (transaction) => {
@@ -84,18 +86,6 @@ export class WorldServiceSessionService {
         return active.areaId === areaId.value && active.serviceKind === input.serviceKind
           ? ok(active)
           : err(worldServiceVisitConflict());
-      }
-
-      if (input.serviceKind === "PC") {
-        return ok(
-          await transaction.createSession({
-            playerId: input.playerId,
-            areaId: areaId.value,
-            serviceKind: input.serviceKind,
-            sceneProofId: null,
-            createdAt: now,
-          }),
-        );
       }
 
       const proof = await transaction.claimSceneProof({
