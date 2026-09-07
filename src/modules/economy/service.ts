@@ -381,11 +381,7 @@ export class EconomyService {
       SALE_FINGERPRINT_SCOPE,
     );
     if (!fingerprintMetadata.ok) return fingerprintMetadata;
-    const walletMetadata = prepareMetadata(
-      input.metadata,
-      input.idempotencyKey,
-      SALE_WALLET_SCOPE,
-    );
+    const walletMetadata = prepareMetadata(input.metadata, input.idempotencyKey, SALE_WALLET_SCOPE);
     if (!walletMetadata.ok) return walletMetadata;
     const inventoryMetadata = prepareMetadata(
       input.metadata,
