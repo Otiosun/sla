@@ -143,7 +143,6 @@ export function createWorldServiceWhatsAppRoutes(
     },
     {
       command: "centropokemon",
-      aliases: ["centropokémon"],
       handler: new FunctionalHandler(openHandler(dependencies, "POKEMON_CENTER")),
       policy: WORLD_SERVICE_POLICY,
     },
