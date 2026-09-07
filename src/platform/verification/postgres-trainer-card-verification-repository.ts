@@ -24,10 +24,12 @@ function isPublicSnapshot(value: unknown): value is TrainerCardPublicSnapshot {
   if (typeof value.trainerTitle !== "string") return false;
   if (typeof value.originRegion !== "string") return false;
   if (typeof value.currentLocation !== "string") return false;
-  if (typeof value.issuedAt !== "string" || !Number.isFinite(Date.parse(value.issuedAt))) return false;
+  if (typeof value.issuedAt !== "string" || !Number.isFinite(Date.parse(value.issuedAt)))
+    return false;
 
   if (!isObject(value.leadPokemon)) return false;
-  if (!Number.isSafeInteger(value.leadPokemon.dex) || Number(value.leadPokemon.dex) <= 0) return false;
+  if (!Number.isSafeInteger(value.leadPokemon.dex) || Number(value.leadPokemon.dex) <= 0)
+    return false;
   if (typeof value.leadPokemon.nickname !== "string") return false;
 
   if (!Array.isArray(value.earnedBadgeKeys)) return false;
