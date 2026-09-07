@@ -8,7 +8,8 @@ import { parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -46,10 +47,10 @@ describe.sequential("canonical 30-slot roster placement", () => {
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9999, 'roster-proof')",
       [speciesId],
     );
-    await pool.query(
-      "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')",
-      [formId, speciesId],
-    );
+    await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
+      formId,
+      speciesId,
+    ]);
 
     for (let slot = 1; slot <= 6; slot += 1) {
       const pokemonId = randomUUID();
