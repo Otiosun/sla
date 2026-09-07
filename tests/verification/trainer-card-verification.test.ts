@@ -1,3 +1,4 @@
+// RED contract: production verification modules are intentionally absent at this checkpoint.
 import { describe, expect, it, vi } from "vitest";
 import {
   HmacTrainerCardSigner,
