@@ -71,19 +71,6 @@ describe.sequential("Pokemon PC PostgreSQL storage", () => {
       [releaseId, rulesetId],
     );
     await pool.query(
-      `UPDATE content_releases
-       SET status = 'VALIDATED',
-           validated_at = now(),
-           validation_report = '{"valid":true,"issues":[]}'::jsonb,
-           content_fingerprint = $2
-       WHERE id = $1`,
-      [releaseId, "b".repeat(64)],
-    );
-    await pool.query(
-      "UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1",
-      [releaseId],
-    );
-    await pool.query(
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9998, 'eevee')",
       [speciesId],
     );
@@ -96,6 +83,19 @@ describe.sequential("Pokemon PC PostgreSQL storage", () => {
          id, content_release_id, species_id, display_name, active
        ) VALUES ($1, $2, $3, 'Eevee', TRUE)`,
       [randomUUID(), releaseId, speciesId],
+    );
+    await pool.query(
+      `UPDATE content_releases
+       SET status = 'VALIDATED',
+           validated_at = now(),
+           validation_report = '{"valid":true,"issues":[]}'::jsonb,
+           content_fingerprint = $2
+       WHERE id = $1`,
+      [releaseId, "b".repeat(64)],
+    );
+    await pool.query(
+      "UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1",
+      [releaseId],
     );
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
     await pool.query(
