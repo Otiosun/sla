@@ -30,6 +30,8 @@ describe.sequential("canonical 30-slot roster placement", () => {
   let adminPool: Pool;
   let pool: Pool;
   let owner: PlayerId;
+  let ownerRaw = "";
+  let formId = "";
 
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: databaseUrlFor("postgres"), max: 1 });
@@ -37,9 +39,9 @@ describe.sequential("canonical 30-slot roster placement", () => {
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 4 });
     await runMigrations(pool, { appliedBy: "roster-30-slot-vitest" });
 
-    const ownerRaw = randomUUID();
+    ownerRaw = randomUUID();
     const speciesId = randomUUID();
-    const formId = randomUUID();
+    formId = randomUUID();
     owner = playerId(ownerRaw);
 
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [ownerRaw]);
@@ -83,6 +85,16 @@ describe.sequential("canonical 30-slot roster placement", () => {
     }
   }, 30_000);
 
+  async function createUnslottedPokemon(): Promise<string> {
+    const pokemonId = randomUUID();
+    await pool.query(
+      `INSERT INTO pokemon_instances(id, owner_player_id, form_id, level, current_hp, origin_type)
+       VALUES ($1, $2, $3, 5, 20, 'TEST')`,
+      [pokemonId, ownerRaw, formId],
+    );
+    return pokemonId;
+  }
+
   afterAll(async () => {
     await pool.end();
     await adminPool.query(
@@ -105,5 +117,31 @@ describe.sequential("canonical 30-slot roster placement", () => {
     const placement = await repository.transaction((tx) => tx.nextRosterPlacement(owner));
 
     expect(placement).toEqual({ placementKind: "BOX", boxNo: 2, slotNo: 1 });
+  });
+
+  it("rejects team slots above six at the database boundary", async () => {
+    const pokemonId = await createUnslottedPokemon();
+
+    await expect(
+      pool.query(
+        `INSERT INTO pokemon_roster_slots(
+           pokemon_instance_id, player_id, placement_kind, box_no, slot_no
+         ) VALUES ($1, $2, 'TEAM', NULL, 7)`,
+        [pokemonId, ownerRaw],
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects box slots above thirty at the database boundary", async () => {
+    const pokemonId = await createUnslottedPokemon();
+
+    await expect(
+      pool.query(
+        `INSERT INTO pokemon_roster_slots(
+           pokemon_instance_id, player_id, placement_kind, box_no, slot_no
+         ) VALUES ($1, $2, 'BOX', 2, 31)`,
+        [pokemonId, ownerRaw],
+      ),
+    ).rejects.toThrow();
   });
 });
