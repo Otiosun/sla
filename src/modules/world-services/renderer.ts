@@ -1,7 +1,8 @@
-import type { PurchaseResult } from "../economy/contracts.js";
+import type { PurchaseResult, SaleResult } from "../economy/contracts.js";
 import type { WorldServiceKind } from "./contracts.js";
 import type { MartCatalogCategory, MartCatalogItem } from "./mart-catalog.js";
 import { MART_CATALOG } from "./mart-catalog.js";
+import type { MartSellableInventoryItem } from "./mart-sale.js";
 
 const CATEGORY_LABELS: Readonly<Record<MartCatalogCategory, string>> = {
   CAPTURE: "┄┄ ◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔* ┄┄",
@@ -179,6 +180,97 @@ export function renderMartInsufficientFunds(
     "> _Você não possui dinheiro suficiente para realizar essa compra._",
     "",
     "🧑‍🌾 _— Talvez seja melhor dar uma olhada nas tarefas da vila antes de voltar..._",
+  ].join("\n");
+}
+
+export function renderMartSaleList(items: readonly MartSellableInventoryItem[]): string {
+  const lines = [
+    "₽ *𝗩𝗘𝗡𝗗𝗘𝗥*",
+    "　Poké Mart · Seu inventário",
+    "",
+    "> _O comerciante observa os itens que você separou sobre o balcão._",
+    "",
+    "🧑‍🌾 _— Posso comprar alguns desses itens. Veja o que estou aceitando hoje._",
+    "",
+  ];
+
+  if (items.length === 0) {
+    lines.push(
+      "◇ *Nenhum item disponível para venda.*",
+      "",
+      "🧑‍🌾 _— Parece que você não tem nada que eu esteja comprando agora._",
+    );
+    return lines.join("\n");
+  }
+
+  lines.push("┄┄ ◇ *𝗜𝗧𝗘𝗡𝗦 𝗔𝗖𝗘𝗜𝗧𝗢𝗦* ┄┄");
+  items.forEach((item, index) => {
+    const code = String(index + 1).padStart(2, "0");
+    lines.push(
+      `\`${code}\` ${item.displayName} · x${formatQuantity(item.inventoryQuantity)} · *₽${formatMoney(item.unitSaleAmount)}*`,
+    );
+  });
+  lines.push("", "› _Responda com o número do item._");
+  return lines.join("\n");
+}
+
+export function renderMartSaleItemSelection(item: MartSellableInventoryItem): string {
+  return [
+    `₽ *${styledUpper(item.displayName)}*`,
+    "　Poké Mart · Venda",
+    "",
+    "> _O comerciante examina o item por alguns instantes antes de indicar o valor de compra._",
+    "",
+    "╭─ ◇ *𝗔𝗩𝗔𝗟𝗜𝗔ÇÃ𝗢*",
+    "│",
+    `│ Unidade　　　*₽${formatMoney(item.unitSaleAmount)}*`,
+    `│ Na mochila　 *x${formatQuantity(item.inventoryQuantity)}*`,
+    "│",
+    "",
+    "🧑‍🌾 _— Quantas unidades quer vender?_",
+    "",
+    "╭─ ◇ *𝗣𝗘𝗗𝗜𝗗𝗢*",
+    `╰─ \`${item.displayName} / 2\``,
+  ].join("\n");
+}
+
+export function renderMartSaleSuccess(
+  item: MartSellableInventoryItem,
+  result: SaleResult,
+): string {
+  const before = result.inventoryQuantity + result.saleQuantity;
+  return [
+    "　　　　　✦ *𝗩𝗘𝗡𝗗𝗔 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
+    "",
+    `　　　　　　　*− ${formatQuantity(result.saleQuantity)}x*`,
+    `　　　　　　*${styledUpper(item.displayName)}*`,
+    "",
+    "> _O comerciante recolhe os itens, confere a quantidade e separa o pagamento._",
+    "",
+    "╭─ 🧾 *𝗥𝗘𝗖𝗜𝗕𝗢*",
+    "│",
+    `│ Recebido　　 *₽${formatMoney(result.saleAmount)}*`,
+    `│ Saldo　　　 *₽${formatMoney(result.walletAmount)}*`,
+    `│ Mochila　　 *${formatQuantity(before)} → ${formatQuantity(result.inventoryQuantity)}*`,
+    "│",
+    "╰─ ✦ *Venda registrada*",
+    "",
+    "🧑‍🌾 _— Negócio feito._",
+    "",
+    "`/comprar` · `/vender` · `/itens` · `/sair`",
+  ].join("\n");
+}
+
+export function renderMartSaleUnavailable(item: MartSellableInventoryItem): string {
+  return [
+    "△ *𝗜𝗧𝗘𝗠 𝗜𝗡𝗗𝗜𝗦𝗣𝗢𝗡Í𝗩𝗘𝗟*",
+    "━━━━━━━━━━━━━━━━━━",
+    "",
+    `◇ *${item.displayName}*`,
+    "",
+    "> _Você não possui unidades suficientes desse item para concluir a venda._",
+    "",
+    "🧑‍🌾 _— Confira sua mochila e me diga outra quantidade._",
   ].join("\n");
 }
 
