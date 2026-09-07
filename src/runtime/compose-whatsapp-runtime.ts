@@ -186,6 +186,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     sessions: worldServiceSessions,
     replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
     economy: martEconomy,
+    pcStorage: pokemonPcStorage,
   });
   const conversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
