@@ -203,11 +203,7 @@ async function seedPokemon(
   return pokemonId;
 }
 
-async function seedPlayer(
-  pool: Pool,
-  content: ContentFixture,
-  suffix: string,
-): Promise<PlayerFixture> {
+async function seedPlayer(pool: Pool, content: ContentFixture): Promise<PlayerFixture> {
   const client = await pool.connect();
   try {
     const playerId = createPlayerId();
@@ -297,7 +293,7 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
   });
 
   it("restores TEAM HP/PP/status atomically, leaves BOX untouched and replays once", async () => {
-    const player = await seedPlayer(pool, content, "heal");
+    const player = await seedPlayer(pool, content);
 
     const first = await service.healTeam(healingInput(player));
     expect(first).toEqual({
@@ -330,12 +326,12 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
        ORDER BY pokemon_instance_id`,
       [[player.teamPokemonId, player.boxPokemonId]],
     );
-    expect(moves.rows.find((row) => row.pokemon_instance_id === player.teamPokemonId)?.pp_current).toBe(
-      35,
-    );
-    expect(moves.rows.find((row) => row.pokemon_instance_id === player.boxPokemonId)?.pp_current).toBe(
-      1,
-    );
+    expect(
+      moves.rows.find((row) => row.pokemon_instance_id === player.teamPokemonId)?.pp_current,
+    ).toBe(35);
+    expect(
+      moves.rows.find((row) => row.pokemon_instance_id === player.boxPokemonId)?.pp_current,
+    ).toBe(1);
 
     const conditions = await pool.query<{ pokemon_instance_id: string; condition_key: string }>(
       `SELECT pokemon_instance_id, condition_key
@@ -380,7 +376,7 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
   });
 
   it("rejects healing during an active battle before mutating or claiming", async () => {
-    const player = await seedPlayer(pool, content, "battle");
+    const player = await seedPlayer(pool, content);
     const battleId = randomUUID();
     const sideId = randomUUID();
     await pool.query(
@@ -389,7 +385,14 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
          turn_number, version, rng_seed_ciphertext, rng_seed_iv,
          rng_seed_auth_tag, rng_seed_key_version, rng_counter
        ) VALUES ($1, 'PVP', 'ACTIVE', $2, $3, 1, 0, $4, $5, $6, 1, 0)`,
-      [battleId, content.releaseId, content.rulesetId, Buffer.alloc(32, 1), Buffer.alloc(12, 2), Buffer.alloc(16, 3)],
+      [
+        battleId,
+        content.releaseId,
+        content.rulesetId,
+        Buffer.alloc(32, 1),
+        Buffer.alloc(12, 2),
+        Buffer.alloc(16, 3),
+      ],
     );
     await pool.query(
       `INSERT INTO battle_sides(id, battle_id, side_no, controller_kind, player_id)
@@ -410,7 +413,7 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
   });
 
   it("rejects healing during an active encounter before mutating or claiming", async () => {
-    const player = await seedPlayer(pool, content, "encounter");
+    const player = await seedPlayer(pool, content);
     await pool.query(
       `INSERT INTO encounters(
          id, player_id, area_id, status, content_release_id, ruleset_id,
