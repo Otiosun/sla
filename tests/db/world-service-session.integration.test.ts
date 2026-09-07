@@ -120,13 +120,7 @@ describe.sequential("world service session persistence", () => {
       `INSERT INTO inbox_messages(
          id, provider, external_message_id, player_id, payload_hash, status, correlation_id
        ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED', $5)`,
-      [
-        newerInbox,
-        `world-service-message-${randomUUID()}`,
-        playerId,
-        "b".repeat(64),
-        randomUUID(),
-      ],
+      [newerInbox, `world-service-message-${randomUUID()}`, playerId, "b".repeat(64), randomUUID()],
     );
 
     const older = await service.recordSceneProof({
