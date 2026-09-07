@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 const pcComposition = vi.hoisted(() => ({
   repositoryConstructor: vi.fn(),
   serviceConstructor: vi.fn(),
+  resolverConstructor: vi.fn(),
 }));
 
 vi.mock("../../src/platform/world-services/postgres-pokemon-pc-storage-repository.js", () => ({
@@ -17,7 +18,23 @@ vi.mock("../../src/platform/world-services/postgres-pokemon-pc-storage-repositor
 vi.mock("../../src/modules/world-services/pc-storage-service.js", () => ({
   PokemonPcStorageService: class {
     public constructor(repository: unknown) {
-      pcComposition.serviceConstructor(repository);
+      pcComposition.serviceConstructor(repository, this);
+    }
+  },
+}));
+
+vi.mock("../../src/modules/world-services/conversation-resolver.js", () => ({
+  WorldServiceConversationResolver: class {
+    public constructor(dependencies: unknown) {
+      pcComposition.resolverConstructor(dependencies);
+    }
+
+    public async admits(): Promise<boolean> {
+      return false;
+    }
+
+    public async resolve(): Promise<{ ok: true; value: null }> {
+      return { ok: true, value: null };
     }
   },
 }));
@@ -25,7 +42,7 @@ vi.mock("../../src/modules/world-services/pc-storage-service.js", () => ({
 import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
 
 describe("Pokemon PC runtime composition", () => {
-  it("composes the canonical PostgreSQL PC repository into the PC storage service", () => {
+  it("composes one canonical PostgreSQL PC service into routes and conversation runtime", () => {
     const pool = {} as Pool;
 
     const composition = createOperationalMessagingComposition(pool);
@@ -46,6 +63,12 @@ describe("Pokemon PC runtime composition", () => {
     const repository = pcComposition.repositoryConstructor.mock.calls[0]?.[1];
     expect(pcComposition.repositoryConstructor).toHaveBeenCalledWith(pool, repository);
     expect(pcComposition.serviceConstructor).toHaveBeenCalledOnce();
-    expect(pcComposition.serviceConstructor).toHaveBeenCalledWith(repository);
+    const pcStorage = pcComposition.serviceConstructor.mock.calls[0]?.[1];
+    expect(pcComposition.serviceConstructor).toHaveBeenCalledWith(repository, pcStorage);
+    expect(pcComposition.resolverConstructor).toHaveBeenCalledOnce();
+    const resolverDependencies = pcComposition.resolverConstructor.mock.calls[0]?.[0] as {
+      pcStorage?: unknown;
+    };
+    expect(resolverDependencies.pcStorage).toBe(pcStorage);
   });
 });
