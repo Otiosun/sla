@@ -118,9 +118,7 @@ export class PostgresPokemonPcStorageRepository implements PokemonPcStorageRepos
     return { playerId, team, boxes: boxViews };
   }
 
-  public async deposit(
-    input: DepositPokemonPcInput,
-  ): Promise<PokemonPcDepositPersistenceResult> {
+  public async deposit(input: DepositPokemonPcInput): Promise<PokemonPcDepositPersistenceResult> {
     return withTransaction(this.pool, async (client) => {
       if (!(await lockPlayer(client, input.playerId))) return { kind: "POKEMON_NOT_IN_TEAM" };
 
