@@ -8,7 +8,7 @@ import type {
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { ok, type Result } from "../../shared-kernel/result.js";
+import { ok, type AppError, type Result } from "../../shared-kernel/result.js";
 import type { WorldServiceSessionRecord } from "./contracts.js";
 import {
   isMartCatalogPromptKey,
@@ -17,7 +17,11 @@ import {
   martQuantityOfferFromPromptKey,
   parseMartQuantityReply,
 } from "./mart-catalog.js";
-import { renderMartItemSelection, renderMartPurchaseSuccess } from "./renderer.js";
+import {
+  renderMartInsufficientFunds,
+  renderMartItemSelection,
+  renderMartPurchaseSuccess,
+} from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 interface CommunityContextResolver {
@@ -36,13 +40,17 @@ export interface WorldServiceReplyIntentVerifier {
   }): Promise<boolean>;
 }
 
+interface MartEconomyService
+  extends Pick<EconomyService, "purchaseQuantity">,
+    Partial<Pick<EconomyService, "getWalletBalance">> {}
+
 export interface WorldServiceConversationResolverDependencies {
   readonly community: CommunityContextResolver;
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly world: Pick<WorldService, "getLocation">;
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
-  readonly economy?: Pick<EconomyService, "purchaseQuantity">;
+  readonly economy?: MartEconomyService;
 }
 
 function identity(message: IncomingMessage): { provider: string; externalId: string } {
@@ -63,6 +71,26 @@ function isSceneProofCandidate(message: IncomingMessage): boolean {
     message.text !== null &&
     nonEmptyLineCount(message.text) >= 4
   );
+}
+
+function insufficientWalletRequest(error: AppError): {
+  readonly currencyId: string;
+  readonly requested: bigint;
+} | null {
+  if (error.code !== "ACTION_INVALID" || error.message !== "Wallet balance is insufficient") {
+    return null;
+  }
+  const currencyId = error.details?.currencyId;
+  const requested = error.details?.requested;
+  if (
+    typeof currencyId !== "string" ||
+    typeof requested !== "string" ||
+    !/^[0-9]+$/.test(requested)
+  ) {
+    return null;
+  }
+  const parsed = BigInt(requested);
+  return parsed > 0n ? { currencyId, requested: parsed } : null;
 }
 
 function replyResult(
@@ -207,7 +235,29 @@ export class WorldServiceConversationResolver {
               correlationId: context.correlationId,
             },
           });
-          if (!purchased.ok) return purchased;
+          if (!purchased.ok) {
+            const insufficient = insufficientWalletRequest(purchased.error);
+            const balanceReader = this.dependencies.economy.getWalletBalance;
+            if (insufficient === null || balanceReader === undefined) return purchased;
+
+            const balance = await balanceReader.call(
+              this.dependencies.economy,
+              session.playerId,
+              insufficient.currencyId,
+            );
+            if (!balance.ok) return balance;
+            return replyResult(
+              context,
+              session,
+              renderMartInsufficientFunds(
+                selected,
+                quantity,
+                balance.value,
+                insufficient.requested,
+              ),
+              ":mart:insufficient",
+            );
+          }
 
           return replyResult(
             context,

@@ -144,6 +144,30 @@ export function renderMartPurchaseSuccess(item: MartCatalogItem, result: Purchas
   ].join("\n");
 }
 
+export function renderMartInsufficientFunds(
+  item: MartCatalogItem,
+  quantity: bigint,
+  walletAmount: bigint,
+  requiredAmount: bigint,
+): string {
+  const missing = requiredAmount > walletAmount ? requiredAmount - walletAmount : 0n;
+  return [
+    "₽ *𝗗𝗜𝗡𝗛𝗘𝗜𝗥𝗢 𝗜𝗡𝗦𝗨𝗙𝗜𝗖𝗜𝗘𝗡𝗧𝗘*",
+    "━━━━━━━━━━━━━━━━━━",
+    "",
+    "◇ *Pedido*",
+    `　${quantity.toString()}x ${item.displayName}`,
+    "",
+    `₽ Seu saldo　　 *₽${formatMoney(walletAmount)}*`,
+    `₽ Necessário　　*₽${formatMoney(requiredAmount)}*`,
+    `△ Faltam　　　 *₽${formatMoney(missing)}*`,
+    "",
+    "> _Você não possui dinheiro suficiente para realizar essa compra._",
+    "",
+    "🧑‍🌾 _— Talvez seja melhor dar uma olhada nas tarefas da vila antes de voltar..._",
+  ].join("\n");
+}
+
 export function renderWorldServiceExit(): string {
   return "‹ *Atendimento encerrado.* Você voltou à cena normal.";
 }
