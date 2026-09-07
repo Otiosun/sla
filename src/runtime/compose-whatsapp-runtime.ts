@@ -14,6 +14,7 @@ import { ReceptionAwareConversationResolver } from "../modules/community/recepti
 import { ReceptionService } from "../modules/community/reception-service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../modules/community/service.js";
+import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
@@ -48,6 +49,7 @@ import { PostgresBattleRepository } from "../platform/battle/postgres-battle-rep
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
 import { PostgresReceptionPresenceRepository } from "../platform/community/postgres-reception-presence-repository.js";
+import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
@@ -101,6 +103,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const encounter = new EncounterOperationalReadService(new PostgresEncounterRepository(pool));
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
   const reads = new PostgresOperationalUxReadModel(pool);
+  const economy = new EconomyService(new PostgresEconomyRepository(pool));
 
   const community = new CommunityService(new PostgresCommunityRepository(pool));
   const registrationRepository = new PostgresRegistrationRepository(pool);
@@ -164,6 +167,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     world,
     sessions: worldServiceSessions,
     replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
+    economy,
   });
   const conversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {

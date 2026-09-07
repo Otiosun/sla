@@ -4,9 +4,13 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { ok, type Result } from "../../shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { WorldServiceKind } from "./contracts.js";
-import { renderWorldServiceEntry, renderWorldServiceExit } from "./renderer.js";
+import {
+  renderMartCatalog,
+  renderWorldServiceEntry,
+  renderWorldServiceExit,
+} from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 const WORLD_SERVICE_POLICY = {
@@ -59,6 +63,7 @@ function textResult(
   text: string,
   resultRefId: string,
   prompt: WorldServicePromptAnchor | null = null,
+  idempotencySuffix = "",
 ): Result<MessageHandlerResult> {
   return ok({
     resultRefType: "WORLD_SERVICE_SESSION",
@@ -78,7 +83,7 @@ function textResult(
                   expectedRevision: prompt.expectedRevision.toString(),
                 },
               },
-        idempotencyKey: `${context.idempotencyKey}:world-service`,
+        idempotencyKey: `${context.idempotencyKey}:world-service${idempotencySuffix}`,
       },
     ],
   });
@@ -135,10 +140,37 @@ export function createWorldServiceWhatsAppRoutes(
     return textResult(context, renderWorldServiceExit(), closed.value.sessionId);
   };
 
+  const buy: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMART") {
+      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+    }
+
+    return textResult(
+      context,
+      renderMartCatalog(),
+      active.value.sessionId,
+      {
+        playerId: player.value,
+        expectedRevision: active.value.revision,
+      },
+      ":mart:catalog",
+    );
+  };
+
   return [
     {
       command: "pokemart",
       handler: new FunctionalHandler(openHandler(dependencies, "POKEMART")),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "comprar",
+      handler: new FunctionalHandler(buy),
       policy: WORLD_SERVICE_POLICY,
     },
     {

@@ -1,4 +1,5 @@
 import type { CommunityChatContext } from "../community/contracts.js";
+import type { EconomyService } from "../economy/service.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
@@ -9,6 +10,14 @@ import type { WorldService } from "../world/service.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { ok, type Result } from "../../shared-kernel/result.js";
 import type { WorldServiceSessionRecord } from "./contracts.js";
+import {
+  isMartCatalogPromptKey,
+  martItemByCode,
+  martItemByOfferKey,
+  martQuantityOfferFromPromptKey,
+  parseMartQuantityReply,
+} from "./mart-catalog.js";
+import { renderMartItemSelection, renderMartPurchaseSuccess } from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 interface CommunityContextResolver {
@@ -33,6 +42,7 @@ export interface WorldServiceConversationResolverDependencies {
   readonly world: Pick<WorldService, "getLocation">;
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
+  readonly economy?: Pick<EconomyService, "purchaseQuantity">;
 }
 
 function identity(message: IncomingMessage): { provider: string; externalId: string } {
@@ -53,6 +63,41 @@ function isSceneProofCandidate(message: IncomingMessage): boolean {
     message.text !== null &&
     nonEmptyLineCount(message.text) >= 4
   );
+}
+
+function replyResult(
+  context: MessageHandlerContext,
+  session: WorldServiceSessionRecord,
+  text: string,
+  idempotencySuffix: string,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "WORLD_SERVICE_REPLY",
+    resultRefId: session.sessionId,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: {
+          text,
+          worldServicePrompt: {
+            playerId: session.playerId,
+            expectedRevision: session.revision.toString(),
+          },
+        },
+        idempotencyKey: `${context.idempotencyKey}:world-service${idempotencySuffix}`,
+      },
+    ],
+  });
+}
+
+function emptyReply(session: WorldServiceSessionRecord): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "WORLD_SERVICE_REPLY",
+    resultRefId: session.sessionId,
+    outgoing: [],
+  });
 }
 
 export class WorldServiceConversationResolver {
@@ -124,11 +169,56 @@ export class WorldServiceConversationResolver {
     if (await this.isExactActivePromptReply(context.message, active.value)) {
       const session = active.value;
       if (session === null) return ok(null);
-      return ok({
-        resultRefType: "WORLD_SERVICE_REPLY",
-        resultRefId: session.sessionId,
-        outgoing: [],
-      });
+
+      const promptKey = session.expectedReplyOutboxIdempotencyKey;
+      const text = context.message.text;
+      if (session.serviceKind === "POKEMART" && promptKey !== null && text !== null) {
+        if (isMartCatalogPromptKey(promptKey)) {
+          const selected = martItemByCode(text);
+          if (selected === null) return emptyReply(session);
+          return replyResult(
+            context,
+            session,
+            renderMartItemSelection(selected),
+            `:mart:quantity:${selected.offerKey}`,
+          );
+        }
+
+        const offerKey = martQuantityOfferFromPromptKey(promptKey);
+        if (offerKey !== null) {
+          const selected = martItemByOfferKey(offerKey);
+          if (selected === null) return emptyReply(session);
+          const quantity = parseMartQuantityReply(text, selected);
+          if (quantity === null || this.dependencies.economy === undefined) {
+            return emptyReply(session);
+          }
+
+          const purchased = await this.dependencies.economy.purchaseQuantity({
+            playerId: session.playerId,
+            offerKey,
+            quantity,
+            idempotencyKey: context.idempotencyKey,
+            metadata: {
+              sourceType: "WORLD_SERVICE_MART",
+              sourceId: session.sessionId,
+              reason: "Poké Mart purchase",
+              actorType: "PLAYER",
+              actorId: session.playerId,
+              correlationId: context.correlationId,
+            },
+          });
+          if (!purchased.ok) return purchased;
+
+          return replyResult(
+            context,
+            session,
+            renderMartPurchaseSuccess(selected, purchased.value),
+            ":mart:result",
+          );
+        }
+      }
+
+      return emptyReply(session);
     }
 
     if (!isSceneProofCandidate(context.message)) return ok(null);
