@@ -13,8 +13,12 @@ describe("gitleaks full-history CI contract", () => {
 
       expect(workflow).toMatch(/fetch-depth:\s*0/);
       expect(workflow).toContain("git rev-list --all --count");
-      expect(workflow).toContain('gitleaks detect --redact --verbose --exit-code=2 --log-opts="--all"');
-      expect(workflow).not.toContain('gitleaks detect --redact --verbose --exit-code=2 --log-opts="-1"');
+      expect(workflow).toContain(
+        'gitleaks detect --redact --verbose --exit-code=2 --log-opts="--all"',
+      );
+      expect(workflow).not.toContain(
+        'gitleaks detect --redact --verbose --exit-code=2 --log-opts="-1"',
+      );
     });
   }
 });
