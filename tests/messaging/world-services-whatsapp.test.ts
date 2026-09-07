@@ -119,7 +119,9 @@ function routeFixture() {
 
   const dependencies = {
     players: {
-      resolvePlayer: vi.fn(async () => ok({ playerId: PLAYER_ID, state: "COMPLETE" as const })),
+      resolvePlayer: vi.fn(async () =>
+        ok({ playerId: PLAYER_ID, state: "COMPLETE" as const, created: false }),
+      ),
     },
     world: {
       getLocation: vi.fn(async () => ok(worldLocation())),
@@ -178,7 +180,8 @@ function resolverFixture(session: WorldServiceSessionRecord | null) {
       }),
     },
     players: {
-      resolvePlayer: async () => ok({ playerId: PLAYER_ID, state: "COMPLETE" as const }),
+      resolvePlayer: async () =>
+        ok({ playerId: PLAYER_ID, state: "COMPLETE" as const, created: false }),
     },
     world: {
       getLocation: async () => ok(worldLocation()),
