@@ -55,13 +55,10 @@ function changesFromClaim(row: HealingClaimRow): PokemonCenterHealingChanges {
   };
 }
 
-async function activeContent(client: PoolClient): Promise<
-  | {
-      readonly contentReleaseId: string;
-      readonly rulesetConfig: unknown;
-    }
-  | null
-> {
+async function activeContent(client: PoolClient): Promise<{
+  readonly contentReleaseId: string;
+  readonly rulesetConfig: unknown;
+} | null> {
   const result = await client.query<{
     content_release_id: string;
     ruleset_config: unknown;
