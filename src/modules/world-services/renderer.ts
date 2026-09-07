@@ -137,7 +137,7 @@ export function renderMartItemSelection(item: MartCatalogItem): string {
 export function renderMartPurchaseSuccess(item: MartCatalogItem, result: PurchaseResult): string {
   const before = result.inventoryQuantity - result.itemQuantity;
   return [
-    "　　　　　✦ *𝗖𝗢𝗠𝗣𝗥𝗔 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
+    "　　　　　✦ *𝗖𝗢𝗠𝗣𝗥𝗔 𝗖𝗢𝗡𝗖𝗨Í𝗗𝗔*",
     "",
     `　　　　　　　*＋ ${formatQuantity(result.itemQuantity)}x*`,
     `　　　　　　*${styledUpper(item.displayName)}*`,
@@ -179,6 +179,33 @@ export function renderMartInsufficientFunds(
     "> _Você não possui dinheiro suficiente para realizar essa compra._",
     "",
     "🧑‍🌾 _— Talvez seja melhor dar uma olhada nas tarefas da vila antes de voltar..._",
+  ].join("\n");
+}
+
+export function renderPokemonCenterRecovery(): string {
+  return [
+    "♡ *𝗥𝗘𝗖𝗨𝗣𝗘𝗥𝗔ÇÃ𝗢*",
+    "　Terminal · Equipe Pokémon",
+    "",
+    "👩‍⚕️ _— Claro. Deixe seus Pokémon comigo por alguns instantes._",
+    "",
+    "> _As Poké Balls são colocadas cuidadosamente na máquina de recuperação._",
+    "",
+    "　　　　◉ *PROCESSANDO...*",
+    "",
+    "♡ HP　　 `████████`　*100%*",
+    "⚡ PP　　 `████████`　*100%*",
+    "✦ STATUS　`LIMPO`",
+    "",
+    "　　　　　　　✓",
+    "",
+    "　　　*𝗥𝗘𝗖𝗨𝗣𝗘𝗥𝗔ÇÃ𝗢 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
+    "",
+    "> ❤️ HP restaurado.",
+    "> ⚡ PP restaurado.",
+    "> ✨ Condições de status removidas.",
+    "",
+    "👩‍⚕️ _— Prontinho! Seus Pokémon estão completamente recuperados. Cuide bem deles, treinador._",
   ].join("\n");
 }
 
