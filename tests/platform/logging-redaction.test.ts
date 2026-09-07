@@ -40,6 +40,34 @@ describe("structured logging redaction", () => {
     });
   });
 
+  it("redacts sensitive HTTP and refresh credentials in nested log context", () => {
+    expect(
+      redactLogContext({
+        headers: {
+          authorization: "Bearer header-secret",
+          "cf-access-jwt-assertion": "cloudflare-jwt-secret",
+          "x-control-center-csrf": "csrf-secret",
+          "set-cookie": "control_center_session=session-secret; HttpOnly; Secure",
+          "proxy-authorization": "Basic proxy-secret",
+          "x-api-key": "api-key-secret",
+          "user-agent": "security-regression-test",
+        },
+        refreshToken: "refresh-token-secret",
+      }),
+    ).toEqual({
+      headers: {
+        authorization: "[REDACTED]",
+        "cf-access-jwt-assertion": "[REDACTED]",
+        "x-control-center-csrf": "[REDACTED]",
+        "set-cookie": "[REDACTED]",
+        "proxy-authorization": "[REDACTED]",
+        "x-api-key": "[REDACTED]",
+        "user-agent": "security-regression-test",
+      },
+      refreshToken: "[REDACTED]",
+    });
+  });
+
   it("still redacts bearer credentials and phone-like values in free text", () => {
     expect(
       redactLogContext({
