@@ -27,7 +27,9 @@ describe("trainer-card verification cryptographic boundary", () => {
 
     expect(signer.verify(SNAPSHOT, signature)).toBe(true);
     expect(signer.verify({ ...SNAPSHOT, trainerName: "Blue" }, signature)).toBe(false);
-    expect(signer.verify({ ...SNAPSHOT, currentLocation: "Viridian City" }, signature)).toBe(false);
+    expect(
+      signer.verify({ ...SNAPSHOT, currentLocation: "Viridian City" }, signature),
+    ).toBe(false);
   });
 
   it(
