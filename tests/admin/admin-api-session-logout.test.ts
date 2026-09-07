@@ -98,19 +98,23 @@ describe("Admin API current-session logout", () => {
     expect(response.json()).toMatchObject({ error: { code: "ADMIN_RATE_LIMITED" } });
   });
 
-  it("answers the exact-origin logout preflight without authentication, rate limiting, or revocation", async () => {
+  it("answers the exact-origin logout preflight with the complete browser contract and zero protected work", async () => {
     const authenticate = vi.fn();
     const authorize = vi.fn();
     const logoutCurrent = vi.fn();
+    const getSession = vi.fn();
+    const searchPlayers = vi.fn();
+    const getPlayer = vi.fn();
+    const prepareMutation = vi.fn();
     const consume = vi.fn();
     const server = createAdminApiServer({
       allowedOrigin: ORIGIN,
       authenticator: { authenticate },
       sessionGuard: { authorize },
       sessionLogoutService: { logoutCurrent },
-      sessionService: { getSession: vi.fn() },
-      readFacade: { searchPlayers: vi.fn(), getPlayer: vi.fn() },
-      mutationFacade: { prepareMutation: vi.fn() },
+      sessionService: { getSession },
+      readFacade: { searchPlayers, getPlayer },
+      mutationFacade: { prepareMutation },
       rateLimiter: { consume },
     });
     servers.push(server);
@@ -121,7 +125,7 @@ describe("Admin API current-session logout", () => {
       headers: {
         origin: ORIGIN,
         "access-control-request-method": "POST",
-        "access-control-request-headers": "x-control-center-csrf",
+        "access-control-request-headers": "content-type, x-control-center-csrf",
       },
     });
 
@@ -129,10 +133,62 @@ describe("Admin API current-session logout", () => {
     expect(response.headers["access-control-allow-origin"]).toBe(ORIGIN);
     expect(response.headers["access-control-allow-credentials"]).toBe("true");
     expect(response.headers["access-control-allow-methods"]).toBe("POST");
-    expect(response.headers["access-control-allow-headers"]).toBe("x-control-center-csrf");
+    expect(response.headers["access-control-allow-headers"]).toBe(
+      "content-type, x-control-center-csrf",
+    );
+    expect(response.headers.vary).toBe(
+      "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+    );
     expect(authenticate).not.toHaveBeenCalled();
     expect(authorize).not.toHaveBeenCalled();
     expect(consume).not.toHaveBeenCalled();
     expect(logoutCurrent).not.toHaveBeenCalled();
+    expect(getSession).not.toHaveBeenCalled();
+    expect(searchPlayers).not.toHaveBeenCalled();
+    expect(getPlayer).not.toHaveBeenCalled();
+    expect(prepareMutation).not.toHaveBeenCalled();
+  });
+
+  it("rejects a near-match origin on logout preflight before protected work", async () => {
+    const authenticate = vi.fn();
+    const authorize = vi.fn();
+    const logoutCurrent = vi.fn();
+    const getSession = vi.fn();
+    const searchPlayers = vi.fn();
+    const getPlayer = vi.fn();
+    const prepareMutation = vi.fn();
+    const consume = vi.fn();
+    const server = createAdminApiServer({
+      allowedOrigin: ORIGIN,
+      authenticator: { authenticate },
+      sessionGuard: { authorize },
+      sessionLogoutService: { logoutCurrent },
+      sessionService: { getSession },
+      readFacade: { searchPlayers, getPlayer },
+      mutationFacade: { prepareMutation },
+      rateLimiter: { consume },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "OPTIONS",
+      url: "/admin/v1/session/logout",
+      headers: {
+        origin: `${ORIGIN}.evil.invalid`,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type, x-control-center-csrf",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+    expect(consume).not.toHaveBeenCalled();
+    expect(logoutCurrent).not.toHaveBeenCalled();
+    expect(getSession).not.toHaveBeenCalled();
+    expect(searchPlayers).not.toHaveBeenCalled();
+    expect(getPlayer).not.toHaveBeenCalled();
+    expect(prepareMutation).not.toHaveBeenCalled();
   });
 });
