@@ -1,6 +1,14 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
+export const POKEMON_CENTER_HEALABLE_CONDITIONS = [
+  "BURN",
+  "POISON",
+  "PARALYSIS",
+  "SLEEP",
+  "FREEZE",
+] as const;
+
 export interface HealPokemonCenterTeamInput {
   readonly playerId: PlayerId;
   readonly sessionId: string;
@@ -23,7 +31,6 @@ export type PokemonCenterHealingPersistenceResult =
   | { readonly kind: "APPLIED"; readonly result: PokemonCenterHealingChanges }
   | { readonly kind: "REPLAYED"; readonly result: PokemonCenterHealingChanges }
   | { readonly kind: "ACTIVE_BATTLE" }
-  | { readonly kind: "ACTIVE_ENCOUNTER" }
   | { readonly kind: "CENTER_VISIT_REQUIRED" }
   | { readonly kind: "INVALID_STATE"; readonly reason: string };
 
@@ -46,13 +53,6 @@ export class PokemonCenterHealingService {
       case "ACTIVE_BATTLE":
         return err(
           appError("ACTION_INVALID", "A Pokémon Center cannot heal a team during an active battle"),
-        );
-      case "ACTIVE_ENCOUNTER":
-        return err(
-          appError(
-            "ACTION_INVALID",
-            "A Pokémon Center cannot heal a team during an active encounter",
-          ),
         );
       case "CENTER_VISIT_REQUIRED":
         return err(appError("ACTION_INVALID", "An active Pokémon Center visit is required"));
