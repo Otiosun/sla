@@ -269,6 +269,6 @@ describe("WorldServiceSessionService", () => {
       externalMessageId: "WA-OUT-STALE",
     });
     expect(stale.ok).toBe(false);
-    if (!stale.ok) expect(stale.error.code).toBe("CONFLICT");
+    if (!stale.ok) expect(stale.error.code).toBe("REVISION_CONFLICT");
   });
 });
