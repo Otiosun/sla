@@ -60,7 +60,7 @@ jobs:
             echo "Expected more than one commit for full-history scan." >&2
             exit 1
           fi
-          gitleaks detect --redact --verbose --exit-code=2 --log-opts="--all"
+          gitleaks detect --redact --verbose --exit-code=2 --config=.gitleaks.toml --log-opts="--all"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
