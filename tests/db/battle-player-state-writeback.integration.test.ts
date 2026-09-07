@@ -142,8 +142,8 @@ async function seedFixture(pool: Pool): Promise<BattleState> {
        id, battle_id, battle_side_id, pokemon_instance_id, participant_kind,
        roster_position, active_member, snapshot
      ) VALUES
-       ($1, $5, $3, $6, 'PLAYER_POKEMON', $7, TRUE, $9::jsonb),
-       ($2, $5, $4, NULL, 'WILD_POKEMON', $8, TRUE, $10::jsonb)`,
+       ($1, $5, $3, $6, 'PLAYER_POKEMON', $7::smallint, TRUE, $9::jsonb),
+       ($2, $5, $4, NULL, 'WILD_POKEMON', $8::smallint, TRUE, $10::jsonb)`,
     [
       player.participantId,
       wild.participantId,
