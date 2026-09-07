@@ -12,9 +12,7 @@ describe("staging worker public-ingress boundary", () => {
     expect(workflow).toContain(
       'railway domain list --service "$RAILWAY_SERVICE" --environment staging --json',
     );
-    expect(workflow).toContain(
-      "tcpProxies(environmentId:$environmentId,serviceId:$serviceId)",
-    );
+    expect(workflow).toContain("tcpProxies(environmentId:$environmentId,serviceId:$serviceId)");
     expect(workflow).toContain(".data.tcpProxies");
     expect(workflow).toContain("Railway staging worker must not expose public HTTP domains");
     expect(workflow).toContain("Railway staging worker must not expose a public TCP proxy");
