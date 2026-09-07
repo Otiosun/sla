@@ -48,16 +48,40 @@ describe.sequential("Pokemon PC PostgreSQL storage", () => {
     formId = randomUUID();
 
     await pool.query(
-      `INSERT INTO rulesets(
-         id, key, version, engine_contract_version, config, status, published_at
-       ) VALUES ($1, 'pc-storage-proof', 1, 1, '{}'::jsonb, 'PUBLISHED', now())`,
+      `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+       VALUES ($1, 'pc-storage-proof', 1, 1, '{}'::jsonb, 'DRAFT')`,
       [rulesetId],
     );
     await pool.query(
-      `INSERT INTO content_releases(
-         id, release_no, name, status, default_ruleset_id, published_at
-       ) VALUES ($1, 999991, 'PC Storage Proof', 'PUBLISHED', $2, now())`,
+      `UPDATE rulesets
+       SET status = 'VALIDATED',
+           validated_at = now(),
+           validation_report = '{"valid":true,"issues":[]}'::jsonb,
+           config_fingerprint = $2
+       WHERE id = $1`,
+      [rulesetId, "a".repeat(64)],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status = 'PUBLISHED', published_at = now() WHERE id = $1",
+      [rulesetId],
+    );
+    await pool.query(
+      `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+       VALUES ($1, 999991, 'PC Storage Proof', 'DRAFT', $2)`,
       [releaseId, rulesetId],
+    );
+    await pool.query(
+      `UPDATE content_releases
+       SET status = 'VALIDATED',
+           validated_at = now(),
+           validation_report = '{"valid":true,"issues":[]}'::jsonb,
+           content_fingerprint = $2
+       WHERE id = $1`,
+      [releaseId, "b".repeat(64)],
+    );
+    await pool.query(
+      "UPDATE content_releases SET status = 'PUBLISHED', published_at = now() WHERE id = $1",
+      [releaseId],
     );
     await pool.query(
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9998, 'eevee')",
