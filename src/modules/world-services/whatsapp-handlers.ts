@@ -7,9 +7,11 @@ import type { PlayerRegistrationService } from "../player/registration-service.j
 import type { WorldService } from "../world/service.js";
 import type { WorldServiceKind } from "./contracts.js";
 import type { PokemonCenterHealingService } from "./healing-service.js";
+import type { MartSaleInventoryReader } from "./mart-sale.js";
 import {
   renderCenterConversationMenu,
   renderMartCatalog,
+  renderMartSaleList,
   renderPokemonCenterRecovery,
   renderWorldServiceEntry,
   renderWorldServiceExit,
@@ -30,6 +32,7 @@ export interface WorldServiceWhatsAppDependencies {
     "openVisit" | "loadActiveSession" | "closeVisit"
   >;
   readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
+  readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -166,6 +169,35 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const sell: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMART") {
+      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+    }
+    if (dependencies.economy === undefined) {
+      return err(appError("INVALID_STATE_TRANSITION", "Poké Mart sale service is unavailable"));
+    }
+
+    const sellable = await dependencies.economy.listSellableInventory(player.value);
+    if (!sellable.ok) return sellable;
+    const prompt = sellable.value.length === 0 ? null : {
+      playerId: player.value,
+      expectedRevision: active.value.revision,
+    };
+
+    return textResult(
+      context,
+      renderMartSaleList(sellable.value),
+      active.value.sessionId,
+      prompt,
+      sellable.value.length === 0 ? ":mart:sale:empty" : ":mart:sale:list",
+    );
+  };
+
   const heal: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -251,6 +283,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "comprar",
       handler: new FunctionalHandler(buy),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "vender",
+      handler: new FunctionalHandler(sell),
       policy: WORLD_SERVICE_POLICY,
     },
     {
