@@ -45,12 +45,7 @@ async function seedPlayerAreaInbox(
     `INSERT INTO inbox_messages(
        id, provider, external_message_id, player_id, payload_hash, status
      ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED')`,
-    [
-      input.inboxMessageId,
-      `world-service-message-${input.suffix}`,
-      input.playerId,
-      "a".repeat(64),
-    ],
+    [input.inboxMessageId, `world-service-message-${input.suffix}`, input.playerId, "a".repeat(64)],
   );
 }
 
