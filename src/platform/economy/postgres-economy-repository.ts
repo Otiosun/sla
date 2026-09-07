@@ -192,6 +192,12 @@ class PostgresEconomyTransaction implements EconomyTransaction {
     return result.rowCount === 1;
   }
 
+  public async lockPurchaseFingerprint(scope: string, storageKey: string): Promise<void> {
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `${scope}:${storageKey}`,
+    ]);
+  }
+
   public async finalizeInventoryLedgerBalance(input: {
     readonly ledgerId: string;
     readonly balanceAfter: bigint;
