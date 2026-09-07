@@ -107,10 +107,7 @@ function session(
   };
 }
 
-function fixture(options?: {
-  readonly promptKey?: string;
-  readonly promptId?: string;
-}) {
+function fixture(options?: { readonly promptKey?: string; readonly promptId?: string }) {
   const promptKey = options?.promptKey ?? PROMPT_KEY;
   const promptId = options?.promptId ?? PROMPT_ID;
   const getStorage = vi.fn(async () => ok(STORAGE));
