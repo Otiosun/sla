@@ -137,7 +137,7 @@ export function renderMartItemSelection(item: MartCatalogItem): string {
 export function renderMartPurchaseSuccess(item: MartCatalogItem, result: PurchaseResult): string {
   const before = result.inventoryQuantity - result.itemQuantity;
   return [
-    "　　　　　✦ *𝗖𝗢𝗠𝗣𝗥𝗔 𝗖𝗢𝗡𝗖𝗨Í𝗗𝗔*",
+    "　　　　　✦ *𝗖𝗢𝗠𝗣𝗥𝗔 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
     "",
     `　　　　　　　*＋ ${formatQuantity(result.itemQuantity)}x*`,
     `　　　　　　*${styledUpper(item.displayName)}*`,
