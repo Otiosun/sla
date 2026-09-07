@@ -25,6 +25,7 @@ import {
   type RulesetSnapshot,
 } from "../../modules/catalog/contracts.js";
 import { withTransaction } from "../db/transaction.js";
+import { persistPlayerBattleState } from "./postgres-battle-player-state-writeback.js";
 
 interface RootRow {
   readonly id: string;
@@ -300,6 +301,7 @@ class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransacti
        VALUES ($1, $2, 1, $3::jsonb)`,
       [input.battleId, input.nextState.version, JSON.stringify(input.nextState)],
     );
+    await persistPlayerBattleState(this.client, input.battleId, input.nextState);
 
     const seq = await this.client.query<{ next_seq: string }>(
       `SELECT (COALESCE(MAX(seq), 0) + 1)::text AS next_seq
