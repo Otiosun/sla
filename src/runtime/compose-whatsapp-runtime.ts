@@ -176,7 +176,9 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const pokemonCenterHealing = new PokemonCenterHealingService(
     new PostgresPokemonCenterHealingRepository(pool),
   );
-  const pokemonPcStorage = new PokemonPcStorageService(new PostgresPokemonPcStorageRepository(pool));
+  const pokemonPcStorage = new PokemonPcStorageService(
+    new PostgresPokemonPcStorageRepository(pool),
+  );
   const worldServiceConversationResolver = new WorldServiceConversationResolver({
     community,
     players: playerRegistration,
