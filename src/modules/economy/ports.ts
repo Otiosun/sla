@@ -3,6 +3,7 @@ import type {
   EconomyMutationMetadata,
   InventoryLedgerRecord,
   PurchaseOffer,
+  SaleOffer,
   WalletLedgerRecord,
 } from "./contracts.js";
 
@@ -29,6 +30,7 @@ export interface EconomyTransaction {
   claimInventoryLedger(input: InventoryLedgerWrite): Promise<boolean>;
   claimWalletLedger(input: WalletLedgerWrite): Promise<boolean>;
   lockPurchaseFingerprint(scope: string, storageKey: string): Promise<void>;
+  lockSaleFingerprint(scope: string, storageKey: string): Promise<void>;
 
   finalizeInventoryLedgerBalance(input: {
     readonly ledgerId: string;
@@ -67,6 +69,8 @@ export interface EconomyTransaction {
   activeContentReleaseId(): Promise<string | null>;
   loadPurchaseOffer(contentReleaseId: string, offerKey: string): Promise<PurchaseOffer | null>;
   loadPurchaseOfferById(offerId: string): Promise<PurchaseOffer | null>;
+  loadSaleOffer(contentReleaseId: string, offerKey: string): Promise<SaleOffer | null>;
+  loadSaleOfferById(offerId: string): Promise<SaleOffer | null>;
 }
 
 export interface EconomyRepository {
