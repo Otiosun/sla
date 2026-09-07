@@ -23,6 +23,7 @@ import {
 } from "../../modules/catalog/contracts.js";
 import type { WildPokemonSnapshot } from "../../modules/encounter/contracts.js";
 import { withTransaction } from "../db/transaction.js";
+import { persistPlayerBattleState } from "./postgres-battle-player-state-writeback.js";
 
 interface RootRow {
   readonly id: string;
@@ -596,6 +597,7 @@ class PostgresBattleTransaction implements BattleTransaction {
        VALUES ($1, $2, 1, $3::jsonb)`,
       [input.battleId, input.nextState.version, JSON.stringify(input.nextState)],
     );
+    await persistPlayerBattleState(this.client, input.battleId, input.nextState);
     await this.client.query(
       `INSERT INTO battle_actions(
          id, battle_id, actor_participant_id, action_type, payload,
