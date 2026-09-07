@@ -38,8 +38,7 @@ function stateWithPlayerPersistence(
       return {
         ...combatant,
         currentHp: input.currentHp,
-        majorStatus:
-          input.majorStatus === null ? null : { key: input.majorStatus, counter: null },
+        majorStatus: input.majorStatus === null ? null : { key: input.majorStatus, counter: null },
         moves: combatant.moves.map((move) => ({
           ...move,
           ppCurrent: input.ppBySlot[move.slotNo] ?? move.ppCurrent,
@@ -76,27 +75,19 @@ async function seedFixture(pool: Pool): Promise<BattleState> {
      VALUES ($1, 1, 'Battle write-back fixture', 'DRAFT', $2)`,
     [state.contentReleaseId, state.rulesetId],
   );
-  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [
-    playerSide.playerId,
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [playerSide.playerId]);
+  await pool.query(`INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 1, $2)`, [
+    player.speciesId,
+    `writeback-species-${player.speciesId}`,
   ]);
-  await pool.query(
-    `INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 1, $2)`,
-    [player.speciesId, `writeback-species-${player.speciesId}`],
-  );
-  await pool.query(
-    `INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`,
-    [player.formId, player.speciesId],
-  );
+  await pool.query(`INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')`, [
+    player.formId,
+    player.speciesId,
+  ]);
   await pool.query(
     `INSERT INTO pokemon_instances(id, owner_player_id, form_id, level, current_hp, origin_type)
      VALUES ($1, $2, $3, $4, $5, 'TEST')`,
-    [
-      player.pokemonInstanceId,
-      playerSide.playerId,
-      player.formId,
-      player.level,
-      player.currentHp,
-    ],
+    [player.pokemonInstanceId, playerSide.playerId, player.formId, player.level, player.currentHp],
   );
 
   for (const move of player.moves) {
@@ -206,9 +197,7 @@ async function persistedPlayerState(pool: Pool, state: BattleState) {
 }
 
 async function persistTurn(pool: Pool, previous: BattleState, next: BattleState, suffix: string) {
-  const player = previous.combatants.find(
-    (entry) => entry.participantKind === "PLAYER_POKEMON",
-  );
+  const player = previous.combatants.find((entry) => entry.participantKind === "PLAYER_POKEMON");
   const wild = previous.combatants.find((entry) => entry.participantKind === "WILD_POKEMON");
   if (player === undefined || wild === undefined) {
     throw new Error("Test battle combatants are missing");
