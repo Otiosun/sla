@@ -158,4 +158,27 @@ describe("public trainer-card verification HTTP boundary", () => {
 
     await server.close();
   });
+
+  it("redacts limiter failures instead of exposing infrastructure detail", async () => {
+    const verify = vi.fn();
+    const server = createPublicVerificationServer({
+      verificationService: { verify },
+      rateLimiter: {
+        consume: vi.fn().mockRejectedValue(new Error("postgres password=sensitive-value")),
+      },
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: `/public/v1/trainer-cards/${PUBLIC_ID}/verify`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: { code: "PUBLIC_VERIFICATION_FAILED" } });
+    expect(response.body).not.toContain("postgres");
+    expect(response.body).not.toContain("sensitive-value");
+    expect(verify).not.toHaveBeenCalled();
+
+    await server.close();
+  });
 });
