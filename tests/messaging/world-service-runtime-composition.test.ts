@@ -36,14 +36,14 @@ function context(text: string): MessageHandlerContext {
   };
 }
 
-function openedPcSession(): WorldServiceSessionRecord {
+function openedCenterSession(): WorldServiceSessionRecord {
   return {
     sessionId: "00000000-0000-4000-8000-000000000c04",
     playerId: PLAYER_ID,
     areaId: AREA_ID,
-    serviceKind: "PC",
+    serviceKind: "POKEMON_CENTER",
     state: "OPEN",
-    sceneProofId: null,
+    sceneProofId: "00000000-0000-4000-8000-000000000c07",
     expectedReplyOutboxIdempotencyKey: null,
     expectedReplyExternalMessageId: null,
     revision: 0n,
@@ -62,8 +62,8 @@ describe("World Service runtime composition", () => {
     }
   });
 
-  it("anchors the facility entry message to the opened session revision", async () => {
-    const session = openedPcSession();
+  it("anchors the nested PC message to the active Pokémon Center session revision", async () => {
+    const session = openedCenterSession();
     const routes = createWorldServiceWhatsAppRoutes({
       players: {
         resolvePlayer: async () =>
@@ -89,7 +89,9 @@ describe("World Service runtime composition", () => {
           }),
       },
       sessions: {
-        openVisit: async () => ok(session),
+        openVisit: async () => {
+          throw new Error("nested /pc must not open another visit");
+        },
         loadActiveSession: async () => ok(session),
         closeVisit: async () => ok({ ...session, state: "CLOSED" as const, closedAt: new Date() }),
       },
@@ -101,6 +103,7 @@ describe("World Service runtime composition", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.resultRefId).toBe(session.sessionId);
     expect(result.value.outgoing[0]?.payload.worldServicePrompt).toEqual({
       playerId: PLAYER_ID,
       expectedRevision: "0",
