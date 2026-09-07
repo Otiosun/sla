@@ -66,6 +66,7 @@ import { PostgresRegistrationSetupLoader } from "../platform/registration/postgr
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
+import { PostgresMartSaleInventoryReader } from "../platform/world-services/postgres-mart-sale-inventory-reader.js";
 import { PostgresPokemonCenterHealingRepository } from "../platform/world-services/postgres-pokemon-center-healing-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
@@ -106,6 +107,13 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
   const reads = new PostgresOperationalUxReadModel(pool);
   const economy = new EconomyService(new PostgresEconomyRepository(pool));
+  const martSaleInventory = new PostgresMartSaleInventoryReader(pool);
+  const martEconomy = {
+    purchaseQuantity: economy.purchaseQuantity.bind(economy),
+    getWalletBalance: economy.getWalletBalance.bind(economy),
+    sellQuantity: economy.sellQuantity.bind(economy),
+    listSellableInventory: martSaleInventory.listSellableInventory.bind(martSaleInventory),
+  };
 
   const community = new CommunityService(new PostgresCommunityRepository(pool));
   const registrationRepository = new PostgresRegistrationRepository(pool);
@@ -172,7 +180,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     world,
     sessions: worldServiceSessions,
     replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
-    economy,
+    economy: martEconomy,
   });
   const conversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
@@ -207,6 +215,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     world,
     sessions: worldServiceSessions,
     healing: pokemonCenterHealing,
+    economy: martSaleInventory,
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutes({
