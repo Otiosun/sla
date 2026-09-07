@@ -42,7 +42,9 @@ interface SaleResult {
 }
 
 type SaleCapableEconomyService = EconomyService & {
-  sellQuantity(input: SellQuantityInput): Promise<
+  sellQuantity(
+    input: SellQuantityInput,
+  ): Promise<
     | { readonly ok: true; readonly value: SaleResult }
     | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
   >;
