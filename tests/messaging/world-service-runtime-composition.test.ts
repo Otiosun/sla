@@ -57,7 +57,13 @@ describe("World Service runtime composition", () => {
   it("registers the protected facility routes in the operational router", () => {
     const composition = createOperationalMessagingComposition({} as Pool);
 
-    for (const command of ["/pokemart", "/centropokemon", "/pc", "/sair"]) {
+    for (const command of [
+      "/pokemart",
+      "/centropokemon",
+      "/centropokémon",
+      "/pc",
+      "/sair",
+    ]) {
       expect(composition.admitCommand(message(command))).toBe(true);
     }
   });
