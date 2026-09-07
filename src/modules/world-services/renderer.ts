@@ -137,17 +137,15 @@ export function renderPokemonPcStorage(snapshot: PokemonPcStorageSnapshot): stri
 
 export function renderPokemonPcBoxes(snapshot: PokemonPcStorageSnapshot): string {
   const boxes = [...snapshot.boxes].sort((left, right) => left.boxNo - right.boxNo);
-  const lines = [
-    "▣ *𝗖𝗔𝗜𝗫𝗔𝗦*",
-    "　PC Pokémon · Armazenamento",
-    "",
-  ];
+  const lines = ["▣ *𝗖𝗔𝗜𝗫𝗔𝗦*", "　PC Pokémon · Armazenamento", ""];
 
   if (boxes.length === 0) {
     lines.push("　Caixa 01　`00 / 30`", "", "_Nenhum Pokémon armazenado._");
   } else {
     for (const box of boxes) {
-      lines.push(`▣ *Caixa ${formatPcNumber(box.boxNo)}*　\`${formatPcNumber(box.occupied)} / 30\``);
+      lines.push(
+        `▣ *Caixa ${formatPcNumber(box.boxNo)}*　\`${formatPcNumber(box.occupied)} / 30\``,
+      );
       for (const pokemon of box.pokemon) {
         lines.push(
           `　\`${formatPcNumber(pokemon.slotNo)}\` ${pokemon.displayName} · Nv. ${formatPcNumber(pokemon.level)}`,
