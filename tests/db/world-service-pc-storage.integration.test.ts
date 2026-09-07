@@ -59,9 +59,10 @@ describe.sequential("Pokemon PC PostgreSQL storage", () => {
        ) VALUES ($1, 999991, 'PC Storage Proof', 'PUBLISHED', $2, now())`,
       [releaseId, rulesetId],
     );
-    await pool.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9998, 'eevee')", [
-      speciesId,
-    ]);
+    await pool.query(
+      "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9998, 'eevee')",
+      [speciesId],
+    );
     await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
       formId,
       speciesId,
