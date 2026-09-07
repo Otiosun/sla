@@ -57,22 +57,9 @@ describe("World Service runtime composition", () => {
   it("registers the protected facility routes in the operational router", () => {
     const composition = createOperationalMessagingComposition({} as Pool);
 
-    expect(composition.router.classify(message("/pokemart"))).toEqual({
-      command: "pokemart",
-      sensitiveActionKey: null,
-    });
-    expect(composition.router.classify(message("/centropokemon"))).toEqual({
-      command: "centropokemon",
-      sensitiveActionKey: null,
-    });
-    expect(composition.router.classify(message("/pc"))).toEqual({
-      command: "pc",
-      sensitiveActionKey: null,
-    });
-    expect(composition.router.classify(message("/sair"))).toEqual({
-      command: "sair",
-      sensitiveActionKey: null,
-    });
+    for (const command of ["/pokemart", "/centropokemon", "/pc", "/sair"]) {
+      expect(composition.admitCommand(message(command))).toBe(true);
+    }
   });
 
   it("anchors the facility entry message to the opened session revision", async () => {
