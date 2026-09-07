@@ -134,9 +134,7 @@ describe("Pokemon PC WhatsApp storage reads", () => {
   it("renders the canonical team and box occupancy when /pc opens", async () => {
     const current = fixture();
 
-    const result = await routeByCommand(current.routes, "pc").handler.handle(
-      context("/pc", "01"),
-    );
+    const result = await routeByCommand(current.routes, "pc").handler.handle(context("/pc", "01"));
 
     expect(current.getStorage).toHaveBeenCalledWith(PLAYER_ID);
     expect(result.ok).toBe(true);
