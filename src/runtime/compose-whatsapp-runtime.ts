@@ -40,6 +40,7 @@ import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
 import { WorldService } from "../modules/world/service.js";
 import { WorldServiceConversationResolver } from "../modules/world-services/conversation-resolver.js";
+import { PokemonCenterHealingService } from "../modules/world-services/healing-service.js";
 import { WorldServiceSessionService } from "../modules/world-services/session-service.js";
 import { createWorldServiceWhatsAppRoutes } from "../modules/world-services/whatsapp-handlers.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
@@ -65,6 +66,7 @@ import { PostgresRegistrationSetupLoader } from "../platform/registration/postgr
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
+import { PostgresPokemonCenterHealingRepository } from "../platform/world-services/postgres-pokemon-center-healing-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
 
@@ -161,6 +163,9 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     new PostgresWorldServiceSessionRepository(pool),
     clock,
   );
+  const pokemonCenterHealing = new PokemonCenterHealingService(
+    new PostgresPokemonCenterHealingRepository(pool),
+  );
   const worldServiceConversationResolver = new WorldServiceConversationResolver({
     community,
     players: playerRegistration,
@@ -201,6 +206,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     players: playerRegistration,
     world,
     sessions: worldServiceSessions,
+    healing: pokemonCenterHealing,
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutes({
