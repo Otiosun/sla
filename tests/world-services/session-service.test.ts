@@ -201,7 +201,7 @@ describe("WorldServiceSessionService", () => {
     expect(replayWithoutProof.ok).toBe(false);
   });
 
-  it("opens PC without consuming or requiring a scene proof", async () => {
+  it("rejects PC as an independent facility session", async () => {
     const { repository, service } = fixture();
     const playerId = player();
 
@@ -211,10 +211,12 @@ describe("WorldServiceSessionService", () => {
       serviceKind: "PC",
     });
 
-    expect(opened.ok).toBe(true);
-    if (!opened.ok) return;
-    expect(opened.value.serviceKind).toBe("PC");
-    expect(opened.value.sceneProofId).toBeNull();
+    expect(opened.ok).toBe(false);
+    if (!opened.ok) {
+      expect(opened.error.code).toBe("ACTION_INVALID");
+      expect(opened.error.message).toContain("Pokémon Center");
+    }
+    expect(repository.sessions).toHaveLength(0);
     expect(repository.proofs).toHaveLength(0);
   });
 
