@@ -1,8 +1,5 @@
 import type { PokemonPcDepositDestinationPreview } from "./pc-conversation.js";
-import type {
-  PokemonPcPokemonView,
-  PokemonPcStorageSnapshot,
-} from "./pc-storage-service.js";
+import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
 function formatPcNumber(value: number): string {
   return value.toString().padStart(2, "0");
