@@ -115,6 +115,7 @@ export interface PurchaseResult {
   readonly playerId: PlayerId;
   readonly contentReleaseId: string;
   readonly offerKey: string;
+  readonly purchaseQuantity: bigint;
   readonly itemId: string;
   readonly itemQuantity: bigint;
   readonly inventoryQuantity: bigint;
