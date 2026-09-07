@@ -159,4 +159,24 @@ describe("Pokemon PC WhatsApp storage reads", () => {
     expect(result.value.outgoing[0]?.payload.text).toContain("Pidgey");
     expect(result.value.outgoing[0]?.payload.text).toContain("Nv. 06");
   });
+
+  it("opens /depositar as an exact-reply selection prompt backed by the real team snapshot", async () => {
+    const current = fixture();
+
+    const result = await routeByCommand(current.routes, "depositar").handler.handle(
+      context("/depositar", "03"),
+    );
+
+    expect(current.getStorage).toHaveBeenCalledWith(PLAYER_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗗𝗘𝗣𝗢𝗦𝗜𝗧𝗔𝗥");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Bulbasaur");
+    expect(result.value.outgoing[0]?.payload.text).toContain("`01`");
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:pc:deposit:list");
+    expect(result.value.outgoing[0]?.payload.worldServicePrompt).toEqual({
+      playerId: PLAYER_ID,
+      expectedRevision: "7",
+    });
+  });
 });
