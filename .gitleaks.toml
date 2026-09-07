@@ -13,7 +13,7 @@ regexes = [
 
 [[allowlists]]
 description = "Documented Cloudflare Access identity example shape"
-regexTarget = "match"
+regexTarget = "line"
 regexes = [
   '''cloudflare-access:example\.cloudflareaccess\.com:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}''',
 ]
