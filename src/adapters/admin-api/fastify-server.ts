@@ -337,7 +337,7 @@ export function createAdminApiServer(dependencies: AdminApiServerDependencies): 
         throw new AdminError(ADMIN_ERROR_CODES.AUTHORIZATION_DENIED, "Origin denied");
       }
       reply.header("access-control-allow-methods", "POST");
-      reply.header("access-control-allow-headers", CONTROL_CENTER_CSRF_HEADER);
+      reply.header("access-control-allow-headers", `content-type, ${CONTROL_CENTER_CSRF_HEADER}`);
       reply.header("vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
       return reply.code(204).send();
     });
