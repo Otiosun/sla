@@ -67,6 +67,27 @@ describe("command router normalization", () => {
     expect(router.classify(message)).toEqual({ command: "pokedex", sensitiveActionKey: null });
   });
 
+  it("accepts slash commands without changing the existing dollar command behavior", async () => {
+    const observed: string[] = [];
+    const router = new MessageRouter([
+      route("pokedex", [], "STANDARD", (handlerContext) => {
+        observed.push(handlerContext.message.text ?? "");
+      }),
+    ]);
+    const slashMessage = incoming("/POKÉDEX João Ávila");
+    const dollarMessage = incoming("$POKÉDEX João Ávila");
+
+    expect(router.admitsCommand(slashMessage)).toBe(true);
+    expect(router.classify(slashMessage)).toEqual({ command: "pokedex", sensitiveActionKey: null });
+    expect((await router.dispatch(context(slashMessage))).ok).toBe(true);
+
+    expect(router.admitsCommand(dollarMessage)).toBe(true);
+    expect(router.classify(dollarMessage)).toEqual({ command: "pokedex", sensitiveActionKey: null });
+    expect((await router.dispatch(context(dollarMessage))).ok).toBe(true);
+
+    expect(observed).toEqual(["/POKÉDEX João Ávila", "$POKÉDEX João Ávila"]);
+  });
+
   it("routes aliases while classifying them as the canonical command", async () => {
     let calls = 0;
     const router = new MessageRouter([
