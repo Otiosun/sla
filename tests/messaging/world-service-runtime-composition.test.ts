@@ -1,6 +1,9 @@
 import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
-import type { IncomingMessage, MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import type {
+  IncomingMessage,
+  MessageHandlerContext,
+} from "../../src/modules/messaging/contracts.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
