@@ -29,7 +29,7 @@ export interface WorldServiceWhatsAppDependencies {
     WorldServiceSessionService,
     "openVisit" | "loadActiveSession" | "closeVisit"
   >;
-  readonly healing: Pick<PokemonCenterHealingService, "healTeam">;
+  readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -174,6 +174,11 @@ export function createWorldServiceWhatsAppRoutes(
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
       return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+    }
+    if (dependencies.healing === undefined) {
+      return err(
+        appError("INVALID_STATE_TRANSITION", "Pokémon Center healing service is unavailable"),
+      );
     }
 
     const healed = await dependencies.healing.healTeam({
