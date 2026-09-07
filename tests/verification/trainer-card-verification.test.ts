@@ -27,25 +27,20 @@ describe("trainer-card verification cryptographic boundary", () => {
 
     expect(signer.verify(SNAPSHOT, signature)).toBe(true);
     expect(signer.verify({ ...SNAPSHOT, trainerName: "Blue" }, signature)).toBe(false);
-    expect(
-      signer.verify({ ...SNAPSHOT, currentLocation: "Viridian City" }, signature),
-    ).toBe(false);
+    expect(signer.verify({ ...SNAPSHOT, currentLocation: "Viridian City" }, signature)).toBe(false);
   });
 
-  it(
-    "keeps personal profile and internal identity fields outside the signed public projection",
-    () => {
-      const serialized = JSON.stringify(SNAPSHOT);
+  it("keeps personal profile and internal identity fields outside the signed public projection", () => {
+    const serialized = JSON.stringify(SNAPSHOT);
 
-      expect(serialized).not.toContain("playerId");
-      expect(serialized).not.toContain("whatsapp");
-      expect(serialized).not.toContain("externalId");
-      expect(serialized).not.toContain("age");
-      expect(serialized).not.toContain("height");
-      expect(serialized).not.toContain("appearance");
-      expect(serialized).not.toContain("bio");
-    },
-  );
+    expect(serialized).not.toContain("playerId");
+    expect(serialized).not.toContain("whatsapp");
+    expect(serialized).not.toContain("externalId");
+    expect(serialized).not.toContain("age");
+    expect(serialized).not.toContain("height");
+    expect(serialized).not.toContain("appearance");
+    expect(serialized).not.toContain("bio");
+  });
 });
 
 describe("TrainerCardVerificationService", () => {
