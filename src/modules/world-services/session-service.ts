@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Clock } from "../../platform/clock/index.js";
-import { err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   CloseWorldServiceVisitInput,
   OpenWorldServiceVisitInput,
@@ -84,6 +84,18 @@ export class WorldServiceSessionService {
         return active.areaId === areaId.value && active.serviceKind === input.serviceKind
           ? ok(active)
           : err(worldServiceVisitConflict());
+      }
+
+      if (input.serviceKind === "PC") {
+        return ok(
+          await transaction.createSession({
+            playerId: input.playerId,
+            areaId: areaId.value,
+            serviceKind: input.serviceKind,
+            sceneProofId: null,
+            createdAt: now,
+          }),
+        );
       }
 
       const proof = await transaction.claimSceneProof({
