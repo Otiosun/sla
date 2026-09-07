@@ -38,7 +38,7 @@ export interface RecordSceneProofInput {
 export interface OpenWorldServiceVisitInput {
   readonly playerId: PlayerId;
   readonly areaId: string;
-  readonly serviceKind: "POKEMART" | "POKEMON_CENTER";
+  readonly serviceKind: WorldServiceKind;
 }
 
 export interface CloseWorldServiceVisitInput {
