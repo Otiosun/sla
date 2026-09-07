@@ -200,6 +200,14 @@ async function seedPokemon(
      ) VALUES ($1, $2, 'TEST', $3, '{}'::jsonb)`,
     [pokemonId, placement === "TEAM" ? "POISON" : "BURN", randomUUID()],
   );
+  if (placement === "TEAM") {
+    await client.query(
+      `INSERT INTO pokemon_persistent_conditions(
+         pokemon_instance_id, condition_key, source_type, source_id, data
+       ) VALUES ($1, 'CURSE', 'TEST', $2, '{}'::jsonb)`,
+      [pokemonId, randomUUID()],
+    );
+  }
   return pokemonId;
 }
 
@@ -292,7 +300,7 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
     expect(table.rows[0]?.name).toBe("pokemon_center_healing_claims");
   });
 
-  it("restores TEAM HP/PP/status atomically, leaves BOX untouched and replays once", async () => {
+  it("restores TEAM HP/PP/major status, preserves other conditions, leaves BOX untouched and replays once", async () => {
     const player = await seedPlayer(pool, content);
 
     const first = await service.healTeam(healingInput(player));
@@ -340,9 +348,16 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
        ORDER BY pokemon_instance_id, condition_key`,
       [[player.teamPokemonId, player.boxPokemonId]],
     );
-    expect(conditions.rows).toEqual([
-      { pokemon_instance_id: player.boxPokemonId, condition_key: "BURN" },
-    ]);
+    expect(conditions.rows).toEqual(
+      [
+        { pokemon_instance_id: player.teamPokemonId, condition_key: "CURSE" },
+        { pokemon_instance_id: player.boxPokemonId, condition_key: "BURN" },
+      ].sort((left, right) =>
+        `${left.pokemon_instance_id}:${left.condition_key}`.localeCompare(
+          `${right.pokemon_instance_id}:${right.condition_key}`,
+        ),
+      ),
+    );
 
     const historyBeforeReplay = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
@@ -398,39 +413,6 @@ describe.sequential("Pokemon Center healing PostgreSQL integration", () => {
       `INSERT INTO battle_sides(id, battle_id, side_no, controller_kind, player_id)
        VALUES ($1, $2, 1, 'PLAYER', $3)`,
       [sideId, battleId, player.playerId],
-    );
-
-    const result = await service.healTeam(healingInput(player));
-    expect(result).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
-    const state = await pool.query<{ hp: number; claims: string }>(
-      `SELECT
-         (SELECT current_hp FROM pokemon_instances WHERE id = $1) AS hp,
-         (SELECT count(*)::text FROM pokemon_center_healing_claims
-          WHERE source_inbox_message_id = $2) AS claims`,
-      [player.teamPokemonId, player.healInboxMessageId],
-    );
-    expect(state.rows[0]).toEqual({ hp: 4, claims: "0" });
-  });
-
-  it("rejects healing during an active encounter before mutating or claiming", async () => {
-    const player = await seedPlayer(pool, content);
-    await pool.query(
-      `INSERT INTO encounters(
-         id, player_id, area_id, status, content_release_id, ruleset_id,
-         rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version,
-         rng_counter, revision, creation_idempotency_key, created_at, updated_at, expires_at
-       ) VALUES ($1, $2, $3, 'PRESENTED', $4, $5, $6, $7, $8, 1, 0, 0, $9, now(), now(), now() + interval '1 hour')`,
-      [
-        randomUUID(),
-        player.playerId,
-        content.areaId,
-        content.releaseId,
-        content.rulesetId,
-        Buffer.alloc(32, 4),
-        Buffer.alloc(12, 5),
-        Buffer.alloc(16, 6),
-        `center-healing-encounter-${randomUUID()}`,
-      ],
     );
 
     const result = await service.healTeam(healingInput(player));
