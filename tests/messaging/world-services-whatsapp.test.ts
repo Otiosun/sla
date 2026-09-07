@@ -214,26 +214,34 @@ describe("World Services WhatsApp", () => {
     expect(opened.value.outgoing[0]?.payload.text).toContain("POKÉ MART");
   });
 
-  it("opens PC without consuming a scene proof and closes the active service with /sair", async () => {
+  it("opens PC only inside the active Pokémon Center session and closes that Center with /sair", async () => {
     const fixture = routeFixture();
     const routes = createWorldServiceWhatsAppRoutes(fixture.dependencies);
 
-    const opened = await routeByCommand(routes, "pc").handler.handle(context("/pc", null, "21"));
-    expect(opened.ok).toBe(true);
+    fixture.setProofAvailable(true);
+    const center = await routeByCommand(routes, "centropokemon").handler.handle(
+      context("/centropokemon", null, "21"),
+    );
+    expect(center.ok).toBe(true);
     expect(fixture.sessions.openVisit).toHaveBeenLastCalledWith({
       playerId: PLAYER_ID,
       areaId: AREA_ID,
-      serviceKind: "PC",
+      serviceKind: "POKEMON_CENTER",
     });
 
-    fixture.setCurrent(activeSession("PC", { revision: 4n }));
+    const pc = await routeByCommand(routes, "pc").handler.handle(context("/pc", null, "22"));
+    expect(pc.ok).toBe(true);
+    if (!pc.ok) return;
+    expect(pc.value.outgoing[0]?.payload.text).toContain("𝗣𝗖 𝗣𝗢𝗞É𝗠𝗢𝗡");
+    expect(fixture.sessions.openVisit).toHaveBeenCalledTimes(1);
+
     const closed = await routeByCommand(routes, "sair").handler.handle(
-      context("/sair", null, "22"),
+      context("/sair", null, "23"),
     );
     expect(closed.ok).toBe(true);
     expect(fixture.sessions.closeVisit).toHaveBeenCalledWith({
       playerId: PLAYER_ID,
-      expectedRevision: 4n,
+      expectedRevision: 0n,
     });
   });
 
