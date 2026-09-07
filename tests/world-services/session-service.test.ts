@@ -201,6 +201,23 @@ describe("WorldServiceSessionService", () => {
     expect(replayWithoutProof.ok).toBe(false);
   });
 
+  it("opens PC without consuming or requiring a scene proof", async () => {
+    const { repository, service } = fixture();
+    const playerId = player();
+
+    const opened = await service.openVisit({
+      playerId,
+      areaId: AREA_A,
+      serviceKind: "PC",
+    });
+
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.value.serviceKind).toBe("PC");
+    expect(opened.value.sceneProofId).toBeNull();
+    expect(repository.proofs).toHaveLength(0);
+  });
+
   it("does not consume another proof when the same active visit is opened again", async () => {
     const { repository, service } = fixture();
     const playerId = player();
@@ -270,5 +287,40 @@ describe("WorldServiceSessionService", () => {
     });
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.error.code).toBe("REVISION_CONFLICT");
+  });
+
+  it("replays identical active-prompt preparation without incrementing revision twice", async () => {
+    const { service } = fixture();
+    const playerId = player();
+    await service.recordSceneProof({
+      playerId,
+      areaId: AREA_A,
+      sourceInboxMessageId: "00000000-0000-4000-8000-000000000207",
+      text: "1\n2\n3\n4",
+    });
+    const opened = await service.openVisit({
+      playerId,
+      areaId: AREA_A,
+      serviceKind: "POKEMART",
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    const input = {
+      playerId,
+      expectedRevision: opened.value.revision,
+      outboxIdempotencyKey: "world-service:prompt:retry",
+      externalMessageId: "WA-OUT-RETRY",
+    } as const;
+    const first = await service.setActivePrompt(input);
+    const replay = await service.setActivePrompt(input);
+
+    expect(first.ok).toBe(true);
+    expect(replay.ok).toBe(true);
+    if (!first.ok || !replay.ok) return;
+    expect(replay.value.sessionId).toBe(first.value.sessionId);
+    expect(replay.value.revision).toBe(first.value.revision);
+    expect(replay.value.expectedReplyOutboxIdempotencyKey).toBe(input.outboxIdempotencyKey);
+    expect(replay.value.expectedReplyExternalMessageId).toBe(input.externalMessageId);
   });
 });
