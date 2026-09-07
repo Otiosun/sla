@@ -140,12 +140,15 @@ function action(actorParticipantId: string, targetParticipantId: string): Battle
 }
 
 function playerPokemonIds(state: BattleState): readonly string[] {
-  return state.combatants.map((combatant) => combatant.pokemonInstanceId).filter((id): id is string => id !== null);
+  return state.combatants
+    .map((combatant) => combatant.pokemonInstanceId)
+    .filter((id): id is string => id !== null);
 }
 
 function expectedPersistedPlayerState(state: BattleState) {
   const combatants = state.combatants.filter(
-    (combatant) => combatant.participantKind === "PLAYER_POKEMON" && combatant.pokemonInstanceId !== null,
+    (combatant) =>
+      combatant.participantKind === "PLAYER_POKEMON" && combatant.pokemonInstanceId !== null,
   );
   return {
     pokemon: combatants
@@ -165,7 +168,8 @@ function expectedPersistedPlayerState(state: BattleState) {
       )
       .sort(
         (left, right) =>
-          left.pokemon_instance_id.localeCompare(right.pokemon_instance_id) || left.slot_no - right.slot_no,
+          left.pokemon_instance_id.localeCompare(right.pokemon_instance_id) ||
+          left.slot_no - right.slot_no,
       ),
   };
 }
@@ -287,7 +291,9 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
     ],
   );
 
-  const uniqueMoveIds = new Set(state.combatants.flatMap((combatant) => combatant.moves.map((move) => move.moveId)));
+  const uniqueMoveIds = new Set(
+    state.combatants.flatMap((combatant) => combatant.moves.map((move) => move.moveId)),
+  );
   for (const moveId of uniqueMoveIds) {
     await pool.query(
       `INSERT INTO moves(id, slug)
