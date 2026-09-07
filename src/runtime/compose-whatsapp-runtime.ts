@@ -41,6 +41,7 @@ import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsa
 import { WorldService } from "../modules/world/service.js";
 import { WorldServiceConversationResolver } from "../modules/world-services/conversation-resolver.js";
 import { PokemonCenterHealingService } from "../modules/world-services/healing-service.js";
+import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { WorldServiceSessionService } from "../modules/world-services/session-service.js";
 import { createWorldServiceWhatsAppRoutes } from "../modules/world-services/whatsapp-handlers.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
@@ -68,6 +69,7 @@ import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
 import { PostgresMartSaleInventoryReader } from "../platform/world-services/postgres-mart-sale-inventory-reader.js";
 import { PostgresPokemonCenterHealingRepository } from "../platform/world-services/postgres-pokemon-center-healing-repository.js";
+import { PostgresPokemonPcStorageRepository } from "../platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
 
@@ -174,6 +176,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   const pokemonCenterHealing = new PokemonCenterHealingService(
     new PostgresPokemonCenterHealingRepository(pool),
   );
+  const pokemonPcStorage = new PokemonPcStorageService(new PostgresPokemonPcStorageRepository(pool));
   const worldServiceConversationResolver = new WorldServiceConversationResolver({
     community,
     players: playerRegistration,
@@ -216,6 +219,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     sessions: worldServiceSessions,
     healing: pokemonCenterHealing,
     economy: martSaleInventory,
+    pcStorage: pokemonPcStorage,
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutes({
