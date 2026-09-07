@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { insufficientWallet } from "../../src/modules/economy/errors.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
@@ -7,7 +8,7 @@ import { WorldServiceConversationResolver } from "../../src/modules/world-servic
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
 const AREA_ID = "00000000-0000-4000-8000-000000001001";
@@ -236,5 +237,42 @@ describe("Poké Mart purchase conversation", () => {
     expect(result.value.outgoing[0]?.payload.text).toContain("*₽1.500*");
     expect(result.value.outgoing[0]?.payload.text).toContain("*₽950*");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(":mart:result");
+  });
+
+  it("renders the client insufficient-funds response instead of leaking an economy error", async () => {
+    const promptId = "WA-MART-QUANTITY-INSUFFICIENT";
+    const current = session("inbox:x:world-service:mart:quantity:shop.potion", promptId, 6n);
+    const currencyId = "00000000-0000-4000-8000-000000001009";
+    const purchaseQuantity = vi.fn(async () => err(insufficientWallet(currencyId, 1500n)));
+    const getWalletBalance = vi.fn(async () => ok(950n));
+    const resolver = new WorldServiceConversationResolver({
+      community: {
+        resolveChat: async () => ({
+          known: true,
+          groupId: "00000000-0000-4000-8000-000000001006",
+          role: "GAME" as const,
+          capabilities: ["world" as const],
+        }),
+      },
+      players: playerResolver(),
+      world: { getLocation: async () => ok(worldLocation()) },
+      sessions: {
+        loadActiveSession: async () => ok(current),
+        recordSceneProof: vi.fn(),
+      },
+      replyIntent: exactReplyVerifier(promptId),
+      economy: { purchaseQuantity, getWalletBalance },
+    });
+
+    const result = await resolver.resolve(context("Potion / 5", promptId, "04"));
+
+    expect(getWalletBalance).toHaveBeenCalledWith(PLAYER_ID, currencyId);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗗𝗜𝗡𝗛𝗘𝗜𝗥𝗢 𝗜𝗡𝗦𝗨𝗙𝗜𝗖𝗜𝗘𝗡𝗧𝗘");
+    expect(result.value.outgoing[0]?.payload.text).toContain("*₽950*");
+    expect(result.value.outgoing[0]?.payload.text).toContain("*₽1.500*");
+    expect(result.value.outgoing[0]?.payload.text).toContain("*₽550*");
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":mart:insufficient");
   });
 });
