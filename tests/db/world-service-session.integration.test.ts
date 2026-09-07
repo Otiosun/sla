@@ -124,7 +124,7 @@ describe.sequential("world service session persistence", () => {
       text: "um\ndois\ntres\nquatro",
     });
     expect(older.ok).toBe(true);
-    clock.advance(1_000);
+    clock.advanceMs(1_000);
     const newer = await service.recordSceneProof({
       playerId,
       areaId,
