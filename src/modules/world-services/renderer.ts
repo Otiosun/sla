@@ -234,10 +234,7 @@ export function renderMartSaleItemSelection(item: MartSellableInventoryItem): st
   ].join("\n");
 }
 
-export function renderMartSaleSuccess(
-  item: MartSellableInventoryItem,
-  result: SaleResult,
-): string {
+export function renderMartSaleSuccess(item: MartSellableInventoryItem, result: SaleResult): string {
   const before = result.inventoryQuantity + result.saleQuantity;
   return [
     "　　　　　✦ *𝗩𝗘𝗡𝗗𝗔 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
