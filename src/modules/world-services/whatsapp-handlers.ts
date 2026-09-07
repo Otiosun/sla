@@ -1,14 +1,16 @@
-import type { PlayerRegistrationService } from "../player/registration-service.js";
-import type { WorldService } from "../world/service.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { PlayerRegistrationService } from "../player/registration-service.js";
+import type { WorldService } from "../world/service.js";
 import type { WorldServiceKind } from "./contracts.js";
+import type { PokemonCenterHealingService } from "./healing-service.js";
 import {
   renderCenterConversationMenu,
   renderMartCatalog,
+  renderPokemonCenterRecovery,
   renderWorldServiceEntry,
   renderWorldServiceExit,
 } from "./renderer.js";
@@ -27,6 +29,7 @@ export interface WorldServiceWhatsAppDependencies {
     WorldServiceSessionService,
     "openVisit" | "loadActiveSession" | "closeVisit"
   >;
+  readonly healing: Pick<PokemonCenterHealingService, "healTeam">;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -163,6 +166,33 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const heal: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
+      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+    }
+
+    const healed = await dependencies.healing.healTeam({
+      playerId: player.value,
+      sessionId: active.value.sessionId,
+      sourceInboxMessageId: context.inboxMessageId,
+      correlationId: context.correlationId,
+    });
+    if (!healed.ok) return healed;
+
+    return textResult(
+      context,
+      renderPokemonCenterRecovery(),
+      active.value.sessionId,
+      null,
+      ":center:heal",
+    );
+  };
+
   const pc: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -221,6 +251,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "centropokemon",
       handler: new FunctionalHandler(openHandler(dependencies, "POKEMON_CENTER")),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "curar",
+      handler: new FunctionalHandler(heal),
       policy: WORLD_SERVICE_POLICY,
     },
     {
