@@ -3,6 +3,7 @@ import type { WorldServiceKind } from "./contracts.js";
 import type { MartCatalogCategory, MartCatalogItem } from "./mart-catalog.js";
 import { MART_CATALOG } from "./mart-catalog.js";
 import type { MartSellableInventoryItem } from "./mart-sale.js";
+import type { PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
 const CATEGORY_LABELS: Readonly<Record<MartCatalogCategory, string>> = {
   CAPTURE: "┄┄ ◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔* ┄┄",
@@ -17,6 +18,10 @@ function formatMoney(value: bigint): string {
 }
 
 function formatQuantity(value: bigint): string {
+  return value.toString().padStart(2, "0");
+}
+
+function formatPcNumber(value: number): string {
   return value.toString().padStart(2, "0");
 }
 
@@ -89,6 +94,72 @@ export function renderWorldServiceEntry(kind: WorldServiceKind): string {
         "‹　`/sair`",
       ].join("\n");
   }
+}
+
+export function renderPokemonPcStorage(snapshot: PokemonPcStorageSnapshot): string {
+  const occupiedByBox = new Map(snapshot.boxes.map((box) => [box.boxNo, box.occupied]));
+  const highestBox = snapshot.boxes.reduce((highest, box) => Math.max(highest, box.boxNo), 0);
+  const visibleBoxes = Math.min(Math.max(highestBox, 4), 4);
+  const lines = [
+    "▣ *𝗣𝗖 𝗣𝗢𝗞É𝗠𝗢𝗡*",
+    "　Sistema de Armazenamento",
+    "",
+    "　　　　〔 `CONECTADO` 〕",
+    "",
+    "> _A tela se ilumina e apresenta os dados da sua equipe e dos Pokémon armazenados._",
+    "",
+    "◇ *𝗘𝗤𝗨𝗜𝗣𝗘*",
+    `╰─ \`${formatPcNumber(snapshot.team.length)} / 06\``,
+    "",
+    "▣ *𝗖𝗔𝗜𝗫𝗔𝗦*",
+    "",
+  ];
+
+  for (let boxNo = 1; boxNo <= visibleBoxes; boxNo += 1) {
+    lines.push(
+      `　Caixa ${formatPcNumber(boxNo)}　\`${formatPcNumber(occupiedByBox.get(boxNo) ?? 0)} / 30\``,
+    );
+  }
+  if (highestBox > visibleBoxes) lines.push("　…");
+
+  lines.push(
+    "",
+    "──────────────",
+    "",
+    "▣　`/caixas`",
+    "↓　`/depositar`",
+    "↑　`/retirar`",
+    "↻　`/organizar`",
+    "‹　`/sair`",
+  );
+  return lines.join("\n");
+}
+
+export function renderPokemonPcBoxes(snapshot: PokemonPcStorageSnapshot): string {
+  const boxes = [...snapshot.boxes].sort((left, right) => left.boxNo - right.boxNo);
+  const lines = [
+    "▣ *𝗖𝗔𝗜𝗫𝗔𝗦*",
+    "　PC Pokémon · Armazenamento",
+    "",
+  ];
+
+  if (boxes.length === 0) {
+    lines.push("　Caixa 01　`00 / 30`", "", "_Nenhum Pokémon armazenado._");
+  } else {
+    for (const box of boxes) {
+      lines.push(`▣ *Caixa ${formatPcNumber(box.boxNo)}*　\`${formatPcNumber(box.occupied)} / 30\``);
+      for (const pokemon of box.pokemon) {
+        lines.push(
+          `　\`${formatPcNumber(pokemon.slotNo)}\` ${pokemon.displayName} · Nv. ${formatPcNumber(pokemon.level)}`,
+        );
+      }
+      lines.push("");
+    }
+    if (lines.at(-1) === "") lines.pop();
+  }
+
+  lines.push("", "‹　`/pc`");
+  return lines.join("\n");
 }
 
 export function renderMartCatalog(): string {
