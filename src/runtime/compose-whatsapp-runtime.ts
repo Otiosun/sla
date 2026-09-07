@@ -19,7 +19,10 @@ import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
 import { withOperationalWorldPolicy } from "../modules/messaging/operational-command-policy.js";
 import { createOperationalUxRoutes } from "../modules/messaging/operational-ux-handlers.js";
-import type { OutboundMessageAdapter } from "../modules/messaging/ports.js";
+import type {
+  OutboundMessageAdapter,
+  OutboxDeliveryPreparation,
+} from "../modules/messaging/ports.js";
 import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
@@ -35,6 +38,9 @@ import { withRegistrationReviewMentions } from "../modules/registration/review-n
 import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
 import { WorldService } from "../modules/world/service.js";
+import { WorldServiceConversationResolver } from "../modules/world-services/conversation-resolver.js";
+import { WorldServiceSessionService } from "../modules/world-services/session-service.js";
+import { createWorldServiceWhatsAppRoutes } from "../modules/world-services/whatsapp-handlers.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
@@ -57,6 +63,8 @@ import { PostgresRegistrationSetupLoader } from "../platform/registration/postgr
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
+import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
+import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
 
@@ -84,11 +92,8 @@ function errorKind(error: unknown): string {
 export function createOperationalMessagingComposition(pool: Pool): OperationalMessagingComposition {
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
   const playerRegistration = new PlayerRegistrationService(playerRepository);
-  const starter = new PlayerStarterService(
-    playerRepository,
-    new SystemClock(),
-    new CryptoRandomSource(),
-  );
+  const clock = new SystemClock();
+  const starter = new PlayerStarterService(playerRepository, clock, new CryptoRandomSource());
   const world = new WorldService(new PostgresWorldRepository(pool), {
     enabled: true,
     reason: null,
@@ -145,10 +150,28 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     },
     presence: receptionPresence,
   });
-  const conversationResolver = new ReceptionAwareConversationResolver({
+  const receptionConversationResolver = new ReceptionAwareConversationResolver({
     registration: registrationConversationResolver,
     reception,
   });
+  const worldServiceSessions = new WorldServiceSessionService(
+    new PostgresWorldServiceSessionRepository(pool),
+    clock,
+  );
+  const worldServiceConversationResolver = new WorldServiceConversationResolver({
+    community,
+    players: playerRegistration,
+    world,
+    sessions: worldServiceSessions,
+    replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
+  });
+  const conversationResolver = {
+    resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
+      const receptionResult = await receptionConversationResolver.resolve(context);
+      if (!receptionResult.ok || receptionResult.value !== null) return receptionResult;
+      return worldServiceConversationResolver.resolve(context);
+    },
+  };
   const policyGate = new RuntimeCommandPolicyGate({
     community,
     players: playerRegistration,
@@ -170,6 +193,11 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
       }).filter((definition) => definition.command !== "registrar"),
     ),
   );
+  const worldServiceRoutes = createWorldServiceWhatsAppRoutes({
+    players: playerRegistration,
+    world,
+    sessions: worldServiceSessions,
+  });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutes({
       sessions,
@@ -190,7 +218,7 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     setup,
   });
   const router = new MessageRouter(
-    [...legacyRoutes, ...registrationRoutes, ...registrationAdminRoutes],
+    [...legacyRoutes, ...worldServiceRoutes, ...registrationRoutes, ...registrationAdminRoutes],
     policyGate,
     conversationResolver,
   );
@@ -198,7 +226,9 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
   return {
     router,
     admitCommand: (message) => router.admitsCommand(message),
-    admitFreeform: (message) => registrationConversationResolver.admits(message),
+    admitFreeform: async (message) =>
+      (await registrationConversationResolver.admits(message)) ||
+      worldServiceConversationResolver.admits(message),
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
     },
@@ -210,11 +240,24 @@ export function createOperationalOutboxWorker(
   messagingRepository: PostgresMessagingRepository,
   adapter: OutboundMessageAdapter,
 ): OutboxWorker {
-  const deliveryPreparation = new RegistrationReviewDeliveryPreparation({
+  const registrationReviewPreparation = new RegistrationReviewDeliveryPreparation({
     provider: "baileys",
     messageRefs: new PostgresRegistrationMessageRefRepository(pool),
     providerMessageIdFor: baileysOutboundMessageId,
   });
+  const worldServicePromptPreparation = new WorldServicePromptDeliveryPreparation({
+    sessions: new WorldServiceSessionService(
+      new PostgresWorldServiceSessionRepository(pool),
+      new SystemClock(),
+    ),
+    providerMessageIdFor: baileysOutboundMessageId,
+  });
+  const deliveryPreparation: OutboxDeliveryPreparation = {
+    prepare: async (message) => {
+      await registrationReviewPreparation.prepare(message);
+      await worldServicePromptPreparation.prepare(message);
+    },
+  };
 
   return new OutboxWorker(
     messagingRepository,
