@@ -36,15 +36,20 @@ const sensitiveKeys = new Set([
   "phone",
   "phonenumber",
   "privatekey",
+  "proxyauthorization",
+  "refreshtoken",
   "seed",
   "secret",
   "session",
+  "setcookie",
   "token",
   "tokenfingerprint",
   "webhooksecret",
   "webhooksignature",
   "whatsappauthkey",
   "whatsappauthkeybase64",
+  "xapikey",
+  "xcontrolcentercsrf",
 ]);
 
 function redactString(value: string): string {
