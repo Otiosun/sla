@@ -1,8 +1,5 @@
 import type { PokemonInstanceId } from "../../shared-kernel/ids.js";
-import type {
-  PokemonPcPokemonView,
-  PokemonPcStorageSnapshot,
-} from "./pc-storage-service.js";
+import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
 const BOX_CAPACITY = 30;
 const PC_DEPOSIT_LIST_SUFFIX = ":center:pc:deposit:list";
