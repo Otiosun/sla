@@ -26,6 +26,14 @@ import {
   parseMartSaleQuantityReply,
 } from "./mart-sale.js";
 import {
+  isPcDepositListPromptKey,
+  pcDepositConfirmPromptSuffix,
+  pcTeamPokemonBySlot,
+  previewPcDepositDestination,
+} from "./pc-conversation.js";
+import { renderPokemonPcDepositConfirmation } from "./pc-renderer.js";
+import type { PokemonPcStorageService } from "./pc-storage-service.js";
+import {
   renderCenterEmployeeConversation,
   renderCenterHanaConversation,
   renderMartInsufficientFunds,
@@ -67,6 +75,7 @@ export interface WorldServiceConversationResolverDependencies {
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
   readonly economy?: MartEconomyService;
+  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
 }
 
 function identity(message: IncomingMessage): { provider: string; externalId: string } {
@@ -361,30 +370,43 @@ export class WorldServiceConversationResolver {
         }
       }
 
-      if (
-        session.serviceKind === "POKEMON_CENTER" &&
-        promptKey !== null &&
-        promptKey.endsWith(":center:conversation") &&
-        text !== null
-      ) {
-        const choice = text.trim();
-        if (choice === "1" || choice === "01") {
+      if (session.serviceKind === "POKEMON_CENTER" && promptKey !== null && text !== null) {
+        if (isPcDepositListPromptKey(promptKey)) {
+          const storageReader = this.dependencies.pcStorage?.getStorage;
+          if (storageReader === undefined) return emptyReply(session);
+          const storage = await storageReader.call(this.dependencies.pcStorage, session.playerId);
+          if (!storage.ok) return storage;
+          const selected = pcTeamPokemonBySlot(storage.value, text);
+          if (selected === null) return emptyReply(session);
+          const destination = previewPcDepositDestination(storage.value);
           return replyResult(
             context,
             session,
-            renderCenterHanaConversation(),
-            ":center:conversation:hana",
+            renderPokemonPcDepositConfirmation(selected, destination),
+            pcDepositConfirmPromptSuffix(selected.pokemonInstanceId),
           );
         }
-        if (choice === "2" || choice === "02") {
-          return replyResult(
-            context,
-            session,
-            renderCenterEmployeeConversation(),
-            ":center:conversation:employee",
-          );
+
+        if (promptKey.endsWith(":center:conversation")) {
+          const choice = text.trim();
+          if (choice === "1" || choice === "01") {
+            return replyResult(
+              context,
+              session,
+              renderCenterHanaConversation(),
+              ":center:conversation:hana",
+            );
+          }
+          if (choice === "2" || choice === "02") {
+            return replyResult(
+              context,
+              session,
+              renderCenterEmployeeConversation(),
+              ":center:conversation:employee",
+            );
+          }
+          return emptyReply(session);
         }
-        return emptyReply(session);
       }
 
       return emptyReply(session);
