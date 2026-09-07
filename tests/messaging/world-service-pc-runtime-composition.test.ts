@@ -4,14 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 const pcComposition = vi.hoisted(() => ({
   repositoryConstructor: vi.fn(),
   serviceConstructor: vi.fn(),
-  repository: { kind: "postgres-pc-storage-repository" },
 }));
 
 vi.mock("../../src/platform/world-services/postgres-pokemon-pc-storage-repository.js", () => ({
   PostgresPokemonPcStorageRepository: class {
     public constructor(pool: Pool) {
-      pcComposition.repositoryConstructor(pool);
-      return pcComposition.repository;
+      pcComposition.repositoryConstructor(pool, this);
     }
   },
 }));
@@ -32,19 +30,22 @@ describe("Pokemon PC runtime composition", () => {
 
     const composition = createOperationalMessagingComposition(pool);
 
-    expect(composition.admitCommand({
-      provider: "baileys",
-      externalMessageId: "pc-runtime-composition",
-      senderRef: "5511999999999@s.whatsapp.net",
-      chatRef: "120363000000000901@g.us",
-      occurredAt: "2026-09-07T12:00:00.000Z",
-      text: "/pc",
-      mediaRefs: [],
-      replyToExternalMessageId: null,
-    })).toBe(true);
+    expect(
+      composition.admitCommand({
+        provider: "baileys",
+        externalMessageId: "pc-runtime-composition",
+        senderRef: "5511999999999@s.whatsapp.net",
+        chatRef: "120363000000000901@g.us",
+        occurredAt: "2026-09-07T12:00:00.000Z",
+        text: "/pc",
+        mediaRefs: [],
+        replyToExternalMessageId: null,
+      }),
+    ).toBe(true);
     expect(pcComposition.repositoryConstructor).toHaveBeenCalledOnce();
-    expect(pcComposition.repositoryConstructor).toHaveBeenCalledWith(pool);
+    const repository = pcComposition.repositoryConstructor.mock.calls[0]?.[1];
+    expect(pcComposition.repositoryConstructor).toHaveBeenCalledWith(pool, repository);
     expect(pcComposition.serviceConstructor).toHaveBeenCalledOnce();
-    expect(pcComposition.serviceConstructor).toHaveBeenCalledWith(pcComposition.repository);
+    expect(pcComposition.serviceConstructor).toHaveBeenCalledWith(repository);
   });
 });
