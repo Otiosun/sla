@@ -111,6 +111,134 @@ try {
     throw new Error("Concurrent admission overshot its durable budget");
   }
 
+  const duplicateSubject = randomUUID();
+  const duplicatePolicy = policy("proof.concurrent-replay.v1", 5);
+  const duplicateRequest = {
+    subjectKind: "PLAYER" as const,
+    subjectId: duplicateSubject,
+    surface: "CAPTURE" as const,
+    actionKey: "proof.concurrent-replay",
+    dedupeKey: "duplicate:shared",
+    requestFingerprint: mutationFingerprint({ semantic: "same-concurrent-request" }),
+    policy: duplicatePolicy,
+  };
+  const duplicateRaced = await Promise.all(
+    Array.from({ length: 24 }, () => admission.consume(duplicateRequest)),
+  );
+  const duplicateFresh = duplicateRaced.filter(
+    (result) => result.ok && result.value.allowed && !result.value.replayed,
+  ).length;
+  const duplicateReplays = duplicateRaced.filter(
+    (result) => result.ok && result.value.allowed && result.value.replayed,
+  ).length;
+  if (duplicateFresh !== 1 || duplicateReplays !== 23) {
+    throw new Error(
+      `Concurrent duplicate replay mismatch: fresh=${duplicateFresh}, replayed=${duplicateReplays}`,
+    );
+  }
+  const duplicateDurable = await pool.query<{ used: number; charges: string }>(
+    `SELECT b.used,
+            (SELECT count(*)::text FROM mutation_rate_limit_charges c
+             WHERE c.subject_kind=b.subject_kind AND c.subject_hash=b.subject_hash
+               AND c.surface=b.surface AND c.policy_key=b.policy_key) AS charges
+     FROM mutation_rate_limit_buckets b
+     WHERE b.policy_key=$1`,
+    [duplicatePolicy.policyKey],
+  );
+  if (duplicateDurable.rows[0]?.used !== 1 || duplicateDurable.rows[0]?.charges !== "1") {
+    throw new Error("Concurrent duplicate request created more than one durable charge");
+  }
+
+  const principalPolicy = policy("proof.scope.principal.v1", 1);
+  const principalDedupeKey = "scope:principal:shared";
+  const principalFingerprint = mutationFingerprint({ semantic: "same-principal-scope-request" });
+  const principalResults = await Promise.all(
+    [randomUUID(), randomUUID()].map((principalSubjectId) =>
+      admission.consume({
+        subjectKind: "ADMIN_PRINCIPAL",
+        subjectId: principalSubjectId,
+        surface: "ADMIN",
+        actionKey: "proof.scope.principal",
+        dedupeKey: principalDedupeKey,
+        requestFingerprint: principalFingerprint,
+        policy: principalPolicy,
+      }),
+    ),
+  );
+  if (
+    principalResults.some(
+      (result) => !result.ok || !result.value.allowed || result.value.replayed,
+    )
+  ) {
+    throw new Error("Independent admin principals shared one mutation admission bucket or charge");
+  }
+  const principalEvidence = await pool.query<{ buckets: string; charges: string }>(
+    `SELECT
+       (SELECT count(*)::text FROM mutation_rate_limit_buckets WHERE policy_key=$1) AS buckets,
+       (SELECT count(*)::text FROM mutation_rate_limit_charges WHERE policy_key=$1) AS charges`,
+    [principalPolicy.policyKey],
+  );
+  if (principalEvidence.rows[0]?.buckets !== "2" || principalEvidence.rows[0]?.charges !== "2") {
+    throw new Error("Principal-scoped admission was not durably isolated");
+  }
+
+  const policySubject = randomUUID();
+  const policySharedDedupe = "scope:policy:shared";
+  const policySharedFingerprint = mutationFingerprint({ semantic: "same-policy-scope-request" });
+  const policyResults = await Promise.all(
+    [policy("proof.scope.policy-a.v1", 1), policy("proof.scope.policy-b.v1", 1)].map(
+      (scopedPolicy) =>
+        admission.consume({
+          subjectKind: "PLAYER",
+          subjectId: policySubject,
+          surface: "BATTLE",
+          actionKey: "proof.scope.policy",
+          dedupeKey: policySharedDedupe,
+          requestFingerprint: policySharedFingerprint,
+          policy: scopedPolicy,
+        }),
+    ),
+  );
+  if (
+    policyResults.some((result) => !result.ok || !result.value.allowed || result.value.replayed)
+  ) {
+    throw new Error("Independent mutation policies shared one admission bucket or charge");
+  }
+
+  const surfaceSubject = randomUUID();
+  const sharedSurfacePolicy = policy("proof.scope.surface.v1", 1);
+  const surfaceSharedDedupe = "scope:surface:shared";
+  const surfaceResults = await Promise.all(
+    (["BATTLE", "ECONOMY"] as const).map((surface) =>
+      admission.consume({
+        subjectKind: "PLAYER",
+        subjectId: surfaceSubject,
+        surface,
+        actionKey: "proof.scope.surface",
+        dedupeKey: surfaceSharedDedupe,
+        requestFingerprint: mutationFingerprint({ surface, semantic: "same-surface-scope-request" }),
+        policy: sharedSurfacePolicy,
+      }),
+    ),
+  );
+  if (
+    surfaceResults.some((result) => !result.ok || !result.value.allowed || result.value.replayed)
+  ) {
+    throw new Error("Independent mutation surfaces shared one admission bucket or charge");
+  }
+  const surfaceScopeEvidence = await pool.query<{ buckets: string; charges: string }>(
+    `SELECT
+       (SELECT count(*)::text FROM mutation_rate_limit_buckets WHERE policy_key=$1) AS buckets,
+       (SELECT count(*)::text FROM mutation_rate_limit_charges WHERE policy_key=$1) AS charges`,
+    [sharedSurfacePolicy.policyKey],
+  );
+  if (
+    surfaceScopeEvidence.rows[0]?.buckets !== "2" ||
+    surfaceScopeEvidence.rows[0]?.charges !== "2"
+  ) {
+    throw new Error("Surface-scoped admission was not durably isolated");
+  }
+
   const restarted = new PostgresMutationAdmission(pool);
   const afterRestart = await restarted.consume({
     subjectKind: "PLAYER",
@@ -161,6 +289,11 @@ try {
       surfaces: 4,
       concurrentAllowed: allowed,
       concurrentBlocked: blocked,
+      concurrentDuplicateFresh: duplicateFresh,
+      concurrentDuplicateReplays: duplicateReplays,
+      principalScopeIsolated: true,
+      policyScopeIsolated: true,
+      surfaceScopeIsolated: true,
       restartPreserved: true,
       replayNoDoubleCharge: true,
       rawIdentifiersPersisted: false,
