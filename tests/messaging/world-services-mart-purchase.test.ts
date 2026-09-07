@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { IncomingMessage, MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import type {
+  IncomingMessage,
+  MessageHandlerContext,
+} from "../../src/modules/messaging/contracts.js";
 import { WorldServiceConversationResolver } from "../../src/modules/world-services/conversation-resolver.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
@@ -175,11 +178,7 @@ describe("Poké Mart purchase conversation", () => {
 
   it("executes Potion / 5 as one atomic quantity purchase and renders the receipt", async () => {
     const promptId = "WA-MART-QUANTITY";
-    const current = session(
-      "inbox:x:world-service:mart:quantity:shop.potion",
-      promptId,
-      5n,
-    );
+    const current = session("inbox:x:world-service:mart:quantity:shop.potion", promptId, 5n);
     const purchaseQuantity = vi.fn(async () =>
       ok({
         playerId: PLAYER_ID,
