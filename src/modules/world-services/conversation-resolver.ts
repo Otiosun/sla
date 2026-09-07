@@ -18,6 +18,8 @@ import {
   parseMartQuantityReply,
 } from "./mart-catalog.js";
 import {
+  renderCenterEmployeeConversation,
+  renderCenterHanaConversation,
   renderMartInsufficientFunds,
   renderMartItemSelection,
   renderMartPurchaseSuccess,
@@ -266,6 +268,32 @@ export class WorldServiceConversationResolver {
             ":mart:result",
           );
         }
+      }
+
+      if (
+        session.serviceKind === "POKEMON_CENTER" &&
+        promptKey !== null &&
+        promptKey.endsWith(":center:conversation") &&
+        text !== null
+      ) {
+        const choice = text.trim();
+        if (choice === "1" || choice === "01") {
+          return replyResult(
+            context,
+            session,
+            renderCenterHanaConversation(),
+            ":center:conversation:hana",
+          );
+        }
+        if (choice === "2" || choice === "02") {
+          return replyResult(
+            context,
+            session,
+            renderCenterEmployeeConversation(),
+            ":center:conversation:employee",
+          );
+        }
+        return emptyReply(session);
       }
 
       return emptyReply(session);
