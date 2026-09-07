@@ -249,7 +249,9 @@ export class PostgresWorldServiceSessionRepository implements WorldServiceSessio
     );
   }
 
-  public async read<T>(work: (transaction: WorldServiceSessionTransaction) => Promise<T>): Promise<T> {
+  public async read<T>(
+    work: (transaction: WorldServiceSessionTransaction) => Promise<T>,
+  ): Promise<T> {
     return withTransaction(
       this.pool,
       async (client) => work(new PostgresWorldServiceSessionTransaction(client)),
