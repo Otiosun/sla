@@ -26,7 +26,9 @@ function context(): MessageHandlerContext {
   };
 }
 
-function activeCenterSession(playerId: ReturnType<typeof createPlayerId>): WorldServiceSessionRecord {
+function activeCenterSession(
+  playerId: ReturnType<typeof createPlayerId>,
+): WorldServiceSessionRecord {
   const now = new Date("2026-09-07T15:00:00.000Z");
   return {
     sessionId: randomUUID(),
@@ -44,10 +46,7 @@ function activeCenterSession(playerId: ReturnType<typeof createPlayerId>): World
   };
 }
 
-function routeFor(
-  dependencies: WorldServiceWhatsAppDependencies,
-  command: string,
-) {
+function routeFor(dependencies: WorldServiceWhatsAppDependencies, command: string) {
   const route = createWorldServiceWhatsAppRoutes(dependencies).find(
     (candidate) => candidate.command === command,
   );
