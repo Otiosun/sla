@@ -76,7 +76,9 @@ async function seedFixture(pool: Pool): Promise<BattleState> {
      VALUES ($1, 1, 'Battle write-back fixture', 'DRAFT', $2)`,
     [state.contentReleaseId, state.rulesetId],
   );
-  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [playerSide.playerId]);
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [
+    playerSide.playerId,
+  ]);
   await pool.query(
     `INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 1, $2)`,
     [player.speciesId, `writeback-species-${player.speciesId}`],
@@ -88,7 +90,13 @@ async function seedFixture(pool: Pool): Promise<BattleState> {
   await pool.query(
     `INSERT INTO pokemon_instances(id, owner_player_id, form_id, level, current_hp, origin_type)
      VALUES ($1, $2, $3, $4, $5, 'TEST')`,
-    [player.pokemonInstanceId, playerSide.playerId, player.formId, player.level, player.currentHp],
+    [
+      player.pokemonInstanceId,
+      playerSide.playerId,
+      player.formId,
+      player.level,
+      player.currentHp,
+    ],
   );
 
   for (const move of player.moves) {
@@ -129,7 +137,14 @@ async function seedFixture(pool: Pool): Promise<BattleState> {
   await pool.query(
     `INSERT INTO battle_sides(id, battle_id, side_no, controller_kind, player_id)
      VALUES ($1, $3, $4, 'PLAYER', $6), ($2, $3, $5, 'WILD', NULL)`,
-    [playerSideId, wildSideId, state.battleId, playerSide.sideNo, wildSide.sideNo, playerSide.playerId],
+    [
+      playerSideId,
+      wildSideId,
+      state.battleId,
+      playerSide.sideNo,
+      wildSide.sideNo,
+      playerSide.playerId,
+    ],
   );
   await pool.query(
     `INSERT INTO battle_participants(
@@ -175,7 +190,12 @@ async function persistedPlayerState(pool: Pool, state: BattleState) {
        WHERE pokemon_instance_id = $1 ORDER BY slot_no`,
       [player.pokemonInstanceId],
     ),
-    pool.query<{ condition_key: string; source_type: string; source_id: string; data: unknown }>(
+    pool.query<{
+      condition_key: string;
+      source_type: string;
+      source_id: string;
+      data: unknown;
+    }>(
       `SELECT condition_key, source_type, source_id, data
        FROM pokemon_persistent_conditions
        WHERE pokemon_instance_id = $1 ORDER BY condition_key`,
@@ -186,9 +206,13 @@ async function persistedPlayerState(pool: Pool, state: BattleState) {
 }
 
 async function persistTurn(pool: Pool, previous: BattleState, next: BattleState, suffix: string) {
-  const player = previous.combatants.find((entry) => entry.participantKind === "PLAYER_POKEMON");
+  const player = previous.combatants.find(
+    (entry) => entry.participantKind === "PLAYER_POKEMON",
+  );
   const wild = previous.combatants.find((entry) => entry.participantKind === "WILD_POKEMON");
-  if (player === undefined || wild === undefined) throw new Error("Test battle combatants are missing");
+  if (player === undefined || wild === undefined) {
+    throw new Error("Test battle combatants are missing");
+  }
   const repository = new PostgresBattleRepository(pool);
   return repository.transaction((transaction) =>
     transaction.persistTurn({
