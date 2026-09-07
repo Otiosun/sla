@@ -82,7 +82,10 @@ describe("command router normalization", () => {
     expect((await router.dispatch(context(slashMessage))).ok).toBe(true);
 
     expect(router.admitsCommand(dollarMessage)).toBe(true);
-    expect(router.classify(dollarMessage)).toEqual({ command: "pokedex", sensitiveActionKey: null });
+    expect(router.classify(dollarMessage)).toEqual({
+      command: "pokedex",
+      sensitiveActionKey: null,
+    });
     expect((await router.dispatch(context(dollarMessage))).ok).toBe(true);
 
     expect(observed).toEqual(["/POKÉDEX João Ávila", "$POKÉDEX João Ávila"]);
