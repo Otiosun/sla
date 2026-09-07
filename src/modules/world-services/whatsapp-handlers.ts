@@ -6,7 +6,12 @@ import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { WorldServiceKind } from "./contracts.js";
-import { renderMartCatalog, renderWorldServiceEntry, renderWorldServiceExit } from "./renderer.js";
+import {
+  renderCenterConversationMenu,
+  renderMartCatalog,
+  renderWorldServiceEntry,
+  renderWorldServiceExit,
+} from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 const WORLD_SERVICE_POLICY = {
@@ -180,6 +185,28 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const converse: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
+      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+    }
+
+    return textResult(
+      context,
+      renderCenterConversationMenu(),
+      active.value.sessionId,
+      {
+        playerId: player.value,
+        expectedRevision: active.value.revision,
+      },
+      ":center:conversation",
+    );
+  };
+
   return [
     {
       command: "pokemart",
@@ -199,6 +226,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "pc",
       handler: new FunctionalHandler(pc),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "conversar",
+      handler: new FunctionalHandler(converse),
       policy: WORLD_SERVICE_POLICY,
     },
     {
