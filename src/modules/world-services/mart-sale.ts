@@ -11,9 +11,7 @@ export interface MartSellableInventoryItem {
 }
 
 export interface MartSaleInventoryReader {
-  listSellableInventory(
-    playerId: PlayerId,
-  ): Promise<Result<readonly MartSellableInventoryItem[]>>;
+  listSellableInventory(playerId: PlayerId): Promise<Result<readonly MartSellableInventoryItem[]>>;
 }
 
 const SALE_LIST_PROMPT_SUFFIX = ":mart:sale:list";
