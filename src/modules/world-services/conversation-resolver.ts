@@ -17,12 +17,23 @@ import {
   martQuantityOfferFromPromptKey,
   parseMartQuantityReply,
 } from "./mart-catalog.js";
+import type { MartSaleInventoryReader } from "./mart-sale.js";
+import {
+  isMartSaleListPromptKey,
+  martSaleItemByCode,
+  martSaleItemByOfferKey,
+  martSaleQuantityOfferFromPromptKey,
+  parseMartSaleQuantityReply,
+} from "./mart-sale.js";
 import {
   renderCenterEmployeeConversation,
   renderCenterHanaConversation,
   renderMartInsufficientFunds,
   renderMartItemSelection,
   renderMartPurchaseSuccess,
+  renderMartSaleItemSelection,
+  renderMartSaleSuccess,
+  renderMartSaleUnavailable,
 } from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
@@ -44,7 +55,10 @@ export interface WorldServiceReplyIntentVerifier {
 
 interface MartEconomyService
   extends Pick<EconomyService, "purchaseQuantity">,
-    Partial<Pick<EconomyService, "getWalletBalance">> {}
+    Partial<
+      Pick<EconomyService, "getWalletBalance" | "sellQuantity"> &
+        Pick<MartSaleInventoryReader, "listSellableInventory">
+    > {}
 
 export interface WorldServiceConversationResolverDependencies {
   readonly community: CommunityContextResolver;
@@ -93,6 +107,22 @@ function insufficientWalletRequest(error: AppError): {
   }
   const parsed = BigInt(requested);
   return parsed > 0n ? { currencyId, requested: parsed } : null;
+}
+
+function insufficientInventoryRequest(error: AppError): {
+  readonly itemId: string;
+  readonly requested: bigint;
+} | null {
+  if (error.code !== "ACTION_INVALID" || error.message !== "Inventory balance is insufficient") {
+    return null;
+  }
+  const itemId = error.details?.itemId;
+  const requested = error.details?.requested;
+  if (typeof itemId !== "string" || typeof requested !== "string" || !/^[0-9]+$/.test(requested)) {
+    return null;
+  }
+  const parsed = BigInt(requested);
+  return parsed > 0n ? { itemId, requested: parsed } : null;
 }
 
 function replyResult(
@@ -203,6 +233,67 @@ export class WorldServiceConversationResolver {
       const promptKey = session.expectedReplyOutboxIdempotencyKey;
       const text = context.message.text;
       if (session.serviceKind === "POKEMART" && promptKey !== null && text !== null) {
+        if (isMartSaleListPromptKey(promptKey)) {
+          const listReader = this.dependencies.economy?.listSellableInventory;
+          if (listReader === undefined) return emptyReply(session);
+          const sellable = await listReader.call(this.dependencies.economy, session.playerId);
+          if (!sellable.ok) return sellable;
+          const selected = martSaleItemByCode(sellable.value, text);
+          if (selected === null) return emptyReply(session);
+          return replyResult(
+            context,
+            session,
+            renderMartSaleItemSelection(selected),
+            `:mart:sale:quantity:${selected.offerKey}`,
+          );
+        }
+
+        const saleOfferKey = martSaleQuantityOfferFromPromptKey(promptKey);
+        if (saleOfferKey !== null) {
+          const listReader = this.dependencies.economy?.listSellableInventory;
+          const saleWriter = this.dependencies.economy?.sellQuantity;
+          if (listReader === undefined || saleWriter === undefined) return emptyReply(session);
+
+          const sellable = await listReader.call(this.dependencies.economy, session.playerId);
+          if (!sellable.ok) return sellable;
+          const selected = martSaleItemByOfferKey(sellable.value, saleOfferKey);
+          if (selected === null) return emptyReply(session);
+          const quantity = parseMartSaleQuantityReply(text, selected);
+          if (quantity === null) return emptyReply(session);
+
+          const sold = await saleWriter.call(this.dependencies.economy, {
+            playerId: session.playerId,
+            offerKey: saleOfferKey,
+            quantity,
+            idempotencyKey: context.idempotencyKey,
+            metadata: {
+              sourceType: "WORLD_SERVICE_MART",
+              sourceId: session.sessionId,
+              reason: "Poké Mart sale",
+              actorType: "PLAYER",
+              actorId: session.playerId,
+              correlationId: context.correlationId,
+            },
+          });
+          if (!sold.ok) {
+            const insufficient = insufficientInventoryRequest(sold.error);
+            if (insufficient === null || insufficient.itemId !== selected.itemId) return sold;
+            return replyResult(
+              context,
+              session,
+              renderMartSaleUnavailable(selected),
+              ":mart:sale:unavailable",
+            );
+          }
+
+          return replyResult(
+            context,
+            session,
+            renderMartSaleSuccess(selected, sold.value),
+            ":mart:sale:result",
+          );
+        }
+
         if (isMartCatalogPromptKey(promptKey)) {
           const selected = martItemByCode(text);
           if (selected === null) return emptyReply(session);
