@@ -45,7 +45,10 @@ export function createPublicVerificationServer(
       });
 
       if (!rateLimit.allowed) {
-        void reply.header("retry-after", String(Math.max(1, Math.ceil(rateLimit.retryAfterSeconds))));
+        void reply.header(
+          "retry-after",
+          String(Math.max(1, Math.ceil(rateLimit.retryAfterSeconds))),
+        );
         return reply.code(429).send({ error: { code: "PUBLIC_RATE_LIMITED" } });
       }
 
