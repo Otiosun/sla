@@ -8,6 +8,7 @@ import type { WorldService } from "../world/service.js";
 import type { WorldServiceKind } from "./contracts.js";
 import type { PokemonCenterHealingService } from "./healing-service.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
+import { renderPokemonPcDepositSelection } from "./pc-renderer.js";
 import type { PokemonPcStorageService } from "./pc-storage-service.js";
 import {
   renderCenterConversationMenu,
@@ -291,6 +292,34 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const deposit: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
+      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+    }
+    if (dependencies.pcStorage === undefined) {
+      return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
+    }
+
+    const storage = await dependencies.pcStorage.getStorage(player.value);
+    if (!storage.ok) return storage;
+
+    return textResult(
+      context,
+      renderPokemonPcDepositSelection(storage.value),
+      active.value.sessionId,
+      {
+        playerId: player.value,
+        expectedRevision: active.value.revision,
+      },
+      ":center:pc:deposit:list",
+    );
+  };
+
   const converse: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -347,6 +376,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "caixas",
       handler: new FunctionalHandler(boxes),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "depositar",
+      handler: new FunctionalHandler(deposit),
       policy: WORLD_SERVICE_POLICY,
     },
     {
