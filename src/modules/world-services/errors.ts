@@ -8,7 +8,8 @@ export const sceneProofRequired = () =>
 export const worldServiceVisitConflict = () =>
   appError("INVALID_STATE_TRANSITION", "Another world service visit is already active");
 
-export const worldServiceVisitNotFound = () => appError("NOT_FOUND", "World service visit is not active");
+export const worldServiceVisitNotFound = () =>
+  appError("NOT_FOUND", "World service visit is not active");
 
 export const worldServiceRevisionConflict = (expectedRevision: bigint) =>
   appError("REVISION_CONFLICT", "World service session revision changed", {
