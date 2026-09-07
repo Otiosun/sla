@@ -1,9 +1,5 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import type {
-  SceneProofRecord,
-  WorldServiceKind,
-  WorldServiceSessionRecord,
-} from "./contracts.js";
+import type { SceneProofRecord, WorldServiceKind, WorldServiceSessionRecord } from "./contracts.js";
 
 export interface InsertSceneProofWrite {
   readonly playerId: PlayerId;
