@@ -43,9 +43,15 @@ async function seedPlayerAreaInbox(
   ]);
   await pool.query(
     `INSERT INTO inbox_messages(
-       id, provider, external_message_id, player_id, payload_hash, status
-     ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED')`,
-    [input.inboxMessageId, `world-service-message-${input.suffix}`, input.playerId, "a".repeat(64)],
+       id, provider, external_message_id, player_id, payload_hash, status, correlation_id
+     ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED', $5)`,
+    [
+      input.inboxMessageId,
+      `world-service-message-${input.suffix}`,
+      input.playerId,
+      "a".repeat(64),
+      randomUUID(),
+    ],
   );
 }
 
@@ -112,9 +118,15 @@ describe.sequential("world service session persistence", () => {
     });
     await pool.query(
       `INSERT INTO inbox_messages(
-         id, provider, external_message_id, player_id, payload_hash, status
-       ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED')`,
-      [newerInbox, `world-service-message-${randomUUID()}`, playerId, "b".repeat(64)],
+         id, provider, external_message_id, player_id, payload_hash, status, correlation_id
+       ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED', $5)`,
+      [
+        newerInbox,
+        `world-service-message-${randomUUID()}`,
+        playerId,
+        "b".repeat(64),
+        randomUUID(),
+      ],
     );
 
     const older = await service.recordSceneProof({
