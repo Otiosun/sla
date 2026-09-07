@@ -28,6 +28,7 @@ export interface EconomyTransaction {
 
   claimInventoryLedger(input: InventoryLedgerWrite): Promise<boolean>;
   claimWalletLedger(input: WalletLedgerWrite): Promise<boolean>;
+  lockPurchaseFingerprint(scope: string, storageKey: string): Promise<void>;
 
   finalizeInventoryLedgerBalance(input: {
     readonly ledgerId: string;
