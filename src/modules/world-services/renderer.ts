@@ -34,7 +34,7 @@ export function renderWorldServiceEntry(kind: WorldServiceKind): string {
     case "POKEMART":
       return [
         "ᯓ *𝗖𝗢𝗠𝗘𝗥𝗖𝗜𝗔𝗡𝗧𝗘*",
-        "　Poké Mart · Balcão",
+        "　POKÉ MART · Balcão",
         "",
         "> _Atrás do balcão, um homem de meia-idade organiza algumas mercadorias. Ao perceber sua presença, ele ergue os olhos e sorri._",
         "",
