@@ -158,6 +158,28 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const pc: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
+      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+    }
+
+    return textResult(
+      context,
+      renderWorldServiceEntry("PC"),
+      active.value.sessionId,
+      {
+        playerId: player.value,
+        expectedRevision: active.value.revision,
+      },
+      ":center:pc",
+    );
+  };
+
   return [
     {
       command: "pokemart",
@@ -176,7 +198,7 @@ export function createWorldServiceWhatsAppRoutes(
     },
     {
       command: "pc",
-      handler: new FunctionalHandler(openHandler(dependencies, "PC")),
+      handler: new FunctionalHandler(pc),
       policy: WORLD_SERVICE_POLICY,
     },
     {
