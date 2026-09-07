@@ -137,6 +137,52 @@ jobs:
             exit 1
           fi
 
+      - name: Assert Railway worker has no public ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          services_json="$(railway service list --environment staging --json)"
+          service_id="$(jq -r --arg service "$RAILWAY_SERVICE" '[.[] | select(.name == $service)] | if length == 1 then .[0].id else empty end' <<<"$services_json")"
+          if [[ -z "$service_id" ]]; then
+            echo "Railway staging service could not be resolved uniquely for ingress check" >&2
+            exit 1
+          fi
+
+          token_scope_json="$(railway api 'query { projectToken { projectId environmentId } }' --compact)"
+          environment_id="$(jq -r '.data.projectToken.environmentId // empty' <<<"$token_scope_json")"
+          if [[ -z "$environment_id" ]]; then
+            echo "Railway project token did not resolve its staging environment for ingress check" >&2
+            exit 1
+          fi
+
+          domains_json="$(railway domain list --service "$RAILWAY_SERVICE" --environment staging --json)"
+          if ! jq -e '.domains | type == "array"' >/dev/null <<<"$domains_json"; then
+            echo "Railway domain list response was malformed" >&2
+            exit 1
+          fi
+          domain_count="$(jq '.domains | length' <<<"$domains_json")"
+          if (( domain_count != 0 )); then
+            echo "Railway staging worker must not expose public HTTP domains" >&2
+            exit 1
+          fi
+
+          tcp_json="$(
+            railway api \
+              'query($environmentId:String!,$serviceId:String!){ tcpProxies(environmentId:$environmentId,serviceId:$serviceId){ id domain proxyPort applicationPort } }' \
+              --raw-var "environmentId=$environment_id" \
+              --raw-var "serviceId=$service_id" \
+              --compact
+          )"
+          if ! jq -e '.data.tcpProxies | type == "array"' >/dev/null <<<"$tcp_json"; then
+            echo "Railway TCP proxy response was malformed" >&2
+            exit 1
+          fi
+          tcp_count="$(jq '.data.tcpProxies | length' <<<"$tcp_json")"
+          if (( tcp_count != 0 )); then
+            echo "Railway staging worker must not expose a public TCP proxy" >&2
+            exit 1
+          fi
+
       - name: Stop previous worker before replacement
         shell: bash
         run: |
@@ -253,6 +299,52 @@ jobs:
 
           echo "Railway replacement deployment did not reach SUCCESS in time" >&2
           exit 1
+
+      - name: Assert Railway worker has no public ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          services_json="$(railway service list --environment staging --json)"
+          service_id="$(jq -r --arg service "$RAILWAY_SERVICE" '[.[] | select(.name == $service)] | if length == 1 then .[0].id else empty end' <<<"$services_json")"
+          if [[ -z "$service_id" ]]; then
+            echo "Railway staging service could not be resolved uniquely for ingress check" >&2
+            exit 1
+          fi
+
+          token_scope_json="$(railway api 'query { projectToken { projectId environmentId } }' --compact)"
+          environment_id="$(jq -r '.data.projectToken.environmentId // empty' <<<"$token_scope_json")"
+          if [[ -z "$environment_id" ]]; then
+            echo "Railway project token did not resolve its staging environment for ingress check" >&2
+            exit 1
+          fi
+
+          domains_json="$(railway domain list --service "$RAILWAY_SERVICE" --environment staging --json)"
+          if ! jq -e '.domains | type == "array"' >/dev/null <<<"$domains_json"; then
+            echo "Railway domain list response was malformed" >&2
+            exit 1
+          fi
+          domain_count="$(jq '.domains | length' <<<"$domains_json")"
+          if (( domain_count != 0 )); then
+            echo "Railway staging worker must not expose public HTTP domains" >&2
+            exit 1
+          fi
+
+          tcp_json="$(
+            railway api \
+              'query($environmentId:String!,$serviceId:String!){ tcpProxies(environmentId:$environmentId,serviceId:$serviceId){ id domain proxyPort applicationPort } }' \
+              --raw-var "environmentId=$environment_id" \
+              --raw-var "serviceId=$service_id" \
+              --compact
+          )"
+          if ! jq -e '.data.tcpProxies | type == "array"' >/dev/null <<<"$tcp_json"; then
+            echo "Railway TCP proxy response was malformed" >&2
+            exit 1
+          fi
+          tcp_count="$(jq '.data.tcpProxies | length' <<<"$tcp_json")"
+          if (( tcp_count != 0 )); then
+            echo "Railway staging worker must not expose a public TCP proxy" >&2
+            exit 1
+          fi
 
       - name: Prove exact provider-live post-deploy smoke
         shell: bash
