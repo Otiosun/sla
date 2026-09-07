@@ -53,6 +53,18 @@ interface Fixture {
   readonly windowId: string;
 }
 
+interface PersistedPokemonRow {
+  readonly id: string;
+  readonly current_hp: number;
+  readonly revision: string;
+}
+
+interface PersistedMoveRow {
+  readonly pokemon_instance_id: string;
+  readonly slot_no: number;
+  readonly pp_current: number | null;
+}
+
 function databaseUrlFor(name: string): string {
   const url = new URL(databaseUrl);
   url.pathname = `/${name}`;
@@ -125,6 +137,62 @@ function action(actorParticipantId: string, targetParticipantId: string): Battle
     targetParticipantId,
     moveSlot: 1,
   };
+}
+
+function playerPokemonIds(state: BattleState): readonly string[] {
+  return state.combatants
+    .map((combatant) => combatant.pokemonInstanceId)
+    .filter((id): id is string => id !== null);
+}
+
+function expectedPersistedPlayerState(state: BattleState) {
+  const combatants = state.combatants.filter(
+    (combatant) =>
+      combatant.participantKind === "PLAYER_POKEMON" && combatant.pokemonInstanceId !== null,
+  );
+  return {
+    pokemon: combatants
+      .map((combatant) => ({
+        id: combatant.pokemonInstanceId as string,
+        current_hp: combatant.currentHp,
+        revision: "1",
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    moves: combatants
+      .flatMap((combatant) =>
+        combatant.moves.map((move) => ({
+          pokemon_instance_id: combatant.pokemonInstanceId as string,
+          slot_no: move.slotNo,
+          pp_current: move.ppCurrent,
+        })),
+      )
+      .sort(
+        (left, right) =>
+          left.pokemon_instance_id.localeCompare(right.pokemon_instance_id) ||
+          left.slot_no - right.slot_no,
+      ),
+  };
+}
+
+async function persistedPlayerState(pool: Pool, fixture: Fixture) {
+  const pokemonIds = playerPokemonIds(fixture.state);
+  const [pokemon, moves] = await Promise.all([
+    pool.query<PersistedPokemonRow>(
+      `SELECT id, current_hp, revision::text
+       FROM pokemon_instances
+       WHERE id = ANY($1::uuid[])
+       ORDER BY id`,
+      [pokemonIds],
+    ),
+    pool.query<PersistedMoveRow>(
+      `SELECT pokemon_instance_id, slot_no, pp_current
+       FROM pokemon_move_slots
+       WHERE pokemon_instance_id = ANY($1::uuid[])
+       ORDER BY pokemon_instance_id, slot_no`,
+      [pokemonIds],
+    ),
+  ]);
+  return { pokemon: pokemon.rows, moves: moves.rows };
 }
 
 async function seedLockedFixture(pool: Pool): Promise<Fixture> {
@@ -222,6 +290,31 @@ async function seedLockedFixture(pool: Pool): Promise<Fixture> {
       state.combatants[1]?.currentHp ?? 1,
     ],
   );
+
+  const uniqueMoveIds = new Set(
+    state.combatants.flatMap((combatant) => combatant.moves.map((move) => move.moveId)),
+  );
+  for (const moveId of uniqueMoveIds) {
+    await pool.query(
+      `INSERT INTO moves(id, slug)
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [moveId, `pvp-resolution-move-${moveId}`],
+    );
+  }
+  for (const combatant of state.combatants) {
+    if (combatant.pokemonInstanceId === null) {
+      throw new Error("PVP fixture combatant is missing its Pokemon instance");
+    }
+    for (const move of combatant.moves) {
+      await pool.query(
+        `INSERT INTO pokemon_move_slots(pokemon_instance_id, slot_no, move_id, pp_current)
+         VALUES ($1, $2, $3, $4)`,
+        [combatant.pokemonInstanceId, move.slotNo, move.moveId, move.ppCurrent],
+      );
+    }
+  }
+
   await pool.query(
     `INSERT INTO battles(
        id, battle_type, status, content_release_id, ruleset_id,
@@ -377,7 +470,7 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("atomically advances battle, snapshot, events and locked window without duplicating PVP battle_actions", async () => {
+  it("atomically advances battle, player state, snapshot, events and locked window without duplicating PVP battle_actions", async () => {
     const fixture = await seedLockedFixture(pool);
     const resolver = service(pool);
 
@@ -399,6 +492,9 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(persisted.window?.resolution_correlation_id).not.toBeNull();
     expect(persisted.submissions).toEqual([{ status: "COMMITTED", count: "2" }]);
 
+    const playerState = await persistedPlayerState(pool, fixture);
+    expect(playerState).toEqual(expectedPersistedPlayerState(first.value.state));
+
     const eventIdentity = await pool.query<{
       causation_count: string;
       correlation_count: string;
@@ -419,10 +515,12 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(replay.value.replayed).toBe(true);
     expect(replay.value.events).toEqual([]);
     expect(await resolutionCounts(pool, fixture)).toEqual(persisted);
+    expect(await persistedPlayerState(pool, fixture)).toEqual(playerState);
   });
 
-  it("rolls back battle writes when the committed-window write fails", async () => {
+  it("rolls back battle and player-state writes when the committed-window write fails", async () => {
     const fixture = await seedLockedFixture(pool);
+    const playerStateBefore = await persistedPlayerState(pool, fixture);
     await pool.query(
       `CREATE OR REPLACE FUNCTION reject_test_window_commit() RETURNS trigger AS $$
        BEGIN
@@ -453,6 +551,7 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(persisted.window?.resolved_battle_version).toBeNull();
     expect(persisted.window?.resolution_correlation_id).toBeNull();
     expect(persisted.submissions).toEqual([{ status: "ACTIVE", count: "2" }]);
+    expect(await persistedPlayerState(pool, fixture)).toEqual(playerStateBefore);
 
     await pool.query("DROP TRIGGER reject_test_window_commit_trigger ON battle_turn_windows");
     await pool.query("DROP FUNCTION reject_test_window_commit()");
