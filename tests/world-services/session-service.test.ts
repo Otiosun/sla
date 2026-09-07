@@ -15,7 +15,9 @@ class FakeWorldServiceSessionRepository implements WorldServiceSessionRepository
   readonly proofs: SceneProofRecord[] = [];
   readonly sessions: WorldServiceSessionRecord[] = [];
 
-  async transaction<T>(work: (transaction: WorldServiceSessionTransaction) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    work: (transaction: WorldServiceSessionTransaction) => Promise<T>,
+  ): Promise<T> {
     return work(this.transactionView());
   }
 
