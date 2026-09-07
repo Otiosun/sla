@@ -8,11 +8,14 @@ import type { WorldService } from "../world/service.js";
 import type { WorldServiceKind } from "./contracts.js";
 import type { PokemonCenterHealingService } from "./healing-service.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
+import type { PokemonPcStorageService } from "./pc-storage-service.js";
 import {
   renderCenterConversationMenu,
   renderMartCatalog,
   renderMartSaleList,
   renderPokemonCenterRecovery,
+  renderPokemonPcBoxes,
+  renderPokemonPcStorage,
   renderWorldServiceEntry,
   renderWorldServiceExit,
 } from "./renderer.js";
@@ -33,6 +36,7 @@ export interface WorldServiceWhatsAppDependencies {
   >;
   readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
   readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
+  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -243,15 +247,47 @@ export function createWorldServiceWhatsAppRoutes(
       return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
     }
 
+    let rendered = renderWorldServiceEntry("PC");
+    if (dependencies.pcStorage !== undefined) {
+      const storage = await dependencies.pcStorage.getStorage(player.value);
+      if (!storage.ok) return storage;
+      rendered = renderPokemonPcStorage(storage.value);
+    }
+
     return textResult(
       context,
-      renderWorldServiceEntry("PC"),
+      rendered,
       active.value.sessionId,
       {
         playerId: player.value,
         expectedRevision: active.value.revision,
       },
       ":center:pc",
+    );
+  };
+
+  const boxes: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
+      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+    }
+    if (dependencies.pcStorage === undefined) {
+      return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
+    }
+
+    const storage = await dependencies.pcStorage.getStorage(player.value);
+    if (!storage.ok) return storage;
+
+    return textResult(
+      context,
+      renderPokemonPcBoxes(storage.value),
+      active.value.sessionId,
+      null,
+      ":center:pc:boxes",
     );
   };
 
@@ -306,6 +342,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "pc",
       handler: new FunctionalHandler(pc),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "caixas",
+      handler: new FunctionalHandler(boxes),
       policy: WORLD_SERVICE_POLICY,
     },
     {
