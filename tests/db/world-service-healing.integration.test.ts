@@ -103,10 +103,10 @@ async function seedPublishedContent(client: PoolClient): Promise<ContentFixture>
     typeId,
     `center-healing-type-${typeId}`,
   ]);
-  await client.query(
-    "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9801, $2)",
-    [speciesId, `center-healing-species-${speciesId}`],
-  );
+  await client.query("INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 9801, $2)", [
+    speciesId,
+    `center-healing-species-${speciesId}`,
+  ]);
   await client.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
     formId,
     speciesId,
