@@ -166,9 +166,7 @@ try {
     ),
   );
   if (
-    principalResults.some(
-      (result) => !result.ok || !result.value.allowed || result.value.replayed,
-    )
+    principalResults.some((result) => !result.ok || !result.value.allowed || result.value.replayed)
   ) {
     throw new Error("Independent admin principals shared one mutation admission bucket or charge");
   }
@@ -216,7 +214,10 @@ try {
         surface,
         actionKey: "proof.scope.surface",
         dedupeKey: surfaceSharedDedupe,
-        requestFingerprint: mutationFingerprint({ surface, semantic: "same-surface-scope-request" }),
+        requestFingerprint: mutationFingerprint({
+          surface,
+          semantic: "same-surface-scope-request",
+        }),
         policy: sharedSurfacePolicy,
       }),
     ),
