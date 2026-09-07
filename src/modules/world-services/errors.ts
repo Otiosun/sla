@@ -5,6 +5,9 @@ export const sceneProofInvalid = (message: string) => appError("VALIDATION_FAILE
 export const sceneProofRequired = () =>
   appError("ACTION_INVALID", "A recent four-line scene in the current area is required");
 
+export const worldServiceNestedOnly = () =>
+  appError("ACTION_INVALID", "PC is only available inside an active Pokémon Center visit");
+
 export const worldServiceVisitConflict = () =>
   appError("INVALID_STATE_TRANSITION", "Another world service visit is already active");
 
