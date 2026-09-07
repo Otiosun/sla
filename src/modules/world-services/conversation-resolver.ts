@@ -31,10 +31,7 @@ export interface WorldServiceConversationResolverDependencies {
   readonly community: CommunityContextResolver;
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly world: Pick<WorldService, "getLocation">;
-  readonly sessions: Pick<
-    WorldServiceSessionService,
-    "loadActiveSession" | "recordSceneProof"
-  >;
+  readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
 }
 
