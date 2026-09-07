@@ -142,7 +142,13 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
        SET consumed_at = $3
        FROM candidate
        WHERE proof.id = candidate.id
-       RETURNING ${SCENE_PROOF_RETURNING}`,
+       RETURNING proof.id,
+                 proof.player_id,
+                 proof.area_id,
+                 proof.source_inbox_message_id,
+                 proof.line_count,
+                 proof.created_at,
+                 proof.consumed_at`,
       [input.playerId, input.areaId, input.consumedAt],
     );
     const row = result.rows[0];
