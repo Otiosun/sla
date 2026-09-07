@@ -164,7 +164,11 @@ export class WorldServiceSessionService {
       const active = await transaction.activeSession(input.playerId, true);
       if (active === null) return err(worldServiceVisitNotFound());
       if (active.revision !== revision.value) {
-        return err(worldServiceRevisionConflict(revision.value));
+        const identicalReplay =
+          active.revision === revision.value + 1n &&
+          active.expectedReplyOutboxIdempotencyKey === outboxIdempotencyKey.data &&
+          active.expectedReplyExternalMessageId === externalMessageId.data;
+        return identicalReplay ? ok(active) : err(worldServiceRevisionConflict(revision.value));
       }
       const updated = await transaction.setActivePrompt({
         playerId: input.playerId,
