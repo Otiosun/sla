@@ -9,6 +9,8 @@ import { ok, type Result } from "../../src/shared-kernel/result.js";
 const PLAYER_ID = createPlayerId();
 const AREA_ID = "00000000-0000-4000-8000-000000005001";
 const ENCOUNTER_ID = createEncounterId();
+const CONTENT_RELEASE_ID = "00000000-0000-4000-8000-000000005002";
+const SPECIES_ID = "00000000-0000-4000-8000-000000005005";
 
 function context(suffix: string): MessageHandlerContext {
   return {
@@ -35,7 +37,7 @@ function encounter(): EncounterView {
     playerId: PLAYER_ID,
     areaId: AREA_ID,
     status: "CREATED",
-    contentReleaseId: "00000000-0000-4000-8000-000000005002",
+    contentReleaseId: CONTENT_RELEASE_ID,
     rulesetId: "00000000-0000-4000-8000-000000005003",
     creationIdempotencyKey: "encounter.create:fishing-proof",
     rngCounter: 0n,
@@ -48,7 +50,7 @@ function encounter(): EncounterView {
     snapshot: {
       schemaVersion: 1,
       formId: "00000000-0000-4000-8000-000000005004",
-      speciesId: "00000000-0000-4000-8000-000000005005",
+      speciesId: SPECIES_ID,
       level: 8,
       type1Id: "00000000-0000-4000-8000-000000005006",
       type2Id: null,
@@ -88,6 +90,7 @@ function dependencies(
     idempotencyKey: string;
   }) => Promise<Result<FishingAttemptResult>>,
 ) {
+  const speciesDisplayName = vi.fn(async () => "Wooper");
   return {
     players: {
       resolvePlayer: vi.fn(async () =>
@@ -101,6 +104,8 @@ function dependencies(
       closeVisit: vi.fn(),
     },
     fishing: { attempt },
+    fishingSpecies: { speciesDisplayName },
+    speciesDisplayName,
   };
 }
 
@@ -110,7 +115,7 @@ function fishingRoute(attemptResult: FishingAttemptResult) {
   const routes = createWorldServiceWhatsAppRoutes(current);
   const route = routes.find((definition) => definition.command === "pescar");
   if (route === undefined) throw new Error("Missing route pescar");
-  return { route, attempt };
+  return { route, attempt, speciesDisplayName: current.speciesDisplayName };
 }
 
 describe("Fishing WhatsApp flow", () => {
@@ -123,6 +128,7 @@ describe("Fishing WhatsApp flow", () => {
       playerId: PLAYER_ID,
       idempotencyKey: "inbox:baileys:fishing-01",
     });
+    expect(current.speciesDisplayName).toHaveBeenCalledWith(CONTENT_RELEASE_ID, SPECIES_ID);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.outgoing).toHaveLength(3);
@@ -131,6 +137,7 @@ describe("Fishing WhatsApp flow", () => {
     expect(result.value.outgoing[2]?.payload.text).toContain("D20");
     expect(result.value.outgoing[2]?.payload.text).toContain("`16`");
     expect(result.value.outgoing[2]?.payload.text).toContain("𝗜𝗡𝗖𝗢𝗠𝗨𝗠");
+    expect(result.value.outgoing[2]?.payload.text).toContain("𝗪𝗢𝗢𝗣𝗘𝗥");
     expect(result.value.outgoing[2]?.payload.text).toContain("`3/5`");
     expect(result.value.outgoing[2]?.payload.text).toContain("𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
     expect(result.value.resultRefId).toBe(ENCOUNTER_ID);
@@ -143,6 +150,7 @@ describe("Fishing WhatsApp flow", () => {
 
     const result = await current.route.handler.handle(context("02"));
 
+    expect(current.speciesDisplayName).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.outgoing).toHaveLength(2);
