@@ -32,12 +32,11 @@ export function loadWorldServiceMediaRuntimeConfig(
   const areaId = parsed.data.POKEMART_ENTRY_AREA_ID;
   const facadeImageUrl = parsed.data.POKEMART_ENTRY_FACADE_IMAGE_URL;
   const merchantImageUrl = parsed.data.POKEMART_ENTRY_MERCHANT_IMAGE_URL;
-  const configured = [areaId, facadeImageUrl, merchantImageUrl].filter(
-    (value) => value !== undefined,
-  ).length;
 
-  if (configured === 0) return null;
-  if (configured !== 3) {
+  if (areaId === undefined && facadeImageUrl === undefined && merchantImageUrl === undefined) {
+    return null;
+  }
+  if (areaId === undefined || facadeImageUrl === undefined || merchantImageUrl === undefined) {
     throw new WorldServiceMediaRuntimeConfigError(
       "Poké Mart entry media requires POKEMART_ENTRY_AREA_ID, POKEMART_ENTRY_FACADE_IMAGE_URL and POKEMART_ENTRY_MERCHANT_IMAGE_URL together",
     );
