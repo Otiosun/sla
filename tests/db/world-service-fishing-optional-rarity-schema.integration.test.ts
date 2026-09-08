@@ -16,8 +16,8 @@ function databaseUrlFor(name: string): string {
   return url.toString();
 }
 
-describe.sequential("Fishing optional rarity pool schema", () => {
-  const dbName = `pokemon_fishing_optional_${process.pid}_${Date.now()}`;
+describe.sequential("Fishing rarity pool schema integrity", () => {
+  const dbName = `pokemon_fishing_pool_integrity_${process.pid}_${Date.now()}`;
   let adminPool: Pool;
   let pool: Pool;
 
@@ -25,7 +25,7 @@ describe.sequential("Fishing optional rarity pool schema", () => {
     adminPool = new Pool({ connectionString: databaseUrlFor("postgres"), max: 1 });
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 2 });
-    await runMigrations(pool, { appliedBy: "fishing-optional-rarity-vitest" });
+    await runMigrations(pool, { appliedBy: "fishing-rarity-pool-integrity-vitest" });
   }, 30_000);
 
   afterAll(async () => {
@@ -38,7 +38,7 @@ describe.sequential("Fishing optional rarity pool schema", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("allows durable RARE and EXTREMELY_RARE attempts without an encounter table", async () => {
+  it("rejects durable RARE and EXTREMELY_RARE attempts without an encounter table", async () => {
     const client = await pool.connect();
     try {
       await client.query(
@@ -67,22 +67,8 @@ describe.sequential("Fishing optional rarity pool schema", () => {
               outcome.rarity,
             ],
           ),
-        ).resolves.toBeDefined();
+        ).rejects.toMatchObject({ code: "23514" });
       }
-
-      const persisted = await client.query<{
-        roll: number;
-        rarity: string;
-        encounter_table_slug: string | null;
-      }>(
-        `SELECT roll, rarity, encounter_table_slug
-         FROM fishing_attempts_contract
-         ORDER BY attempt_no`,
-      );
-      expect(persisted.rows).toEqual([
-        { roll: 18, rarity: "RARE", encounter_table_slug: null },
-        { roll: 20, rarity: "EXTREMELY_RARE", encounter_table_slug: null },
-      ]);
     } finally {
       client.release();
     }
