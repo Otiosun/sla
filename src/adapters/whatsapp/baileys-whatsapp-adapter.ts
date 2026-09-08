@@ -13,6 +13,7 @@ import type {
   BaileysEventSourceLike,
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
+  BaileysOutboundContentLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "./baileys-provider-contracts.js";
@@ -68,16 +69,7 @@ function statusCodeFromError(error: unknown): number | null {
   return null;
 }
 
-function outboundContent(message: PendingOutboxMessage): {
-  readonly text: string;
-  readonly mentions?: readonly string[];
-} {
-  if (message.channel !== "whatsapp") {
-    throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
-  }
-  if (message.messageType !== "TEXT") {
-    throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
-  }
+function textOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
   const text = message.payload.text;
   if (typeof text !== "string" || text.length === 0 || text.length > 32_768) {
     throw new Error("Baileys TEXT outbound payload requires non-empty text up to 32768 chars");
@@ -93,6 +85,44 @@ function outboundContent(message: PendingOutboxMessage): {
     throw new Error("Baileys TEXT outbound mentions must be an array of up to 64 non-empty JIDs");
   }
   return { text, mentions: mentions as readonly string[] };
+}
+
+function imageOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  const imageUrl = message.payload.imageUrl;
+  if (typeof imageUrl !== "string" || imageUrl.trim().length === 0) {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl.trim());
+  } catch {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+
+  const caption = message.payload.caption;
+  if (caption === undefined) return { image: { url: imageUrl.trim() } };
+  if (typeof caption !== "string" || caption.length === 0 || caption.length > 32_768) {
+    throw new Error("Baileys IMAGE outbound caption must be non-empty text up to 32768 chars");
+  }
+  return { image: { url: imageUrl.trim() }, caption };
+}
+
+function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  if (message.channel !== "whatsapp") {
+    throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
+  }
+  switch (message.messageType) {
+    case "TEXT":
+      return textOutboundContent(message);
+    case "IMAGE":
+      return imageOutboundContent(message);
+    default:
+      throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
+  }
 }
 
 function providerExternalMessageId(result: unknown): string | null {
