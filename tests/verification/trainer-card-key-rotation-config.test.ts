@@ -15,9 +15,12 @@ const PREVIOUS_PUBLIC_KEY_B = publicKeyDer();
 const PREVIOUS_PUBLIC_KEY_C = publicKeyDer();
 const PREVIOUS_PUBLIC_KEY_D = publicKeyDer();
 const RATE_LIMIT_PEPPER = Buffer.alloc(32, 17).toString("base64");
+const DATABASE_URL =
+  "postgresql://pokemon_public_verifier:test-only-password@localhost:5432/pokemon_rpg_test";
 
 function baseEnv(): NodeJS.ProcessEnv {
   return {
+    PUBLIC_VERIFICATION_DATABASE_URL: DATABASE_URL,
     PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: CURRENT_PUBLIC_KEY.toString("base64"),
     PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64: RATE_LIMIT_PEPPER,
   };
