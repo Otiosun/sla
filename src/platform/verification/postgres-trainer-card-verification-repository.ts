@@ -14,6 +14,7 @@ interface TrainerCardVerificationRow {
   readonly status: string;
   readonly snapshot: unknown;
   readonly signature: string;
+  readonly signature_algorithm: string;
   readonly issued_at: Date;
   readonly revoked_at: Date | null;
 }
@@ -50,6 +51,7 @@ export class PostgresTrainerCardVerificationRepository
   public async issue(record: TrainerCardIssuanceRecord): Promise<boolean> {
     const issuedAt = new Date(record.snapshot.issuedAt);
     if (!Number.isFinite(issuedAt.getTime())) return false;
+    if (!/^ed25519:[A-Za-z0-9_-]{86}$/.test(record.signature)) return false;
 
     const result = await this.pool.query(
       `INSERT INTO trainer_card_verifications (
@@ -59,7 +61,7 @@ export class PostgresTrainerCardVerificationRepository
          signature,
          signature_algorithm,
          issued_at
-       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'HMAC-SHA256', $4)
+       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'ED25519', $4)
        ON CONFLICT (public_id) DO NOTHING`,
       [record.publicId, JSON.stringify(record.snapshot), record.signature, issuedAt],
     );
@@ -70,7 +72,7 @@ export class PostgresTrainerCardVerificationRepository
     if (!/^tcv_[A-Za-z0-9]{24}$/.test(publicId)) return null;
 
     const result = await this.pool.query<TrainerCardVerificationRow>(
-      `SELECT public_id, status, snapshot, signature, issued_at, revoked_at
+      `SELECT public_id, status, snapshot, signature, signature_algorithm, issued_at, revoked_at
        FROM trainer_card_verifications
        WHERE public_id = $1`,
       [publicId],
@@ -79,7 +81,8 @@ export class PostgresTrainerCardVerificationRepository
     if (row === undefined) return null;
     if (row.status !== "ACTIVE" && row.status !== "REVOKED") return null;
     if (!isPublicSnapshot(row.snapshot)) return null;
-    if (!/^[0-9a-f]{64}$/.test(row.signature)) return null;
+    if (row.signature_algorithm !== "ED25519") return null;
+    if (!/^ed25519:[A-Za-z0-9_-]{86}$/.test(row.signature)) return null;
     if (new Date(row.snapshot.issuedAt).getTime() !== row.issued_at.getTime()) return null;
 
     return {
