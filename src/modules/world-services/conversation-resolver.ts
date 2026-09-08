@@ -80,7 +80,8 @@ export interface WorldServiceConversationResolverDependencies {
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
   readonly economy?: MartEconomyService;
-  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage" | "deposit" | "withdraw">;
+  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage"> &
+    Partial<Pick<PokemonPcStorageService, "deposit" | "withdraw">>;
 }
 
 function identity(message: IncomingMessage): { provider: string; externalId: string } {
