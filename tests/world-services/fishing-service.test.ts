@@ -4,6 +4,8 @@ import {
   FishingService,
   fishingRarityForRoll,
   type FishingAttemptRepository,
+  type FishingAttemptReserved,
+  type FishingDailyLimitReached,
 } from "../../src/modules/world-services/fishing-service.js";
 import { createEncounterId, createPlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
@@ -57,11 +59,9 @@ function encounterView(): EncounterView {
   };
 }
 
-function reservation(
-  overrides: Partial<Awaited<ReturnType<FishingAttemptRepository["reserveAttempt"]>>> = {},
-) {
+function reservation(overrides: Partial<FishingAttemptReserved> = {}): FishingAttemptReserved {
   return {
-    kind: "RESERVED" as const,
+    kind: "RESERVED",
     attemptId: ATTEMPT_ID,
     playerId: PLAYER_ID,
     areaId: AREA_ID,
@@ -174,12 +174,13 @@ describe("FishingService", () => {
   });
 
   it("rejects a sixth attempt without creating an encounter", async () => {
-    const reserveAttempt = vi.fn(async () => ({
-      kind: "DAILY_LIMIT_REACHED" as const,
+    const limitReached: FishingDailyLimitReached = {
+      kind: "DAILY_LIMIT_REACHED",
       playerId: PLAYER_ID,
       dailyLimit: 5,
       remainingAttempts: 0,
-    }));
+    };
+    const reserveAttempt = vi.fn(async () => limitReached);
     const createOrReplay = vi.fn();
     const service = new FishingService({ reserveAttempt }, { createOrReplay }, rng(20));
 
