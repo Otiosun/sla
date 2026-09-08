@@ -39,6 +39,10 @@ const WORLD_SERVICE_POLICY = {
   requiresMechanicalReady: true,
 } as const;
 
+interface FishingSpeciesDisplayNameReader {
+  speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
+}
+
 export interface WorldServiceWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly world: Pick<WorldService, "getLocation">;
@@ -50,6 +54,7 @@ export interface WorldServiceWhatsAppDependencies {
   readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
   readonly fishing?: Pick<FishingService, "attempt">;
+  readonly fishingSpecies?: FishingSpeciesDisplayNameReader;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -438,6 +443,21 @@ export function createWorldServiceWhatsAppRoutes(
         idempotencyKey: `${context.idempotencyKey}:world-service:fishing:result`,
       });
     } else {
+      if (dependencies.fishingSpecies === undefined) {
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Fishing species display reader is unavailable"),
+        );
+      }
+      const speciesDisplayName = await dependencies.fishingSpecies.speciesDisplayName(
+        result.encounter.contentReleaseId,
+        result.encounter.snapshot.speciesId,
+      );
+      if (speciesDisplayName === null || speciesDisplayName.trim().length === 0) {
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Fishing encounter species display name is unavailable"),
+        );
+      }
+
       outgoing.push(
         {
           channel: "whatsapp",
@@ -450,7 +470,7 @@ export function createWorldServiceWhatsAppRoutes(
           channel: "whatsapp",
           destinationRef: context.message.chatRef,
           messageType: "TEXT",
-          payload: { text: renderFishingEncounter(result) },
+          payload: { text: renderFishingEncounter(result, speciesDisplayName) },
           idempotencyKey: `${context.idempotencyKey}:world-service:fishing:result`,
         },
       );
