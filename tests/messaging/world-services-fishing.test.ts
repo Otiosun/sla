@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EncounterView } from "../../src/modules/encounter/contracts.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import type { FishingAttemptResult } from "../../src/modules/world-services/fishing-service.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
@@ -9,7 +10,7 @@ const PLAYER_ID = createPlayerId();
 const AREA_ID = "00000000-0000-4000-8000-000000005001";
 const ENCOUNTER_ID = createEncounterId();
 
-function context(suffix: string) {
+function context(suffix: string): MessageHandlerContext {
   return {
     inboxMessageId: `00000000-0000-4000-8000-0000000051${suffix}`,
     correlationId: `00000000-0000-4000-8000-0000000052${suffix}`,
@@ -25,7 +26,7 @@ function context(suffix: string) {
       mediaRefs: [],
       replyToExternalMessageId: null,
     },
-  } as const;
+  };
 }
 
 function encounter(): EncounterView {
