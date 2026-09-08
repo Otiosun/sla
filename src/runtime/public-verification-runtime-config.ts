@@ -119,9 +119,7 @@ export function loadPublicVerificationRuntimeConfig(
       "PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64",
       parsed.data.PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64,
     ),
-    trustedProxyCidrs: parseTrustedProxyCidrs(
-      parsed.data.PUBLIC_VERIFICATION_TRUSTED_PROXY_CIDRS,
-    ),
+    trustedProxyCidrs: parseTrustedProxyCidrs(parsed.data.PUBLIC_VERIFICATION_TRUSTED_PROXY_CIDRS),
     rateLimitPolicy: {
       limit: parsed.data.PUBLIC_VERIFICATION_RATE_LIMIT,
       peerLimit: parsed.data.PUBLIC_VERIFICATION_PEER_LIMIT,
