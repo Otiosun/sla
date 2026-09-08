@@ -28,10 +28,15 @@ import {
 import {
   isPcDepositListPromptKey,
   pcDepositConfirmPromptSuffix,
+  pcDepositPokemonFromConfirmPromptKey,
   pcTeamPokemonBySlot,
   previewPcDepositDestination,
 } from "./pc-conversation.js";
-import { renderPokemonPcDepositConfirmation } from "./pc-renderer.js";
+import {
+  renderPokemonPcDepositCancelled,
+  renderPokemonPcDepositConfirmation,
+  renderPokemonPcDepositSuccess,
+} from "./pc-renderer.js";
 import type { PokemonPcStorageService } from "./pc-storage-service.js";
 import {
   renderCenterEmployeeConversation,
@@ -75,7 +80,7 @@ export interface WorldServiceConversationResolverDependencies {
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
   readonly economy?: MartEconomyService;
-  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
+  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage" | "deposit">;
 }
 
 function identity(message: IncomingMessage): { provider: string; externalId: string } {
@@ -371,6 +376,35 @@ export class WorldServiceConversationResolver {
       }
 
       if (session.serviceKind === "POKEMON_CENTER" && promptKey !== null && text !== null) {
+        const depositPokemonId = pcDepositPokemonFromConfirmPromptKey(promptKey);
+        if (depositPokemonId !== null) {
+          const choice = text.trim();
+          if (choice === "2" || choice === "02") {
+            return replyResult(
+              context,
+              session,
+              renderPokemonPcDepositCancelled(),
+              ":center:pc:deposit:cancelled",
+            );
+          }
+          if (choice !== "1" && choice !== "01") return emptyReply(session);
+
+          const depositWriter = this.dependencies.pcStorage?.deposit;
+          if (depositWriter === undefined) return emptyReply(session);
+          const deposited = await depositWriter.call(this.dependencies.pcStorage, {
+            playerId: session.playerId,
+            pokemonInstanceId: depositPokemonId,
+          });
+          if (!deposited.ok) return deposited;
+
+          return replyResult(
+            context,
+            session,
+            renderPokemonPcDepositSuccess(deposited.value),
+            ":center:pc:deposit:result",
+          );
+        }
+
         if (isPcDepositListPromptKey(promptKey)) {
           const storageReader = this.dependencies.pcStorage?.getStorage;
           if (storageReader === undefined) return emptyReply(session);
