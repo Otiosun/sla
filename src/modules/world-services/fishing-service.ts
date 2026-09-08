@@ -118,9 +118,13 @@ export class FishingService {
       if (encounterTableSlug.length === 0) {
         if (rarity === "COMMON" || rarity === "UNCOMMON") {
           return err(
-            appError("INVALID_STATE_TRANSITION", "Fishing rarity has no configured encounter table", {
-              rarity,
-            }),
+            appError(
+              "INVALID_STATE_TRANSITION",
+              "Fishing rarity has no configured encounter table",
+              {
+                rarity,
+              },
+            ),
           );
         }
       } else {
