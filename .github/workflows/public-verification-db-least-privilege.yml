@@ -1,0 +1,208 @@
+name: Public verification database least-privilege proof
+
+on:
+  push:
+    branches:
+      - "gate/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-verification-db-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: public verification DB least privilege
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name pokemon-public-verification-postgres \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=postgres \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
+          for attempt in {1..30}; do
+            if docker exec pokemon-public-verification-postgres psql \
+              --username pokemon \
+              --dbname postgres \
+              --set ON_ERROR_STOP=1 \
+              --tuples-only \
+              --command "SELECT 1;" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs pokemon-public-verification-postgres
+          exit 1
+
+      - name: Public verification database least-privilege proof
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          roles_db="pokemon_rpg_public_verification_roles_test"
+          migrator_role="pokemon_public_verification_migrator_ci"
+          runtime_role="pokemon_public_verification_dummy_runtime_ci"
+          public_verification_role="pokemon_public_verification_ci"
+          migrator_password="migrator-ci-password"
+          runtime_password="runtime-ci-password"
+          public_verification_password="public-verification-ci-password"
+          migrator_url="postgresql://${migrator_role}:${migrator_password}@localhost:5432/${roles_db}"
+          runtime_url="postgresql://${runtime_role}:${runtime_password}@localhost:5432/${roles_db}"
+
+          docker exec pokemon-public-verification-postgres createdb \
+            --username pokemon \
+            "$roles_db"
+
+          docker exec -i pokemon-public-verification-postgres psql \
+            --username pokemon \
+            --dbname "$roles_db" \
+            --set ON_ERROR_STOP=1 \
+            --set "migrator_role=${migrator_role}" \
+            --set "migrator_password=${migrator_password}" \
+            --set "runtime_role=${runtime_role}" \
+            --set "runtime_password=${runtime_password}" \
+            < db/bootstrap/roles.sql
+
+          docker exec -i pokemon-public-verification-postgres psql \
+            --username pokemon \
+            --dbname "$roles_db" \
+            --set ON_ERROR_STOP=1 \
+            --set "public_verification_role=${public_verification_role}" \
+            --set "public_verification_password=${public_verification_password}" \
+            < db/bootstrap/public_verification_role.sql
+
+          DATABASE_URL="$runtime_url" \
+          MIGRATOR_DATABASE_URL="$migrator_url" \
+          MIGRATION_APPLIED_BY="ci-public-verification-role-proof" \
+            pnpm db:migrate
+
+          docker exec -i \
+            --env "PGPASSWORD=${migrator_password}" \
+            pokemon-public-verification-postgres psql \
+            --host 127.0.0.1 \
+            --username "$migrator_role" \
+            --dbname "$roles_db" \
+            --set ON_ERROR_STOP=1 \
+            --set "migrator_role=${migrator_role}" \
+            --set "public_verification_role=${public_verification_role}" \
+            < db/bootstrap/public_verification_grants.sql
+
+          verifier_psql() {
+            docker exec \
+              --env "PGPASSWORD=${public_verification_password}" \
+              pokemon-public-verification-postgres psql \
+              --host 127.0.0.1 \
+              --username "$public_verification_role" \
+              --dbname "$roles_db" \
+              --set ON_ERROR_STOP=1 \
+              "$@"
+          }
+
+          assert_verifier_true() {
+            local sql="$1"
+            local result
+            result="$(verifier_psql --tuples-only --no-align --command "$sql")"
+            test "$result" = "t"
+          }
+
+          assert_verifier_true "
+            SELECT NOT rolsuper
+              AND NOT rolcreatedb
+              AND NOT rolcreaterole
+              AND NOT rolreplication
+              AND NOT rolbypassrls
+            FROM pg_roles
+            WHERE rolname = current_user;
+          "
+
+          assert_verifier_true "
+            SELECT has_schema_privilege(current_user, 'public', 'USAGE')
+              AND NOT has_schema_privilege(current_user, 'public', 'CREATE');
+          "
+
+          assert_verifier_true "
+            SELECT has_table_privilege(current_user, 'public.schema_migrations', 'SELECT')
+              AND has_table_privilege(current_user, 'public.trainer_card_verifications', 'SELECT')
+              AND NOT has_table_privilege(current_user, 'public.trainer_card_verifications', 'INSERT')
+              AND NOT has_table_privilege(current_user, 'public.trainer_card_verifications', 'UPDATE')
+              AND NOT has_table_privilege(current_user, 'public.trainer_card_verifications', 'DELETE')
+              AND has_table_privilege(current_user, 'public.public_verification_rate_limit_buckets', 'SELECT')
+              AND has_table_privilege(current_user, 'public.public_verification_rate_limit_buckets', 'INSERT')
+              AND has_table_privilege(current_user, 'public.public_verification_rate_limit_buckets', 'UPDATE')
+              AND has_table_privilege(current_user, 'public.public_verification_rate_limit_buckets', 'DELETE');
+          "
+
+          verifier_psql --command "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1;"
+          verifier_psql --command "SELECT public_id FROM trainer_card_verifications LIMIT 0;"
+          verifier_psql --command "
+            BEGIN;
+            INSERT INTO public_verification_rate_limit_buckets(
+              peer_hash,
+              target_hash,
+              window_started_at,
+              request_count,
+              updated_at
+            ) VALUES (
+              repeat('a', 64),
+              repeat('b', 64),
+              now(),
+              1,
+              now()
+            );
+            UPDATE public_verification_rate_limit_buckets
+            SET request_count = request_count + 1,
+                updated_at = now()
+            WHERE peer_hash = repeat('a', 64)
+              AND target_hash = repeat('b', 64);
+            DELETE FROM public_verification_rate_limit_buckets
+            WHERE peer_hash = repeat('a', 64)
+              AND target_hash = repeat('b', 64);
+            ROLLBACK;
+          "
+
+          if verifier_psql --command "SELECT id FROM players LIMIT 0;"; then
+            echo "public verifier unexpectedly has domain table access"
+            exit 1
+          fi
+
+          if verifier_psql --command "UPDATE trainer_card_verifications SET status = status WHERE false;"; then
+            echo "public verifier unexpectedly can mutate trainer cards"
+            exit 1
+          fi
+
+          if verifier_psql --command "CREATE TABLE public.__public_verifier_ddl_probe(id integer);"; then
+            echo "public verifier unexpectedly can execute DDL"
+            exit 1
+          fi
