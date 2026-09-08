@@ -15,6 +15,16 @@ function attemptPips(remaining: number, limit: number): string {
   ).join(" ");
 }
 
+function styledUpper(value: string): string {
+  return [...value.toUpperCase()]
+    .map((character) => {
+      const code = character.codePointAt(0);
+      if (code === undefined || code < 65 || code > 90) return character;
+      return String.fromCodePoint(0x1d5d4 + code - 65);
+    })
+    .join("");
+}
+
 export function renderFishingCast(result: FishingAttemptResult): string {
   return [
     `⌁ *𝗥𝗜𝗢 𝗗𝗢𝗦 𝗔𝗥𝗥𝗢𝗭𝗔𝗜𝗦*`,
@@ -39,9 +49,16 @@ export function renderFishingBite(): string {
   ].join("\n");
 }
 
-export function renderFishingEncounter(result: FishingAttemptResult): string {
+export function renderFishingEncounter(
+  result: FishingAttemptResult,
+  speciesDisplayName: string,
+): string {
   if (result.rarity === null || result.encounter === null) {
     throw new Error("Fishing encounter renderer requires an encounter result");
+  }
+  const displayName = speciesDisplayName.trim();
+  if (displayName.length === 0) {
+    throw new Error("Fishing encounter renderer requires a species display name");
   }
 
   return [
@@ -49,6 +66,7 @@ export function renderFishingEncounter(result: FishingAttemptResult): string {
     "",
     `　　　　　${RARITY_LABEL[result.rarity]}`,
     "",
+    `　　　　　*${styledUpper(displayName)}*`,
     `　　　　　　Nv. \`${String(result.encounter.snapshot.level).padStart(2, "0")}\``,
     "",
     `⌖ Local · *${result.fishingPointName}*`,
