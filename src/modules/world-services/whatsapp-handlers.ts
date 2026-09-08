@@ -6,6 +6,13 @@ import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
 import type { WorldServiceKind } from "./contracts.js";
+import {
+  renderFishingBite,
+  renderFishingCast,
+  renderFishingEncounter,
+  renderFishingNoEncounter,
+} from "./fishing-renderer.js";
+import type { FishingService } from "./fishing-service.js";
 import type { PokemonCenterHealingService } from "./healing-service.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
 import { createPokemonPcOrganizeRoute } from "./pc-organize-whatsapp.js";
@@ -42,6 +49,7 @@ export interface WorldServiceWhatsAppDependencies {
   readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
   readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
+  readonly fishing?: Pick<FishingService, "attempt">;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -397,6 +405,64 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const fish: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+    if (dependencies.fishing === undefined) {
+      return err(appError("INVALID_STATE_TRANSITION", "Fishing service is unavailable"));
+    }
+
+    const attempted = await dependencies.fishing.attempt({
+      playerId: player.value,
+      idempotencyKey: context.idempotencyKey,
+    });
+    if (!attempted.ok) return attempted;
+
+    const result = attempted.value;
+    const outgoing = [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text: renderFishingCast(result) },
+        idempotencyKey: `${context.idempotencyKey}:world-service:fishing:cast`,
+      },
+    ];
+
+    if (result.encounter === null) {
+      outgoing.push({
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text: renderFishingNoEncounter(result) },
+        idempotencyKey: `${context.idempotencyKey}:world-service:fishing:result`,
+      });
+    } else {
+      outgoing.push(
+        {
+          channel: "whatsapp",
+          destinationRef: context.message.chatRef,
+          messageType: "TEXT",
+          payload: { text: renderFishingBite() },
+          idempotencyKey: `${context.idempotencyKey}:world-service:fishing:bite`,
+        },
+        {
+          channel: "whatsapp",
+          destinationRef: context.message.chatRef,
+          messageType: "TEXT",
+          payload: { text: renderFishingEncounter(result) },
+          idempotencyKey: `${context.idempotencyKey}:world-service:fishing:result`,
+        },
+      );
+    }
+
+    return ok({
+      resultRefType: result.encounter === null ? "FISHING_ATTEMPT" : "ENCOUNTER",
+      resultRefId: result.encounter?.encounterId ?? result.attemptId,
+      outgoing,
+    });
+  };
+
   return [
     {
       command: "pokemart",
@@ -447,6 +513,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "conversar",
       handler: new FunctionalHandler(converse),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "pescar",
+      handler: new FunctionalHandler(fish),
       policy: WORLD_SERVICE_POLICY,
     },
     {
