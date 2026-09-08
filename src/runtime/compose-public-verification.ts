@@ -16,6 +16,7 @@ export interface PublicVerificationRuntimeConfig {
   readonly port: number;
   readonly signingKey: Uint8Array;
   readonly rateLimitPepper: Uint8Array;
+  readonly trustedProxyCidrs: readonly string[];
   readonly rateLimitPolicy: PublicVerificationRateLimitPolicy;
 }
 
@@ -37,7 +38,10 @@ export function createOperationalPublicVerificationApi(
     config.rateLimitPepper,
     config.rateLimitPolicy,
   );
-  const server = createPublicVerificationServer({ verificationService, rateLimiter });
+  const server = createPublicVerificationServer(
+    { verificationService, rateLimiter },
+    { trustedProxyCidrs: config.trustedProxyCidrs },
+  );
 
   return {
     server,
