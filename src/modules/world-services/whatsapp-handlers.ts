@@ -221,13 +221,7 @@ export function createWorldServiceWhatsAppRoutes(
       return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
     }
 
-    return textResult(
-      context,
-      renderMartCatalog(),
-      active.value.sessionId,
-      null,
-      ":mart:items",
-    );
+    return textResult(context, renderMartCatalog(), active.value.sessionId, null, ":mart:items");
   };
 
   const sell: Handler = async (context) => {
