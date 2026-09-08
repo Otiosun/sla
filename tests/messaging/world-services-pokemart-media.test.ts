@@ -53,6 +53,7 @@ describe("Poké Mart visual entry", () => {
             regionSlug: "zhoulia",
             regionDisplayName: "Zhoulia",
             safePoint: true,
+            facilities: ["POKEMART", "POKEMON_CENTER"] as const,
             revision: 0n,
             enteredAt: new Date("2026-09-08T14:00:00.000Z"),
             requiresRelocation: false,
