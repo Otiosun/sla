@@ -1,5 +1,9 @@
 import type { Pool } from "pg";
 import type {
+  TrainerCardIssuanceRecord,
+  TrainerCardIssuanceRepository,
+} from "../../modules/verification/trainer-card-issuance.js";
+import type {
   TrainerCardPublicSnapshot,
   TrainerCardVerificationRecord,
   TrainerCardVerificationRepository,
@@ -39,9 +43,28 @@ function isPublicSnapshot(value: unknown): value is TrainerCardPublicSnapshot {
 }
 
 export class PostgresTrainerCardVerificationRepository
-  implements TrainerCardVerificationRepository
+  implements TrainerCardVerificationRepository, TrainerCardIssuanceRepository
 {
   public constructor(private readonly pool: Pool) {}
+
+  public async issue(record: TrainerCardIssuanceRecord): Promise<boolean> {
+    const issuedAt = new Date(record.snapshot.issuedAt);
+    if (!Number.isFinite(issuedAt.getTime())) return false;
+
+    const result = await this.pool.query(
+      `INSERT INTO trainer_card_verifications (
+         public_id,
+         status,
+         snapshot,
+         signature,
+         signature_algorithm,
+         issued_at
+       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'HMAC-SHA256', $4)
+       ON CONFLICT (public_id) DO NOTHING`,
+      [record.publicId, JSON.stringify(record.snapshot), record.signature, issuedAt],
+    );
+    return result.rowCount === 1;
+  }
 
   public async findByPublicId(publicId: string): Promise<TrainerCardVerificationRecord | null> {
     if (!/^tcv_[A-Za-z0-9]{24}$/.test(publicId)) return null;
