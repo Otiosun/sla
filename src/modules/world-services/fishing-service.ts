@@ -37,7 +37,16 @@ export interface FishingDailyLimitReached {
   readonly remainingAttempts: 0;
 }
 
-export type FishingAttemptReservationResult = FishingAttemptReserved | FishingDailyLimitReached;
+export interface FishingUnavailable {
+  readonly kind: "FISHING_UNAVAILABLE";
+  readonly playerId: PlayerId;
+  readonly reason: string;
+}
+
+export type FishingAttemptReservationResult =
+  | FishingAttemptReserved
+  | FishingDailyLimitReached
+  | FishingUnavailable;
 
 export interface FishingAttemptRepository {
   reserveAttempt(input: ReserveFishingAttemptInput): Promise<FishingAttemptReservationResult>;
@@ -85,6 +94,13 @@ export class FishingService {
         appError("ACTION_INVALID", "Daily fishing attempt limit reached", {
           dailyLimit: reservation.dailyLimit,
           remainingAttempts: reservation.remainingAttempts,
+        }),
+      );
+    }
+    if (reservation.kind === "FISHING_UNAVAILABLE") {
+      return err(
+        appError("ACTION_INVALID", "Fishing is unavailable here", {
+          reason: reservation.reason,
         }),
       );
     }
