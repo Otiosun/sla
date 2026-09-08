@@ -120,12 +120,7 @@ export class Ed25519TrainerCardVerifier implements TrainerCardSnapshotVerifier {
     const observed = Buffer.from(encoded, "base64url");
     if (observed.byteLength !== 64 || observed.toString("base64url") !== encoded) return false;
 
-    return verifyPayload(
-      null,
-      Buffer.from(canonicalSnapshot(snapshot)),
-      this.publicKey,
-      observed,
-    );
+    return verifyPayload(null, Buffer.from(canonicalSnapshot(snapshot)), this.publicKey, observed);
   }
 }
 
