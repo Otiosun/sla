@@ -239,7 +239,9 @@ try {
     );
   }
   if ((await trainerCardVerificationRelation()) !== null) {
-    throw new Error("N-1 database unexpectedly contains trainer-card verification before migration 0038");
+    throw new Error(
+      "N-1 database unexpectedly contains trainer-card verification before migration 0038",
+    );
   }
   if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
     throw new Error("N-1 database is missing the wallet analytics index from migration 0036");
