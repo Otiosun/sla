@@ -10,9 +10,9 @@ const RARITY_LABEL: Readonly<Record<FishingRarity, string>> = {
 function attemptPips(remaining: number, limit: number): string {
   const boundedLimit = Math.max(0, Math.min(limit, 10));
   const boundedRemaining = Math.max(0, Math.min(remaining, boundedLimit));
-  return Array.from({ length: boundedLimit }, (_, index) => (index < boundedRemaining ? "●" : "○")).join(
-    " ",
-  );
+  return Array.from({ length: boundedLimit }, (_, index) =>
+    index < boundedRemaining ? "●" : "○",
+  ).join(" ");
 }
 
 export function renderFishingCast(result: FishingAttemptResult): string {
