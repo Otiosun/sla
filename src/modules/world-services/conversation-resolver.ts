@@ -27,15 +27,22 @@ import {
 } from "./mart-sale.js";
 import {
   isPcDepositListPromptKey,
+  isPcWithdrawListPromptKey,
   pcDepositConfirmPromptSuffix,
   pcDepositPokemonFromConfirmPromptKey,
+  pcStoredPokemonByCode,
   pcTeamPokemonBySlot,
+  pcWithdrawConfirmPromptSuffix,
+  pcWithdrawPokemonFromConfirmPromptKey,
   previewPcDepositDestination,
 } from "./pc-conversation.js";
 import {
   renderPokemonPcDepositCancelled,
   renderPokemonPcDepositConfirmation,
   renderPokemonPcDepositSuccess,
+  renderPokemonPcWithdrawCancelled,
+  renderPokemonPcWithdrawConfirmation,
+  renderPokemonPcWithdrawSuccess,
 } from "./pc-renderer.js";
 import type { PokemonPcStorageService } from "./pc-storage-service.js";
 import {
@@ -377,6 +384,50 @@ export class WorldServiceConversationResolver {
       }
 
       if (session.serviceKind === "POKEMON_CENTER" && promptKey !== null && text !== null) {
+        const withdrawPokemonId = pcWithdrawPokemonFromConfirmPromptKey(promptKey);
+        if (withdrawPokemonId !== null) {
+          const choice = text.trim();
+          if (choice === "2" || choice === "02") {
+            return replyResult(
+              context,
+              session,
+              renderPokemonPcWithdrawCancelled(),
+              ":center:pc:withdraw:cancelled",
+            );
+          }
+          if (choice !== "1" && choice !== "01") return emptyReply(session);
+
+          const withdrawWriter = this.dependencies.pcStorage?.withdraw;
+          if (withdrawWriter === undefined) return emptyReply(session);
+          const withdrawn = await withdrawWriter.call(this.dependencies.pcStorage, {
+            playerId: session.playerId,
+            pokemonInstanceId: withdrawPokemonId,
+          });
+          if (!withdrawn.ok) return withdrawn;
+
+          return replyResult(
+            context,
+            session,
+            renderPokemonPcWithdrawSuccess(withdrawn.value),
+            ":center:pc:withdraw:result",
+          );
+        }
+
+        if (isPcWithdrawListPromptKey(promptKey)) {
+          const storageReader = this.dependencies.pcStorage?.getStorage;
+          if (storageReader === undefined) return emptyReply(session);
+          const storage = await storageReader.call(this.dependencies.pcStorage, session.playerId);
+          if (!storage.ok) return storage;
+          const selected = pcStoredPokemonByCode(storage.value, text);
+          if (selected === null) return emptyReply(session);
+          return replyResult(
+            context,
+            session,
+            renderPokemonPcWithdrawConfirmation(selected),
+            pcWithdrawConfirmPromptSuffix(selected.pokemonInstanceId),
+          );
+        }
+
         const depositPokemonId = pcDepositPokemonFromConfirmPromptKey(promptKey);
         if (depositPokemonId !== null) {
           const choice = text.trim();
