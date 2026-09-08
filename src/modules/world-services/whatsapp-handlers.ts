@@ -454,7 +454,10 @@ export function createWorldServiceWhatsAppRoutes(
       );
       if (speciesDisplayName === null || speciesDisplayName.trim().length === 0) {
         return err(
-          appError("INVALID_STATE_TRANSITION", "Fishing encounter species display name is unavailable"),
+          appError(
+            "INVALID_STATE_TRANSITION",
+            "Fishing encounter species display name is unavailable",
+          ),
         );
       }
 
