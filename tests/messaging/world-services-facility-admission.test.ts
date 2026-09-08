@@ -100,20 +100,23 @@ describe("World Service area facility admission", () => {
   it.each([
     ["pokemart", "POKEMART"],
     ["centropokemon", "POKEMON_CENTER"],
-  ] as const)("denies /%s when the current area does not provide %s", async (command) => {
-    const current = fixture([]);
+  ] as const)(
+    "denies /%s when the current area does not provide %s",
+    async (command, _facility) => {
+      const current = fixture([]);
 
-    const result = await routeByCommand(current.routes, command).handler.handle(
-      context(`/${command}`, command === "pokemart" ? "01" : "02"),
-    );
+      const result = await routeByCommand(current.routes, command).handler.handle(
+        context(`/${command}`, command === "pokemart" ? "01" : "02"),
+      );
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("ACTION_INVALID");
-      expect(result.error.message).toMatch(/not available/i);
-    }
-    expect(current.openVisit).not.toHaveBeenCalled();
-  });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe("ACTION_INVALID");
+        expect(result.error.message).toMatch(/not available/i);
+      }
+      expect(current.openVisit).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["pokemart", "POKEMART"],
