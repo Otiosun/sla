@@ -26,7 +26,12 @@ vi.mock("../../src/platform/rng/encrypted-seed-provider.js", () => ({
 
 vi.mock("../../src/modules/encounter/service.js", () => ({
   EncounterService: class {
-    public constructor(repository: unknown, seedProvider: unknown, clock: unknown, feature: unknown) {
+    public constructor(
+      repository: unknown,
+      seedProvider: unknown,
+      clock: unknown,
+      feature: unknown,
+    ) {
       fishingComposition.encounterServiceConstructor(
         repository,
         seedProvider,
