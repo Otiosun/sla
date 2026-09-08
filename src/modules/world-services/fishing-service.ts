@@ -91,7 +91,9 @@ export class FishingService {
 
     const rarity = fishingRarityForRoll(reservation.roll);
     if (rarity !== reservation.rarity) {
-      return err(appError("INVALID_STATE_TRANSITION", "Fishing reservation rarity is inconsistent"));
+      return err(
+        appError("INVALID_STATE_TRANSITION", "Fishing reservation rarity is inconsistent"),
+      );
     }
 
     let encounter: EncounterView | null = null;
