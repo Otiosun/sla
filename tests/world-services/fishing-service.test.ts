@@ -3,7 +3,6 @@ import type { EncounterView } from "../../src/modules/encounter/contracts.js";
 import {
   FishingService,
   fishingRarityForRoll,
-  type FishingAttemptRepository,
   type FishingAttemptReserved,
   type FishingDailyLimitReached,
 } from "../../src/modules/world-services/fishing-service.js";
