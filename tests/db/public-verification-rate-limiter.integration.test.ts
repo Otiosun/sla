@@ -121,18 +121,18 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
       "tcv_444444444444444444444444",
     ] as const;
 
-    await expect(
-      limiter.consume({ publicId: targets[0], remoteAddress }),
-    ).resolves.toMatchObject({ allowed: true });
-    await expect(
-      limiter.consume({ publicId: targets[1], remoteAddress }),
-    ).resolves.toMatchObject({ allowed: true });
-    await expect(
-      limiter.consume({ publicId: targets[2], remoteAddress }),
-    ).resolves.toMatchObject({ allowed: true });
-    await expect(
-      limiter.consume({ publicId: targets[3], remoteAddress }),
-    ).resolves.toMatchObject({ allowed: false });
+    await expect(limiter.consume({ publicId: targets[0], remoteAddress })).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(limiter.consume({ publicId: targets[1], remoteAddress })).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(limiter.consume({ publicId: targets[2], remoteAddress })).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(limiter.consume({ publicId: targets[3], remoteAddress })).resolves.toMatchObject({
+      allowed: false,
+    });
     await expect(
       limiter.consume({ publicId: targets[3], remoteAddress: "192.0.2.91" }),
     ).resolves.toMatchObject({ allowed: true });
