@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type {
-  HmacTrainerCardSigner,
   TrainerCardPublicSnapshot,
+  TrainerCardSnapshotSigner,
 } from "./trainer-card-verification.js";
 
 const PUBLIC_ID_PREFIX = "tcv_";
@@ -40,7 +40,7 @@ export function generateTrainerCardPublicId(): string {
 export class TrainerCardIssuanceService {
   public constructor(
     private readonly repository: TrainerCardIssuanceRepository,
-    private readonly signer: HmacTrainerCardSigner,
+    private readonly signer: TrainerCardSnapshotSigner,
     private readonly generatePublicId: () => string = generateTrainerCardPublicId,
     private readonly maxCollisionRetries = 5,
   ) {
