@@ -1,8 +1,9 @@
+import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  HmacTrainerCardSigner,
+  Ed25519TrainerCardSigner,
   type TrainerCardPublicSnapshot,
 } from "../../src/modules/verification/trainer-card-verification.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -23,7 +24,10 @@ function databaseUrlFor(name: string): string {
 }
 
 const PUBLIC_ID = "tcv_Rt7Yp2Qa9Lm4Nx8Vk3Hs6Df1";
-const SIGNING_KEY = new Uint8Array(32).fill(17);
+const KEY_PAIR = generateKeyPairSync("ed25519", {
+  privateKeyEncoding: { format: "der", type: "pkcs8" },
+  publicKeyEncoding: { format: "der", type: "spki" },
+});
 const RATE_LIMIT_PEPPER = new Uint8Array(32).fill(23);
 const SNAPSHOT: TrainerCardPublicSnapshot = {
   version: 1,
@@ -47,7 +51,7 @@ describe.sequential("public verification runtime boundary", () => {
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 4 });
     await runMigrations(pool, { appliedBy: "public-verification-runtime-proof" });
 
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
+    const signer = new Ed25519TrainerCardSigner(KEY_PAIR.privateKey);
     const repository = new PostgresTrainerCardVerificationRepository(pool);
     await repository.issue({
       publicId: PUBLIC_ID,
@@ -67,11 +71,11 @@ describe.sequential("public verification runtime boundary", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("composes the GET-only public verifier from PostgreSQL without Admin API or WhatsApp authority", async () => {
+  it("composes the GET-only public verifier from PostgreSQL without private signing authority", async () => {
     const api = createOperationalPublicVerificationApi(pool, {
       host: "127.0.0.1",
       port: 18_787,
-      signingKey: SIGNING_KEY,
+      publicKey: KEY_PAIR.publicKey,
       rateLimitPepper: RATE_LIMIT_PEPPER,
       rateLimitPolicy: { limit: 10, peerLimit: 20, windowSeconds: 60 },
     });
