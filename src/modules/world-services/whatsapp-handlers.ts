@@ -25,6 +25,7 @@ import {
   renderCenterConversationMenu,
   renderMartCatalog,
   renderMartSaleList,
+  renderPokemartFacade,
   renderPokemonCenterRecovery,
   renderPokemonPcBoxes,
   renderPokemonPcStorage,
@@ -43,6 +44,15 @@ interface FishingSpeciesDisplayNameReader {
   speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
 }
 
+export interface PokemartEntryMedia {
+  readonly facadeImageUrl: string;
+  readonly merchantImageUrl: string;
+}
+
+export interface WorldServiceMediaCatalog {
+  pokemartEntry(areaId: string): PokemartEntryMedia | null;
+}
+
 export interface WorldServiceWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly world: Pick<WorldService, "getLocation">;
@@ -55,6 +65,7 @@ export interface WorldServiceWhatsAppDependencies {
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
   readonly fishing?: Pick<FishingService, "attempt">;
   readonly fishingSpecies?: FishingSpeciesDisplayNameReader;
+  readonly media?: WorldServiceMediaCatalog;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -122,6 +133,44 @@ function textResult(
   });
 }
 
+function pokemartMediaResult(
+  context: MessageHandlerContext,
+  resultRefId: string,
+  prompt: WorldServicePromptAnchor,
+  media: PokemartEntryMedia,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "WORLD_SERVICE_SESSION",
+    resultRefId,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: media.facadeImageUrl,
+          caption: renderPokemartFacade(),
+        },
+        idempotencyKey: `${context.idempotencyKey}:world-service:entry:facade`,
+      },
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: media.merchantImageUrl,
+          caption: renderWorldServiceEntry("POKEMART"),
+          worldServicePrompt: {
+            playerId: prompt.playerId,
+            expectedRevision: prompt.expectedRevision.toString(),
+          },
+        },
+        idempotencyKey: `${context.idempotencyKey}:world-service:entry:merchant`,
+      },
+    ],
+  });
+}
+
 function openHandler(
   dependencies: WorldServiceWhatsAppDependencies,
   serviceKind: WorldServiceKind,
@@ -140,10 +189,18 @@ function openHandler(
     });
     if (!opened.ok) return opened;
 
-    return textResult(context, renderWorldServiceEntry(serviceKind), opened.value.sessionId, {
+    const prompt = {
       playerId: player.value,
       expectedRevision: opened.value.revision,
-    });
+    };
+    if (serviceKind === "POKEMART") {
+      const media = dependencies.media?.pokemartEntry(location.value.areaId) ?? null;
+      if (media !== null) {
+        return pokemartMediaResult(context, opened.value.sessionId, prompt, media);
+      }
+    }
+
+    return textResult(context, renderWorldServiceEntry(serviceKind), opened.value.sessionId, prompt);
   };
 }
 
