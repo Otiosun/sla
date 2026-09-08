@@ -8,10 +8,10 @@ const WORKFLOW_PATH = new URL(
 const DOCKERFILE_PATH = new URL("../../Dockerfile", import.meta.url);
 
 describe("public verification security preview image publisher", () => {
-  it("publishes only immutable SHA tags from the isolated W4 branch", async () => {
+  it("publishes only immutable SHA tags from the isolated Ed25519 W4 branch", async () => {
     const workflow = await readFile(WORKFLOW_PATH, "utf8");
 
-    expect(workflow).toContain("security/control-center-w4-antifraud-v1-clean");
+    expect(workflow).toContain("security/w4-ed25519-signatures-v1");
     expect(workflow).toContain("ghcr.io/${GITHUB_REPOSITORY,,}:sha-${GITHUB_SHA}");
     expect(workflow).toContain("org.opencontainers.image.revision=${GITHUB_SHA}");
     expect(workflow).toContain("--provenance=mode=max");
@@ -40,7 +40,7 @@ describe("public verification security preview image publisher", () => {
     const workflow = await readFile(WORKFLOW_PATH, "utf8");
 
     expect(workflow).toContain(
-      'if [[ "$GITHUB_REF" != "refs/heads/security/control-center-w4-antifraud-v1-clean" ]]',
+      'if [[ "$GITHUB_REF" != "refs/heads/security/w4-ed25519-signatures-v1" ]]',
     );
     expect(workflow).toContain("exit 64");
   });
