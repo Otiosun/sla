@@ -50,6 +50,7 @@ export class PostgresTrainerCardVerificationRepository
   public async issue(record: TrainerCardIssuanceRecord): Promise<boolean> {
     const issuedAt = new Date(record.snapshot.issuedAt);
     if (!Number.isFinite(issuedAt.getTime())) return false;
+    if (!/^ed25519:[A-Za-z0-9_-]{86}$/.test(record.signature)) return false;
 
     const result = await this.pool.query(
       `INSERT INTO trainer_card_verifications (
@@ -59,7 +60,7 @@ export class PostgresTrainerCardVerificationRepository
          signature,
          signature_algorithm,
          issued_at
-       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'HMAC-SHA256', $4)
+       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'ED25519', $4)
        ON CONFLICT (public_id) DO NOTHING`,
       [record.publicId, JSON.stringify(record.snapshot), record.signature, issuedAt],
     );
@@ -79,7 +80,7 @@ export class PostgresTrainerCardVerificationRepository
     if (row === undefined) return null;
     if (row.status !== "ACTIVE" && row.status !== "REVOKED") return null;
     if (!isPublicSnapshot(row.snapshot)) return null;
-    if (!/^[0-9a-f]{64}$/.test(row.signature)) return null;
+    if (!/^ed25519:[A-Za-z0-9_-]{86}$/.test(row.signature)) return null;
     if (new Date(row.snapshot.issuedAt).getTime() !== row.issued_at.getTime()) return null;
 
     return {
