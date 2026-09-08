@@ -51,7 +51,7 @@ describe("versioned world content contracts", () => {
       startingArea: false,
       relocationPriority: 10,
     });
-    expect(withoutFacilities.facilities).toEqual([]);
+    expect((withoutFacilities as { facilities?: unknown }).facilities).toEqual([]);
 
     const withFacilities = WorldAreaConfigSchema.safeParse({
       schemaVersion: 1,
@@ -63,7 +63,10 @@ describe("versioned world content contracts", () => {
     });
     expect(withFacilities.success).toBe(true);
     if (!withFacilities.success) return;
-    expect(withFacilities.data.facilities).toEqual(["POKEMART", "POKEMON_CENTER"]);
+    expect((withFacilities.data as { facilities?: unknown }).facilities).toEqual([
+      "POKEMART",
+      "POKEMON_CENTER",
+    ]);
   });
 
   it("accepts content-driven fishing configuration on an area", () => {
