@@ -45,7 +45,10 @@ import { FishingService } from "../modules/world-services/fishing-service.js";
 import { PokemonCenterHealingService } from "../modules/world-services/healing-service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { WorldServiceSessionService } from "../modules/world-services/session-service.js";
-import { createWorldServiceWhatsAppRoutes } from "../modules/world-services/whatsapp-handlers.js";
+import {
+  createWorldServiceWhatsAppRoutes,
+  type WorldServiceMediaCatalog,
+} from "../modules/world-services/whatsapp-handlers.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
@@ -85,6 +88,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
   readonly encounterRngConfig?: EncounterRngRuntimeConfig;
+  readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -105,6 +109,7 @@ function errorKind(error: unknown): string {
 export function createOperationalMessagingComposition(
   pool: Pool,
   encounterRngConfig: EncounterRngRuntimeConfig | null = null,
+  worldServiceMedia: WorldServiceMediaCatalog | null = null,
 ): OperationalMessagingComposition {
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
   const playerRegistration = new PlayerRegistrationService(playerRepository);
@@ -253,6 +258,7 @@ export function createOperationalMessagingComposition(
     fishingSpecies: {
       speciesDisplayName: reads.speciesDisplayName.bind(reads),
     },
+    ...(worldServiceMedia === null ? {} : { media: worldServiceMedia }),
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutes({
@@ -335,6 +341,7 @@ export function createOperationalWhatsAppRuntime(
   const composition = createOperationalMessagingComposition(
     options.pool,
     options.encounterRngConfig ?? null,
+    options.worldServiceMedia ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
