@@ -1,5 +1,9 @@
 import type { PokemonPcDepositDestinationPreview } from "./pc-conversation.js";
-import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
+import type {
+  PokemonPcDepositApplied,
+  PokemonPcPokemonView,
+  PokemonPcStorageSnapshot,
+} from "./pc-storage-service.js";
 
 function formatPcNumber(value: number): string {
   return value.toString().padStart(2, "0");
@@ -51,5 +55,30 @@ export function renderPokemonPcDepositConfirmation(
     "`02` Cancelar",
     "",
     "› _Responda com o número da opção._",
+  ].join("\n");
+}
+
+export function renderPokemonPcDepositSuccess(result: PokemonPcDepositApplied): string {
+  return [
+    "✓ *𝗣𝗢𝗞É𝗠𝗢𝗡 𝗔𝗥𝗠𝗔𝗭𝗘𝗡𝗔𝗗𝗢*",
+    "　PC Pokémon · Transferência concluída",
+    "",
+    `◇ Origem · Equipe · Posição ${formatPcNumber(result.fromSlotNo)}`,
+    `▣ Destino · Caixa ${formatPcNumber(result.boxNo)} · Vaga ${formatPcNumber(result.slotNo)}`,
+    "",
+    "> _A transferência foi concluída e o armazenamento foi atualizado._",
+    "",
+    "‹　`/pc`",
+  ].join("\n");
+}
+
+export function renderPokemonPcDepositCancelled(): string {
+  return [
+    "‹ *𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢*",
+    "　PC Pokémon · Nenhuma alteração realizada",
+    "",
+    "> _O Pokémon permanece na equipe._",
+    "",
+    "‹　`/pc`",
   ].join("\n");
 }
