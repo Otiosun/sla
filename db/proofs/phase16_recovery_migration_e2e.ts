@@ -20,9 +20,8 @@ const PROBE_SESSION_FINGERPRINT = "d".repeat(64);
 const PROBE_SESSION_CREATED_AT = new Date("2026-08-31T17:30:00.000Z");
 const PROBE_SESSION_IDLE_EXPIRES_AT = new Date("2026-08-31T17:45:00.000Z");
 const PROBE_SESSION_ACCESS_EXPIRES_AT = new Date("2026-08-31T18:30:00.000Z");
-const EXPECTED_PREVIOUS_LATEST =
-  "0037_admin_api_session_logout_and_player_activity_rate_limits.sql";
-const EXPECTED_CURRENT_LATEST = "0038_trainer_card_verification.sql";
+const EXPECTED_PREVIOUS_LATEST = "0038_trainer_card_verification.sql";
+const EXPECTED_CURRENT_LATEST = "0039_public_verification_rate_limit.sql";
 
 const pool = new Pool({
   connectionString: databaseUrl,
@@ -114,6 +113,13 @@ async function sessionRevocationCutoffRelation(): Promise<string | null> {
 async function trainerCardVerificationRelation(): Promise<string | null> {
   const result = await pool.query<{ relation: string | null }>(
     "SELECT to_regclass('public.trainer_card_verifications')::text AS relation",
+  );
+  return result.rows[0]?.relation ?? null;
+}
+
+async function publicVerificationRateLimitRelation(): Promise<string | null> {
+  const result = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.public_verification_rate_limit_buckets')::text AS relation",
   );
   return result.rows[0]?.relation ?? null;
 }
@@ -223,7 +229,7 @@ try {
     "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
   );
   if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
-    throw new Error("N-1 limiter relation is missing before the rate-limit allowlist migration");
+    throw new Error("N-1 Admin API limiter relation is missing");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
     throw new Error(
@@ -238,9 +244,12 @@ try {
       "N-1 database is missing the environment-scoped session-revocation cutoff from migration 0030",
     );
   }
-  if ((await trainerCardVerificationRelation()) !== null) {
+  if ((await trainerCardVerificationRelation()) !== "trainer_card_verifications") {
+    throw new Error("N-1 database is missing trainer-card verification from migration 0038");
+  }
+  if ((await publicVerificationRateLimitRelation()) !== null) {
     throw new Error(
-      "N-1 database unexpectedly contains trainer-card verification before migration 0038",
+      "N-1 database unexpectedly contains public verification rate limits before migration 0039",
     );
   }
   if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
@@ -401,58 +410,61 @@ try {
     throw new Error("Latest migration was not attributed to the controlled forward step");
   }
 
+  if ((await publicVerificationRateLimitRelation()) !== "public_verification_rate_limit_buckets") {
+    throw new Error("Migration 0039 did not create the public verification limiter relation");
+  }
   if ((await trainerCardVerificationRelation()) !== "trainer_card_verifications") {
-    throw new Error("Migration 0038 did not create the trainer-card verification relation");
+    throw new Error("Migration 0039 regressed trainer-card verification from migration 0038");
   }
   if ((await accessSessionRelation()) !== "admin_access_sessions") {
-    throw new Error("Migration 0038 regressed the durable Admin API access-session relation");
+    throw new Error("Migration 0039 regressed the durable Admin API access-session relation");
   }
   if (
     (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
     !(await sessionRevocationCutoffShapeExists())
   ) {
     throw new Error(
-      "Migration 0038 regressed the environment-scoped principal session-revocation cutoff",
+      "Migration 0039 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
   if (!(await mutationPrepareBucketExists())) {
     throw new Error(
-      "Migration 0038 regressed the mutation.prepare limiter state from migration 0028",
+      "Migration 0039 regressed the mutation.prepare limiter state from migration 0028",
     );
   }
   if (!(await rateLimitBucketExists("content.search"))) {
-    throw new Error("Migration 0038 regressed the Content Studio content.search limiter key");
+    throw new Error("Migration 0039 regressed the Content Studio content.search limiter key");
   }
   if (!(await rateLimitBucketExists("runtime.health.read"))) {
-    throw new Error("Migration 0038 regressed the runtime.health.read limiter key");
+    throw new Error("Migration 0039 regressed the runtime.health.read limiter key");
   }
   if (!(await rateLimitBucketExists("messaging.operations.read"))) {
-    throw new Error("Migration 0038 regressed the messaging.operations.read limiter key");
+    throw new Error("Migration 0039 regressed the messaging.operations.read limiter key");
   }
   if (!(await rateLimitBucketExists("incident.read"))) {
-    throw new Error("Migration 0038 regressed the incident.read limiter key");
+    throw new Error("Migration 0039 regressed the incident.read limiter key");
   }
   if (!(await rateLimitBucketExists("audit.read"))) {
-    throw new Error("Migration 0038 regressed the audit.read limiter key from migration 0035");
+    throw new Error("Migration 0039 regressed the audit.read limiter key from migration 0035");
   }
   if (!(await rateLimitBucketExists("economy.analytics.read"))) {
     throw new Error(
-      "Migration 0038 regressed the economy.analytics.read limiter key from migration 0036",
+      "Migration 0039 regressed the economy.analytics.read limiter key from migration 0036",
     );
   }
   if (!(await rateLimitBucketExists("session.logout"))) {
-    throw new Error("Migration 0038 regressed the session.logout limiter key from migration 0037");
+    throw new Error("Migration 0039 regressed the session.logout limiter key from migration 0037");
   }
   if (!(await rateLimitBucketExists("player.activity.read"))) {
     throw new Error(
-      "Migration 0038 regressed the player.activity.read limiter key from migration 0037",
+      "Migration 0039 regressed the player.activity.read limiter key from migration 0037",
     );
   }
   if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
-    throw new Error("Migration 0038 regressed the bounded wallet analytics index");
+    throw new Error("Migration 0039 regressed the bounded wallet analytics index");
   }
   if (!(await indexExists("idx_inventory_ledger_created"))) {
-    throw new Error("Migration 0038 regressed the bounded inventory analytics index");
+    throw new Error("Migration 0039 regressed the bounded inventory analytics index");
   }
 
   const sessionAfter = await pool.query<{
@@ -482,7 +494,7 @@ try {
   );
   const durableSessionAfter = sessionAfter.rows[0];
   if (durableSessionAfter === undefined) {
-    throw new Error("Migration 0038 removed the durable access-session probe");
+    throw new Error("Migration 0039 removed the durable access-session probe");
   }
   if (
     durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
@@ -495,17 +507,17 @@ try {
     durableSessionAfter.access_expires_at.getTime() !==
       durableSessionBefore.access_expires_at.getTime()
   ) {
-    throw new Error("Migration 0038 changed existing durable access-session state");
+    throw new Error("Migration 0039 changed existing durable access-session state");
   }
   if (durableSessionAfter.revoked_before !== null) {
-    throw new Error("Migration 0038 invented a revocation cutoff for an existing environment");
+    throw new Error("Migration 0039 invented a revocation cutoff for an existing environment");
   }
 
   const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
     "SELECT to_regclass('public.runtime_instances')::text AS relation",
   );
   if (runtimeRelationAfter.rows[0]?.relation !== "runtime_instances") {
-    throw new Error("Admin API forward migration regressed the Phase 17 runtime health relation");
+    throw new Error("Public verification migration regressed the Phase 17 runtime health relation");
   }
 
   const stateAfter = await pool.query<{ state: string }>(
@@ -549,7 +561,8 @@ try {
       economyAnalyticsIndexesPreserved: true,
       sessionLogoutAllowlistPreserved: true,
       playerActivityReadAllowlistPreserved: true,
-      trainerCardVerificationRelationAdded: true,
+      trainerCardVerificationRelationPreserved: true,
+      publicVerificationRateLimitRelationAdded: true,
       accessSessionStatePreserved: true,
       environmentScopedSessionRevocationCutoffPreserved: true,
       durableStatePreserved: true,
