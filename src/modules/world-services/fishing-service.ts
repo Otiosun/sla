@@ -114,21 +114,24 @@ export class FishingService {
 
     let encounter: EncounterView | null = null;
     if (rarity !== null) {
-      const encounterTableSlug = reservation.encounterTableSlug;
-      if (encounterTableSlug === null || encounterTableSlug.trim().length === 0) {
-        return err(
-          appError("INVALID_STATE_TRANSITION", "Fishing rarity has no configured encounter table", {
-            rarity,
-          }),
-        );
+      const encounterTableSlug = reservation.encounterTableSlug?.trim() ?? "";
+      if (encounterTableSlug.length === 0) {
+        if (rarity === "COMMON" || rarity === "UNCOMMON") {
+          return err(
+            appError("INVALID_STATE_TRANSITION", "Fishing rarity has no configured encounter table", {
+              rarity,
+            }),
+          );
+        }
+      } else {
+        const created = await this.encounters.createOrReplay({
+          playerId: reservation.playerId,
+          idempotencyKey: `fishing:${reservation.attemptId}`,
+          encounterTableSlug,
+        });
+        if (!created.ok) return created;
+        encounter = created.value;
       }
-      const created = await this.encounters.createOrReplay({
-        playerId: reservation.playerId,
-        idempotencyKey: `fishing:${reservation.attemptId}`,
-        encounterTableSlug,
-      });
-      if (!created.ok) return created;
-      encounter = created.value;
     }
 
     return ok({
