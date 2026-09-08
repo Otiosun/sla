@@ -146,6 +146,17 @@ async function sessionRevocationCutoffShapeExists(): Promise<boolean> {
   return result.rows[0]?.exists === true;
 }
 
+async function trainerCardSignatureDefault(): Promise<string | null> {
+  const result = await pool.query<{ column_default: string | null }>(
+    `SELECT column_default
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'trainer_card_verifications'
+       AND column_name = 'signature_algorithm'`,
+  );
+  return result.rows[0]?.column_default ?? null;
+}
+
 try {
   const migrations = await loadMigrations();
   if (migrations.length < 3) {
@@ -188,62 +199,150 @@ try {
     appliedBy: "phase16-previous-version-proof",
   });
 
-  if ((await accessSessionRelation()) === null) {
-    throw new Error("Previous-version proof did not create admin_access_sessions");
-  }
-  if ((await trainerCardVerificationRelation()) === null) {
-    throw new Error("Previous-version proof did not create trainer_card_verifications");
-  }
-  if ((await publicVerificationRateLimitRelation()) === null) {
-    throw new Error("Previous-version proof did not create public verification rate-limit storage");
-  }
-
-  await assertDatabaseSchemaCurrent(pool, previousMigrationsDirectory);
-
   const previousHistory = await pool.query<{ count: string }>(
-    "SELECT COUNT(*)::text AS count FROM schema_migrations",
+    "SELECT count(*)::text AS count FROM schema_migrations",
   );
-  if (Number(previousHistory.rows[0]?.count ?? 0) !== previousMigrations.length) {
-    throw new Error("Previous-version migration history is incomplete");
+  if (previousHistory.rows[0]?.count !== previousMigrations.length.toString()) {
+    throw new Error("Previous-version migration history does not match N-1");
   }
 
-  await runMigrations(pool, { appliedBy: "phase16-forward-proof" });
-  await assertDatabaseSchemaCurrent(pool);
-
-  const currentHistory = await pool.query<{ count: string }>(
-    "SELECT COUNT(*)::text AS count FROM schema_migrations",
+  const previousLatestApplied = await pool.query<{ name: string; checksum: string }>(
+    `SELECT name, checksum
+     FROM schema_migrations
+     WHERE version = $1::bigint`,
+    [previousLatest.version.toString()],
   );
-  if (Number(currentHistory.rows[0]?.count ?? 0) !== migrations.length) {
-    throw new Error("Forward migration did not apply exactly one current migration");
+  const previousLatestRow = previousLatestApplied.rows[0];
+  if (
+    previousLatestRow === undefined ||
+    previousLatestRow.name !== previousLatest.name ||
+    previousLatestRow.checksum !== previousLatest.checksum
+  ) {
+    throw new Error("N-1 database is not pinned to the exact previous migration baseline");
   }
 
-  const signatureAlgorithm = await pool.query<{ signature_algorithm: string }>(
-    `SELECT column_default::text AS signature_algorithm
-     FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'trainer_card_verifications'
-       AND column_name = 'signature_algorithm'`,
+  const latestBefore = await pool.query(
+    "SELECT 1 FROM schema_migrations WHERE version = $1::bigint",
+    [latest.version.toString()],
   );
-  if (!signatureAlgorithm.rows[0]?.signature_algorithm.includes("ED25519")) {
-    throw new Error("Forward migration did not switch Trainer Card signatures to ED25519");
+  if (latestBefore.rowCount !== 0) {
+    throw new Error("Latest migration unexpectedly exists in the previous-version database");
+  }
+
+  const runtimeRelationBefore = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.runtime_instances')::text AS relation",
+  );
+  if (runtimeRelationBefore.rows[0]?.relation !== "runtime_instances") {
+    throw new Error("Phase 17 runtime health relation is missing from the N-1 baseline");
+  }
+
+  const limiterRelationBefore = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.admin_api_rate_limit_buckets')::text AS relation",
+  );
+  if (limiterRelationBefore.rows[0]?.relation !== "admin_api_rate_limit_buckets") {
+    throw new Error("N-1 Admin API limiter relation is missing");
+  }
+  if ((await accessSessionRelation()) !== "admin_access_sessions") {
+    throw new Error(
+      "N-1 database is missing the durable access-session relation from migration 0029",
+    );
+  }
+  if (
+    (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
+    !(await sessionRevocationCutoffShapeExists())
+  ) {
+    throw new Error(
+      "N-1 database is missing the environment-scoped session-revocation cutoff from migration 0030",
+    );
+  }
+  if ((await trainerCardVerificationRelation()) !== "trainer_card_verifications") {
+    throw new Error("N-1 database is missing trainer-card verification from migration 0038");
+  }
+  if (
+    (await publicVerificationRateLimitRelation()) !== "public_verification_rate_limit_buckets"
+  ) {
+    throw new Error("N-1 database is missing public verification rate limits from migration 0039");
+  }
+  if ((await trainerCardSignatureDefault())?.includes("HMAC-SHA256") !== true) {
+    throw new Error("N-1 trainer-card signature baseline is not HMAC-SHA256");
+  }
+  if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
+    throw new Error("N-1 database is missing the wallet analytics index from migration 0036");
+  }
+  if (!(await indexExists("idx_inventory_ledger_created"))) {
+    throw new Error("N-1 database is missing the inventory analytics index from migration 0036");
   }
 
   await pool.query(
-    `INSERT INTO players(id, status, display_name, external_id)
-     VALUES ($1::uuid, 'ACTIVE', 'Recovery Probe', 'phase16-recovery-probe')`,
+    `INSERT INTO players(id, status)
+     VALUES ($1::uuid, 'ACTIVE')`,
     [PROBE_PLAYER_ID],
   );
   await pool.query(
-    `INSERT INTO admin_users(id, status, display_name)
-     VALUES ($1::uuid, 'ACTIVE', 'Recovery Admin')`,
+    `INSERT INTO admin_principals(id, identity_ref, status)
+     VALUES ($1::uuid, $2, 'ACTIVE')`,
+    [PROBE_ADMIN_ID, `phase16-forward-proof:${PROBE_ADMIN_ID}`],
+  );
+  await pool.query(
+    `INSERT INTO admin_api_rate_limit_buckets(
+       principal_id, operation, window_started_at, request_count, updated_at
+     ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
     [PROBE_ADMIN_ID],
   );
-
-  if ((await sessionRevocationCutoffRelation()) === null) {
-    throw new Error("Current schema is missing admin_access_session_revocation_cutoffs");
+  if (!(await mutationPrepareBucketExists())) {
+    throw new Error(
+      "N-1 database did not preserve the mutation.prepare allowlist from migration 0028",
+    );
   }
-  if (!(await sessionRevocationCutoffShapeExists())) {
-    throw new Error("Session revocation cutoff primary key is not environment-scoped");
+  if (!(await rateLimitInsertAllowed("content.search"))) {
+    throw new Error("N-1 database lost the content.search allowlist from migration 0031");
+  }
+  if (!(await rateLimitBucketExists("content.search"))) {
+    throw new Error("N-1 content.search probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("runtime.health.read"))) {
+    throw new Error("N-1 database lost the runtime.health.read allowlist from migration 0032");
+  }
+  if (!(await rateLimitBucketExists("runtime.health.read"))) {
+    throw new Error("N-1 runtime.health.read probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("messaging.operations.read"))) {
+    throw new Error(
+      "N-1 database lost the messaging.operations.read allowlist from migration 0033",
+    );
+  }
+  if (!(await rateLimitBucketExists("messaging.operations.read"))) {
+    throw new Error("N-1 messaging.operations.read probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("incident.read"))) {
+    throw new Error("N-1 database lost the incident.read allowlist from migration 0034");
+  }
+  if (!(await rateLimitBucketExists("incident.read"))) {
+    throw new Error("N-1 incident.read probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("audit.read"))) {
+    throw new Error("N-1 database lost the audit.read allowlist from migration 0035");
+  }
+  if (!(await rateLimitBucketExists("audit.read"))) {
+    throw new Error("N-1 audit.read probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("economy.analytics.read"))) {
+    throw new Error("N-1 database lost the economy.analytics.read allowlist from migration 0036");
+  }
+  if (!(await rateLimitBucketExists("economy.analytics.read"))) {
+    throw new Error("N-1 economy.analytics.read probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("session.logout"))) {
+    throw new Error("N-1 database lost the session.logout allowlist from migration 0037");
+  }
+  if (!(await rateLimitBucketExists("session.logout"))) {
+    throw new Error("N-1 session.logout probe did not persist its limiter bucket");
+  }
+  if (!(await rateLimitInsertAllowed("player.activity.read"))) {
+    throw new Error("N-1 database lost the player.activity.read allowlist from migration 0037");
+  }
+  if (!(await rateLimitBucketExists("player.activity.read"))) {
+    throw new Error("N-1 player.activity.read probe did not persist its limiter bucket");
   }
 
   await pool.query(
@@ -251,52 +350,243 @@ try {
        token_fingerprint,
        principal_id,
        environment,
+       status,
+       access_issued_at,
+       access_not_before,
+       access_expires_at,
        created_at,
        last_seen_at,
-       idle_expires_at,
-       access_expires_at,
-       revoked_at
-     ) VALUES ($1, $2::uuid, 'STAGING', $3, $3, $4, $5, NULL)`,
+       idle_expires_at
+     ) VALUES ($1, $2::uuid, 'staging', 'ACTIVE', $3, $3, $4, $3, $3, $5)`,
     [
       PROBE_SESSION_FINGERPRINT,
       PROBE_ADMIN_ID,
       PROBE_SESSION_CREATED_AT,
-      PROBE_SESSION_IDLE_EXPIRES_AT,
       PROBE_SESSION_ACCESS_EXPIRES_AT,
+      PROBE_SESSION_IDLE_EXPIRES_AT,
     ],
   );
+  const sessionBefore = await pool.query<{
+    token_fingerprint: string;
+    principal_id: string;
+    status: string;
+    created_at: Date;
+    last_seen_at: Date;
+    idle_expires_at: Date;
+    access_expires_at: Date;
+  }>(
+    `SELECT token_fingerprint, principal_id, status, created_at, last_seen_at,
+            idle_expires_at, access_expires_at
+     FROM admin_access_sessions
+     WHERE token_fingerprint = $1`,
+    [PROBE_SESSION_FINGERPRINT],
+  );
+  const durableSessionBefore = sessionBefore.rows[0];
+  if (durableSessionBefore === undefined) {
+    throw new Error("N-1 durable access-session probe was not created");
+  }
 
-  if (!(await rateLimitInsertAllowed("session.logout"))) {
-    throw new Error("Current schema rejected session.logout rate-limit bucket");
+  const stateBefore = await pool.query<{ state: string }>(
+    `SELECT status || ':' || revision::text AS state
+     FROM players
+     WHERE id = $1::uuid`,
+    [PROBE_PLAYER_ID],
+  );
+  const probeBefore = stateBefore.rows[0]?.state;
+  if (probeBefore === undefined) {
+    throw new Error("Previous-version durable-state probe was not created");
   }
-  if (!(await rateLimitBucketExists("session.logout"))) {
-    throw new Error("Current schema did not persist session.logout rate-limit bucket");
+
+  await runMigrations(pool, { appliedBy: "phase16-forward-proof" });
+  await assertDatabaseSchemaCurrent(pool);
+
+  const currentHistory = await pool.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM schema_migrations",
+  );
+  if (currentHistory.rows[0]?.count !== migrations.length.toString()) {
+    throw new Error("Forward migration did not converge to the current migration count");
   }
-  if (!(await indexExists("idx_admin_api_rate_limit_buckets_updated_at"))) {
-    throw new Error("Current schema is missing admin API rate-limit cleanup index");
+
+  const appliedLatest = await pool.query<{ name: string; checksum: string; applied_by: string }>(
+    `SELECT name, checksum, applied_by
+     FROM schema_migrations
+     WHERE version = $1::bigint`,
+    [latest.version.toString()],
+  );
+  const latestRow = appliedLatest.rows[0];
+  if (latestRow === undefined) {
+    throw new Error("Latest migration was not recorded after forward migration");
   }
-  if (!(await mutationPrepareBucketExists())) {
-    await pool.query(
-      `INSERT INTO admin_api_rate_limit_buckets(
-         principal_id, operation, window_started_at, request_count, updated_at
-       ) VALUES ($1::uuid, 'mutation.prepare', now(), 1, now())`,
-      [PROBE_ADMIN_ID],
+  if (latestRow.name !== latest.name || latestRow.checksum !== latest.checksum) {
+    throw new Error("Latest migration history does not match the exact current migration file");
+  }
+  if (latestRow.applied_by !== "phase16-forward-proof") {
+    throw new Error("Latest migration was not attributed to the controlled forward step");
+  }
+
+  if ((await publicVerificationRateLimitRelation()) !== "public_verification_rate_limit_buckets") {
+    throw new Error("Migration 0040 regressed the public verification limiter relation");
+  }
+  if ((await trainerCardVerificationRelation()) !== "trainer_card_verifications") {
+    throw new Error("Migration 0040 regressed trainer-card verification from migration 0038");
+  }
+  if ((await trainerCardSignatureDefault())?.includes("ED25519") !== true) {
+    throw new Error("Migration 0040 did not switch Trainer Card signatures to ED25519");
+  }
+  if ((await accessSessionRelation()) !== "admin_access_sessions") {
+    throw new Error("Migration 0040 regressed the durable Admin API access-session relation");
+  }
+  if (
+    (await sessionRevocationCutoffRelation()) !== "admin_access_session_revocation_cutoffs" ||
+    !(await sessionRevocationCutoffShapeExists())
+  ) {
+    throw new Error(
+      "Migration 0040 regressed the environment-scoped principal session-revocation cutoff",
     );
   }
-
-  for (const operation of [
-    "player.activity.read",
-    "content.search",
-    "runtime.health.read",
-    "messaging.operations.read",
-    "incident.read",
-    "audit.read",
-    "economy.analytics.read",
-  ] as const) {
-    if (!(await rateLimitInsertAllowed(operation))) {
-      throw new Error(`Current schema rejected ${operation} rate-limit bucket`);
-    }
+  if (!(await mutationPrepareBucketExists())) {
+    throw new Error(
+      "Migration 0040 regressed the mutation.prepare limiter state from migration 0028",
+    );
   }
+  if (!(await rateLimitBucketExists("content.search"))) {
+    throw new Error("Migration 0040 regressed the Content Studio content.search limiter key");
+  }
+  if (!(await rateLimitBucketExists("runtime.health.read"))) {
+    throw new Error("Migration 0040 regressed the runtime.health.read limiter key");
+  }
+  if (!(await rateLimitBucketExists("messaging.operations.read"))) {
+    throw new Error("Migration 0040 regressed the messaging.operations.read limiter key");
+  }
+  if (!(await rateLimitBucketExists("incident.read"))) {
+    throw new Error("Migration 0040 regressed the incident.read limiter key");
+  }
+  if (!(await rateLimitBucketExists("audit.read"))) {
+    throw new Error("Migration 0040 regressed the audit.read limiter key from migration 0035");
+  }
+  if (!(await rateLimitBucketExists("economy.analytics.read"))) {
+    throw new Error(
+      "Migration 0040 regressed the economy.analytics.read limiter key from migration 0036",
+    );
+  }
+  if (!(await rateLimitBucketExists("session.logout"))) {
+    throw new Error("Migration 0040 regressed the session.logout limiter key from migration 0037");
+  }
+  if (!(await rateLimitBucketExists("player.activity.read"))) {
+    throw new Error(
+      "Migration 0040 regressed the player.activity.read limiter key from migration 0037",
+    );
+  }
+  if (!(await indexExists("idx_wallet_ledger_created_currency"))) {
+    throw new Error("Migration 0040 regressed the bounded wallet analytics index");
+  }
+  if (!(await indexExists("idx_inventory_ledger_created"))) {
+    throw new Error("Migration 0040 regressed the bounded inventory analytics index");
+  }
+
+  const sessionAfter = await pool.query<{
+    token_fingerprint: string;
+    principal_id: string;
+    status: string;
+    created_at: Date;
+    last_seen_at: Date;
+    idle_expires_at: Date;
+    access_expires_at: Date;
+    revoked_before: Date | null;
+  }>(
+    `SELECT session.token_fingerprint,
+            session.principal_id,
+            session.status,
+            session.created_at,
+            session.last_seen_at,
+            session.idle_expires_at,
+            session.access_expires_at,
+            cutoff.revoked_before
+     FROM admin_access_sessions session
+     LEFT JOIN admin_access_session_revocation_cutoffs cutoff
+       ON cutoff.principal_id = session.principal_id
+      AND cutoff.environment = session.environment
+     WHERE session.token_fingerprint = $1`,
+    [PROBE_SESSION_FINGERPRINT],
+  );
+  const durableSessionAfter = sessionAfter.rows[0];
+  if (durableSessionAfter === undefined) {
+    throw new Error("Migration 0040 removed the durable access-session probe");
+  }
+  if (
+    durableSessionAfter.token_fingerprint !== durableSessionBefore.token_fingerprint ||
+    durableSessionAfter.principal_id !== durableSessionBefore.principal_id ||
+    durableSessionAfter.status !== durableSessionBefore.status ||
+    durableSessionAfter.created_at.getTime() !== durableSessionBefore.created_at.getTime() ||
+    durableSessionAfter.last_seen_at.getTime() !== durableSessionBefore.last_seen_at.getTime() ||
+    durableSessionAfter.idle_expires_at.getTime() !==
+      durableSessionBefore.idle_expires_at.getTime() ||
+    durableSessionAfter.access_expires_at.getTime() !==
+      durableSessionBefore.access_expires_at.getTime()
+  ) {
+    throw new Error("Migration 0040 changed existing durable access-session state");
+  }
+  if (durableSessionAfter.revoked_before !== null) {
+    throw new Error("Migration 0040 invented a revocation cutoff for an existing environment");
+  }
+
+  const runtimeRelationAfter = await pool.query<{ relation: string | null }>(
+    "SELECT to_regclass('public.runtime_instances')::text AS relation",
+  );
+  if (runtimeRelationAfter.rows[0]?.relation !== "runtime_instances") {
+    throw new Error("Ed25519 migration regressed the Phase 17 runtime health relation");
+  }
+
+  const stateAfter = await pool.query<{ state: string }>(
+    `SELECT status || ':' || revision::text AS state
+     FROM players
+     WHERE id = $1::uuid`,
+    [PROBE_PLAYER_ID],
+  );
+  if (stateAfter.rows[0]?.state !== probeBefore) {
+    throw new Error("Forward migration changed representative durable player state");
+  }
+
+  await runMigrations(pool, { appliedBy: "phase16-forward-idempotency-proof" });
+  await assertDatabaseSchemaCurrent(pool);
+
+  const latestAfterRerun = await pool.query<{ applied_by: string }>(
+    `SELECT applied_by
+     FROM schema_migrations
+     WHERE version = $1::bigint`,
+    [latest.version.toString()],
+  );
+  if (latestAfterRerun.rows[0]?.applied_by !== "phase16-forward-proof") {
+    throw new Error("Idempotent rerun rewrote latest migration history");
+  }
+
+  console.log(
+    JSON.stringify({
+      proof: "phase16-recovery-migration",
+      previousMigrationCount: previousMigrations.length,
+      currentMigrationCount: migrations.length,
+      previousLatestMigration: previousLatest.fileName,
+      latestMigration: latest.fileName,
+      runtimeHealthPreserved: true,
+      mutationPrepareStatePreserved: true,
+      contentSearchAllowlistPreserved: true,
+      runtimeHealthReadAllowlistPreserved: true,
+      messagingOperationsReadAllowlistPreserved: true,
+      incidentReadAllowlistPreserved: true,
+      auditReadAllowlistPreserved: true,
+      economyAnalyticsReadAllowlistPreserved: true,
+      economyAnalyticsIndexesPreserved: true,
+      sessionLogoutAllowlistPreserved: true,
+      playerActivityReadAllowlistPreserved: true,
+      trainerCardVerificationRelationPreserved: true,
+      trainerCardSignatureAlgorithmUpgraded: true,
+      publicVerificationRateLimitRelationPreserved: true,
+      accessSessionStatePreserved: true,
+      environmentScopedSessionRevocationCutoffPreserved: true,
+      durableStatePreserved: true,
+      rerunConverged: true,
+    }),
+  );
 } finally {
   await pool.end();
   await rm(previousMigrationsDirectory, { recursive: true, force: true });
