@@ -9,6 +9,7 @@ const runtimeSchema = z.object({
   PUBLIC_VERIFICATION_HOST: z.string().trim().min(1).max(255).default("127.0.0.1"),
   PUBLIC_VERIFICATION_PORT: z.coerce.number().int().min(1).max(65_535).default(8_788),
   PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: z.string().trim().min(1).max(256),
+  PUBLIC_VERIFICATION_PREVIOUS_PUBLIC_KEYS_BASE64: z.string().trim().max(1_024).optional(),
   PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64: z.string().trim().min(1).max(128),
   PUBLIC_VERIFICATION_RATE_LIMIT: positiveInteger(30),
   PUBLIC_VERIFICATION_PEER_LIMIT: positiveInteger(120),
@@ -20,6 +21,7 @@ export interface PublicVerificationProcessConfig {
   readonly host: string;
   readonly port: number;
   readonly publicKey: Buffer;
+  readonly previousPublicKeys: readonly Buffer[];
   readonly rateLimitPepper: Buffer;
   readonly trustedProxyCidrs: readonly string[];
   readonly rateLimitPolicy: {
@@ -46,19 +48,44 @@ function decodeCanonicalBase64(name: string, value: string, maxBytes: number): B
   return decoded;
 }
 
-function decodeEd25519PublicKey(value: string): Buffer {
-  const decoded = decodeCanonicalBase64("PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64", value, 128);
+function decodeEd25519PublicKey(name: string, value: string): Buffer {
+  const decoded = decodeCanonicalBase64(name, value, 128);
   try {
     const key = createPublicKey({ key: decoded, format: "der", type: "spki" });
     if (key.type !== "public" || key.asymmetricKeyType !== "ed25519") {
       throw new Error("unexpected key type");
     }
+    return key.export({ format: "der", type: "spki" });
   } catch {
     throw new PublicVerificationRuntimeConfigError(
-      "PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64 must encode an Ed25519 SPKI DER public key",
+      `${name} must encode an Ed25519 SPKI DER public key`,
     );
   }
-  return decoded;
+}
+
+function parsePreviousPublicKeys(value: string | undefined, currentPublicKey: Buffer): readonly Buffer[] {
+  if (value === undefined || value.length === 0) return [];
+
+  const entries = value.split(",").map((entry) => entry.trim());
+  if (entries.length > 3 || entries.some((entry) => entry.length === 0)) {
+    throw new PublicVerificationRuntimeConfigError(
+      "PUBLIC_VERIFICATION_PREVIOUS_PUBLIC_KEYS_BASE64 must contain 1 to 3 public keys",
+    );
+  }
+
+  const previousPublicKeys = entries.map((entry) =>
+    decodeEd25519PublicKey("PUBLIC_VERIFICATION_PREVIOUS_PUBLIC_KEYS_BASE64", entry),
+  );
+  const fingerprints = [currentPublicKey, ...previousPublicKeys].map((key) =>
+    key.toString("base64"),
+  );
+  if (new Set(fingerprints).size !== fingerprints.length) {
+    throw new PublicVerificationRuntimeConfigError(
+      "PUBLIC_VERIFICATION_PREVIOUS_PUBLIC_KEYS_BASE64 must not duplicate current or previous keys",
+    );
+  }
+
+  return previousPublicKeys;
 }
 
 function decodeRateLimitPepper(value: string): Buffer {
@@ -136,10 +163,19 @@ export function loadPublicVerificationRuntimeConfig(
     );
   }
 
+  const publicKey = decodeEd25519PublicKey(
+    "PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64",
+    parsed.data.PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64,
+  );
+
   return {
     host: parsed.data.PUBLIC_VERIFICATION_HOST,
     port: parsed.data.PUBLIC_VERIFICATION_PORT,
-    publicKey: decodeEd25519PublicKey(parsed.data.PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64),
+    publicKey,
+    previousPublicKeys: parsePreviousPublicKeys(
+      parsed.data.PUBLIC_VERIFICATION_PREVIOUS_PUBLIC_KEYS_BASE64,
+      publicKey,
+    ),
     rateLimitPepper: decodeRateLimitPepper(
       parsed.data.PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64,
     ),
