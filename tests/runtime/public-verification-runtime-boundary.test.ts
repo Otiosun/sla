@@ -81,7 +81,11 @@ describe.sequential("public verification runtime boundary", () => {
       url: `/public/v1/trainer-cards/${PUBLIC_ID}/verify`,
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: "VALID", publicId: PUBLIC_ID, snapshot: SNAPSHOT });
+    expect(response.json()).toEqual({
+      status: "VALID",
+      publicId: PUBLIC_ID,
+      snapshot: SNAPSHOT,
+    });
 
     const mutationAttempt = await api.server.inject({
       method: "POST",
