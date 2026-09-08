@@ -4,6 +4,16 @@ import {
   WorldAreaConfigSchema,
 } from "../../src/modules/catalog/world-contracts.js";
 
+const FISHING_CONFIG = {
+  pointName: "Rio dos Arrozais",
+  encounterTables: {
+    COMMON: "fishing-common",
+    UNCOMMON: "fishing-uncommon",
+    RARE: "fishing-rare",
+    EXTREMELY_RARE: "fishing-extremely-rare",
+  },
+} as const;
+
 describe("versioned world content contracts", () => {
   it("accepts canonical area and connection policies", () => {
     expect(
@@ -34,36 +44,22 @@ describe("versioned world content contracts", () => {
   });
 
   it("accepts content-driven fishing configuration on an area", () => {
-    const parsed = WorldAreaConfigSchema.parse({
+    const parsed = WorldAreaConfigSchema.safeParse({
       schemaVersion: 1,
       kind: "ROUTE",
       safePoint: true,
       startingArea: false,
       relocationPriority: 20,
-      fishing: {
-        pointName: "Rio dos Arrozais",
-        encounterTables: {
-          COMMON: "fishing-common",
-          UNCOMMON: "fishing-uncommon",
-          RARE: "fishing-rare",
-          EXTREMELY_RARE: "fishing-extremely-rare",
-        },
-      },
+      fishing: FISHING_CONFIG,
     });
 
-    expect(parsed.fishing).toEqual({
-      pointName: "Rio dos Arrozais",
-      encounterTables: {
-        COMMON: "fishing-common",
-        UNCOMMON: "fishing-uncommon",
-        RARE: "fishing-rare",
-        EXTREMELY_RARE: "fishing-extremely-rare",
-      },
-    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data).toMatchObject({ fishing: FISHING_CONFIG });
   });
 
   it("allows rare fishing pools to remain unconfigured until administration defines them", () => {
-    const parsed = WorldAreaConfigSchema.parse({
+    const parsed = WorldAreaConfigSchema.safeParse({
       schemaVersion: 1,
       kind: "ROUTE",
       safePoint: true,
@@ -78,8 +74,17 @@ describe("versioned world content contracts", () => {
       },
     });
 
-    expect(parsed.fishing?.encounterTables.RARE).toBeUndefined();
-    expect(parsed.fishing?.encounterTables.EXTREMELY_RARE).toBeUndefined();
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data).toMatchObject({
+      fishing: {
+        pointName: "Rio dos Arrozais",
+        encounterTables: {
+          COMMON: "fishing-common",
+          UNCOMMON: "fishing-uncommon",
+        },
+      },
+    });
   });
 
   it("rejects unknown schema versions, executable extras and malformed unlock keys", () => {
