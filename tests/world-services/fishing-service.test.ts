@@ -57,7 +57,9 @@ function encounterView(): EncounterView {
   };
 }
 
-function reservation(overrides: Partial<Awaited<ReturnType<FishingAttemptRepository["reserveAttempt"]>>> = {}) {
+function reservation(
+  overrides: Partial<Awaited<ReturnType<FishingAttemptRepository["reserveAttempt"]>>> = {},
+) {
   return {
     kind: "RESERVED" as const,
     attemptId: ATTEMPT_ID,
@@ -93,11 +95,16 @@ describe("Fishing rarity table", () => {
 
 describe("FishingService", () => {
   it("consumes a daily attempt even when D20 produces no encounter", async () => {
-    const reserveAttempt = vi.fn(async () => reservation({ roll: 9, attemptNo: 4, remainingAttempts: 1 }));
+    const reserveAttempt = vi.fn(async () =>
+      reservation({ roll: 9, attemptNo: 4, remainingAttempts: 1 }),
+    );
     const createOrReplay = vi.fn();
     const service = new FishingService({ reserveAttempt }, { createOrReplay }, rng(9));
 
-    const result = await service.attempt({ playerId: PLAYER_ID, idempotencyKey: "fish-no-encounter" });
+    const result = await service.attempt({
+      playerId: PLAYER_ID,
+      idempotencyKey: "fish-no-encounter",
+    });
 
     expect(reserveAttempt).toHaveBeenCalledWith({
       playerId: PLAYER_ID,
