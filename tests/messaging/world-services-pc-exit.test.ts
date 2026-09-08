@@ -74,9 +74,7 @@ function fixture(active: WorldServiceSessionRecord) {
 
 describe("Pokémon PC nested exit", () => {
   it("returns from the PC to the Pokémon Center without closing the Center visit", async () => {
-    const current = fixture(
-      centerSession("inbox:x:world-service:center:pc:organize:result", 12n),
-    );
+    const current = fixture(centerSession("inbox:x:world-service:center:pc:organize:result", 12n));
 
     const result = await current.exit.handler.handle(context("01"));
 
