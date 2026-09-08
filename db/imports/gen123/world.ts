@@ -30,6 +30,7 @@ function areaConfig(slug: string): WorldAreaConfig {
     safePoint: startingArea,
     startingArea,
     relocationPriority: startingArea ? 0 : 1000,
+    facilities: [],
   };
 }
 
