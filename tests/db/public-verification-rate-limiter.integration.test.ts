@@ -57,6 +57,7 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
   it("enforces a durable target-and-peer bucket without persisting raw identifiers", async () => {
     const limiter = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
       limit: 2,
+      peerLimit: 10,
       windowSeconds: 60,
     });
     const request = { publicId: PUBLIC_ID, remoteAddress: "203.0.113.42" };
@@ -73,10 +74,12 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
       `SELECT peer_hash, target_hash, request_count
        FROM public_verification_rate_limit_buckets`,
     );
-    expect(persisted.rows).toHaveLength(1);
-    expect(persisted.rows[0]?.peer_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(persisted.rows[0]?.target_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(persisted.rows[0]?.request_count).toBe(3);
+    expect(persisted.rows).toHaveLength(2);
+    for (const row of persisted.rows) {
+      expect(row.peer_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(row.target_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(row.request_count).toBe(3);
+    }
     expect(JSON.stringify(persisted.rows)).not.toContain("203.0.113.42");
     expect(JSON.stringify(persisted.rows)).not.toContain(PUBLIC_ID);
   });
@@ -84,6 +87,7 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
   it("isolates targets and peers and preserves budget across repository restart", async () => {
     const first = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
       limit: 1,
+      peerLimit: 10,
       windowSeconds: 60,
     });
     const base = { publicId: OTHER_PUBLIC_ID, remoteAddress: "198.51.100.10" };
@@ -91,6 +95,7 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
     await expect(first.consume(base)).resolves.toMatchObject({ allowed: true });
     const restarted = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
       limit: 1,
+      peerLimit: 10,
       windowSeconds: 60,
     });
     await expect(restarted.consume(base)).resolves.toMatchObject({ allowed: false });
@@ -102,9 +107,41 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
     ).resolves.toMatchObject({ allowed: true });
   });
 
+  it("enforces a peer-wide budget across target rotation", async () => {
+    const limiter = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
+      limit: 10,
+      peerLimit: 3,
+      windowSeconds: 60,
+    });
+    const remoteAddress = "192.0.2.90";
+    const targets = [
+      "tcv_111111111111111111111111",
+      "tcv_222222222222222222222222",
+      "tcv_333333333333333333333333",
+      "tcv_444444444444444444444444",
+    ] as const;
+
+    await expect(
+      limiter.consume({ publicId: targets[0], remoteAddress }),
+    ).resolves.toMatchObject({ allowed: true });
+    await expect(
+      limiter.consume({ publicId: targets[1], remoteAddress }),
+    ).resolves.toMatchObject({ allowed: true });
+    await expect(
+      limiter.consume({ publicId: targets[2], remoteAddress }),
+    ).resolves.toMatchObject({ allowed: true });
+    await expect(
+      limiter.consume({ publicId: targets[3], remoteAddress }),
+    ).resolves.toMatchObject({ allowed: false });
+    await expect(
+      limiter.consume({ publicId: targets[3], remoteAddress: "192.0.2.91" }),
+    ).resolves.toMatchObject({ allowed: true });
+  });
+
   it("does not overshoot the configured budget under concurrency", async () => {
     const limiter = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
       limit: 3,
+      peerLimit: 3,
       windowSeconds: 60,
     });
     const request = {
@@ -122,6 +159,7 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
       () =>
         new PostgresPublicVerificationRateLimiter(pool, new Uint8Array(8), {
           limit: 2,
+          peerLimit: 10,
           windowSeconds: 60,
         }),
     ).toThrow();
@@ -129,6 +167,15 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
       () =>
         new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
           limit: 0,
+          peerLimit: 10,
+          windowSeconds: 60,
+        }),
+    ).toThrow();
+    expect(
+      () =>
+        new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
+          limit: 2,
+          peerLimit: 0,
           windowSeconds: 60,
         }),
     ).toThrow();
