@@ -117,13 +117,9 @@ export class FishingService {
       const encounterTableSlug = reservation.encounterTableSlug?.trim() ?? "";
       if (encounterTableSlug.length === 0) {
         return err(
-          appError(
-            "INVALID_STATE_TRANSITION",
-            "Fishing rarity has no configured encounter table",
-            {
-              rarity,
-            },
-          ),
+          appError("INVALID_STATE_TRANSITION", "Fishing rarity has no configured encounter table", {
+            rarity,
+          }),
         );
       }
 
