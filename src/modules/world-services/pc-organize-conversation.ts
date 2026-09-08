@@ -54,9 +54,7 @@ export function pcOrganizeDestinationPromptSuffix(pokemonInstanceId: PokemonInst
   return `${DESTINATION_PREFIX}${pokemonInstanceId}`;
 }
 
-export function pcOrganizePokemonFromDestinationPromptKey(
-  value: string,
-): PokemonInstanceId | null {
+export function pcOrganizePokemonFromDestinationPromptKey(value: string): PokemonInstanceId | null {
   const markerIndex = value.lastIndexOf(DESTINATION_PREFIX);
   if (markerIndex < 0) return null;
   const parsed = parsePokemonInstanceId(value.slice(markerIndex + DESTINATION_PREFIX.length));
