@@ -25,6 +25,21 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
   let adminPool: Pool;
   let pool: Pool;
 
+  async function waitForDatabaseSessionsToClose(): Promise<void> {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const result = await adminPool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM pg_stat_activity
+         WHERE datname = $1
+           AND pid <> pg_backend_pid()`,
+        [dbName],
+      );
+      if (result.rows[0]?.count === "0") return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("Public verification limiter database sessions did not close cleanly");
+  }
+
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: databaseUrlFor("postgres"), max: 1 });
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
@@ -34,10 +49,7 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
 
   afterAll(async () => {
     await pool.end();
-    await adminPool.query(
-      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-      [dbName],
-    );
+    await waitForDatabaseSessionsToClose();
     await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }, 30_000);
