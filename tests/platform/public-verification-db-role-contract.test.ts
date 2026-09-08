@@ -34,9 +34,7 @@ describe("public verification PostgreSQL least-privilege contract", () => {
   });
 
   it("runs a real CI database proof that denied domain access fails closed", async () => {
-    const workflow = await read(
-      ".github/workflows/public-verification-db-least-privilege.yml",
-    );
+    const workflow = await read(".github/workflows/public-verification-db-least-privilege.yml");
 
     expect(workflow).toContain("Public verification database least-privilege proof");
     expect(workflow).toContain("public_verification_role.sql");
