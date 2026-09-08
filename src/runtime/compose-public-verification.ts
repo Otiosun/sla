@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import { createPublicVerificationServer } from "../adapters/public-api/fastify-server.js";
 import {
-  HmacTrainerCardSigner,
+  Ed25519TrainerCardVerifier,
   TrainerCardVerificationService,
 } from "../modules/verification/trainer-card-verification.js";
 import {
@@ -14,7 +14,7 @@ import { PostgresTrainerCardVerificationRepository } from "../platform/verificat
 export interface PublicVerificationRuntimeConfig {
   readonly host: string;
   readonly port: number;
-  readonly signingKey: Uint8Array;
+  readonly publicKey: Uint8Array;
   readonly rateLimitPepper: Uint8Array;
   readonly rateLimitPolicy: PublicVerificationRateLimitPolicy;
 }
@@ -30,8 +30,8 @@ export function createOperationalPublicVerificationApi(
   config: PublicVerificationRuntimeConfig,
 ): OperationalPublicVerificationApi {
   const repository = new PostgresTrainerCardVerificationRepository(pool);
-  const signer = new HmacTrainerCardSigner(config.signingKey);
-  const verificationService = new TrainerCardVerificationService(repository, signer);
+  const verifier = new Ed25519TrainerCardVerifier(config.publicKey);
+  const verificationService = new TrainerCardVerificationService(repository, verifier);
   const rateLimiter = new PostgresPublicVerificationRateLimiter(
     pool,
     config.rateLimitPepper,
