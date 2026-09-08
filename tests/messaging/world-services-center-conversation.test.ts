@@ -78,6 +78,7 @@ function worldLocation() {
     regionSlug: "zhoulia",
     regionDisplayName: "Zhoulia",
     safePoint: true,
+    facilities: ["POKEMART", "POKEMON_CENTER"],
     revision: 0n,
     enteredAt: new Date("2026-09-07T10:00:00.000Z"),
     requiresRelocation: false,
