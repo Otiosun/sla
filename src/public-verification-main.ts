@@ -1,5 +1,4 @@
 import { SystemClock } from "./platform/clock/index.js";
-import { loadConfig } from "./platform/config/env.js";
 import { closeDatabasePool, createDatabasePool } from "./platform/db/database.js";
 import { assertDatabaseSchemaCurrent } from "./platform/db/migrations.js";
 import { JsonLineStdoutSink, StructuredLogger } from "./platform/logging/index.js";
@@ -13,18 +12,17 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
   });
 }
 
-const appConfig = loadConfig();
 const publicConfig = loadPublicVerificationRuntimeConfig();
 const logger = new StructuredLogger(new SystemClock(), new JsonLineStdoutSink());
 const pool = createDatabasePool({
-  connectionString: appConfig.databaseUrl,
+  connectionString: publicConfig.databaseUrl,
   applicationName: "pokemon-rpg-public-verification",
-  maxConnections: appConfig.databasePoolMax,
-  connectionTimeoutMs: appConfig.databaseConnectTimeoutMs,
-  idleTimeoutMs: appConfig.databaseIdleTimeoutMs,
-  queryTimeoutMs: appConfig.databaseQueryTimeoutMs,
-  statementTimeoutMs: appConfig.databaseStatementTimeoutMs,
-  idleInTransactionSessionTimeoutMs: appConfig.databaseIdleInTransactionTimeoutMs,
+  maxConnections: publicConfig.databasePoolMax,
+  connectionTimeoutMs: publicConfig.databaseConnectTimeoutMs,
+  idleTimeoutMs: publicConfig.databaseIdleTimeoutMs,
+  queryTimeoutMs: publicConfig.databaseQueryTimeoutMs,
+  statementTimeoutMs: publicConfig.databaseStatementTimeoutMs,
+  idleInTransactionSessionTimeoutMs: publicConfig.databaseIdleInTransactionTimeoutMs,
 });
 const api = createOperationalPublicVerificationApi(pool, publicConfig);
 const shutdown = new AbortController();
@@ -37,7 +35,7 @@ try {
   await assertDatabaseSchemaCurrent(pool);
   const address = await api.listen();
   logger.log("INFO", "public_verification.ready", {
-    appEnv: appConfig.appEnv,
+    appEnv: publicConfig.appEnv,
     address,
     mode: "get-only",
     portSource: process.env.PUBLIC_VERIFICATION_PORT === undefined ? "default" : "environment",
