@@ -258,9 +258,7 @@ try {
   if ((await trainerCardVerificationRelation()) !== "trainer_card_verifications") {
     throw new Error("N-1 database is missing trainer-card verification from migration 0038");
   }
-  if (
-    (await publicVerificationRateLimitRelation()) !== "public_verification_rate_limit_buckets"
-  ) {
+  if ((await publicVerificationRateLimitRelation()) !== "public_verification_rate_limit_buckets") {
     throw new Error("N-1 database is missing public verification rate limits from migration 0039");
   }
   if ((await trainerCardSignatureDefault())?.includes("HMAC-SHA256") !== true) {
@@ -330,7 +328,9 @@ try {
     throw new Error("N-1 database lost the economy.analytics.read allowlist from migration 0036");
   }
   if (!(await rateLimitBucketExists("economy.analytics.read"))) {
-    throw new Error("N-1 economy.analytics.read probe did not persist its limiter bucket");
+    throw new Error(
+      "N-1 economy.analytics.read probe did not persist its limiter bucket from migration 0036",
+    );
   }
   if (!(await rateLimitInsertAllowed("session.logout"))) {
     throw new Error("N-1 database lost the session.logout allowlist from migration 0037");
