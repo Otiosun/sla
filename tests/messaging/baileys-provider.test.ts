@@ -18,7 +18,7 @@ import type {
 class FakeBaileysSocket implements BaileysSocketLike {
   readonly sent: Array<{
     jid: string;
-    content: { readonly text: string };
+    content: unknown;
     options: { readonly messageId?: string } | undefined;
   }> = [];
   ended = false;
@@ -242,12 +242,59 @@ describe("BaileysWhatsAppAdapter", () => {
         options: { messageId: "EA3F80A3C269F3F2A59AD8ACABF449A5" },
       },
     ]);
-    await expect(adapter.send(outbox({ messageType: "IMAGE" }))).rejects.toThrow(
+    await expect(adapter.send(outbox({ messageType: "VIDEO" }))).rejects.toThrow(
       "Unsupported Baileys outbound message type",
     );
     await expect(adapter.send(outbox({ payload: { text: 123 } }))).rejects.toThrow(
       "requires non-empty text",
     );
+    await adapter.stop();
+  });
+
+  it("maps a validated HTTPS IMAGE outbox message with caption and rejects unsafe sources", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    await adapter.send(
+      outbox({
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: "https://assets.example.com/world/pokemart.png",
+          caption: "Poké Mart · Vila dos Arrozais",
+        },
+      }),
+    );
+    expect(socket.sent).toEqual([
+      {
+        jid: "5511999999999@s.whatsapp.net",
+        content: {
+          image: { url: "https://assets.example.com/world/pokemart.png" },
+          caption: "Poké Mart · Vila dos Arrozais",
+        },
+        options: { messageId: "EA3F80A3C269F3F2A59AD8ACABF449A5" },
+      },
+    ]);
+
+    await expect(
+      adapter.send(
+        outbox({
+          messageType: "IMAGE",
+          payload: { imageUrl: "http://assets.example.com/pokemart.png", caption: "inseguro" },
+        }),
+      ),
+    ).rejects.toThrow("HTTPS image URL");
+    await expect(
+      adapter.send(
+        outbox({
+          messageType: "IMAGE",
+          payload: { imageUrl: "file:///tmp/pokemart.png", caption: "local" },
+        }),
+      ),
+    ).rejects.toThrow("HTTPS image URL");
     await adapter.stop();
   });
 
