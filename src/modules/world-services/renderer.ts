@@ -35,6 +35,22 @@ function styledUpper(value: string): string {
     .join("");
 }
 
+export function renderPokemartFacade(): string {
+  return [
+    "⌖ *𝗩𝗜𝗟𝗔 𝗗𝗢𝗦 𝗔𝗥𝗥𝗢𝗭𝗔𝗜𝗦*",
+    "　ZHOULIA",
+    "",
+    "🏪 *𝗣𝗢𝗞É 𝗠𝗔𝗥𝗧*",
+    "╰─ Suprimentos & Comércio",
+    "",
+    "> _Às margens da praça central, uma pequena loja se destaca entre as construções simples da vila._",
+    "",
+    "_Poké Balls, poções e outros suprimentos dividem espaço com sacos de arroz e produtos utilizados pelos agricultores da região._",
+    "",
+    "> _Ao atravessar a entrada, o som discreto de um sino anuncia sua chegada._",
+  ].join("\n");
+}
+
 export function renderWorldServiceEntry(kind: WorldServiceKind): string {
   switch (kind) {
     case "POKEMART":
