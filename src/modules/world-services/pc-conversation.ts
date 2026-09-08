@@ -1,4 +1,7 @@
-import type { PokemonInstanceId } from "../../shared-kernel/ids.js";
+import {
+  parsePokemonInstanceId,
+  type PokemonInstanceId,
+} from "../../shared-kernel/ids.js";
 import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
 const BOX_CAPACITY = 30;
@@ -16,6 +19,14 @@ export function isPcDepositListPromptKey(value: string): boolean {
 
 export function pcDepositConfirmPromptSuffix(pokemonInstanceId: PokemonInstanceId): string {
   return `${PC_DEPOSIT_CONFIRM_PREFIX}${pokemonInstanceId}`;
+}
+
+export function pcDepositPokemonFromConfirmPromptKey(value: string): PokemonInstanceId | null {
+  const markerIndex = value.lastIndexOf(PC_DEPOSIT_CONFIRM_PREFIX);
+  if (markerIndex < 0) return null;
+  const rawPokemonInstanceId = value.slice(markerIndex + PC_DEPOSIT_CONFIRM_PREFIX.length);
+  const parsed = parsePokemonInstanceId(rawPokemonInstanceId);
+  return parsed.ok ? parsed.value : null;
 }
 
 export function pcTeamPokemonBySlot(
