@@ -16,6 +16,7 @@ import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-p
 import { CommunityService } from "../modules/community/service.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
+import { EncounterService } from "../modules/encounter/service.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
 import { withOperationalWorldPolicy } from "../modules/messaging/operational-command-policy.js";
@@ -40,6 +41,7 @@ import { RegistrationService } from "../modules/registration/service.js";
 import { createRegistrationWhatsAppRoutes } from "../modules/registration/whatsapp-handlers.js";
 import { WorldService } from "../modules/world/service.js";
 import { WorldServiceConversationResolver } from "../modules/world-services/conversation-resolver.js";
+import { FishingService } from "../modules/world-services/fishing-service.js";
 import { PokemonCenterHealingService } from "../modules/world-services/healing-service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { WorldServiceSessionService } from "../modules/world-services/session-service.js";
@@ -65,13 +67,16 @@ import { PostgresRegistrationReplyIntentVerifier } from "../platform/registratio
 import { PostgresRegistrationRepository } from "../platform/registration/postgres-registration-repository.js";
 import { PostgresRegistrationSetupLoader } from "../platform/registration/postgres-registration-setup-loader.js";
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
+import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
+import { PostgresFishingAttemptRepository } from "../platform/world-services/postgres-fishing-attempt-repository.js";
 import { PostgresMartSaleInventoryReader } from "../platform/world-services/postgres-mart-sale-inventory-reader.js";
 import { PostgresPokemonCenterHealingRepository } from "../platform/world-services/postgres-pokemon-center-healing-repository.js";
 import { PostgresPokemonPcStorageRepository } from "../platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
+import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
 
@@ -79,6 +84,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly pool: Pool;
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
+  readonly encounterRngConfig?: EncounterRngRuntimeConfig;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -96,7 +102,10 @@ function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-export function createOperationalMessagingComposition(pool: Pool): OperationalMessagingComposition {
+export function createOperationalMessagingComposition(
+  pool: Pool,
+  encounterRngConfig: EncounterRngRuntimeConfig | null = null,
+): OperationalMessagingComposition {
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
   const playerRegistration = new PlayerRegistrationService(playerRepository);
   const clock = new SystemClock();
@@ -105,7 +114,24 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     enabled: true,
     reason: null,
   });
-  const encounter = new EncounterOperationalReadService(new PostgresEncounterRepository(pool));
+  const encounterRepository = new PostgresEncounterRepository(pool);
+  const encounter = new EncounterOperationalReadService(encounterRepository);
+  const fishing =
+    encounterRngConfig === null
+      ? undefined
+      : new FishingService(
+          new PostgresFishingAttemptRepository(pool),
+          new EncounterService(
+            encounterRepository,
+            new AesEncounterSeedProvider(
+              encounterRngConfig.encryptionKey,
+              encounterRngConfig.encryptionKeyVersion,
+            ),
+            clock,
+            { enabled: true, reason: null },
+          ),
+          new CryptoRandomSource(),
+        );
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
   const reads = new PostgresOperationalUxReadModel(pool);
   const economy = new EconomyService(new PostgresEconomyRepository(pool));
@@ -223,6 +249,10 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     healing: pokemonCenterHealing,
     economy: martSaleInventory,
     pcStorage: pokemonPcStorage,
+    ...(fishing === undefined ? {} : { fishing }),
+    fishingSpecies: {
+      speciesDisplayName: reads.speciesDisplayName.bind(reads),
+    },
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutes({
@@ -302,7 +332,10 @@ export function createOperationalOutboxWorker(
 export function createOperationalWhatsAppRuntime(
   options: OperationalWhatsAppRuntimeOptions,
 ): WhatsAppMessagingRuntime {
-  const composition = createOperationalMessagingComposition(options.pool);
+  const composition = createOperationalMessagingComposition(
+    options.pool,
+    options.encounterRngConfig ?? null,
+  );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
 
