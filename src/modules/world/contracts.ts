@@ -1,4 +1,8 @@
-import type { ConnectionAccessRule, WorldAreaConfig } from "../catalog/world-contracts.js";
+import type {
+  ConnectionAccessRule,
+  WorldAreaConfig,
+  WorldAreaFacility,
+} from "../catalog/world-contracts.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 
 export interface WorldAreaRecord {
@@ -59,7 +63,7 @@ export interface WorldLocationView {
   readonly regionSlug: string;
   readonly regionDisplayName: string;
   readonly safePoint: boolean;
-  readonly facilities: WorldAreaConfig["facilities"];
+  readonly facilities: readonly WorldAreaFacility[];
   readonly revision: bigint;
   readonly enteredAt: Date;
   readonly requiresRelocation: boolean;
