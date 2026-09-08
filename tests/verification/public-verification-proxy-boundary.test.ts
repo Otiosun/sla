@@ -13,6 +13,8 @@ const KEY_PAIR = generateKeyPairSync("ed25519", {
 });
 const CANONICAL_PUBLIC_KEY = KEY_PAIR.publicKey.toString("base64");
 const CANONICAL_PEPPER = Buffer.alloc(32, 11).toString("base64");
+const DATABASE_URL =
+  "postgresql://pokemon_public_verifier:test-only-password@localhost:5432/pokemon_rpg_test";
 
 function verificationDependencies(consume: PublicVerificationRateLimiter["consume"]) {
   return {
@@ -20,6 +22,14 @@ function verificationDependencies(consume: PublicVerificationRateLimiter["consum
       verify: vi.fn().mockResolvedValue({ status: "INVALID" as const }),
     },
     rateLimiter: { consume },
+  };
+}
+
+function configEnv(): NodeJS.ProcessEnv {
+  return {
+    PUBLIC_VERIFICATION_DATABASE_URL: DATABASE_URL,
+    PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: CANONICAL_PUBLIC_KEY,
+    PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64: CANONICAL_PEPPER,
   };
 }
 
@@ -56,23 +66,18 @@ describe("public verification trusted-proxy boundary", () => {
   });
 
   it("defaults to direct-peer identity and refuses trust-all proxy configuration", () => {
-    const direct = loadPublicVerificationRuntimeConfig({
-      PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: CANONICAL_PUBLIC_KEY,
-      PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64: CANONICAL_PEPPER,
-    });
+    const direct = loadPublicVerificationRuntimeConfig(configEnv());
     expect(direct.trustedProxyCidrs).toEqual([]);
 
     expect(() =>
       loadPublicVerificationRuntimeConfig({
-        PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: CANONICAL_PUBLIC_KEY,
-        PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64: CANONICAL_PEPPER,
+        ...configEnv(),
         PUBLIC_VERIFICATION_TRUSTED_PROXY_CIDRS: "0.0.0.0/0",
       }),
     ).toThrow(/trusted proxy/i);
     expect(() =>
       loadPublicVerificationRuntimeConfig({
-        PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: CANONICAL_PUBLIC_KEY,
-        PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64: CANONICAL_PEPPER,
+        ...configEnv(),
         PUBLIC_VERIFICATION_TRUSTED_PROXY_CIDRS: "::/0",
       }),
     ).toThrow(/trusted proxy/i);
