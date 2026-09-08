@@ -1,14 +1,19 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   generateTrainerCardPublicId,
   TrainerCardIssuanceService,
 } from "../../src/modules/verification/trainer-card-issuance.js";
 import {
-  HmacTrainerCardSigner,
+  Ed25519TrainerCardSigner,
+  Ed25519TrainerCardVerifier,
   type TrainerCardPublicSnapshot,
 } from "../../src/modules/verification/trainer-card-verification.js";
 
-const SIGNING_KEY = new Uint8Array(32).fill(13);
+const KEY_PAIR = generateKeyPairSync("ed25519", {
+  privateKeyEncoding: { format: "der", type: "pkcs8" },
+  publicKeyEncoding: { format: "der", type: "spki" },
+});
 const SNAPSHOT: TrainerCardPublicSnapshot = {
   version: 1,
   trainerName: "Red",
@@ -31,7 +36,8 @@ describe("trainer card internal issuance", () => {
   });
 
   it("signs before persistence and retries only public-id collisions", async () => {
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
+    const signer = new Ed25519TrainerCardSigner(KEY_PAIR.privateKey);
+    const verifier = new Ed25519TrainerCardVerifier(KEY_PAIR.publicKey);
     const issue = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const ids = ["tcv_Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8", "tcv_Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2"];
     const generatePublicId = vi.fn(() => {
@@ -50,12 +56,13 @@ describe("trainer card internal issuance", () => {
       const record = call[0];
       expect(record.status).toBe("ACTIVE");
       expect(record.snapshot).toEqual(SNAPSHOT);
-      expect(signer.verify(record.snapshot, record.signature)).toBe(true);
+      expect(record.signature).toMatch(/^ed25519:[A-Za-z0-9_-]{86}$/);
+      expect(verifier.verify(record.snapshot, record.signature)).toBe(true);
     }
   });
 
   it("fails closed after bounded collision retries", async () => {
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
+    const signer = new Ed25519TrainerCardSigner(KEY_PAIR.privateKey);
     const issue = vi.fn().mockResolvedValue(false);
     const service = new TrainerCardIssuanceService(
       { issue },
