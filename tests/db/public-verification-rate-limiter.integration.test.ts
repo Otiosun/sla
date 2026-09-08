@@ -40,6 +40,14 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
     throw new Error("Public verification limiter database sessions did not close cleanly");
   }
 
+  async function bucketCount(): Promise<number> {
+    const result = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM public_verification_rate_limit_buckets`,
+    );
+    return Number(result.rows[0]?.count ?? "0");
+  }
+
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: databaseUrlFor("postgres"), max: 1 });
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
@@ -136,6 +144,98 @@ describe.sequential("PostgresPublicVerificationRateLimiter", () => {
     await expect(
       limiter.consume({ publicId: targets[3], remoteAddress: "192.0.2.91" }),
     ).resolves.toMatchObject({ allowed: true });
+  });
+
+  it("does not allocate fresh target buckets after the peer-wide budget is exhausted", async () => {
+    const limiter = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
+      limit: 100,
+      peerLimit: 2,
+      windowSeconds: 60,
+    });
+    const remoteAddress = "192.0.2.120";
+    const before = await bucketCount();
+
+    await expect(
+      limiter.consume({
+        publicId: "tcv_555555555555555555555555",
+        remoteAddress,
+      }),
+    ).resolves.toMatchObject({ allowed: true });
+    await expect(
+      limiter.consume({
+        publicId: "tcv_666666666666666666666666",
+        remoteAddress,
+      }),
+    ).resolves.toMatchObject({ allowed: true });
+    expect(await bucketCount()).toBe(before + 3);
+
+    await expect(
+      limiter.consume({
+        publicId: "tcv_777777777777777777777777",
+        remoteAddress,
+      }),
+    ).resolves.toMatchObject({ allowed: false });
+    await expect(
+      limiter.consume({
+        publicId: "tcv_888888888888888888888888",
+        remoteAddress,
+      }),
+    ).resolves.toMatchObject({ allowed: false });
+
+    expect(await bucketCount()).toBe(before + 3);
+  });
+
+  it("collapses malformed target rotation into bounded storage", async () => {
+    const limiter = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
+      limit: 100,
+      peerLimit: 100,
+      windowSeconds: 60,
+    });
+    const before = await bucketCount();
+    const remoteAddress = "192.0.2.121";
+
+    for (let index = 0; index < 20; index += 1) {
+      await expect(
+        limiter.consume({ publicId: `malformed-${index}`, remoteAddress }),
+      ).resolves.toMatchObject({ allowed: true });
+    }
+
+    expect(await bucketCount()).toBeLessThanOrEqual(before + 2);
+  });
+
+  it("reclaims buckets that have been inactive for a full rate-limit window", async () => {
+    const stalePeerHash = "a".repeat(64);
+    const staleTargetHash = "b".repeat(64);
+    await pool.query(
+      `INSERT INTO public_verification_rate_limit_buckets (
+         peer_hash,
+         target_hash,
+         window_started_at,
+         request_count,
+         updated_at
+       ) VALUES ($1, $2, clock_timestamp() - interval '10 minutes', 1, clock_timestamp() - interval '10 minutes')`,
+      [stalePeerHash, staleTargetHash],
+    );
+
+    const limiter = new PostgresPublicVerificationRateLimiter(pool, RATE_LIMIT_PEPPER, {
+      limit: 10,
+      peerLimit: 10,
+      windowSeconds: 60,
+    });
+    await expect(
+      limiter.consume({
+        publicId: "tcv_999999999999999999999999",
+        remoteAddress: "192.0.2.122",
+      }),
+    ).resolves.toMatchObject({ allowed: true });
+
+    const stale = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM public_verification_rate_limit_buckets
+       WHERE peer_hash = $1 AND target_hash = $2`,
+      [stalePeerHash, staleTargetHash],
+    );
+    expect(stale.rows[0]?.count).toBe("0");
   });
 
   it("does not overshoot the configured budget under concurrency", async () => {
