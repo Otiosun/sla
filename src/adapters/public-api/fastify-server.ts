@@ -22,12 +22,21 @@ export interface PublicVerificationServerDependencies {
   readonly rateLimiter: PublicVerificationRateLimiter;
 }
 
+export interface PublicVerificationServerOptions {
+  readonly trustedProxyCidrs?: readonly string[];
+}
+
 const PUBLIC_ID_PATTERN = /^tcv_[A-Za-z0-9]{24}$/;
 
 export function createPublicVerificationServer(
   dependencies: PublicVerificationServerDependencies,
+  options: PublicVerificationServerOptions = {},
 ): FastifyInstance {
-  const server = Fastify({ logger: false });
+  const trustedProxyCidrs = options.trustedProxyCidrs ?? [];
+  const server = Fastify({
+    logger: false,
+    trustProxy: trustedProxyCidrs.length === 0 ? false : [...trustedProxyCidrs],
+  });
 
   server.addHook("onSend", async (_request, reply, payload) => {
     void reply.header("cache-control", "no-store");
