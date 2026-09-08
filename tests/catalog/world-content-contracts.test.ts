@@ -43,6 +43,29 @@ describe("versioned world content contracts", () => {
     });
   });
 
+  it("defines facilities as content-driven area authority and defaults them closed", () => {
+    const withoutFacilities = WorldAreaConfigSchema.parse({
+      schemaVersion: 1,
+      kind: "TOWN",
+      safePoint: true,
+      startingArea: false,
+      relocationPriority: 10,
+    });
+    expect(withoutFacilities.facilities).toEqual([]);
+
+    const withFacilities = WorldAreaConfigSchema.safeParse({
+      schemaVersion: 1,
+      kind: "TOWN",
+      safePoint: true,
+      startingArea: false,
+      relocationPriority: 10,
+      facilities: ["POKEMART", "POKEMON_CENTER"],
+    });
+    expect(withFacilities.success).toBe(true);
+    if (!withFacilities.success) return;
+    expect(withFacilities.data.facilities).toEqual(["POKEMART", "POKEMON_CENTER"]);
+  });
+
   it("accepts content-driven fishing configuration on an area", () => {
     const parsed = WorldAreaConfigSchema.safeParse({
       schemaVersion: 1,
