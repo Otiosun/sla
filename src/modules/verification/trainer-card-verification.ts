@@ -77,6 +77,18 @@ function requireEd25519Key(key: KeyObject, purpose: "private" | "public"): KeyOb
   return key;
 }
 
+function canonicalEd25519PublicKeyDer(publicKeyDer: Uint8Array): Buffer {
+  const key = requireEd25519Key(
+    createPublicKey({
+      key: Buffer.from(publicKeyDer),
+      format: "der",
+      type: "spki",
+    }),
+    "public",
+  );
+  return key.export({ format: "der", type: "spki" });
+}
+
 export class Ed25519TrainerCardSigner implements TrainerCardSnapshotSigner {
   private readonly privateKey: KeyObject;
 
@@ -121,6 +133,33 @@ export class Ed25519TrainerCardVerifier implements TrainerCardSnapshotVerifier {
     if (observed.byteLength !== 64 || observed.toString("base64url") !== encoded) return false;
 
     return verifyPayload(null, Buffer.from(canonicalSnapshot(snapshot)), this.publicKey, observed);
+  }
+}
+
+export class Ed25519TrainerCardKeyringVerifier implements TrainerCardSnapshotVerifier {
+  private readonly verifiers: readonly Ed25519TrainerCardVerifier[];
+
+  public constructor(
+    currentPublicKeyDer: Uint8Array,
+    previousPublicKeysDer: readonly Uint8Array[] = [],
+  ) {
+    if (previousPublicKeysDer.length > 3) {
+      throw new Error("Trainer card verifier accepts at most 3 previous Ed25519 public keys");
+    }
+
+    const canonicalKeys = [currentPublicKeyDer, ...previousPublicKeysDer].map((key) =>
+      canonicalEd25519PublicKeyDer(key),
+    );
+    const fingerprints = canonicalKeys.map((key) => key.toString("base64"));
+    if (new Set(fingerprints).size !== fingerprints.length) {
+      throw new Error("Trainer card verifier public keys must be unique");
+    }
+
+    this.verifiers = canonicalKeys.map((key) => new Ed25519TrainerCardVerifier(key));
+  }
+
+  public verify(snapshot: TrainerCardPublicSnapshot, signature: string): boolean {
+    return this.verifiers.some((verifier) => verifier.verify(snapshot, signature));
   }
 }
 
