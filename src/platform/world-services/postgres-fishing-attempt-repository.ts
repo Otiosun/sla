@@ -33,7 +33,11 @@ interface FishingAttemptRow {
   readonly encounter_table_slug: string | null;
 }
 
-function reserved(row: FishingAttemptRow, playerId: PlayerId, replayed: boolean): FishingAttemptReserved {
+function reserved(
+  row: FishingAttemptRow,
+  playerId: PlayerId,
+  replayed: boolean,
+): FishingAttemptReserved {
   return {
     kind: "RESERVED",
     attemptId: row.id,
