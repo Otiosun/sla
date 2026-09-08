@@ -63,7 +63,7 @@ export interface WorldLocationView {
   readonly regionSlug: string;
   readonly regionDisplayName: string;
   readonly safePoint: boolean;
-  readonly facilities: readonly WorldAreaFacility[];
+  readonly facilities?: readonly WorldAreaFacility[];
   readonly revision: bigint;
   readonly enteredAt: Date;
   readonly requiresRelocation: boolean;
