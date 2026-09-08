@@ -31,6 +31,9 @@ const FishingAreaConfigSchema = z
 export const WorldAreaKindSchema = z.enum(["TOWN", "CITY", "ROUTE", "FACILITY", "OTHER"]);
 export type WorldAreaKind = z.infer<typeof WorldAreaKindSchema>;
 
+export const WorldAreaFacilitySchema = z.enum(["POKEMART", "POKEMON_CENTER"]);
+export type WorldAreaFacility = z.infer<typeof WorldAreaFacilitySchema>;
+
 export const WorldAreaConfigSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -38,6 +41,7 @@ export const WorldAreaConfigSchema = z
     safePoint: z.boolean(),
     startingArea: z.boolean(),
     relocationPriority: z.number().int().min(0).max(1_000_000),
+    facilities: z.array(WorldAreaFacilitySchema).max(16).default([]),
     fishing: FishingAreaConfigSchema.optional(),
   })
   .strict();
