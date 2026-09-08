@@ -70,7 +70,11 @@ describe.sequential("Fishing optional rarity pool schema", () => {
         ).resolves.toBeDefined();
       }
 
-      const persisted = await client.query<{ roll: number; rarity: string; encounter_table_slug: string | null }>(
+      const persisted = await client.query<{
+        roll: number;
+        rarity: string;
+        encounter_table_slug: string | null;
+      }>(
         `SELECT roll, rarity, encounter_table_slug
          FROM fishing_attempts_contract
          ORDER BY attempt_no`,
