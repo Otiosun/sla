@@ -4,7 +4,7 @@ import type { MessageHandlerContext } from "../../src/modules/messaging/contract
 import type { FishingAttemptResult } from "../../src/modules/world-services/fishing-service.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { ok, type Result } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
 const AREA_ID = "00000000-0000-4000-8000-000000005001";
@@ -82,7 +82,12 @@ function fishingResult(overrides: Partial<FishingAttemptResult> = {}): FishingAt
   };
 }
 
-function dependencies(attempt: (input: { playerId: PlayerId; idempotencyKey: string }) => unknown) {
+function dependencies(
+  attempt: (input: {
+    playerId: PlayerId;
+    idempotencyKey: string;
+  }) => Promise<Result<FishingAttemptResult>>,
+) {
   return {
     players: {
       resolvePlayer: vi.fn(async () =>
