@@ -1,7 +1,9 @@
+import { generateKeyPairSync } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  HmacTrainerCardSigner,
+  Ed25519TrainerCardSigner,
+  Ed25519TrainerCardVerifier,
   TrainerCardVerificationService,
   type TrainerCardPublicSnapshot,
 } from "../../src/modules/verification/trainer-card-verification.js";
@@ -22,7 +24,10 @@ function databaseUrlFor(name: string): string {
 }
 
 const PUBLIC_ID = "tcv_7Qm2Yp9Kx4Nw8Vr6Hs3Df1Za";
-const SIGNING_KEY = new Uint8Array(32).fill(9);
+const KEY_PAIR = generateKeyPairSync("ed25519", {
+  privateKeyEncoding: { format: "der", type: "pkcs8" },
+  publicKeyEncoding: { format: "der", type: "spki" },
+});
 const SNAPSHOT: TrainerCardPublicSnapshot = {
   version: 1,
   trainerName: "Red",
@@ -39,7 +44,8 @@ describe.sequential("PostgresTrainerCardVerificationRepository", () => {
   let adminPool: Pool;
   let pool: Pool;
   let repository: PostgresTrainerCardVerificationRepository;
-  const signer = new HmacTrainerCardSigner(SIGNING_KEY);
+  const signer = new Ed25519TrainerCardSigner(KEY_PAIR.privateKey);
+  const verifier = new Ed25519TrainerCardVerifier(KEY_PAIR.publicKey);
 
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: databaseUrlFor("postgres"), max: 1 });
@@ -56,7 +62,7 @@ describe.sequential("PostgresTrainerCardVerificationRepository", () => {
          signature,
          signature_algorithm,
          issued_at
-       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'HMAC-SHA256', $4::timestamptz)`,
+       ) VALUES ($1, 'ACTIVE', $2::jsonb, $3, 'ED25519', $4::timestamptz)`,
       [PUBLIC_ID, JSON.stringify(SNAPSHOT), signer.sign(SNAPSHOT), SNAPSHOT.issuedAt],
     );
   }, 30_000);
@@ -90,7 +96,7 @@ describe.sequential("PostgresTrainerCardVerificationRepository", () => {
     const forbiddenUpdates = [
       ["public_id", "tcv_Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8"],
       ["snapshot", JSON.stringify({ ...SNAPSHOT, trainerName: "Mallory" })],
-      ["signature", "0".repeat(64)],
+      ["signature", `ed25519:${"A".repeat(86)}`],
       ["signature_algorithm", "NONE"],
       ["issued_at", "2026-09-07T23:00:00.000Z"],
     ] as const;
@@ -104,7 +110,7 @@ describe.sequential("PostgresTrainerCardVerificationRepository", () => {
       ).rejects.toThrow();
     }
 
-    const service = new TrainerCardVerificationService(repository, signer);
+    const service = new TrainerCardVerificationService(repository, verifier);
     await expect(service.verify(PUBLIC_ID)).resolves.toMatchObject({ status: "VALID" });
   });
 
@@ -112,7 +118,7 @@ describe.sequential("PostgresTrainerCardVerificationRepository", () => {
     const revokedAt = new Date("2026-09-07T23:30:00.000Z");
     await repository.revoke(PUBLIC_ID, revokedAt);
 
-    const service = new TrainerCardVerificationService(repository, signer);
+    const service = new TrainerCardVerificationService(repository, verifier);
     await expect(service.verify(PUBLIC_ID)).resolves.toEqual({
       status: "REVOKED",
       publicId: PUBLIC_ID,
