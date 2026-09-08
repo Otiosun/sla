@@ -39,10 +39,15 @@ export function createPublicVerificationServer(
     "/public/v1/trainer-cards/:publicId/verify",
     async (request, reply) => {
       const { publicId } = request.params;
-      const rateLimit = await dependencies.rateLimiter.consume({
-        publicId,
-        remoteAddress: request.ip,
-      });
+      let rateLimit: PublicVerificationRateLimitDecision;
+      try {
+        rateLimit = await dependencies.rateLimiter.consume({
+          publicId,
+          remoteAddress: request.ip,
+        });
+      } catch {
+        return reply.code(500).send({ error: { code: "PUBLIC_VERIFICATION_FAILED" } });
+      }
 
       if (!rateLimit.allowed) {
         void reply.header(
