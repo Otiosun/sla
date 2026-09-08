@@ -165,6 +165,13 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
 
       const rarity = fishingRarityForRoll(input.roll);
       const encounterTableSlug = rarity === null ? null : (fishing.encounterTables[rarity] ?? null);
+      if (rarity !== null && encounterTableSlug === null) {
+        return unavailable(
+          input.playerId,
+          `Fishing ${rarity} encounter pool is not configured for the current area`,
+        );
+      }
+
       const attemptNo = usedToday + 1;
       const attemptId = randomUUID();
       const inserted = await client.query<FishingAttemptRow>(
