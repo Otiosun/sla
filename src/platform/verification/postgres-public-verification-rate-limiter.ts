@@ -18,6 +18,10 @@ interface RateLimitRow {
   readonly target_retry_after_seconds: number | string;
 }
 
+const PUBLIC_ID_PATTERN = /^tcv_[A-Za-z0-9]{24}$/;
+const INVALID_TARGET_SCOPE = "invalid-target-v1";
+const STALE_RECLAIM_BATCH_SIZE = 128;
+
 function keyedHash(pepper: Uint8Array, scope: string, value: string): string {
   return createHmac("sha256", pepper).update(scope).update("\0").update(value).digest("hex");
 }
@@ -50,8 +54,29 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
     readonly remoteAddress: string;
   }): Promise<PublicVerificationRateLimitDecision> {
     const peerHash = keyedHash(this.pepper, "peer", request.remoteAddress);
-    const targetHash = keyedHash(this.pepper, "target", request.publicId);
+    const targetScope = PUBLIC_ID_PATTERN.test(request.publicId)
+      ? request.publicId
+      : INVALID_TARGET_SCOPE;
+    const targetHash = keyedHash(this.pepper, "target", targetScope);
     const peerWideTargetHash = keyedHash(this.pepper, "peer-wide-target", "v1");
+
+    await this.pool.query(
+      `DELETE FROM public_verification_rate_limit_buckets AS bucket
+       USING (
+         SELECT peer_hash, target_hash
+         FROM public_verification_rate_limit_buckets
+         WHERE updated_at <=
+           clock_timestamp() - make_interval(secs => $1::double precision)
+         ORDER BY updated_at ASC
+         LIMIT $2
+       ) AS stale
+       WHERE bucket.peer_hash = stale.peer_hash
+         AND bucket.target_hash = stale.target_hash
+         AND bucket.updated_at <=
+           clock_timestamp() - make_interval(secs => $1::double precision)`,
+      [this.policy.windowSeconds, STALE_RECLAIM_BATCH_SIZE],
+    );
+
     const result = await this.pool.query<RateLimitRow>(
       `WITH observed AS MATERIALIZED (
          SELECT clock_timestamp() AS observed_at
@@ -92,6 +117,7 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
          SELECT $1, $3, observed.observed_at, 1, observed.observed_at
          FROM observed
          CROSS JOIN peer_upserted
+         WHERE peer_upserted.request_count <= $5::integer
          ON CONFLICT (peer_hash, target_hash)
          DO UPDATE SET
            window_started_at = CASE
@@ -111,7 +137,7 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
        )
        SELECT
          peer_upserted.request_count AS peer_request_count,
-         target_upserted.request_count AS target_request_count,
+         COALESCE(target_upserted.request_count, 0) AS target_request_count,
          GREATEST(
            1,
            CEIL(
@@ -124,22 +150,31 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
              )
            )
          )::integer AS peer_retry_after_seconds,
-         GREATEST(
-           1,
-           CEIL(
-             EXTRACT(
-               EPOCH FROM (
-                 target_upserted.window_started_at
-                 + make_interval(secs => $4::double precision)
-                 - observed.observed_at
+         COALESCE(
+           GREATEST(
+             1,
+             CEIL(
+               EXTRACT(
+                 EPOCH FROM (
+                   target_upserted.window_started_at
+                   + make_interval(secs => $4::double precision)
+                   - observed.observed_at
+                 )
                )
              )
-           )
-         )::integer AS target_retry_after_seconds
+           )::integer,
+           1
+         ) AS target_retry_after_seconds
        FROM peer_upserted
-       CROSS JOIN target_upserted
-       CROSS JOIN observed`,
-      [peerHash, peerWideTargetHash, targetHash, this.policy.windowSeconds],
+       CROSS JOIN observed
+       LEFT JOIN target_upserted ON TRUE`,
+      [
+        peerHash,
+        peerWideTargetHash,
+        targetHash,
+        this.policy.windowSeconds,
+        this.policy.peerLimit,
+      ],
     );
 
     const row = result.rows[0];
@@ -154,7 +189,7 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
     if (!Number.isSafeInteger(peerRequestCount) || peerRequestCount <= 0) {
       throw new Error("Public verification rate limiter returned an invalid peer request count");
     }
-    if (!Number.isSafeInteger(targetRequestCount) || targetRequestCount <= 0) {
+    if (!Number.isSafeInteger(targetRequestCount) || targetRequestCount < 0) {
       throw new Error("Public verification rate limiter returned an invalid target request count");
     }
     if (!Number.isFinite(peerRetryAfterSeconds) || peerRetryAfterSeconds < 1) {
@@ -165,7 +200,10 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
     }
 
     const peerAllowed = peerRequestCount <= this.policy.peerLimit;
-    const targetAllowed = targetRequestCount <= this.policy.limit;
+    if (peerAllowed && targetRequestCount <= 0) {
+      throw new Error("Public verification rate limiter omitted an allowed target bucket");
+    }
+    const targetAllowed = !peerAllowed || targetRequestCount <= this.policy.limit;
     const retryAfterSeconds = Math.max(
       peerAllowed ? 1 : peerRetryAfterSeconds,
       targetAllowed ? 1 : targetRetryAfterSeconds,
