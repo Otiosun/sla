@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPublicVerificationServer } from "../../src/adapters/public-api/fastify-server.js";
+import {
+  createPublicVerificationServer,
+  type PublicVerificationRateLimiter,
+} from "../../src/adapters/public-api/fastify-server.js";
 import { loadPublicVerificationRuntimeConfig } from "../../src/runtime/public-verification-runtime-config.js";
 
 const PUBLIC_ID = "tcv_7Qm2Yp9Kx4Nw8Vr6Hs3Df1Za";
 const CANONICAL_KEY = Buffer.alloc(32, 7).toString("base64");
 const CANONICAL_PEPPER = Buffer.alloc(32, 11).toString("base64");
 
-function verificationDependencies(consume: ReturnType<typeof vi.fn>) {
+function verificationDependencies(consume: PublicVerificationRateLimiter["consume"]) {
   return {
     verificationService: {
       verify: vi.fn().mockResolvedValue({ status: "INVALID" as const }),
