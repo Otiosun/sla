@@ -1,14 +1,20 @@
-// RED contract: production verification modules are intentionally absent at this checkpoint.
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
-  HmacTrainerCardSigner,
+  Ed25519TrainerCardSigner,
+  Ed25519TrainerCardVerifier,
   type TrainerCardPublicSnapshot,
   TrainerCardVerificationService,
 } from "../../src/modules/verification/trainer-card-verification.js";
 import { createPublicVerificationServer } from "../../src/adapters/public-api/fastify-server.js";
 
 const PUBLIC_ID = "tcv_7Qm2Yp9Kx4Nw8Vr6Hs3Df1Za";
-const SIGNING_KEY = new Uint8Array(32).fill(7);
+const KEY_PAIR = generateKeyPairSync("ed25519", {
+  privateKeyEncoding: { format: "der", type: "pkcs8" },
+  publicKeyEncoding: { format: "der", type: "spki" },
+});
+const SIGNER = new Ed25519TrainerCardSigner(KEY_PAIR.privateKey);
+const VERIFIER = new Ed25519TrainerCardVerifier(KEY_PAIR.publicKey);
 const SNAPSHOT: TrainerCardPublicSnapshot = {
   version: 1,
   trainerName: "Red",
@@ -22,12 +28,13 @@ const SNAPSHOT: TrainerCardPublicSnapshot = {
 
 describe("trainer-card verification cryptographic boundary", () => {
   it("detects any change to the immutable public snapshot", () => {
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
-    const signature = signer.sign(SNAPSHOT);
+    const signature = SIGNER.sign(SNAPSHOT);
 
-    expect(signer.verify(SNAPSHOT, signature)).toBe(true);
-    expect(signer.verify({ ...SNAPSHOT, trainerName: "Blue" }, signature)).toBe(false);
-    expect(signer.verify({ ...SNAPSHOT, currentLocation: "Viridian City" }, signature)).toBe(false);
+    expect(VERIFIER.verify(SNAPSHOT, signature)).toBe(true);
+    expect(VERIFIER.verify({ ...SNAPSHOT, trainerName: "Blue" }, signature)).toBe(false);
+    expect(VERIFIER.verify({ ...SNAPSHOT, currentLocation: "Viridian City" }, signature)).toBe(
+      false,
+    );
   });
 
   it("keeps personal profile and internal identity fields outside the signed public projection", () => {
@@ -45,8 +52,7 @@ describe("trainer-card verification cryptographic boundary", () => {
 
 describe("TrainerCardVerificationService", () => {
   it("returns a signed ACTIVE record as VALID with only its public snapshot", async () => {
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
-    const signature = signer.sign(SNAPSHOT);
+    const signature = SIGNER.sign(SNAPSHOT);
     const repository = {
       findByPublicId: vi.fn().mockResolvedValue({
         publicId: PUBLIC_ID,
@@ -56,7 +62,7 @@ describe("TrainerCardVerificationService", () => {
         revokedAt: null,
       }),
     };
-    const service = new TrainerCardVerificationService(repository, signer);
+    const service = new TrainerCardVerificationService(repository, VERIFIER);
 
     await expect(service.verify(PUBLIC_ID)).resolves.toEqual({
       status: "VALID",
@@ -66,17 +72,16 @@ describe("TrainerCardVerificationService", () => {
   });
 
   it("returns REVOKED without releasing the old snapshot", async () => {
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
     const repository = {
       findByPublicId: vi.fn().mockResolvedValue({
         publicId: PUBLIC_ID,
         status: "REVOKED" as const,
         snapshot: SNAPSHOT,
-        signature: signer.sign(SNAPSHOT),
+        signature: SIGNER.sign(SNAPSHOT),
         revokedAt: new Date("2026-09-07T23:00:00.000Z"),
       }),
     };
-    const service = new TrainerCardVerificationService(repository, signer);
+    const service = new TrainerCardVerificationService(repository, VERIFIER);
 
     await expect(service.verify(PUBLIC_ID)).resolves.toEqual({
       status: "REVOKED",
@@ -85,10 +90,9 @@ describe("TrainerCardVerificationService", () => {
   });
 
   it("collapses missing records and bad signatures into the same INVALID response", async () => {
-    const signer = new HmacTrainerCardSigner(SIGNING_KEY);
     const missing = new TrainerCardVerificationService(
       { findByPublicId: vi.fn().mockResolvedValue(null) },
-      signer,
+      VERIFIER,
     );
     const tampered = new TrainerCardVerificationService(
       {
@@ -96,11 +100,11 @@ describe("TrainerCardVerificationService", () => {
           publicId: PUBLIC_ID,
           status: "ACTIVE" as const,
           snapshot: { ...SNAPSHOT, trainerName: "Mallory" },
-          signature: signer.sign(SNAPSHOT),
+          signature: SIGNER.sign(SNAPSHOT),
           revokedAt: null,
         }),
       },
-      signer,
+      VERIFIER,
     );
 
     await expect(missing.verify(PUBLIC_ID)).resolves.toEqual({ status: "INVALID" });
