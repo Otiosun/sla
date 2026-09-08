@@ -66,6 +66,10 @@ function identity(context: MessageHandlerContext): { provider: string; externalI
   };
 }
 
+function isPokemonPcPrompt(key: string | null): boolean {
+  return key !== null && key.includes(":center:pc");
+}
+
 async function resolvePlayer(
   dependencies: WorldServiceWhatsAppDependencies,
   context: MessageHandlerContext,
@@ -145,6 +149,22 @@ export function createWorldServiceWhatsAppRoutes(
         resultRefId: null,
         outgoing: [],
       });
+    }
+
+    if (
+      active.value.serviceKind === "POKEMON_CENTER" &&
+      isPokemonPcPrompt(active.value.expectedReplyOutboxIdempotencyKey)
+    ) {
+      return textResult(
+        context,
+        renderWorldServiceEntry("POKEMON_CENTER"),
+        active.value.sessionId,
+        {
+          playerId: player.value,
+          expectedRevision: active.value.revision,
+        },
+        ":center:return",
+      );
     }
 
     const closed = await dependencies.sessions.closeVisit({
