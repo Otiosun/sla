@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 
 const positiveInteger = (defaultValue: number) =>
@@ -11,6 +12,7 @@ const runtimeSchema = z.object({
   PUBLIC_VERIFICATION_RATE_LIMIT: positiveInteger(30),
   PUBLIC_VERIFICATION_PEER_LIMIT: positiveInteger(120),
   PUBLIC_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS: positiveInteger(60),
+  PUBLIC_VERIFICATION_TRUSTED_PROXY_CIDRS: z.string().trim().max(2_048).optional(),
 });
 
 export interface PublicVerificationProcessConfig {
@@ -18,6 +20,7 @@ export interface PublicVerificationProcessConfig {
   readonly port: number;
   readonly signingKey: Buffer;
   readonly rateLimitPepper: Buffer;
+  readonly trustedProxyCidrs: readonly string[];
   readonly rateLimitPolicy: {
     readonly limit: number;
     readonly peerLimit: number;
@@ -38,6 +41,58 @@ function decodeCanonicalKey(name: string, value: string): Buffer {
     );
   }
   return decoded;
+}
+
+function parseTrustedProxyCidrs(value: string | undefined): readonly string[] {
+  if (value === undefined || value.length === 0) return [];
+
+  const entries = value.split(",").map((entry) => entry.trim());
+  if (entries.length > 32 || entries.some((entry) => entry.length === 0)) {
+    throw new PublicVerificationRuntimeConfigError(
+      "Public verification trusted proxy CIDRs must contain 1 to 32 explicit IP/CIDR entries",
+    );
+  }
+
+  for (const entry of entries) {
+    if (entry === "0.0.0.0/0" || entry === "::/0") {
+      throw new PublicVerificationRuntimeConfigError(
+        "Public verification trusted proxy CIDRs must not trust the entire internet",
+      );
+    }
+
+    const parts = entry.split("/");
+    if (parts.length > 2) {
+      throw new PublicVerificationRuntimeConfigError(
+        `Invalid public verification trusted proxy CIDR: ${entry}`,
+      );
+    }
+
+    const address = parts[0] ?? "";
+    const family = isIP(address);
+    if (family === 0) {
+      throw new PublicVerificationRuntimeConfigError(
+        `Invalid public verification trusted proxy address: ${entry}`,
+      );
+    }
+
+    const prefix = parts[1];
+    if (prefix !== undefined) {
+      if (!/^\d+$/.test(prefix)) {
+        throw new PublicVerificationRuntimeConfigError(
+          `Invalid public verification trusted proxy CIDR prefix: ${entry}`,
+        );
+      }
+      const prefixLength = Number(prefix);
+      const maximumPrefix = family === 4 ? 32 : 128;
+      if (prefixLength < 0 || prefixLength > maximumPrefix) {
+        throw new PublicVerificationRuntimeConfigError(
+          `Invalid public verification trusted proxy CIDR prefix: ${entry}`,
+        );
+      }
+    }
+  }
+
+  return [...new Set(entries)];
 }
 
 export function loadPublicVerificationRuntimeConfig(
@@ -63,6 +118,9 @@ export function loadPublicVerificationRuntimeConfig(
     rateLimitPepper: decodeCanonicalKey(
       "PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64",
       parsed.data.PUBLIC_VERIFICATION_RATE_LIMIT_PEPPER_BASE64,
+    ),
+    trustedProxyCidrs: parseTrustedProxyCidrs(
+      parsed.data.PUBLIC_VERIFICATION_TRUSTED_PROXY_CIDRS,
     ),
     rateLimitPolicy: {
       limit: parsed.data.PUBLIC_VERIFICATION_RATE_LIMIT,
