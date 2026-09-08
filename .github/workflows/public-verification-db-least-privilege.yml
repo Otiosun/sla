@@ -52,7 +52,10 @@ jobs:
             postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
 
           for attempt in {1..30}; do
-            if docker exec pokemon-public-verification-postgres psql \
+            if docker exec \
+              --env PGPASSWORD=test-only-password \
+              pokemon-public-verification-postgres psql \
+              --host 127.0.0.1 \
               --username pokemon \
               --dbname postgres \
               --set ON_ERROR_STOP=1 \
@@ -81,11 +84,17 @@ jobs:
           migrator_url="postgresql://${migrator_role}:${migrator_password}@localhost:5432/${roles_db}"
           runtime_url="postgresql://${runtime_role}:${runtime_password}@localhost:5432/${roles_db}"
 
-          docker exec pokemon-public-verification-postgres createdb \
+          docker exec \
+            --env PGPASSWORD=test-only-password \
+            pokemon-public-verification-postgres createdb \
+            --host 127.0.0.1 \
             --username pokemon \
             "$roles_db"
 
-          docker exec -i pokemon-public-verification-postgres psql \
+          docker exec -i \
+            --env PGPASSWORD=test-only-password \
+            pokemon-public-verification-postgres psql \
+            --host 127.0.0.1 \
             --username pokemon \
             --dbname "$roles_db" \
             --set ON_ERROR_STOP=1 \
@@ -95,7 +104,10 @@ jobs:
             --set "runtime_password=${runtime_password}" \
             < db/bootstrap/roles.sql
 
-          docker exec -i pokemon-public-verification-postgres psql \
+          docker exec -i \
+            --env PGPASSWORD=test-only-password \
+            pokemon-public-verification-postgres psql \
+            --host 127.0.0.1 \
             --username pokemon \
             --dbname "$roles_db" \
             --set ON_ERROR_STOP=1 \
