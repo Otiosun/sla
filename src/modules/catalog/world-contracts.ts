@@ -7,6 +7,27 @@ const unlockKeySchema = z
   .max(96)
   .regex(/^[a-z0-9][a-z0-9._:-]*$/);
 
+const encounterTableSlugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(96)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/);
+
+const FishingAreaConfigSchema = z
+  .object({
+    pointName: z.string().trim().min(1).max(120),
+    encounterTables: z
+      .object({
+        COMMON: encounterTableSlugSchema,
+        UNCOMMON: encounterTableSlugSchema,
+        RARE: encounterTableSlugSchema.optional(),
+        EXTREMELY_RARE: encounterTableSlugSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const WorldAreaKindSchema = z.enum(["TOWN", "CITY", "ROUTE", "FACILITY", "OTHER"]);
 export type WorldAreaKind = z.infer<typeof WorldAreaKindSchema>;
 
@@ -17,6 +38,7 @@ export const WorldAreaConfigSchema = z
     safePoint: z.boolean(),
     startingArea: z.boolean(),
     relocationPriority: z.number().int().min(0).max(1_000_000),
+    fishing: FishingAreaConfigSchema.optional(),
   })
   .strict();
 export type WorldAreaConfig = z.infer<typeof WorldAreaConfigSchema>;
