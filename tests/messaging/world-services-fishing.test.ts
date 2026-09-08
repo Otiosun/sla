@@ -2,11 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EncounterView } from "../../src/modules/encounter/contracts.js";
 import type { FishingAttemptResult } from "../../src/modules/world-services/fishing-service.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
-import {
-  createEncounterId,
-  createPlayerId,
-  type PlayerId,
-} from "../../src/shared-kernel/ids.js";
+import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
