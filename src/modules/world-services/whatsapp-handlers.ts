@@ -182,7 +182,7 @@ function openHandler(
 
     const location = await dependencies.world.getLocation(player.value);
     if (!location.ok) return location;
-    if (!location.value.facilities.includes(serviceKind)) {
+    if (!location.value.facilities?.includes(serviceKind)) {
       return err(
         appError("ACTION_INVALID", "World service is not available in the current area", {
           serviceKind,
