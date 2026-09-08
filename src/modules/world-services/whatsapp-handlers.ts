@@ -8,6 +8,7 @@ import type { WorldService } from "../world/service.js";
 import type { WorldServiceKind } from "./contracts.js";
 import type { PokemonCenterHealingService } from "./healing-service.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
+import { createPokemonPcOrganizeRoute } from "./pc-organize-whatsapp.js";
 import {
   renderPokemonPcDepositSelection,
   renderPokemonPcWithdrawSelection,
@@ -422,6 +423,7 @@ export function createWorldServiceWhatsAppRoutes(
       handler: new FunctionalHandler(withdraw),
       policy: WORLD_SERVICE_POLICY,
     },
+    createPokemonPcOrganizeRoute(dependencies),
     {
       command: "conversar",
       handler: new FunctionalHandler(converse),
