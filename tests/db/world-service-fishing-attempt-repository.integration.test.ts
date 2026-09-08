@@ -259,4 +259,29 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
     );
     expect(count.rows[0]?.count).toBe("0");
   });
+
+  it("does not consume quota when a rolled encounter rarity has no configured ADM pool", async () => {
+    for (const outcome of [
+      { roll: 18, idempotencyKey: "fish-missing-rare" },
+      { roll: 20, idempotencyKey: "fish-missing-extreme" },
+    ] as const) {
+      const playerId = await playerAt(fishingAreaId);
+
+      const result = await repository.reserveAttempt({
+        playerId,
+        idempotencyKey: outcome.idempotencyKey,
+        roll: outcome.roll,
+      });
+
+      expect(result).toMatchObject({
+        kind: "FISHING_UNAVAILABLE",
+        playerId,
+      });
+      const count = await pool.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM fishing_attempts WHERE player_id = $1",
+        [playerId],
+      );
+      expect(count.rows[0]?.count).toBe("0");
+    }
+  });
 });
