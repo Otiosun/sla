@@ -3,7 +3,7 @@ name: Publish Security Preview Runtime Image
 on:
   push:
     branches:
-      - security/control-center-w4-antifraud-v1-clean
+      - security/w4-ed25519-signatures-v1
 
 permissions:
   contents: read
@@ -24,8 +24,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/security/control-center-w4-antifraud-v1-clean" ]]; then
-            echo "security preview image publishing is restricted to the isolated W4 branch" >&2
+          if [[ "$GITHUB_REF" != "refs/heads/security/w4-ed25519-signatures-v1" ]]; then
+            echo "security preview image publishing is restricted to the isolated W4 Ed25519 branch" >&2
             exit 64
           fi
 
