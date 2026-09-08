@@ -6,6 +6,15 @@ const positiveInteger = (defaultValue: number) =>
   z.coerce.number().int().positive().default(defaultValue);
 
 const runtimeSchema = z.object({
+  APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
+  DATABASE_URL: z.string().trim().min(1).optional(),
+  PUBLIC_VERIFICATION_DATABASE_URL: z.string().trim().min(1).max(4_096),
+  DATABASE_POOL_MAX: positiveInteger(10),
+  DATABASE_CONNECT_TIMEOUT_MS: positiveInteger(5_000),
+  DATABASE_IDLE_TIMEOUT_MS: positiveInteger(30_000),
+  DATABASE_QUERY_TIMEOUT_MS: positiveInteger(10_000),
+  DATABASE_STATEMENT_TIMEOUT_MS: positiveInteger(10_000),
+  DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: positiveInteger(15_000),
   PUBLIC_VERIFICATION_HOST: z.string().trim().min(1).max(255).default("127.0.0.1"),
   PUBLIC_VERIFICATION_PORT: z.coerce.number().int().min(1).max(65_535).default(8_788),
   PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64: z.string().trim().min(1).max(256),
@@ -18,6 +27,14 @@ const runtimeSchema = z.object({
 });
 
 export interface PublicVerificationProcessConfig {
+  readonly appEnv: "development" | "test" | "staging" | "production";
+  readonly databaseUrl: string;
+  readonly databasePoolMax: number;
+  readonly databaseConnectTimeoutMs: number;
+  readonly databaseIdleTimeoutMs: number;
+  readonly databaseQueryTimeoutMs: number;
+  readonly databaseStatementTimeoutMs: number;
+  readonly databaseIdleInTransactionTimeoutMs: number;
   readonly host: string;
   readonly port: number;
   readonly publicKey: Buffer;
@@ -33,6 +50,30 @@ export interface PublicVerificationProcessConfig {
 
 export class PublicVerificationRuntimeConfigError extends Error {
   override readonly name = "PublicVerificationRuntimeConfigError";
+}
+
+function parsePostgresDatabaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new PublicVerificationRuntimeConfigError(
+      "PUBLIC_VERIFICATION_DATABASE_URL must be a valid PostgreSQL URL",
+    );
+  }
+
+  if (
+    (url.protocol !== "postgres:" && url.protocol !== "postgresql:") ||
+    url.username.length === 0 ||
+    url.hostname.length === 0 ||
+    url.pathname.length <= 1
+  ) {
+    throw new PublicVerificationRuntimeConfigError(
+      "PUBLIC_VERIFICATION_DATABASE_URL must identify a dedicated PostgreSQL database credential",
+    );
+  }
+
+  return value;
 }
 
 function decodeCanonicalBase64(name: string, value: string, maxBytes: number): Buffer {
@@ -166,12 +207,26 @@ export function loadPublicVerificationRuntimeConfig(
     );
   }
 
+  if (parsed.data.DATABASE_URL !== undefined) {
+    throw new PublicVerificationRuntimeConfigError(
+      "Generic DATABASE_URL must not be present in the public verification runtime; use only PUBLIC_VERIFICATION_DATABASE_URL",
+    );
+  }
+
   const publicKey = decodeEd25519PublicKey(
     "PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64",
     parsed.data.PUBLIC_VERIFICATION_PUBLIC_KEY_BASE64,
   );
 
   return {
+    appEnv: parsed.data.APP_ENV,
+    databaseUrl: parsePostgresDatabaseUrl(parsed.data.PUBLIC_VERIFICATION_DATABASE_URL),
+    databasePoolMax: parsed.data.DATABASE_POOL_MAX,
+    databaseConnectTimeoutMs: parsed.data.DATABASE_CONNECT_TIMEOUT_MS,
+    databaseIdleTimeoutMs: parsed.data.DATABASE_IDLE_TIMEOUT_MS,
+    databaseQueryTimeoutMs: parsed.data.DATABASE_QUERY_TIMEOUT_MS,
+    databaseStatementTimeoutMs: parsed.data.DATABASE_STATEMENT_TIMEOUT_MS,
+    databaseIdleInTransactionTimeoutMs: parsed.data.DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS,
     host: parsed.data.PUBLIC_VERIFICATION_HOST,
     port: parsed.data.PUBLIC_VERIFICATION_PORT,
     publicKey,
