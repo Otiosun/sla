@@ -3,6 +3,7 @@ import type {
   PokemonPcDepositApplied,
   PokemonPcPokemonView,
   PokemonPcStorageSnapshot,
+  PokemonPcWithdrawApplied,
 } from "./pc-storage-service.js";
 
 function formatPcNumber(value: number): string {
@@ -78,6 +79,81 @@ export function renderPokemonPcDepositCancelled(): string {
     "　PC Pokémon · Nenhuma alteração realizada",
     "",
     "> _O Pokémon permanece na equipe._",
+    "",
+    "‹　`/pc`",
+  ].join("\n");
+}
+
+export function renderPokemonPcWithdrawSelection(snapshot: PokemonPcStorageSnapshot): string {
+  const stored = snapshot.boxes
+    .flatMap((box) => box.pokemon)
+    .sort((left, right) => {
+      const boxDifference = (left.boxNo ?? 0) - (right.boxNo ?? 0);
+      return boxDifference !== 0 ? boxDifference : left.slotNo - right.slotNo;
+    });
+  const lines = [
+    "↑ *𝗥𝗘𝗧𝗜𝗥𝗔𝗥 𝗣𝗢𝗞É𝗠𝗢𝗡*",
+    "　PC Pokémon · Armazenamento",
+    "",
+    "> _Escolha qual Pokémon deseja trazer para sua equipe._",
+    "",
+  ];
+
+  if (stored.length === 0) {
+    lines.push("◇ *Nenhum Pokémon armazenado.*", "", "‹　`/pc`");
+    return lines.join("\n");
+  }
+
+  stored.forEach((pokemon, index) => {
+    lines.push(
+      `\`${formatPcNumber(index + 1)}\` ${pokemon.displayName} · Nv. \`${formatPcNumber(pokemon.level)}\``,
+      `　Caixa ${formatPcNumber(pokemon.boxNo ?? 1)} · Vaga ${formatPcNumber(pokemon.slotNo)}`,
+    );
+  });
+  lines.push(
+    "",
+    "△ _Sua equipe pode carregar no máximo seis Pokémon._",
+    "",
+    "› _Responda com o número do Pokémon._",
+  );
+  return lines.join("\n");
+}
+
+export function renderPokemonPcWithdrawConfirmation(pokemon: PokemonPcPokemonView): string {
+  return [
+    "↑ *𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗥𝗘𝗧𝗜𝗥𝗔𝗗𝗔*",
+    "　PC Pokémon · Transferência",
+    "",
+    `◇ *${pokemon.displayName}* · Nv. \`${formatPcNumber(pokemon.level)}\``,
+    `　Caixa ${formatPcNumber(pokemon.boxNo ?? 1)} · Vaga ${formatPcNumber(pokemon.slotNo)}`,
+    "",
+    "`01` Confirmar",
+    "`02` Cancelar",
+    "",
+    "› _Responda com o número da opção._",
+  ].join("\n");
+}
+
+export function renderPokemonPcWithdrawSuccess(result: PokemonPcWithdrawApplied): string {
+  return [
+    "✓ *𝗣𝗢𝗞É𝗠𝗢𝗡 𝗥𝗘𝗧𝗜𝗥𝗔𝗗𝗢*",
+    "　PC Pokémon · Transferência concluída",
+    "",
+    `▣ Origem · Caixa ${formatPcNumber(result.fromBoxNo)} · Vaga ${formatPcNumber(result.fromSlotNo)}`,
+    `◇ Destino · Equipe · Posição ${formatPcNumber(result.teamSlotNo)}`,
+    "",
+    "> _A transferência foi concluída e sua equipe foi atualizada._",
+    "",
+    "‹　`/pc`",
+  ].join("\n");
+}
+
+export function renderPokemonPcWithdrawCancelled(): string {
+  return [
+    "‹ *𝗥𝗘𝗧𝗜𝗥𝗔𝗗𝗔 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗔*",
+    "　PC Pokémon · Nenhuma alteração realizada",
+    "",
+    "> _O Pokémon permanece armazenado._",
     "",
     "‹　`/pc`",
   ].join("\n");
