@@ -91,7 +91,7 @@ function identity(context: MessageHandlerContext): { provider: string; externalI
 }
 
 function isPokemonPcPrompt(key: string | null): boolean {
-  return key !== null && key.includes(":center:pc");
+  return key?.includes(":center:pc") === true;
 }
 
 async function resolvePlayer(
@@ -200,7 +200,12 @@ function openHandler(
       }
     }
 
-    return textResult(context, renderWorldServiceEntry(serviceKind), opened.value.sessionId, prompt);
+    return textResult(
+      context,
+      renderWorldServiceEntry(serviceKind),
+      opened.value.sessionId,
+      prompt,
+    );
   };
 }
 
