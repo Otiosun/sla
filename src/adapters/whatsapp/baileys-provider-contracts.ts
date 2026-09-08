@@ -96,11 +96,25 @@ export interface BaileysEventSourceLike {
   ): void;
 }
 
+export interface BaileysTextOutboundContentLike {
+  readonly text: string;
+  readonly mentions?: readonly string[];
+}
+
+export interface BaileysImageOutboundContentLike {
+  readonly image: { readonly url: string };
+  readonly caption?: string;
+}
+
+export type BaileysOutboundContentLike =
+  | BaileysTextOutboundContentLike
+  | BaileysImageOutboundContentLike;
+
 export interface BaileysSocketLike {
   readonly ev: BaileysEventSourceLike;
   sendMessage(
     jid: string,
-    content: { readonly text: string; readonly mentions?: readonly string[] },
+    content: BaileysOutboundContentLike,
     options?: { readonly messageId?: string },
   ): Promise<unknown>;
   end(error?: Error): void;
