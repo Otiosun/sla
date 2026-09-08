@@ -69,6 +69,7 @@ export interface WorldServiceWhatsAppDependencies {
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
+type OpenWorldServiceKind = Exclude<WorldServiceKind, "PC">;
 
 interface WorldServicePromptAnchor {
   readonly playerId: PlayerId;
@@ -173,7 +174,7 @@ function pokemartMediaResult(
 
 function openHandler(
   dependencies: WorldServiceWhatsAppDependencies,
-  serviceKind: WorldServiceKind,
+  serviceKind: OpenWorldServiceKind,
 ): Handler {
   return async (context) => {
     const player = await resolvePlayer(dependencies, context);
@@ -181,6 +182,14 @@ function openHandler(
 
     const location = await dependencies.world.getLocation(player.value);
     if (!location.ok) return location;
+    if (!location.value.facilities.includes(serviceKind)) {
+      return err(
+        appError("ACTION_INVALID", "World service is not available in the current area", {
+          serviceKind,
+          areaId: location.value.areaId,
+        }),
+      );
+    }
 
     const opened = await dependencies.sessions.openVisit({
       playerId: player.value,
