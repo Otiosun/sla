@@ -1,6 +1,6 @@
+import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { generateKeyPairSync } from "node:crypto";
 import { loadPublicVerificationRuntimeConfig } from "../../src/runtime/public-verification-runtime-config.js";
 
 const PUBLIC_KEY = generateKeyPairSync("ed25519", {
@@ -20,9 +20,7 @@ function baseEnv(): NodeJS.ProcessEnv {
 describe("public verification database least-privilege boundary", () => {
   it("requires a dedicated PostgreSQL URL and keeps the worker DATABASE_URL out of the public entrypoint", async () => {
     const config = loadPublicVerificationRuntimeConfig(baseEnv());
-    expect(Reflect.get(config, "databaseUrl")).toBe(
-      baseEnv().PUBLIC_VERIFICATION_DATABASE_URL,
-    );
+    expect(Reflect.get(config, "databaseUrl")).toBe(baseEnv().PUBLIC_VERIFICATION_DATABASE_URL);
 
     expect(() =>
       loadPublicVerificationRuntimeConfig({
