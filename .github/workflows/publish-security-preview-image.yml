@@ -1,0 +1,89 @@
+name: Publish Security Preview Runtime Image
+
+on:
+  push:
+    branches:
+      - security/control-center-w4-antifraud-v1-clean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: security-preview-runtime-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: immutable W4 security preview runtime image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Require isolated W4 security ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/security/control-center-w4-antifraud-v1-clean" ]]; then
+            echo "security preview image publishing is restricted to the isolated W4 branch" >&2
+            exit 64
+          fi
+
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare immutable preview image coordinate
+        shell: bash
+        run: |
+          set -euo pipefail
+          immutable_tag="ghcr.io/${GITHUB_REPOSITORY,,}:sha-${GITHUB_SHA}"
+          echo "RUNTIME_IMAGE_IMMUTABLE=${immutable_tag}" >> "$GITHUB_ENV"
+
+      - name: Bootstrap attestation-capable Buildx builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx create --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish immutable security preview image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx version
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=sha-${GITHUB_SHA}" \
+            --tag "$RUNTIME_IMAGE_IMMUTABLE" \
+            --push \
+            .
+
+      - name: Verify immutable preview manifest identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          immutable_digest="$(docker buildx imagetools inspect "$RUNTIME_IMAGE_IMMUTABLE" | awk '/^Digest:/ { print $2; exit }')"
+          [[ "$immutable_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "security preview runtime tag did not resolve to a sha256 digest" >&2
+            exit 1
+          }
+          printf 'security preview runtime image published: %s@%s\n' "$RUNTIME_IMAGE_IMMUTABLE" "$immutable_digest"
+
+      - name: Log out from GHCR
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
