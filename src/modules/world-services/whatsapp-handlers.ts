@@ -211,6 +211,25 @@ export function createWorldServiceWhatsAppRoutes(
     );
   };
 
+  const items: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+
+    const active = await dependencies.sessions.loadActiveSession(player.value);
+    if (!active.ok) return active;
+    if (active.value === null || active.value.serviceKind !== "POKEMART") {
+      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+    }
+
+    return textResult(
+      context,
+      renderMartCatalog(),
+      active.value.sessionId,
+      null,
+      ":mart:items",
+    );
+  };
+
   const sell: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -495,6 +514,11 @@ export function createWorldServiceWhatsAppRoutes(
     {
       command: "comprar",
       handler: new FunctionalHandler(buy),
+      policy: WORLD_SERVICE_POLICY,
+    },
+    {
+      command: "itens",
+      handler: new FunctionalHandler(items),
       policy: WORLD_SERVICE_POLICY,
     },
     {
