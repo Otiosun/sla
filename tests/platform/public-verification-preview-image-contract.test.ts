@@ -29,7 +29,7 @@ describe("public verification security preview image publisher", () => {
     expect(workflow).toContain("--target public-verification-runtime");
     expect(dockerfile).toContain("AS public-verification-runtime");
     expect(dockerfile).toContain('CMD ["node", "dist/src/public-verification-main.js"]');
-    expect(dockerfile).toContain('AS runtime');
+    expect(dockerfile).toContain("AS runtime");
     expect(dockerfile).toContain('CMD ["node", "dist/src/main.js"]');
     expect(dockerfile.lastIndexOf("AS runtime")).toBeGreaterThan(
       dockerfile.lastIndexOf("AS public-verification-runtime"),
