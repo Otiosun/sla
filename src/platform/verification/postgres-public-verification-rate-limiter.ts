@@ -168,13 +168,7 @@ export class PostgresPublicVerificationRateLimiter implements PublicVerification
        FROM peer_upserted
        CROSS JOIN observed
        LEFT JOIN target_upserted ON TRUE`,
-      [
-        peerHash,
-        peerWideTargetHash,
-        targetHash,
-        this.policy.windowSeconds,
-        this.policy.peerLimit,
-      ],
+      [peerHash, peerWideTargetHash, targetHash, this.policy.windowSeconds, this.policy.peerLimit],
     );
 
     const row = result.rows[0];
