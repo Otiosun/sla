@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
-import type { TrainerCardPublicSnapshot } from "./trainer-card-verification.js";
-import { HmacTrainerCardSigner } from "./trainer-card-verification.js";
+import type {
+  HmacTrainerCardSigner,
+  TrainerCardPublicSnapshot,
+} from "./trainer-card-verification.js";
 
 const PUBLIC_ID_PREFIX = "tcv_";
 const PUBLIC_ID_LENGTH = 24;
