@@ -30,6 +30,7 @@ describe("versioned world content contracts", () => {
       safePoint: true,
       startingArea: true,
       relocationPriority: 0,
+      facilities: [],
     });
 
     expect(
