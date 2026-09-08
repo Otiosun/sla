@@ -194,4 +194,33 @@ describe("FishingService", () => {
       },
     });
   });
+
+  it("returns a stable action error when fishing is unavailable instead of throwing", async () => {
+    const reserveAttempt = vi.fn(async () =>
+      ({
+        kind: "FISHING_UNAVAILABLE",
+        playerId: PLAYER_ID,
+        reason: "Fishing is not configured for the current area",
+      }) as never,
+    );
+    const createOrReplay = vi.fn();
+    const service = new FishingService({ reserveAttempt }, { createOrReplay }, rng(16));
+
+    const result = await service.attempt({
+      playerId: PLAYER_ID,
+      idempotencyKey: "fish-unavailable",
+    });
+
+    expect(createOrReplay).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "ACTION_INVALID",
+        message: "Fishing is unavailable here",
+        details: {
+          reason: "Fishing is not configured for the current area",
+        },
+      },
+    });
+  });
 });
