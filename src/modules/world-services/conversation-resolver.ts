@@ -36,6 +36,7 @@ import {
   pcWithdrawPokemonFromConfirmPromptKey,
   previewPcDepositDestination,
 } from "./pc-conversation.js";
+import { resolvePokemonPcOrganizeReply } from "./pc-organize-resolver.js";
 import {
   renderPokemonPcDepositCancelled,
   renderPokemonPcDepositConfirmation,
@@ -88,7 +89,7 @@ export interface WorldServiceConversationResolverDependencies {
   readonly replyIntent: WorldServiceReplyIntentVerifier;
   readonly economy?: MartEconomyService;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage"> &
-    Partial<Pick<PokemonPcStorageService, "deposit" | "withdraw">>;
+    Partial<Pick<PokemonPcStorageService, "deposit" | "withdraw" | "organize">>;
 }
 
 function identity(message: IncomingMessage): { provider: string; externalId: string } {
@@ -384,6 +385,15 @@ export class WorldServiceConversationResolver {
       }
 
       if (session.serviceKind === "POKEMON_CENTER" && promptKey !== null && text !== null) {
+        const organizeReply = await resolvePokemonPcOrganizeReply({
+          context,
+          session,
+          promptKey,
+          text,
+          pcStorage: this.dependencies.pcStorage,
+        });
+        if (organizeReply !== null) return organizeReply;
+
         const withdrawPokemonId = pcWithdrawPokemonFromConfirmPromptKey(promptKey);
         if (withdrawPokemonId !== null) {
           const choice = text.trim();
