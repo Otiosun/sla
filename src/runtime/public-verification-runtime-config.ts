@@ -63,7 +63,10 @@ function decodeEd25519PublicKey(name: string, value: string): Buffer {
   }
 }
 
-function parsePreviousPublicKeys(value: string | undefined, currentPublicKey: Buffer): readonly Buffer[] {
+function parsePreviousPublicKeys(
+  value: string | undefined,
+  currentPublicKey: Buffer,
+): readonly Buffer[] {
   if (value === undefined || value.length === 0) return [];
 
   const entries = value.split(",").map((entry) => entry.trim());
