@@ -7,8 +7,15 @@ import type { AppError, Result } from "../../shared-kernel/result.js";
 const SESSION_COOKIE_NAME = "__Host-pokemon_hub_session";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
 
+interface PlayerPortalWorldTravelInput {
+  readonly destinationAreaId: string;
+  readonly expectedRevision: string;
+  readonly idempotencyKey: string;
+}
+
 interface PlayerPortalWorldBoundary {
   getLocation(identity: ExternalIdentity): Promise<Result<unknown>>;
+  travel(identity: ExternalIdentity, input: PlayerPortalWorldTravelInput): Promise<Result<unknown>>;
 }
 
 interface PlayerPortalHttpDependencies {
@@ -35,6 +42,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/world/location") {
       return this.getWorldLocation(request);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/world/travel") {
+      return this.travelWorld(request);
     }
 
     return jsonResponse(404, { error: "NOT_FOUND" });
@@ -74,15 +84,8 @@ export class PlayerPortalHttpHandler {
   }
 
   private async getSelf(request: Request): Promise<Response> {
-    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
-    if (sessionToken === null) {
-      return jsonResponse(401, { error: "UNAUTHENTICATED" });
-    }
-
-    const verified = this.dependencies.sessions.verify(sessionToken);
-    if (!verified.ok) {
-      return jsonResponse(401, { error: "UNAUTHENTICATED" });
-    }
+    const verified = this.verifySession(request);
+    if (!verified.ok) return jsonResponse(401, { error: "UNAUTHENTICATED" });
 
     const profile = await this.dependencies.player.getSelf(verified.value);
     if (!profile.ok) {
@@ -93,15 +96,8 @@ export class PlayerPortalHttpHandler {
   }
 
   private async getPokemon(request: Request): Promise<Response> {
-    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
-    if (sessionToken === null) {
-      return jsonResponse(401, { error: "UNAUTHENTICATED" });
-    }
-
-    const verified = this.dependencies.sessions.verify(sessionToken);
-    if (!verified.ok) {
-      return jsonResponse(401, { error: "UNAUTHENTICATED" });
-    }
+    const verified = this.verifySession(request);
+    if (!verified.ok) return jsonResponse(401, { error: "UNAUTHENTICATED" });
 
     const pokemon = await this.dependencies.player.getPokemon(verified.value);
     if (!pokemon.ok) {
@@ -112,15 +108,8 @@ export class PlayerPortalHttpHandler {
   }
 
   private async getWorldLocation(request: Request): Promise<Response> {
-    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
-    if (sessionToken === null) {
-      return jsonResponse(401, { error: "UNAUTHENTICATED" });
-    }
-
-    const verified = this.dependencies.sessions.verify(sessionToken);
-    if (!verified.ok) {
-      return jsonResponse(401, { error: "UNAUTHENTICATED" });
-    }
+    const verified = this.verifySession(request);
+    if (!verified.ok) return jsonResponse(401, { error: "UNAUTHENTICATED" });
 
     const location = await this.dependencies.world.getLocation(verified.value);
     if (!location.ok) {
@@ -129,9 +118,59 @@ export class PlayerPortalHttpHandler {
 
     return jsonResponse(200, { location: location.value });
   }
+
+  private async travelWorld(request: Request): Promise<Response> {
+    const verified = this.verifySession(request);
+    if (!verified.ok) return jsonResponse(401, { error: "UNAUTHENTICATED" });
+
+    const input = await readWorldTravelInput(request);
+    if (input === null) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
+
+    const traveled = await this.dependencies.world.travel(verified.value, input);
+    if (!traveled.ok) {
+      return errorResponse(traveled.error, "self");
+    }
+
+    return jsonResponse(200, { travel: traveled.value });
+  }
+
+  private verifySession(request: Request): Result<ExternalIdentity> {
+    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
+    if (sessionToken === null) {
+      return { ok: false, error: { code: "NOT_FOUND", message: "Hub session unavailable" } };
+    }
+    return this.dependencies.sessions.verify(sessionToken);
+  }
 }
 
 async function readTicket(request: Request): Promise<string | null> {
+  const body = await readJsonObject(request);
+  if (body === null) return null;
+  const ticket = Reflect.get(body, "ticket");
+  return typeof ticket === "string" ? ticket : null;
+}
+
+async function readWorldTravelInput(request: Request): Promise<PlayerPortalWorldTravelInput | null> {
+  const body = await readJsonObject(request);
+  if (body === null) return null;
+
+  const destinationAreaId = Reflect.get(body, "destinationAreaId");
+  const expectedRevision = Reflect.get(body, "expectedRevision");
+  const idempotencyKey = Reflect.get(body, "idempotencyKey");
+  if (
+    typeof destinationAreaId !== "string" ||
+    typeof expectedRevision !== "string" ||
+    typeof idempotencyKey !== "string"
+  ) {
+    return null;
+  }
+
+  return { destinationAreaId, expectedRevision, idempotencyKey };
+}
+
+async function readJsonObject(request: Request): Promise<Record<string, unknown> | null> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) return null;
 
@@ -143,8 +182,7 @@ async function readTicket(request: Request): Promise<string | null> {
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
-  const ticket = Reflect.get(body, "ticket");
-  return typeof ticket === "string" ? ticket : null;
+  return body as Record<string, unknown>;
 }
 
 function readCookie(header: string | null, name: string): string | null {

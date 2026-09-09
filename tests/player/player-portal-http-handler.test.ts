@@ -65,6 +65,7 @@ function handler(
     },
     world: {
       getLocation: async () => ok({} as never),
+      travel: async () => ok({} as never),
     },
   });
 }
