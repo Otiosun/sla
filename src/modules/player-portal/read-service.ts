@@ -3,10 +3,7 @@ import {
   type ExternalIdentity,
   type PlayerProfileView,
 } from "../player/contracts.js";
-import type {
-  OwnedPokemonRecord,
-  PlayerOnboardingRepository,
-} from "../player/ports.js";
+import type { OwnedPokemonRecord, PlayerOnboardingRepository } from "../player/ports.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 export interface PlayerPortalCatalogResolveInput {
