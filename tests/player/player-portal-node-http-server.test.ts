@@ -33,14 +33,17 @@ describe("player portal Node HTTP transport", () => {
     });
 
     try {
-      const response = await fetch(`http://127.0.0.1:${server.port}/v1/hub/world/travel?source=test`, {
-        method: "POST",
-        headers: {
-          authorization: "Bearer smoke",
-          "content-type": "application/json",
+      const response = await fetch(
+        `http://127.0.0.1:${server.port}/v1/hub/world/travel?source=test`,
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer smoke",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ destinationAreaId: "area-2" }),
         },
-        body: JSON.stringify({ destinationAreaId: "area-2" }),
-      });
+      );
 
       expect(response.status).toBe(201);
       expect(response.headers.get("x-player-portal-test")).toBe("forwarded");
