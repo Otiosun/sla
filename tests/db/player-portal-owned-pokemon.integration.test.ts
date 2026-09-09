@@ -48,9 +48,9 @@ describe.sequential("Player Portal owned Pokemon on disposable PostgreSQL", () =
       `INSERT INTO pokemon_instances(
          id, owner_player_id, form_id, nickname, level, current_hp, gender, shiny, origin_type
        ) VALUES
-         ($1, $3, $5, 'Brasa', 12, 31, 'M', FALSE, 'STARTER'),
-         ($2, $3, $5, NULL, 8, 19, 'F', TRUE, 'CAPTURE')`,
-      [teamPokemonId, boxPokemonId, playerId, null, formId],
+         ($1, $3, $4, 'Brasa', 12, 31, 'M', FALSE, 'STARTER'),
+         ($2, $3, $4, NULL, 8, 19, 'F', TRUE, 'CAPTURE')`,
+      [teamPokemonId, boxPokemonId, playerId, formId],
     );
     await pool.query(
       `INSERT INTO pokemon_roster_slots(

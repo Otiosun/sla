@@ -1,4 +1,4 @@
-import type { PlayerId } from "../../shared-kernel/ids.js";
+import type { PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
 import type {
   ContentContext,
   ExternalIdentity,
@@ -17,6 +17,19 @@ export interface StoredProfile {
   readonly locale: string | null;
   readonly metadata: Readonly<Record<string, never>>;
   readonly originRegionId: string | null;
+}
+
+export interface OwnedPokemonRecord {
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly formId: string;
+  readonly nickname: string | null;
+  readonly level: number;
+  readonly currentHp: number;
+  readonly gender: string | null;
+  readonly shiny: boolean;
+  readonly placementKind: "TEAM" | "BOX";
+  readonly boxNo: number | null;
+  readonly slotNo: number;
 }
 
 export interface PlayerOnboardingTransaction {
@@ -63,6 +76,7 @@ export interface PlayerOnboardingTransaction {
     readonly expectedRevision: bigint;
   }): Promise<boolean>;
   loadProfileView(playerId: PlayerId): Promise<PlayerProfileView | null>;
+  listOwnedPokemon(playerId: PlayerId): Promise<readonly OwnedPokemonRecord[]>;
 }
 
 export interface PlayerOnboardingRepository {

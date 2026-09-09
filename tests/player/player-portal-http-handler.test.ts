@@ -61,6 +61,7 @@ function handler(
     },
     player: {
       getSelf: async () => input.selfResult ?? ok(profile),
+      getPokemon: async () => ok([]),
     },
   });
 }

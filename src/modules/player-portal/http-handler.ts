@@ -9,7 +9,7 @@ const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
 interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
-  readonly player: Pick<PlayerPortalReadService, "getSelf">;
+  readonly player: Pick<PlayerPortalReadService, "getSelf" | "getPokemon">;
 }
 
 export class PlayerPortalHttpHandler {
@@ -23,6 +23,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.getSelf(request);
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon") {
+      return this.getPokemon(request);
     }
 
     return jsonResponse(404, { error: "NOT_FOUND" });
@@ -78,6 +81,25 @@ export class PlayerPortalHttpHandler {
     }
 
     return jsonResponse(200, { profile: profile.value });
+  }
+
+  private async getPokemon(request: Request): Promise<Response> {
+    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
+    if (sessionToken === null) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const verified = this.dependencies.sessions.verify(sessionToken);
+    if (!verified.ok) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const pokemon = await this.dependencies.player.getPokemon(verified.value);
+    if (!pokemon.ok) {
+      return errorResponse(pokemon.error, "self");
+    }
+
+    return jsonResponse(200, { pokemon: pokemon.value });
   }
 }
 

@@ -6,12 +6,23 @@ import {
   OnboardingStateSchema,
   type ProfileInput,
 } from "../../modules/player/contracts.js";
-import type { StoredProfile } from "../../modules/player/ports.js";
-import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
+import type { OwnedPokemonRecord, StoredProfile } from "../../modules/player/ports.js";
+import {
+  type PlayerId,
+  type PokemonInstanceId,
+  parsePlayerId,
+  parsePokemonInstanceId,
+} from "../../shared-kernel/ids.js";
 
 function asPlayerId(value: string): PlayerId {
   const parsed = parsePlayerId(value);
   if (!parsed.ok) throw new Error("Database returned an invalid PlayerId");
+  return parsed.value;
+}
+
+function asPokemonInstanceId(value: string): PokemonInstanceId {
+  const parsed = parsePokemonInstanceId(value);
+  if (!parsed.ok) throw new Error("Database returned an invalid PokemonInstanceId");
   return parsed.value;
 }
 
@@ -39,6 +50,46 @@ export class PostgresPlayerRegistrationTransaction {
     );
     const row = result.rows[0];
     return row === undefined ? null : asPlayerId(row.player_id);
+  }
+
+  public async listOwnedPokemon(playerId: PlayerId): Promise<readonly OwnedPokemonRecord[]> {
+    const result = await this.client.query<{
+      pokemon_instance_id: string;
+      form_id: string;
+      nickname: string | null;
+      level: number;
+      current_hp: number;
+      gender: string | null;
+      shiny: boolean;
+      placement_kind: "TEAM" | "BOX";
+      box_no: number | null;
+      slot_no: number;
+    }>(
+      `SELECT pokemon.id AS pokemon_instance_id, pokemon.form_id, pokemon.nickname,
+              pokemon.level, pokemon.current_hp, pokemon.gender, pokemon.shiny,
+              roster.placement_kind, roster.box_no, roster.slot_no
+       FROM pokemon_instances pokemon
+       JOIN pokemon_roster_slots roster
+         ON roster.pokemon_instance_id = pokemon.id
+        AND roster.player_id = pokemon.owner_player_id
+       WHERE pokemon.owner_player_id = $1 AND pokemon.status = 'ACTIVE'
+       ORDER BY CASE roster.placement_kind WHEN 'TEAM' THEN 0 ELSE 1 END,
+                roster.box_no NULLS FIRST, roster.slot_no, pokemon.id`,
+      [playerId],
+    );
+
+    return result.rows.map((row) => ({
+      pokemonInstanceId: asPokemonInstanceId(row.pokemon_instance_id),
+      formId: row.form_id,
+      nickname: row.nickname,
+      level: row.level,
+      currentHp: row.current_hp,
+      gender: row.gender,
+      shiny: row.shiny,
+      placementKind: row.placement_kind,
+      boxNo: row.box_no,
+      slotNo: row.slot_no,
+    }));
   }
 
   public async loadActiveContentContext(): Promise<ContentContext | null> {
