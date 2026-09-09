@@ -1,8 +1,7 @@
-import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
-import type { AppError, Result } from "../../shared-kernel/result.js";
+import type { AppError } from "../../shared-kernel/result.js";
 
 const SESSION_COOKIE_NAME = "__Host-pokemon_hub_session";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
@@ -154,6 +153,3 @@ function jsonResponse(
     },
   });
 }
-
-export type PlayerPortalHttpResult<T> = Result<T>;
-export type PlayerPortalHttpIdentity = ExternalIdentity;
