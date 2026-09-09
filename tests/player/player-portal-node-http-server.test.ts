@@ -74,8 +74,9 @@ describe("player portal Node HTTP transport", () => {
       const response = await fetch(`http://127.0.0.1:${server.port}/boom`);
       expect(response.status).toBe(500);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      await expect(response.json()).resolves.toEqual({ error: "INTERNAL_ERROR" });
-      expect(await response.clone().text()).not.toContain("sensitive backend detail");
+      const responseText = await response.text();
+      expect(JSON.parse(responseText)).toEqual({ error: "INTERNAL_ERROR" });
+      expect(responseText).not.toContain("sensitive backend detail");
     } finally {
       await server.close();
     }
