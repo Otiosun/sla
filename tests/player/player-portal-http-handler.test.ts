@@ -35,11 +35,13 @@ const profile: PlayerPortalSelfView = {
 
 const sessionExpiresAt = new Date("2026-09-10T00:00:00.000Z");
 
-function handler(input: {
-  selfResult?: ReturnType<typeof ok<PlayerPortalSelfView>> | ReturnType<typeof err>;
-  verifiedIdentity?: ExternalIdentity | null;
-  onVerify?: (token: string) => void;
-} = {}): PlayerPortalHttpHandler {
+function handler(
+  input: {
+    selfResult?: ReturnType<typeof ok<PlayerPortalSelfView>> | ReturnType<typeof err>;
+    verifiedIdentity?: ExternalIdentity | null;
+    onVerify?: (token: string) => void;
+  } = {},
+): PlayerPortalHttpHandler {
   return new PlayerPortalHttpHandler({
     tickets: {
       redeem: async () => ok(identity),
