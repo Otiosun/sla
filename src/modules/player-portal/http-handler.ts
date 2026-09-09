@@ -152,7 +152,9 @@ async function readTicket(request: Request): Promise<string | null> {
   return typeof ticket === "string" ? ticket : null;
 }
 
-async function readWorldTravelInput(request: Request): Promise<PlayerPortalWorldTravelInput | null> {
+async function readWorldTravelInput(
+  request: Request,
+): Promise<PlayerPortalWorldTravelInput | null> {
   const body = await readJsonObject(request);
   if (body === null) return null;
 
