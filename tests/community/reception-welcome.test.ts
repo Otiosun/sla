@@ -112,26 +112,26 @@ async function textFor(options: HarnessOptions): Promise<string | null> {
 }
 
 describe("ReceptionService state-aware first interaction", () => {
-  it("guides a player with no registration to $registrar", async () => {
-    expect(await textFor({})).toMatch(/\$registrar/i);
+  it("guides a player with no registration to /registrar", async () => {
+    expect(await textFor({})).toMatch(/\/registrar/i);
   });
 
-  it("guides an existing draft to $continuar and $ficha", async () => {
+  it("guides an existing draft to /continuar and /ficha", async () => {
     const text = await textFor({ draft: true });
-    expect(text).toMatch(/\$continuar/i);
-    expect(text).toMatch(/\$ficha/i);
+    expect(text).toMatch(/\/continuar/i);
+    expect(text).toMatch(/\/ficha/i);
     expect(text).not.toMatch(/começar.*do zero/i);
   });
 
   it("reports SUBMITTED as in analysis without reopening onboarding", async () => {
     const text = await textFor({ draft: true, reviewStatus: "SUBMITTED" });
     expect(text).toMatch(/an[aá]lise/i);
-    expect(text).not.toMatch(/\$registrar/i);
+    expect(text).not.toMatch(/\/registrar/i);
   });
 
-  it("guides CHANGES_REQUESTED to $editar while preserving the existing ficha", async () => {
+  it("guides CHANGES_REQUESTED to /editar while preserving the existing ficha", async () => {
     const text = await textFor({ draft: true, reviewStatus: "CHANGES_REQUESTED" });
-    expect(text).toMatch(/\$editar/i);
+    expect(text).toMatch(/\/editar/i);
     expect(text).toMatch(/ajuste|altera/i);
   });
 
@@ -139,7 +139,7 @@ describe("ReceptionService state-aware first interaction", () => {
     const text = await textFor({ reviewStatus: "APPROVED", accessStatus: "PROVISIONING" });
     expect(text).toMatch(/aprovad/i);
     expect(text).toMatch(/libera|provision/i);
-    expect(text).not.toMatch(/\$registrar|passo a passo/i);
+    expect(text).not.toMatch(/\/registrar|passo a passo/i);
   });
 
   it("treats ACTIVE as a returning player and does not read novice registration state", async () => {
@@ -148,14 +148,14 @@ describe("ReceptionService state-aware first interaction", () => {
     if (!result.ok) throw result.error;
 
     expect(result.value?.text).toMatch(/volta|retorno|bem-vind/i);
-    expect(result.value?.text).not.toMatch(/\$registrar|\$continuar|\$editar|passo a passo/i);
+    expect(result.value?.text).not.toMatch(/\/registrar|\/continuar|\/editar|passo a passo/i);
     expect(active.registrationReads()).toBe(0);
   });
 
   it("keeps REJECTED explicit instead of silently creating another registration", async () => {
     const text = await textFor({ reviewStatus: "REJECTED" });
     expect(text).toMatch(/rejeitad/i);
-    expect(text).not.toMatch(/nova ficha|\$registrar/i);
+    expect(text).not.toMatch(/nova ficha|\/registrar/i);
   });
 
   it("fails closed outside an active Reception", async () => {

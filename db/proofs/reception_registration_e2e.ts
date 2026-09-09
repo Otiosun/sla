@@ -10,8 +10,7 @@ import { PlayerRegistrationService } from "../../src/modules/player/registration
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
 import { PlayerProvisioningService } from "../../src/modules/registration/provisioning-service.js";
 import { PlayerProvisioningWorker } from "../../src/modules/registration/provisioning-worker.js";
-import { appError, err } from "../../src/shared-kernel/result.js";
-import { PostgresAdminRegistrySeed } from "../../src/platform/admin/postgres-admin-registry-seed.js";
+import { WorldService } from "../../src/modules/world/service.js";
 import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { SystemClock } from "../../src/platform/clock/index.js";
@@ -25,11 +24,11 @@ import { PostgresRegistrationRepository } from "../../src/platform/registration/
 import { PostgresRegistrationSetupLoader } from "../../src/platform/registration/postgres-registration-setup-loader.js";
 import { CryptoRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
-import { WorldService } from "../../src/modules/world/service.js";
 import {
   createOperationalMessagingComposition,
   createOperationalOutboxWorker,
 } from "../../src/runtime/compose-whatsapp-runtime.js";
+import { appError, err } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required for reception registration E2E");
@@ -324,7 +323,7 @@ async function receive(service: MessagingService, message: IncomingMessage): Pro
   if (harness === undefined) throw new Error("Reception E2E messaging harness is missing");
 
   const text = message.text?.trim() ?? "";
-  const freeform = text.length > 0 && !text.startsWith("$");
+  const freeform = text.length > 0 && !/^[$/]/.test(text);
   const prepared =
     freeform && harness.lastRegistrationPromptId !== null
       ? { ...message, replyToExternalMessageId: harness.lastRegistrationPromptId }
@@ -358,7 +357,16 @@ async function main(): Promise<void> {
     const { adminPrincipalId } = await configureReception(pool);
     let runtime = messaging(pool);
 
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "oi"));
+    const membership = {provider: "baileys", chatRef: RECEPTION_CHAT, externalId: PLAYER_JID, action: "add"} as const;
+    await runtime.composition.onMembership(membership);
+    await messaging(pool).composition.onMembership(membership);
+    const welcome = await pool.query<{message_type: string; payload: {caption: string; mentions: string[]}}>(
+      "SELECT message_type,payload FROM outbox_messages WHERE destination_ref=$1 AND idempotency_key LIKE 'reception:join:%'", [RECEPTION_CHAT]);
+    assert.equal(welcome.rows.length, 1);
+    assert.equal(welcome.rows[0]?.message_type, "IMAGE");
+    assert.match(welcome.rows[0]?.payload.caption ?? "", /BZZZT[\s\S]*\/registrar/);
+    assert.deepEqual(welcome.rows[0]?.payload.mentions, [PLAYER_JID]);
+    await harnessByService.get(runtime.service)?.outboxWorker.runOnce();
     const identity = await pool.query<{ player_id: string }>(
       `SELECT player_id FROM player_identities
        WHERE provider = 'baileys' AND external_id = $1 AND status = 'ACTIVE'`,
@@ -367,12 +375,12 @@ async function main(): Promise<void> {
     const playerId = identity.rows[0]?.player_id;
     if (playerId === undefined) throw new Error("Reception welcome did not create a player identity");
 
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$registrar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/registrar"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "1"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "Liora Vale"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "17"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "ela/dela"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$salvar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/salvar"));
 
     const partial = await pool.query<{
       trainer_name: string | null;
@@ -389,8 +397,8 @@ async function main(): Promise<void> {
     assert.deepEqual(partial.rows[0], { trainer_name: "Liora Vale", age: 17, appearance: null });
 
     runtime = messaging(pool);
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$continuar"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/continuar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -399,7 +407,7 @@ async function main(): Promise<void> {
         fullFicha(starterNames[0], "Curiosa e competitiva.", "Saiu de casa para pesquisar Pokémon raros."),
       ),
     );
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -408,8 +416,8 @@ async function main(): Promise<void> {
         fullFicha(starterNames[1], "Curiosa e competitiva.", "Saiu de casa para pesquisar Pokémon raros."),
       ),
     );
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar"));
-    const submitMessage = incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar sim");
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar"));
+    const submitMessage = incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar sim");
     await receive(runtime.service, submitMessage);
     const replay = unwrap("replay exact submit", await runtime.service.receive(submitMessage));
     assert.equal(replay.status, "REPLAYED");
@@ -467,7 +475,7 @@ async function main(): Promise<void> {
 
     await receive(
       runtime.service,
-      incoming(ADMIN_JID, RECEPTION_CHAT, "$ajustes", firstReplyId),
+      incoming(ADMIN_JID, RECEPTION_CHAT, "/ajustes", firstReplyId),
     );
     const changed = await pool.query<{ status: string }>(
       "SELECT status FROM registration_revisions WHERE id = $1",
@@ -485,8 +493,8 @@ async function main(): Promise<void> {
     assert.equal(firstDraft.rows[0]?.trainer_name, "Liora Vale");
     assert.equal(firstDraft.rows[0]?.starter_form_id, expectedStarter.formId);
 
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$editar"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/editar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -499,8 +507,8 @@ async function main(): Promise<void> {
         ),
       ),
     );
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar sim"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar sim"));
 
     const reviews = await pool.query<{
       id: string;
@@ -534,7 +542,7 @@ async function main(): Promise<void> {
 
     await receive(
       runtime.service,
-      incoming(ADMIN_JID, RECEPTION_CHAT, "$aprovar", secondReplyId),
+      incoming(ADMIN_JID, RECEPTION_CHAT, "/aprovar", secondReplyId),
     );
     const approved = await pool.query<{
       status: string;
@@ -664,7 +672,7 @@ async function main(): Promise<void> {
       (candidate) => candidate.destinationSlug === "zhoulia-road",
     );
     if (route === undefined) throw new Error("Zhoulia world route is missing after provisioning");
-    const commandText = `$ir ${route.destinationSlug} v${location.revision}`;
+    const commandText = `/ir ${route.destinationSlug} v${location.revision}`;
     const receptionContext = directContext(PLAYER_JID, RECEPTION_CHAT, commandText);
     const denied = await runtime.composition.router.dispatch(receptionContext);
     assert.equal(denied.ok, false);

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import {
   createOperationalUxRoutes,
   type OperationalUxDependencies,
 } from "../../src/modules/messaging/operational-ux-handlers.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
@@ -241,11 +241,11 @@ describe("Phase 13 operational WhatsApp UX", () => {
   it("presents a compact complete-player menu without inventing automatic exploration", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("$menu")));
     expect(output).toContain("CENTRAL DO TREINADOR");
-    expect(output).toContain("$onde");
-    expect(output).toContain("$encontro");
+    expect(output).toContain("/onde");
+    expect(output).toContain("/encontro");
     expect(output).toContain("Cenas comuns continuam livres");
-    expect(output).not.toContain("$explorar");
-    expect(output).not.toContain("$golpe");
+    expect(output).not.toContain("/explorar");
+    expect(output).not.toContain("/golpe");
   });
 
   it("renders profile, team, inventory and Pokedex as readable mobile text", async () => {
@@ -264,7 +264,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const deps = dependencies();
     const app = router(deps);
     const whereText = textOf(await app.dispatch(context("$onde", "where")));
-    expect(whereText).toContain("$ir route-1 v7");
+    expect(whereText).toContain("/ir route-1 v7");
 
     const stale = await app.dispatch(context("$ir route-1 v6", "stale"));
     expect(stale.ok).toBe(false);

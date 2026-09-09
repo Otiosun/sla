@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
 import type {
   RegistrationDraftRecord,
   RegistrationRevisionRecord,
 } from "../../src/modules/registration/ports.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -325,7 +325,7 @@ describe("registration WhatsApp commands", () => {
     expect(result).toMatchObject({
       ok: true,
       value: {
-        outgoing: [{ payload: { text: expect.stringMatching(/análise[\s\S]*\$editar sim/i) } }],
+        outgoing: [{ payload: { text: expect.stringMatching(/análise[\s\S]*\/editar sim/i) } }],
       },
     });
     expect(deps.withdrawalInputs).toEqual([]);
@@ -475,7 +475,7 @@ describe("registration WhatsApp commands", () => {
           {
             payload: {
               text: expect.stringMatching(
-                /CONFIRMAÇÃO[\s\S]*Liora Vale[\s\S]*Charmander[\s\S]*Zhoulia[\s\S]*\$confirmar sim/i,
+                /CONFIRMAÇÃO[\s\S]*Liora Vale[\s\S]*Charmander[\s\S]*Zhoulia[\s\S]*\/confirmar sim/i,
               ),
             },
           },
@@ -573,4 +573,19 @@ describe("registration WhatsApp commands", () => {
     ]);
     expect(sessions.get(PLAYER_ID)).toBeNull();
   });
+});
+
+it("offers the next confirmation step when viewing a complete saved ficha", async () => {
+  const sessions = new RegistrationConversationSessions();
+  sessions.start(PLAYER_ID, {
+    mode: "GUIDED",
+    regionId: ZHOULIA_ID,
+    baseDraft: completedDraft(),
+    baseRevision: 6,
+  });
+  const { found } = route("ficha", sessions);
+  const result = await found.handler.handle(context("/ficha"));
+  if (!result.ok) throw result.error;
+  expect(result.value.outgoing[0]?.payload.text).toContain("/confirmar");
+  expect(sessions.get(PLAYER_ID)?.persistedRevision).toBe(6);
 });

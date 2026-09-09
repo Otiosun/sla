@@ -11,6 +11,10 @@ import { registerReceptionAdminOperations } from "../modules/admin/reception-ope
 import { AdminService } from "../modules/admin/service.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
+import {
+  type ReceptionMembershipEvent,
+  ReceptionMembershipService,
+} from "../modules/community/reception-membership.js";
 import { ReceptionService } from "../modules/community/reception-service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../modules/community/service.js";
@@ -101,6 +105,7 @@ export interface OperationalWhatsAppRuntimeOptions {
 }
 
 export interface OperationalMessagingComposition {
+  readonly onMembership: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly router: MessageRouter;
   readonly admitCommand: (message: IncomingMessage) => boolean;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
@@ -206,6 +211,12 @@ export function createOperationalMessagingComposition(
     registration: registrationConversationResolver,
     reception,
   });
+  const receptionMembership = new ReceptionMembershipService({
+    community,
+    players: playerRegistration,
+    reception,
+    presence: receptionPresence,
+  });
   const worldServiceSessions = new WorldServiceSessionService(
     new PostgresWorldServiceSessionRepository(pool),
     clock,
@@ -303,6 +314,7 @@ export function createOperationalMessagingComposition(
 
   return {
     router,
+    onMembership: (event) => receptionMembership.handle(event),
     admitCommand: (message) => router.admitsCommand(message),
     admitFreeform: async (message) =>
       (await registrationConversationResolver.admits(message)) ||
@@ -364,6 +376,7 @@ export function createOperationalWhatsAppRuntime(
 
   const adapter = new BaileysWhatsAppAdapter({
     auth: options.auth,
+    onMembership: composition.onMembership,
     onQr: () => {
       options.logger.log("ERROR", "whatsapp.auth.pairing_required", {
         action: "run-explicit-auth-bootstrap",

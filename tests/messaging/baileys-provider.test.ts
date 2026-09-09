@@ -1,21 +1,24 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import {
-  BaileysWhatsAppAdapter,
-  type BaileysAuthBinding,
-  type BaileysEventSource,
-  type BaileysSocketLike,
-  type BaileysSocketFactory,
-} from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { normalizeBaileysMessage } from "../../src/adapters/whatsapp/baileys-normalizer.js";
 import type { BaileysSocketConfigLike } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
+import {
+  type BaileysAuthBinding,
+  type BaileysEventSource,
+  type BaileysSocketFactory,
+  type BaileysSocketLike,
+  BaileysWhatsAppAdapter,
+} from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type {
   IncomingMessage,
   PendingOutboxMessage,
 } from "../../src/modules/messaging/contracts.js";
 
 class FakeBaileysSocket implements BaileysSocketLike {
+  async groupMetadata() {
+    return { participants: [{ id: "123456789@lid" }] };
+  }
   readonly sent: Array<{
     jid: string;
     content: unknown;
@@ -359,4 +362,81 @@ describe("BaileysWhatsAppAdapter", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(sockets).toHaveLength(1);
   });
+});
+
+describe("confirmed Reception membership", () => {
+  it("accepts actual add/remove only, preserves opaque IDs and ignores stopped sockets", async () => {
+    const socket = new FakeBaileysSocket();
+    const membership = vi.fn(async () => {});
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+      onMembership: membership,
+    });
+    await adapter.start(async () => {});
+    const event = {
+      id: "120363000000000001@g.us",
+      participants: [{ id: "123456789@lid", phoneNumber: "5511999999999@s.whatsapp.net" }],
+    };
+    socket.emit("group.join-request", { ...event, action: "created" });
+    socket.emit("group-participants.update", { ...event, action: "promote" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(membership).not.toHaveBeenCalled();
+    socket.emit("group-participants.update", { ...event, action: "add" });
+    socket.emit("group-participants.update", { ...event, action: "remove" });
+    await vi.waitFor(() => expect(membership).toHaveBeenCalledTimes(2));
+    expect(membership.mock.calls).toEqual([
+      [{ provider: "baileys", chatRef: event.id, externalId: "123456789@lid", action: "add" }],
+      [{ provider: "baileys", chatRef: event.id, externalId: "123456789@lid", action: "remove" }],
+    ]);
+    await adapter.stop();
+    socket.emit("group-participants.update", { ...event, action: "add" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(membership).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves the real mention in an image caption", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+    await adapter.send(
+      outbox({
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: "https://example.com/rotom.jpg",
+          caption: "Ol? @123456789",
+          mentions: ["123456789@lid"],
+        },
+      }),
+    );
+    expect(socket.sent[0]?.content).toEqual({
+      image: { url: "https://example.com/rotom.jpg" },
+      caption: "Ol? @123456789",
+      mentions: ["123456789@lid"],
+    });
+    await adapter.stop();
+  });
+});
+
+it("does not welcome an add-shaped notification when the person is still outside the actual group", async () => {
+  const socket = new FakeBaileysSocket();
+  const membership = vi.fn(async () => {});
+  const actualSocket = Object.assign(socket, { groupMetadata: async () => ({ participants: [] }) });
+  const adapter = new BaileysWhatsAppAdapter({
+    auth: authBinding(),
+    socketFactory: () => actualSocket,
+    onMembership: membership,
+  });
+  await adapter.start(async () => {});
+  socket.emit("group-participants.update", {
+    id: "120363000000000001@g.us",
+    action: "add",
+    participants: [{ id: "123456789@lid" }],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(membership).not.toHaveBeenCalled();
+  await adapter.stop();
 });

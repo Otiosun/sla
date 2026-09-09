@@ -37,8 +37,8 @@ Updated command: `/grupo recepcao Nome do grupo` (also accepts `recepção`). Cr
 
 RED: Reception setup returned ok=false in the operational PostgreSQL integration test. GREEN: 66 regression tests across 13 files, followed by 8/8 group integration tests including accented Reception creation and repeated nonexclusive setup. No manual group update or player reset was used.
 
-Next action: after the sole runtime loads the updated commit, operator sends `/grupo recepcao Recepcao` in the existing Reception and returns acknowledgement evidence. This supersedes the earlier request to choose a separate GAME group.
+Completed: the operator sent `/grupo recepcao Recepcao` and confirmed success. Read-only DB verification found the same Reception with onboarding, admin.review, player.basic, world, pve and pvp. Do not repeat group configuration.
 
-Start exactly one demo runtime on the recorded new commit; ask operator to send `/grupo jogo Nome do grupo` in the intended group. Inspect acknowledgement and persisted group/capabilities/audit. Then resume preserved registration draft through human submission/review and canonical provisioning; prepare missing local content without replacing Zhoulia decisions. Do not claim A1 started until player/location/content gates are satisfied.
+Continue with [the Reception flow audit](2026-09-09-reception-local-flow-audit.md), then resume the preserved draft through human submission/review and canonical provisioning; prepare missing local content without replacing Zhoulia decisions. Start exactly one demo runtime on the recorded commit. Do not claim A1 started until player/location/content gates are satisfied.
 
 At A3 explicitly announce: CHEGOU A HORA DAS FOTOS DO POKÉ MART. A–J are still pending. No merge of #158 or #157, and no #159 changes.

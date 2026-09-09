@@ -61,9 +61,10 @@ export interface ReceptionFirstInteractionInput {
 export interface ReceptionWelcome {
   readonly playerId: PlayerId;
   readonly text: string;
+  readonly newTrainer?: boolean;
 }
 
-function isReception(group: CommunityChatContext): group is CommunityChatContext & {
+export function isReception(group: CommunityChatContext): group is CommunityChatContext & {
   readonly known: true;
   readonly groupId: string;
 } {
@@ -80,13 +81,13 @@ function reviewText(status: RegistrationRevisionStatus): string {
     case "SUBMITTED":
       return "📨 Sua ficha já foi enviada e está em análise pela equipe. Aguarde a revisão.";
     case "CHANGES_REQUESTED":
-      return "✏️ A equipe pediu ajustes na sua ficha. Use `$editar` para alterar somente o necessário.";
+      return "✏️ A equipe pediu ajustes na sua ficha. Use `/editar` para alterar somente o necessário.";
     case "APPROVED":
       return "✅ Sua ficha foi aprovada. A liberação do personagem está sendo concluída.";
     case "REJECTED":
       return "⛔ Sua ficha foi rejeitada. O estado foi preservado para acompanhamento da equipe.";
     case "WITHDRAWN":
-      return "↩️ A revisão anterior foi retirada. Use `$continuar` ou `$ficha` para retomar sua ficha.";
+      return "↩️ A revisão anterior foi retirada. Use `/continuar` ou `/ficha` para retomar sua ficha.";
   }
 }
 
@@ -127,42 +128,52 @@ export class ReceptionService {
     });
     if (!player.ok) return player;
 
-    const access = await this.dependencies.access.load(player.value.playerId);
+    const welcome = await this.welcomeForPlayer(player.value.playerId, input.externalId);
+    if (!welcome.ok) return welcome;
     const claimed = await this.dependencies.presence.claimFirstWelcome({
       groupId: group.groupId,
       playerId: player.value.playerId,
     });
     if (!claimed) return ok(null);
 
+    return welcome;
+  }
+
+  public async welcomeForPlayer(
+    playerId: PlayerId,
+    externalId: string,
+  ): Promise<Result<ReceptionWelcome>> {
+    const access = await this.dependencies.access.load(playerId);
+
     if (access.status === "ACTIVE") {
       return ok({
-        playerId: player.value.playerId,
+        playerId: playerId,
         text: "👋 Bem-vindo de volta à Recepção. Seu personagem continua ativo; nenhum cadastro foi reiniciado.",
       });
     }
 
-    const review = await this.dependencies.registration.getCurrentReview(player.value.playerId);
+    const review = await this.dependencies.registration.getCurrentReview(playerId);
     if (!review.ok && review.error.code !== "NOT_FOUND") return err(review.error);
 
     if (review.ok) {
       if (review.value.status === "APPROVED" && access.status === "PROVISIONING") {
         return ok({
-          playerId: player.value.playerId,
+          playerId: playerId,
           text: "✅ Sua ficha foi aprovada. A liberação do personagem está em provisionamento e será concluída sem refazer o cadastro.",
         });
       }
       return ok({
-        playerId: player.value.playerId,
+        playerId: playerId,
         text: reviewText(review.value.status),
       });
     }
 
-    const draft = await this.dependencies.registration.getDraft(player.value.playerId);
+    const draft = await this.dependencies.registration.getDraft(playerId);
     if (!draft.ok && draft.error.code !== "NOT_FOUND") return err(draft.error);
     if (draft.ok) {
       return ok({
-        playerId: player.value.playerId,
-        text: "📋 Você já possui um rascunho salvo. Use `$continuar` para retomar ou `$ficha` para revisar.",
+        playerId: playerId,
+        text: "📋 Você já possui um rascunho salvo. Use `/continuar` para retomar ou `/ficha` para revisar.",
       });
     }
 
@@ -173,14 +184,24 @@ export class ReceptionService {
     }
 
     return ok({
-      playerId: player.value.playerId,
+      playerId: playerId,
+      newTrainer: true,
       text: [
-        "🎒 *Bem-vindo a Zhoulia.*",
+        "🚨[ *BZZZT... BZZZT!* ]",
         "",
-        "É aqui que sua jornada como treinador começa.",
-        "Antes de seguir para o mundo, vamos montar sua ficha.",
+        `❗\`NOVO TREINADOR DETECTADO: @${externalId.split("@")[0]}\`❗`,
         "",
-        "Use `$registrar` para iniciar. Você poderá revisar tudo antes de enviar.",
+        "Eu sou Rotom! Pokédex autoaprendiz, especialista em Pokémon, treinadores e... praticamente tudo que importa por aqui, *roto!*",
+        "",
+        "Só tem um problema:",
+        "",
+        "> *Eu não faço ideia de quem é você.*",
+        "",
+        "E isso é péssimo para uma Pokédex. ⚡ Vamos corrigir isso! *Digite:*",
+        "",
+        "`/registrar`",
+        "",
+        "*Não fica parado aí!* Meu banco de dados não vai se preencher sozinho! ⚡",
       ].join("\n"),
     });
   }

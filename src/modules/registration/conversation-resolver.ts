@@ -1,16 +1,16 @@
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { CommunityChatContext } from "../community/contracts.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
   MessageHandlerResult,
 } from "../messaging/contracts.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
+  parseFullRegistrationTemplate,
   type RegistrationConversationField,
   type RegistrationConversationSession,
   type RegistrationConversationSessions,
-  parseFullRegistrationTemplate,
 } from "./conversation-session.js";
 
 interface CommunityContextResolver {
@@ -107,7 +107,7 @@ function starterOptionsText(setup: RegistrationSetup): string {
 
 function guidedPrompt(session: RegistrationConversationSession, setup?: RegistrationSetup): string {
   if (session.currentField === null) {
-    return "✅ Ficha preenchida. Use `$ficha` para revisar ou `$confirmar` para conferir o envio. Se quiser continuar depois, use `$salvar`.";
+    return "✅ Ficha preenchida. Use `/ficha` para revisar ou `/confirmar` para conferir o envio. Se quiser continuar depois, use `/salvar`.";
   }
   if (session.currentField === "starterFormId" && setup !== undefined) {
     return [
@@ -136,7 +136,7 @@ function fullTemplatePrompt(): string {
     "Pokémon inicial:",
     "",
     "A região é Zhoulia e será preenchida automaticamente.",
-    "Nada será persistido até `$salvar` ou a confirmação final.",
+    "Nada será persistido até `/salvar` ou a confirmação final.",
   ].join("\n");
 }
 
@@ -217,7 +217,7 @@ export class RegistrationConversationResolver {
 
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
+    if (text === null || text.trim().length === 0 || /^[$/]/.test(text.trim())) return false;
 
     const community = await this.dependencies.community.resolveChat({
       provider: message.provider,
@@ -240,7 +240,7 @@ export class RegistrationConversationResolver {
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
     const text = context.message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return ok(null);
+    if (text === null || text.trim().length === 0 || /^[$/]/.test(text.trim())) return ok(null);
 
     const community = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
@@ -329,7 +329,7 @@ export class RegistrationConversationResolver {
     return textResult(
       context,
       player.value.playerId,
-      "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` quando quiser conferir o envio.",
+      "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `/ficha` para revisar, `/salvar` para guardar o rascunho ou `/confirmar` quando quiser conferir o envio.",
       this.dependencies.sessions,
       false,
     );
