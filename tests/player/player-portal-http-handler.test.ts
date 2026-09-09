@@ -3,7 +3,7 @@ import type { ExternalIdentity } from "../../src/modules/player/contracts.js";
 import type { PlayerPortalSelfView } from "../../src/modules/player-portal/read-service.js";
 import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
 import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
-import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
 
 const identity: ExternalIdentity = {
   provider: "whatsapp",
@@ -37,7 +37,7 @@ const sessionExpiresAt = new Date("2026-09-10T00:00:00.000Z");
 
 function handler(
   input: {
-    selfResult?: ReturnType<typeof ok<PlayerPortalSelfView>> | ReturnType<typeof err>;
+    selfResult?: Result<PlayerPortalSelfView>;
     verifiedIdentity?: ExternalIdentity | null;
     onVerify?: (token: string) => void;
   } = {},
