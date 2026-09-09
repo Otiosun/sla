@@ -7,6 +7,7 @@ import {
   type InventoryLedgerRecord,
   type InventoryMutationResult,
   type PurchaseResult,
+  type SaleResult,
   type WalletLedgerRecord,
   type WalletMutationResult,
 } from "./contracts.js";
@@ -19,6 +20,7 @@ import {
   insufficientWallet,
   noActiveContentRelease,
   purchaseOfferNotFound,
+  saleOfferNotFound,
 } from "./errors.js";
 import type { EconomyRepository, EconomyTransaction } from "./ports.js";
 import { parseCorrelationId, type PlayerId } from "../../shared-kernel/ids.js";
@@ -37,8 +39,12 @@ const INVENTORY_ADD_SCOPE = scope("inventory.add");
 const INVENTORY_CONSUME_SCOPE = scope("inventory.consume");
 const WALLET_CREDIT_SCOPE = scope("wallet.credit");
 const WALLET_DEBIT_SCOPE = scope("wallet.debit");
+const PURCHASE_FINGERPRINT_SCOPE = scope("economy.purchase");
 const PURCHASE_WALLET_SCOPE = scope("economy.purchase.wallet");
 const PURCHASE_INVENTORY_SCOPE = scope("economy.purchase.inventory");
+const SALE_FINGERPRINT_SCOPE = scope("economy.sale");
+const SALE_WALLET_SCOPE = scope("economy.sale.wallet");
+const SALE_INVENTORY_SCOPE = scope("economy.sale.inventory");
 
 interface InventoryOperationInput {
   readonly playerId: PlayerId;
@@ -61,6 +67,21 @@ export interface PurchaseInput {
   readonly offerKey: string;
   readonly idempotencyKey: string;
   readonly metadata: EconomyMutationMetadataInput;
+}
+
+export interface PurchaseQuantityInput extends PurchaseInput {
+  readonly quantity: bigint;
+}
+
+export interface SaleInput {
+  readonly playerId: PlayerId;
+  readonly offerKey: string;
+  readonly idempotencyKey: string;
+  readonly metadata: EconomyMutationMetadataInput;
+}
+
+export interface SaleQuantityInput extends SaleInput {
+  readonly quantity: bigint;
 }
 
 class EconomyRollback extends Error {
@@ -87,6 +108,19 @@ function positiveBigInt(label: string, value: bigint): Result<bigint> {
     );
   }
   return ok(value);
+}
+
+function multiplyPositiveBigInt(label: string, left: bigint, right: bigint): Result<bigint> {
+  if (left <= 0n || right <= 0n || left > PG_BIGINT_MAX / right) {
+    return err(
+      economyValidationError(label, {
+        left: left.toString(),
+        right: right.toString(),
+        max: PG_BIGINT_MAX.toString(),
+      }),
+    );
+  }
+  return ok(left * right);
 }
 
 function uuid(label: string, value: string): Result<string> {
@@ -142,11 +176,12 @@ function sameActorAndReason(
   );
 }
 
-function purchaseMetadata(
+function offerMetadata(
   metadata: EconomyMutationMetadata,
   offerId: string,
+  sourceType: "PURCHASE_OFFER" | "SALE_OFFER",
 ): EconomyMutationMetadata {
-  return { ...metadata, sourceType: "PURCHASE_OFFER", sourceId: offerId };
+  return { ...metadata, sourceType, sourceId: offerId };
 }
 
 export class EconomyService {
@@ -171,11 +206,23 @@ export class EconomyService {
   }
 
   public async purchase(input: PurchaseInput): Promise<Result<PurchaseResult>> {
+    return this.purchaseQuantity({ ...input, quantity: 1n });
+  }
+
+  public async purchaseQuantity(input: PurchaseQuantityInput): Promise<Result<PurchaseResult>> {
     const offerKey = offerKeySchema.safeParse(input.offerKey);
     if (!offerKey.success) {
       return err(economyValidationError("offerKey", offerKey.error.issues));
     }
+    const quantity = positiveBigInt("quantity", input.quantity);
+    if (!quantity.ok) return quantity;
 
+    const fingerprintMetadata = prepareMetadata(
+      input.metadata,
+      input.idempotencyKey,
+      PURCHASE_FINGERPRINT_SCOPE,
+    );
+    if (!fingerprintMetadata.ok) return fingerprintMetadata;
     const walletMetadata = prepareMetadata(
       input.metadata,
       input.idempotencyKey,
@@ -191,10 +238,16 @@ export class EconomyService {
 
     return this.withRollback(async () =>
       this.repository.transaction(async (transaction) => {
+        await transaction.lockPurchaseFingerprint(
+          fingerprintMetadata.value.idempotency.scope,
+          fingerprintMetadata.value.idempotency.storageKey,
+        );
+
         const replay = await this.purchaseReplay(
           transaction,
           input.playerId,
           offerKey.data,
+          quantity.value,
           walletMetadata.value,
           inventoryMetadata.value,
         );
@@ -205,14 +258,33 @@ export class EconomyService {
         const offer = await transaction.loadPurchaseOffer(contentReleaseId, offerKey.data);
         if (offer === null) return err(purchaseOfferNotFound(contentReleaseId, offerKey.data));
 
-        const walletWriteMetadata = purchaseMetadata(walletMetadata.value, offer.id);
-        const inventoryWriteMetadata = purchaseMetadata(inventoryMetadata.value, offer.id);
+        const totalPrice = multiplyPositiveBigInt(
+          "purchase price",
+          offer.priceAmount,
+          quantity.value,
+        );
+        if (!totalPrice.ok) return totalPrice;
+        const totalItems = multiplyPositiveBigInt(
+          "purchase item quantity",
+          offer.itemQuantity,
+          quantity.value,
+        );
+        if (!totalItems.ok) return totalItems;
+
+        const walletWriteMetadata = offerMetadata(walletMetadata.value, offer.id, "PURCHASE_OFFER");
+        const inventoryWriteMetadata = offerMetadata(
+          inventoryMetadata.value,
+          offer.id,
+          "PURCHASE_OFFER",
+        );
+        const walletLedgerId = randomUUID();
+        const inventoryLedgerId = randomUUID();
 
         const walletClaimed = await transaction.claimWalletLedger({
-          id: randomUUID(),
+          id: walletLedgerId,
           playerId: input.playerId,
           currencyId: offer.currencyId,
-          delta: -offer.priceAmount,
+          delta: -totalPrice.value,
           metadata: walletWriteMetadata,
         });
         if (!walletClaimed) {
@@ -220,6 +292,7 @@ export class EconomyService {
             transaction,
             input.playerId,
             offerKey.data,
+            quantity.value,
             walletMetadata.value,
             inventoryMetadata.value,
           );
@@ -232,10 +305,10 @@ export class EconomyService {
         }
 
         const inventoryClaimed = await transaction.claimInventoryLedger({
-          id: randomUUID(),
+          id: inventoryLedgerId,
           playerId: input.playerId,
           itemId: offer.itemId,
-          delta: offer.itemQuantity,
+          delta: totalItems.value,
           metadata: inventoryWriteMetadata,
         });
         if (!inventoryClaimed) {
@@ -249,30 +322,183 @@ export class EconomyService {
         const walletAmount = await transaction.debitWallet({
           playerId: input.playerId,
           currencyId: offer.currencyId,
-          amount: offer.priceAmount,
+          amount: totalPrice.value,
         });
         if (walletAmount === null) {
-          throw new EconomyRollback(insufficientWallet(offer.currencyId, offer.priceAmount));
+          throw new EconomyRollback(insufficientWallet(offer.currencyId, totalPrice.value));
         }
 
         const inventoryQuantity = await transaction.addInventory({
           playerId: input.playerId,
           itemId: offer.itemId,
-          quantity: offer.itemQuantity,
+          quantity: totalItems.value,
         });
         if (inventoryQuantity === null) {
           throw new EconomyRollback(economyBalanceOverflow("inventory"));
         }
 
+        await transaction.finalizeWalletLedgerBalance({
+          ledgerId: walletLedgerId,
+          balanceAfter: walletAmount,
+        });
+        await transaction.finalizeInventoryLedgerBalance({
+          ledgerId: inventoryLedgerId,
+          balanceAfter: inventoryQuantity,
+        });
+
         return ok({
           playerId: input.playerId,
           contentReleaseId: offer.contentReleaseId,
           offerKey: offer.offerKey,
+          purchaseQuantity: quantity.value,
           itemId: offer.itemId,
-          itemQuantity: offer.itemQuantity,
+          itemQuantity: totalItems.value,
           inventoryQuantity,
           currencyId: offer.currencyId,
-          priceAmount: offer.priceAmount,
+          priceAmount: totalPrice.value,
+          walletAmount,
+          replayed: false,
+        });
+      }),
+    );
+  }
+
+  public async sell(input: SaleInput): Promise<Result<SaleResult>> {
+    return this.sellQuantity({ ...input, quantity: 1n });
+  }
+
+  public async sellQuantity(input: SaleQuantityInput): Promise<Result<SaleResult>> {
+    const offerKey = offerKeySchema.safeParse(input.offerKey);
+    if (!offerKey.success) {
+      return err(economyValidationError("offerKey", offerKey.error.issues));
+    }
+    const quantity = positiveBigInt("quantity", input.quantity);
+    if (!quantity.ok) return quantity;
+
+    const fingerprintMetadata = prepareMetadata(
+      input.metadata,
+      input.idempotencyKey,
+      SALE_FINGERPRINT_SCOPE,
+    );
+    if (!fingerprintMetadata.ok) return fingerprintMetadata;
+    const walletMetadata = prepareMetadata(input.metadata, input.idempotencyKey, SALE_WALLET_SCOPE);
+    if (!walletMetadata.ok) return walletMetadata;
+    const inventoryMetadata = prepareMetadata(
+      input.metadata,
+      input.idempotencyKey,
+      SALE_INVENTORY_SCOPE,
+    );
+    if (!inventoryMetadata.ok) return inventoryMetadata;
+
+    return this.withRollback(async () =>
+      this.repository.transaction(async (transaction) => {
+        await transaction.lockSaleFingerprint(
+          fingerprintMetadata.value.idempotency.scope,
+          fingerprintMetadata.value.idempotency.storageKey,
+        );
+
+        const replay = await this.saleReplay(
+          transaction,
+          input.playerId,
+          offerKey.data,
+          quantity.value,
+          walletMetadata.value,
+          inventoryMetadata.value,
+        );
+        if (replay !== null) return replay;
+
+        const contentReleaseId = await transaction.activeContentReleaseId();
+        if (contentReleaseId === null) return err(noActiveContentRelease());
+        const offer = await transaction.loadSaleOffer(contentReleaseId, offerKey.data);
+        if (offer === null) return err(saleOfferNotFound(contentReleaseId, offerKey.data));
+
+        const totalSaleAmount = multiplyPositiveBigInt(
+          "sale amount",
+          offer.saleAmount,
+          quantity.value,
+        );
+        if (!totalSaleAmount.ok) return totalSaleAmount;
+
+        const inventoryWriteMetadata = offerMetadata(
+          inventoryMetadata.value,
+          offer.id,
+          "SALE_OFFER",
+        );
+        const walletWriteMetadata = offerMetadata(walletMetadata.value, offer.id, "SALE_OFFER");
+        const inventoryLedgerId = randomUUID();
+        const walletLedgerId = randomUUID();
+
+        const inventoryClaimed = await transaction.claimInventoryLedger({
+          id: inventoryLedgerId,
+          playerId: input.playerId,
+          itemId: offer.itemId,
+          delta: -quantity.value,
+          metadata: inventoryWriteMetadata,
+        });
+        if (!inventoryClaimed) {
+          const racedReplay = await this.saleReplay(
+            transaction,
+            input.playerId,
+            offerKey.data,
+            quantity.value,
+            walletMetadata.value,
+            inventoryMetadata.value,
+          );
+          if (racedReplay !== null) return racedReplay;
+          throw new EconomyRollback(
+            economyIntegrityError("Sale idempotency claim lost without a durable replay record"),
+          );
+        }
+
+        const walletClaimed = await transaction.claimWalletLedger({
+          id: walletLedgerId,
+          playerId: input.playerId,
+          currencyId: offer.currencyId,
+          delta: totalSaleAmount.value,
+          metadata: walletWriteMetadata,
+        });
+        if (!walletClaimed) {
+          throw new EconomyRollback(
+            economyIntegrityError("Sale has a partial idempotency history across economy ledgers"),
+          );
+        }
+
+        const inventoryQuantity = await transaction.consumeInventory({
+          playerId: input.playerId,
+          itemId: offer.itemId,
+          quantity: quantity.value,
+        });
+        if (inventoryQuantity === null) {
+          throw new EconomyRollback(insufficientInventory(offer.itemId, quantity.value));
+        }
+
+        const walletAmount = await transaction.creditWallet({
+          playerId: input.playerId,
+          currencyId: offer.currencyId,
+          amount: totalSaleAmount.value,
+        });
+        if (walletAmount === null) {
+          throw new EconomyRollback(economyBalanceOverflow("wallet"));
+        }
+
+        await transaction.finalizeInventoryLedgerBalance({
+          ledgerId: inventoryLedgerId,
+          balanceAfter: inventoryQuantity,
+        });
+        await transaction.finalizeWalletLedgerBalance({
+          ledgerId: walletLedgerId,
+          balanceAfter: walletAmount,
+        });
+
+        return ok({
+          playerId: input.playerId,
+          contentReleaseId: offer.contentReleaseId,
+          offerKey: offer.offerKey,
+          saleQuantity: quantity.value,
+          itemId: offer.itemId,
+          inventoryQuantity,
+          currencyId: offer.currencyId,
+          saleAmount: totalSaleAmount.value,
           walletAmount,
           replayed: false,
         });
@@ -542,6 +768,7 @@ export class EconomyService {
     transaction: EconomyTransaction,
     playerId: PlayerId,
     requestedOfferKey: string,
+    requestedQuantity: bigint,
     walletMetadata: EconomyMutationMetadata,
     inventoryMetadata: EconomyMutationMetadata,
   ): Promise<Result<PurchaseResult> | null> {
@@ -578,27 +805,116 @@ export class EconomyService {
         economyIntegrityError("Purchase replay references an unavailable historical offer"),
       );
     }
+    const totalPrice = multiplyPositiveBigInt(
+      "purchase price",
+      offer.priceAmount,
+      requestedQuantity,
+    );
+    const totalItems = multiplyPositiveBigInt(
+      "purchase item quantity",
+      offer.itemQuantity,
+      requestedQuantity,
+    );
+    if (!totalPrice.ok || !totalItems.ok) return err(idempotencyReplayMismatch());
+
     if (
       offer.offerKey !== requestedOfferKey ||
       walletLedger.currencyId !== offer.currencyId ||
-      walletLedger.delta !== -offer.priceAmount ||
+      walletLedger.delta !== -totalPrice.value ||
       inventoryLedger.itemId !== offer.itemId ||
-      inventoryLedger.delta !== offer.itemQuantity
+      inventoryLedger.delta !== totalItems.value
     ) {
       return err(idempotencyReplayMismatch());
     }
 
-    const walletAmount = await transaction.walletBalance(playerId, offer.currencyId);
-    const inventoryQuantity = await transaction.inventoryBalance(playerId, offer.itemId);
+    const walletAmount =
+      walletLedger.balanceAfter ?? (await transaction.walletBalance(playerId, offer.currencyId));
+    const inventoryQuantity =
+      inventoryLedger.balanceAfter ?? (await transaction.inventoryBalance(playerId, offer.itemId));
     return ok({
       playerId,
       contentReleaseId: offer.contentReleaseId,
       offerKey: offer.offerKey,
+      purchaseQuantity: requestedQuantity,
       itemId: offer.itemId,
-      itemQuantity: offer.itemQuantity,
+      itemQuantity: totalItems.value,
       inventoryQuantity,
       currencyId: offer.currencyId,
-      priceAmount: offer.priceAmount,
+      priceAmount: totalPrice.value,
+      walletAmount,
+      replayed: true,
+    });
+  }
+
+  private async saleReplay(
+    transaction: EconomyTransaction,
+    playerId: PlayerId,
+    requestedOfferKey: string,
+    requestedQuantity: bigint,
+    walletMetadata: EconomyMutationMetadata,
+    inventoryMetadata: EconomyMutationMetadata,
+  ): Promise<Result<SaleResult> | null> {
+    const walletLedger = await transaction.findWalletLedger(
+      walletMetadata.idempotency.scope,
+      walletMetadata.idempotency.storageKey,
+    );
+    const inventoryLedger = await transaction.findInventoryLedger(
+      inventoryMetadata.idempotency.scope,
+      inventoryMetadata.idempotency.storageKey,
+    );
+
+    if (walletLedger === null && inventoryLedger === null) return null;
+    if (walletLedger === null || inventoryLedger === null) {
+      return err(
+        economyIntegrityError("Sale has a partial idempotency history across economy ledgers"),
+      );
+    }
+    if (
+      walletLedger.playerId !== playerId ||
+      inventoryLedger.playerId !== playerId ||
+      walletLedger.sourceType !== "SALE_OFFER" ||
+      inventoryLedger.sourceType !== "SALE_OFFER" ||
+      walletLedger.sourceId !== inventoryLedger.sourceId ||
+      !sameActorAndReason(walletLedger, walletMetadata) ||
+      !sameActorAndReason(inventoryLedger, inventoryMetadata)
+    ) {
+      return err(idempotencyReplayMismatch());
+    }
+
+    const offer = await transaction.loadSaleOfferById(walletLedger.sourceId);
+    if (offer === null) {
+      return err(economyIntegrityError("Sale replay references an unavailable historical offer"));
+    }
+    const totalSaleAmount = multiplyPositiveBigInt(
+      "sale amount",
+      offer.saleAmount,
+      requestedQuantity,
+    );
+    if (!totalSaleAmount.ok) return err(idempotencyReplayMismatch());
+
+    if (
+      offer.offerKey !== requestedOfferKey ||
+      walletLedger.currencyId !== offer.currencyId ||
+      walletLedger.delta !== totalSaleAmount.value ||
+      inventoryLedger.itemId !== offer.itemId ||
+      inventoryLedger.delta !== -requestedQuantity
+    ) {
+      return err(idempotencyReplayMismatch());
+    }
+
+    const walletAmount =
+      walletLedger.balanceAfter ?? (await transaction.walletBalance(playerId, offer.currencyId));
+    const inventoryQuantity =
+      inventoryLedger.balanceAfter ?? (await transaction.inventoryBalance(playerId, offer.itemId));
+    return ok({
+      playerId,
+      contentReleaseId: offer.contentReleaseId,
+      offerKey: offer.offerKey,
+      saleQuantity: requestedQuantity,
+      itemId: offer.itemId,
+      inventoryQuantity,
+      currencyId: offer.currencyId,
+      saleAmount: totalSaleAmount.value,
       walletAmount,
       replayed: true,
     });

@@ -115,11 +115,35 @@ export interface PurchaseResult {
   readonly playerId: PlayerId;
   readonly contentReleaseId: string;
   readonly offerKey: string;
+  readonly purchaseQuantity: bigint;
   readonly itemId: string;
   readonly itemQuantity: bigint;
   readonly inventoryQuantity: bigint;
   readonly currencyId: string;
   readonly priceAmount: bigint;
+  readonly walletAmount: bigint;
+  readonly replayed: boolean;
+}
+
+export interface SaleOffer {
+  readonly id: string;
+  readonly contentReleaseId: string;
+  readonly offerKey: string;
+  readonly itemId: string;
+  readonly currencyId: string;
+  readonly saleAmount: bigint;
+  readonly active: boolean;
+}
+
+export interface SaleResult {
+  readonly playerId: PlayerId;
+  readonly contentReleaseId: string;
+  readonly offerKey: string;
+  readonly saleQuantity: bigint;
+  readonly itemId: string;
+  readonly inventoryQuantity: bigint;
+  readonly currencyId: string;
+  readonly saleAmount: bigint;
   readonly walletAmount: bigint;
   readonly replayed: boolean;
 }

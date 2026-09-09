@@ -6,6 +6,7 @@ import { closeDatabasePool, createDatabasePool } from "./platform/db/database.js
 import { assertDatabaseSchemaCurrent } from "./platform/db/migrations.js";
 import { JsonLineStdoutSink, StructuredLogger } from "./platform/logging/index.js";
 import { createOperationalWhatsAppRuntime } from "./runtime/compose-whatsapp-runtime.js";
+import { loadEncounterRngRuntimeConfig } from "./runtime/encounter-rng-runtime-config.js";
 import { PostgresRuntimeHealthRepository } from "./runtime/postgres-runtime-health.js";
 import { ReleaseRuntimeHealth } from "./runtime/release-runtime-health.js";
 import { ReleaseRuntimeProcess } from "./runtime/release-runtime-process.js";
@@ -13,6 +14,7 @@ import { createReleaseRuntimeRegistration } from "./runtime/release-runtime-regi
 import { RuntimeTerminationController } from "./runtime/runtime-termination-controller.js";
 import { loadWhatsAppRuntimeConfig } from "./runtime/whatsapp-runtime-config.js";
 import { WhatsAppRuntimeSupervisor } from "./runtime/whatsapp-runtime-supervisor.js";
+import { loadWorldServiceMediaRuntimeConfig } from "./runtime/world-service-media-runtime-config.js";
 
 function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
@@ -40,6 +42,8 @@ try {
   if (runtimeConfig === null) {
     logger.log("INFO", "runtime.ready", { appEnv: config.appEnv, mode: "schema-only" });
   } else {
+    const encounterRngConfig = loadEncounterRngRuntimeConfig();
+    const worldServiceMedia = loadWorldServiceMediaRuntimeConfig();
     auth = await PostgresBaileysAuthBinding.open(pool, {
       sessionKey: runtimeConfig.sessionKey,
       encryptionKey: runtimeConfig.authEncryptionKey,
@@ -61,6 +65,8 @@ try {
         pool,
         auth,
         logger,
+        encounterRngConfig,
+        ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
         onSessionInvalidated: requestShutdown,
       });
       const supervisor = new WhatsAppRuntimeSupervisor(runtime, {
@@ -91,6 +97,8 @@ try {
         pool,
         auth,
         logger,
+        encounterRngConfig,
+        ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
         onSessionInvalidated: releaseProcess.onSessionInvalidated,
         onProviderConnectionState: releaseProcess.onProviderConnectionState,
       });

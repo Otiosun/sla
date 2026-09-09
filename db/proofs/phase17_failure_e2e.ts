@@ -3,8 +3,8 @@ import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-a
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import type { MessageRouterPort } from "../../src/modules/messaging/ports.js";
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
     await receiveProcessed(service, message("f17-where", "$onde"));
 
     const whereText = await outgoingText(pool, "f17-where");
-    const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
+    const travelMatch = whereText.match(/\/ir\s+([a-z0-9-]+)\s+v(\d+)/i);
     if (travelMatch === null) {
       throw new Error(`$onde did not emit a revision-bound travel action: ${whereText}`);
     }

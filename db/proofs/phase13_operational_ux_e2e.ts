@@ -2,8 +2,8 @@ import { Pool } from "pg";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import type { MessageRouterPort } from "../../src/modules/messaging/ports.js";
@@ -110,20 +110,20 @@ async function main(): Promise<void> {
     }
     const playerId = menuResult.value.resultRefId;
     const newMenuText = await outgoingText(pool, menu.externalMessageId);
-    if (!newMenuText.includes("Bem-vindo ao RPG Pokémon") || !newMenuText.includes("$registrar")) {
+    if (!newMenuText.includes("Bem-vindo ao RPG Pokémon") || !newMenuText.includes("/registrar")) {
       throw new Error(`NEW onboarding menu is not actionable: ${newMenuText}`);
     }
 
     await receiveProcessed(service, message("ux-register", "$registrar Red"));
     await receiveProcessed(service, message("ux-regions", "$regioes"));
     const regionsText = await outgoingText(pool, "ux-regions");
-    if (!regionsText.includes("REGIÕES") || !regionsText.includes("$regiao <número>")) {
+    if (!regionsText.includes("REGIÕES") || !regionsText.includes("/regiao <número>")) {
       throw new Error(`Region menu is not actionable: ${regionsText}`);
     }
     await receiveProcessed(service, message("ux-region", "$regiao 1"));
     await receiveProcessed(service, message("ux-starters", "$starters"));
     const startersText = await outgoingText(pool, "ux-starters");
-    if (!startersText.includes("POKÉMON INICIAIS") || !startersText.includes("$starter <número>")) {
+    if (!startersText.includes("POKÉMON INICIAIS") || !startersText.includes("/starter <número>")) {
       throw new Error(`Starter menu is not actionable: ${startersText}`);
     }
     await receiveProcessed(service, message("ux-starter", "$starter 1"));
@@ -142,10 +142,10 @@ async function main(): Promise<void> {
     const completeMenuText = await outgoingText(pool, "ux-menu-complete");
     if (
       !completeMenuText.includes("CENTRAL DO TREINADOR") ||
-      !completeMenuText.includes("$perfil") ||
-      !completeMenuText.includes("$onde") ||
-      completeMenuText.includes("$explorar") ||
-      completeMenuText.includes("$golpe")
+      !completeMenuText.includes("/perfil") ||
+      !completeMenuText.includes("/onde") ||
+      completeMenuText.includes("/explorar") ||
+      completeMenuText.includes("/golpe")
     ) {
       throw new Error(`COMPLETE menu violates canonical UX: ${completeMenuText}`);
     }
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
 
     await receiveProcessed(service, message("ux-where", "$onde"));
     const whereText = await outgoingText(pool, "ux-where");
-    const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
+    const travelMatch = whereText.match(/\/ir\s+([a-z0-9-]+)\s+v(\d+)/i);
     if (travelMatch === null)
       throw new Error(`$onde did not emit a revision-bound route: ${whereText}`);
     const destinationSlug = travelMatch[1];

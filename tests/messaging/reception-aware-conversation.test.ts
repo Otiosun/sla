@@ -90,7 +90,7 @@ describe("ReceptionAwareConversationResolver", () => {
         firstInteraction: async () =>
           ok({
             playerId: PLAYER_ID,
-            text: "🎒 Bem-vindo à Recepção. Use `$registrar` para começar.",
+            text: "🎒 Bem-vindo à Recepção. Use `/registrar` para começar.",
           }),
       },
     });
@@ -106,7 +106,7 @@ describe("ReceptionAwareConversationResolver", () => {
             channel: "whatsapp",
             destinationRef: "120363000000000001@g.us",
             messageType: "TEXT",
-            payload: { text: expect.stringMatching(/\$registrar/i) },
+            payload: { text: expect.stringMatching(/\/registrar/i) },
             idempotencyKey: "inbox:baileys:oi:reception-welcome",
           },
         ],
