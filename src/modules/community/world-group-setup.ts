@@ -12,6 +12,7 @@ export const WorldGroupSetupInputSchema = z
     provider: z.enum(["baileys", "whatsapp"]),
     chatRef: z.string().regex(/^\d+(?:-\d+)?@g\.us$/),
     displayName: z.string().trim().min(1).max(120),
+    role: z.enum(["GAME", "RECEPTION"]).optional(),
     sourceChannel: z.literal("WHATSAPP"),
   })
   .strict();
@@ -66,18 +67,25 @@ export function createWorldGroupSetupRoute(dependencies: {
     // AdminService GLOBAL_ONLY boundary instead of the known-group gameplay gate.
     handler: {
       handle: async (context) => {
-        const match = /^[$/]grupo\s+jogo\s+([^\r\n]+)$/iu.exec(context.message.text?.trim() ?? "");
+        const command = (context.message.text ?? "")
+          .trim()
+          .normalize("NFD")
+          .replace(/\p{M}+/gu, "");
+        const match = /^[$/]grupo\s+(jogo|recepcao)\s+([^\r\n]+)$/iu.exec(command);
         const input = WorldGroupSetupInputSchema.safeParse({
           provider: context.message.provider,
           chatRef: context.message.chatRef,
-          displayName: match?.[1],
+          displayName: match
+            ? context.message.text?.trim().replace(/^\S+\s+\S+\s+/u, "")
+            : undefined,
+          ...(match?.[1]?.toLowerCase() === "recepcao" ? { role: "RECEPTION" } : {}),
           sourceChannel: "WHATSAPP",
         });
         if (!input.success)
           return err(
             appError(
               "VALIDATION_FAILED",
-              "Envie /grupo jogo Nome do grupo dentro do grupo que deseja habilitar.",
+              "Envie /grupo recepcao Nome do grupo ou /grupo jogo Nome do grupo dentro do grupo desejado.",
             ),
           );
         const principal = await dependencies.admins.resolvePrincipal({
@@ -110,7 +118,7 @@ export function createWorldGroupSetupRoute(dependencies: {
                 destinationRef: context.message.chatRef,
                 messageType: "TEXT",
                 payload: {
-                  text: `*Grupo de jogo habilitado*\n${result.displayName}\n\nExploração e serviços do mundo estão disponíveis para treinadores aprovados.`,
+                  text: `*Bot habilitado neste grupo*\n${result.displayName}\n\n${input.data.role === "RECEPTION" ? "Recepção e cadastro habilitados. Os demais comandos também estão disponíveis.\n" : ""}Exploração e serviços do mundo estão disponíveis para treinadores aprovados.`,
                 },
                 idempotencyKey: `${context.idempotencyKey}:world-group`,
               },

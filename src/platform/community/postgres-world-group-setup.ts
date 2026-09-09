@@ -52,17 +52,17 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
       ]);
       const tx = new PostgresCommunityTransaction(client);
       let group = await tx.loadGroupByProviderRef(input.provider, input.chatRef);
-      if (group !== null && (group.status !== "ACTIVE" || group.role !== "GAME")) {
+      if (group !== null && group.status !== "ACTIVE") {
         throw new AdminError(
           ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
-          "Este grupo já tem outra função ou foi desativado. Use um grupo de jogo separado.",
+          "Este grupo foi desativado. Reative-o antes de configurar seus fluxos.",
         );
       }
       if (group !== null)
         await client.query("SELECT id FROM community_groups WHERE id=$1 FOR UPDATE", [group.id]);
       // Reload after acquiring the row lock so unrelated administrative updates are preserved.
       group = await tx.loadGroupByProviderRef(input.provider, input.chatRef);
-      if (group !== null && (group.status !== "ACTIVE" || group.role !== "GAME"))
+      if (group !== null && group.status !== "ACTIVE")
         throw new AdminError(
           ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
           "A configuração do grupo mudou. Envie o comando novamente.",
@@ -73,7 +73,7 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
         group = await tx.insertGroup({
           provider: input.provider,
           chatRef: input.chatRef,
-          role: "GAME",
+          role: input.role ?? "GAME",
           displayName: input.displayName,
         });
       if (group === null)
@@ -81,10 +81,28 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
           ADMIN_ERROR_CODES.REVISION_CONFLICT,
           "O grupo foi cadastrado simultaneamente. Envie o comando novamente.",
         );
+      if (input.role === "RECEPTION" && group.role !== "RECEPTION") {
+        await client.query(
+          "UPDATE community_groups SET role='RECEPTION',revision=revision+1,updated_at=now() WHERE id=$1",
+          [group.id],
+        );
+        const reloaded = await tx.loadGroupById(group.id);
+        if (reloaded === null) throw new Error("Configured group disappeared");
+        group = reloaded;
+      }
+      const receptionCapabilities =
+        group.role === "RECEPTION"
+          ? ["onboarding" as const, "admin.review" as const, "pve" as const, "pvp" as const]
+          : [];
       const capabilities = [
-        ...new Set([...beforeCapabilities, "player.basic" as const, "world" as const]),
+        ...new Set([
+          ...beforeCapabilities,
+          ...receptionCapabilities,
+          "player.basic" as const,
+          "world" as const,
+        ]),
       ].sort();
-      if (!beforeCapabilities.includes("world") || !beforeCapabilities.includes("player.basic")) {
+      if (capabilities.some((capability) => !beforeCapabilities.includes(capability))) {
         const updated = await tx.replaceCapabilities(group.id, capabilities, group.revision);
         if (updated === null)
           throw new AdminError(

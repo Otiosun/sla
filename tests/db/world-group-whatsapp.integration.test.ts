@@ -247,7 +247,34 @@ describe.sequential("World group setup through the operational WhatsApp router",
     });
   });
 
-  it("refuses to repurpose Reception and preserves its capabilities", async () => {
+  it("creates Reception from the current chat and keeps it nonexclusive on repeated setup", async () => {
+    const input = context("/grupo recepção Recepção UAT", "120363900007@g.us");
+    const composition = createOperationalMessagingComposition(pool);
+    expect(await composition.router.dispatch(input)).toMatchObject({ ok: true });
+    expect(
+      await composition.router.dispatch(context(undefined, "120363900007@g.us")),
+    ).toMatchObject({ ok: true });
+    const group = (
+      await pool.query(
+        "SELECT id,role,display_name FROM community_groups WHERE chat_ref='120363900007@g.us'",
+      )
+    ).rows[0];
+    expect(group).toMatchObject({ role: "RECEPTION", display_name: "Recepção UAT" });
+    expect(
+      (
+        await pool.query(
+          "SELECT capability_key FROM community_group_capabilities WHERE group_id=$1 AND active ORDER BY capability_key",
+          [group.id],
+        )
+      ).rows,
+    ).toEqual(
+      ["admin.review", "onboarding", "player.basic", "pve", "pvp", "world"].map(
+        (capability_key) => ({ capability_key }),
+      ),
+    );
+  });
+
+  it("enables all gameplay in Reception while preserving its role", async () => {
     const id = randomUUID();
     await pool.query(
       "INSERT INTO community_groups(id,provider,chat_ref,role,display_name) VALUES ($1,'baileys','120363900003@g.us','RECEPTION','Recepcao')",
@@ -259,19 +286,23 @@ describe.sequential("World group setup through the operational WhatsApp router",
     );
     expect(
       await createOperationalMessagingComposition(pool).router.dispatch(
-        context(undefined, "120363900003@g.us"),
+        context("/grupo recepcao Recepcao", "120363900003@g.us"),
       ),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    ).toMatchObject({ ok: true });
     expect(
       (await pool.query("SELECT role FROM community_groups WHERE id=$1", [id])).rows[0].role,
     ).toBe("RECEPTION");
     expect(
       (
         await pool.query(
-          "SELECT capability_key FROM community_group_capabilities WHERE group_id=$1 AND active",
+          "SELECT capability_key FROM community_group_capabilities WHERE group_id=$1 AND active ORDER BY capability_key",
           [id],
         )
       ).rows,
-    ).toEqual([{ capability_key: "onboarding" }]);
+    ).toEqual(
+      ["admin.review", "onboarding", "player.basic", "pve", "pvp", "world"].map(
+        (capability_key) => ({ capability_key }),
+      ),
+    );
   });
 });

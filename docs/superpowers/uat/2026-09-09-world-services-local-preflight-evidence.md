@@ -19,13 +19,25 @@ The operator must select the gameplay group through WhatsApp. CommunityService e
 
 Command: `/grupo jogo Nome do grupo`, sent by an RPG administrator inside the desired gameplay group. `$grupo` is also accepted by the standard router. Requires ACTIVE AdminPrincipal, `community.group.manage` at risk tier 3 and GLOBAL scope. WhatsApp group admin status alone does not grant access.
 
-Setup registers an unknown group as GAME and adds player.basic/world atomically with audit/change evidence and APPLIED operation. Existing GAME names/capabilities are preserved. Retired and non-GAME groups are refused. The dedicated bootstrap route checks the full AdminService boundary before mutation; normal unknown-group gameplay admission remains unchanged.
+Initial implementation registered unknown groups as GAME and refused non-GAME groups. That restriction was superseded by the explicit operator decision below. The dedicated bootstrap route checks the full AdminService boundary before mutation; normal unknown-group gameplay admission remains unchanged.
 
 RED: operational PostgreSQL integration test failed because command admission returned false and dispatch returned Unknown command. GREEN/regression: 70 tests across 14 files, including real disposable PostgreSQL setup, restart-style replay, unauthorized sender, missing global scope, private/invalid input, Reception preservation, concurrent additive configuration and injected audit-failure rollback/retry.
 
 Local test invocation explicitly uses an ignored `.tmp/uat-vitest.config.mjs` containing `export default {};` because Vitest otherwise finds an unrelated parent Downloads/vite.config.ts. This is local harness isolation, not a product-code fix.
 
 ## Next human gate
+
+### Operator decision after real WhatsApp rejection
+
+The operator sent `/grupo jogo Teste` in the existing Reception. Authorization succeeded, but the initial non-GAME restriction rejected it; the generic error renderer hid the reason. The group was not modified. This was an incorrect product assumption, not a permissions failure.
+
+Approved structure: the operator activates the bot in the desired group. A specific group role enables its specialized flows, without imposing exclusive-command restrictions for now. Reception will host all available gameplay for UAT. A group per NPC, facility or command is not required. Location authority remains per player, independent of group display name.
+
+Updated command: `/grupo recepcao Nome do grupo` (also accepts `recepção`). Creates or marks the current active group as RECEPTION and additively enables onboarding, admin.review, player.basic, world, pve and pvp. Existing name/capabilities are retained; `/grupo jogo` on Reception preserves its role. Retired groups remain blocked. Administrator authority and player mechanical/access checks are unchanged. No exclusive group levels are implemented.
+
+RED: Reception setup returned ok=false in the operational PostgreSQL integration test. GREEN: 66 regression tests across 13 files, followed by 8/8 group integration tests including accented Reception creation and repeated nonexclusive setup. No manual group update or player reset was used.
+
+Next action: after the sole runtime loads the updated commit, operator sends `/grupo recepcao Recepcao` in the existing Reception and returns acknowledgement evidence. This supersedes the earlier request to choose a separate GAME group.
 
 Start exactly one demo runtime on the recorded new commit; ask operator to send `/grupo jogo Nome do grupo` in the intended group. Inspect acknowledgement and persisted group/capabilities/audit. Then resume preserved registration draft through human submission/review and canonical provisioning; prepare missing local content without replacing Zhoulia decisions. Do not claim A1 started until player/location/content gates are satisfied.
 
