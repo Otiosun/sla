@@ -5,7 +5,10 @@ import type {
   PlayerOnboardingTransaction,
 } from "../../src/modules/player/ports.js";
 import { PlayerPortalReadService } from "../../src/modules/player-portal/read-service.js";
-import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
+import {
+  createPlayerId,
+  createPokemonInstanceId,
+} from "../../src/shared-kernel/ids.js";
 
 const identity = {
   provider: "whatsapp",
@@ -53,12 +56,13 @@ function repositoryFor(input: {
 
   return {
     read: async <T>(work: (tx: PlayerOnboardingTransaction) => Promise<T>) => work(transaction),
-    transaction: async <T>(work: (tx: PlayerOnboardingTransaction) => Promise<T>) => work(transaction),
+    transaction: async <T>(work: (tx: PlayerOnboardingTransaction) => Promise<T>) =>
+      work(transaction),
   };
 }
 
 describe("PlayerPortalReadService", () => {
-  it("resolves the authenticated external identity and returns only that player's portal view", async () => {
+  it("resolves the authenticated identity and returns only that player's portal view", async () => {
     const profile = profileView();
     let resolvedIdentity: unknown;
     const service = new PlayerPortalReadService(
