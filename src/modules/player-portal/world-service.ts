@@ -1,5 +1,6 @@
 import type { ExternalIdentity } from "../player/contracts.js";
 import type { PlayerOnboardingRepository } from "../player/ports.js";
+import type { WorldLocationView } from "../world/contracts.js";
 import type { WorldService } from "../world/service.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
@@ -28,46 +29,94 @@ export interface PlayerPortalWorldLocationView {
   readonly connections: readonly PlayerPortalWorldConnectionView[];
 }
 
+export interface PlayerPortalWorldTravelInput {
+  readonly destinationAreaId: string;
+  readonly expectedRevision: string;
+  readonly idempotencyKey: string;
+}
+
+export interface PlayerPortalWorldTravelView {
+  readonly from: PlayerPortalWorldLocationView;
+  readonly to: PlayerPortalWorldLocationView;
+  readonly replayed: boolean;
+}
+
 export class PlayerPortalWorldService {
   public constructor(
     private readonly repository: PlayerOnboardingRepository,
-    private readonly world: Pick<WorldService, "getLocation">,
+    private readonly world: Pick<WorldService, "getLocation" | "travel">,
   ) {}
 
   public async getLocation(
     identity: ExternalIdentity,
   ): Promise<Result<PlayerPortalWorldLocationView>> {
+    const playerId = await this.resolvePlayerId(identity);
+    if (!playerId.ok) return playerId;
+
+    const location = await this.world.getLocation(playerId.value);
+    if (!location.ok) return location;
+
+    return ok(mapLocation(location.value));
+  }
+
+  public async travel(
+    identity: ExternalIdentity,
+    input: PlayerPortalWorldTravelInput,
+  ): Promise<Result<PlayerPortalWorldTravelView>> {
+    if (!/^\d+$/.test(input.expectedRevision)) {
+      return err(appError("VALIDATION_FAILED", "Invalid world revision"));
+    }
+
+    const playerId = await this.resolvePlayerId(identity);
+    if (!playerId.ok) return playerId;
+
+    const traveled = await this.world.travel({
+      playerId: playerId.value,
+      destinationAreaId: input.destinationAreaId,
+      expectedRevision: BigInt(input.expectedRevision),
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (!traveled.ok) return traveled;
+
+    return ok({
+      from: mapLocation(traveled.value.from),
+      to: mapLocation(traveled.value.to),
+      replayed: traveled.value.replayed,
+    });
+  }
+
+  private async resolvePlayerId(identity: ExternalIdentity) {
     const playerId = await this.repository.read((transaction) =>
       transaction.findPlayerByIdentity(identity),
     );
     if (playerId === null) {
       return err(appError("NOT_FOUND", "Player portal world unavailable"));
     }
-
-    const location = await this.world.getLocation(playerId);
-    if (!location.ok) return location;
-
-    return ok({
-      areaId: location.value.areaId,
-      areaSlug: location.value.areaSlug,
-      areaDisplayName: location.value.areaDisplayName,
-      regionId: location.value.regionId,
-      regionSlug: location.value.regionSlug,
-      regionDisplayName: location.value.regionDisplayName,
-      safePoint: location.value.safePoint,
-      revision: location.value.revision.toString(),
-      enteredAt: location.value.enteredAt.toISOString(),
-      requiresRelocation: location.value.requiresRelocation,
-      relocationAreaId: location.value.relocationAreaId,
-      connections: location.value.connections.map((connection) => ({
-        connectionId: connection.connectionId,
-        connectionKey: connection.connectionKey,
-        destinationAreaId: connection.destinationAreaId,
-        destinationSlug: connection.destinationSlug,
-        destinationDisplayName: connection.destinationDisplayName,
-        available: connection.available,
-        missingUnlockKeys: connection.missingUnlockKeys,
-      })),
-    });
+    return ok(playerId);
   }
+}
+
+function mapLocation(location: WorldLocationView): PlayerPortalWorldLocationView {
+  return {
+    areaId: location.areaId,
+    areaSlug: location.areaSlug,
+    areaDisplayName: location.areaDisplayName,
+    regionId: location.regionId,
+    regionSlug: location.regionSlug,
+    regionDisplayName: location.regionDisplayName,
+    safePoint: location.safePoint,
+    revision: location.revision.toString(),
+    enteredAt: location.enteredAt.toISOString(),
+    requiresRelocation: location.requiresRelocation,
+    relocationAreaId: location.relocationAreaId,
+    connections: location.connections.map((connection) => ({
+      connectionId: connection.connectionId,
+      connectionKey: connection.connectionKey,
+      destinationAreaId: connection.destinationAreaId,
+      destinationSlug: connection.destinationSlug,
+      destinationDisplayName: connection.destinationDisplayName,
+      available: connection.available,
+      missingUnlockKeys: connection.missingUnlockKeys,
+    })),
+  };
 }
