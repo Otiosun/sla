@@ -96,4 +96,59 @@ describe("PlayerPortalHttpHandler world", () => {
     expect(JSON.stringify(body)).not.toContain("contentReleaseId");
     expect(JSON.stringify(body)).not.toContain("playerId");
   });
+
+  it("travels through the authenticated world boundary without accepting a player id", async () => {
+    let requestedIdentity: ExternalIdentity | null = null;
+    let requestedTravel: unknown = null;
+    const travel = {
+      from: { areaId: "route-1", revision: "3" },
+      to: { areaId: "pallet-town", revision: "4" },
+      replayed: false,
+    };
+    const handler = new PlayerPortalHttpHandler({
+      tickets: { redeem: async () => ok(identity) },
+      sessions: {
+        issue: () =>
+          ok({ token: "session-token", expiresAt: new Date("2026-09-10T00:00:00.000Z") }),
+        verify: () => ok(identity),
+      },
+      player: {
+        getSelf: async () => ok({} as never),
+        getPokemon: async () => ok([]),
+      },
+      world: {
+        getLocation: async () => ok({} as never),
+        travel: async (verifiedIdentity: ExternalIdentity, input: unknown) => {
+          requestedIdentity = verifiedIdentity;
+          requestedTravel = input;
+          return ok(travel);
+        },
+      },
+    } as never);
+
+    const response = await handler.handle(
+      new Request("https://api.example.test/v1/hub/world/travel", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          destinationAreaId: "44444444-4444-4444-8444-444444444444",
+          expectedRevision: "3",
+          idempotencyKey: "hub-travel-00000001",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(requestedIdentity).toEqual(identity);
+    expect(requestedTravel).toEqual({
+      destinationAreaId: "44444444-4444-4444-8444-444444444444",
+      expectedRevision: "3",
+      idempotencyKey: "hub-travel-00000001",
+    });
+    expect(await response.json()).toEqual({ travel });
+  });
 });
