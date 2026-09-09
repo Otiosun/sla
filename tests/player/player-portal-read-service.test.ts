@@ -5,10 +5,7 @@ import type {
   PlayerOnboardingTransaction,
 } from "../../src/modules/player/ports.js";
 import { PlayerPortalReadService } from "../../src/modules/player-portal/read-service.js";
-import {
-  createPlayerId,
-  createPokemonInstanceId,
-} from "../../src/shared-kernel/ids.js";
+import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
 
 const identity = {
   provider: "whatsapp",
