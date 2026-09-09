@@ -62,10 +62,10 @@ describe.sequential("Player Portal catalog resolver on disposable PostgreSQL", (
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 4, 'charmander')",
       [speciesId],
     );
-    await pool.query(
-      "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')",
-      [formId, speciesId],
-    );
+    await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
+      formId,
+      speciesId,
+    ]);
     await pool.query(
       `INSERT INTO pokemon_form_revisions(
          id, content_release_id, form_id, display_name, type1_id, type2_id,
