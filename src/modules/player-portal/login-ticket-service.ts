@@ -1,8 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import {
-  ExternalIdentitySchema,
-  type ExternalIdentity,
-} from "../player/contracts.js";
+import { ExternalIdentitySchema, type ExternalIdentity } from "../player/contracts.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 const HUB_LOGIN_TICKET_TTL_MS = 5 * 60 * 1000;
@@ -41,7 +38,8 @@ export class HubLoginTicketService {
     dependencies: HubLoginTicketDependencies = {},
   ) {
     this.now = dependencies.now ?? (() => new Date());
-    this.generateToken = dependencies.generateToken ?? (() => randomBytes(32).toString("base64url"));
+    this.generateToken =
+      dependencies.generateToken ?? (() => randomBytes(32).toString("base64url"));
   }
 
   public async issue(identity: ExternalIdentity): Promise<Result<HubLoginTicketIssueResult>> {
