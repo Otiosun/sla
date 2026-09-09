@@ -24,7 +24,9 @@ export interface PlayerPortalRuntime {
   readonly handler: PlayerPortalRequestHandler;
 }
 
-export function composePlayerPortalRuntime(options: PlayerPortalRuntimeOptions): PlayerPortalRuntime {
+export function composePlayerPortalRuntime(
+  options: PlayerPortalRuntimeOptions,
+): PlayerPortalRuntime {
   const playerRepository = new PostgresPlayerOnboardingRepository(options.pool);
   const player = new PlayerPortalReadService(
     playerRepository,
