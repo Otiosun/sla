@@ -59,9 +59,7 @@ describe("HubLoginTicketService", () => {
     expect(result.value.ticket).toBe(rawTicket);
     expect(result.value.expiresAt.toISOString()).toBe("2026-09-09T12:05:00.000Z");
     expect(store.issued).not.toBeNull();
-    expect(store.issued?.ticketHash).toBe(
-      createHash("sha256").update(rawTicket).digest("hex"),
-    );
+    expect(store.issued?.ticketHash).toBe(createHash("sha256").update(rawTicket).digest("hex"));
     expect(store.issued?.ticketHash).not.toBe(rawTicket);
     expect(store.issued?.identity).toEqual(identity);
   });
@@ -88,10 +86,7 @@ describe("HubLoginTicketService", () => {
     const store = new MemoryTicketStore();
     await service(store).issue(identity);
 
-    const result = await service(
-      store,
-      new Date("2026-09-09T12:05:00.000Z"),
-    ).redeem(rawTicket);
+    const result = await service(store, new Date("2026-09-09T12:05:00.000Z")).redeem(rawTicket);
 
     expect(result).toEqual({
       ok: false,
