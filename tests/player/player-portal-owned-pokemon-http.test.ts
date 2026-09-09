@@ -17,7 +17,8 @@ describe("PlayerPortalHttpHandler owned Pokemon", () => {
         redeem: async () => ok(identity),
       },
       sessions: {
-        issue: () => ok({ token: "session-token", expiresAt: new Date("2026-09-10T00:00:00.000Z") }),
+        issue: () =>
+          ok({ token: "session-token", expiresAt: new Date("2026-09-10T00:00:00.000Z") }),
         verify: () => ok(identity),
       },
       player: {
