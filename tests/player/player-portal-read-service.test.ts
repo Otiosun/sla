@@ -79,7 +79,65 @@ describe("PlayerPortalReadService", () => {
     expect(result.value.playerId).toBe(profile.playerId);
     expect(result.value.trainerName).toBe("Natan");
     expect(result.value.progressionPoints).toBe("1234");
-    expect(result.value.team).toEqual(profile.team);
+  });
+
+  it("enriches the portal-only view from the published catalog without changing mechanical team state", async () => {
+    const profile = profileView();
+    let catalogInput: unknown;
+    const service = new PlayerPortalReadService(repositoryFor({ profile }), {
+      resolve: async (input: unknown) => {
+        catalogInput = input;
+        return {
+          originRegionName: "Kanto",
+          forms: [
+            {
+              formId: "44444444-4444-4444-8444-444444444444",
+              displayName: "Charmander",
+              nationalDex: 4,
+              typeNames: ["Fire"],
+            },
+          ],
+        };
+      },
+    });
+
+    const result = await service.getSelf(identity);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(catalogInput).toEqual({
+      contentReleaseId: profile.contentReleaseId,
+      originRegionId: profile.originRegionId,
+      formIds: [profile.team[0]?.formId],
+    });
+    expect(result.value.originRegionName).toBe("Kanto");
+    expect(result.value.team).toEqual([
+      {
+        ...profile.team[0],
+        displayName: "Charmander",
+        nationalDex: 4,
+        typeNames: ["Fire"],
+      },
+    ]);
+  });
+
+  it("keeps unresolved catalog presentation honest instead of inventing display data", async () => {
+    const profile = profileView();
+    const service = new PlayerPortalReadService(repositoryFor({ profile }), {
+      resolve: async () => ({ originRegionName: null, forms: [] }),
+    });
+
+    const result = await service.getSelf(identity);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.originRegionName).toBeNull();
+    expect(result.value.team[0]).toEqual({
+      ...profile.team[0],
+      displayName: null,
+      nationalDex: null,
+      typeNames: [],
+    });
   });
 
   it("fails closed when the authenticated identity is not linked to a player", async () => {
