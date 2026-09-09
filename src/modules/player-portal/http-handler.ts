@@ -1,15 +1,21 @@
+import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
-import type { AppError } from "../../shared-kernel/result.js";
+import type { AppError, Result } from "../../shared-kernel/result.js";
 
 const SESSION_COOKIE_NAME = "__Host-pokemon_hub_session";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
+
+interface PlayerPortalWorldBoundary {
+  getLocation(identity: ExternalIdentity): Promise<Result<unknown>>;
+}
 
 interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
   readonly player: Pick<PlayerPortalReadService, "getSelf" | "getPokemon">;
+  readonly world: PlayerPortalWorldBoundary;
 }
 
 export class PlayerPortalHttpHandler {
@@ -26,6 +32,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon") {
       return this.getPokemon(request);
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/world/location") {
+      return this.getWorldLocation(request);
     }
 
     return jsonResponse(404, { error: "NOT_FOUND" });
@@ -100,6 +109,25 @@ export class PlayerPortalHttpHandler {
     }
 
     return jsonResponse(200, { pokemon: pokemon.value });
+  }
+
+  private async getWorldLocation(request: Request): Promise<Response> {
+    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
+    if (sessionToken === null) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const verified = this.dependencies.sessions.verify(sessionToken);
+    if (!verified.ok) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const location = await this.dependencies.world.getLocation(verified.value);
+    if (!location.ok) {
+      return errorResponse(location.error, "self");
+    }
+
+    return jsonResponse(200, { location: location.value });
   }
 }
 

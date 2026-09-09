@@ -63,6 +63,9 @@ function handler(
       getSelf: async () => input.selfResult ?? ok(profile),
       getPokemon: async () => ok([]),
     },
+    world: {
+      getLocation: async () => ok({} as never),
+    },
   });
 }
 
