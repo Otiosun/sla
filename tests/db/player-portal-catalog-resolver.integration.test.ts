@@ -34,15 +34,13 @@ describe.sequential("Player Portal catalog resolver on disposable PostgreSQL", (
     await runMigrations(pool, { appliedBy: "player-portal-catalog-vitest" });
 
     await pool.query(
-      `INSERT INTO rulesets(
-         id, key, version, engine_contract_version, config, status, published_at
-       ) VALUES ($1, 'portal-test', 1, 1, '{}'::jsonb, 'PUBLISHED', now())`,
+      `INSERT INTO rulesets(id, key, version, engine_contract_version, config, status)
+       VALUES ($1, 'portal-test', 1, 1, '{}'::jsonb, 'DRAFT')`,
       [rulesetId],
     );
     await pool.query(
-      `INSERT INTO content_releases(
-         id, release_no, name, status, default_ruleset_id, published_at
-       ) VALUES ($1, 999999, 'Portal Test', 'PUBLISHED', $2, now())`,
+      `INSERT INTO content_releases(id, release_no, name, status, default_ruleset_id)
+       VALUES ($1, 999999, 'Portal Test', 'DRAFT', $2)`,
       [releaseId, rulesetId],
     );
     await pool.query("INSERT INTO regions(id, slug) VALUES ($1, 'kanto')", [regionId]);
