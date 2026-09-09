@@ -4,7 +4,8 @@ import { composePlayerPortalRuntime } from "../../src/runtime/compose-player-por
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for runtime composition tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for runtime composition tests");
   return value;
 })();
 
