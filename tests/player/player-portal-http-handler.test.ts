@@ -15,6 +15,7 @@ const profile: PlayerPortalSelfView = {
   playerStatus: "ACTIVE",
   trainerName: "Natan",
   originRegionId: "11111111-1111-4111-8111-111111111111",
+  originRegionName: "Kanto",
   locale: "pt-BR",
   trainerLevel: 7,
   progressionPoints: "1234",
@@ -29,6 +30,9 @@ const profile: PlayerPortalSelfView = {
       level: 12,
       currentHp: 31,
       slotNo: 1,
+      displayName: "Charmander",
+      nationalDex: 4,
+      typeNames: ["Fire"],
     },
   ],
 };
