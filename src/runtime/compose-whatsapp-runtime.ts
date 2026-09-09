@@ -1,10 +1,10 @@
 import type { Pool } from "pg";
+import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import {
-  BaileysWhatsAppAdapter,
   type BaileysAuthBinding,
+  BaileysWhatsAppAdapter,
   baileysOutboundMessageId,
 } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
-import type { WhatsAppProviderConnectionState } from "../adapters/whatsapp/adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
@@ -14,6 +14,10 @@ import { ReceptionAwareConversationResolver } from "../modules/community/recepti
 import { ReceptionService } from "../modules/community/reception-service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../modules/community/service.js";
+import {
+  createWorldGroupSetupRoute,
+  registerWorldGroupSetupOperation,
+} from "../modules/community/world-group-setup.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
@@ -56,6 +60,7 @@ import { PostgresBattleRepository } from "../platform/battle/postgres-battle-rep
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
 import { PostgresReceptionPresenceRepository } from "../platform/community/postgres-reception-presence-repository.js";
+import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-group-setup.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
@@ -157,6 +162,7 @@ export function createOperationalMessagingComposition(
   const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
   const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
   const adminRegistry = registerReceptionAdminOperations(new AdminOperationRegistry());
+  registerWorldGroupSetupOperation(adminRegistry);
   const adminService = new AdminService(adminRegistry, new PostgresAdminRepository(pool));
   const auditedRegistrationReview = new AuditedRegistrationReviewService({
     admin: adminService,
@@ -280,7 +286,17 @@ export function createOperationalMessagingComposition(
     setup,
   });
   const router = new MessageRouter(
-    [...legacyRoutes, ...worldServiceRoutes, ...registrationRoutes, ...registrationAdminRoutes],
+    [
+      ...legacyRoutes,
+      ...worldServiceRoutes,
+      ...registrationRoutes,
+      ...registrationAdminRoutes,
+      createWorldGroupSetupRoute({
+        admins: adminIdentity,
+        admin: adminService,
+        setup: new PostgresWorldGroupSetup(pool),
+      }),
+    ],
     policyGate,
     conversationResolver,
   );
