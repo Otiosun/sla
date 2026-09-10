@@ -61,6 +61,7 @@ try {
         pool,
         auth,
         logger,
+        hubPublicUrl: runtimeConfig.hubPublicUrl,
         onSessionInvalidated: requestShutdown,
       });
       const supervisor = new WhatsAppRuntimeSupervisor(runtime, {
@@ -91,6 +92,7 @@ try {
         pool,
         auth,
         logger,
+        hubPublicUrl: runtimeConfig.hubPublicUrl,
         onSessionInvalidated: releaseProcess.onSessionInvalidated,
         onProviderConnectionState: releaseProcess.onProviderConnectionState,
       });
