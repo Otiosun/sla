@@ -9,6 +9,7 @@ const runtimeSchema = z.object({
   PLAYER_PORTAL_HOST: z.string().min(1).default("0.0.0.0"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   DEPLOY_REVISION: fullRevisionSchema.optional(),
+  RAILWAY_GIT_COMMIT_SHA: fullRevisionSchema.optional(),
 });
 
 export interface PlayerPortalRuntimeConfig {
@@ -49,10 +50,23 @@ export function loadPlayerPortalRuntimeConfig(
     );
   }
 
-  const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
-  if (requiresRevision && parsed.data.DEPLOY_REVISION === undefined) {
+  const explicitRevision = parsed.data.DEPLOY_REVISION;
+  const railwayRevision = parsed.data.RAILWAY_GIT_COMMIT_SHA;
+  if (
+    explicitRevision !== undefined &&
+    railwayRevision !== undefined &&
+    explicitRevision !== railwayRevision
+  ) {
     throw new PlayerPortalRuntimeConfigError(
-      "Invalid Player Portal runtime configuration: DEPLOY_REVISION is required in staging/production",
+      "Invalid Player Portal runtime configuration: DEPLOY_REVISION disagrees with RAILWAY_GIT_COMMIT_SHA",
+    );
+  }
+
+  const deploymentRevision = railwayRevision ?? explicitRevision ?? null;
+  const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
+  if (requiresRevision && deploymentRevision === null) {
+    throw new PlayerPortalRuntimeConfigError(
+      "Invalid Player Portal runtime configuration: deployment revision is required in staging/production",
     );
   }
 
@@ -68,6 +82,6 @@ export function loadPlayerPortalRuntimeConfig(
       "ENCOUNTER_RNG_KEY_BASE64",
     ),
     encounterRngKeyVersion: parsed.data.ENCOUNTER_RNG_KEY_VERSION,
-    deploymentRevision: parsed.data.DEPLOY_REVISION ?? null,
+    deploymentRevision,
   };
 }
