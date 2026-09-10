@@ -88,6 +88,11 @@ export interface PlayerOnboardingTransaction {
   loadProfileView(playerId: PlayerId): Promise<PlayerProfileView | null>;
   listOwnedPokemon(playerId: PlayerId): Promise<readonly OwnedPokemonRecord[]>;
   listPokedexSpecies(playerId: PlayerId): Promise<readonly PlayerPokedexSpeciesRecord[]>;
+  moveOwnedPokemon(input: {
+    readonly playerId: PlayerId;
+    readonly pokemonInstanceId: PokemonInstanceId;
+    readonly target: RosterPlacement;
+  }): Promise<boolean>;
 }
 
 export interface PlayerOnboardingRepository {
