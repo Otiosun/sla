@@ -94,17 +94,14 @@ describe("player portal runtime config", () => {
       ),
     ).toThrow(PlayerPortalRuntimeConfigError);
     expect(() =>
-      loadPlayerPortalRuntimeConfig(
-        { appEnv: "development" },
-        validEnv({ PORT: "70000" }),
-      ),
+      loadPlayerPortalRuntimeConfig({ appEnv: "development" }, validEnv({ PORT: "70000" })),
     ).toThrow(PlayerPortalRuntimeConfigError);
   });
 
   it("requires and preserves the exact deployment revision in staging", () => {
-    expect(() =>
-      loadPlayerPortalRuntimeConfig({ appEnv: "staging" }, validEnv()),
-    ).toThrow(PlayerPortalRuntimeConfigError);
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "staging" }, validEnv())).toThrow(
+      PlayerPortalRuntimeConfigError,
+    );
 
     const config = loadPlayerPortalRuntimeConfig(
       { appEnv: "staging" },
