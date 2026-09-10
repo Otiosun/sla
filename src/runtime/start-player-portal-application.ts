@@ -18,6 +18,8 @@ export async function startPlayerPortalApplication(
   const runtime = composePlayerPortalRuntime({
     pool: options.pool,
     sessionSigningKey: options.runtimeConfig.sessionSigningKey,
+    encounterRngKey: options.runtimeConfig.encounterRngKey,
+    encounterRngKeyVersion: options.runtimeConfig.encounterRngKeyVersion,
     deploymentRevision: options.runtimeConfig.deploymentRevision,
   });
 

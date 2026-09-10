@@ -9,6 +9,16 @@ const databaseUrl = (() => {
   return value;
 })();
 
+function runtimeOptions(pool: Pool, signingByte: number, revision: string | null) {
+  return {
+    pool,
+    sessionSigningKey: Buffer.alloc(32, signingByte),
+    encounterRngKey: Buffer.alloc(32, signingByte + 10),
+    encounterRngKeyVersion: 1,
+    deploymentRevision: revision,
+  };
+}
+
 describe("Player Portal runtime composition", () => {
   let pool: Pool;
 
@@ -21,11 +31,7 @@ describe("Player Portal runtime composition", () => {
   });
 
   it("exposes a no-store health boundary with the exact deployment revision", async () => {
-    const runtime = composePlayerPortalRuntime({
-      pool,
-      sessionSigningKey: Buffer.alloc(32, 5),
-      deploymentRevision: "b".repeat(40),
-    });
+    const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 5, "b".repeat(40)));
 
     const response = await runtime.handler.handle(new Request("http://player-portal.test/health"));
 
@@ -38,17 +44,21 @@ describe("Player Portal runtime composition", () => {
     });
   });
 
-  it.each(["/v1/hub/player/self", "/v1/hub/world/location"])(
+  it.each(["/v1/hub/player/self", "/v1/hub/world/location", "/v1/hub/encounters"])(
     "keeps %s behind the canonical Hub session",
     async (pathname) => {
-      const runtime = composePlayerPortalRuntime({
-        pool,
-        sessionSigningKey: Buffer.alloc(32, 6),
-        deploymentRevision: null,
-      });
+      const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 6, null));
 
       const response = await runtime.handler.handle(
-        new Request(`http://player-portal.test${pathname}`),
+        new Request(`http://player-portal.test${pathname}`, {
+          ...(pathname === "/v1/hub/encounters"
+            ? {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ idempotencyKey: "test-encounter" }),
+              }
+            : {}),
+        }),
       );
 
       expect(response.status).toBe(401);
@@ -58,11 +68,7 @@ describe("Player Portal runtime composition", () => {
   );
 
   it("delegates malformed ticket exchange to the canonical Player Portal handler", async () => {
-    const runtime = composePlayerPortalRuntime({
-      pool,
-      sessionSigningKey: Buffer.alloc(32, 7),
-      deploymentRevision: null,
-    });
+    const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 7, null));
 
     const response = await runtime.handler.handle(
       new Request("http://player-portal.test/v1/hub/auth/exchange", {
