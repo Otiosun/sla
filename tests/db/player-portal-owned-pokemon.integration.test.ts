@@ -103,4 +103,32 @@ describe.sequential("Player Portal owned Pokemon on disposable PostgreSQL", () =
       },
     ]);
   });
+
+  it("atomically swaps Team and Box placements without violating unique roster slots", async () => {
+    const repository = new PostgresPlayerOnboardingRepository(pool);
+    const moved = await repository.transaction((transaction) =>
+      transaction.moveOwnedPokemon({
+        playerId,
+        pokemonInstanceId: boxPokemonId,
+        target: { placementKind: "TEAM", boxNo: null, slotNo: 2 },
+      }),
+    );
+
+    expect(moved).toBe(true);
+
+    const owned = await repository.read((transaction) => transaction.listOwnedPokemon(playerId));
+    const movedToTeam = owned.find((pokemon) => pokemon.pokemonInstanceId === boxPokemonId);
+    const movedToBox = owned.find((pokemon) => pokemon.pokemonInstanceId === teamPokemonId);
+
+    expect(movedToTeam).toMatchObject({
+      placementKind: "TEAM",
+      boxNo: null,
+      slotNo: 2,
+    });
+    expect(movedToBox).toMatchObject({
+      placementKind: "BOX",
+      boxNo: 1,
+      slotNo: 1,
+    });
+  });
 });
