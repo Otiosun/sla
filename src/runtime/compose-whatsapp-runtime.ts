@@ -274,7 +274,7 @@ export function createOperationalWhatsAppRuntime(
     },
   });
 
-  const outboxWorker = createOperationalOutboxWorker(pool, messagingRepository, adapter);
+  const outboxWorker = createOperationalOutboxWorker(options.pool, messagingRepository, adapter);
 
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitCommand: composition.admitCommand,
