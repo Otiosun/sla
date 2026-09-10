@@ -50,10 +50,7 @@ function hubLoginUrl(publicUrl: string, ticket: string): string {
   return url.toString();
 }
 
-function textResult(
-  context: MessageHandlerContext,
-  text: string,
-): Result<MessageHandlerResult> {
+function textResult(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
   return ok({
     resultRefType: null,
     resultRefId: null,
