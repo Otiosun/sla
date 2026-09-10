@@ -5,6 +5,10 @@ const sessionKeySchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const fullRevisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const positiveInteger = (defaultValue: number) =>
   z.coerce.number().int().positive().default(defaultValue);
+const publicHubUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => new URL(value).protocol === "https:", "must use HTTPS");
 
 const whatsappRuntimeSchema = z.object({
   WHATSAPP_SESSION_KEY: sessionKeySchema,
@@ -12,6 +16,7 @@ const whatsappRuntimeSchema = z.object({
   WHATSAPP_AUTH_KEY_VERSION: positiveInteger(1),
   WHATSAPP_OUTBOX_POLL_MS: positiveInteger(500),
   WHATSAPP_HEALTH_HEARTBEAT_MS: positiveInteger(30_000),
+  HUB_PUBLIC_URL: publicHubUrlSchema.optional(),
   DEPLOY_REVISION: fullRevisionSchema.optional(),
 });
 
@@ -22,6 +27,7 @@ export interface WhatsAppRuntimeConfig {
   readonly outboxPollMs: number;
   readonly deploymentRevision: string | null;
   readonly healthHeartbeatMs: number;
+  readonly hubPublicUrl: string | null;
 }
 
 export class WhatsAppRuntimeConfigError extends Error {
@@ -75,5 +81,6 @@ export function loadWhatsAppRuntimeConfig(
     outboxPollMs: parsed.data.WHATSAPP_OUTBOX_POLL_MS,
     deploymentRevision: parsed.data.DEPLOY_REVISION ?? null,
     healthHeartbeatMs: parsed.data.WHATSAPP_HEALTH_HEARTBEAT_MS,
+    hubPublicUrl: parsed.data.HUB_PUBLIC_URL ?? null,
   };
 }
