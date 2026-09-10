@@ -66,14 +66,11 @@ describe("Player Portal application", () => {
     });
 
     try {
-      const response = await fetch(
-        `http://127.0.0.1:${application.port}/v1/hub/auth/exchange`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ticket: "A".repeat(43) }),
-        },
-      );
+      const response = await fetch(`http://127.0.0.1:${application.port}/v1/hub/auth/exchange`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticket: "A".repeat(43) }),
+      });
       expect(response.status).toBe(500);
       await expect(response.json()).resolves.toEqual({ error: "INTERNAL_ERROR" });
       expect(observedErrors).toHaveLength(1);
