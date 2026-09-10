@@ -32,6 +32,16 @@ export interface OwnedPokemonRecord {
   readonly slotNo: number;
 }
 
+export interface PlayerPokedexSpeciesRecord {
+  readonly nationalDex: number;
+  readonly seenCount: bigint;
+  readonly caughtCount: bigint;
+  readonly firstSeenAt: Date | null;
+  readonly lastSeenAt: Date | null;
+  readonly firstCaughtAt: Date | null;
+  readonly lastCaughtAt: Date | null;
+}
+
 export interface PlayerOnboardingTransaction {
   acquireIdentityLock(identity: ExternalIdentity): Promise<void>;
   findPlayerByIdentity(identity: ExternalIdentity): Promise<PlayerId | null>;
@@ -77,6 +87,7 @@ export interface PlayerOnboardingTransaction {
   }): Promise<boolean>;
   loadProfileView(playerId: PlayerId): Promise<PlayerProfileView | null>;
   listOwnedPokemon(playerId: PlayerId): Promise<readonly OwnedPokemonRecord[]>;
+  listPokedexSpecies(playerId: PlayerId): Promise<readonly PlayerPokedexSpeciesRecord[]>;
 }
 
 export interface PlayerOnboardingRepository {

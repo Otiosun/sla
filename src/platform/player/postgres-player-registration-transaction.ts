@@ -6,7 +6,11 @@ import {
   OnboardingStateSchema,
   type ProfileInput,
 } from "../../modules/player/contracts.js";
-import type { OwnedPokemonRecord, StoredProfile } from "../../modules/player/ports.js";
+import type {
+  OwnedPokemonRecord,
+  PlayerPokedexSpeciesRecord,
+  StoredProfile,
+} from "../../modules/player/ports.js";
 import {
   type PlayerId,
   type PokemonInstanceId,
@@ -89,6 +93,40 @@ export class PostgresPlayerRegistrationTransaction {
       placementKind: row.placement_kind,
       boxNo: row.box_no,
       slotNo: row.slot_no,
+    }));
+  }
+
+  public async listPokedexSpecies(
+    playerId: PlayerId,
+  ): Promise<readonly PlayerPokedexSpeciesRecord[]> {
+    const result = await this.client.query<{
+      national_dex: number;
+      seen_count: string;
+      caught_count: string;
+      first_seen_at: Date | null;
+      last_seen_at: Date | null;
+      first_caught_at: Date | null;
+      last_caught_at: Date | null;
+    }>(
+      `SELECT species.national_dex,
+              pokedex.seen_count::text, pokedex.caught_count::text,
+              pokedex.first_seen_at, pokedex.last_seen_at,
+              pokedex.first_caught_at, pokedex.last_caught_at
+       FROM player_pokedex_species pokedex
+       JOIN pokemon_species species ON species.id = pokedex.species_id
+       WHERE pokedex.player_id = $1
+       ORDER BY species.national_dex`,
+      [playerId],
+    );
+
+    return result.rows.map((row) => ({
+      nationalDex: row.national_dex,
+      seenCount: BigInt(row.seen_count),
+      caughtCount: BigInt(row.caught_count),
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+      firstCaughtAt: row.first_caught_at,
+      lastCaughtAt: row.last_caught_at,
     }));
   }
 
