@@ -7,6 +7,7 @@ import {
 const signingKey = Buffer.alloc(32, 7).toString("base64");
 const encounterRngKey = Buffer.alloc(32, 9).toString("base64");
 const revision = "a".repeat(40);
+const railwayRevision = "b".repeat(40);
 
 function validEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
@@ -113,5 +114,28 @@ describe("player portal runtime config", () => {
 
     expect(config.port).toBe(8080);
     expect(config.deploymentRevision).toBe(revision);
+  });
+
+  it("uses the Railway-injected Git commit SHA as deployment provenance", () => {
+    const config = loadPlayerPortalRuntimeConfig(
+      { appEnv: "staging" },
+      validEnv({
+        RAILWAY_GIT_COMMIT_SHA: railwayRevision,
+      }),
+    );
+
+    expect(config.deploymentRevision).toBe(railwayRevision);
+  });
+
+  it("rejects a manual deployment revision that disagrees with Railway provenance", () => {
+    expect(() =>
+      loadPlayerPortalRuntimeConfig(
+        { appEnv: "staging" },
+        validEnv({
+          RAILWAY_GIT_COMMIT_SHA: railwayRevision,
+          DEPLOY_REVISION: revision,
+        }),
+      ),
+    ).toThrow(PlayerPortalRuntimeConfigError);
   });
 });
