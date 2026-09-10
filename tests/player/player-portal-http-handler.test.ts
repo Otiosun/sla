@@ -126,6 +126,18 @@ describe("PlayerPortalHttpHandler", () => {
     expect(await response.json()).toEqual({ profile });
   });
 
+  it("reads only the authenticated player's Pokedex progress from the session cookie", async () => {
+    const response = await handler().handle(
+      new Request("https://api.example.test/v1/hub/player/pokedex", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ pokedex: [] });
+  });
+
   it("rejects self reads without a valid session cookie", async () => {
     const response = await handler({ verifiedIdentity: null }).handle(
       new Request("https://api.example.test/v1/hub/player/self"),
