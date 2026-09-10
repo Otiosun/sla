@@ -8,12 +8,27 @@ function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
+function databaseErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null;
+  const code = Reflect.get(error, "code");
+  return typeof code === "string" && /^[A-Z0-9]{5}$/.test(code) ? code : null;
+}
+
 const logger = new StructuredLogger(new SystemClock(), new JsonLineStdoutSink());
 
 try {
   const appConfig = loadConfig();
   const runtimeConfig = loadPlayerPortalRuntimeConfig(appConfig);
-  const runtime = await startPlayerPortalProcess({ appConfig, runtimeConfig });
+  const runtime = await startPlayerPortalProcess({
+    appConfig,
+    runtimeConfig,
+    onError: (error) => {
+      logger.log("ERROR", "player_portal.request_failed", {
+        errorKind: errorKind(error),
+        databaseCode: databaseErrorCode(error),
+      });
+    },
+  });
   let closing = false;
 
   const shutdown = async (signal: "SIGINT" | "SIGTERM"): Promise<void> => {

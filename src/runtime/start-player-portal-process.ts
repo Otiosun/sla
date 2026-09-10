@@ -7,6 +7,7 @@ import { startPlayerPortalApplication } from "./start-player-portal-application.
 interface StartPlayerPortalProcessOptions {
   readonly appConfig: AppConfig;
   readonly runtimeConfig: PlayerPortalRuntimeConfig;
+  readonly onError?: (error: unknown) => void;
 }
 
 export interface RunningPlayerPortalProcess {
@@ -33,6 +34,7 @@ export async function startPlayerPortalProcess(
     const application = await startPlayerPortalApplication({
       pool,
       runtimeConfig: options.runtimeConfig,
+      onError: options.onError,
     });
     let closePromise: Promise<void> | null = null;
 

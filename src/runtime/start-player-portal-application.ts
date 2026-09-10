@@ -9,6 +9,7 @@ import type { PlayerPortalRuntimeConfig } from "./player-portal-runtime-config.j
 interface StartPlayerPortalApplicationOptions {
   readonly pool: Pool;
   readonly runtimeConfig: PlayerPortalRuntimeConfig;
+  readonly onError?: (error: unknown) => void;
 }
 
 export async function startPlayerPortalApplication(
@@ -24,5 +25,6 @@ export async function startPlayerPortalApplication(
     handler: runtime.handler,
     host: options.runtimeConfig.host,
     port: options.runtimeConfig.port,
+    onError: options.onError,
   });
 }

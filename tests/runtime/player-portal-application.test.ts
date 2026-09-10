@@ -47,4 +47,38 @@ describe("Player Portal application", () => {
       await application.close();
     }
   });
+
+  it("forwards unexpected request failures to the configured observer without exposing details", async () => {
+    const closedPool = new Pool({ connectionString: databaseUrl, max: 1 });
+    await closedPool.end();
+    const observedErrors: unknown[] = [];
+    const application = await startPlayerPortalApplication({
+      pool: closedPool,
+      runtimeConfig: {
+        host: "127.0.0.1",
+        port: 0,
+        sessionSigningKey: Buffer.alloc(32, 10),
+        deploymentRevision: "d".repeat(40),
+      },
+      onError: (error) => {
+        observedErrors.push(error);
+      },
+    });
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${application.port}/v1/hub/auth/exchange`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ticket: "A".repeat(43) }),
+        },
+      );
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({ error: "INTERNAL_ERROR" });
+      expect(observedErrors).toHaveLength(1);
+    } finally {
+      await application.close();
+    }
+  });
 });
