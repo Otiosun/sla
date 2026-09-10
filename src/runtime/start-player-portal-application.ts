@@ -25,6 +25,6 @@ export async function startPlayerPortalApplication(
     handler: runtime.handler,
     host: options.runtimeConfig.host,
     port: options.runtimeConfig.port,
-    onError: options.onError,
+    ...(options.onError === undefined ? {} : { onError: options.onError }),
   });
 }

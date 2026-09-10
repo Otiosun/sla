@@ -65,6 +65,8 @@ describe("Player Portal production entrypoint", () => {
         LOG_LEVEL: "warn",
         DATABASE_URL: databaseUrl,
         PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: Buffer.alloc(32, 11).toString("base64"),
+        ENCOUNTER_RNG_KEY_BASE64: Buffer.alloc(32, 12).toString("base64"),
+        ENCOUNTER_RNG_KEY_VERSION: "1",
         PLAYER_PORTAL_HOST: "127.0.0.1",
         PORT: String(port),
       },

@@ -32,6 +32,8 @@ describe("Player Portal process", () => {
         host: "127.0.0.1",
         port: 0,
         sessionSigningKey: Buffer.alloc(32, 10),
+        encounterRngKey: Buffer.alloc(32, 14),
+        encounterRngKeyVersion: 1,
         deploymentRevision: "d".repeat(40),
       },
     });

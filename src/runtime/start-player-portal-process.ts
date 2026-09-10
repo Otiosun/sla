@@ -34,7 +34,7 @@ export async function startPlayerPortalProcess(
     const application = await startPlayerPortalApplication({
       pool,
       runtimeConfig: options.runtimeConfig,
-      onError: options.onError,
+      ...(options.onError === undefined ? {} : { onError: options.onError }),
     });
     let closePromise: Promise<void> | null = null;
 
