@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ExternalIdentity } from "../../src/modules/player/contracts.js";
 import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
 import { createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
@@ -73,5 +73,45 @@ describe("PlayerPortalHttpHandler owned Pokemon", () => {
       ],
     });
     expect(JSON.stringify(body)).not.toContain("session-token");
+  });
+
+  it("moves an owned Pokemon placement using the authenticated identity", async () => {
+    const pokemonInstanceId = createPokemonInstanceId();
+    const move = vi.fn(async () => ok(undefined));
+    const handler = new PlayerPortalHttpHandler({
+      tickets: { redeem: async () => ok(identity) },
+      sessions: {
+        issue: () =>
+          ok({ token: "session-token", expiresAt: new Date("2026-09-10T00:00:00.000Z") }),
+        verify: () => ok(identity),
+      },
+      player: {
+        getSelf: async () => ok({} as never),
+        getPokemon: async () => ok([]),
+        getPokedex: async () => ok([]),
+      },
+      roster: { move },
+    } as never);
+
+    const response = await handler.handle(
+      new Request("https://api.example.test/v1/hub/player/roster", {
+        method: "PUT",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          pokemonInstanceId,
+          target: { placementKind: "TEAM", boxNo: null, slotNo: 2 },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(move).toHaveBeenCalledWith(identity, {
+      pokemonInstanceId,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: 2 },
+    });
+    expect(await response.json()).toEqual({ pokemon: [] });
   });
 });
