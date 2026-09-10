@@ -64,6 +64,9 @@ function handler(
       getPokemon: async () => ok([]),
       getPokedex: async () => ok([]),
     },
+    roster: {
+      move: async () => ok(undefined),
+    },
   });
 }
 
