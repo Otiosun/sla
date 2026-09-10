@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { ExternalIdentitySchema, type ExternalIdentity } from "../../modules/player/contracts.js";
 import type {
@@ -18,14 +19,21 @@ export class PostgresHubLoginTicketStore implements HubLoginTicketStore {
     await this.pool.query(
       `
         INSERT INTO hub_login_tickets (
+          id,
           ticket_hash,
           provider,
           external_id,
           expires_at
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
       `,
-      [record.ticketHash, record.identity.provider, record.identity.externalId, record.expiresAt],
+      [
+        randomUUID(),
+        record.ticketHash,
+        record.identity.provider,
+        record.identity.externalId,
+        record.expiresAt,
+      ],
     );
   }
 
