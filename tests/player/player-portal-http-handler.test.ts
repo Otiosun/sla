@@ -63,17 +63,6 @@ function handler(
       getSelf: async () => input.selfResult ?? ok(profile),
       getPokemon: async () => ok([]),
     },
-    world: {
-      getLocation: async () => ok({} as never),
-      travel: async () => ok({} as never),
-    },
-    encounter: {
-      create: async () => ok({} as never),
-      get: async () => ok({} as never),
-      observe: async () => ok({} as never),
-      engage: async () => ok({} as never),
-      flee: async () => ok({} as never),
-    },
   });
 }
 

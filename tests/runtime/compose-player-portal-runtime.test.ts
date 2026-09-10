@@ -13,8 +13,6 @@ function runtimeOptions(pool: Pool, signingByte: number, revision: string | null
   return {
     pool,
     sessionSigningKey: Buffer.alloc(32, signingByte),
-    encounterRngKey: Buffer.alloc(32, signingByte + 10),
-    encounterRngKeyVersion: 1,
     deploymentRevision: revision,
   };
 }
@@ -32,7 +30,6 @@ describe("Player Portal runtime composition", () => {
 
   it("exposes a no-store health boundary with the exact deployment revision", async () => {
     const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 5, "b".repeat(40)));
-
     const response = await runtime.handler.handle(new Request("http://player-portal.test/health"));
 
     expect(response.status).toBe(200);
@@ -44,22 +41,11 @@ describe("Player Portal runtime composition", () => {
     });
   });
 
-  it.each(["/v1/hub/player/self", "/v1/hub/world/location", "/v1/hub/encounters"])(
+  it.each(["/v1/hub/player/self", "/v1/hub/player/pokemon"])(
     "keeps %s behind the canonical Hub session",
     async (pathname) => {
       const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 6, null));
-
-      const response = await runtime.handler.handle(
-        new Request(`http://player-portal.test${pathname}`, {
-          ...(pathname === "/v1/hub/encounters"
-            ? {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ idempotencyKey: "test-encounter" }),
-              }
-            : {}),
-        }),
-      );
+      const response = await runtime.handler.handle(new Request(`http://player-portal.test${pathname}`));
 
       expect(response.status).toBe(401);
       expect(response.headers.get("cache-control")).toBe("no-store");
@@ -67,18 +53,14 @@ describe("Player Portal runtime composition", () => {
     },
   );
 
-  it("delegates malformed ticket exchange to the canonical Player Portal handler", async () => {
+  it("does not expose gameplay routes through the companion API", async () => {
     const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 7, null));
 
-    const response = await runtime.handler.handle(
-      new Request("http://player-portal.test/v1/hub/auth/exchange", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticket: "invalid" }),
-      }),
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "VALIDATION_FAILED" });
+    for (const pathname of ["/v1/hub/world/location", "/v1/hub/world/travel", "/v1/hub/encounters"]) {
+      const response = await runtime.handler.handle(
+        new Request(`http://player-portal.test${pathname}`, { method: pathname.endsWith("location") ? "GET" : "POST" }),
+      );
+      expect(response.status).toBe(404);
+    }
   });
 });

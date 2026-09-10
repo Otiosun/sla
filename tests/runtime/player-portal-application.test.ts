@@ -27,8 +27,6 @@ describe("Player Portal application", () => {
         host: "127.0.0.1",
         port: 0,
         sessionSigningKey: Buffer.alloc(32, 9),
-        encounterRngKey: Buffer.alloc(32, 12),
-        encounterRngKeyVersion: 1,
         deploymentRevision: "c".repeat(40),
       },
     });
@@ -60,8 +58,6 @@ describe("Player Portal application", () => {
         host: "127.0.0.1",
         port: 0,
         sessionSigningKey: Buffer.alloc(32, 10),
-        encounterRngKey: Buffer.alloc(32, 13),
-        encounterRngKeyVersion: 1,
         deploymentRevision: "d".repeat(40),
       },
       onError: (error) => {
