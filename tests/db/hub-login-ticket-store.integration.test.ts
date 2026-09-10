@@ -26,15 +26,6 @@ describe.sequential("Hub login ticket store on disposable PostgreSQL", () => {
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 8 });
     await runMigrations(pool, { appliedBy: "hub-ticket-vitest" });
-    await pool.query(`
-      CREATE TABLE hub_login_tickets (
-        ticket_hash TEXT PRIMARY KEY,
-        provider TEXT NOT NULL,
-        external_id TEXT NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
   }, 30_000);
 
   afterAll(async () => {
