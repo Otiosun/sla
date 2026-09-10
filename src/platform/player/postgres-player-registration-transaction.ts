@@ -5,6 +5,7 @@ import {
   type OnboardingRecord,
   OnboardingStateSchema,
   type ProfileInput,
+  type RosterPlacement,
 } from "../../modules/player/contracts.js";
 import type {
   OwnedPokemonRecord,
@@ -94,6 +95,92 @@ export class PostgresPlayerRegistrationTransaction {
       boxNo: row.box_no,
       slotNo: row.slot_no,
     }));
+  }
+
+  public async moveOwnedPokemon(input: {
+    readonly playerId: PlayerId;
+    readonly pokemonInstanceId: PokemonInstanceId;
+    readonly target: RosterPlacement;
+  }): Promise<boolean> {
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `roster:${input.playerId}`,
+    ]);
+
+    const roster = await this.client.query<{
+      pokemon_instance_id: string;
+      placement_kind: "TEAM" | "BOX";
+      box_no: number | null;
+      slot_no: number;
+      pokemon_status: "ACTIVE" | "ARCHIVED";
+    }>(
+      `SELECT roster.pokemon_instance_id, roster.placement_kind, roster.box_no, roster.slot_no,
+              pokemon.status AS pokemon_status
+       FROM pokemon_roster_slots roster
+       JOIN pokemon_instances pokemon
+         ON pokemon.id = roster.pokemon_instance_id
+        AND pokemon.owner_player_id = roster.player_id
+       WHERE roster.player_id = $1
+       ORDER BY roster.pokemon_instance_id
+       FOR UPDATE OF roster`,
+      [input.playerId],
+    );
+
+    const source = roster.rows.find((row) => row.pokemon_instance_id === input.pokemonInstanceId);
+    if (source === undefined || source.pokemon_status !== "ACTIVE") return false;
+
+    const alreadyThere =
+      source.placement_kind === input.target.placementKind &&
+      source.box_no === input.target.boxNo &&
+      source.slot_no === input.target.slotNo;
+    if (alreadyThere) return true;
+
+    const occupant = roster.rows.find(
+      (row) =>
+        row.placement_kind === input.target.placementKind &&
+        row.box_no === input.target.boxNo &&
+        row.slot_no === input.target.slotNo,
+    );
+
+    if (occupant === undefined) {
+      const moved = await this.client.query(
+        `UPDATE pokemon_roster_slots
+         SET placement_kind = $3, box_no = $4, slot_no = $5, updated_at = now()
+         WHERE player_id = $1 AND pokemon_instance_id = $2`,
+        [
+          input.playerId,
+          input.pokemonInstanceId,
+          input.target.placementKind,
+          input.target.boxNo,
+          input.target.slotNo,
+        ],
+      );
+      return moved.rowCount === 1;
+    }
+
+    await this.client.query(
+      `DELETE FROM pokemon_roster_slots
+       WHERE player_id = $1 AND pokemon_instance_id = ANY($2::uuid[])`,
+      [input.playerId, [input.pokemonInstanceId, occupant.pokemon_instance_id]],
+    );
+    await this.client.query(
+      `INSERT INTO pokemon_roster_slots(
+         pokemon_instance_id, player_id, placement_kind, box_no, slot_no
+       ) VALUES
+         ($1, $3, $4, $5, $6),
+         ($2, $3, $7, $8, $9)`,
+      [
+        input.pokemonInstanceId,
+        occupant.pokemon_instance_id,
+        input.playerId,
+        input.target.placementKind,
+        input.target.boxNo,
+        input.target.slotNo,
+        source.placement_kind,
+        source.box_no,
+        source.slot_no,
+      ],
+    );
+    return true;
   }
 
   public async listPokedexSpecies(
