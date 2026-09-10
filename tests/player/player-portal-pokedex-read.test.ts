@@ -44,7 +44,8 @@ function repository(): PlayerOnboardingRepository {
 
   return {
     read: async <T>(work: (tx: PlayerOnboardingTransaction) => Promise<T>) => work(transaction),
-    transaction: async <T>(work: (tx: PlayerOnboardingTransaction) => Promise<T>) => work(transaction),
+    transaction: async <T>(work: (tx: PlayerOnboardingTransaction) => Promise<T>) =>
+      work(transaction),
   };
 }
 
