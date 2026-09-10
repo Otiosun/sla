@@ -45,7 +45,9 @@ describe("Player Portal runtime composition", () => {
     "keeps %s behind the canonical Hub session",
     async (pathname) => {
       const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 6, null));
-      const response = await runtime.handler.handle(new Request(`http://player-portal.test${pathname}`));
+      const response = await runtime.handler.handle(
+        new Request(`http://player-portal.test${pathname}`),
+      );
 
       expect(response.status).toBe(401);
       expect(response.headers.get("cache-control")).toBe("no-store");
@@ -56,9 +58,15 @@ describe("Player Portal runtime composition", () => {
   it("does not expose gameplay routes through the companion API", async () => {
     const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 7, null));
 
-    for (const pathname of ["/v1/hub/world/location", "/v1/hub/world/travel", "/v1/hub/encounters"]) {
+    for (const pathname of [
+      "/v1/hub/world/location",
+      "/v1/hub/world/travel",
+      "/v1/hub/encounters",
+    ]) {
       const response = await runtime.handler.handle(
-        new Request(`http://player-portal.test${pathname}`, { method: pathname.endsWith("location") ? "GET" : "POST" }),
+        new Request(`http://player-portal.test${pathname}`, {
+          method: pathname.endsWith("location") ? "GET" : "POST",
+        }),
       );
       expect(response.status).toBe(404);
     }
