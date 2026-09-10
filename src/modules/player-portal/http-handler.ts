@@ -1,5 +1,6 @@
 import type { HubLoginTicketService } from "./login-ticket-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
+import type { PlayerPortalRosterService } from "./roster-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
 import type { AppError } from "../../shared-kernel/result.js";
 
@@ -10,6 +11,7 @@ interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
   readonly player: Pick<PlayerPortalReadService, "getSelf" | "getPokemon" | "getPokedex">;
+  readonly roster: Pick<PlayerPortalRosterService, "move">;
 }
 
 export class PlayerPortalHttpHandler {
@@ -29,6 +31,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokedex") {
       return this.getPokedex(request);
+    }
+    if (request.method === "PUT" && url.pathname === "/v1/hub/player/roster") {
+      return this.moveRoster(request);
     }
 
     return jsonResponse(404, { error: "NOT_FOUND" });
@@ -123,19 +128,50 @@ export class PlayerPortalHttpHandler {
 
     return jsonResponse(200, { pokedex: pokedex.value });
   }
+
+  private async moveRoster(request: Request): Promise<Response> {
+    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
+    if (sessionToken === null) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const verified = this.dependencies.sessions.verify(sessionToken);
+    if (!verified.ok) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const body = await readJsonBody(request);
+    if (body === null) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
+
+    const moved = await this.dependencies.roster.move(verified.value, body);
+    if (!moved.ok) {
+      return errorResponse(moved.error, "roster");
+    }
+
+    const pokemon = await this.dependencies.player.getPokemon(verified.value);
+    if (!pokemon.ok) {
+      return errorResponse(pokemon.error, "roster");
+    }
+
+    return jsonResponse(200, { pokemon: pokemon.value });
+  }
 }
 
-async function readTicket(request: Request): Promise<string | null> {
+async function readJsonBody(request: Request): Promise<unknown | null> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) return null;
 
-  let body: unknown;
   try {
-    body = await request.json();
+    return await request.json();
   } catch {
     return null;
   }
+}
 
+async function readTicket(request: Request): Promise<string | null> {
+  const body = await readJsonBody(request);
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
   const ticket = Reflect.get(body, "ticket");
   return typeof ticket === "string" ? ticket : null;
@@ -166,7 +202,7 @@ function serializeSessionCookie(token: string): string {
   ].join("; ");
 }
 
-function errorResponse(error: AppError, context: "exchange" | "self"): Response {
+function errorResponse(error: AppError, context: "exchange" | "self" | "roster"): Response {
   if (error.code === "PLAYER_INELIGIBLE") {
     return jsonResponse(403, { error: error.code });
   }
@@ -178,6 +214,12 @@ function errorResponse(error: AppError, context: "exchange" | "self"): Response 
   }
   if (context === "self" && error.code === "NOT_FOUND") {
     return jsonResponse(401, { error: "UNAUTHENTICATED" });
+  }
+  if (context === "roster" && error.code === "VALIDATION_FAILED") {
+    return jsonResponse(400, { error: error.code });
+  }
+  if (context === "roster" && error.code === "NOT_FOUND") {
+    return jsonResponse(404, { error: error.code });
   }
 
   return jsonResponse(500, { error: "INTERNAL_ERROR" });
