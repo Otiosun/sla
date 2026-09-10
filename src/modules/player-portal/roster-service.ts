@@ -32,10 +32,7 @@ export type PlayerPortalRosterMoveInput = z.infer<typeof RosterMoveInputSchema>;
 export class PlayerPortalRosterService {
   public constructor(private readonly repository: PlayerOnboardingRepository) {}
 
-  public async move(
-    identity: ExternalIdentity,
-    input: unknown,
-  ): Promise<Result<void>> {
+  public async move(identity: ExternalIdentity, input: unknown): Promise<Result<void>> {
     const parsedIdentity = ExternalIdentitySchema.safeParse(identity);
     const parsedInput = RosterMoveInputSchema.safeParse(input);
     if (!parsedIdentity.success || !parsedInput.success) {
