@@ -9,3 +9,5 @@ CREATE TABLE hub_login_tickets (
 
 CREATE INDEX idx_hub_login_tickets_expires_at
   ON hub_login_tickets(expires_at);
+
+GRANT SELECT, INSERT, DELETE ON hub_login_tickets TO pokemon_runtime;
