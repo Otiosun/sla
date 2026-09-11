@@ -22,6 +22,8 @@ import { createOperationalUxRoutes } from "../modules/messaging/operational-ux-h
 import type { OutboundMessageAdapter } from "../modules/messaging/ports.js";
 import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
+import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
@@ -46,6 +48,7 @@ import { PostgresEncounterRepository } from "../platform/encounter/postgres-enco
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
+import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
 import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
@@ -64,6 +67,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly pool: Pool;
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
+  readonly hubPublicUrl?: string | null;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -77,11 +81,18 @@ export interface OperationalMessagingComposition {
   readonly runMaintenance: () => Promise<void>;
 }
 
+interface OperationalMessagingCompositionOptions {
+  readonly hubPublicUrl?: string | null;
+}
+
 function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-export function createOperationalMessagingComposition(pool: Pool): OperationalMessagingComposition {
+export function createOperationalMessagingComposition(
+  pool: Pool,
+  options: OperationalMessagingCompositionOptions = {},
+): OperationalMessagingComposition {
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
   const playerRegistration = new PlayerRegistrationService(playerRepository);
   const starter = new PlayerStarterService(
@@ -189,8 +200,12 @@ export function createOperationalMessagingComposition(pool: Pool): OperationalMe
     registration: auditedRegistrationReview,
     setup,
   });
+  const hubRoutes = createHubWhatsAppRoutes({
+    tickets: new HubLoginTicketService(new PostgresHubLoginTicketStore(pool)),
+    publicUrl: options.hubPublicUrl ?? null,
+  });
   const router = new MessageRouter(
-    [...legacyRoutes, ...registrationRoutes, ...registrationAdminRoutes],
+    [...legacyRoutes, ...registrationRoutes, ...registrationAdminRoutes, ...hubRoutes],
     policyGate,
     conversationResolver,
   );
@@ -233,7 +248,9 @@ export function createOperationalOutboxWorker(
 export function createOperationalWhatsAppRuntime(
   options: OperationalWhatsAppRuntimeOptions,
 ): WhatsAppMessagingRuntime {
-  const composition = createOperationalMessagingComposition(options.pool);
+  const composition = createOperationalMessagingComposition(options.pool, {
+    hubPublicUrl: options.hubPublicUrl ?? null,
+  });
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
 
