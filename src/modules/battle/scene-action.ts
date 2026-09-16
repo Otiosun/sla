@@ -41,8 +41,7 @@ function directive(line: string): SceneActionIntent | null {
       : null;
   }
   if (command === "item" && argument !== undefined) return { type: "USE_ITEM", itemRef: argument };
-  if (command === "capturar" && argument !== undefined)
-    return { type: "CAPTURE", captureRef: argument };
+  if (command === "capturar") return { type: "CAPTURE", captureRef: argument ?? "" };
   return null;
 }
 

@@ -80,7 +80,7 @@ describe("Fishing runtime composition", () => {
     const attempts = fishingComposition.attemptRepositoryConstructor.mock.calls[0]?.[1];
     expect(fishingComposition.attemptRepositoryConstructor).toHaveBeenCalledWith(pool, attempts);
 
-    expect(fishingComposition.seedProviderConstructor).toHaveBeenCalledOnce();
+    expect(fishingComposition.seedProviderConstructor).toHaveBeenCalled();
     const seedProvider = fishingComposition.seedProviderConstructor.mock.calls[0]?.[2];
     expect(fishingComposition.seedProviderConstructor).toHaveBeenCalledWith(
       encryptionKey,

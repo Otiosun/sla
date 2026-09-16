@@ -760,6 +760,37 @@ class PostgresBattleTransaction implements BattleTransaction {
         [input.battleId, side.sideNo, side.result],
       );
     }
+
+    if (input.nextState.battleType === "WILD" && input.nextState.encounterId !== null) {
+      for (const combatant of input.nextState.combatants) {
+        if (combatant.participantKind === "WILD_POKEMON" && combatant.currentHp <= 0) {
+          await this.client.query(
+            `UPDATE encounter_wild_snapshots
+             SET status = 'FAINTED', updated_at = now()
+             WHERE encounter_id = $1
+               AND wild_no = $2
+               AND status = 'ACTIVE'`,
+            [input.nextState.encounterId, combatant.rosterPosition],
+          );
+        }
+      }
+
+      if (terminal) {
+        await this.client.query(
+          `UPDATE encounter_wild_snapshots
+           SET status = 'FLED', updated_at = now()
+           WHERE encounter_id = $1 AND status = 'ACTIVE'`,
+          [input.nextState.encounterId],
+        );
+        const encounterTerminalStatus = input.nextState.status === "FLED" ? "FLED" : "CLOSED";
+        await this.client.query(
+          `UPDATE encounters
+           SET status = $2, revision = revision + 1, updated_at = now(), closed_at = now()
+           WHERE id = $1 AND status = 'IN_BATTLE'`,
+          [input.nextState.encounterId, encounterTerminalStatus],
+        );
+      }
+    }
     return { kind: "PERSISTED", state: input.nextState };
   }
 }

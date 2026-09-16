@@ -49,6 +49,7 @@ function semanticFingerprint(input: CaptureAttemptInput): string {
       JSON.stringify({
         playerId: input.playerId,
         encounterId: input.encounterId,
+        targetWildNo: input.targetWildNo ?? 1,
         ballItemId: input.ballItemId,
       }),
     )
@@ -131,13 +132,29 @@ function battleWild(context: CaptureContext): Result<BattleCombatant> {
   ) {
     return err(captureNotReady("Pinned battle is not an active wild battle for this encounter"));
   }
-  const wild = state.combatants.filter((entry) => entry.participantKind === "WILD_POKEMON");
-  if (wild.length !== 1 || wild[0] === undefined) {
-    return err(captureNotReady("Wild battle must contain exactly one capturable wild combatant"));
+
+  const wildSide = state.sides.find((side) =>
+    state.combatants.some(
+      (entry) => entry.sideNo === side.sideNo && entry.participantKind === "WILD_POKEMON",
+    ),
+  );
+  if (wildSide === undefined) {
+    return err(captureNotReady("Wild battle has no capturable wild side"));
   }
-  if (wild[0].currentHp <= 0)
+
+  const active = state.combatants.find(
+    (entry) => entry.participantId === wildSide.activeParticipantId,
+  );
+  if (active === undefined || active.participantKind !== "WILD_POKEMON") {
+    return err(captureNotReady("Wild battle has no active capturable Pokemon"));
+  }
+  if (active.rosterPosition !== (context.targetWildNo ?? 1)) {
+    return err(captureNotReady("Only the active wild Pokemon can be captured"));
+  }
+  if (active.currentHp <= 0) {
     return err(captureNotReady("A fainted wild Pokemon cannot be captured"));
-  return ok(wild[0]);
+  }
+  return ok(active);
 }
 
 function capturedState(context: CaptureContext): Result<CapturedPokemonState> {
@@ -178,7 +195,8 @@ export class CaptureService {
       `${input.playerId}:${input.idempotencyKey.trim()}`,
     );
     if (!idempotency.ok) return idempotency;
-    const fingerprint = semanticFingerprint(input);
+    const targetWildNo = input.targetWildNo ?? 1;
+    const fingerprint = semanticFingerprint({ ...input, targetWildNo });
 
     try {
       return await this.repository.transaction(async (transaction) => {
@@ -189,6 +207,7 @@ export class CaptureService {
           input.playerId,
           input.encounterId,
           input.ballItemId,
+          targetWildNo,
         );
         if (context === null) {
           const terminalReplay = await transaction.findAttempt(idempotency.value.storageKey);
@@ -279,6 +298,7 @@ export class CaptureService {
           playerId: input.playerId,
           encounterId: input.encounterId,
           battleId: context.battleId,
+          targetWildNo,
           ballItemId: input.ballItemId,
           idempotencyStorageKey: idempotency.value.storageKey,
           requestFingerprint: fingerprint,
@@ -354,6 +374,7 @@ export class CaptureService {
           probabilityBasisPoints: probability.probabilityBasisPoints,
           rollBasisPoints,
           battleId: context.battleId,
+          targetWildNo,
           expectedBattleVersion: input.expectedBattleVersion,
           pokemonInstanceId,
           placement,

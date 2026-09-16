@@ -1,11 +1,17 @@
-import type { PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { CaptureService } from "../capture/service.js";
+import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
+import type { EncounterService } from "../encounter/service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { BattleAction, BattleState } from "./contracts.js";
-import type { BattleParticipantControllerRepository } from "./participant-controller.js";
+import type {
+  BattleParticipantController,
+  BattleParticipantControllerRepository,
+} from "./participant-controller.js";
 import type { BattleRuntimeService } from "./runtime.js";
 import { parseSceneAction } from "./scene-action.js";
 
@@ -16,6 +22,19 @@ class FunctionalHandler implements MessageRouteHandler {
     return this.fn(context);
   }
 }
+export interface PveCaptureBallOption {
+  readonly itemId: string;
+  readonly displayName: string;
+  readonly quantity: bigint;
+}
+
+export interface PveCaptureBallReader {
+  listAvailable(
+    playerId: PlayerId,
+    contentReleaseId: string,
+  ): Promise<readonly PveCaptureBallOption[]>;
+}
+
 export interface PveSceneDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly activeBattleId: (playerId: PlayerId) => Promise<string | null>;
@@ -24,6 +43,10 @@ export interface PveSceneDependencies {
     "currentState" | "resolvePlayerTurn" | "surrenderPvp"
   >;
   readonly controllers: Pick<BattleParticipantControllerRepository, "listByBattle" | "transition">;
+  readonly encounters?: Pick<EncounterOperationalReadService, "activeForPlayer">;
+  readonly encounterWriter?: Pick<EncounterService, "flee">;
+  readonly capture?: Pick<CaptureService, "attempt">;
+  readonly captureBalls?: PveCaptureBallReader;
   readonly admins: {
     resolvePrincipal(input: {
       readonly provider: string;
@@ -50,6 +73,27 @@ function reply(
     ],
   });
 }
+
+function encounterReply(
+  context: MessageHandlerContext,
+  text: string,
+  encounterId: string,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "ENCOUNTER",
+    resultRefId: encounterId,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text },
+        idempotencyKey: `${context.idempotencyKey}:encounter`,
+      },
+    ],
+  });
+}
+
 function actionFrom(
   state: BattleState,
   actorParticipantId: string,
@@ -58,10 +102,22 @@ function actionFrom(
   if (intent.kind !== "ACTION")
     return err(appError("VALIDATION_FAILED", "Diretiva de batalha inválida."));
   const actor = state.combatants.find((entry) => entry.participantId === actorParticipantId);
-  const target = state.combatants.find(
-    (entry) => entry.sideNo !== actor?.sideNo && entry.currentHp > 0,
-  );
   if (actor === undefined) return err(appError("ACTION_INVALID", "Ator de batalha indisponível."));
+  const sides =
+    state.sides ??
+    [...new Set(state.combatants.map((combatant) => combatant.sideNo))].map((sideNo) => ({
+      sideNo,
+      activeParticipantId: state.combatants.find((combatant) => combatant.sideNo === sideNo)
+        ?.participantId,
+      result: null,
+    }));
+  const targetSide = sides.find((side) => side.sideNo !== actor.sideNo && side.result === null);
+  const target =
+    targetSide === undefined
+      ? undefined
+      : state.combatants.find(
+          (entry) => entry.participantId === targetSide.activeParticipantId && entry.currentHp > 0,
+        );
   switch (intent.intent.type) {
     case "USE_MOVE":
       return target === undefined
@@ -79,6 +135,63 @@ function actionFrom(
     default:
       return err(appError("ACTION_INVALID", "Essa diretiva ainda não é uma ação PVE disponível."));
   }
+}
+
+function activeController(
+  state: BattleState,
+  controllers: readonly BattleParticipantController[],
+  predicate: (controller: BattleParticipantController) => boolean,
+): BattleParticipantController | undefined {
+  if (state.sides === undefined || state.sides.length === 0) {
+    return controllers.find(predicate);
+  }
+  const active = new Set(state.sides.map((side) => side.activeParticipantId));
+  return controllers.find(
+    (controller) => active.has(controller.participantId) && predicate(controller),
+  );
+}
+
+function activeWildParticipant(state: BattleState) {
+  for (const side of state.sides ?? []) {
+    const active = state.combatants.find(
+      (entry) => entry.participantId === side.activeParticipantId,
+    );
+    if (active?.participantKind === "WILD_POKEMON") return active;
+  }
+  return undefined;
+}
+
+function normalizeBallName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/gu, " ");
+}
+
+function chooseBall(
+  options: readonly PveCaptureBallOption[],
+  reference: string,
+): PveCaptureBallOption | null {
+  if (options.length === 0) return null;
+  const normalized = normalizeBallName(reference);
+  if (normalized.length === 0) return options.length === 1 ? (options[0] ?? null) : null;
+  const matches = options.filter((option) => normalizeBallName(option.displayName) === normalized);
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function ballPrompt(options: readonly PveCaptureBallOption[]): string {
+  if (options.length === 0) {
+    return ["🎒 *SEM POKÉ BOLAS*", "", "_Você não tem uma Poké Bola disponível._"].join("\n");
+  }
+  return [
+    "🎒 *ESCOLHA A POKÉ BOLA*",
+    "",
+    ...options.map((option) => `• *${option.displayName}* ×${option.quantity.toString()}`),
+    "",
+    `Use \`/capturar ${options[0]?.displayName ?? "Poké Ball"}\`.`,
+  ].join("\n");
 }
 
 function statusLabel(status: BattleState["combatants"][number]["majorStatus"]): string {
@@ -157,22 +270,138 @@ export function createPveSceneRoutes(
     });
     if (!player.ok) return player;
     const battleId = await dependencies.activeBattleId(player.value.playerId);
-    if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
+    if (battleId === null) {
+      if (
+        parsed.intent.type !== "FLEE" ||
+        dependencies.encounters === undefined ||
+        dependencies.encounterWriter === undefined
+      ) {
+        return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
+      }
+      const encounter = await dependencies.encounters.activeForPlayer(player.value.playerId);
+      if (!encounter.ok) {
+        return err(appError("NOT_FOUND", "Nenhum encontro ativo para fugir."));
+      }
+      const fled = await dependencies.encounterWriter.flee({
+        playerId: player.value.playerId,
+        encounterId: encounter.value.encounterId,
+        expectedRevision: encounter.value.revision,
+      });
+      if (!fled.ok) {
+        return err(appError("ACTION_INVALID", "Não foi possível fugir deste encontro."));
+      }
+      return encounterReply(
+        context,
+        ["🏃 *VOCÊ FUGIU*", "", "_O encontro terminou._"].join("\n"),
+        encounter.value.encounterId,
+      );
+    }
+
     const state = await dependencies.battle.currentState(battleId);
     if (!state.ok) return err(appError("ACTION_INVALID", state.error.message));
     const principal = await dependencies.admins.resolvePrincipal({
       provider: context.message.provider,
       externalId: context.message.senderRef,
     });
-    const controller = (await dependencies.controllers.listByBattle(battleId)).find(
+    const controllers = await dependencies.controllers.listByBattle(battleId);
+    const controller = activeController(
+      state.value,
+      controllers,
       (entry) =>
         (entry.kind === "PLAYER" && entry.playerId === player.value.playerId) ||
         (entry.kind === "NARRATOR" && entry.adminPrincipalId === principal?.principalId),
     );
-    if (controller === undefined)
+    if (controller === undefined) {
       return err(appError("ACTION_INVALID", "Você não controla um ator nesta batalha."));
+    }
     if (controller.kind === "NARRATOR" && principal === null)
       return err(appError("PLAYER_INELIGIBLE", "Narrador não autorizado."));
+    if (parsed.intent.type === "CAPTURE") {
+      if (
+        state.value.battleType !== "WILD" ||
+        controller.kind !== "PLAYER" ||
+        dependencies.capture === undefined ||
+        dependencies.encounters === undefined ||
+        dependencies.captureBalls === undefined
+      ) {
+        return reply(context, "Captura não disponível nesta batalha.", battleId);
+      }
+      const target = activeWildParticipant(state.value);
+      if (target === undefined || target.currentHp <= 0) {
+        return reply(context, "Não há um Pokémon selvagem ativo para capturar.", battleId);
+      }
+      const encounter = await dependencies.encounters.activeForPlayer(player.value.playerId);
+      if (!encounter.ok || encounter.value.battleId !== battleId) {
+        return reply(context, "O encontro desta batalha não está disponível.", battleId);
+      }
+      const balls = await dependencies.captureBalls.listAvailable(
+        player.value.playerId,
+        encounter.value.contentReleaseId,
+      );
+      const ball = chooseBall(balls, parsed.intent.captureRef);
+      if (ball === null) return reply(context, ballPrompt(balls), battleId);
+
+      const correlation = parseCorrelationId(context.correlationId);
+      if (!correlation.ok) {
+        return err(appError("ACTION_INVALID", "A captura não pôde ser correlacionada."));
+      }
+      const captured = await dependencies.capture.attempt({
+        playerId: player.value.playerId,
+        encounterId: encounter.value.encounterId,
+        expectedEncounterRevision: encounter.value.revision,
+        expectedBattleVersion: state.value.version,
+        targetWildNo: target.rosterPosition,
+        ballItemId: ball.itemId,
+        idempotencyKey: context.idempotencyKey,
+        correlationId: correlation.value,
+        causationId: context.causationId,
+      });
+      if (!captured.ok) {
+        return reply(context, "A captura não está disponível agora. Use `/batalha`.", battleId);
+      }
+      if (captured.value.status === "FAILED") {
+        return reply(
+          context,
+          [
+            "💥 *A POKÉ BOLA ABRIU*",
+            "",
+            "_O Pokémon escapou._",
+            "",
+            "⚔️ A batalha continua. Use `/batalha`.",
+          ].join("\n"),
+          battleId,
+        );
+      }
+
+      const placement = captured.value.placement;
+      const placementText =
+        placement === null
+          ? "Pokémon registrado."
+          : placement.placementKind === "TEAM"
+            ? `Foi para a *equipe* · slot ${placement.slotNo}.`
+            : `Foi para o *Box ${placement.boxNo ?? 1}* · slot ${placement.slotNo}.`;
+      const after = await dependencies.battle.currentState(battleId);
+      const continues = after.ok && after.value.status === "ACTIVE";
+      return reply(
+        context,
+        [
+          "✨ *CAPTURA CONCLUÍDA!*",
+          "",
+          placementText,
+          "",
+          continues
+            ? "⚔️ _O encontro continua com o próximo Pokémon selvagem._"
+            : "✅ _O encontro foi encerrado._",
+          ...(continues ? ["Use `/batalha` para continuar."] : []),
+        ].join("\n"),
+        battleId,
+      );
+    }
+
+    if (parsed.intent.type === "FLEE" && state.value.battleType === "PVP") {
+      return reply(context, "Em PVP, use `/desistir` para encerrar sua participação.", battleId);
+    }
+
     if (parsed.intent.type === "SURRENDER") {
       if (state.value.battleType !== "PVP" || controller.kind !== "PLAYER")
         return err(appError("ACTION_INVALID", "Desistência não permitida agora."));
@@ -231,14 +460,23 @@ export function createPveSceneRoutes(
       if (!player.ok) return player;
       const battleId = await dependencies.activeBattleId(player.value.playerId);
       if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
-      const candidates = (await dependencies.controllers.listByBattle(battleId)).filter((entry) =>
+      const state = await dependencies.battle.currentState(battleId);
+      if (!state.ok) return err(appError("ACTION_INVALID", state.error.message));
+      const activeWild = activeWildParticipant(state.value);
+      const eligible = (await dependencies.controllers.listByBattle(battleId)).filter((entry) =>
         kind === "NARRATOR"
           ? entry.kind === "AUTO"
           : entry.kind === "NARRATOR" && entry.adminPrincipalId === principal.principalId,
       );
-      const candidate = candidates[0];
-      if (candidates.length !== 1 || candidate === undefined)
-        return err(appError("ACTION_INVALID", "Controle de narrador indisponível ou ambíguo."));
+      const candidate =
+        activeWild === undefined
+          ? eligible.length === 1
+            ? eligible[0]
+            : undefined
+          : eligible.find((entry) => entry.participantId === activeWild.participantId);
+      if (candidate === undefined) {
+        return err(appError("ACTION_INVALID", "Controle de narrador indisponível."));
+      }
       const changed = await dependencies.controllers.transition({
         participantId: candidate.participantId,
         expectedRevision: candidate.revision,
@@ -273,7 +511,11 @@ export function createPveSceneRoutes(
     const state = await dependencies.battle.currentState(battleId);
     if (!state.ok) return err(appError("ACTION_INVALID", state.error.message));
     const controllers = await dependencies.controllers.listByBattle(battleId);
-    const controller = controllers.find((entry) => entry.playerId === player.value.playerId);
+    const controller = activeController(
+      state.value,
+      controllers,
+      (entry) => entry.kind === "PLAYER" && entry.playerId === player.value.playerId,
+    );
     if (controller === undefined)
       return err(appError("ACTION_INVALID", "Você não controla um ator nesta batalha."));
     return reply(context, hud(state.value, controller), battleId);

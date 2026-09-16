@@ -17,6 +17,7 @@ export interface CapturePendingWrite {
   readonly playerId: PlayerId;
   readonly encounterId: EncounterId;
   readonly battleId: string | null;
+  readonly targetWildNo?: number;
   readonly ballItemId: string;
   readonly idempotencyStorageKey: string;
   readonly requestFingerprint: string;
@@ -45,6 +46,7 @@ export interface CaptureFailureWrite extends CaptureResolutionBase {}
 
 export interface CaptureSuccessWrite extends CaptureResolutionBase {
   readonly battleId: string | null;
+  readonly targetWildNo?: number;
   readonly expectedBattleVersion: number | null;
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly placement: CaptureRosterPlacement;
@@ -62,6 +64,7 @@ export interface CaptureTransaction {
     playerId: PlayerId,
     encounterId: EncounterId,
     ballItemId: string,
+    targetWildNo?: number,
   ): Promise<CaptureContext | null>;
   beginResolving(input: {
     readonly playerId: PlayerId;

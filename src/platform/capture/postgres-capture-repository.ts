@@ -27,6 +27,7 @@ import {
   parsePlayerId,
   parsePokemonInstanceId,
 } from "../../shared-kernel/ids.js";
+import { openControllerTurnWindowInTransaction } from "../battle/postgres-battle-turn-window-repository.js";
 import { withTransaction } from "../db/transaction.js";
 import { nextCanonicalRosterPlacement } from "../player/postgres-roster-placement.js";
 import { recordPokedexCaught } from "../pokedex/postgres-pokedex-writer.js";
@@ -83,7 +84,10 @@ function cancelledState(source: BattleState): BattleState {
 }
 
 class PostgresCaptureTransaction implements CaptureTransaction {
-  public constructor(private readonly client: PoolClient) {}
+  public constructor(
+    private readonly client: PoolClient,
+    private readonly turnWindowTtlMs?: number,
+  ) {}
 
   public async findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null> {
     const result = await this.client.query<{
@@ -92,6 +96,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       encounter_id: string;
       battle_id: string | null;
       ball_item_id: string;
+      target_wild_no: number;
       idempotency_key: string;
       request_fingerprint: string;
       source_encounter_status: string;
@@ -107,7 +112,8 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       slot_no: number | null;
     }>(
       `SELECT attempt.id, attempt.player_id, attempt.encounter_id, attempt.battle_id,
-              attempt.ball_item_id, attempt.idempotency_key, attempt.request_fingerprint,
+              attempt.ball_item_id, attempt.target_wild_no, attempt.idempotency_key,
+              attempt.request_fingerprint,
               attempt.source_encounter_status, attempt.correlation_id, attempt.status,
               attempt.probability_basis_points, attempt.roll_basis_points,
               attempt.pokemon_instance_id, attempt.resolved_at, attempt.breakdown,
@@ -133,6 +139,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       encounterId: encounterId(row.encounter_id),
       battleId: row.battle_id,
       ballItemId: row.ball_item_id,
+      targetWildNo: row.target_wild_no,
       idempotencyKey: row.idempotency_key,
       requestFingerprint: row.request_fingerprint,
       sourceEncounterStatus: source,
@@ -152,6 +159,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
     playerIdValue: PlayerId,
     encounterIdValue: EncounterId,
     ballItemId: string,
+    targetWildNo = 1,
   ): Promise<CaptureContext | null> {
     const encounter = await this.client.query<{
       player_status: string;
@@ -173,12 +181,15 @@ class PostgresCaptureTransaction implements CaptureTransaction {
               encounter.content_release_id,
               encounter.ruleset_id,
               ruleset.config AS ruleset_config,
-              snapshot.pokemon_snapshot,
+              wild.pokemon_snapshot,
               species.catch_rate
        FROM encounters encounter
        JOIN players player ON player.id = encounter.player_id
        JOIN onboarding_states onboarding ON onboarding.player_id = player.id
-       JOIN encounter_snapshots snapshot ON snapshot.encounter_id = encounter.id
+       JOIN encounter_wild_snapshots wild
+         ON wild.encounter_id = encounter.id
+        AND wild.wild_no = $3
+        AND wild.status = 'ACTIVE'
        JOIN content_releases release
          ON release.id = encounter.content_release_id
         AND release.status IN ('PUBLISHED', 'ARCHIVED')
@@ -187,12 +198,12 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         AND ruleset.status IN ('PUBLISHED', 'ARCHIVED')
        JOIN pokemon_species_revisions species
          ON species.content_release_id = encounter.content_release_id
-        AND species.species_id = (snapshot.pokemon_snapshot ->> 'speciesId')::uuid
+        AND species.species_id = (wild.pokemon_snapshot ->> 'speciesId')::uuid
         AND species.active = TRUE
        WHERE encounter.id = $1 AND encounter.player_id = $2
          AND encounter.status IN ('ENGAGED', 'IN_BATTLE')
-       FOR UPDATE OF encounter, player`,
-      [encounterIdValue, playerIdValue],
+       FOR UPDATE OF encounter, player, wild`,
+      [encounterIdValue, playerIdValue, targetWildNo],
     );
     const row = encounter.rows[0];
     if (row === undefined || row.catch_rate === null) return null;
@@ -264,6 +275,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       rulesetConfig: row.ruleset_config,
       catchRate: row.catch_rate,
       encounterSnapshot: snapshot,
+      targetWildNo,
       battleId,
       battleState,
       ball: {
@@ -296,17 +308,17 @@ class PostgresCaptureTransaction implements CaptureTransaction {
   public async insertPending(input: CapturePendingWrite): Promise<boolean> {
     const result = await this.client.query(
       `INSERT INTO capture_attempts(
-         id, player_id, encounter_id, battle_id, ball_item_id, idempotency_key,
+         id, player_id, encounter_id, battle_id, ball_item_id, target_wild_no, idempotency_key,
          status, probability_basis_points, roll_basis_points,
          request_fingerprint, source_encounter_status, correlation_id,
          rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version,
          rng_counter, breakdown
        ) VALUES (
-         $1, $2, $3, $4, $5, $6,
-         'PENDING', $7, $8,
-         $9, $10, $11,
-         $12, $13, $14, $15,
-         $16::bigint, $17::jsonb
+         $1, $2, $3, $4, $5, $6, $7,
+         'PENDING', $8, $9,
+         $10, $11, $12,
+         $13, $14, $15, $16,
+         $17::bigint, $18::jsonb
        )
        ON CONFLICT (idempotency_key) DO NOTHING`,
       [
@@ -315,6 +327,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         input.encounterId,
         input.battleId,
         input.ballItemId,
+        input.targetWildNo ?? 1,
         input.idempotencyStorageKey,
         input.probabilityBasisPoints,
         input.rollBasisPoints,
@@ -433,67 +446,241 @@ class PostgresCaptureTransaction implements CaptureTransaction {
     });
   }
 
-  private async cancelBattleForCapture(input: CaptureSuccessWrite): Promise<void> {
-    if (input.sourceEncounterStatus !== "IN_BATTLE") return;
+  private async cancelTurnWindow(battleId: string, battleVersion: number): Promise<void> {
+    await this.client.query(
+      `UPDATE battle_turn_submissions
+       SET status = 'REJECTED'
+       WHERE turn_window_id IN (
+         SELECT id FROM battle_turn_windows
+         WHERE battle_id = $1 AND battle_version = $2
+       )
+         AND status = 'ACTIVE'`,
+      [battleId, battleVersion],
+    );
+    await this.client.query(
+      `UPDATE battle_turn_windows
+       SET status = 'CANCELLED',
+           locked_at = COALESCE(locked_at, now()),
+           revision = revision + 1
+       WHERE battle_id = $1
+         AND battle_version = $2
+         AND status IN ('COLLECTING', 'LOCKED')`,
+      [battleId, battleVersion],
+    );
+  }
+
+  private async appendBattleEvent(input: {
+    readonly battleId: string;
+    readonly battleVersion: number;
+    readonly eventType: string;
+    readonly payload: Readonly<Record<string, unknown>>;
+    readonly causationId: string | null;
+    readonly correlationId: string;
+  }): Promise<void> {
+    const seq = await this.client.query<{ next_seq: string }>(
+      `SELECT (COALESCE(MAX(seq), 0) + 1)::text AS next_seq
+       FROM battle_events
+       WHERE battle_id = $1`,
+      [input.battleId],
+    );
+    await this.client.query(
+      `INSERT INTO battle_events(
+         id, battle_id, seq, battle_version, event_type, payload, causation_id, correlation_id
+       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
+      [
+        randomUUID(),
+        input.battleId,
+        seq.rows[0]?.next_seq ?? "1",
+        input.battleVersion,
+        input.eventType,
+        JSON.stringify(input.payload),
+        input.causationId,
+        input.correlationId,
+      ],
+    );
+  }
+
+  private async applyBattleCapture(
+    input: CaptureSuccessWrite,
+  ): Promise<{ readonly continues: boolean }> {
+    if (input.sourceEncounterStatus !== "IN_BATTLE") return { continues: false };
     if (input.battleId === null || input.expectedBattleVersion === null) {
       throw new Error("Battle capture success is missing battle CAS context");
     }
+
     const root = await this.client.query<{ status: string; version: string }>(
-      `SELECT status, version::text FROM battles WHERE id = $1 FOR UPDATE`,
+      `SELECT status, version::text
+       FROM battles
+       WHERE id = $1
+       FOR UPDATE`,
       [input.battleId],
     );
     const row = root.rows[0];
-    if (row === undefined || row.status !== "ACTIVE")
+    if (row === undefined || row.status !== "ACTIVE") {
       throw new Error("Captured battle is no longer active");
+    }
     const version = safeVersion(row.version);
-    if (version !== input.expectedBattleVersion)
+    if (version !== input.expectedBattleVersion) {
       throw new Error("Captured battle version changed during transaction");
+    }
+
     const snapshot = await this.client.query<{ state: unknown }>(
-      `SELECT state FROM battle_state_snapshots WHERE battle_id = $1 AND version = $2`,
+      `SELECT state
+       FROM battle_state_snapshots
+       WHERE battle_id = $1 AND version = $2`,
       [input.battleId, version],
     );
     const current = BattleStateSchema.parse(snapshot.rows[0]?.state);
     if (current.status !== "ACTIVE" || current.version !== version) {
       throw new Error("Captured battle snapshot is not active at expected version");
     }
-    const next = cancelledState(current);
-    const updated = await this.client.query(
-      `UPDATE battles
-       SET status = 'CANCELLED', version = $3, updated_at = now(), ended_at = now()
-       WHERE id = $1 AND version = $2 AND status = 'ACTIVE'`,
-      [input.battleId, version, next.version],
+
+    const wildSide = current.sides.find((side) =>
+      current.combatants.some(
+        (entry) => entry.sideNo === side.sideNo && entry.participantKind === "WILD_POKEMON",
+      ),
     );
-    if (updated.rowCount !== 1) throw new Error("Capture battle cancellation CAS failed");
+    if (wildSide === undefined) throw new Error("Captured battle has no wild side");
+
+    const target = current.combatants.find(
+      (entry) =>
+        entry.participantId === wildSide.activeParticipantId &&
+        entry.participantKind === "WILD_POKEMON",
+    );
+    const targetWildNo = input.targetWildNo ?? 1;
+    if (target === undefined || target.rosterPosition !== targetWildNo || target.currentHp <= 0) {
+      throw new Error("Capture target is not the active live wild participant");
+    }
+
+    for (const combatant of current.combatants) {
+      if (
+        combatant.participantKind === "WILD_POKEMON" &&
+        combatant.participantId !== target.participantId &&
+        combatant.currentHp <= 0
+      ) {
+        await this.client.query(
+          `UPDATE encounter_wild_snapshots
+           SET status = 'FAINTED', updated_at = now()
+           WHERE encounter_id = $1
+             AND wild_no = $2
+             AND status = 'ACTIVE'`,
+          [input.encounterId, combatant.rosterPosition],
+        );
+      }
+    }
+
     await this.client.query(
-      `INSERT INTO battle_state_snapshots(battle_id, version, schema_version, state)
-       VALUES ($1, $2, 1, $3::jsonb)`,
-      [input.battleId, next.version, JSON.stringify(next)],
+      `UPDATE battle_participants
+       SET active_member = FALSE
+       WHERE id = $1 AND battle_id = $2 AND participant_kind = 'WILD_POKEMON'`,
+      [target.participantId, input.battleId],
     );
-    const seq = await this.client.query<{ next_seq: string }>(
-      `SELECT (COALESCE(MAX(seq), 0) + 1)::text AS next_seq FROM battle_events WHERE battle_id = $1`,
-      [input.battleId],
-    );
-    await this.client.query(
-      `INSERT INTO battle_events(
-         id, battle_id, seq, battle_version, event_type, payload, causation_id, correlation_id
-       ) VALUES ($1, $2, $3, $4, 'BattleEnded', $5::jsonb, $6, $7)`,
-      [
-        randomUUID(),
-        input.battleId,
-        seq.rows[0]?.next_seq ?? "1",
-        next.version,
-        JSON.stringify({
+
+    await this.cancelTurnWindow(input.battleId, version);
+
+    const remaining = current.combatants
+      .filter(
+        (entry) =>
+          entry.participantKind === "WILD_POKEMON" &&
+          entry.participantId !== target.participantId &&
+          entry.currentHp > 0,
+      )
+      .sort((left, right) => left.rosterPosition - right.rosterPosition);
+
+    if (remaining.length === 0) {
+      const next = cancelledState(current);
+      const updated = await this.client.query(
+        `UPDATE battles
+         SET status = 'CANCELLED', version = $3, updated_at = now(), ended_at = now()
+         WHERE id = $1 AND version = $2 AND status = 'ACTIVE'`,
+        [input.battleId, version, next.version],
+      );
+      if (updated.rowCount !== 1) throw new Error("Capture battle cancellation CAS failed");
+      await this.client.query(
+        `INSERT INTO battle_state_snapshots(battle_id, version, schema_version, state)
+         VALUES ($1, $2, 1, $3::jsonb)`,
+        [input.battleId, next.version, JSON.stringify(next)],
+      );
+      await this.appendBattleEvent({
+        battleId: input.battleId,
+        battleVersion: next.version,
+        eventType: "BattleEnded",
+        payload: {
           status: "CANCELLED",
           reason: "POKEMON_CAPTURED",
           captureAttemptId: input.attemptId,
-        }),
-        input.causationId,
-        input.correlationId,
-      ],
+          targetWildNo,
+        },
+        causationId: input.causationId,
+        correlationId: input.correlationId,
+      });
+      await this.client.query(`UPDATE battle_sides SET result = 'CANCELLED' WHERE battle_id = $1`, [
+        input.battleId,
+      ]);
+      return { continues: false };
+    }
+
+    const next = structuredClone(current);
+    next.version += 1;
+    next.combatants = next.combatants.filter(
+      (entry) => entry.participantId !== target.participantId,
     );
-    await this.client.query(`UPDATE battle_sides SET result = 'CANCELLED' WHERE battle_id = $1`, [
-      input.battleId,
-    ]);
+    const side = next.sides.find((entry) => entry.sideNo === wildSide.sideNo);
+    if (side === undefined) throw new Error("Wild side disappeared during capture");
+    if (side.slots !== undefined) {
+      throw new Error("Multi-wild capture does not support slot-mapped wild sides");
+    }
+    side.participantIds = side.participantIds.filter(
+      (participantId) => participantId !== target.participantId,
+    );
+    const nextActive = remaining[0];
+    if (nextActive === undefined) throw new Error("Capture continuation has no next wild");
+    side.activeParticipantId = nextActive.participantId;
+
+    const parsedNext = BattleStateSchema.parse(next);
+    const updated = await this.client.query(
+      `UPDATE battles
+       SET version = $3, updated_at = now()
+       WHERE id = $1 AND version = $2 AND status = 'ACTIVE'`,
+      [input.battleId, version, parsedNext.version],
+    );
+    if (updated.rowCount !== 1) throw new Error("Capture battle continuation CAS failed");
+
+    await this.client.query(
+      `INSERT INTO battle_state_snapshots(battle_id, version, schema_version, state)
+       VALUES ($1, $2, 1, $3::jsonb)`,
+      [input.battleId, parsedNext.version, JSON.stringify(parsedNext)],
+    );
+    await this.appendBattleEvent({
+      battleId: input.battleId,
+      battleVersion: parsedNext.version,
+      eventType: "PokemonCaptured",
+      payload: {
+        captureAttemptId: input.attemptId,
+        participantId: target.participantId,
+        targetWildNo,
+        nextActiveParticipantId: nextActive.participantId,
+      },
+      causationId: input.causationId,
+      correlationId: input.correlationId,
+    });
+
+    if (this.turnWindowTtlMs !== undefined) {
+      const openedAt = new Date();
+      const window = await openControllerTurnWindowInTransaction(this.client, {
+        id: randomUUID(),
+        battleId: input.battleId,
+        battleVersion: parsedNext.version,
+        turnNumber: parsedNext.turnNumber,
+        openedAt,
+        deadlineAt: new Date(openedAt.getTime() + this.turnWindowTtlMs),
+      });
+      if (!window.ok) {
+        throw new Error(`Capture continuation could not open turn window: ${window.error.message}`);
+      }
+    }
+
+    return { continues: true };
   }
 
   public async resolveSuccess(input: CaptureSuccessWrite): Promise<void> {
@@ -518,6 +705,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
           captureAttemptId: input.attemptId,
           encounterId: input.encounterId,
           battleId: input.battleId,
+          targetWildNo: input.targetWildNo ?? 1,
           contentReleaseId: input.contentReleaseId,
           rulesetId: input.rulesetId,
         }),
@@ -583,6 +771,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
           captureAttemptId: input.attemptId,
           encounterId: input.encounterId,
           battleId: input.battleId,
+          targetWildNo: input.targetWildNo ?? 1,
           contentReleaseId: input.contentReleaseId,
           rulesetId: input.rulesetId,
         }),
@@ -597,15 +786,51 @@ class PostgresCaptureTransaction implements CaptureTransaction {
     );
     if (attempt.rowCount !== 1) throw new Error("Capture success could not finalize attempt");
 
+    const targetWildNo = input.targetWildNo ?? 1;
+    const wild = await this.client.query(
+      `UPDATE encounter_wild_snapshots
+       SET status = 'CAPTURED', updated_at = now()
+       WHERE encounter_id = $1 AND wild_no = $2 AND status = 'ACTIVE'`,
+      [input.encounterId, targetWildNo],
+    );
+    if (wild.rowCount !== 1) throw new Error("Capture target wild roster row is not active");
+
+    const battleResolution = await this.applyBattleCapture(input);
+    const remaining = await this.client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM encounter_wild_snapshots
+       WHERE encounter_id = $1 AND status = 'ACTIVE'`,
+      [input.encounterId],
+    );
+    const activeWilds = Number(remaining.rows[0]?.count ?? "0");
+    if (!Number.isSafeInteger(activeWilds) || activeWilds < 0) {
+      throw new Error("Capture wild roster count is invalid");
+    }
+    const terminal = activeWilds === 0;
+    if (!terminal && input.sourceEncounterStatus === "IN_BATTLE" && !battleResolution.continues) {
+      throw new Error("Capture roster and battle continuation diverged");
+    }
+
     const encounter = await this.client.query(
       `UPDATE encounters
-       SET status = 'CAPTURED', revision = revision + 1, updated_at = now(), closed_at = now()
-       WHERE id = $1 AND player_id = $2 AND status = 'CAPTURE_RESOLVING' AND revision = $3`,
-      [input.encounterId, input.playerId, input.resolvingEncounterRevision.toString()],
+       SET status = $4,
+           revision = revision + 1,
+           updated_at = now(),
+           closed_at = CASE WHEN $5::boolean THEN now() ELSE NULL END
+       WHERE id = $1
+         AND player_id = $2
+         AND status = 'CAPTURE_RESOLVING'
+         AND revision = $3`,
+      [
+        input.encounterId,
+        input.playerId,
+        input.resolvingEncounterRevision.toString(),
+        terminal ? "CAPTURED" : input.sourceEncounterStatus,
+        terminal,
+      ],
     );
     if (encounter.rowCount !== 1) throw new Error("Capture success could not finalize encounter");
 
-    await this.cancelBattleForCapture(input);
     await this.insertOutbox({
       attemptId: input.attemptId,
       playerId: input.playerId,
@@ -616,7 +841,9 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         captureAttemptId: input.attemptId,
         encounterId: input.encounterId,
         battleId: input.battleId,
+        targetWildNo,
         status: "CAPTURED",
+        encounterContinues: !terminal,
         probabilityBasisPoints: input.probabilityBasisPoints,
         rollBasisPoints: input.rollBasisPoints,
         pokemonInstanceId: input.pokemonInstanceId,
@@ -627,11 +854,23 @@ class PostgresCaptureTransaction implements CaptureTransaction {
 }
 
 export class PostgresCaptureRepository implements CaptureRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly turnWindowTtlMs?: number,
+  ) {
+    if (
+      turnWindowTtlMs !== undefined &&
+      (!Number.isSafeInteger(turnWindowTtlMs) || turnWindowTtlMs <= 0)
+    ) {
+      throw new Error("Capture turn window TTL must be a positive safe integer");
+    }
+  }
 
   public async transaction<T>(work: (transaction: CaptureTransaction) => Promise<T>): Promise<T> {
-    return withTransaction(this.pool, (client) => work(new PostgresCaptureTransaction(client)), {
-      isolationLevel: "READ COMMITTED",
-    });
+    return withTransaction(
+      this.pool,
+      (client) => work(new PostgresCaptureTransaction(client, this.turnWindowTtlMs)),
+      { isolationLevel: "READ COMMITTED" },
+    );
   }
 }

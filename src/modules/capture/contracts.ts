@@ -70,6 +70,8 @@ export interface CaptureAttemptInput {
   readonly encounterId: EncounterId;
   readonly expectedEncounterRevision: bigint;
   readonly expectedBattleVersion: number | null;
+  /** Frozen wild roster position. Defaults to 1 for legacy single-wild callers. */
+  readonly targetWildNo?: number;
   readonly ballItemId: string;
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
@@ -115,6 +117,7 @@ export interface CaptureAttemptRecord {
   readonly encounterId: EncounterId;
   readonly battleId: string | null;
   readonly ballItemId: string;
+  readonly targetWildNo?: number;
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
   readonly sourceEncounterStatus: CaptureSourceStatus;
@@ -147,6 +150,7 @@ export interface CaptureContext {
   readonly rulesetConfig: unknown;
   readonly catchRate: number;
   readonly encounterSnapshot: WildPokemonSnapshot;
+  readonly targetWildNo?: number;
   readonly battleId: string | null;
   readonly battleState: BattleState | null;
   readonly ball: CaptureItemPolicy;
@@ -159,6 +163,7 @@ export const CaptureAttemptInputBoundarySchema = z
     encounterId: uuid,
     expectedEncounterRevision: z.bigint().nonnegative(),
     expectedBattleVersion: z.number().int().nonnegative().safe().nullable(),
+    targetWildNo: z.number().int().min(1).max(6).optional(),
     ballItemId: uuid,
     idempotencyKey: z.string().trim().min(1).max(255),
     correlationId: uuid,

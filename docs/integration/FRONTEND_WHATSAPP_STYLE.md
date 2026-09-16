@@ -74,3 +74,14 @@ Grupo social não implica localização compartilhada.
 - Um grupo de selvagens é um único Encounter canônico com roster congelado; não são Encounters paralelos.
 - O PVE recebe esse roster como a party selvagem do Encounter.
 - O WhatsApp só mostra a lista compacta; IDs, slots internos, revisions e seeds nunca aparecem.
+
+
+## Capture e fuga multi-wild
+
+- O WhatsApp continua sendo uma tradução compacta do estado, não um guia de combate.
+- Em batalha selvagem, `/capturar` usa automaticamente a única Poké Bola disponível; com mais de um tipo, o bot lista nomes humanos e aceita `/capturar Nome da Bola`.
+- Somente o selvagem ativo pode ser capturado. O alvo técnico é inferido internamente pelo roster congelado e nunca exposto como UUID/revision.
+- Capturar um selvagem de um grupo não apaga os demais: o Encounter continua e o próximo selvagem vivo assume.
+- `/fugir` encerra Encounter/PVE; em PVP a saída canônica é `/desistir`.
+- `/trocar` e `/item` não são anunciados enquanto suas ações PVE ainda não estiverem efetivamente disponíveis.
+- `/iniciarbatalha` permanece ferramenta de narrador/admin e não aparece no menu do jogador.

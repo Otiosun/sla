@@ -20,6 +20,7 @@ import {
   createPveSceneConversationResolver,
   createPveSceneRoutes,
 } from "../modules/battle/pve-scene-whatsapp.js";
+import { CaptureService } from "../modules/capture/service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   type ReceptionMembershipEvent,
@@ -77,6 +78,8 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
+import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
+import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
 import { PostgresReceptionPresenceRepository } from "../platform/community/postgres-reception-presence-repository.js";
@@ -199,6 +202,17 @@ export function createOperationalMessagingComposition(
           clock,
           { enabled: true, reason: null },
         );
+  const capture =
+    encounterRngConfig === null
+      ? undefined
+      : new CaptureService(
+          new PostgresCaptureRepository(pool, pveBattleConfig?.turnWindowTtlMs),
+          new AesEncounterSeedProvider(
+            encounterRngConfig.encryptionKey,
+            encounterRngConfig.encryptionKeyVersion,
+          ),
+        );
+  const captureBalls = new PostgresCaptureBallReader(pool);
   const fishing =
     encounterWriter === undefined
       ? undefined
@@ -323,6 +337,10 @@ export function createOperationalMessagingComposition(
           activeBattleId: reads.activeBattleId.bind(reads),
           battle: pveBattle.battle,
           controllers: new PostgresBattleParticipantControllerRepository(pool),
+          encounters: encounter,
+          ...(encounterWriter === undefined ? {} : { encounterWriter }),
+          ...(capture === undefined ? {} : { capture }),
+          captureBalls,
           admins: adminIdentity,
         });
   const pveBattleStart =
@@ -407,6 +425,10 @@ export function createOperationalMessagingComposition(
             activeBattleId: reads.activeBattleId.bind(reads),
             battle: pveBattle.battle,
             controllers: new PostgresBattleParticipantControllerRepository(pool),
+            encounters: encounter,
+            ...(encounterWriter === undefined ? {} : { encounterWriter }),
+            ...(capture === undefined ? {} : { capture }),
+            captureBalls,
             admins: adminIdentity,
           })),
       ...(pvp === null

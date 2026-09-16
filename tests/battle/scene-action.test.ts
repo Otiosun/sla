@@ -7,6 +7,7 @@ describe("scene action contract", () => {
     ["/trocar 2", { type: "SWITCH", switchSlot: 2 }],
     ["/item pocao", { type: "USE_ITEM", itemRef: "pocao" }],
     ["/capturar 1", { type: "CAPTURE", captureRef: "1" }],
+    ["/capturar", { type: "CAPTURE", captureRef: "" }],
     ["/fugir", { type: "FLEE" }],
     ["/desistir", { type: "SURRENDER" }],
   ])("parses %s", (text, intent) =>

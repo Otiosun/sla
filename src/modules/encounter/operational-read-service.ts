@@ -14,7 +14,16 @@ export class EncounterOperationalReadService {
       const snapshot = await transaction.snapshot(encounter.encounterId);
       if (snapshot === null) return err(encounterNotReady("Active encounter snapshot is missing"));
       const battleId = await transaction.battleId(encounter.encounterId);
-      return ok({ ...encounter, snapshot, battleId });
+      const wilds =
+        transaction.wildSnapshots === undefined
+          ? undefined
+          : await transaction.wildSnapshots(encounter.encounterId);
+      return ok({
+        ...encounter,
+        snapshot,
+        ...(wilds === undefined || wilds.length === 0 ? {} : { wilds }),
+        battleId,
+      });
     });
   }
 }
