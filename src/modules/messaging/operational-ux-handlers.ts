@@ -33,7 +33,7 @@ export interface OperationalUxDependencies {
     WorldService,
     "ensureInitialLocation" | "getLocation" | "travel" | "replayTravelIfCommitted"
   > &
-    Partial<Pick<WorldService, "replayTravelByIdempotency">>;
+    Partial<Pick<WorldService, "replayTravelByIdempotency" | "travelLock">>;
   readonly encounter: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly battle: Pick<BattleOperationalReadService, "forPlayer">;
   readonly reads: OperationalUxReadModel;
@@ -137,6 +137,16 @@ async function resolvePlayer(
 ): Promise<Result<PlayerId>> {
   const resolved = await dependencies.registration.resolvePlayer(identity(context));
   return resolved.ok ? ok(resolved.value.playerId) : resolved;
+}
+
+function travelInProgressText(): string {
+  return [
+    "🚶 *ROTOM · VIAGEM*",
+    "",
+    "_Deslocamento em andamento._",
+    "",
+    "O mapa e os encontros voltam a ficar disponíveis em instantes.",
+  ].join("\n");
 }
 
 function onboardingMenu(state: string): string {
@@ -283,6 +293,18 @@ export function createOperationalUxRoutes(
               ];
         return textResult(context, facility.join("\n"), { type: "PLAYER", id: playerId });
       }
+    }
+
+    const travelLockForMenu =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(playerId);
+    if (!travelLockForMenu.ok) return travelLockForMenu;
+    if (travelLockForMenu.value !== null) {
+      return textResult(context, travelInProgressText(), {
+        type: "PLAYER",
+        id: playerId,
+      });
     }
 
     return textResult(context, onboardingMenu("COMPLETE"), {
@@ -476,6 +498,16 @@ export function createOperationalUxRoutes(
   const where: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
+
+    const travelLockForWhere =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(player.value);
+    if (!travelLockForWhere.ok) return travelLockForWhere;
+    if (travelLockForWhere.value !== null) {
+      return textResult(context, travelInProgressText());
+    }
+
     const location = await dependencies.world.getLocation(player.value);
     if (!location.ok) return location;
 
@@ -517,6 +549,15 @@ export function createOperationalUxRoutes(
           dependencies.worldMedia,
         );
       }
+    }
+
+    const travelLockBeforeMove =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(player.value);
+    if (!travelLockBeforeMove.ok) return travelLockBeforeMove;
+    if (travelLockBeforeMove.value !== null) {
+      return textResult(context, travelInProgressText());
     }
 
     const routeNumber = Number(commandArgs(context)[0]);
@@ -565,6 +606,24 @@ export function createOperationalUxRoutes(
             ),
           )
         : moved;
+    }
+
+    const travelLockAfterMove =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(player.value);
+    if (!travelLockAfterMove.ok) return travelLockAfterMove;
+    if (travelLockAfterMove.value !== null) {
+      return textResult(
+        context,
+        [
+          "🚶 *VIAGEM INICIADA*",
+          "",
+          `_${moved.value.from.areaDisplayName} → ${moved.value.to.areaDisplayName}_`,
+          "",
+          "O deslocamento é curto. O Rotom libera o mapa e os encontros ao final.",
+        ].join("\n"),
+      );
     }
 
     return arrivalResult(

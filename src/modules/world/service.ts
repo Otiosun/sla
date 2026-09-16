@@ -19,6 +19,7 @@ import type {
   WorldConnectionView,
   WorldLocationView,
   WorldPlayerEligibility,
+  WorldTravelLock,
   WorldTravelReceipt,
 } from "./contracts.js";
 import {
@@ -31,7 +32,8 @@ import {
 import type { WorldRepository, WorldTransaction } from "./ports.js";
 import { VILA_DOS_ARROZAIS_SLUG } from "./zhoulia-presentation.js";
 
-const TRAVEL_COOLDOWN_MS = 5 * 60 * 1000;
+const FIRST_ARRIVAL_COOLDOWN_MS = 5 * 60 * 1000;
+const DEFAULT_TRAVEL_LOCK_MS = 30 * 1000;
 
 const uuidSchema = z.string().uuid();
 const travelScopeResult = parseIdempotencyScope("world.travel");
@@ -149,6 +151,21 @@ export class WorldService {
       const location = await transaction.playerLocation(playerId);
       if (location === null) return err(worldNotReady("Player location is not initialized"));
       return this.buildView(transaction, base.value.contentReleaseId, location, false);
+    });
+  }
+
+  public async travelLock(playerId: PlayerId): Promise<Result<WorldTravelLock | null>> {
+    return this.repository.read(async (transaction) => {
+      const base = await this.loadBase(transaction, playerId);
+      if (!base.ok) return base;
+      const gate = evaluateActionGate({
+        feature: this.feature,
+        player: playerGate(base.value.eligibility),
+        flow: { state: "READ", allowsAction: true, reason: null },
+        action: { valid: true, reason: null },
+      });
+      if (!gate.ok) return gate;
+      return ok((await transaction.travelLock?.(playerId)) ?? null);
     });
   }
 
@@ -383,11 +400,19 @@ export class WorldService {
     const firstVisit = (await transaction.recordAreaVisit?.(input.playerId, moved.areaId)) ?? false;
     const to = await this.buildView(transaction, base.value.contentReleaseId, moved, firstVisit);
     if (!to.ok) return to;
-    if (to.value.areaSlug === VILA_DOS_ARROZAIS_SLUG) {
+    if (to.value.areaSlug === VILA_DOS_ARROZAIS_SLUG && firstVisit) {
       await transaction.setTravelCooldown?.(
         input.playerId,
-        new Date(this.clock.now().getTime() + TRAVEL_COOLDOWN_MS),
+        new Date(this.clock.now().getTime() + FIRST_ARRIVAL_COOLDOWN_MS),
       );
+    } else {
+      const travelMs =
+        (connection?.accessRule.travelSeconds ?? DEFAULT_TRAVEL_LOCK_MS / 1000) * 1000;
+      await transaction.setTravelLock?.({
+        playerId: input.playerId,
+        destinationAreaId: moved.areaId,
+        availableAt: new Date(this.clock.now().getTime() + travelMs),
+      });
     }
 
     if (receiptKey !== null) {

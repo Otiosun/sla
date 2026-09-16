@@ -143,4 +143,14 @@ describe("versioned world content contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("accepts an optional short travel duration on a connection", () => {
+    expect(
+      ConnectionAccessRuleSchema.safeParse({
+        schemaVersion: 1,
+        requiredUnlockKeys: [],
+        travelSeconds: 30,
+      }).success,
+    ).toBe(true);
+  });
 });

@@ -9,6 +9,7 @@ import type {
   WorldConnectionRecord,
   WorldFlowState,
   WorldPlayerEligibility,
+  WorldTravelLock,
   WorldTravelReceipt,
 } from "../../modules/world/contracts.js";
 import type { WorldRepository, WorldTransaction } from "../../modules/world/ports.js";
@@ -175,7 +176,10 @@ class PostgresWorldTransaction implements WorldTransaction {
 
   public async travelCooldownUntil(player: PlayerId): Promise<Date | null> {
     const result = await this.client.query<{ available_at: Date }>(
-      "SELECT available_at FROM player_travel_cooldowns WHERE player_id = $1",
+      `SELECT available_at
+       FROM player_travel_cooldowns
+       WHERE player_id = $1
+         AND reason = 'POST_ARRIVAL'`,
       [player],
     );
     return result.rows[0]?.available_at ?? null;
@@ -183,11 +187,57 @@ class PostgresWorldTransaction implements WorldTransaction {
 
   public async setTravelCooldown(player: PlayerId, availableAt: Date): Promise<void> {
     await this.client.query(
-      `INSERT INTO player_travel_cooldowns(player_id, available_at)
-       VALUES ($1, $2)
+      `INSERT INTO player_travel_cooldowns(
+         player_id, available_at, reason, started_at, destination_area_id
+       )
+       VALUES ($1, $2, 'POST_ARRIVAL', NULL, NULL)
        ON CONFLICT (player_id)
-       DO UPDATE SET available_at = EXCLUDED.available_at`,
+       DO UPDATE SET available_at = EXCLUDED.available_at,
+                     reason = 'POST_ARRIVAL',
+                     started_at = NULL,
+                     destination_area_id = NULL`,
       [player, availableAt],
+    );
+  }
+
+  public async travelLock(player: PlayerId): Promise<WorldTravelLock | null> {
+    const result = await this.client.query<{
+      available_at: Date;
+      destination_area_id: string;
+    }>(
+      `SELECT available_at, destination_area_id
+       FROM player_travel_cooldowns
+       WHERE player_id = $1
+         AND reason = 'TRAVEL'
+         AND destination_area_id IS NOT NULL
+         AND available_at > now()`,
+      [player],
+    );
+    const row = result.rows[0];
+    return row === undefined
+      ? null
+      : {
+          availableAt: row.available_at,
+          destinationAreaId: row.destination_area_id,
+        };
+  }
+
+  public async setTravelLock(input: {
+    readonly playerId: PlayerId;
+    readonly destinationAreaId: string;
+    readonly availableAt: Date;
+  }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO player_travel_cooldowns(
+         player_id, available_at, reason, started_at, destination_area_id
+       )
+       VALUES ($1, $2, 'TRAVEL', now(), $3)
+       ON CONFLICT (player_id)
+       DO UPDATE SET available_at = EXCLUDED.available_at,
+                     reason = 'TRAVEL',
+                     started_at = now(),
+                     destination_area_id = EXCLUDED.destination_area_id`,
+      [input.playerId, input.availableAt, input.destinationAreaId],
     );
   }
 

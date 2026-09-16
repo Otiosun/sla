@@ -51,6 +51,7 @@ export const ConnectionAccessRuleSchema = z
   .object({
     schemaVersion: z.literal(1),
     requiredUnlockKeys: z.array(unlockKeySchema).max(32),
+    travelSeconds: z.number().int().min(5).max(600).optional(),
   })
   .strict();
 export type ConnectionAccessRule = z.infer<typeof ConnectionAccessRuleSchema>;

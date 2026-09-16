@@ -45,3 +45,24 @@ Grupo social não implica localização compartilhada.
 - `/onde` apresenta rotas por número e nome humano.
 - `/ir <número>` resolve a revisão atual internamente e continua replay-safe por idempotência.
 - `/menu` prioriza Reception/ativação, depois BATTLE, ENCOUNTER, FACILITY e WORLD.
+
+## Viagem curta
+
+- `/ir <número>` inicia um deslocamento curto.
+- Durante o lock de TRAVEL, `/menu` e `/onde` mostram apenas o estado compacto de viagem.
+- Spawn do narrador é bloqueado se qualquer participante selecionado estiver em deslocamento.
+- A duração padrão é 30 segundos e pode ser configurada por rota via `travelSeconds`.
+- O cooldown especial de primeira chegada à Vila dos Arrozais permanece separado.
+
+## Combate compacto
+
+- PVE e PVP no WhatsApp traduzem o estado da luta de forma curta; o bot não vira guia de combate.
+- O guia completo de combate fica fora da conversa.
+- Movimentos do Pokémon podem ser consultados no bot e, depois, no Hub.
+- Organização visual da equipe, ordem e troca de slots ficam para o Hub companion.
+
+## POST_ARRIVAL não é TRAVEL
+
+- POST_ARRIVAL preserva o cooldown especial de chegada e continua sendo regra do domínio de viagem.
+- TRAVEL representa o deslocamento curto do jogador no front: impede novo `/ir`, `/onde`, menu WORLD normal e spawn narrativo até expirar.
+- Serviços internos continuam podendo usar o domínio de World sem confundir deslocamento curto com o cooldown histórico de chegada.

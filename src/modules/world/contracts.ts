@@ -83,6 +83,11 @@ export interface TravelResult {
   readonly arrival?: WorldArrival;
 }
 
+export interface WorldTravelLock {
+  readonly availableAt: Date;
+  readonly destinationAreaId: string;
+}
+
 export interface WorldTravelReceipt {
   readonly idempotencyKey: string;
   readonly playerId: PlayerId;

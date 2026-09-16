@@ -5,6 +5,7 @@ import type {
   WorldConnectionRecord,
   WorldFlowState,
   WorldPlayerEligibility,
+  WorldTravelLock,
   WorldTravelReceipt,
 } from "./contracts.js";
 
@@ -15,6 +16,12 @@ export interface WorldTransaction {
   insertInitialLocation(playerId: PlayerId, areaId: string): Promise<boolean>;
   recordAreaVisit?(playerId: PlayerId, areaId: string): Promise<boolean>;
   travelCooldownUntil?(playerId: PlayerId): Promise<Date | null>;
+  travelLock?(playerId: PlayerId): Promise<WorldTravelLock | null>;
+  setTravelLock?(input: {
+    readonly playerId: PlayerId;
+    readonly destinationAreaId: string;
+    readonly availableAt: Date;
+  }): Promise<void>;
   setTravelCooldown?(playerId: PlayerId, availableAt: Date): Promise<void>;
   moveLocation(input: {
     readonly playerId: PlayerId;

@@ -28,6 +28,10 @@ export type NarratorSpawnContext =
   | {
       readonly kind: "SPLIT";
       readonly groups: readonly NarratorSpawnAreaGroup[];
+    }
+  | {
+      readonly kind: "TRAVELLING";
+      readonly participantDisplayNames: readonly string[];
     };
 
 export interface NarratorSpawnContextResolver {
@@ -112,6 +116,22 @@ export function createSpawnWhatsAppRoute(
         dependencies.context === undefined
           ? { kind: "READY" as const, areaDisplayName: "Área atual", participantCount: 1 }
           : await dependencies.context.resolve(target.value.playerId);
+
+      if (spawnContext.kind === "TRAVELLING") {
+        return result(
+          context,
+          [
+            "🚶 *GRUPO EM DESLOCAMENTO*",
+            "",
+            "_O encontro não foi criado._",
+            "",
+            ...spawnContext.participantDisplayNames.map((name) => `• ${name}`),
+            "",
+            "Aguarde o deslocamento terminar antes de gerar um encontro.",
+          ].join("\n"),
+          null,
+        );
+      }
 
       if (spawnContext.kind === "SPLIT") {
         return result(context, splitText(spawnContext.groups), null);

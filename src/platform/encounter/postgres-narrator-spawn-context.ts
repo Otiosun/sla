@@ -66,6 +66,27 @@ export class PostgresNarratorSpawnContextResolver implements NarratorSpawnContex
       throw new Error("Narrator spawn target has no resolvable player context");
     }
 
+    const travelling = await this.pool.query<{ trainer_name: string | null }>(
+      `SELECT profile.trainer_name
+       FROM player_travel_cooldowns cooldown
+       JOIN players player ON player.id = cooldown.player_id
+       LEFT JOIN player_profiles profile ON profile.player_id = player.id
+       WHERE cooldown.player_id = ANY($1::uuid[])
+         AND cooldown.reason = 'TRAVEL'
+         AND cooldown.available_at > now()
+       ORDER BY player.id`,
+      [members.rows.map((member) => member.player_id)],
+    );
+
+    if (travelling.rows.length > 0) {
+      return {
+        kind: "TRAVELLING",
+        participantDisplayNames: travelling.rows.map(
+          (row) => row.trainer_name?.trim() || "Treinador",
+        ),
+      };
+    }
+
     const byArea = new Map<string, { name: string; players: string[] }>();
     for (const row of members.rows) {
       const areaKey = row.area_id ?? "NO_LOCATION";

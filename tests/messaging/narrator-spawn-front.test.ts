@@ -106,4 +106,29 @@ describe("narrator spawn WhatsApp front", () => {
     expect(text).not.toContain(encounterId);
     expect(text.toLowerCase()).not.toContain("revision");
   });
+
+  it("blocks a travelling party before creating an Encounter", async () => {
+    const createOrReplay = vi.fn();
+    const route = createSpawnWhatsAppRoute({
+      players: {
+        resolvePlayer: async () => ok({ playerId, state: "COMPLETE", created: false }),
+      },
+      encounters: { createOrReplay },
+      context: {
+        resolve: async () => ({
+          kind: "TRAVELLING",
+          participantDisplayNames: ["Liora", "Kai"],
+        }),
+      },
+    } as never);
+
+    const result = await route.handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("*GRUPO EM DESLOCAMENTO*");
+    expect(text).toContain("Liora");
+    expect(text).toContain("Kai");
+    expect(createOrReplay).not.toHaveBeenCalled();
+  });
 });
