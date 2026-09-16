@@ -97,6 +97,7 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
         }),
       ),
       replayTravelIfCommitted: vi.fn(async () => ok(null)),
+      replayTravelByIdempotency: vi.fn(async () => ok(null)),
       travel: vi.fn(async () =>
         ok({
           replayed: false,
@@ -238,14 +239,49 @@ function router(deps: OperationalUxDependencies): MessageRouter {
 }
 
 describe("Phase 13 operational WhatsApp UX", () => {
-  it("presents a compact complete-player menu without inventing automatic exploration", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$menu")));
+  it("presents the WORLD Rotom menu without automatic exploration", async () => {
+    const deps = dependencies();
+    (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (deps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+
+    const output = textOf(await router(deps).dispatch(context("$menu")));
     expect(output).toContain("ROTOM · MENU");
     expect(output).toContain("/onde");
-    expect(output).toContain("/encontro");
-    expect(output).toContain("Cenas comuns continuam livres");
+    expect(output).toContain("Explorações são conduzidas em cena pelo narrador");
     expect(output).not.toContain("/explorar");
-    expect(output).not.toContain("/golpe");
+    expect(output).not.toContain("revision");
+  });
+
+  it("prioritizes BATTLE then ENCOUNTER then FACILITY before WORLD", async () => {
+    const battleDeps = dependencies();
+    expect(textOf(await router(battleDeps).dispatch(context("$menu", "menu-battle")))).toContain(
+      "ROTOM · BATALHA",
+    );
+
+    const encounterDeps = dependencies();
+    (encounterDeps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    expect(
+      textOf(await router(encounterDeps).dispatch(context("$menu", "menu-encounter"))),
+    ).toContain("ROTOM · ENCONTRO");
+
+    const facilityDeps = dependencies({
+      sessions: {
+        loadActiveSession: vi.fn(async () =>
+          ok({
+            serviceKind: "POKEMART",
+          }),
+        ),
+      },
+    });
+    (facilityDeps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (facilityDeps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+    expect(
+      textOf(await router(facilityDeps).dispatch(context("$menu", "menu-facility"))),
+    ).toContain("ROTOM · POKÉ MART");
   });
 
   it("renders profile, team, inventory and Pokedex as readable mobile text", async () => {
@@ -260,27 +296,22 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
-  it("emits revision-bound travel commands and rejects stale text before calling the owner mutation", async () => {
+  it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
     const deps = dependencies();
     const app = router(deps);
+
     const whereText = textOf(await app.dispatch(context("$onde", "where")));
-    expect(whereText).toContain("/ir route-1 v7");
+    expect(whereText).toContain("`/ir 1`");
+    expect(whereText).toContain("*Route 1*");
+    expect(whereText).not.toContain("route-1");
+    expect(whereText).not.toContain("v7");
 
-    const stale = await app.dispatch(context("$ir route-1 v6", "stale"));
-    expect(stale.ok).toBe(false);
-    if (!stale.ok) expect(stale.error.code).toBe("REVISION_CONFLICT");
-    expect(deps.world.replayTravelIfCommitted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        playerId: PLAYER_ID,
-        destinationSlug: "route-1",
-        expectedRevision: 6n,
-        idempotencyKey: "inbox:test:stale",
-      }),
-    );
-    expect(deps.world.travel).not.toHaveBeenCalled();
-
-    const valid = await app.dispatch(context("$ir route-1 v7", "travel"));
+    const valid = await app.dispatch(context("$ir 1", "travel"));
     expect(valid.ok).toBe(true);
+    expect(deps.world.replayTravelByIdempotency).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      idempotencyKey: "inbox:test:travel",
+    });
     expect(deps.world.travel).toHaveBeenCalledWith(
       expect.objectContaining({
         playerId: PLAYER_ID,
@@ -309,7 +340,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
       }),
     );
     const app = router(deps);
-    const image = await app.dispatch(context("$ir route-1 v7", "vila-image"));
+    const image = await app.dispatch(context("$ir 1", "vila-image"));
     expect(image).toMatchObject({
       ok: true,
       value: {
@@ -333,7 +364,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
         },
       }),
     );
-    const fallback = await router(noMedia).dispatch(context("$ir route-1 v7", "vila-text"));
+    const fallback = await router(noMedia).dispatch(context("$ir 1", "vila-text"));
     expect(fallback).toMatchObject({
       ok: true,
       value: {
@@ -350,7 +381,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
         }),
       ),
     );
-    const cooldown = textOf(await router(noMedia).dispatch(context("$ir route-1 v7", "cooldown")));
+    const cooldown = textOf(await router(noMedia).dispatch(context("$ir 1", "cooldown")));
     expect(cooldown).toContain("Aguarde *3min 42s*");
   });
 
@@ -358,14 +389,16 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const output = textOf(await router(dependencies()).dispatch(context("$encontro")));
     expect(output).toContain("Pidgey");
     expect(output).toContain("Nv. 4");
-    expect(output).toContain("HP: 15/15");
+    expect(output).toContain("❤️ HP 15/15");
     expect(output).toContain("condução do narrador");
-    expect(output).toContain("não inicia combate automaticamente");
+    expect(output).not.toContain("Revisão");
+    expect(output).not.toContain("Estado:");
   });
 
   it("renders battle HP/status/PP and only actions supplied as mechanically legal", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("$batalha")));
-    expect(output).toContain("Turno 3 · v9");
+    expect(output).toContain("Turno 3");
+    expect(output).not.toContain("v9");
     expect(output).toContain("HP 21/30");
     expect(output).toContain("HP 10/18 · status PARALYSIS");
     expect(output).toContain("Tackle · PP 31/35");

@@ -38,3 +38,10 @@ Não existe comando do jogador que gere encontro aleatório sozinho.
 
 Encounter coletivo só pode ser criado para participantes mecanicamente co-localizados.
 Grupo social não implica localização compartilhada.
+
+## Estado técnico invisível
+
+- Revisões, versões de batalha, UUIDs e slugs ficam internos.
+- `/onde` apresenta rotas por número e nome humano.
+- `/ir <número>` resolve a revisão atual internamente e continua replay-safe por idempotência.
+- `/menu` prioriza Reception/ativação, depois BATTLE, ENCOUNTER, FACILITY e WORLD.

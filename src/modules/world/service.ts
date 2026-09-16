@@ -235,6 +235,29 @@ export class WorldService {
     });
   }
 
+  public async replayTravelByIdempotency(input: {
+    readonly playerId: PlayerId;
+    readonly idempotencyKey: string;
+  }): Promise<Result<TravelResult | null>> {
+    const idempotency = createIdempotencyKey(WORLD_TRAVEL_SCOPE, input.idempotencyKey);
+    if (!idempotency.ok) return idempotency;
+
+    return this.repository.transaction(async (transaction) => {
+      await transaction.acquireTravelIdempotencyLock(idempotency.value.storageKey);
+      const receipt = await transaction.travelReceipt(idempotency.value.storageKey);
+      if (receipt === null) return ok(null);
+      if (receipt.playerId !== input.playerId) {
+        return err(
+          appError(
+            "FINGERPRINT_MISMATCH",
+            "World travel idempotency key belongs to a different player",
+          ),
+        );
+      }
+      return this.replayTravel(transaction, receipt);
+    });
+  }
+
   public async relocate(input: RelocateInput): Promise<Result<WorldLocationView>> {
     if (input.expectedRevision < 0n) {
       return err(worldValidationError("expectedRevision must be non-negative"));
