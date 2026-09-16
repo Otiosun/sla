@@ -378,6 +378,22 @@ export class RegistrationConversationSessions {
     return ok(snapshot(session));
   }
 
+  public selectGuidedField(
+    playerId: PlayerId,
+    field: RegistrationConversationField,
+  ): Result<RegistrationConversationSession> {
+    const session = this.sessions.get(playerId);
+    if (session === undefined) {
+      return err(appError("NOT_FOUND", "Registration conversation is not active"));
+    }
+    if (session.mode !== "GUIDED") {
+      return err(appError("INVALID_STATE_TRANSITION", "Registration editor is not in guided mode"));
+    }
+    session.currentField = field;
+    session.expectedReplyOutboxIdempotencyKey = null;
+    return ok(snapshot(session));
+  }
+
   public setField(
     playerId: PlayerId,
     field: RegistrationConversationField,

@@ -28,6 +28,20 @@ export interface BaileysAuthBinding {
 export type { BaileysEventSourceLike as BaileysEventSource, BaileysSocketLike };
 export type BaileysSocketFactory = (config: BaileysSocketConfigLike) => BaileysSocketLike;
 
+export type BaileysInboundDropReason =
+  | "FROM_ME"
+  | "HISTORY_REQUEST"
+  | "NON_NOTIFY"
+  | "UNSUPPORTED_OR_INVALID"
+  | "MIXED"
+  | null;
+
+export interface BaileysInboundUpsertObservation {
+  readonly acceptedCount: number;
+  readonly droppedCount: number;
+  readonly dropReason: BaileysInboundDropReason;
+}
+
 export interface BaileysWhatsAppAdapterOptions {
   readonly onMembership?: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly auth: BaileysAuthBinding;
@@ -38,6 +52,7 @@ export interface BaileysWhatsAppAdapterOptions {
   readonly onQr?: (qr: string) => Promise<void> | void;
   readonly onLoggedOut?: () => Promise<void> | void;
   readonly onConnectionState?: (state: WhatsAppProviderConnectionState) => Promise<void> | void;
+  readonly onInboundUpsert?: (observation: BaileysInboundUpsertObservation) => Promise<void> | void;
   readonly onProviderError?: (error: unknown) => void;
 }
 
@@ -69,6 +84,60 @@ function statusCodeFromError(error: unknown): number | null {
   }
 
   return null;
+}
+
+interface BaileysParticipantIdentityLike {
+  readonly id: string;
+  readonly lid?: string | null;
+  readonly phoneNumber?: string | null;
+}
+
+function canonicalDeviceId(id: string): string {
+  return id.replace(/:\d+@/, "@");
+}
+
+function isPhoneNumberJid(id: string | null | undefined): id is string {
+  return typeof id === "string" && /^\d+(?::\d+)?@s\.whatsapp\.net$/.test(id);
+}
+
+function participantRefs(participant: BaileysParticipantIdentityLike): readonly string[] {
+  return [
+    ...new Set(
+      [participant.id, participant.lid, participant.phoneNumber]
+        .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        .map(canonicalDeviceId),
+    ),
+  ];
+}
+
+function participantPhoneNumber(participant: BaileysParticipantIdentityLike): string | null {
+  const candidate = [participant.phoneNumber, participant.id].find(isPhoneNumberJid);
+  return candidate === undefined ? null : canonicalDeviceId(candidate);
+}
+
+function sameParticipant(
+  left: BaileysParticipantIdentityLike,
+  right: BaileysParticipantIdentityLike,
+): boolean {
+  const rightRefs = new Set(participantRefs(right));
+  return participantRefs(left).some((ref) => rightRefs.has(ref));
+}
+
+function identityAliasesFromParticipants(
+  participants: readonly BaileysParticipantIdentityLike[],
+): ReadonlyMap<string, string> {
+  const aliases = new Map<string, string>();
+
+  for (const participant of participants) {
+    const phoneNumber = participantPhoneNumber(participant);
+    if (phoneNumber === null) continue;
+
+    for (const ref of participantRefs(participant)) {
+      aliases.set(ref, phoneNumber);
+    }
+  }
+
+  return aliases;
 }
 
 function textOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
@@ -171,6 +240,9 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private readonly onConnectionState:
     | ((state: WhatsAppProviderConnectionState) => Promise<void> | void)
     | undefined;
+  private readonly onInboundUpsert:
+    | ((observation: BaileysInboundUpsertObservation) => Promise<void> | void)
+    | undefined;
   private readonly onProviderError: (error: unknown) => void;
 
   private socket: BaileysSocketLike | null = null;
@@ -191,6 +263,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     this.onQr = options.onQr;
     this.onLoggedOut = options.onLoggedOut;
     this.onConnectionState = options.onConnectionState;
+    this.onInboundUpsert = options.onInboundUpsert;
     this.onProviderError = options.onProviderError ?? (() => {});
 
     if (!Number.isFinite(this.reconnectDelayMs) || this.reconnectDelayMs < 0) {
@@ -289,23 +362,29 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
           for (const participant of event.participants) {
             if (this.stopped || generation !== this.generation) return;
             if (!/^\d+(?::\d+)?@(s\.whatsapp\.net|lid)$/.test(participant.id)) continue;
-            if (
-              event.action === "add" &&
-              !members?.participants.some((member) => member.id === participant.id)
-            )
-              continue;
-            const canonicalDeviceId = (id: string) => id.replace(/:\d+@/, "@");
+
+            const confirmedMember = members?.participants.find((member) =>
+              sameParticipant(member, participant),
+            );
+
+            if (event.action === "add" && confirmedMember === undefined) continue;
+
+            const externalId =
+              participantPhoneNumber(participant) ??
+              (confirmedMember === undefined ? null : participantPhoneNumber(confirmedMember)) ??
+              canonicalDeviceId(participant.id);
+
             if (
               [socket.user?.id, socket.user?.lid].some(
-                (id) =>
-                  id !== undefined && canonicalDeviceId(id) === canonicalDeviceId(participant.id),
+                (id) => id !== undefined && canonicalDeviceId(id) === externalId,
               )
             )
               continue;
+
             await this.onMembership({
               provider: "baileys",
               chatRef: event.id,
-              externalId: participant.id,
+              externalId,
               action: event.action,
             });
           }
@@ -317,7 +396,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       void this.auth.saveCredentials().catch((error) => this.onProviderError(error));
     });
     socket.ev.on("messages.upsert", (event) => {
-      void this.handleMessageUpsert(generation, event).catch((error) => {
+      void this.handleMessageUpsert(generation, socket, event).catch((error) => {
         this.metrics.increment("whatsapp.incoming.errors_total");
         this.onProviderError(error);
       });
@@ -331,20 +410,68 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
   private async handleMessageUpsert(
     generation: number,
+    socket: BaileysSocketLike,
     event: BaileysMessagesUpsertLike,
   ): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
-    if (event.type !== "notify" || event.requestId !== undefined) return;
+    let acceptedCount = 0;
+    let droppedCount = 0;
+    const dropReasons = new Set<Exclude<BaileysInboundDropReason, null | "MIXED">>();
+    const dropped = (reason: Exclude<BaileysInboundDropReason, null | "MIXED">): void => {
+      droppedCount += 1;
+      dropReasons.add(reason);
+    };
 
-    const handler = this.incomingHandler;
-    if (handler === null) return;
+    try {
+      if (event.type !== "notify") {
+        for (const _message of event.messages) dropped("NON_NOTIFY");
+        return;
+      }
+      if (event.requestId !== undefined) {
+        for (const _message of event.messages) dropped("HISTORY_REQUEST");
+        return;
+      }
 
-    for (const message of event.messages) {
-      const normalized = normalizeBaileysMessage(message);
-      if (normalized !== null) {
+      const handler = this.incomingHandler;
+      if (handler === null) return;
+
+      for (const message of event.messages) {
+        let normalized = normalizeBaileysMessage(message);
+        if (normalized === null) {
+          dropped(message.key.fromMe === true ? "FROM_ME" : "UNSUPPORTED_OR_INVALID");
+          continue;
+        }
+
+        const needsAliasResolution =
+          normalized.senderRef.endsWith("@lid") ||
+          normalized.mentions.some((mention) => mention.endsWith("@lid"));
+
+        if (
+          needsAliasResolution &&
+          message.key.remoteJid?.endsWith("@g.us") &&
+          socket.groupMetadata !== undefined
+        ) {
+          try {
+            const metadata = await socket.groupMetadata(message.key.remoteJid);
+            const aliases = identityAliasesFromParticipants(metadata.participants);
+            normalized = normalizeBaileysMessage(message, aliases) ?? normalized;
+          } catch (error) {
+            this.onProviderError(error);
+          }
+        }
+
         this.metrics.increment("whatsapp.incoming.total");
+        acceptedCount += 1;
         await handler(normalized);
       }
+    } finally {
+      const dropReason =
+        dropReasons.size === 0
+          ? null
+          : dropReasons.size === 1
+            ? ([...dropReasons][0] ?? null)
+            : "MIXED";
+      await this.onInboundUpsert?.({ acceptedCount, droppedCount, dropReason });
     }
   }
 

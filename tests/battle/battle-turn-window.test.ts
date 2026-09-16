@@ -285,3 +285,90 @@ describe("PVP Battle TurnWindow", () => {
     expect(conflictingCommit.error.code).toBe("TURN_WINDOW_COMMIT_CONFLICT");
   });
 });
+
+describe("PVE human TurnWindow collection", () => {
+  function pveWindow(requiredPlayers: readonly { playerId: string; sideNo: number }[]) {
+    return createTurnWindow({
+      id: IDS.window,
+      battleId: IDS.battle,
+      battleVersion: 7,
+      turnNumber: 4,
+      openedAt,
+      deadlineAt,
+      requiredPlayers,
+    });
+  }
+  function submission(playerId: string, id = IDS.submissionA1 as string, slot = 1) {
+    return {
+      id,
+      playerId,
+      sideNo: 1,
+      expectedBattleVersion: 7,
+      idempotencyKey: id,
+      action: playerId === IDS.playerA ? actionA(slot) : actionB(),
+      submittedAt: new Date("2026-08-31T12:00:10.000Z"),
+    };
+  }
+
+  it("locks a solo human window after that player's action", () => {
+    const created = pveWindow([{ playerId: IDS.playerA, sideNo: 1 }]);
+    if (!created.ok) throw created.error;
+    const result = submitTurnAction(created.value, submission(IDS.playerA));
+    expect(result).toMatchObject({
+      ok: true,
+      value: { aggregate: { window: { status: "LOCKED" } } },
+    });
+  });
+
+  it("waits for each allied player and preserves replacement, stale and duplicate semantics", () => {
+    const created = pveWindow([
+      { playerId: IDS.playerA, sideNo: 1 },
+      { playerId: IDS.playerB, sideNo: 1 },
+    ]);
+    if (!created.ok) throw created.error;
+    const first = submitTurnAction(created.value, submission(IDS.playerA));
+    if (!first.ok) throw first.error;
+    expect(first.value.aggregate.window.status).toBe("COLLECTING");
+    expect(
+      submitTurnAction(first.value.aggregate, {
+        ...submission(IDS.playerB, IDS.submissionB),
+        expectedBattleVersion: 6,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "TURN_WINDOW_VERSION_CONFLICT" } });
+    const replacement = submitTurnAction(
+      first.value.aggregate,
+      submission(IDS.playerA, IDS.submissionA2, 3),
+    );
+    if (!replacement.ok) throw replacement.error;
+    expect(replacement.value.aggregate.submissions.map((entry) => entry.status)).toEqual([
+      "SUPERSEDED",
+      "ACTIVE",
+    ]);
+    const second = submitTurnAction(
+      replacement.value.aggregate,
+      submission(IDS.playerB, IDS.submissionB),
+    );
+    if (!second.ok) throw second.error;
+    expect(second.value.aggregate.window.status).toBe("LOCKED");
+    expect(
+      submitTurnAction(second.value.aggregate, submission(IDS.playerB, IDS.submissionB)),
+    ).toMatchObject({ ok: true, value: { replayed: true } });
+    expect(
+      commitTurnWindow(second.value.aggregate, {
+        resolvedBattleVersion: 8,
+        correlationId: IDS.correlation,
+        committedAt: new Date("2026-08-31T12:00:20Z"),
+      }),
+    ).toMatchObject({ ok: true, value: { aggregate: { window: { status: "COMMITTED" } } } });
+  });
+
+  it("still rejects an empty human set and duplicated player identities", () => {
+    expect(pveWindow([])).toMatchObject({ ok: false, error: { code: "TURN_WINDOW_INVALID" } });
+    expect(
+      pveWindow([
+        { playerId: IDS.playerA, sideNo: 1 },
+        { playerId: IDS.playerA, sideNo: 2 },
+      ]),
+    ).toMatchObject({ ok: false, error: { code: "TURN_WINDOW_INVALID" } });
+  });
+});

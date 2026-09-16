@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
+  type BattleAction,
   BattleActionSchema,
+  type BattleState,
   BattleStateSchema,
   BattleStatusSchema,
-  type BattleAction,
-  type BattleState,
 } from "../../modules/battle/contracts.js";
 import type {
   BattleInitializationData,
@@ -17,12 +17,25 @@ import type {
   PersistTurnResult,
   StoredBattleAction,
 } from "../../modules/battle/ports.js";
+import type { SubmitTurnActionInput } from "../../modules/battle/turn-window.js";
 import {
   ContentLifecycleStatusSchema,
   type RulesetSnapshot,
 } from "../../modules/catalog/contracts.js";
 import type { WildPokemonSnapshot } from "../../modules/encounter/contracts.js";
 import { withTransaction } from "../db/transaction.js";
+import { initializeParticipantControllerInTransaction } from "./postgres-battle-participant-controller-repository.js";
+import {
+  loadAggregateByBattleVersion,
+  openControllerTurnWindowInTransaction,
+  submitTurnActionInTransaction,
+} from "./postgres-battle-turn-window-repository.js";
+import { PostgresPvpTurnResolutionTransaction } from "./postgres-pvp-turn-resolution-repository.js";
+
+export interface ControllerBattleInitializationConfig {
+  readonly turnWindowTtlMs: number;
+  readonly clock?: () => Date;
+}
 
 interface RootRow {
   readonly id: string;
@@ -140,7 +153,21 @@ function majorStatus(value: string | undefined): BattlePokemonBuild["majorStatus
 }
 
 class PostgresBattleTransaction implements BattleTransaction {
-  public constructor(private readonly client: PoolClient) {}
+  public readonly turnResolution: PostgresPvpTurnResolutionTransaction;
+  public constructor(
+    private readonly client: PoolClient,
+    private readonly controllerConfig?: ControllerBattleInitializationConfig,
+  ) {
+    this.turnResolution = new PostgresPvpTurnResolutionTransaction(client);
+  }
+
+  public loadTurnWindowByBattleVersion(battleId: string, version: number) {
+    return loadAggregateByBattleVersion(this.client, battleId, version);
+  }
+
+  public submitTurnAction(windowId: string, input: SubmitTurnActionInput) {
+    return submitTurnActionInTransaction(this.client, windowId, input);
+  }
 
   public async loadRoot(battleId: string, lock = false): Promise<BattleRootRecord | null> {
     const result = await this.client.query<RootRow>(
@@ -405,6 +432,17 @@ class PostgresBattleTransaction implements BattleTransaction {
     const wild = encounterRow.pokemon_snapshot as WildPokemonSnapshot;
     if (wild.schemaVersion !== 1) throw new Error("Unsupported wild encounter snapshot version");
 
+    const members = await this.client.query<{ player_id: string; roster_size: number | null }>(
+      `SELECT player_id, cardinality(pokemon_instance_ids) AS roster_size FROM encounter_players WHERE encounter_id = $1
+       ORDER BY CASE WHEN player_id = $2 THEN 0 ELSE 1 END, player_id`,
+      [root.encounterId, encounterRow.player_id],
+    );
+    if (members.rows.length === 0) return null;
+    if (members.rows.length > 1 && this.controllerConfig === undefined) {
+      throw new Error("Allied PVE initialization requires controller windows");
+    }
+    const playerParties: { playerId: string; party: BattlePokemonBuild[] }[] = [];
+    for (const member of members.rows) {
     const party = await this.client.query<PokemonRow>(
       `SELECT pi.id AS pokemon_instance_id, prs.slot_no AS roster_position,
               pi.form_id, pf.species_id, pi.level, pi.current_hp,
@@ -416,7 +454,16 @@ class PostgresBattleTransaction implements BattleTransaction {
               nr.increased_stat, nr.decreased_stat,
               pi.ability_id, ar.effect_key AS ability_effect_key,
               ar.effect_config AS ability_effect_config
-       FROM pokemon_roster_slots prs
+       FROM encounter_players member
+       CROSS JOIN LATERAL (
+         SELECT roster.pokemon_instance_id, roster.slot_no, roster.player_id
+         FROM pokemon_roster_slots roster
+         WHERE member.pokemon_instance_ids IS NULL
+           AND roster.player_id = member.player_id AND roster.placement_kind = 'TEAM'
+         UNION ALL
+         SELECT frozen.id, frozen.position::smallint, member.player_id
+         FROM unnest(member.pokemon_instance_ids) WITH ORDINALITY frozen(id, position)
+       ) prs
        JOIN pokemon_instances pi
          ON pi.id = prs.pokemon_instance_id AND pi.owner_player_id = prs.player_id
        JOIN pokemon_forms pf ON pf.id = pi.form_id
@@ -429,20 +476,24 @@ class PostgresBattleTransaction implements BattleTransaction {
          ON nr.nature_id = ptv.nature_id AND nr.content_release_id = $2
        LEFT JOIN ability_revisions ar
          ON ar.ability_id = pi.ability_id AND ar.content_release_id = $2
-       WHERE prs.player_id = $1
-         AND prs.placement_kind = 'TEAM'
+       WHERE member.player_id = $1 AND member.encounter_id = $3
          AND pi.status = 'ACTIVE'
        ORDER BY prs.slot_no`,
-      [encounterRow.player_id, root.contentReleaseId],
+      [member.player_id, root.contentReleaseId, root.encounterId],
     );
-    if (party.rows.length === 0) return null;
+    if (party.rows.length === 0 || (member.roster_size !== null && party.rows.length !== member.roster_size)) return null;
     const playerParty: BattlePokemonBuild[] = [];
     for (const row of party.rows) {
       playerParty.push(await this.enrichPlayerPokemon(root.contentReleaseId, row));
     }
+    playerParties.push({ playerId: member.player_id, party: playerParty });
+    }
+    const ownerParty = playerParties[0];
+    if (ownerParty === undefined || ownerParty.playerId !== encounterRow.player_id) return null;
     return {
       playerId: encounterRow.player_id,
-      playerParty,
+      playerParty: ownerParty.party,
+      ...(playerParties.length > 1 ? { playerParties } : {}),
       opponentParty: [await this.enrichWildPokemon(root.contentReleaseId, wild)],
     };
   }
@@ -495,6 +546,41 @@ class PostgresBattleTransaction implements BattleTransaction {
       [state.battleId],
     );
     if (updated.rowCount !== 1) throw new Error("Battle initialization CAS failed");
+    if (this.controllerConfig !== undefined && root.battleType !== "PVP") {
+      for (const combatant of state.combatants) {
+        const side = state.sides.find((entry) => entry.sideNo === combatant.sideNo);
+        if (side === undefined) throw new Error("Missing participant side");
+        let playerId = side.controllerKind === "PLAYER" ? side.playerId : null;
+        if (side.controllerKind === "PLAYER" && side.slots !== undefined) {
+          const owner = await this.client.query<{ player_id: string }>(
+            `SELECT member.player_id FROM encounter_players member
+             JOIN pokemon_instances pokemon ON pokemon.owner_player_id = member.player_id
+             WHERE member.encounter_id = $1 AND member.encounter_mode = 'PVE'
+               AND pokemon.id = $2 AND pokemon.id = ANY(member.pokemon_instance_ids)`,
+            [root.encounterId, combatant.pokemonInstanceId],
+          );
+          playerId = owner.rows[0]?.player_id ?? null;
+          if (playerId === null) throw new Error("Allied participant is not in its frozen owner roster");
+        }
+        await initializeParticipantControllerInTransaction(this.client, {
+          battleId: state.battleId,
+          participantId: combatant.participantId,
+          kind: side.controllerKind === "PLAYER" ? "PLAYER" : "AUTO",
+          playerId,
+          adminPrincipalId: null,
+        });
+      }
+      const openedAt = this.controllerConfig.clock?.() ?? new Date();
+      const opened = await openControllerTurnWindowInTransaction(this.client, {
+        id: randomUUID(),
+        battleId: state.battleId,
+        battleVersion: state.version,
+        turnNumber: state.turnNumber,
+        openedAt,
+        deadlineAt: new Date(openedAt.getTime() + this.controllerConfig.turnWindowTtlMs),
+      });
+      if (!opened.ok) throw new Error(opened.error.message);
+    }
     return state;
   }
 
@@ -653,12 +739,23 @@ class PostgresBattleTransaction implements BattleTransaction {
 }
 
 export class PostgresBattleRepository implements BattleRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly controllerConfig?: ControllerBattleInitializationConfig,
+  ) {
+    if (
+      controllerConfig !== undefined &&
+      (!Number.isSafeInteger(controllerConfig.turnWindowTtlMs) ||
+        controllerConfig.turnWindowTtlMs <= 0)
+    ) {
+      throw new Error("Controller turn window TTL must be a positive safe integer");
+    }
+  }
 
   public async transaction<T>(work: (transaction: BattleTransaction) => Promise<T>): Promise<T> {
     return withTransaction(
       this.pool,
-      async (client) => work(new PostgresBattleTransaction(client)),
+      async (client) => work(new PostgresBattleTransaction(client, this.controllerConfig)),
       { isolationLevel: "READ COMMITTED" },
     );
   }
@@ -666,7 +763,7 @@ export class PostgresBattleRepository implements BattleRepository {
   public async read<T>(work: (transaction: BattleTransaction) => Promise<T>): Promise<T> {
     return withTransaction(
       this.pool,
-      async (client) => work(new PostgresBattleTransaction(client)),
+      async (client) => work(new PostgresBattleTransaction(client, this.controllerConfig)),
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );
   }

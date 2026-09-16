@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ManualClock } from "../../src/platform/clock/index.js";
 import type { EncounterSeedProvider } from "../../src/modules/encounter/ports.js";
 import type { PvpChallenge } from "../../src/modules/pvp/challenge.js";
 import { PvpService } from "../../src/modules/pvp/service.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
 
 interface FakePlayerContext {
   readonly playerId: string;

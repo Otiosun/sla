@@ -10,16 +10,26 @@ export function activeCombatant(state: BattleState, sideNo: number): BattleComba
   return side === undefined ? undefined : combatant(state, side.activeParticipantId);
 }
 
-function opponentActive(state: BattleState, sideNo: number): BattleCombatant | undefined {
-  const side = state.sides.find((entry) => entry.sideNo !== sideNo && entry.result === null);
-  return side === undefined ? undefined : combatant(state, side.activeParticipantId);
-}
-
-export function usableReserves(state: BattleState, sideNo: number): readonly BattleCombatant[] {
+export function activeCombatants(state: BattleState, sideNo: number): readonly BattleCombatant[] {
   const side = state.sides.find((entry) => entry.sideNo === sideNo);
   if (side === undefined) return [];
-  return side.participantIds
-    .filter((id) => id !== side.activeParticipantId)
+  return (side.slots ?? [side])
+    .map((slot) => combatant(state, slot.activeParticipantId))
+    .filter((entry): entry is BattleCombatant => entry !== undefined);
+}
+
+export function usableReserves(
+  state: BattleState,
+  sideNo: number,
+  actorParticipantId?: string,
+): readonly BattleCombatant[] {
+  const side = state.sides.find((entry) => entry.sideNo === sideNo);
+  if (side === undefined) return [];
+  const actorId = actorParticipantId ?? side.activeParticipantId;
+  const slot = (side.slots ?? [side]).find((entry) => entry.activeParticipantId === actorId);
+  if (slot === undefined) return [];
+  return slot.participantIds
+    .filter((id) => id !== actorId)
     .map((id) => combatant(state, id))
     .filter((entry): entry is BattleCombatant => entry !== undefined && entry.currentHp > 0);
 }
@@ -29,21 +39,41 @@ export function legalActionsForSide(
   sideNo: number,
   rules: BattleRules,
 ): readonly BattleAction[] {
-  if (state.status !== "ACTIVE") return [];
-  const side = state.sides.find((entry) => entry.sideNo === sideNo);
-  const actor = activeCombatant(state, sideNo);
-  if (side === undefined || actor === undefined) return [];
+  return activeCombatants(state, sideNo).flatMap((actor) =>
+    legalActionsForParticipant(state, actor.participantId, rules),
+  );
+}
 
-  const switches: BattleAction[] = usableReserves(state, sideNo).map((reserve) => ({
+export function legalActionsForParticipant(
+  state: BattleState,
+  participantId: string,
+  rules: BattleRules,
+): readonly BattleAction[] {
+  if (state.status !== "ACTIVE") return [];
+  const actor = combatant(state, participantId);
+  if (actor === undefined) return [];
+  const sideNo = actor.sideNo;
+  const side = state.sides.find((entry) => entry.sideNo === sideNo);
+  if (
+    side === undefined ||
+    side.result !== null ||
+    !activeCombatants(state, sideNo).some((entry) => entry.participantId === participantId)
+  )
+    return [];
+
+  const switches: BattleAction[] = usableReserves(state, sideNo, participantId).map((reserve) => ({
     type: "SWITCH",
     actorParticipantId: actor.participantId,
     switchToParticipantId: reserve.participantId,
   }));
   if (actor.currentHp <= 0) return switches;
 
-  const target = opponentActive(state, sideNo);
+  const targets = state.sides
+    .filter((entry) => entry.sideNo !== sideNo && entry.result === null)
+    .flatMap((entry) => activeCombatants(state, entry.sideNo))
+    .filter((entry) => entry.currentHp > 0);
   const actions: BattleAction[] = [];
-  if (target !== undefined && target.currentHp > 0) {
+  for (const target of targets) {
     for (const move of actor.moves) {
       if (!rules.ppEnabled || move.ppCurrent === null || move.ppCurrent > 0) {
         actions.push({
@@ -91,7 +121,7 @@ export function validateBattleAction(
   if (actor === undefined) {
     return { code: "BATTLE_ACTION_INVALID", message: "Actor participant is absent from battle" };
   }
-  const legal = legalActionsForSide(state, actor.sideNo, rules);
+  const legal = legalActionsForParticipant(state, actor.participantId, rules);
   if (!legal.some((candidate) => sameAction(candidate, action))) {
     return {
       code: "BATTLE_ACTION_INVALID",

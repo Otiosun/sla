@@ -4,23 +4,34 @@ import { CounterRandomSource } from "../../platform/rng/counter-rng.js";
 import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import { chooseHeuristicAction } from "./ai.js";
 import {
-  BattleActionSchema,
   type BattleAction,
+  BattleActionSchema,
   type BattleError,
   type BattleEvent,
   type BattleState,
 } from "./contracts.js";
 import { initializeBattleState } from "./initialization.js";
 import { activeCombatant, usableReserves, validateBattleAction } from "./legal.js";
-import type { BattleRepository, BattleSeedReader, StoredBattleAction } from "./ports.js";
+import type {
+  BattleRepository,
+  BattleSeedReader,
+  BattleTransaction,
+  StoredBattleAction,
+} from "./ports.js";
+import {
+  type PvpTurnResolutionErrorCode,
+  PvpTurnResolutionService,
+} from "./pvp-turn-resolution.js";
 import { resolveTurn } from "./resolver.js";
 import { normalizeBattleRules } from "./rules.js";
+import type { TurnWindowAggregate } from "./turn-window.js";
 
 const idempotencyScopeResult = parseIdempotencyScope("battle.action");
 if (!idempotencyScopeResult.ok) throw new Error("Canonical battle idempotency scope is invalid");
 const BATTLE_ACTION_SCOPE = idempotencyScopeResult.value;
 
 export type BattleServiceErrorCode =
+  | PvpTurnResolutionErrorCode
   | BattleError["code"]
   | "BATTLE_NOT_FOUND"
   | "BATTLE_NOT_INITIALIZED"
@@ -42,13 +53,16 @@ export type BattleServiceResult<T> =
 
 export interface ResolvePlayerTurnInput {
   readonly battleId: string;
-  readonly playerId: string;
+  /** A PLAYER submission has a player id; a NARRATOR submission has a principal id. */
+  readonly playerId: string | null;
+  readonly adminPrincipalId?: string | null;
   readonly expectedVersion: number;
   readonly idempotencyKey: string;
   readonly action: BattleAction;
 }
 
 export interface ResolvePlayerTurnOutput {
+  readonly pending?: boolean;
   readonly state: BattleState;
   readonly events: readonly BattleEvent[];
   readonly replayed: boolean;
@@ -60,6 +74,13 @@ export interface InitializeBattleOutput {
 }
 
 export type IdFactory = () => string;
+type PlayerTurnResult = BattleServiceResult<ResolvePlayerTurnOutput>;
+
+class ControllerResolutionFailure extends Error {
+  public constructor(readonly result: BattleServiceResult<never>) {
+    super("Controller resolution failed; roll back the submitted action");
+  }
+}
 
 function failure(
   code: BattleServiceErrorCode,
@@ -142,6 +163,7 @@ export class BattleService {
             controllerKind: "PLAYER",
             playerId: data.playerId,
             party: data.playerParty,
+            ...(data.playerParties === undefined ? {} : { playerParties: data.playerParties }),
           },
           {
             sideNo: 2,
@@ -192,9 +214,16 @@ export class BattleService {
     }
     const storageKey = idempotency.value.storageKey;
 
-    return this.repository.transaction(async (transaction) => {
+    const result = this.repository.transaction<PlayerTurnResult>(async (transaction) => {
       const root = await transaction.loadRoot(input.battleId, true);
       if (root === null) return failure("BATTLE_NOT_FOUND", "Battle was not found");
+      const controllerWindow = await transaction.loadTurnWindowByBattleVersion(
+        input.battleId,
+        input.expectedVersion,
+      );
+      if (controllerWindow?.window.requiredControllers !== undefined) {
+        return this.resolveControllerPlayerTurn(transaction, controllerWindow, input);
+      }
       const existing = await transaction.findAction(storageKey, true);
       if (existing !== null) {
         if (!actionMatches(existing, input, storageKey)) {
@@ -328,5 +357,65 @@ export class BattleService {
         value: { state: persisted.state, events: resolved.value.events, replayed: false },
       };
     });
+    return result.catch((error: unknown) => {
+      if (error instanceof ControllerResolutionFailure) return error.result;
+      throw error;
+    });
+  }
+
+  private async resolveControllerPlayerTurn(
+    transaction: BattleTransaction,
+    aggregate: TurnWindowAggregate,
+    input: ResolvePlayerTurnInput,
+  ): Promise<BattleServiceResult<ResolvePlayerTurnOutput>> {
+    const required = aggregate.window.requiredControllers?.find(
+      (entry) =>
+        entry.participantId === input.action.actorParticipantId &&
+        ((entry.kind === "PLAYER" &&
+          entry.playerId === input.playerId &&
+          input.adminPrincipalId === undefined) ||
+          (entry.kind === "NARRATOR" &&
+            entry.adminPrincipalId === input.adminPrincipalId &&
+            input.playerId === null)),
+    );
+    if (required === undefined)
+      return failure("BATTLE_ACTION_INVALID", "Action actor is not required for this player");
+    const state = await transaction.loadState(input.battleId, input.expectedVersion);
+    if (state === null) return failure("BATTLE_STATE_INVALID", "Turn window snapshot is missing");
+    const ruleset = await transaction.loadRuleset(state.rulesetId);
+    if (ruleset === null)
+      return failure("BATTLE_STATE_INVALID", "Pinned battle ruleset is missing");
+    const rules = normalizeBattleRules(ruleset);
+    if (!rules.ok) return rules;
+    const invalid = validateBattleAction(state, input.action, rules.value);
+    if (invalid !== null) return { ok: false, error: invalid };
+    const submitted = await transaction.submitTurnAction(aggregate.window.id, {
+      id: this.idFactory(),
+      playerId: input.playerId,
+      ...(input.adminPrincipalId === undefined ? {} : { adminPrincipalId: input.adminPrincipalId }),
+      sideNo: required.sideNo,
+      controllerRevision: required.revision,
+      expectedBattleVersion: input.expectedVersion,
+      idempotencyKey: input.idempotencyKey,
+      action: input.action,
+      submittedAt: new Date(),
+    });
+    if (!submitted.ok) return submitted;
+    if (submitted.value.aggregate.window.status === "COLLECTING") {
+      return {
+        ok: true,
+        value: { state, events: [], pending: true, replayed: submitted.value.replayed },
+      };
+    }
+    const resolver = new PvpTurnResolutionService(
+      {
+        transaction: async (work) => work(transaction.turnResolution),
+      },
+      this.seedReader,
+      this.idFactory,
+    );
+    const resolved = await resolver.resolve(aggregate.window.id);
+    if (!resolved.ok) throw new ControllerResolutionFailure(resolved);
+    return resolved;
   }
 }

@@ -40,7 +40,7 @@ export class WhatsAppRuntimeSupervisor {
 
   public async run(signal: AbortSignal): Promise<void> {
     await this.runtime.start();
-    this.options.logger.log("INFO", "whatsapp.runtime.started");
+    this.options.logger.log("INFO", "whatsapp.runtime.started", { providerConnection: "PENDING" });
     try {
       while (!signal.aborted) {
         const result = await this.runtime.flushOutbox();

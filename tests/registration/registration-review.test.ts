@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { RegistrationService } from "../../src/modules/registration/service.js";
 import type {
   RegistrationDraftRecord,
   RegistrationRepository,
   RegistrationRevisionRecord,
   RegistrationTransaction,
 } from "../../src/modules/registration/ports.js";
+import { RegistrationService } from "../../src/modules/registration/service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";
@@ -247,5 +247,58 @@ describe("registration administrative review", () => {
     });
     expect(repository.revisions).toHaveLength(1);
     expect(repository.draft).toEqual(draftBefore);
+  });
+
+  it("creates distinct immutable attempts when rejected registrations are corrected and resubmitted", async () => {
+    const { repository, service, playerId, submitted } = await submittedFixture();
+    const rejected = await service.reject({
+      reviewId: submitted.id,
+      expectedRevision: submitted.revision,
+      actor: { adminPrincipalId: "admin-b" },
+      idempotencyKey: "reject-first-attempt",
+    });
+    if (!rejected.ok) throw rejected.error;
+
+    const second = await service.saveAndSubmit({
+      playerId,
+      draft: { ...snapshot(), personality: "Mais calma e observadora." },
+      expectedDraftRevision: 0,
+      idempotencyKey: "resubmit-second-attempt",
+    });
+    if (!second.ok) throw second.error;
+
+    expect(second.value).toMatchObject({ sequenceNo: 2, status: "SUBMITTED", replayed: false });
+    expect(second.value.id).not.toBe(submitted.id);
+    expect(repository.revisions[0]).toMatchObject({
+      id: submitted.id,
+      status: "REJECTED",
+      snapshot: snapshot(),
+    });
+    expect(repository.revisions[1]).toMatchObject({
+      id: second.value.id,
+      snapshot: { personality: "Mais calma e observadora." },
+    });
+
+    const rejectedSecond = await service.reject({
+      reviewId: second.value.id,
+      expectedRevision: second.value.revision,
+      actor: { adminPrincipalId: "admin-b" },
+      idempotencyKey: "reject-second-attempt",
+    });
+    if (!rejectedSecond.ok) throw rejectedSecond.error;
+
+    const third = await service.saveAndSubmit({
+      playerId,
+      draft: { ...snapshot(), personality: "Mais decidida." },
+      expectedDraftRevision: 1,
+      idempotencyKey: "resubmit-third-attempt",
+    });
+
+    expect(third).toMatchObject({ ok: true, value: { sequenceNo: 3, status: "SUBMITTED" } });
+    expect(repository.revisions[0]).toMatchObject({ status: "REJECTED", snapshot: snapshot() });
+    expect(repository.revisions[1]).toMatchObject({
+      status: "REJECTED",
+      snapshot: { personality: "Mais calma e observadora." },
+    });
   });
 });

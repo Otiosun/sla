@@ -64,6 +64,7 @@ function reviewReply(
   context: MessageHandlerContext,
   reviewId: string,
   text: string,
+  reviewRevision?: number,
 ): Result<MessageHandlerResult> {
   return ok({
     resultRefType: "REGISTRATION_REVIEW",
@@ -73,7 +74,12 @@ function reviewReply(
         channel: "whatsapp",
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
-        payload: { text },
+        payload: {
+          text,
+          ...(reviewRevision === undefined
+            ? {}
+            : { registrationReview: { reviewId, reviewRevision } }),
+        },
         idempotencyKey: `${context.idempotencyKey}:registration-admin-reply`,
       },
     ],
@@ -118,17 +124,20 @@ function reviewText(
   setup: RegistrationReviewDisplaySetup | undefined,
 ): string {
   return [
-    `📋 *FICHA #${review.sequenceNo}*`,
-    `Situação: ${statusDisplayName(review.status)}`,
+    "〔▣〕 *REVISÃO DE TREINADOR*",
+    `\`${statusDisplayName(review.status).toLocaleUpperCase("pt-BR")}\``,
     "",
-    `Nome: ${review.snapshot.trainerName}`,
-    `Idade: ${review.snapshot.age}`,
-    `Gênero / pronomes: ${review.snapshot.genderPronouns}`,
-    `Aparência: ${review.snapshot.appearance}`,
-    `Personalidade: ${review.snapshot.personality}`,
-    `História / resumo: ${review.snapshot.backstory}`,
-    `Pokémon inicial: ${starterDisplayName(review, setup)}`,
-    `Região: ${regionDisplayName(review, setup)}`,
+    `*Nome* › ${review.snapshot.trainerName}`,
+    `*Idade* › ${review.snapshot.age}`,
+    `*Gênero / pronomes* › ${review.snapshot.genderPronouns}`,
+    `*Aparência* › ${review.snapshot.appearance}`,
+    `*Personalidade* › ${review.snapshot.personality}`,
+    `*História / resumo* › ${review.snapshot.backstory}`,
+    `*Pokémon inicial* › ${starterDisplayName(review, setup)}`,
+    `*Região* › ${regionDisplayName(review, setup)}`,
+    "",
+    "> Responda diretamente a esta ficha:",
+    "> `/aprovar` · `/ajustes` · `/rejeitar`",
   ].join("\n");
 }
 
@@ -207,10 +216,10 @@ async function decide(
 
   const text =
     decision === "APPROVE"
-      ? "✅ Ficha aprovada. A liberação do treinador foi iniciada."
+      ? "〔✓〕 *APROVAÇÃO REGISTRADA*\n\nFicha aprovada. A liberação do treinador foi iniciada."
       : decision === "REQUEST_CHANGES"
-        ? "📝 Ajustes solicitados. A ficha poderá ser reaberta preservando os dados enviados."
-        : "⛔ Ficha rejeitada.";
+        ? "〔!〕 *AJUSTES SOLICITADOS*\n\nA ficha foi devolvida para edição. Os dados enviados continuam preservados."
+        : "〔×〕 *REJEIÇÃO REGISTRADA*\n\nFicha rejeitada.";
   return reviewReply(context, result.value.id, text);
 }
 
@@ -236,7 +245,12 @@ export function createRegistrationAdminWhatsAppRoutes(
       setup = loaded.value;
     }
 
-    return reviewReply(context, review.value.id, reviewText(review.value, setup));
+    return reviewReply(
+      context,
+      review.value.id,
+      reviewText(review.value, setup),
+      review.value.revision,
+    );
   });
 
   return [

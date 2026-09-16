@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  IncomingMessage,
-  PendingOutboxMessage,
-} from "../../src/modules/messaging/contracts.js";
-import type { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
-import type {
   WhatsAppAdapter,
   WhatsAppIncomingHandler,
 } from "../../src/adapters/whatsapp/adapter.js";
 import { WhatsAppMessagingRuntime } from "../../src/adapters/whatsapp/runtime.js";
+import type {
+  IncomingMessage,
+  PendingOutboxMessage,
+} from "../../src/modules/messaging/contracts.js";
+import type { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
+import { ok } from "../../src/shared-kernel/result.js";
 
 class FakeWhatsAppAdapter implements WhatsAppAdapter {
   public readonly channel = "whatsapp" as const;
@@ -48,7 +49,15 @@ function incoming(text: string): IncomingMessage {
 
 function runtimeFixture() {
   const adapter = new FakeWhatsAppAdapter();
-  const receive = vi.fn(async () => undefined);
+  const receive = vi.fn(async () =>
+    ok({
+      status: "PROCESSED",
+      inboxMessageId: "inbox",
+      correlationId: "correlation",
+      resultRefType: null,
+      resultRefId: null,
+    }),
+  );
   const admitCommand = vi.fn(async () => true);
   const admitFreeform = vi.fn(async () => false);
   const runtime = new WhatsAppMessagingRuntime(

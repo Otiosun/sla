@@ -8,6 +8,7 @@ import { JsonLineStdoutSink, StructuredLogger } from "./platform/logging/index.j
 import { createOperationalWhatsAppRuntime } from "./runtime/compose-whatsapp-runtime.js";
 import { loadEncounterRngRuntimeConfig } from "./runtime/encounter-rng-runtime-config.js";
 import { PostgresRuntimeHealthRepository } from "./runtime/postgres-runtime-health.js";
+import { loadPveBattleRuntimeConfig } from "./runtime/pve-battle-runtime-config.js";
 import { ReleaseRuntimeHealth } from "./runtime/release-runtime-health.js";
 import { ReleaseRuntimeProcess } from "./runtime/release-runtime-process.js";
 import { createReleaseRuntimeRegistration } from "./runtime/release-runtime-registration.js";
@@ -43,6 +44,7 @@ try {
     logger.log("INFO", "runtime.ready", { appEnv: config.appEnv, mode: "schema-only" });
   } else {
     const encounterRngConfig = loadEncounterRngRuntimeConfig();
+    const pveBattleConfig = loadPveBattleRuntimeConfig(encounterRngConfig);
     const worldServiceMedia = loadWorldServiceMediaRuntimeConfig();
     auth = await PostgresBaileysAuthBinding.open(pool, {
       sessionKey: runtimeConfig.sessionKey,
@@ -66,6 +68,7 @@ try {
         auth,
         logger,
         encounterRngConfig,
+        ...(pveBattleConfig === null ? {} : { pveBattleConfig }),
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
         onSessionInvalidated: requestShutdown,
       });
@@ -98,6 +101,7 @@ try {
         auth,
         logger,
         encounterRngConfig,
+        ...(pveBattleConfig === null ? {} : { pveBattleConfig }),
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
         onSessionInvalidated: releaseProcess.onSessionInvalidated,
         onProviderConnectionState: releaseProcess.onProviderConnectionState,

@@ -13,6 +13,9 @@ export interface WorldTransaction {
   playerEligibility(playerId: PlayerId): Promise<WorldPlayerEligibility | null>;
   playerLocation(playerId: PlayerId, lock?: boolean): Promise<PlayerLocationRecord | null>;
   insertInitialLocation(playerId: PlayerId, areaId: string): Promise<boolean>;
+  recordAreaVisit?(playerId: PlayerId, areaId: string): Promise<boolean>;
+  travelCooldownUntil?(playerId: PlayerId): Promise<Date | null>;
+  setTravelCooldown?(playerId: PlayerId, availableAt: Date): Promise<void>;
   moveLocation(input: {
     readonly playerId: PlayerId;
     readonly destinationAreaId: string;

@@ -34,6 +34,7 @@ export interface EncounterTransaction {
   activeContent(): Promise<ActiveEncounterContent | null>;
   rulesetConfig(rulesetId: string): Promise<unknown | null>;
   playerContext(playerId: PlayerId, lock?: boolean): Promise<EncounterPlayerContext | null>;
+  partyMembers(playerId: PlayerId, lock?: boolean): Promise<readonly PlayerId[] | null>;
   byCreationKey(
     playerId: PlayerId,
     creationIdempotencyKey: string,
@@ -52,6 +53,8 @@ export interface EncounterTransaction {
   insertEncounter(input: {
     readonly encounterId: EncounterId;
     readonly playerId: PlayerId;
+    /** Complete frozen player set, including the owner; omitted for solo encounters. */
+    readonly participantPlayerIds?: readonly PlayerId[];
     readonly areaId: string;
     readonly contentReleaseId: string;
     readonly rulesetId: string;

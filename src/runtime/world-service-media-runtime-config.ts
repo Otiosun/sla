@@ -10,6 +10,7 @@ const mediaSchema = z.object({
   POKEMART_ENTRY_AREA_ID: z.string().uuid().optional(),
   POKEMART_ENTRY_FACADE_IMAGE_URL: httpsUrl.optional(),
   POKEMART_ENTRY_MERCHANT_IMAGE_URL: httpsUrl.optional(),
+  ZHOULIA_VILA_DOS_ARROZAIS_IMAGE_URL: httpsUrl.optional(),
 });
 
 export class WorldServiceMediaRuntimeConfigError extends Error {
@@ -33,10 +34,19 @@ export function loadWorldServiceMediaRuntimeConfig(
   const facadeImageUrl = parsed.data.POKEMART_ENTRY_FACADE_IMAGE_URL;
   const merchantImageUrl = parsed.data.POKEMART_ENTRY_MERCHANT_IMAGE_URL;
 
-  if (areaId === undefined && facadeImageUrl === undefined && merchantImageUrl === undefined) {
+  const vilaImageUrl = parsed.data.ZHOULIA_VILA_DOS_ARROZAIS_IMAGE_URL;
+  if (
+    areaId === undefined &&
+    facadeImageUrl === undefined &&
+    merchantImageUrl === undefined &&
+    vilaImageUrl === undefined
+  ) {
     return null;
   }
-  if (areaId === undefined || facadeImageUrl === undefined || merchantImageUrl === undefined) {
+  if (
+    (areaId === undefined) !== (facadeImageUrl === undefined) ||
+    (areaId === undefined) !== (merchantImageUrl === undefined)
+  ) {
     throw new WorldServiceMediaRuntimeConfigError(
       "Poké Mart entry media requires POKEMART_ENTRY_AREA_ID, POKEMART_ENTRY_FACADE_IMAGE_URL and POKEMART_ENTRY_MERCHANT_IMAGE_URL together",
     );
@@ -44,11 +54,9 @@ export function loadWorldServiceMediaRuntimeConfig(
 
   return {
     pokemartEntry: (requestedAreaId) =>
-      requestedAreaId === areaId
-        ? {
-            facadeImageUrl,
-            merchantImageUrl,
-          }
+      requestedAreaId === areaId && facadeImageUrl !== undefined && merchantImageUrl !== undefined
+        ? { facadeImageUrl, merchantImageUrl }
         : null,
+    zhouliaVilaArrivalImageUrl: () => vilaImageUrl ?? null,
   };
 }

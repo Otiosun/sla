@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { type Clock, SystemClock } from "../../platform/clock/index.js";
 import {
   evaluateActionGate,
   type FeatureAvailability,
   type FlowState,
   type PlayerEligibility,
 } from "../../shared-kernel/gates.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
 import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   EnsureInitialLocationInput,
@@ -23,10 +24,14 @@ import type {
 import {
   locationRevisionConflict,
   relocationRequired,
+  travelCooldown,
   worldNotReady,
   worldValidationError,
 } from "./errors.js";
 import type { WorldRepository, WorldTransaction } from "./ports.js";
+import { VILA_DOS_ARROZAIS_SLUG } from "./zhoulia-presentation.js";
+
+const TRAVEL_COOLDOWN_MS = 5 * 60 * 1000;
 
 const uuidSchema = z.string().uuid();
 const travelScopeResult = parseIdempotencyScope("world.travel");
@@ -80,6 +85,7 @@ export class WorldService {
   public constructor(
     private readonly repository: WorldRepository,
     private readonly feature: FeatureAvailability,
+    private readonly clock: Clock = new SystemClock(),
   ) {}
 
   public async ensureInitialLocation(
@@ -102,7 +108,7 @@ export class WorldService {
 
       const existing = await transaction.playerLocation(input.playerId, true);
       if (existing !== null) {
-        return this.buildView(transaction, base.value.contentReleaseId, existing);
+        return this.buildView(transaction, base.value.contentReleaseId, existing, false);
       }
 
       const regionId = base.value.eligibility.originRegionId;
@@ -117,10 +123,14 @@ export class WorldService {
         );
       }
 
-      await transaction.insertInitialLocation(input.playerId, starting[0]?.areaId ?? "");
+      const inserted = await transaction.insertInitialLocation(
+        input.playerId,
+        starting[0]?.areaId ?? "",
+      );
       const created = await transaction.playerLocation(input.playerId, true);
       if (created === null) return err(worldNotReady("Player location could not be initialized"));
-      return this.buildView(transaction, base.value.contentReleaseId, created);
+      if (inserted) await transaction.recordAreaVisit?.(input.playerId, created.areaId);
+      return this.buildView(transaction, base.value.contentReleaseId, created, inserted);
     });
   }
 
@@ -138,7 +148,7 @@ export class WorldService {
 
       const location = await transaction.playerLocation(playerId);
       if (location === null) return err(worldNotReady("Player location is not initialized"));
-      return this.buildView(transaction, base.value.contentReleaseId, location);
+      return this.buildView(transaction, base.value.contentReleaseId, location, false);
     });
   }
 
@@ -268,7 +278,7 @@ export class WorldService {
         expectedRevision: input.expectedRevision,
       });
       if (moved === null) return err(locationRevisionConflict(input.expectedRevision));
-      return this.buildView(transaction, base.value.contentReleaseId, moved);
+      return this.buildView(transaction, base.value.contentReleaseId, moved, false);
     });
   }
 
@@ -283,6 +293,11 @@ export class WorldService {
     if (location === null) return err(worldNotReady("Player location is not initialized"));
     if (location.revision !== input.expectedRevision) {
       return err(locationRevisionConflict(input.expectedRevision));
+    }
+
+    const cooldownUntil = (await transaction.travelCooldownUntil?.(input.playerId)) ?? null;
+    if (cooldownUntil !== null && cooldownUntil.getTime() > this.clock.now().getTime()) {
+      return err(travelCooldown(cooldownUntil));
     }
 
     const currentArea = await transaction.area(base.value.contentReleaseId, location.areaId);
@@ -334,7 +349,7 @@ export class WorldService {
     });
     if (!gate.ok) return gate;
 
-    const from = await this.buildView(transaction, base.value.contentReleaseId, location);
+    const from = await this.buildView(transaction, base.value.contentReleaseId, location, false);
     if (!from.ok) return from;
     const moved = await transaction.moveLocation({
       playerId: input.playerId,
@@ -342,8 +357,15 @@ export class WorldService {
       expectedRevision: input.expectedRevision,
     });
     if (moved === null) return err(locationRevisionConflict(input.expectedRevision));
-    const to = await this.buildView(transaction, base.value.contentReleaseId, moved);
+    const firstVisit = (await transaction.recordAreaVisit?.(input.playerId, moved.areaId)) ?? false;
+    const to = await this.buildView(transaction, base.value.contentReleaseId, moved, firstVisit);
     if (!to.ok) return to;
+    if (to.value.areaSlug === VILA_DOS_ARROZAIS_SLUG) {
+      await transaction.setTravelCooldown?.(
+        input.playerId,
+        new Date(this.clock.now().getTime() + TRAVEL_COOLDOWN_MS),
+      );
+    }
 
     if (receiptKey !== null) {
       await transaction.insertTravelReceipt({
@@ -356,30 +378,46 @@ export class WorldService {
         resultingRevision: moved.revision,
         fromEnteredAt: location.enteredAt,
         toEnteredAt: moved.enteredAt,
+        arrivalFirstVisit: firstVisit,
       });
     }
-    return ok({ from: from.value, to: to.value, replayed: false });
+    return ok({ from: from.value, to: to.value, replayed: false, arrival: { firstVisit } });
   }
 
   private async replayTravel(
     transaction: WorldTransaction,
     receipt: WorldTravelReceipt,
   ): Promise<Result<TravelResult>> {
-    const from = await this.buildView(transaction, receipt.contentReleaseId, {
-      playerId: receipt.playerId,
-      areaId: receipt.fromAreaId,
-      enteredAt: receipt.fromEnteredAt,
-      revision: receipt.expectedRevision,
-    });
+    const from = await this.buildView(
+      transaction,
+      receipt.contentReleaseId,
+      {
+        playerId: receipt.playerId,
+        areaId: receipt.fromAreaId,
+        enteredAt: receipt.fromEnteredAt,
+        revision: receipt.expectedRevision,
+      },
+      false,
+    );
     if (!from.ok) return from;
-    const to = await this.buildView(transaction, receipt.contentReleaseId, {
-      playerId: receipt.playerId,
-      areaId: receipt.destinationAreaId,
-      enteredAt: receipt.toEnteredAt,
-      revision: receipt.resultingRevision,
-    });
+    const to = await this.buildView(
+      transaction,
+      receipt.contentReleaseId,
+      {
+        playerId: receipt.playerId,
+        areaId: receipt.destinationAreaId,
+        enteredAt: receipt.toEnteredAt,
+        revision: receipt.resultingRevision,
+      },
+      receipt.arrivalFirstVisit,
+    );
     if (!to.ok) return to;
-    return ok({ from: from.value, to: to.value, replayed: true });
+    return ok({
+      from: from.value,
+      to: to.value,
+      replayed: true,
+      arrival: { firstVisit: receipt.arrivalFirstVisit },
+    });
   }
 
   private async loadBase(
@@ -399,6 +437,7 @@ export class WorldService {
     transaction: WorldTransaction,
     contentReleaseId: string,
     location: PlayerLocationRecord,
+    firstVisit: boolean,
   ): Promise<Result<WorldLocationView>> {
     const area = await transaction.area(contentReleaseId, location.areaId);
     if (area === null) {
@@ -446,6 +485,7 @@ export class WorldService {
       connections: views.sort((left, right) =>
         left.connectionKey.localeCompare(right.connectionKey),
       ),
+      arrival: { firstVisit },
     });
   }
 }

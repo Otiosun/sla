@@ -110,6 +110,56 @@ function repository(value: CaptureContext): CaptureRepository {
 }
 
 describe("CaptureService RNG context", () => {
+  it("orchestrates a successful capture through the durable capture transaction", async () => {
+    const value = context();
+    const calls: string[] = [];
+    const transaction = {
+      findAttempt: async () => null,
+      loadContext: async () => value,
+      beginResolving: async () => {
+        calls.push("begin");
+        return 8n;
+      },
+      insertPending: async () => {
+        calls.push("pending");
+        return true;
+      },
+      consumeBall: async () => {
+        calls.push("consume");
+        return "CONSUMED" as const;
+      },
+      nextRosterPlacement: async () => {
+        calls.push("placement");
+        return { placementKind: "TEAM" as const, boxNo: null, slotNo: 1 };
+      },
+      resolveFailure: async () => calls.push("failure"),
+      resolveSuccess: async () => calls.push("success"),
+    } satisfies CaptureTransaction;
+    const capture = new CaptureService(
+      { transaction: (work) => work(transaction) },
+      {
+        create: () => ({
+          seed: Buffer.alloc(32),
+          envelope: { ciphertext: Buffer.alloc(1), iv: Buffer.alloc(1), authTag: Buffer.alloc(1), keyVersion: 1 },
+        }),
+      },
+    );
+
+    const result = await capture.attempt({
+      playerId: value.playerId,
+      encounterId: value.encounterId,
+      expectedEncounterRevision: value.encounterRevision,
+      expectedBattleVersion: null,
+      ballItemId: value.ball.itemId,
+      idempotencyKey: "capture-orchestration",
+      correlationId: createCorrelationId(),
+      causationId: null,
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { status: "CAPTURED", replayed: false } });
+    expect(calls).toEqual(["begin", "pending", "consume", "placement", "success"]);
+  });
+
   it("uses stable semantic idempotency identity instead of random attempt UUID", async () => {
     const value = context();
     const contexts: string[] = [];

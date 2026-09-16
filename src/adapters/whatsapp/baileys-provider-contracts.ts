@@ -1,5 +1,6 @@
 export interface BaileysContextInfoLike {
   readonly stanzaId?: string | null;
+  readonly mentionedJid?: readonly string[] | null;
 }
 
 export interface BaileysTextMessageLike {
@@ -43,7 +44,9 @@ export interface BaileysMessageLike {
   readonly key: {
     readonly id?: string | null;
     readonly remoteJid?: string | null;
+    readonly remoteJidAlt?: string | null;
     readonly participant?: string | null;
+    readonly participantAlt?: string | null;
     readonly fromMe?: boolean | null;
   };
   readonly messageTimestamp?: BaileysTimestampLike;
@@ -81,13 +84,19 @@ export interface BaileysSocketConfigLike {
   readonly markOnlineOnConnect: boolean;
   readonly shouldSyncHistoryMessage: (...args: unknown[]) => boolean;
   readonly syncFullHistory: boolean;
+  readonly browser?: readonly [string, string, string];
+  readonly version?: readonly [number, number, number];
 }
 
 export interface BaileysEventMapLike {
   readonly "group-participants.update": {
     readonly id: string;
     readonly action: string;
-    readonly participants: readonly { readonly id: string }[];
+    readonly participants: readonly {
+      readonly id: string;
+      readonly lid?: string | null;
+      readonly phoneNumber?: string | null;
+    }[];
   };
   readonly "creds.update": Readonly<Record<string, unknown>>;
   readonly "messages.upsert": BaileysMessagesUpsertLike;
@@ -118,10 +127,16 @@ export type BaileysOutboundContentLike =
 
 export interface BaileysSocketLike {
   readonly user?: { readonly id: string; readonly lid?: string };
-  groupMetadata?(
-    jid: string,
-  ): Promise<{ readonly participants: readonly { readonly id: string }[] }>;
+  groupMetadata?(jid: string): Promise<{
+    readonly participants: readonly {
+      readonly id: string;
+      readonly lid?: string | null;
+      readonly phoneNumber?: string | null;
+    }[];
+  }>;
   readonly ev: BaileysEventSourceLike;
+  requestPairingCode?(phoneNumber: string, customPairingCode?: string): Promise<string>;
+  waitForSocketOpen?(): Promise<void>;
   sendMessage(
     jid: string,
     content: BaileysOutboundContentLike,

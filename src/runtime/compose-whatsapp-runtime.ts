@@ -9,7 +9,17 @@ import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
 import { AdminService } from "../modules/admin/service.js";
+import { CommunityGroupAdminService } from "../modules/admin/community-group-service.js";
+import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
+import {
+  createPveBattleStartWhatsAppRoute,
+  PveBattleStartService,
+} from "../modules/battle/pve-battle-start.js";
+import {
+  createPveSceneConversationResolver,
+  createPveSceneRoutes,
+} from "../modules/battle/pve-scene-whatsapp.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   type ReceptionMembershipEvent,
@@ -25,6 +35,7 @@ import {
 import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
+import { createSpawnWhatsAppRoute } from "../modules/encounter/spawn-whatsapp.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
 import { withOperationalWorldPolicy } from "../modules/messaging/operational-command-policy.js";
@@ -37,6 +48,8 @@ import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
+import { PvpService } from "../modules/pvp/service.js";
+import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../modules/registration/conversation-resolver.js";
@@ -60,6 +73,7 @@ import {
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
+import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
@@ -71,6 +85,8 @@ import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
+import { PostgresPvpStartRepository } from "../platform/pvp/postgres-pvp-start-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
 import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
 import { PostgresReceptionActivationAnnouncement } from "../platform/registration/postgres-reception-activation-announcement.js";
@@ -88,6 +104,10 @@ import { PostgresPokemonCenterHealingRepository } from "../platform/world-servic
 import { PostgresPokemonPcStorageRepository } from "../platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
+import {
+  createPveBattleRuntime,
+  type PveBattleRuntimeConfig,
+} from "./compose-pve-battle-runtime.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
@@ -97,6 +117,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
   readonly encounterRngConfig?: EncounterRngRuntimeConfig;
+  readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
@@ -105,6 +126,7 @@ export interface OperationalWhatsAppRuntimeOptions {
 }
 
 export interface OperationalMessagingComposition {
+  readonly pveBattle: ReturnType<typeof createPveBattleRuntime> | null;
   readonly onMembership: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly router: MessageRouter;
   readonly admitCommand: (message: IncomingMessage) => boolean;
@@ -120,7 +142,38 @@ export function createOperationalMessagingComposition(
   pool: Pool,
   encounterRngConfig: EncounterRngRuntimeConfig | null = null,
   worldServiceMedia: WorldServiceMediaCatalog | null = null,
+  pveBattleConfig: PveBattleRuntimeConfig | null = null,
 ): OperationalMessagingComposition {
+  const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
+  const pvp = (() => {
+    if (pveBattleConfig === null) return null;
+    const keyEntries = [...pveBattleConfig.encryptionKeys.entries()];
+    if (keyEntries.length !== 1) {
+      throw new Error("PVP runtime requires exactly one explicit RNG encryption key");
+    }
+    const keyEntry = keyEntries[0];
+    if (keyEntry === undefined) throw new Error("PVP runtime RNG key was not found");
+    const [keyVersion, key] = keyEntry;
+    const challenges = new PostgresPvpChallengeRepository(pool);
+    const service = new PvpService(
+      challenges,
+      new AesEncounterSeedProvider(key, keyVersion),
+      new SystemClock(),
+      { enabled: true, reason: null },
+      {
+        challengeTtlMs: pveBattleConfig.turnWindowTtlMs,
+        turnWindowTtlMs: pveBattleConfig.turnWindowTtlMs,
+      },
+      new PostgresPvpStartRepository(pool, new AesEncounterSeedProvider(key, keyVersion)),
+    );
+    return {
+      service,
+      openChallengeIdForTarget: async (playerId: string) =>
+        challenges.read(
+          async (transaction) => (await transaction.openChallengeForTarget(playerId))?.id ?? null,
+        ),
+    };
+  })();
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
   const playerRegistration = new PlayerRegistrationService(playerRepository);
   const clock = new SystemClock();
@@ -131,20 +184,24 @@ export function createOperationalMessagingComposition(
   });
   const encounterRepository = new PostgresEncounterRepository(pool);
   const encounter = new EncounterOperationalReadService(encounterRepository);
-  const fishing =
+  const encounterWriter =
     encounterRngConfig === null
+      ? undefined
+      : new EncounterService(
+          encounterRepository,
+          new AesEncounterSeedProvider(
+            encounterRngConfig.encryptionKey,
+            encounterRngConfig.encryptionKeyVersion,
+          ),
+          clock,
+          { enabled: true, reason: null },
+        );
+  const fishing =
+    encounterWriter === undefined
       ? undefined
       : new FishingService(
           new PostgresFishingAttemptRepository(pool),
-          new EncounterService(
-            encounterRepository,
-            new AesEncounterSeedProvider(
-              encounterRngConfig.encryptionKey,
-              encounterRngConfig.encryptionKeyVersion,
-            ),
-            clock,
-            { enabled: true, reason: null },
-          ),
+          encounterWriter,
           new CryptoRandomSource(),
         );
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
@@ -166,7 +223,14 @@ export function createOperationalMessagingComposition(
   const receptionPresence = new PostgresReceptionPresenceRepository(pool);
   const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
   const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
-  const adminRegistry = registerReceptionAdminOperations(new AdminOperationRegistry());
+  const communityGroupAdmin = new CommunityGroupAdminService({
+    community,
+    completion: new PostgresAdminOperationCompletion(pool),
+  });
+  const adminRegistry = registerReceptionAdminOperations(
+    new AdminOperationRegistry(),
+    { communityGroup: communityGroupAdmin },
+  );
   registerWorldGroupSetupOperation(adminRegistry);
   const adminService = new AdminService(adminRegistry, new PostgresAdminRepository(pool));
   const auditedRegistrationReview = new AuditedRegistrationReviewService({
@@ -238,11 +302,30 @@ export function createOperationalMessagingComposition(
   });
   const conversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
+      if (pveScene !== null) {
+        const sceneResult = await pveScene.resolve(context);
+        if (!sceneResult.ok || sceneResult.value !== null) return sceneResult;
+      }
       const receptionResult = await receptionConversationResolver.resolve(context);
       if (!receptionResult.ok || receptionResult.value !== null) return receptionResult;
       return worldServiceConversationResolver.resolve(context);
     },
   };
+  const pveScene =
+    pveBattle === null
+      ? null
+      : createPveSceneConversationResolver({
+          players: playerRegistration,
+          activeBattleId: reads.activeBattleId.bind(reads),
+          battle: pveBattle.battle,
+          controllers: new PostgresBattleParticipantControllerRepository(pool),
+          admins: adminIdentity,
+        });
+  const pveBattleStart =
+    encounterWriter === undefined || pveBattle === null
+      ? null
+      : new PveBattleStartService(encounterWriter, pveBattle.battle);
+
   const policyGate = new RuntimeCommandPolicyGate({
     community,
     players: playerRegistration,
@@ -261,7 +344,12 @@ export function createOperationalMessagingComposition(
         encounter,
         battle,
         reads,
-      }).filter((definition) => definition.command !== "registrar"),
+        ...(worldServiceMedia === null ? {} : { worldMedia: worldServiceMedia }),
+      }).filter(
+        (definition) =>
+          definition.command !== "registrar" &&
+          (pveBattle === null || definition.command !== "batalha"),
+      ),
     ),
   );
   const worldServiceRoutes = createWorldServiceWhatsAppRoutes({
@@ -296,23 +384,57 @@ export function createOperationalMessagingComposition(
     registration: auditedRegistrationReview,
     setup,
   });
+  const uatBootstrapRoutes = createUatBootstrapRoutes({
+    admins: adminIdentity,
+    service: new UatBootstrapService(pool, playerRegistration, starter, world),
+  });
   const router = new MessageRouter(
     [
       ...legacyRoutes,
       ...worldServiceRoutes,
       ...registrationRoutes,
       ...registrationAdminRoutes,
+      ...(pveBattle === null
+        ? []
+        : createPveSceneRoutes({
+            players: playerRegistration,
+            activeBattleId: reads.activeBattleId.bind(reads),
+            battle: pveBattle.battle,
+            controllers: new PostgresBattleParticipantControllerRepository(pool),
+            admins: adminIdentity,
+          })),
+      ...(pvp === null
+        ? []
+        : createPvpWhatsAppRoutes({
+            players: playerRegistration,
+            pvp: pvp.service,
+            openChallengeIdForTarget: pvp.openChallengeIdForTarget,
+          })),
+      ...(pveBattleStart === null
+        ? []
+        : [
+            createPveBattleStartWhatsAppRoute({
+              players: playerRegistration,
+              encounters: encounter,
+              start: pveBattleStart,
+            }),
+          ]),
+      ...(encounterWriter === undefined
+        ? []
+        : [createSpawnWhatsAppRoute({ players: playerRegistration, encounters: encounterWriter })]),
       createWorldGroupSetupRoute({
         admins: adminIdentity,
         admin: adminService,
         setup: new PostgresWorldGroupSetup(pool),
       }),
+      ...uatBootstrapRoutes,
     ],
     policyGate,
     conversationResolver,
   );
 
   return {
+    pveBattle,
     router,
     onMembership: (event) => receptionMembership.handle(event),
     admitCommand: (message) => router.admitsCommand(message),
@@ -321,6 +443,7 @@ export function createOperationalMessagingComposition(
       worldServiceConversationResolver.admits(message),
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
+      await pveBattle?.runMaintenance();
     },
   };
 }
@@ -370,6 +493,7 @@ export function createOperationalWhatsAppRuntime(
     options.pool,
     options.encounterRngConfig ?? null,
     options.worldServiceMedia ?? null,
+    options.pveBattleConfig ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
@@ -377,6 +501,20 @@ export function createOperationalWhatsAppRuntime(
   const adapter = new BaileysWhatsAppAdapter({
     auth: options.auth,
     onMembership: composition.onMembership,
+    onConnectionState: async (state) => {
+      options.logger.log(
+        state === "CONNECTED" ? "INFO" : "WARN",
+        state === "CONNECTED" ? "whatsapp.provider.connected" : "whatsapp.provider.disconnected",
+      );
+      await options.onProviderConnectionState?.(state);
+    },
+    onInboundUpsert: ({ acceptedCount, droppedCount, dropReason }) => {
+      options.logger.log("INFO", "whatsapp.inbound.upsert", {
+        acceptedCount,
+        droppedCount,
+        dropReason,
+      });
+    },
     onQr: () => {
       options.logger.log("ERROR", "whatsapp.auth.pairing_required", {
         action: "run-explicit-auth-bootstrap",
@@ -387,9 +525,6 @@ export function createOperationalWhatsAppRuntime(
       options.logger.log("ERROR", "whatsapp.auth.logged_out");
       options.onSessionInvalidated?.("LOGGED_OUT");
     },
-    ...(options.onProviderConnectionState === undefined
-      ? {}
-      : { onConnectionState: options.onProviderConnectionState }),
     onProviderError: (error) => {
       options.logger.log("ERROR", "whatsapp.provider.error", { errorKind: errorKind(error) });
     },
@@ -401,5 +536,12 @@ export function createOperationalWhatsAppRuntime(
     admitCommand: composition.admitCommand,
     admitFreeform: composition.admitFreeform,
     beforeOutboxFlush: composition.runMaintenance,
+    onIncomingProcessingFailure: ({ stage, errorCode, correlationId }) => {
+      options.logger.log("ERROR", "whatsapp.inbound.processing_failed", {
+        stage,
+        errorCode,
+        correlationId,
+      });
+    },
   });
 }

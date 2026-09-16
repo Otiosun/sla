@@ -137,7 +137,7 @@ describe("ReceptionService state-aware first interaction", () => {
 
   it("reports APPROVED + PROVISIONING as provisioning, not novice onboarding", async () => {
     const text = await textFor({ reviewStatus: "APPROVED", accessStatus: "PROVISIONING" });
-    expect(text).toMatch(/aprovad/i);
+    expect(text).toMatch(/aprovação confirmada/i);
     expect(text).toMatch(/libera|provision/i);
     expect(text).not.toMatch(/\/registrar|passo a passo/i);
   });
@@ -147,14 +147,26 @@ describe("ReceptionService state-aware first interaction", () => {
     const result = await active.service.firstInteraction(INPUT);
     if (!result.ok) throw result.error;
 
-    expect(result.value?.text).toMatch(/volta|retorno|bem-vind/i);
+    expect(result.value?.text).toMatch(/jornada continua|treinador reconhecido/i);
+    expect(result.value?.text).toContain("/menu");
     expect(result.value?.text).not.toMatch(/\/registrar|\/continuar|\/editar|passo a passo/i);
     expect(active.registrationReads()).toBe(0);
   });
 
-  it("keeps REJECTED explicit instead of silently creating another registration", async () => {
+  it("reports SUSPENDED without treating the player as awaiting review or provisioning", async () => {
+    const suspended = harness({ accessStatus: "SUSPENDED", reviewStatus: "APPROVED" });
+    const result = await suspended.service.firstInteraction(INPUT);
+    if (!result.ok) throw result.error;
+
+    expect(result.value?.text).toMatch(/suspens/i);
+    expect(result.value?.text).not.toMatch(/provision|an[aá]lise/i);
+    expect(suspended.registrationReads()).toBe(0);
+  });
+
+  it("guides REJECTED to reopen its preserved registration without creating another one", async () => {
     const text = await textFor({ reviewStatus: "REJECTED" });
     expect(text).toMatch(/rejeitad/i);
+    expect(text).toContain("/editar");
     expect(text).not.toMatch(/nova ficha|\/registrar/i);
   });
 

@@ -1,9 +1,9 @@
+import type { PlayerId } from "../../shared-kernel/ids.js";
 import type {
   ConnectionAccessRule,
   WorldAreaConfig,
   WorldAreaFacility,
 } from "../catalog/world-contracts.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
 
 export interface WorldAreaRecord {
   readonly areaId: string;
@@ -30,6 +30,10 @@ export interface PlayerLocationRecord {
   readonly areaId: string;
   readonly enteredAt: Date;
   readonly revision: bigint;
+}
+
+export interface WorldArrival {
+  readonly firstVisit: boolean;
 }
 
 export interface WorldFlowState {
@@ -69,12 +73,14 @@ export interface WorldLocationView {
   readonly requiresRelocation: boolean;
   readonly relocationAreaId: string | null;
   readonly connections: readonly WorldConnectionView[];
+  readonly arrival?: WorldArrival;
 }
 
 export interface TravelResult {
   readonly from: WorldLocationView;
   readonly to: WorldLocationView;
   readonly replayed: boolean;
+  readonly arrival?: WorldArrival;
 }
 
 export interface WorldTravelReceipt {
@@ -87,6 +93,7 @@ export interface WorldTravelReceipt {
   readonly resultingRevision: bigint;
   readonly fromEnteredAt: Date;
   readonly toEnteredAt: Date;
+  readonly arrivalFirstVisit: boolean;
 }
 
 export interface EnsureInitialLocationInput {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CommunityChatContext } from "../../src/modules/community/contracts.js";
 import {
-  evaluateCommandPolicy,
   type CommandPolicyContext,
   type CommandPolicyRequirement,
+  evaluateCommandPolicy,
 } from "../../src/modules/community/command-policy.js";
+import type { CommunityChatContext } from "../../src/modules/community/contracts.js";
 import type { PlayerAccessRecord } from "../../src/modules/registration/player-access-ports.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
@@ -22,6 +22,13 @@ const worldGroup: CommunityChatContext = {
   groupId: "22222222-2222-4222-8222-222222222222",
   role: "GAME",
   capabilities: ["player.basic", "world", "pve"],
+};
+
+const pvpGroup: CommunityChatContext = {
+  known: true,
+  groupId: "44444444-4444-4444-8444-444444444444",
+  role: "PVP",
+  capabilities: ["player.basic", "pvp"],
 };
 
 const unknown: CommunityChatContext = {
@@ -134,6 +141,31 @@ describe("community command policy", () => {
         travelPolicy,
       ),
     ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
+  it("allows a scene action in either a PVE or PVP capable group", () => {
+    const scenePolicy: CommandPolicyRequirement = {
+      requiredAnyGroupCapabilities: ["pve", "pvp"],
+      requiresMechanicalReady: true,
+    };
+    expect(
+      evaluateCommandPolicy(
+        context({ group: worldGroup, playerAccess: access("ACTIVE"), mechanicalReady: true }),
+        scenePolicy,
+      ),
+    ).toEqual({ ok: true, value: undefined });
+    expect(
+      evaluateCommandPolicy(
+        context({ group: pvpGroup, playerAccess: access("ACTIVE"), mechanicalReady: true }),
+        scenePolicy,
+      ),
+    ).toEqual({ ok: true, value: undefined });
+    expect(
+      evaluateCommandPolicy(
+        context({ playerAccess: access("ACTIVE"), mechanicalReady: true }),
+        scenePolicy,
+      ),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
   });
 
   it("fails closed for unknown groups before any scoped command reaches a handler", () => {

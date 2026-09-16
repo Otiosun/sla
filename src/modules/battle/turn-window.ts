@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
-import { BattleActionSchema, type BattleAction } from "./contracts.js";
+import { type BattleAction, BattleActionSchema } from "./contracts.js";
 
 const idempotencyScopeResult = parseIdempotencyScope("battle.turn.submission");
 if (!idempotencyScopeResult.ok)
@@ -18,6 +18,15 @@ export interface RequiredTurnPlayer {
   readonly sideNo: number;
 }
 
+export interface RequiredTurnController {
+  readonly participantId: string;
+  readonly sideNo: number;
+  readonly kind: "PLAYER" | "NARRATOR";
+  readonly playerId: string | null;
+  readonly adminPrincipalId: string | null;
+  readonly revision: number;
+}
+
 export interface BattleTurnWindow {
   readonly id: string;
   readonly battleId: string;
@@ -32,11 +41,14 @@ export interface BattleTurnWindow {
   readonly resolutionCorrelationId: string | null;
   readonly resolvedBattleVersion: number | null;
   readonly requiredPlayers: readonly RequiredTurnPlayer[];
+  readonly requiredControllers?: readonly RequiredTurnController[];
 }
 
 export interface BattleTurnSubmission {
   readonly id: string;
-  readonly playerId: string;
+  readonly playerId: string | null;
+  readonly adminPrincipalId?: string | null;
+  readonly controllerRevision?: number;
   readonly sideNo: number;
   readonly expectedBattleVersion: number;
   readonly idempotencyKey: string;
@@ -80,11 +92,14 @@ export interface CreateTurnWindowInput {
   readonly openedAt: Date;
   readonly deadlineAt: Date;
   readonly requiredPlayers: readonly RequiredTurnPlayer[];
+  readonly requiredControllers?: readonly RequiredTurnController[];
 }
 
 export interface SubmitTurnActionInput {
   readonly id: string;
-  readonly playerId: string;
+  readonly playerId: string | null;
+  readonly adminPrincipalId?: string | null;
+  readonly controllerRevision?: number;
   readonly sideNo: number;
   readonly expectedBattleVersion: number;
   readonly idempotencyKey: string;
@@ -166,6 +181,19 @@ function finalSubmissionForPlayer(
 }
 
 function allRequiredPlayersSubmitted(aggregate: TurnWindowAggregate): boolean {
+  if (aggregate.window.requiredControllers !== undefined) {
+    return aggregate.window.requiredControllers.every((required) =>
+      aggregate.submissions.some(
+        (entry) =>
+          entry.action.actorParticipantId === required.participantId &&
+          entry.playerId === required.playerId &&
+          (entry.adminPrincipalId ?? null) === required.adminPrincipalId &&
+          entry.controllerRevision === required.revision &&
+          entry.sideNo === required.sideNo &&
+          (entry.status === "ACTIVE" || entry.status === "COMMITTED"),
+      ),
+    );
+  }
   return aggregate.window.requiredPlayers.every(
     (required) => finalSubmissionForPlayer(aggregate, required.playerId) !== undefined,
   );
@@ -174,6 +202,8 @@ function allRequiredPlayersSubmitted(aggregate: TurnWindowAggregate): boolean {
 function submissionMatches(existing: BattleTurnSubmission, input: SubmitTurnActionInput): boolean {
   return (
     existing.playerId === input.playerId &&
+    (existing.adminPrincipalId ?? null) === (input.adminPrincipalId ?? null) &&
+    existing.controllerRevision === input.controllerRevision &&
     existing.sideNo === input.sideNo &&
     existing.expectedBattleVersion === input.expectedBattleVersion &&
     isDeepStrictEqual(existing.action, input.action)
@@ -201,21 +231,42 @@ export function createTurnWindow(
   if (input.deadlineAt.getTime() <= input.openedAt.getTime()) {
     return failure("TURN_WINDOW_INVALID", "Turn window deadline must be after openedAt");
   }
-  if (input.requiredPlayers.length < 2) {
-    return failure("TURN_WINDOW_INVALID", "PVP turn window requires at least two human players");
+  if (input.requiredControllers === undefined && input.requiredPlayers.length < 1) {
+    return failure("TURN_WINDOW_INVALID", "Turn window requires at least one human player");
+  }
+
+  if (input.requiredControllers !== undefined) {
+    if (input.requiredPlayers.length !== 0) {
+      return failure("TURN_WINDOW_INVALID", "Use exactly one requirement model");
+    }
+    const participants = new Set<string>();
+    for (const required of input.requiredControllers) {
+      if (
+        !uuid.safeParse(required.participantId).success ||
+        participants.has(required.participantId) ||
+        !isPositiveSafeInteger(required.sideNo) ||
+        !isNonNegativeSafeInteger(required.revision) ||
+        !(required.kind === "PLAYER"
+          ? uuid.safeParse(required.playerId).success && required.adminPrincipalId === null
+          : required.kind === "NARRATOR" &&
+            required.playerId === null &&
+            uuid.safeParse(required.adminPrincipalId).success)
+      ) {
+        return failure("TURN_WINDOW_INVALID", "Human controller requirement is invalid");
+      }
+      participants.add(required.participantId);
+    }
   }
 
   const playerIds = new Set<string>();
-  const sideNos = new Set<number>();
   for (const required of input.requiredPlayers) {
     if (!uuid.safeParse(required.playerId).success || !isPositiveSafeInteger(required.sideNo)) {
       return failure("TURN_WINDOW_INVALID", "Required player identity or side is invalid");
     }
-    if (playerIds.has(required.playerId) || sideNos.has(required.sideNo)) {
-      return failure("TURN_WINDOW_INVALID", "Required players and side numbers must be unique");
+    if (playerIds.has(required.playerId)) {
+      return failure("TURN_WINDOW_INVALID", "Required players must be unique");
     }
     playerIds.add(required.playerId);
-    sideNos.add(required.sideNo);
   }
 
   return {
@@ -226,15 +277,18 @@ export function createTurnWindow(
         battleId: input.battleId,
         battleVersion: input.battleVersion,
         turnNumber: input.turnNumber,
-        status: "COLLECTING",
+        status: input.requiredControllers?.length === 0 ? "LOCKED" : "COLLECTING",
         openedAt: input.openedAt.toISOString(),
         deadlineAt: input.deadlineAt.toISOString(),
-        lockedAt: null,
+        lockedAt: input.requiredControllers?.length === 0 ? input.openedAt.toISOString() : null,
         committedAt: null,
         revision: 0,
         resolutionCorrelationId: null,
         resolvedBattleVersion: null,
         requiredPlayers: input.requiredPlayers.map((entry) => ({ ...entry })),
+        ...(input.requiredControllers === undefined
+          ? {}
+          : { requiredControllers: structuredClone(input.requiredControllers) }),
       },
       submissions: [],
     },
@@ -245,7 +299,12 @@ export function submitTurnAction(
   aggregate: TurnWindowAggregate,
   input: SubmitTurnActionInput,
 ): TurnWindowResult<SubmitTurnActionOutput> {
-  if (!uuid.safeParse(input.id).success || !uuid.safeParse(input.playerId).success) {
+  if (
+    !uuid.safeParse(input.id).success ||
+    (input.playerId !== null
+      ? !uuid.safeParse(input.playerId).success
+      : !uuid.safeParse(input.adminPrincipalId).success)
+  ) {
     return failure("TURN_WINDOW_INVALID", "Submission ids must be valid UUIDs");
   }
   if (
@@ -295,7 +354,21 @@ export function submitTurnAction(
   const required = aggregate.window.requiredPlayers.find(
     (entry) => entry.playerId === input.playerId,
   );
-  if (required === undefined || required.sideNo !== input.sideNo) {
+  const controller = aggregate.window.requiredControllers?.find(
+    (entry) => entry.participantId === input.action.actorParticipantId,
+  );
+  if (
+    aggregate.window.requiredControllers !== undefined
+      ? controller === undefined ||
+        controller.sideNo !== input.sideNo ||
+        controller.playerId !== input.playerId ||
+        controller.adminPrincipalId !== (input.adminPrincipalId ?? null) ||
+        controller.revision !== input.controllerRevision
+      : required === undefined ||
+        required.sideNo !== input.sideNo ||
+        input.controllerRevision !== undefined ||
+        input.adminPrincipalId != null
+  ) {
     return failure(
       "TURN_WINDOW_PLAYER_NOT_REQUIRED",
       "Player is not required to act for this turn window",
@@ -303,12 +376,16 @@ export function submitTurnAction(
   }
 
   const next = cloneAggregate(aggregate);
+  const sameController = (entry: BattleTurnSubmission) =>
+    aggregate.window.requiredControllers === undefined
+      ? entry.playerId === input.playerId
+      : entry.action.actorParticipantId === input.action.actorParticipantId;
   const priorActiveIndexes = next.submissions
     .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => entry.playerId === input.playerId && entry.status === "ACTIVE");
+    .filter(({ entry }) => sameController(entry) && entry.status === "ACTIVE");
   const nextSubmissionRevision =
     next.submissions
-      .filter((entry) => entry.playerId === input.playerId)
+      .filter(sameController)
       .reduce((max, entry) => Math.max(max, entry.submissionRevision), 0) + 1;
 
   const submissions = next.submissions.map((entry, index) =>
@@ -319,6 +396,12 @@ export function submitTurnAction(
   submissions.push({
     id: input.id,
     playerId: input.playerId,
+    ...(input.controllerRevision === undefined
+      ? {}
+      : {
+          controllerRevision: input.controllerRevision,
+          adminPrincipalId: input.adminPrincipalId ?? null,
+        }),
     sideNo: input.sideNo,
     expectedBattleVersion: input.expectedBattleVersion,
     idempotencyKey: storageKey,
@@ -343,6 +426,73 @@ export function submitTurnAction(
     ok: true,
     value: { aggregate: { window, submissions }, replayed: false },
   };
+}
+
+export function refreshTurnWindowRequirements(
+  aggregate: TurnWindowAggregate,
+  requiredControllers: readonly RequiredTurnController[],
+  changedAt: Date,
+): TurnWindowResult<TurnWindowAggregate> {
+  if (
+    aggregate.window.status !== "COLLECTING" ||
+    aggregate.window.requiredControllers === undefined
+  ) {
+    return failure(
+      "TURN_WINDOW_NOT_COLLECTING",
+      "Only collecting controller windows can change requirements",
+    );
+  }
+  if (!isValidDate(changedAt) || changedAt.getTime() >= Date.parse(aggregate.window.deadlineAt)) {
+    return failure("TURN_WINDOW_EXPIRED", "Turn window deadline has expired");
+  }
+  if (requiredControllers.length > 0) {
+    const validated = createTurnWindow({
+      ...aggregate.window,
+      requiredPlayers: [],
+      requiredControllers,
+      openedAt: new Date(aggregate.window.openedAt),
+      deadlineAt: new Date(aggregate.window.deadlineAt),
+    });
+    if (!validated.ok) return validated;
+  }
+  for (const prior of aggregate.window.requiredControllers) {
+    if (
+      aggregate.submissions.some(
+        (s) =>
+          s.action.actorParticipantId === prior.participantId &&
+          (s.status === "ACTIVE" || s.status === "COMMITTED"),
+      ) &&
+      !isDeepStrictEqual(
+        prior,
+        requiredControllers.find((r) => r.participantId === prior.participantId),
+      )
+    ) {
+      return failure("TURN_WINDOW_NOT_COLLECTING", "A submitted controller cannot change");
+    }
+  }
+  const next = {
+    ...cloneAggregate(aggregate),
+    window: {
+      ...aggregate.window,
+      requiredControllers: structuredClone(requiredControllers),
+      revision: aggregate.window.revision + 1,
+    },
+  };
+  if (allRequiredPlayersSubmitted(next)) {
+    return {
+      ok: true,
+      value: {
+        ...next,
+        window: {
+          ...next.window,
+          status: "LOCKED",
+          lockedAt: changedAt.toISOString(),
+          revision: next.window.revision + 1,
+        },
+      },
+    };
+  }
+  return { ok: true, value: next };
 }
 
 export function getTurnWindowView(

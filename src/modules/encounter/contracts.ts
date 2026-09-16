@@ -135,6 +135,10 @@ export interface CreateEncounterInput {
   readonly encounterTableSlug?: string;
 }
 
+export interface SpawnEncounterInput extends CreateEncounterInput {
+  readonly participantPlayerIds: readonly PlayerId[];
+}
+
 export interface EncounterMutationInput {
   readonly playerId: PlayerId;
   readonly encounterId: EncounterId;

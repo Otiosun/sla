@@ -24,6 +24,10 @@ export interface BattleInitializationSide {
   readonly controllerKind: ControllerKind;
   readonly playerId: string | null;
   readonly party: readonly BattlePokemonBuild[];
+  readonly playerParties?: readonly {
+    readonly playerId: string;
+    readonly party: readonly BattlePokemonBuild[];
+  }[];
 }
 
 export interface InitializeBattleStateInput {
@@ -163,11 +167,36 @@ export function initializeBattleState(
       });
     }
 
-    const sideCombatants = side.party.map((build) =>
-      buildCombatant(build, input.idFactory(), side.sideNo),
+    const groups = side.playerParties;
+    if (groups !== undefined) {
+      if (
+        input.root.battleType === "PVP" || side.controllerKind !== "PLAYER" ||
+        groups.length === 0 || groups[0]?.playerId !== side.playerId ||
+        new Set(groups.map((group) => group.playerId)).size !== groups.length ||
+        groups.some((group) => group.party.length === 0 ||
+          group.party.some((build) => build.participantKind !== "PLAYER_POKEMON"))
+      ) return failure("Allied initialization requires distinct player rosters on a PVE side");
+    }
+    const builds = groups === undefined ? side.party : groups.flatMap((group) => group.party);
+    if (new Set(builds.filter((build) => build.pokemonInstanceId !== null)
+      .map((build) => build.pokemonInstanceId)).size !==
+      builds.filter((build) => build.pokemonInstanceId !== null).length) {
+      return failure("A Pokemon cannot occupy multiple allied rosters");
+    }
+    const sideCombatants = builds.map((build, index) =>
+      buildCombatant(groups === undefined ? build : { ...build, rosterPosition: index + 1 }, input.idFactory(), side.sideNo),
     );
+    let offset = 0;
+    const slots = groups?.map((group) => {
+      const roster = sideCombatants.slice(offset, offset + group.party.length);
+      offset += group.party.length;
+      return {
+        participantIds: roster.map((entry) => entry.participantId),
+        activeParticipantId: (roster.find((entry) => entry.currentHp > 0) ?? roster[0])!.participantId,
+      };
+    });
     const activeParticipantId =
-      sideCombatants.find((entry) => entry.currentHp > 0)?.participantId ??
+      slots?.[0]?.activeParticipantId ?? sideCombatants.find((entry) => entry.currentHp > 0)?.participantId ??
       sideCombatants[0]?.participantId;
     if (activeParticipantId === undefined) {
       return failure("Battle active combatant could not be selected", { sideNo: side.sideNo });
@@ -180,6 +209,7 @@ export function initializeBattleState(
       playerId: side.playerId,
       participantIds: sideCombatants.map((entry) => entry.participantId),
       activeParticipantId,
+      ...(slots === undefined ? {} : { slots }),
       result: null,
     });
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ReceptionService } from "../../src/modules/community/reception-service.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { presentMessagingError } from "../../src/modules/messaging/errors.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../../src/modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
@@ -58,6 +59,16 @@ function outgoingText(
 }
 
 describe("Reception UX polish", () => {
+  it("keeps support-code rendering for unexpected technical failures", () => {
+    const rendered = presentMessagingError(
+      context("mensagem"),
+      appError("FEATURE_UNAVAILABLE", "Unexpected provider failure"),
+    );
+    expect(rendered.outgoing[0]?.payload.text).toBe(
+      "Esse recurso está indisponível agora.\n\nCódigo de suporte: 77777777-7777-4777-8777-777777777777",
+    );
+  });
+
   it("welcomes a new player with the requested Rotom message", async () => {
     const service = new ReceptionService({
       community: {

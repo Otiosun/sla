@@ -267,6 +267,22 @@ class PostgresPvpChallengeTransaction implements PvpChallengeTransaction {
     return row === undefined ? null : mapChallenge(row);
   }
 
+  public async openChallengeForTarget(
+    targetPlayerId: string,
+    lock = false,
+  ): Promise<PvpChallenge | null> {
+    const result = await this.client.query<PvpChallengeRow>(
+      `${CHALLENGE_SELECT}
+       WHERE target_player_id = $1 AND status = 'OPEN'
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+       ${lock ? "FOR UPDATE" : ""}`,
+      [targetPlayerId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapChallenge(row);
+  }
+
   public async challengeByCreationKey(
     challengerPlayerId: string,
     creationIdempotencyKey: string,

@@ -84,6 +84,29 @@ function revisionRecord(row: RevisionRow): RegistrationRevisionRecord {
 class PostgresRegistrationTransaction implements RegistrationTransaction {
   public constructor(private readonly client: PoolClient) {}
 
+  public async saveConfirmationPreview(playerId: PlayerId, fingerprint: string): Promise<void> {
+    await this.client.query(
+      `INSERT INTO registration_confirmation_previews(player_id, fingerprint, created_at, updated_at)
+       VALUES ($1, $2, now(), now())
+       ON CONFLICT (player_id) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, updated_at = now()`,
+      [playerId, fingerprint],
+    );
+  }
+
+  public async loadConfirmationPreview(playerId: PlayerId): Promise<string | null> {
+    const result = await this.client.query<{ fingerprint: string }>(
+      "SELECT fingerprint FROM registration_confirmation_previews WHERE player_id = $1",
+      [playerId],
+    );
+    return result.rows[0]?.fingerprint ?? null;
+  }
+
+  public async clearConfirmationPreview(playerId: PlayerId): Promise<void> {
+    await this.client.query("DELETE FROM registration_confirmation_previews WHERE player_id = $1", [
+      playerId,
+    ]);
+  }
+
   public async loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null> {
     const result = await this.client.query<DraftRow>(
       `SELECT player_id, snapshot_json, revision::text

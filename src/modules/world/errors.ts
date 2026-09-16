@@ -1,4 +1,4 @@
-import { appError, type AppError } from "../../shared-kernel/result.js";
+import { type AppError, appError } from "../../shared-kernel/result.js";
 
 export function worldNotReady(message: string): AppError {
   return appError("NOT_FOUND", message);
@@ -22,5 +22,11 @@ export function relocationRequired(areaId: string, relocationAreaId: string | nu
     areaId,
     relocationAreaId,
     requiresRelocation: true,
+  });
+}
+
+export function travelCooldown(availableAt: Date): AppError {
+  return appError("ACTION_INVALID", "Travel is temporarily unavailable after arrival", {
+    availableAt: availableAt.toISOString(),
   });
 }

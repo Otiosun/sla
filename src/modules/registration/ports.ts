@@ -39,6 +39,9 @@ export interface InsertRegistrationRevisionWrite {
 export type RegistrationIdempotentOperation = "SUBMIT" | "REQUEST_CHANGES" | "APPROVE" | "REJECT";
 
 export interface RegistrationTransaction {
+  saveConfirmationPreview?(playerId: PlayerId, fingerprint: string): Promise<void>;
+  loadConfirmationPreview?(playerId: PlayerId): Promise<string | null>;
+  clearConfirmationPreview?(playerId: PlayerId): Promise<void>;
   loadDraft(playerId: PlayerId): Promise<RegistrationDraftRecord | null>;
   saveDraft(input: SaveRegistrationDraftWrite): Promise<RegistrationDraftRecord | null>;
   loadCurrentRevision(playerId: PlayerId): Promise<RegistrationRevisionRecord | null>;

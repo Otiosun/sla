@@ -58,6 +58,21 @@ const LABELS: Readonly<Record<RegistrationConversationField, string>> = {
   starterFormId: "Pokémon inicial",
 };
 
+const EDITABLE_FIELDS: readonly RegistrationConversationField[] = [
+  "trainerName",
+  "age",
+  "genderPronouns",
+  "appearance",
+  "personality",
+  "backstory",
+  "starterFormId",
+];
+
+const EDIT_LABELS: Readonly<Record<RegistrationConversationField, string>> = {
+  ...LABELS,
+  trainerName: "Nome",
+};
+
 function args(context: MessageHandlerContext): readonly string[] {
   return (context.message.text?.trim() ?? "").split(/\s+/).slice(1);
 }
@@ -111,17 +126,80 @@ function parseMode(value: string | undefined): RegistrationEditingMode | null {
   return null;
 }
 
-function guidedPrompt(session: RegistrationConversationSession): string {
-  return session.currentField === null
-    ? "✅ Todos os campos atuais estão preenchidos. Use `/ficha` para revisar ou `/confirmar` para conferir o envio."
-    : `📝 *${LABELS[session.currentField]}*\n\nResponda a esta mensagem.`;
+function selectedEditField(value: string | undefined): RegistrationConversationField | null {
+  if (value === undefined || !/^[1-7]$/.test(value)) return null;
+  return EDITABLE_FIELDS[Number(value) - 1] ?? null;
+}
+
+function guidedPrompt(session: RegistrationConversationSession, setup?: RegistrationSetup): string {
+  if (session.currentField === null) {
+    return "〔✓〕 *REGISTRO PREENCHIDO*\n\n> Revise com `/ficha` ou use `/confirmar`.";
+  }
+  if (session.currentField === "starterFormId" && setup !== undefined) {
+    return [
+      "〔⚡ 07/07〕 *POKÉMON INICIAL*",
+      "",
+      "Último dado. Agora escolhe direito, roto!",
+      "",
+      ...setup.starterOptions.map((option, index) => `${index + 1}. ${option.displayName}`),
+      "",
+      "> Responda com o número ou o nome.",
+    ].join("\n");
+  }
+  const progress = String(EDITABLE_FIELDS.indexOf(session.currentField) + 1).padStart(2, "0");
+  const instructions: Readonly<Record<RegistrationConversationField, readonly string[]>> = {
+    trainerName: ["Como devo registrar seu treinador?", "> Responda a esta mensagem com o nome."],
+    age: ["Quantos anos ele tem?", "> Só o número. Ex.: `17`"],
+    genderPronouns: [
+      "Como isso deve aparecer no registro?",
+      "> Ex.: `ela/dela`, `ele/dele` ou como preferir.",
+    ],
+    appearance: ["Descreva a aparência do seu treinador.", "> Sugestão: 2–4 linhas."],
+    personality: ["Como seu treinador costuma agir, pensar e reagir?", "> Sugestão: 2–4 linhas."],
+    backstory: [
+      "Resuma a história do seu treinador antes da jornada.",
+      "> Um resumo curto já basta.",
+    ],
+    starterFormId: [
+      "Último dado. Agora escolhe direito, roto!",
+      "> Responda com o número ou o nome.",
+    ],
+  };
+  return [
+    `〔⚡ ${progress}/07〕 *${LABELS[session.currentField].toLocaleUpperCase("pt-BR")}*`,
+    "",
+    ...instructions[session.currentField],
+  ].join("\n");
+}
+
+function editPrompt(session: RegistrationConversationSession, setup?: RegistrationSetup): string {
+  if (session.currentField !== null) return guidedPrompt(session, setup);
+  return [
+    "〔✎〕 *EDITAR REGISTRO*",
+    "",
+    "Escolha o campo que deseja alterar:",
+    ...EDITABLE_FIELDS.map((field, index) => `\`${index + 1}\` ${EDIT_LABELS[field]}`),
+    "",
+    "> Ex.: `/editar 5`",
+    "Para preencher a ficha completa, use `/modo completo`.",
+  ].join("\n");
+}
+
+function selectedFieldPrompt(session: RegistrationConversationSession): string {
+  if (session.currentField === null) return editPrompt(session);
+  const progress = String(EDITABLE_FIELDS.indexOf(session.currentField) + 1).padStart(2, "0");
+  return [
+    `〔✎ ${progress}/07〕 *${LABELS[session.currentField].toLocaleUpperCase("pt-BR")}*`,
+    "",
+    "> Responda a esta mensagem com o novo valor.",
+  ].join("\n");
 }
 
 function fullTemplate(setup: RegistrationSetup): string {
   return [
-    "📋 *FICHA COMPLETA*",
+    "〔▣〕 *ROTOMDEX // FICHA COMPLETA*",
     "",
-    "Preencha o modelo e envie respondendo a esta mensagem:",
+    "Preencha o registro abaixo e responda a esta mensagem.",
     "",
     "Nome:",
     "Idade:",
@@ -133,7 +211,8 @@ function fullTemplate(setup: RegistrationSetup): string {
     "",
     `Região: ${setup.regionDisplayName}`,
     "",
-    "Nada é definitivo nesta etapa.",
+    "> Nada é enviado só por preencher.",
+    "> Depois você poderá revisar com `/ficha`.",
   ].join("\n");
 }
 
@@ -149,26 +228,34 @@ function starterDisplayName(starterFormId: string | undefined, setup: Registrati
   );
 }
 
+function starterEditPrompt(setup: RegistrationSetup): string {
+  return [
+    "〔✎ 07/07〕 *POKÉMON INICIAL*",
+    "",
+    ...setup.starterOptions.map((option, index) => `${index + 1}. ${option.displayName}`),
+    "",
+    "> Responda a esta mensagem com o número ou o nome.",
+  ].join("\n");
+}
+
 function fichaText(session: RegistrationConversationSession, setup: RegistrationSetup): string {
   return [
-    "📋 *FICHA ATUAL*",
+    "〔▣〕 *REGISTRO DO TREINADOR*",
+    session.dirty ? "`RASCUNHO`" : "`RASCUNHO SALVO`",
     "",
-    `Nome: ${value(session.working.trainerName)}`,
-    `Idade: ${value(session.working.age)}`,
-    `Gênero / pronomes: ${value(session.working.genderPronouns)}`,
-    `Aparência: ${value(session.working.appearance)}`,
-    `Personalidade: ${value(session.working.personality)}`,
-    `História / resumo: ${value(session.working.backstory)}`,
-    `Pokémon inicial: ${starterDisplayName(session.working.starterFormId, setup)}`,
-    `Região: ${setup.regionDisplayName}`,
+    `*Nome* › ${value(session.working.trainerName)}`,
+    `*Idade* › ${value(session.working.age)}`,
+    `*Gênero / pronomes* › ${value(session.working.genderPronouns)}`,
+    `*Aparência* › ${value(session.working.appearance)}`,
+    `*Personalidade* › ${value(session.working.personality)}`,
+    `*História / resumo* › ${value(session.working.backstory)}`,
+    `*Pokémon inicial* › ${starterDisplayName(session.working.starterFormId, setup)}`,
+    `*Região* › ${setup.regionDisplayName}`,
     "",
-    session.dirty
-      ? "⚠️ Existem alterações não salvas."
-      : "Nenhuma alteração não salva nesta sessão.",
-    "",
+    ...(session.dirty ? ["〔!〕 Existem alterações não salvas.", ""] : []),
     validateRegistrationDraft(session.working).ok
-      ? "Use `/confirmar` para conferir o envio. Sua ficha só será enviada após `/confirmar sim`."
-      : "Continue preenchendo com `/modo guiado`. Use `/salvar` para guardar o rascunho.",
+      ? "> Revise os dados e use `/confirmar`."
+      : "> Continue o registro ou use `/salvar` para guardar o progresso.",
   ].join("\n");
 }
 
@@ -177,19 +264,21 @@ function confirmationText(
   setup: RegistrationSetup,
 ): string {
   return [
-    "✅ *CONFIRMAÇÃO DA FICHA*",
+    "〔▣〕 *PRÉVIA DE ENVIO*",
+    "`AINDA NÃO ENVIADO`",
     "",
-    `Nome: ${value(session.working.trainerName)}`,
-    `Idade: ${value(session.working.age)}`,
-    `Gênero / pronomes: ${value(session.working.genderPronouns)}`,
-    `Aparência: ${value(session.working.appearance)}`,
-    `Personalidade: ${value(session.working.personality)}`,
-    `História / resumo: ${value(session.working.backstory)}`,
-    `Pokémon inicial: ${starterDisplayName(session.working.starterFormId, setup)}`,
-    `Região: ${setup.regionDisplayName}`,
+    `*Nome* › ${value(session.working.trainerName)}`,
+    `*Idade* › ${value(session.working.age)}`,
+    `*Gênero / pronomes* › ${value(session.working.genderPronouns)}`,
+    `*Aparência* › ${value(session.working.appearance)}`,
+    `*Personalidade* › ${value(session.working.personality)}`,
+    `*História / resumo* › ${value(session.working.backstory)}`,
+    `*Pokémon inicial* › ${starterDisplayName(session.working.starterFormId, setup)}`,
+    `*Região* › ${setup.regionDisplayName}`,
     "",
-    "Confira tudo acima. Nada foi enviado ainda.",
-    "Se estiver correto, use `/confirmar sim`.",
+    "> Confira tudo acima.",
+    "> Se estiver correto: `/confirmar sim`",
+    "> Para rever antes: `/ficha`",
   ].join("\n");
 }
 
@@ -229,6 +318,8 @@ async function openPersistedDraft(
         : draft.error,
     );
   }
+  const setup = await dependencies.setup.load();
+  if (!setup.ok) return setup;
 
   const resumed = dependencies.sessions.start(playerId, {
     mode: "GUIDED",
@@ -239,7 +330,7 @@ async function openPersistedDraft(
   return reply(
     context,
     playerId,
-    `✏️ Edição aberta.\n\n${guidedPrompt(resumed)}`,
+    editPrompt(resumed, setup.value),
     dependencies.sessions,
     resumed.currentField !== null,
   );
@@ -249,6 +340,12 @@ export function createRegistrationWhatsAppRoutes(
   dependencies: RegistrationWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
   const pendingConfirmations = new Map<PlayerId, string>();
+  const confirmations =
+    dependencies.registration as RegistrationWhatsAppDependencies["registration"] & {
+      readonly saveConfirmationPreview?: (playerId: PlayerId, fingerprint: string) => Promise<void>;
+      readonly getConfirmationPreview?: (playerId: PlayerId) => Promise<string | null>;
+      readonly clearConfirmationPreview?: (playerId: PlayerId) => Promise<void>;
+    };
   const pendingWithdrawals = new Map<
     PlayerId,
     { readonly reviewId: string; readonly revision: number }
@@ -266,13 +363,18 @@ export function createRegistrationWhatsAppRoutes(
       context,
       player.value.playerId,
       [
-        "🎒 *CRIAÇÃO DE TREINADOR*",
+        "〔⚡〕 𝗥𝗢𝗧𝗢𝗠𝗗𝗘𝗫",
+        "*ABRINDO NOVO REGISTRO...*",
         "",
-        "Como prefere montar sua ficha?",
-        "1. Quero ser guiado passo a passo",
-        "2. Quero preencher a ficha completa",
+        "Certo. Preciso montar sua ficha de Treinador.",
         "",
-        "Responda a esta mensagem com `1` ou `2`. Nada será definido só por começar o cadastro.",
+        "`1` *GUIADO*",
+        "Eu puxo um dado por vez.",
+        "",
+        "`2` *FICHA COMPLETA*",
+        "Você envia tudo de uma vez.",
+        "",
+        "> Responda a esta mensagem com `1` ou `2`.",
       ].join("\n"),
       dependencies.sessions,
       true,
@@ -286,6 +388,8 @@ export function createRegistrationWhatsAppRoutes(
     if (selected === null) {
       return err(appError("VALIDATION_FAILED", "Use `/modo guiado` ou `/modo completo`."));
     }
+    const setup = selected === "GUIDED" ? await dependencies.setup.load() : null;
+    if (setup !== null && !setup.ok) return setup;
     pendingConfirmations.delete(player.value);
     pendingWithdrawals.delete(player.value);
     const switched = dependencies.sessions.switchMode(player.value, selected);
@@ -294,25 +398,38 @@ export function createRegistrationWhatsAppRoutes(
       return reply(
         context,
         player.value,
-        guidedPrompt(switched.value),
+        guidedPrompt(switched.value, setup?.value),
         dependencies.sessions,
         switched.value.currentField !== null,
       );
     }
-    const setup = await dependencies.setup.load();
-    return setup.ok
-      ? reply(context, player.value, fullTemplate(setup.value), dependencies.sessions, true)
-      : setup;
+    const fullSetup = await dependencies.setup.load();
+    return fullSetup.ok
+      ? reply(context, player.value, fullTemplate(fullSetup.value), dependencies.sessions, true)
+      : fullSetup;
   };
 
   const ficha: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
-    const session = dependencies.sessions.get(player.value);
+    let session = dependencies.sessions.get(player.value);
     if (session === null) {
-      return err(
-        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."),
-      );
+      const draft = await dependencies.registration.getDraft(player.value);
+      if (!draft.ok) {
+        return draft.error.code === "NOT_FOUND"
+          ? reply(
+              context,
+              player.value,
+              "〔▣〕 Nenhuma ficha está aberta. Use `/registrar` para começar.",
+            )
+          : draft;
+      }
+      session = dependencies.sessions.start(player.value, {
+        mode: "GUIDED",
+        regionId: draft.value.snapshot.regionId,
+        baseDraft: draft.value.snapshot,
+        baseRevision: draft.value.revision,
+      });
     }
     const setup = await dependencies.setup.load();
     return setup.ok ? reply(context, player.value, fichaText(session, setup.value)) : setup;
@@ -330,6 +447,12 @@ export function createRegistrationWhatsAppRoutes(
     if (session.mode === "CHOOSING") {
       return err(appError("INVALID_STATE_TRANSITION", "Escolha o modo da ficha antes de salvar."));
     }
+
+    const setup =
+      session.mode === "GUIDED" && !validateRegistrationDraft(session.working).ok
+        ? await dependencies.setup.load()
+        : null;
+    if (setup !== null && !setup.ok) return setup;
 
     pendingConfirmations.delete(player.value);
     pendingWithdrawals.delete(player.value);
@@ -349,7 +472,9 @@ export function createRegistrationWhatsAppRoutes(
     return reply(
       context,
       player.value,
-      `💾 Rascunho salvo.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean) : "Use `/ficha` para revisar ou `/modo completo` para reenviar a ficha completa."}`,
+      clean.mode === "GUIDED" && clean.currentField === null
+        ? "〔✓〕 *RASCUNHO SALVO*\n\nRegistro guardado.\n\n> Revise com `/ficha` ou use `/confirmar`."
+        : `〔✓〕 *RASCUNHO SALVO*\n\nRegistro guardado.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean, setup?.value) : "Use `/ficha` para revisar ou `/modo completo` para reenviar a ficha completa."}`,
       dependencies.sessions,
       clean.mode === "GUIDED" && clean.currentField !== null,
     );
@@ -380,7 +505,7 @@ export function createRegistrationWhatsAppRoutes(
     return reply(
       context,
       player.value,
-      `↩️ Rascunho retomado.\n\n${guidedPrompt(resumed)}`,
+      `〔‹〕 *REGISTRO RETOMADO*\n\nEncontrei seu rascunho salvo.\n\n${guidedPrompt(resumed, setup.value)}`,
       dependencies.sessions,
       resumed.currentField !== null,
     );
@@ -392,8 +517,39 @@ export function createRegistrationWhatsAppRoutes(
     pendingConfirmations.delete(player.value);
 
     const editArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
+    const field = selectedEditField(editArg);
+
+    if (field !== null) {
+      if (field === "starterFormId") {
+        const setup = await dependencies.setup.load();
+        if (!setup.ok) return setup;
+        const selected = dependencies.sessions.selectGuidedField(player.value, field);
+        if (!selected.ok) return selected;
+        return reply(
+          context,
+          player.value,
+          starterEditPrompt(setup.value),
+          dependencies.sessions,
+          true,
+        );
+      }
+      const selected = dependencies.sessions.selectGuidedField(player.value, field);
+      if (!selected.ok) return selected;
+      return reply(
+        context,
+        player.value,
+        selectedFieldPrompt(selected.value),
+        dependencies.sessions,
+        true,
+      );
+    }
+
     if (editArg !== undefined && editArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `/editar` ou `/editar sim`."));
+      return reply(
+        context,
+        player.value,
+        "〔!〕 Escolha um campo de `/editar 1` até `/editar 7`. Use `/editar` para ver a lista.",
+      );
     }
 
     if (editArg === "sim") {
@@ -456,7 +612,11 @@ export function createRegistrationWhatsAppRoutes(
     }
 
     pendingWithdrawals.delete(player.value);
-    if (current.value.status === "CHANGES_REQUESTED" || current.value.status === "WITHDRAWN") {
+    if (
+      current.value.status === "CHANGES_REQUESTED" ||
+      current.value.status === "WITHDRAWN" ||
+      current.value.status === "REJECTED"
+    ) {
       return openPersistedDraft(dependencies, context, player.value);
     }
 
@@ -472,8 +632,56 @@ export function createRegistrationWhatsAppRoutes(
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
     pendingWithdrawals.delete(player.value);
+    const currentReview = await dependencies.registration.getCurrentReview(player.value);
+    if (currentReview.ok && currentReview.value.status === "SUBMITTED") {
+      pendingConfirmations.delete(player.value);
+      await confirmations.clearConfirmationPreview?.(player.value);
+      dependencies.sessions.clear(player.value);
+      return reply(
+        context,
+        player.value,
+        "〔i〕 Sua ficha já foi enviada e está em análise da equipe. Não precisa confirmar novamente.",
+      );
+    }
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
+      const current = await dependencies.registration.getCurrentReview(player.value);
+      if (current.ok && current.value.status === "SUBMITTED") {
+        return reply(
+          context,
+          player.value,
+          "〔i〕 Sua ficha já foi enviada e está em análise da equipe. Não precisa confirmar novamente.",
+        );
+      }
+      if (current.ok && current.value.status === "APPROVED") {
+        return reply(
+          context,
+          player.value,
+          "〔i〕 Sua ficha já foi aprovada. A ativação do seu treinador está em andamento; aguarde a confirmação para usar `/menu`.",
+        );
+      }
+      if (current.ok && current.value.status === "CHANGES_REQUESTED") {
+        return reply(
+          context,
+          player.value,
+          "〔!〕 Sua ficha aguarda ajustes. Use `/editar` para reabrir a ficha antes de confirmar novamente.",
+        );
+      }
+      if (current.ok && current.value.status === "REJECTED") {
+        return reply(
+          context,
+          player.value,
+          "〔!〕 Esta ficha não está disponível para confirmação. Use `/editar` para consultar as próximas opções.",
+        );
+      }
+      if (current.ok && current.value.status === "WITHDRAWN") {
+        return reply(
+          context,
+          player.value,
+          "〔i〕 Esta ficha foi retirada da análise. Use `/ficha` ou `/editar` antes de confirmar novamente.",
+        );
+      }
+      if (!current.ok && current.error.code !== "NOT_FOUND") return current;
       return err(
         appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."),
       );
@@ -490,19 +698,24 @@ export function createRegistrationWhatsAppRoutes(
       if (!validation.ok) return validation;
       const setup = await dependencies.setup.load();
       if (!setup.ok) return setup;
-      pendingConfirmations.set(player.value, confirmationFingerprint(session));
+      const fingerprint = confirmationFingerprint(session);
+      pendingConfirmations.set(player.value, fingerprint);
+      await confirmations.saveConfirmationPreview?.(player.value, fingerprint);
       return reply(context, player.value, confirmationText(session, setup.value));
     }
     if (confirmationArg !== "sim") {
       return err(appError("VALIDATION_FAILED", "Use `/confirmar` ou `/confirmar sim`."));
     }
 
-    const previewedFingerprint = pendingConfirmations.get(player.value);
+    const previewedFingerprint =
+      pendingConfirmations.get(player.value) ??
+      (await confirmations.getConfirmationPreview?.(player.value));
     if (
       previewedFingerprint === undefined ||
       previewedFingerprint !== confirmationFingerprint(session)
     ) {
       pendingConfirmations.delete(player.value);
+      await confirmations.clearConfirmationPreview?.(player.value);
       return err(
         appError(
           "INVALID_STATE_TRANSITION",
@@ -520,11 +733,12 @@ export function createRegistrationWhatsAppRoutes(
     if (!submitted.ok) return submitted;
 
     pendingConfirmations.delete(player.value);
+    await confirmations.clearConfirmationPreview?.(player.value);
     dependencies.sessions.clear(player.value);
     const playerReply = reply(
       context,
       player.value,
-      "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+      "〔✓〕 *REGISTRO TRANSMITIDO*\n\nSua ficha foi enviada para análise da equipe. Esta revisão ficou congelada exatamente como você confirmou.\n\n> Não precisa reenviar. Qualquer retorno aparecerá por aqui.",
     );
     if (!playerReply.ok) return playerReply;
 
@@ -537,7 +751,7 @@ export function createRegistrationWhatsAppRoutes(
           destinationRef: context.message.chatRef,
           messageType: "TEXT",
           payload: {
-            text: `📋 Nova ficha de ${submitted.value.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+            text: "〔▣〕 *NOVA FICHA PARA REVISÃO*\n\n> `/verficha` — abrir a ficha\n> `/aprovar` · `/ajustes` · `/rejeitar` — decidir",
             registrationReview: {
               reviewId: submitted.value.id,
               reviewRevision: submitted.value.revision,

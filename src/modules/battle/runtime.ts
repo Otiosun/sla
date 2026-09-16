@@ -32,6 +32,12 @@ export interface CancelBattleInput {
   readonly requestFingerprint?: string;
 }
 
+export interface SurrenderPvpInput {
+  readonly battleId: string;
+  readonly playerId: string;
+  readonly expectedVersion: number;
+}
+
 export interface CancelBattleOutput {
   readonly state: BattleState;
   readonly events: readonly BattleEvent[];
@@ -53,6 +59,7 @@ export type BattleCancellationPersistenceResult =
 
 export interface BattleCancellationPort {
   cancel(input: CancelBattleInput): Promise<BattleCancellationPersistenceResult>;
+  surrenderPvp?(input: SurrenderPvpInput): Promise<BattleCancellationPersistenceResult>;
 }
 
 export type BattleRuntimeError = Omit<BattleServiceError, "code"> & {
@@ -165,6 +172,40 @@ export class BattleRuntimeService {
             currentVersion: persisted.currentState.version,
           },
         );
+    }
+  }
+
+  public async surrenderPvp(
+    input: SurrenderPvpInput,
+  ): Promise<BattleRuntimeResult<CancelBattleOutput>> {
+    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) {
+      return runtimeFailure("BATTLE_ACTION_INVALID", "Invalid battle version");
+    }
+    if (this.cancellation.surrenderPvp === undefined) {
+      return runtimeFailure("BATTLE_ACTION_INVALID", "PVP surrender is unavailable");
+    }
+    const persisted = await this.cancellation.surrenderPvp(input);
+    switch (persisted.kind) {
+      case "PERSISTED":
+        return {
+          ok: true,
+          value: { state: persisted.state, events: persisted.events, replayed: false },
+        };
+      case "REPLAYED":
+        return { ok: true, value: { state: persisted.state, events: [], replayed: true } };
+      case "NOT_FOUND":
+        return runtimeFailure("BATTLE_NOT_FOUND", "Battle was not found");
+      case "NOT_INITIALIZED":
+        return runtimeFailure("BATTLE_NOT_INITIALIZED", "Battle has no state snapshot");
+      case "VERSION_CONFLICT":
+      case "NOT_ACTIVE":
+        return runtimeFailure(
+          "BATTLE_NOT_ACTIVE",
+          "Battle is already over",
+          persisted.currentState,
+        );
+      case "IDEMPOTENCY_CONFLICT":
+        return runtimeFailure("BATTLE_ACTION_INVALID", "PVP surrender is not permitted");
     }
   }
 }

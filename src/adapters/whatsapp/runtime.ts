@@ -10,6 +10,11 @@ export interface WhatsAppMessagingRuntimeOptions {
   readonly admitCommand?: (message: IncomingMessage) => Promise<boolean> | boolean;
   readonly admitFreeform?: (message: IncomingMessage) => Promise<boolean> | boolean;
   readonly beforeOutboxFlush?: () => Promise<void>;
+  readonly onIncomingProcessingFailure?: (input: {
+    readonly stage: "COMPLETE_INCOMING";
+    readonly errorCode: string;
+    readonly correlationId: string | null;
+  }) => void;
 }
 
 export class WhatsAppMessagingRuntime {
@@ -32,7 +37,17 @@ export class WhatsAppMessagingRuntime {
         const admitFreeform = this.options.admitFreeform;
         if (admitFreeform === undefined || !(await admitFreeform(message))) return;
       }
-      await this.messaging.receive(message);
+      const received = await this.messaging.receive(message);
+      if (!received.ok && received.error.details?.stage === "COMPLETE_INCOMING") {
+        const correlationId = received.error.details.correlationId;
+        const completionErrorCode = received.error.details.completionErrorCode;
+        this.options.onIncomingProcessingFailure?.({
+          stage: "COMPLETE_INCOMING",
+          errorCode:
+            typeof completionErrorCode === "string" ? completionErrorCode : received.error.code,
+          correlationId: typeof correlationId === "string" ? correlationId : null,
+        });
+      }
     });
   }
 

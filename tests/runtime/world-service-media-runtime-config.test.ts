@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  WorldServiceMediaRuntimeConfigError,
   loadWorldServiceMediaRuntimeConfig,
+  WorldServiceMediaRuntimeConfigError,
 } from "../../src/runtime/world-service-media-runtime-config.js";
 
 const AREA_ID = "00000000-0000-4000-8000-000000002701";
 const FACADE_URL = "https://assets.example.test/pokemart-arrozais.png";
 const MERCHANT_URL = "https://assets.example.test/pokemart-merchant.png";
+const VILA_URL = "https://assets.example.test/vila-dos-arrozais.jpg";
 
 describe("World Service media runtime config", () => {
   it("keeps media disabled when the Poké Mart media block is absent", () => {
@@ -45,5 +46,13 @@ describe("World Service media runtime config", () => {
         POKEMART_ENTRY_MERCHANT_IMAGE_URL: MERCHANT_URL,
       }),
     ).toThrow(/HTTPS/);
+  });
+
+  it("loads the optional HTTPS image for Vila dos Arrozais without requiring Poké Mart media", () => {
+    const media = loadWorldServiceMediaRuntimeConfig({
+      ZHOULIA_VILA_DOS_ARROZAIS_IMAGE_URL: VILA_URL,
+    });
+    expect(media?.zhouliaVilaArrivalImageUrl?.()).toBe(VILA_URL);
+    expect(media?.pokemartEntry(AREA_ID)).toBeNull();
   });
 });

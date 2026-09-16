@@ -5,13 +5,13 @@ import {
   type FeatureAvailability,
   type PlayerEligibility,
 } from "../../shared-kernel/gates.js";
+import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import {
   createBattleId,
   createEncounterId,
   type EncounterId,
   type PlayerId,
 } from "../../shared-kernel/ids.js";
-import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import { err, ok, type Result } from "../../shared-kernel/result.js";
 import { encounterConditionsAllow } from "../catalog/encounter-contracts.js";
 import type {
@@ -22,6 +22,7 @@ import type {
   EncounterStatus,
   EncounterView,
   ExpireResult,
+  SpawnEncounterInput,
   StartBattleResult,
 } from "./contracts.js";
 import {
@@ -65,7 +66,9 @@ export class EncounterService {
     private readonly feature: FeatureAvailability,
   ) {}
 
-  public async createOrReplay(input: CreateEncounterInput): Promise<Result<EncounterView>> {
+  public async createOrReplay(
+    input: CreateEncounterInput | SpawnEncounterInput,
+  ): Promise<Result<EncounterView>> {
     if (
       input.encounterTableSlug !== undefined &&
       !TABLE_SLUG_PATTERN.test(input.encounterTableSlug)
@@ -85,6 +88,39 @@ export class EncounterService {
         true,
       );
       if (replay !== null) return this.buildView(transaction, replay);
+
+      const requestedParticipants =
+        "participantPlayerIds" in input ? input.participantPlayerIds : [input.playerId];
+      const party = await transaction.partyMembers(input.playerId, true);
+      const participants = party ?? [input.playerId];
+      const expectedParticipants =
+        requestedParticipants.length === 0 ? participants : requestedParticipants;
+      if (
+        !expectedParticipants.includes(input.playerId) ||
+        new Set(expectedParticipants).size !== expectedParticipants.length
+      ) {
+        return err(encounterValidationError("Spawn participants are invalid"));
+      }
+      if (
+        participants.length !== expectedParticipants.length ||
+        participants.some((playerId, index) => playerId !== [...expectedParticipants].sort()[index])
+      ) {
+        return err(encounterNotReady("Party membership changed; spawn was rejected"));
+      }
+      for (const participantPlayerId of participants) {
+        const participant = await transaction.playerContext(participantPlayerId, true);
+        if (
+          participant === null ||
+          !participant.playerActive ||
+          !participant.onboardingComplete ||
+          participant.activeBattle ||
+          participant.areaId === null ||
+          participant.areaId !== context.areaId ||
+          (await transaction.activeForPlayer(participantPlayerId, true)) !== null
+        ) {
+          return err(encounterNotReady("Party is not eligible and co-located for this spawn"));
+        }
+      }
 
       const activeEncounter = await transaction.activeForPlayer(input.playerId, true);
       if (activeEncounter !== null) {
@@ -153,6 +189,7 @@ export class EncounterService {
       const record = await transaction.insertEncounter({
         encounterId,
         playerId: input.playerId,
+        participantPlayerIds: participants,
         areaId: context.areaId,
         contentReleaseId: content.contentReleaseId,
         rulesetId: content.rulesetId,

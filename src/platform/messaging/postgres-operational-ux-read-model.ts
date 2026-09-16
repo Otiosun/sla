@@ -136,9 +136,10 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
   public async activeBattleId(playerId: PlayerId): Promise<string | null> {
     const result = await this.pool.query<{ battle_id: string }>(
       `SELECT battle.id AS battle_id
-       FROM battle_sides side
-       JOIN battles battle ON battle.id = side.battle_id
-       WHERE side.player_id = $1
+       FROM battles battle
+       LEFT JOIN battle_sides side ON side.battle_id = battle.id
+       LEFT JOIN battle_participant_controllers controller ON controller.battle_id = battle.id
+       WHERE (side.player_id = $1 OR controller.player_id = $1)
          AND battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
        ORDER BY battle.created_at DESC, battle.id DESC
        LIMIT 1`,

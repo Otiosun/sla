@@ -1,7 +1,7 @@
+import type { Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
-import type { Result } from "../../shared-kernel/result.js";
 
 export interface RegistrationReviewMentionSource {
   mentionsFor(input: {
@@ -56,11 +56,18 @@ class RegistrationReviewMentionHandler implements MessageRouteHandler {
           if (!isReviewNotification(message.payload)) return message;
           const text = message.payload.text;
           if (typeof text !== "string") return message;
+          const [headline, ...body] = text.split("\n");
           return {
             ...message,
             payload: {
               ...message.payload,
-              text: `${text}\n\nResponsáveis: ${mentionJids.map(displayMention).join(" ")}`,
+              text: [
+                headline,
+                "",
+                `🔔 *Revisores:* ${mentionJids.map(displayMention).join(" ")}`,
+                "",
+                ...body,
+              ].join("\n"),
               mentions: mentionJids,
             },
           };

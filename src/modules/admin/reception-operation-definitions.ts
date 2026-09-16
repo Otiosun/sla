@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AdminOperationRecord } from "./contracts.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
 
 export const AdminSourceChannelSchema = z.enum(["WHATSAPP", "CONTROL_CENTER"]);
@@ -27,6 +28,17 @@ const communityGroupInputSchema = z
     payload: z.record(z.string(), z.unknown()).default({}),
   })
   .strict();
+
+
+export type CommunityGroupManageInput = z.infer<typeof communityGroupInputSchema>;
+
+export interface CommunityGroupManageApplyPort {
+  applyCommunityGroupManage(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: CommunityGroupManageInput,
+  ): Promise<AdminOperationRecord>;
+}
 
 const receptionStaffInputSchema = z
   .object({
@@ -75,6 +87,9 @@ const staffMutationPolicy = {
 
 export function registerReceptionAdminOperations(
   registry: AdminOperationRegistry,
+  dependencies: {
+    readonly communityGroup?: CommunityGroupManageApplyPort;
+  } = {},
 ): AdminOperationRegistry {
   registry.register(
     defineAdminOperation({
@@ -136,7 +151,7 @@ export function registerReceptionAdminOperations(
   );
 
   registry.register(
-    defineAdminOperation({
+    defineAdminOperation<CommunityGroupManageInput>({
       kind: "MUTATION",
       operationType: "community.group.manage",
       capabilityKey: "community.group.manage",
@@ -145,6 +160,16 @@ export function registerReceptionAdminOperations(
       policy: auditedMutationPolicy,
       inputSchema: communityGroupInputSchema,
       target: (input) => ({ type: "COMMUNITY_GROUP", id: input.groupId }),
+      ...(dependencies.communityGroup === undefined
+        ? {}
+        : {
+            apply: (context, input) =>
+              dependencies.communityGroup!.applyCommunityGroupManage(
+                context.operation,
+                context.actorPrincipalId,
+                input,
+              ),
+          }),
     }),
   );
 

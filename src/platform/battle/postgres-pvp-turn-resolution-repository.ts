@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  BattleActionSchema,
+  type BattleState,
   BattleStateSchema,
   BattleStatusSchema,
-  type BattleState,
 } from "../../modules/battle/contracts.js";
 import type { BattleRootRecord } from "../../modules/battle/ports.js";
 import type {
@@ -13,18 +12,17 @@ import type {
   PvpTurnResolutionRepository,
   PvpTurnResolutionTransaction,
 } from "../../modules/battle/pvp-turn-resolution.js";
-import type {
-  BattleTurnSubmission,
-  BattleTurnWindow,
-  TurnSubmissionStatus,
-  TurnWindowAggregate,
-  TurnWindowStatus,
-} from "../../modules/battle/turn-window.js";
+import type { TurnWindowAggregate } from "../../modules/battle/turn-window.js";
 import {
   ContentLifecycleStatusSchema,
   type RulesetSnapshot,
 } from "../../modules/catalog/contracts.js";
 import { withTransaction } from "../db/transaction.js";
+import { loadParticipantControllersInTransaction } from "./postgres-battle-participant-controller-repository.js";
+import {
+  loadAggregateById,
+  openControllerTurnWindowInTransaction,
+} from "./postgres-battle-turn-window-repository.js";
 
 interface RootRow {
   readonly id: string;
@@ -41,38 +39,6 @@ interface RootRow {
   readonly rng_seed_key_version: number;
   readonly rng_counter: string;
   readonly ended_at: Date | null;
-}
-
-interface TurnWindowRow {
-  readonly id: string;
-  readonly battle_id: string;
-  readonly battle_version: string;
-  readonly turn_number: number;
-  readonly status: TurnWindowStatus;
-  readonly opened_at: Date;
-  readonly deadline_at: Date;
-  readonly locked_at: Date | null;
-  readonly committed_at: Date | null;
-  readonly revision: string;
-  readonly resolution_correlation_id: string | null;
-  readonly resolved_battle_version: string | null;
-}
-
-interface RequiredPlayerRow {
-  readonly player_id: string;
-  readonly side_no: number;
-}
-
-interface SubmissionRow {
-  readonly id: string;
-  readonly player_id: string;
-  readonly side_no: number;
-  readonly expected_battle_version: string;
-  readonly idempotency_key: string;
-  readonly action_payload: unknown;
-  readonly submission_revision: string;
-  readonly status: TurnSubmissionStatus;
-  readonly submitted_at: Date;
 }
 
 function safeVersion(value: string, label: string): number {
@@ -104,98 +70,18 @@ function parseRoot(row: RootRow): BattleRootRecord {
   };
 }
 
-function parseWindow(
-  row: TurnWindowRow,
-  requiredPlayers: readonly RequiredPlayerRow[],
-): BattleTurnWindow {
-  return {
-    id: row.id,
-    battleId: row.battle_id,
-    battleVersion: safeVersion(row.battle_version, "turn window battle version"),
-    turnNumber: row.turn_number,
-    status: row.status,
-    openedAt: row.opened_at.toISOString(),
-    deadlineAt: row.deadline_at.toISOString(),
-    lockedAt: row.locked_at?.toISOString() ?? null,
-    committedAt: row.committed_at?.toISOString() ?? null,
-    revision: safeVersion(row.revision, "turn window revision"),
-    resolutionCorrelationId: row.resolution_correlation_id,
-    resolvedBattleVersion:
-      row.resolved_battle_version === null
-        ? null
-        : safeVersion(row.resolved_battle_version, "resolved battle version"),
-    requiredPlayers: requiredPlayers.map((entry) => ({
-      playerId: entry.player_id,
-      sideNo: entry.side_no,
-    })),
-  };
-}
-
-function parseSubmission(row: SubmissionRow): BattleTurnSubmission {
-  return {
-    id: row.id,
-    playerId: row.player_id,
-    sideNo: row.side_no,
-    expectedBattleVersion: safeVersion(
-      row.expected_battle_version,
-      "turn submission expected battle version",
-    ),
-    idempotencyKey: row.idempotency_key,
-    action: BattleActionSchema.parse(row.action_payload),
-    submissionRevision: safeVersion(row.submission_revision, "turn submission revision"),
-    status: row.status,
-    submittedAt: row.submitted_at.toISOString(),
-  };
-}
-
-async function loadTurnWindowAggregate(
-  client: PoolClient,
-  turnWindowId: string,
-  lock: boolean,
-): Promise<TurnWindowAggregate | null> {
-  const windowResult = await client.query<TurnWindowRow>(
-    `SELECT id, battle_id, battle_version::text, turn_number, status,
-            opened_at, deadline_at, locked_at, committed_at, revision::text,
-            resolution_correlation_id, resolved_battle_version::text
-     FROM battle_turn_windows
-     WHERE id = $1
-     ${lock ? "FOR UPDATE" : ""}`,
-    [turnWindowId],
-  );
-  const row = windowResult.rows[0];
-  if (row === undefined) return null;
-
-  const requiredPlayers = await client.query<RequiredPlayerRow>(
-    `SELECT player_id, side_no
-     FROM battle_turn_window_required_players
-     WHERE turn_window_id = $1
-     ORDER BY side_no, player_id`,
-    [turnWindowId],
-  );
-  const submissions = await client.query<SubmissionRow>(
-    `SELECT id, player_id, side_no, expected_battle_version::text,
-            idempotency_key, action_payload, submission_revision::text,
-            status, submitted_at
-     FROM battle_turn_submissions
-     WHERE turn_window_id = $1
-     ORDER BY player_id, submission_revision, id`,
-    [turnWindowId],
-  );
-
-  return {
-    window: parseWindow(row, requiredPlayers.rows),
-    submissions: submissions.rows.map(parseSubmission),
-  };
-}
-
-class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransaction {
+export class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransaction {
   public constructor(private readonly client: PoolClient) {}
+
+  public async loadParticipantControllers(battleId: string) {
+    return loadParticipantControllersInTransaction(this.client, battleId);
+  }
 
   public async loadTurnWindow(
     turnWindowId: string,
     lock = false,
   ): Promise<TurnWindowAggregate | null> {
-    return loadTurnWindowAggregate(this.client, turnWindowId, lock);
+    return loadAggregateById(this.client, turnWindowId, lock);
   }
 
   public async loadBattleRoot(battleId: string, lock = false): Promise<BattleRootRecord | null> {
@@ -342,7 +228,8 @@ class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransacti
       .filter((entry) => entry.status === "COMMITTED")
       .map((entry) => entry.id);
     if (
-      activeSubmissionIds.length === 0 ||
+      (activeSubmissionIds.length === 0 &&
+        input.lockedWindow.window.requiredControllers?.length !== 0) ||
       activeSubmissionIds.length !== committedSubmissionIds.length ||
       activeSubmissionIds.some((id) => !committedSubmissionIds.includes(id))
     ) {
@@ -385,6 +272,38 @@ class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransacti
       throw new Error("PVP turn window commit CAS failed");
     }
 
+    if (input.nextState.status === "LOST" && window.requiredControllers !== undefined) {
+      await this.client.query(
+        `INSERT INTO battle_defeat_aftermath(battle_id, battle_version) VALUES ($1, $2)`,
+        [input.battleId, input.nextState.version],
+      );
+    }
+    if (terminal) {
+      await this.client.query(
+        `UPDATE encounters
+         SET status = 'CLOSED', closed_at = now(), updated_at = now(), revision = revision + 1
+         FROM battles
+         WHERE battles.id = $1
+           AND battles.battle_type = 'PVP'
+           AND encounters.id = battles.encounter_id
+           AND encounters.status = 'IN_BATTLE'`,
+        [input.battleId],
+      );
+    }
+    if (!terminal && window.requiredControllers !== undefined) {
+      if (window.committedAt === null) throw new Error("Committed window has no commit timestamp");
+      const openedAt = new Date(window.committedAt);
+      const duration = Date.parse(window.deadlineAt) - Date.parse(window.openedAt);
+      const next = await openControllerTurnWindowInTransaction(this.client, {
+        id: randomUUID(),
+        battleId: input.battleId,
+        battleVersion: input.nextState.version,
+        turnNumber: input.nextState.turnNumber,
+        openedAt,
+        deadlineAt: new Date(openedAt.getTime() + duration),
+      });
+      if (!next.ok) throw new Error(`Next controller turn window failed: ${next.error.message}`);
+    }
     return { kind: "PERSISTED", state: input.nextState };
   }
 }

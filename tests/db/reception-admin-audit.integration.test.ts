@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { CommunityService } from "../../src/modules/community/service.js";
+import { CommunityGroupAdminService } from "../../src/modules/admin/community-group-service.js";
+import { PostgresCommunityRepository } from "../../src/platform/community/postgres-community-repository.js";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
@@ -192,4 +195,91 @@ describe.sequential("reception admin audit evidence", () => {
       }),
     ]);
   });
+
+  it("applies REPLACE_CAPABILITIES through community.group.manage", async () => {
+    const groupId = randomUUID();
+    const correlationId = randomUUID();
+
+    await pool.query(
+      "INSERT INTO community_groups(id,provider,chat_ref,role,display_name) VALUES ($1,'baileys',$2,'GAME','UAT PVE')",
+      [groupId, `120363${Date.now()}@g.us`],
+    );
+
+    await pool.query(
+      "INSERT INTO community_group_capabilities(group_id,capability_key) VALUES ($1,'player.basic'),($1,'world')",
+      [groupId],
+    );
+
+    const community = new CommunityService(new PostgresCommunityRepository(pool));
+    const owner = new CommunityGroupAdminService({
+      community,
+      completion: new PostgresAdminOperationCompletion(pool),
+    });
+
+    const service = new AdminService(
+      registerReceptionAdminOperations(new AdminOperationRegistry(), {
+        communityGroup: owner,
+      }),
+      new PostgresAdminRepository(pool),
+    );
+
+    const prepared = await service.prepareMutation({
+      principalId,
+      operationType: "community.group.manage",
+      input: {
+        groupId,
+        sourceChannel: "WHATSAPP",
+        action: "REPLACE_CAPABILITIES",
+        payload: {
+          capabilities: ["player.basic", "pve", "world"],
+        },
+      },
+      reason: "enable pve for game group",
+      expectedRevision: 0,
+      idempotencyKey: `group-pve-${randomUUID()}`,
+      correlationId,
+    });
+
+    const applied = await service.apply(prepared.operation.id, principalId);
+
+    expect(applied.status).toBe("APPLIED");
+
+    expect(
+      (
+        await pool.query(
+          "SELECT revision::int FROM community_groups WHERE id=$1",
+          [groupId],
+        )
+      ).rows,
+    ).toEqual([{ revision: 1 }]);
+
+    expect(
+      (
+        await pool.query(
+          "SELECT capability_key FROM community_group_capabilities WHERE group_id=$1 AND active ORDER BY capability_key",
+          [groupId],
+        )
+      ).rows,
+    ).toEqual([
+      { capability_key: "player.basic" },
+      { capability_key: "pve" },
+      { capability_key: "world" },
+    ]);
+
+    expect(
+      (
+        await pool.query(
+          "SELECT action,target_type,target_id FROM audit_events WHERE correlation_id=$1",
+          [correlationId],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        action: "community.group.manage",
+        target_type: "COMMUNITY_GROUP",
+        target_id: groupId,
+      },
+    ]);
+  });
+
 });

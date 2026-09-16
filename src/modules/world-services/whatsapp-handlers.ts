@@ -51,6 +51,7 @@ export interface PokemartEntryMedia {
 
 export interface WorldServiceMediaCatalog {
   pokemartEntry(areaId: string): PokemartEntryMedia | null;
+  zhouliaVilaArrivalImageUrl?(): string | null;
 }
 
 export interface WorldServiceWhatsAppDependencies {

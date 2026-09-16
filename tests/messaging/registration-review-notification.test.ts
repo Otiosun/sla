@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
 import { withRegistrationReviewMentions } from "../../src/modules/registration/review-notification-mentions.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -112,7 +112,7 @@ describe("registration review notification", () => {
             messageType: "TEXT",
             payload: {
               text: expect.stringMatching(
-                /nova ficha.*Liora Vale.*revisão[\s\S]*@5511888888888.*@5511999999999/i,
+                /NOVA FICHA PARA REVISÃO[\s\S]*Revisores:[\s\S]*@5511888888888.*@5511999999999[\s\S]*\/verficha[\s\S]*\/aprovar[\s\S]*\/ajustes[\s\S]*\/rejeitar/i,
               ),
               mentions: STAFF_JIDS,
               registrationReview: { reviewId: REVIEW_ID, reviewRevision: 0 },

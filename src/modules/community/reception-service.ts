@@ -79,15 +79,15 @@ export function isReception(group: CommunityChatContext): group is CommunityChat
 function reviewText(status: RegistrationRevisionStatus): string {
   switch (status) {
     case "SUBMITTED":
-      return "📨 Sua ficha já foi enviada e está em análise pela equipe. Aguarde a revisão.";
+      return "〔◌〕 *ANÁLISE EM ANDAMENTO*\n\nSua ficha já está com a equipe.\n\n> Nenhuma ação necessária agora.";
     case "CHANGES_REQUESTED":
-      return "✏️ A equipe pediu ajustes na sua ficha. Use `/editar` para alterar somente o necessário.";
+      return "〔!〕 *AJUSTES SOLICITADOS*\n\nA equipe devolveu seu registro para correção.\n\n`/editar`\n\n> Altere apenas o que for necessário.";
     case "APPROVED":
-      return "✅ Sua ficha foi aprovada. A liberação do personagem está sendo concluída.";
+      return "〔◉〕 *APROVAÇÃO CONFIRMADA*\n\nSua ficha passou. A liberação do treinador está sendo concluída, roto.";
     case "REJECTED":
-      return "⛔ Sua ficha foi rejeitada. O estado foi preservado para acompanhamento da equipe.";
+      return "〔×〕 *REGISTRO REJEITADO*\n\nA revisão anterior da sua ficha não foi aprovada. Se quiser tentar novamente, você pode reabrir o registro preservado.\n\n`/editar`\n\n> Corrija o necessário e envie uma nova revisão.";
     case "WITHDRAWN":
-      return "↩️ A revisão anterior foi retirada. Use `/continuar` ou `/ficha` para retomar sua ficha.";
+      return "〔‹〕 *REVISÃO RETIRADA*\n\nA revisão anterior foi retirada.\n\n`/continuar` — retomar o registro\n`/ficha` — revisar a ficha";
   }
 }
 
@@ -148,7 +148,14 @@ export class ReceptionService {
     if (access.status === "ACTIVE") {
       return ok({
         playerId: playerId,
-        text: "👋 Bem-vindo de volta à Recepção. Seu personagem continua ativo; nenhum cadastro foi reiniciado.",
+        text: "〔⚡〕 𝗥𝗢𝗧𝗢𝗠𝗗𝗘𝗫\n*TREINADOR RECONHECIDO*\n\nRegistro ativo. Você continua ativo; sua jornada continua de onde parou.\n\n`/menu`\n\n> Abra sua Central do Treinador.",
+      });
+    }
+
+    if (access.status === "SUSPENDED") {
+      return ok({
+        playerId,
+        text: "〔!〕 *ACESSO SUSPENSO*\n\nSeu registro continua preservado, mas o acesso ao RPG está suspenso.\n\n> Procure a equipe responsável para regularizar o acesso.",
       });
     }
 
@@ -159,7 +166,7 @@ export class ReceptionService {
       if (review.value.status === "APPROVED" && access.status === "PROVISIONING") {
         return ok({
           playerId: playerId,
-          text: "✅ Sua ficha foi aprovada. A liberação do personagem está em provisionamento e será concluída sem refazer o cadastro.",
+          text: "〔◉〕 *APROVAÇÃO CONFIRMADA*\n\nSua ficha passou. A liberação do treinador está sendo concluída, roto.",
         });
       }
       return ok({
@@ -173,7 +180,7 @@ export class ReceptionService {
     if (draft.ok) {
       return ok({
         playerId: playerId,
-        text: "📋 Você já possui um rascunho salvo. Use `/continuar` para retomar ou `/ficha` para revisar.",
+        text: "〔▣〕 Você já possui um rascunho salvo. Use `/continuar` para retomar ou `/ficha` para revisar.",
       });
     }
 

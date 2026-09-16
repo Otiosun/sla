@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  RegistrationConversationSessions,
   parseFullRegistrationTemplate,
+  RegistrationConversationSessions,
 } from "../../src/modules/registration/conversation-session.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
@@ -99,6 +99,28 @@ describe("RegistrationConversationSessions", () => {
     expect(guided).toMatchObject({
       ok: true,
       value: { mode: "GUIDED", working: { trainerName: "Liora Vale" } },
+    });
+  });
+
+  it("finishes a selected existing field without advancing the guided editor", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(playerId, {
+      mode: "GUIDED",
+      regionId: ZHOULIA_ID,
+      baseDraft: completedDraft(),
+    });
+
+    expect(sessions.selectGuidedField(playerId, "personality")).toMatchObject({
+      ok: true,
+      value: { currentField: "personality" },
+    });
+    expect(sessions.applyGuidedAnswer(playerId, "Mais calma e observadora.")).toMatchObject({
+      ok: true,
+      value: {
+        currentField: null,
+        working: { ...completedDraft(), personality: "Mais calma e observadora." },
+      },
     });
   });
 

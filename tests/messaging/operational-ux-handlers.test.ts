@@ -5,7 +5,7 @@ import {
   type OperationalUxDependencies,
 } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = "00000000-0000-4000-8000-000000000013";
 const POKEMON_ID = "00000000-0000-4000-8000-000000000025";
@@ -289,6 +289,69 @@ describe("Phase 13 operational WhatsApp UX", () => {
         idempotencyKey: "inbox:test:travel",
       }),
     );
+  });
+
+  it("sends Vila arrival as one IMAGE when configured, falls back to TEXT, and renders cooldown", async () => {
+    const deps = dependencies({
+      worldMedia: { zhouliaVilaArrivalImageUrl: () => "https://assets.example.test/vila.jpg" },
+    });
+    (deps.world.travel as ReturnType<typeof vi.fn>).mockResolvedValue(
+      ok({
+        replayed: false,
+        arrival: { firstVisit: true },
+        from: { areaId: "area-pallet", areaDisplayName: "Pallet Town", revision: 7n },
+        to: {
+          areaId: "area-vila",
+          areaSlug: "vila-dos-arrozais",
+          areaDisplayName: "Vila dos Arrozais",
+          revision: 8n,
+        },
+      }),
+    );
+    const app = router(deps);
+    const image = await app.dispatch(context("$ir route-1 v7", "vila-image"));
+    expect(image).toMatchObject({
+      ok: true,
+      value: {
+        outgoing: [
+          { messageType: "IMAGE", payload: { caption: expect.stringContaining("VOCÊ CHEGOU") } },
+        ],
+      },
+    });
+
+    const noMedia = dependencies();
+    (noMedia.world.travel as ReturnType<typeof vi.fn>).mockResolvedValue(
+      ok({
+        replayed: false,
+        arrival: { firstVisit: false },
+        from: { areaId: "area-pallet", areaDisplayName: "Pallet Town", revision: 7n },
+        to: {
+          areaId: "area-vila",
+          areaSlug: "vila-dos-arrozais",
+          areaDisplayName: "Vila dos Arrozais",
+          revision: 8n,
+        },
+      }),
+    );
+    const fallback = await router(noMedia).dispatch(context("$ir route-1 v7", "vila-text"));
+    expect(fallback).toMatchObject({
+      ok: true,
+      value: {
+        outgoing: [
+          { messageType: "TEXT", payload: { text: expect.stringContaining("VOCÊ RETORNOU") } },
+        ],
+      },
+    });
+
+    (noMedia.world.travel as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(
+        appError("ACTION_INVALID", "Travel is temporarily unavailable after arrival", {
+          availableAt: new Date(Date.now() + 222_000).toISOString(),
+        }),
+      ),
+    );
+    const cooldown = textOf(await router(noMedia).dispatch(context("$ir route-1 v7", "cooldown")));
+    expect(cooldown).toContain("Aguarde *3min 42s*");
   });
 
   it("keeps encounter presentation informational and narrator-controlled", async () => {

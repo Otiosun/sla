@@ -86,6 +86,22 @@ function normalizeIdempotencyKey(value: string): Result<string> {
 export class RegistrationService {
   public constructor(private readonly repository: RegistrationRepository) {}
 
+  public async saveConfirmationPreview(playerId: PlayerId, fingerprint: string): Promise<void> {
+    await this.repository.transaction(async (tx) =>
+      tx.saveConfirmationPreview?.(playerId, fingerprint),
+    );
+  }
+
+  public async getConfirmationPreview(playerId: PlayerId): Promise<string | null> {
+    return this.repository.read(
+      async (tx) => (await tx.loadConfirmationPreview?.(playerId)) ?? null,
+    );
+  }
+
+  public async clearConfirmationPreview(playerId: PlayerId): Promise<void> {
+    await this.repository.transaction(async (tx) => tx.clearConfirmationPreview?.(playerId));
+  }
+
   public async getDraft(playerId: PlayerId): Promise<Result<RegistrationDraftRecord>> {
     return this.repository.read(async (tx) => {
       const draft = await tx.loadDraft(playerId);

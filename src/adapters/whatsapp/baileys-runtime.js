@@ -1,6 +1,8 @@
 import makeWASocket, {
+  Browsers,
   BufferJSON,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   initAuthCreds,
   normalizeMessageContent,
   proto,
@@ -9,6 +11,8 @@ import makeWASocket, {
 export const loggedOutStatusCode = DisconnectReason.loggedOut;
 export { normalizeMessageContent };
 export const makeSocket = (config) => makeWASocket(config);
+export const pairingBrowser = Browsers.ubuntu("Chrome");
+export const resolveLatestWaWebVersion = async () => (await fetchLatestWaWebVersion()).version;
 export const createInitialAuthCreds = () => initAuthCreds();
 export const serializeAuthValue = (value) => JSON.stringify(value, BufferJSON.replacer);
 export const deserializeAuthValue = (serialized, keyType = null) => {
