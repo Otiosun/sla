@@ -137,33 +137,31 @@ async function resolvePlayer(
 }
 
 function onboardingMenu(state: string): string {
-  switch (state) {
-    case "NEW":
-      return "🎒 *Bem-vindo ao RPG Pokémon*\n\n1. Crie seu treinador:\n`/registrar Seu Nome`";
-    case "PROFILE_CREATED":
-      return "🗺️ *Treinador criado*\n\nAgora escolha sua região:\n`/regioes`";
-    case "REGION_SELECTED":
-    case "STARTER_PENDING":
-      return "🔥 *Região definida*\n\nVeja os iniciais disponíveis:\n`/starters`\nDepois escolha com `/starter <número>`.";
-    case "STARTER_GRANTED":
-      return "✅ *Seu inicial já foi entregue.*\n\nFinalize a entrada no mundo com:\n`/concluir`";
-    case "COMPLETE":
-      return [
-        "📟 *CENTRAL DO TREINADOR*",
-        "",
-        "`/perfil` · treinador",
-        "`/equipe` · equipe atual",
-        "`/inventario` · itens",
-        "`/pokedex` · registros",
-        "`/onde` · local e rotas",
-        "`/encontro` · encontro ativo",
-        "`/batalha` · estado mecânico da batalha",
-        "",
-        "Cenas comuns continuam livres entre jogadores e narrador.",
-      ].join("\n");
-    default:
-      return "Estado de onboarding não reconhecido.";
+  if (state !== "COMPLETE") {
+    return [
+      "🎒 *RECEPÇÃO*",
+      "",
+      "Sua entrada no mundo começa pela ficha de treinador.",
+      "Use `/registrar` para começar ou retomar exatamente de onde parou.",
+      "",
+      "A região, o Pokémon inicial e a entrada no mundo serão aplicados após a aprovação da ficha.",
+    ].join("\n");
   }
+
+  return [
+    "📟 *ROTOM · MENU*",
+    "",
+    "`/perfil` · treinador",
+    "`/equipe` · equipe atual",
+    "`/inventario` · itens",
+    "`/pokedex` · registros",
+    "`/onde` · local e destinos",
+    "`/encontro` · encontro ativo",
+    "`/batalha` · batalha ativa",
+    "",
+    "Cenas comuns continuam livres entre jogadores e narrador.",
+    "O menu ficará mais contextual conforme exploração, encontro e instalações forem conectados.",
+  ].join("\n");
 }
 
 function activeCombatant(

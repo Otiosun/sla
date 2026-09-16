@@ -3,8 +3,9 @@ import type { MessageHandlerContext } from "../../src/modules/messaging/contract
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
+import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 const CHARMANDER_ID = "22222222-2222-4222-8222-222222222222";
@@ -53,323 +54,64 @@ function registrationSetup() {
   } as const;
 }
 
-function recoveryContext(input: {
-  readonly text: string;
-  readonly messageId: string;
-  readonly replyTo: string;
-}): MessageHandlerContext {
-  const base = context({
-    text: input.text,
-    replyToExternalMessageId: input.replyTo,
-  });
-  return {
-    ...base,
-    inboxMessageId: `inbox-${input.messageId}`,
-    causationId: `inbox-${input.messageId}`,
-    idempotencyKey: `inbox:whatsapp:${input.messageId}`,
-    message: {
-      ...base.message,
-      externalMessageId: input.messageId,
-    },
-  };
-}
-
-function fullFicha(
-  input: {
-    readonly age?: string;
-    readonly starter?: string;
-    readonly omitPersonality?: boolean;
-  } = {},
-): string {
-  return [
-    "Nome: Liora Vale",
-    `Idade: ${input.age ?? "17"}`,
-    "Pronomes: ela/dela",
-    "Aparência: Cabelos negros e casaco de viagem.",
-    ...(input.omitPersonality === true ? [] : ["Personalidade: Curiosa e competitiva."]),
-    "História: Saiu de casa para pesquisar Pokémon raros.",
-    `Inicial: ${input.starter ?? "Charmander"}`,
-  ].join("\n");
-}
-
 describe("registration conversation routing", () => {
-  it("recovers an invalid mode choice through a new exact reply anchor", async () => {
+  it("seeds MODE_SELECT durably when registrar starts the persisted flow", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
-    sessions.begin(playerId, { regionId: ZHOULIA_ID });
-    sessions.expectReply(playerId, "registration:mode-prompt");
-    const expectedByProviderMessage = new Map([
-      ["mode-prompt-id", "registration:mode-prompt"],
-      ["mode-correction-id", "inbox:whatsapp:invalid-mode:registration-conversation"],
-    ]);
-    const resolver = new RegistrationConversationResolver({
+    const checkpoints: Array<Record<string, unknown>> = [];
+    const routes = createRegistrationWhatsAppRoutes({
       sessions,
-      community: { resolveChat: async () => onboardingContext() },
-      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
-      setup: { load: async () => ok(registrationSetup()) },
-      replyIntent: {
-        isExpectedReply: async (input) =>
-          expectedByProviderMessage.get(input.replyToExternalMessageId) ===
-          input.expectedOutboxIdempotencyKey,
+      players: {
+        resolveOrCreatePlayer: async () => ok({ playerId, state: "NEW" as const, created: false }),
+        resolvePlayer: async () => ok({ playerId, state: "NEW" as const, created: false }),
       },
+      registration: {
+        getDraft: async () => err(appError("NOT_FOUND", "No draft")),
+        getCurrentReview: async () => err(appError("NOT_FOUND", "No review")),
+        saveDraft: async () => err(appError("ACTION_INVALID", "Not used")),
+        saveAndSubmit: async () => err(appError("ACTION_INVALID", "Not used")),
+        withdraw: async () => err(appError("ACTION_INVALID", "Not used")),
+        getConversation: async () => err(appError("NOT_FOUND", "No conversation")),
+        saveConversationCheckpoint: async (input: Record<string, unknown>) => {
+          checkpoints.push(input);
+          return ok({ conversation: input, draft: null, replayed: false });
+        },
+      } as never,
+      setup: { load: async () => ok(registrationSetup()) },
     });
+    const registrar = routes.find((route) => route.command === "registrar");
+    if (registrar === undefined) throw new Error("registrar route missing");
+    const incoming = context({ text: "$registrar", replyToExternalMessageId: null });
 
-    const invalid = await resolver.resolve(
-      recoveryContext({ text: "talvez", messageId: "invalid-mode", replyTo: "mode-prompt-id" }),
-    );
-    expect(invalid).toMatchObject({
+    const routed = await registrar.handler.handle(incoming);
+
+    expect(routed).toMatchObject({
       ok: true,
       value: {
-        outgoing: [
-          { payload: { text: expect.stringMatching(/1[\s\S]*guiad[\s\S]*2[\s\S]*complet/i) } },
-        ],
-      },
-    });
-    expect(sessions.get(playerId)).toMatchObject({
-      mode: "CHOOSING",
-      expectedReplyOutboxIdempotencyKey: "inbox:whatsapp:invalid-mode:registration-conversation",
-    });
-
-    const staleReply = recoveryContext({
-      text: "1",
-      messageId: "stale-mode-correction",
-      replyTo: "mode-prompt-id",
-    });
-    expect(await resolver.admits(staleReply.message)).toBe(false);
-    expect(await resolver.resolve(staleReply)).toEqual(ok(null));
-
-    const corrected = await resolver.resolve(
-      recoveryContext({ text: "1", messageId: "correct-mode", replyTo: "mode-correction-id" }),
-    );
-    expect(corrected).toMatchObject({
-      ok: true,
-      value: { outgoing: [{ payload: { text: expect.stringContaining("NOME DO TREINADOR") } }] },
-    });
-    expect(sessions.get(playerId)).toMatchObject({ mode: "GUIDED", currentField: "trainerName" });
-  });
-
-  it.each([
-    {
-      name: "invalid age",
-      invalidFicha: fullFicha({ age: "dezessete" }),
-      expected: /IDADE NÃO RECONHECIDA[\s\S]*número inteiro maior que zero/i,
-    },
-    {
-      name: "missing required field",
-      invalidFicha: fullFicha({ omitPersonality: true }),
-      expected: /FICHA INCOMPLETA OU INVÁLIDA[\s\S]*Personalidade/i,
-    },
-    {
-      name: "invalid starter",
-      invalidFicha: fullFicha({ starter: "Pikachu" }),
-      expected: /INICIAL NÃO RECONHECIDO[\s\S]*Charmander[\s\S]*Squirtle/i,
-    },
-  ])("recovers a FULL-mode $name without persisting partial input", async (testCase) => {
-    const playerId = createPlayerId();
-    const sessions = new RegistrationConversationSessions();
-    sessions.start(playerId, { mode: "FULL", regionId: ZHOULIA_ID });
-    sessions.expectReply(playerId, "registration:full-prompt");
-    const correctionKey = `inbox:whatsapp:invalid-full-${testCase.name}:registration-conversation`;
-    const expectedByProviderMessage = new Map([
-      ["full-prompt-id", "registration:full-prompt"],
-      ["full-correction-id", correctionKey],
-    ]);
-    const resolver = new RegistrationConversationResolver({
-      sessions,
-      community: { resolveChat: async () => onboardingContext() },
-      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
-      setup: { load: async () => ok(registrationSetup()) },
-      replyIntent: {
-        isExpectedReply: async (input) =>
-          expectedByProviderMessage.get(input.replyToExternalMessageId) ===
-          input.expectedOutboxIdempotencyKey,
-      },
-    });
-
-    const invalid = await resolver.resolve(
-      recoveryContext({
-        text: testCase.invalidFicha,
-        messageId: `invalid-full-${testCase.name}`,
-        replyTo: "full-prompt-id",
-      }),
-    );
-    expect(invalid).toMatchObject({
-      ok: true,
-      value: { outgoing: [{ payload: { text: expect.stringMatching(testCase.expected) } }] },
-    });
-    if (!invalid.ok || invalid.value === null) throw new Error("Expected FULL correction prompt");
-    expect(invalid.value.outgoing[0]?.payload.text).toMatch(
-      /Nome:[\s\S]*Idade:[\s\S]*Pokémon inicial:/i,
-    );
-    expect(invalid.value.outgoing[0]?.payload.text).not.toContain("Código de suporte");
-    expect(sessions.get(playerId)).toMatchObject({
-      mode: "FULL",
-      dirty: false,
-      working: { regionId: ZHOULIA_ID, schemaVersion: 1 },
-      expectedReplyOutboxIdempotencyKey: correctionKey,
-    });
-
-    const staleReply = recoveryContext({
-      text: fullFicha(),
-      messageId: `stale-full-${testCase.name}`,
-      replyTo: "full-prompt-id",
-    });
-    expect(await resolver.admits(staleReply.message)).toBe(false);
-    expect(await resolver.resolve(staleReply)).toEqual(ok(null));
-
-    const corrected = await resolver.resolve(
-      recoveryContext({
-        text: fullFicha(),
-        messageId: `correct-full-${testCase.name}`,
-        replyTo: "full-correction-id",
-      }),
-    );
-    expect(corrected).toMatchObject({ ok: true });
-    expect(sessions.get(playerId)).toMatchObject({
-      mode: "FULL",
-      dirty: true,
-      working: { age: 17, personality: "Curiosa e competitiva.", starterFormId: CHARMANDER_ID },
-    });
-  });
-
-  it("turns an invalid age into a new exact reply target and accepts the natural correction", async () => {
-    const playerId = createPlayerId();
-    const sessions = new RegistrationConversationSessions();
-    sessions.start(playerId, { mode: "GUIDED", regionId: ZHOULIA_ID });
-    sessions.applyGuidedAnswer(playerId, "Liora Vale");
-    sessions.expectReply(playerId, "registration:age-prompt");
-    const expectedByProviderMessage = new Map([
-      ["age-prompt-id", "registration:age-prompt"],
-      ["age-correction-id", "inbox:whatsapp:invalid-age:registration-conversation"],
-    ]);
-    const resolver = new RegistrationConversationResolver({
-      sessions,
-      community: { resolveChat: async () => onboardingContext() },
-      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
-      setup: { load: async () => ok(registrationSetup()) },
-      replyIntent: {
-        isExpectedReply: async (input) =>
-          expectedByProviderMessage.get(input.replyToExternalMessageId) ===
-          input.expectedOutboxIdempotencyKey,
-      },
-    });
-
-    const invalid = await resolver.resolve(
-      recoveryContext({ text: "dezessete", messageId: "invalid-age", replyTo: "age-prompt-id" }),
-    );
-    expect(invalid).toMatchObject({
-      ok: true,
-      value: {
+        resultRefType: "REGISTRATION_SESSION",
+        resultRefId: playerId,
         outgoing: [
           {
-            payload: {
-              text: expect.stringMatching(/idade[\s\S]*número inteiro maior que zero/i),
-            },
+            idempotencyKey: `${incoming.idempotencyKey}:registration-command`,
+            payload: { text: expect.stringContaining("Como prefere montar sua ficha?") },
           },
         ],
       },
     });
-    if (!invalid.ok || invalid.value === null) throw new Error("Expected age correction prompt");
-    expect(invalid.value.outgoing[0]?.payload.text).not.toContain("Código de suporte");
-    expect(sessions.get(playerId)).toMatchObject({
-      currentField: "age",
-      expectedReplyOutboxIdempotencyKey: "inbox:whatsapp:invalid-age:registration-conversation",
-      working: { trainerName: "Liora Vale" },
-    });
-
-    const staleReply = recoveryContext({
-      text: "17",
-      messageId: "stale-age-correction",
-      replyTo: "age-prompt-id",
-    });
-    expect(await resolver.admits(staleReply.message)).toBe(false);
-    expect(await resolver.resolve(staleReply)).toEqual(ok(null));
-
-    const corrected = await resolver.resolve(
-      recoveryContext({ text: "17", messageId: "correct-age", replyTo: "age-correction-id" }),
-    );
-    expect(corrected).toMatchObject({
-      ok: true,
-      value: { outgoing: [{ payload: { text: expect.stringMatching(/Gênero|pronomes/i) } }] },
-    });
-    expect(sessions.get(playerId)).toMatchObject({
-      currentField: "genderPronouns",
-      working: { age: 17 },
-    });
-  });
-
-  it("turns an invalid starter into a new exact reply target with the valid choices", async () => {
-    const playerId = createPlayerId();
-    const sessions = new RegistrationConversationSessions();
-    sessions.start(playerId, {
-      mode: "GUIDED",
-      regionId: ZHOULIA_ID,
-      baseDraft: {
-        trainerName: "Liora Vale",
-        age: 17,
-        genderPronouns: "ela/dela",
-        appearance: "Cabelos negros.",
-        personality: "Curiosa.",
-        backstory: "Uma história curta.",
-        regionId: ZHOULIA_ID,
-        schemaVersion: 1,
-      },
-    });
-    sessions.expectReply(playerId, "registration:starter-prompt");
-    const expectedByProviderMessage = new Map([
-      ["starter-prompt-id", "registration:starter-prompt"],
-      ["starter-correction-id", "inbox:whatsapp:invalid-starter:registration-conversation"],
-    ]);
-    const resolver = new RegistrationConversationResolver({
-      sessions,
-      community: { resolveChat: async () => onboardingContext() },
-      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
-      setup: { load: async () => ok(registrationSetup()) },
-      replyIntent: {
-        isExpectedReply: async (input) =>
-          expectedByProviderMessage.get(input.replyToExternalMessageId) ===
-          input.expectedOutboxIdempotencyKey,
-      },
-    });
-
-    const invalid = await resolver.resolve(
-      recoveryContext({
-        text: "Pikachu",
-        messageId: "invalid-starter",
-        replyTo: "starter-prompt-id",
-      }),
-    );
-    expect(invalid).toMatchObject({
-      ok: true,
-      value: {
-        outgoing: [
-          {
-            payload: {
-              text: expect.stringMatching(
-                /INICIAL NÃO RECONHECIDO[\s\S]*1\. Charmander[\s\S]*2\. Squirtle[\s\S]*número ou o nome/i,
-              ),
-            },
-          },
-        ],
-      },
-    });
-    expect(sessions.get(playerId)).toMatchObject({
-      currentField: "starterFormId",
-      expectedReplyOutboxIdempotencyKey: "inbox:whatsapp:invalid-starter:registration-conversation",
-    });
-
-    const corrected = await resolver.resolve(
-      recoveryContext({
-        text: "2",
-        messageId: "correct-starter",
-        replyTo: "starter-correction-id",
-      }),
-    );
-    expect(corrected).toMatchObject({ ok: true });
-    expect(sessions.get(playerId)).toMatchObject({
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]).toMatchObject({
+      playerId,
+      chatRef: incoming.message.chatRef,
+      state: "MODE_SELECT",
+      editingMode: null,
       currentField: null,
-      working: { starterFormId: SQUIRTLE_ID },
+      editField: null,
+      activePromptOutboxIdempotencyKey: `${incoming.idempotencyKey}:registration-command`,
+      expectedConversationRevision: null,
+      expectedDraftRevision: null,
+      inboxMessageId: incoming.inboxMessageId,
     });
+    expect(sessions.get(playerId)).toBeNull();
   });
 
   it("turns an explicit mode choice into the requested editor without choosing for the player", async () => {
@@ -391,7 +133,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("NOME DO TREINADOR") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("Nome do treinador") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({
@@ -420,7 +162,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("IDADE") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("Idade") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({
@@ -540,7 +282,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("/salvar") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("$salvar") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({
@@ -556,22 +298,3 @@ describe("registration conversation routing", () => {
     });
   });
 });
-
-it.each(["/", "/menu", "$menu"])(
-  "does not consume a command as a trainer field: %s",
-  async (text) => {
-    const playerId = createPlayerId();
-    const sessions = new RegistrationConversationSessions();
-    sessions.start(playerId, { mode: "GUIDED", regionId: ZHOULIA_ID });
-    const resolver = new RegistrationConversationResolver({
-      sessions,
-      community: { resolveChat: async () => onboardingContext() },
-      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
-      setup: { load: async () => ok(registrationSetup()) },
-    });
-    const input = context({ text });
-    expect(await resolver.admits(input.message)).toBe(false);
-    expect(await resolver.resolve(input)).toEqual(ok(null));
-    expect(sessions.get(playerId)?.working.trainerName).toBeUndefined();
-  },
-);

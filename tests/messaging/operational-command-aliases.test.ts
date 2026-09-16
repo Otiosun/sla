@@ -15,7 +15,6 @@ const EXPECTED_ALIASES = {
   inventario: ["inv", "mochila"],
   pokedex: ["dex"],
   onde: ["local"],
-  ir: ["viajar"],
 } as const;
 
 describe("operational command aliases", () => {
@@ -33,5 +32,6 @@ describe("operational command aliases", () => {
     expect(aliasesByCommand.get("regiao") ?? []).not.toContain("região");
     expect(aliasesByCommand.get("inventario") ?? []).not.toContain("inventário");
     expect(aliasesByCommand.get("pokedex") ?? []).not.toContain("pokédex");
+    expect(aliasesByCommand.get("ir") ?? []).not.toContain("viajar");
   });
 });

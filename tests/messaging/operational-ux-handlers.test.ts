@@ -240,7 +240,7 @@ function router(deps: OperationalUxDependencies): MessageRouter {
 describe("Phase 13 operational WhatsApp UX", () => {
   it("presents a compact complete-player menu without inventing automatic exploration", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("$menu")));
-    expect(output).toContain("CENTRAL DO TREINADOR");
+    expect(output).toContain("ROTOM · MENU");
     expect(output).toContain("/onde");
     expect(output).toContain("/encontro");
     expect(output).toContain("Cenas comuns continuam livres");
