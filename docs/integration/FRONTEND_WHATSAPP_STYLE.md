@@ -66,3 +66,11 @@ Grupo social não implica localização compartilhada.
 - POST_ARRIVAL preserva o cooldown especial de chegada e continua sendo regra do domínio de viagem.
 - TRAVEL representa o deslocamento curto do jogador no front: impede novo `/ir`, `/onde`, menu WORLD normal e spawn narrativo até expirar.
 - Serviços internos continuam podendo usar o domínio de World sem confundir deslocamento curto com o cooldown histórico de chegada.
+
+## Spawn múltiplo
+
+- O narrador usa `/spawn @treinador [quantidade]`; quantidade padrão 1, limite operacional atual 6.
+- A quantidade é decisão narrativa. Espécie, nível, IVs, natureza, habilidade e movimentos continuam saindo do RNG canônico da área.
+- Um grupo de selvagens é um único Encounter canônico com roster congelado; não são Encounters paralelos.
+- O PVE recebe esse roster como a party selvagem do Encounter.
+- O WhatsApp só mostra a lista compacta; IDs, slots internos, revisions e seeds nunca aparecem.

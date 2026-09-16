@@ -640,11 +640,29 @@ export function createOperationalUxRoutes(
     const active = await dependencies.encounter.activeForPlayer(player.value);
     if (!active.ok) return active;
 
-    const name =
-      (await dependencies.reads.speciesDisplayName(
-        active.value.contentReleaseId,
-        active.value.snapshot.speciesId,
-      )) ?? "Pokémon selvagem";
+    const wilds =
+      active.value.wilds === undefined || active.value.wilds.length === 0
+        ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: active.value.snapshot }]
+        : active.value.wilds.filter((wild) => wild.status === "ACTIVE");
+
+    const lines = await Promise.all(
+      wilds.map(async (wild) => {
+        const name =
+          (await dependencies.reads.speciesDisplayName(
+            active.value.contentReleaseId,
+            wild.snapshot.speciesId,
+          )) ?? "Pokémon selvagem";
+        return wilds.length === 1
+          ? [
+              `*${name}* · Nv. ${wild.snapshot.level}`,
+              `❤️ HP ${wild.snapshot.currentHp}/${wild.snapshot.maxHp}`,
+            ]
+          : [
+              `${wild.wildNo}. *${name}* · Nv. ${wild.snapshot.level}`,
+              `   ❤️ HP ${wild.snapshot.currentHp}/${wild.snapshot.maxHp}`,
+            ];
+      }),
+    );
 
     const guidance =
       active.value.status === "IN_BATTLE"
@@ -654,10 +672,9 @@ export function createOperationalUxRoutes(
     return textResult(
       context,
       [
-        "🌿 *ENCONTRO ATIVO*",
+        wilds.length <= 1 ? "🌿 *ENCONTRO ATIVO*" : "🌿 *ENCONTRO ATIVO · GRUPO*",
         "",
-        `*${name}* · Nv. ${active.value.snapshot.level}`,
-        `❤️ HP ${active.value.snapshot.currentHp}/${active.value.snapshot.maxHp}`,
+        ...lines.flat(),
         "",
         guidance,
       ].join("\n"),

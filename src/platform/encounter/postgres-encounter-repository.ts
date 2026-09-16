@@ -4,6 +4,7 @@ import type {
   EncounterPlayerContext,
   EncounterRecord,
   EncounterTableRecord,
+  EncounterWildSnapshot,
   WildPokemonBuild,
   WildPokemonSnapshot,
 } from "../../modules/encounter/contracts.js";
@@ -244,6 +245,32 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     return parsed.data;
   }
 
+  public async wildSnapshots(encounterId: EncounterId): Promise<readonly EncounterWildSnapshot[]> {
+    const result = await this.client.query<{
+      wild_no: number;
+      status: EncounterWildSnapshot["status"];
+      pokemon_snapshot: unknown;
+    }>(
+      `SELECT wild_no, status, pokemon_snapshot
+       FROM encounter_wild_snapshots
+       WHERE encounter_id = $1
+       ORDER BY wild_no`,
+      [encounterId],
+    );
+
+    return result.rows.map((row) => {
+      const parsed = WildPokemonSnapshotSchema.safeParse(row.pokemon_snapshot);
+      if (!parsed.success) {
+        throw new Error("Database returned an invalid wild roster snapshot");
+      }
+      return {
+        wildNo: row.wild_no,
+        status: row.status,
+        snapshot: parsed.data,
+      };
+    });
+  }
+
   public async battleId(encounterId: EncounterId): Promise<string | null> {
     const result = await this.client.query<{ id: string }>(
       "SELECT id FROM battles WHERE encounter_id = $1",
@@ -453,6 +480,7 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     readonly createdAt: Date;
     readonly expiresAt: Date;
     readonly snapshot: WildPokemonSnapshot;
+    readonly wildSnapshots?: readonly EncounterWildSnapshot[];
   }): Promise<EncounterRecord> {
     const participants = input.participantPlayerIds ?? [input.playerId];
     if (
@@ -519,6 +547,26 @@ class PostgresEncounterTransaction implements EncounterTransaction {
        VALUES ($1, 1, $2::jsonb, $3)`,
       [input.encounterId, JSON.stringify(input.snapshot), input.createdAt],
     );
+
+    const wilds =
+      input.wildSnapshots === undefined || input.wildSnapshots.length === 0
+        ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: input.snapshot }]
+        : input.wildSnapshots;
+
+    for (const wild of wilds) {
+      await this.client.query(
+        `INSERT INTO encounter_wild_snapshots(
+           encounter_id, wild_no, status, schema_version, pokemon_snapshot, created_at, updated_at
+         ) VALUES ($1, $2, $3, 1, $4::jsonb, $5, $5)`,
+        [
+          input.encounterId,
+          wild.wildNo,
+          wild.status,
+          JSON.stringify(wild.snapshot),
+          input.createdAt,
+        ],
+      );
+    }
     return mapEncounter(row);
   }
 

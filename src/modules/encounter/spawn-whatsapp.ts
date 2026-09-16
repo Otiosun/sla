@@ -69,6 +69,16 @@ function result(
   });
 }
 
+function requestedQuantity(context: MessageHandlerContext): Result<number> {
+  const tokens = context.message.text?.trim().split(/\s+/) ?? [];
+  const tail = tokens.at(-1) ?? "";
+  if (!/^\d+$/.test(tail)) return ok(1);
+  const quantity = Number(tail);
+  return Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 6
+    ? ok(quantity)
+    : err(appError("VALIDATION_FAILED", "A quantidade do spawn deve estar entre 1 e 6."));
+}
+
 function splitText(groups: readonly NarratorSpawnAreaGroup[]): string {
   const sections = groups.map((group) =>
     [
@@ -105,6 +115,8 @@ export function createSpawnWhatsAppRoute(
           ),
         );
       }
+      const quantity = requestedQuantity(context);
+      if (!quantity.ok) return quantity;
 
       const target = await dependencies.players.resolvePlayer({
         provider: context.message.provider,
@@ -140,6 +152,7 @@ export function createSpawnWhatsAppRoute(
       const created = await dependencies.encounters.createOrReplay({
         playerId: target.value.playerId,
         participantPlayerIds: [],
+        spawnQuantity: quantity.value,
         idempotencyKey: context.idempotencyKey,
       });
       if (!created.ok) return created;
@@ -154,22 +167,34 @@ export function createSpawnWhatsAppRoute(
             });
       if (!presented.ok) return presented;
 
-      const name =
-        dependencies.speciesDisplayName === undefined
-          ? "Pokémon selvagem"
-          : ((await dependencies.speciesDisplayName(
-              presented.value.contentReleaseId,
-              presented.value.snapshot.speciesId,
-            )) ?? "Pokémon selvagem");
+      const wilds =
+        presented.value.wilds === undefined || presented.value.wilds.length === 0
+          ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: presented.value.snapshot }]
+          : presented.value.wilds;
+
+      const wildLines = await Promise.all(
+        wilds.map(async (wild) => {
+          const name =
+            dependencies.speciesDisplayName === undefined
+              ? "Pokémon selvagem"
+              : ((await dependencies.speciesDisplayName(
+                  presented.value.contentReleaseId,
+                  wild.snapshot.speciesId,
+                )) ?? "Pokémon selvagem");
+          return wilds.length === 1
+            ? `*${name}* · Nv. ${wild.snapshot.level}`
+            : `${wild.wildNo}. *${name}* · Nv. ${wild.snapshot.level}`;
+        }),
+      );
 
       return result(
         context,
         [
-          "🌿 *ENCONTRO SELVAGEM*",
+          wilds.length === 1 ? "🌿 *ENCONTRO SELVAGEM*" : "🌿 *ENCONTRO SELVAGEM · GRUPO*",
           "",
           `_Cena conduzida pelo narrador em ${spawnContext.areaDisplayName}._`,
           "",
-          `*${name}* · Nv. ${presented.value.snapshot.level}`,
+          ...wildLines,
           "",
           spawnContext.participantCount === 1
             ? "O treinador marcado participa deste encontro."

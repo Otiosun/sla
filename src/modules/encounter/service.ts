@@ -45,6 +45,7 @@ if (!encounterCreateScopeResult.ok)
   throw new Error("Canonical encounter idempotency scope is invalid");
 const ENCOUNTER_CREATE_SCOPE = encounterCreateScopeResult.value;
 const TABLE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_NARRATOR_SPAWN_QUANTITY = 6;
 
 function playerGate(context: EncounterPlayerContext): PlayerEligibility {
   if (!context.playerActive) return { eligible: false, reason: "player-not-active" };
@@ -74,6 +75,18 @@ export class EncounterService {
       !TABLE_SLUG_PATTERN.test(input.encounterTableSlug)
     ) {
       return err(encounterValidationError("encounterTableSlug has an invalid format"));
+    }
+    const spawnQuantity = input.spawnQuantity ?? 1;
+    if (
+      !Number.isSafeInteger(spawnQuantity) ||
+      spawnQuantity < 1 ||
+      spawnQuantity > MAX_NARRATOR_SPAWN_QUANTITY
+    ) {
+      return err(
+        encounterValidationError(
+          `spawnQuantity must be an integer in 1..${MAX_NARRATOR_SPAWN_QUANTITY}`,
+        ),
+      );
     }
     const idempotency = createIdempotencyKey(ENCOUNTER_CREATE_SCOPE, input.idempotencyKey);
     if (!idempotency.ok) return idempotency;
@@ -176,13 +189,27 @@ export class EncounterService {
       const encounterId = createEncounterId();
       const seedMaterial = this.seedProvider.create(`encounter:${encounterId}`);
       const rng = new CounterRandomSource(seedMaterial.seed);
-      const entry = chooseWeightedEncounterEntry(entries, rng);
-      const level = chooseEncounterLevel(entry, rng);
-      const build = await transaction.wildBuild(content.contentReleaseId, entry.formId);
-      if (build === null) {
-        return err(encounterNotReady("Encounter entry references unavailable Pokemon content"));
+      const wildSnapshots = [];
+
+      for (let wildNo = 1; wildNo <= spawnQuantity; wildNo += 1) {
+        const entry = chooseWeightedEncounterEntry(entries, rng);
+        const level = chooseEncounterLevel(entry, rng);
+        const build = await transaction.wildBuild(content.contentReleaseId, entry.formId);
+        if (build === null) {
+          return err(encounterNotReady("Encounter entry references unavailable Pokemon content"));
+        }
+        wildSnapshots.push({
+          wildNo,
+          status: "ACTIVE" as const,
+          snapshot: generateWildPokemon(build, level, rng),
+        });
       }
-      const snapshot = generateWildPokemon(build, level, rng);
+
+      const primary = wildSnapshots[0];
+      if (primary === undefined) {
+        return err(encounterNotReady("Encounter wild roster generation failed"));
+      }
+
       const policy = resolveEncounterRulesetPolicy(content.rulesetConfig);
       const createdAt = this.clock.now();
       const expiresAt = new Date(createdAt.getTime() + policy.expirationSeconds * 1_000);
@@ -198,7 +225,8 @@ export class EncounterService {
         rngCounter: rng.counter,
         createdAt,
         expiresAt,
-        snapshot,
+        snapshot: primary.snapshot,
+        wildSnapshots,
       });
       return this.buildView(transaction, record);
     });
@@ -439,9 +467,17 @@ export class EncounterService {
   ): Promise<Result<EncounterView>> {
     const snapshot = await transaction.snapshot(record.encounterId);
     if (snapshot === null) return err(encounterNotReady("Encounter snapshot is missing"));
+    const wilds =
+      transaction.wildSnapshots === undefined
+        ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot }]
+        : await transaction.wildSnapshots(record.encounterId);
+    if (wilds.length === 0) {
+      return err(encounterNotReady("Encounter wild roster is missing"));
+    }
     return ok({
       ...record,
       snapshot,
+      wilds,
       battleId: await transaction.battleId(record.encounterId),
     });
   }

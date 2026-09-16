@@ -334,6 +334,7 @@ class PostgresBattleTransaction implements BattleTransaction {
   private async enrichWildPokemon(
     releaseId: string,
     snapshot: WildPokemonSnapshot,
+    rosterPosition = 1,
   ): Promise<BattlePokemonBuild> {
     const content = await this.client.query<{
       type1_slug: string;
@@ -372,7 +373,7 @@ class PostgresBattleTransaction implements BattleTransaction {
     return {
       pokemonInstanceId: null,
       participantKind: "WILD_POKEMON",
-      rosterPosition: 1,
+      rosterPosition,
       formId: snapshot.formId,
       speciesId: snapshot.speciesId,
       level: snapshot.level,
@@ -421,17 +422,31 @@ class PostgresBattleTransaction implements BattleTransaction {
     root: BattleRootRecord,
   ): Promise<BattleInitializationData | null> {
     if (root.battleType !== "WILD" || root.encounterId === null) return null;
-    const encounter = await this.client.query<{ player_id: string; pokemon_snapshot: unknown }>(
-      `SELECT e.player_id, es.pokemon_snapshot
+    const encounter = await this.client.query<{ player_id: string }>(
+      `SELECT e.player_id
        FROM encounters e
-       JOIN encounter_snapshots es ON es.encounter_id = e.id
        WHERE e.id = $1 AND e.content_release_id = $2 AND e.ruleset_id = $3`,
       [root.encounterId, root.contentReleaseId, root.rulesetId],
     );
     const encounterRow = encounter.rows[0];
     if (encounterRow === undefined) return null;
-    const wild = encounterRow.pokemon_snapshot as WildPokemonSnapshot;
-    if (wild.schemaVersion !== 1) throw new Error("Unsupported wild encounter snapshot version");
+
+    const wildRows = await this.client.query<{ wild_no: number; pokemon_snapshot: unknown }>(
+      `SELECT wild_no, pokemon_snapshot
+       FROM encounter_wild_snapshots
+       WHERE encounter_id = $1 AND status = 'ACTIVE'
+       ORDER BY wild_no`,
+      [root.encounterId],
+    );
+    if (wildRows.rows.length === 0) return null;
+
+    const wildRoster = wildRows.rows.map((row) => {
+      const snapshot = row.pokemon_snapshot as WildPokemonSnapshot;
+      if (snapshot.schemaVersion !== 1) {
+        throw new Error("Unsupported wild encounter snapshot version");
+      }
+      return { wildNo: row.wild_no, snapshot };
+    });
 
     const members = await this.client.query<{ player_id: string; roster_size: number | null }>(
       `SELECT player_id, cardinality(pokemon_instance_ids) AS roster_size FROM encounter_players WHERE encounter_id = $1
@@ -499,7 +514,11 @@ class PostgresBattleTransaction implements BattleTransaction {
       playerId: encounterRow.player_id,
       playerParty: ownerParty.party,
       ...(playerParties.length > 1 ? { playerParties } : {}),
-      opponentParty: [await this.enrichWildPokemon(root.contentReleaseId, wild)],
+      opponentParty: await Promise.all(
+        wildRoster.map((wild) =>
+          this.enrichWildPokemon(root.contentReleaseId, wild.snapshot, wild.wildNo),
+        ),
+      ),
     };
   }
 

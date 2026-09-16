@@ -4,6 +4,7 @@ import type {
   EncounterRecord,
   EncounterStatus,
   EncounterTableRecord,
+  EncounterWildSnapshot,
   WildPokemonBuild,
   WildPokemonSnapshot,
 } from "./contracts.js";
@@ -47,6 +48,7 @@ export interface EncounterTransaction {
     lock?: boolean,
   ): Promise<EncounterRecord | null>;
   snapshot(encounterId: EncounterId): Promise<WildPokemonSnapshot | null>;
+  wildSnapshots?(encounterId: EncounterId): Promise<readonly EncounterWildSnapshot[]>;
   battleId(encounterId: EncounterId): Promise<string | null>;
   tables(contentReleaseId: string, areaId: string): Promise<readonly EncounterTableRecord[]>;
   wildBuild(contentReleaseId: string, formId: string): Promise<WildPokemonBuild | null>;
@@ -64,6 +66,7 @@ export interface EncounterTransaction {
     readonly createdAt: Date;
     readonly expiresAt: Date;
     readonly snapshot: WildPokemonSnapshot;
+    readonly wildSnapshots?: readonly EncounterWildSnapshot[];
   }): Promise<EncounterRecord>;
   transition(input: {
     readonly playerId: PlayerId;
