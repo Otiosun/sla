@@ -83,6 +83,7 @@ import { PostgresReceptionPresenceRepository } from "../platform/community/postg
 import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-group-setup.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
+import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
@@ -425,7 +426,14 @@ export function createOperationalMessagingComposition(
           ]),
       ...(encounterWriter === undefined
         ? []
-        : [createSpawnWhatsAppRoute({ players: playerRegistration, encounters: encounterWriter })]),
+        : [
+            createSpawnWhatsAppRoute({
+              players: playerRegistration,
+              encounters: encounterWriter,
+              context: new PostgresNarratorSpawnContextResolver(pool),
+              speciesDisplayName: reads.speciesDisplayName.bind(reads),
+            }),
+          ]),
       createWorldGroupSetupRoute({
         admins: adminIdentity,
         admin: adminService,

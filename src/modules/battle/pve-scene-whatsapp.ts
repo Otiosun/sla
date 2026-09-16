@@ -250,8 +250,15 @@ export function createPveSceneRoutes(
       return reply(
         context,
         kind === "NARRATOR"
-          ? "🎙️ Controle narrativo assumido."
-          : "🤖 Controle automático restaurado.",
+          ? [
+              "🎙️ *CONTROLE DO NARRADOR*",
+              "",
+              "_Controle narrativo assumido._",
+              "",
+              "Use `/batalha` para ver o turno atual.",
+              "Quando quiser devolver à IA, use `/automatico`.",
+            ].join("\n")
+          : ["🤖 *CONTROLE AUTOMÁTICO*", "", "_Controle automático restaurado._"].join("\n"),
         battleId,
       );
     };

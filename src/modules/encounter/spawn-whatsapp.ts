@@ -14,18 +14,44 @@ class FunctionalHandler implements MessageRouteHandler {
   }
 }
 
+export interface NarratorSpawnAreaGroup {
+  readonly areaDisplayName: string;
+  readonly participantDisplayNames: readonly string[];
+}
+
+export type NarratorSpawnContext =
+  | {
+      readonly kind: "READY";
+      readonly areaDisplayName: string;
+      readonly participantCount: number;
+    }
+  | {
+      readonly kind: "SPLIT";
+      readonly groups: readonly NarratorSpawnAreaGroup[];
+    };
+
+export interface NarratorSpawnContextResolver {
+  resolve(playerId: string): Promise<NarratorSpawnContext>;
+}
+
 export interface SpawnWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
-  readonly encounters: Pick<EncounterService, "createOrReplay">;
+  readonly encounters: Pick<EncounterService, "createOrReplay"> &
+    Partial<Pick<EncounterService, "observe">>;
+  readonly context?: NarratorSpawnContextResolver;
+  readonly speciesDisplayName?: (
+    contentReleaseId: string,
+    speciesId: string,
+  ) => Promise<string | null>;
 }
 
 function result(
   context: MessageHandlerContext,
   text: string,
-  encounterId: string,
+  encounterId: string | null,
 ): Result<MessageHandlerResult> {
   return ok({
-    resultRefType: "ENCOUNTER",
+    resultRefType: encounterId === null ? null : "ENCOUNTER",
     resultRefId: encounterId,
     outgoing: [
       {
@@ -39,6 +65,25 @@ function result(
   });
 }
 
+function splitText(groups: readonly NarratorSpawnAreaGroup[]): string {
+  const sections = groups.map((group) =>
+    [
+      `*${group.areaDisplayName}*`,
+      ...group.participantDisplayNames.map((name) => `• ${name}`),
+    ].join("\n"),
+  );
+
+  return [
+    "⚠️ *GRUPO DIVIDIDO*",
+    "",
+    "_O encontro não foi criado._",
+    "",
+    ...sections.flatMap((section, index) => (index === 0 ? [section] : ["", section])),
+    "",
+    "Escolha um participante de uma área comum ou reúna o grupo antes do spawn.",
+  ].join("\n");
+}
+
 export function createSpawnWhatsAppRoute(
   dependencies: SpawnWhatsAppDependencies,
 ): CommandRouteDefinition {
@@ -49,23 +94,71 @@ export function createSpawnWhatsAppRoute(
     handler: new FunctionalHandler(async (context) => {
       const mentions = context.message.mentions ?? [];
       if (mentions.length !== 1) {
-        return err(appError("VALIDATION_FAILED", "Use /spawn com exatamente uma menção real."));
+        return err(
+          appError(
+            "VALIDATION_FAILED",
+            "Use `/spawn @treinador` com exatamente uma menção real. Se ele estiver em party, a party inteira será validada.",
+          ),
+        );
       }
+
       const target = await dependencies.players.resolvePlayer({
         provider: context.message.provider,
         externalId: mentions[0],
       });
       if (!target.ok) return target;
+
+      const spawnContext =
+        dependencies.context === undefined
+          ? { kind: "READY" as const, areaDisplayName: "Área atual", participantCount: 1 }
+          : await dependencies.context.resolve(target.value.playerId);
+
+      if (spawnContext.kind === "SPLIT") {
+        return result(context, splitText(spawnContext.groups), null);
+      }
+
       const created = await dependencies.encounters.createOrReplay({
         playerId: target.value.playerId,
         participantPlayerIds: [],
         idempotencyKey: context.idempotencyKey,
       });
       if (!created.ok) return created;
+
+      const presented =
+        dependencies.encounters.observe === undefined
+          ? created
+          : await dependencies.encounters.observe({
+              playerId: target.value.playerId,
+              encounterId: created.value.encounterId,
+              expectedRevision: created.value.revision,
+            });
+      if (!presented.ok) return presented;
+
+      const name =
+        dependencies.speciesDisplayName === undefined
+          ? "Pokémon selvagem"
+          : ((await dependencies.speciesDisplayName(
+              presented.value.contentReleaseId,
+              presented.value.snapshot.speciesId,
+            )) ?? "Pokémon selvagem");
+
       return result(
         context,
-        `🌿 Encontro criado para o treinador marcado · Nv. ${created.value.snapshot.level}.`,
-        created.value.encounterId,
+        [
+          "🌿 *ENCONTRO SELVAGEM*",
+          "",
+          `_Cena conduzida pelo narrador em ${spawnContext.areaDisplayName}._`,
+          "",
+          `*${name}* · Nv. ${presented.value.snapshot.level}`,
+          "",
+          spawnContext.participantCount === 1
+            ? "O treinador marcado participa deste encontro."
+            : `A party co-localizada participa deste encontro · ${spawnContext.participantCount} treinadores.`,
+          "",
+          "O narrador decide quando a cena vira combate.",
+          "⚔️ `/iniciarbatalha @treinador`",
+        ].join("\n"),
+        presented.value.encounterId,
       );
     }),
   };

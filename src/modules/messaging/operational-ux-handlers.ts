@@ -160,7 +160,7 @@ function onboardingMenu(state: string): string {
     "`/batalha` · batalha ativa",
     "",
     "Cenas comuns continuam livres entre jogadores e narrador.",
-    "O menu ficará mais contextual conforme exploração, encontro e instalações forem conectados.",
+    "_Explorações são conduzidas em cena pelo narrador._",
   ].join("\n");
 }
 
