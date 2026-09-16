@@ -1,12 +1,12 @@
 import {
-  CatalogDraftCreateInputSchema,
-  CatalogDraftDeactivateInputSchema,
-  CatalogDraftInspectInputSchema,
-  CatalogDraftReplaceInputSchema,
   type CatalogDraftCreateInput,
+  CatalogDraftCreateInputSchema,
   type CatalogDraftDeactivateInput,
+  CatalogDraftDeactivateInputSchema,
   type CatalogDraftInspectInput,
+  CatalogDraftInspectInputSchema,
   type CatalogDraftReplaceInput,
+  CatalogDraftReplaceInputSchema,
 } from "../catalog/draft-contracts.js";
 import type { AdminCatalogDraftOperationPort } from "./catalog-draft-ports.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";

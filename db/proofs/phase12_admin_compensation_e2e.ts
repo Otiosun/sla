@@ -10,13 +10,13 @@ import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js
 import { AdminService } from "../../src/modules/admin/service.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
-import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { PostgresAdminOperationAuditRepository } from "../../src/platform/admin/postgres-admin-audit-repository.js";
 import { PostgresAdminCompensationCompletion } from "../../src/platform/admin/postgres-admin-compensation-completion.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");

@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
-  IncomingMessageSchema,
-  incomingMessageFingerprint,
   type InboxClaim,
   type IncomingMessage,
+  IncomingMessageSchema,
+  incomingMessageFingerprint,
   type MessageHandlerResult,
   type MessagingRateLimitDecision,
   type MessagingRateLimitRule,
@@ -13,6 +12,7 @@ import {
   type PendingOutboxMessage,
 } from "../../modules/messaging/contracts.js";
 import type { MessagingRepository } from "../../modules/messaging/ports.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 interface InboxRow {
   readonly id: string;

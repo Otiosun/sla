@@ -24,7 +24,7 @@ function context(text: string, mentions: readonly string[] = []): MessageHandler
       occurredAt: "2026-09-11T22:00:00.000Z",
       text,
       mediaRefs: [],
-      mentions,
+      mentions: [...mentions],
       replyToExternalMessageId: null,
     },
   };

@@ -1,4 +1,4 @@
-import { parsePokemonInstanceId, type PokemonInstanceId } from "../../shared-kernel/ids.js";
+import { type PokemonInstanceId, parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
 const BOX_CAPACITY = 30;

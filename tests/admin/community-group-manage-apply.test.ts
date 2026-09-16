@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../../src/modules/admin/reception-operation-definitions.js";
 
@@ -27,8 +27,10 @@ describe("community.group.manage apply wiring", () => {
     const definition = registry.require("community.group.manage");
 
     expect(definition.apply).toBeTypeOf("function");
+    const apply = definition.apply;
+    if (apply === undefined) throw new Error("community.group.manage apply handler missing");
 
-    await definition.apply!(
+    await apply(
       {
         operation: {} as never,
         actorPrincipalId: "11111111-1111-4111-8111-111111111111",

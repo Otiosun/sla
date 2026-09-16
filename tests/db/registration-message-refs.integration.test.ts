@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresRegistrationMessageRefRepository } from "../../src/platform/registration/postgres-registration-message-ref-repository.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import { PostgresRegistrationMessageRefRepository } from "../../src/platform/registration/postgres-registration-message-ref-repository.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;

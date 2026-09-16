@@ -1,8 +1,8 @@
 import type { RandomSource } from "../../platform/rng/index.js";
-import type { EncounterView } from "../encounter/contracts.js";
-import type { EncounterService } from "../encounter/service.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { EncounterView } from "../encounter/contracts.js";
+import type { EncounterService } from "../encounter/service.js";
 
 export type FishingRarity = "COMMON" | "UNCOMMON" | "RARE" | "EXTREMELY_RARE";
 

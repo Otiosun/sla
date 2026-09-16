@@ -11,7 +11,7 @@ import type {
   InventoryLedgerWrite,
   WalletLedgerWrite,
 } from "../../modules/economy/ports.js";
-import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
 const PG_BIGINT_MAX = "9223372036854775807";

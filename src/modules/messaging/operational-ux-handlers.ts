@@ -86,7 +86,7 @@ function arrivalResult(
   if (caption === null) {
     return textResult(
       context,
-      `ðŸ“ VocÃª chegou a *${location.areaDisplayName}*.\n\nUse \`/onde\` para ver as rotas daqui.`,
+      `📍 Você chegou a *${location.areaDisplayName}*.\n\nUse \`/onde\` para ver as rotas daqui.`,
     );
   }
   const imageUrl = media?.zhouliaVilaArrivalImageUrl?.() ?? null;
@@ -108,7 +108,7 @@ function arrivalResult(
 function cooldownText(availableAt: string, now: Date): string {
   const seconds = Math.max(0, Math.ceil((new Date(availableAt).getTime() - now.getTime()) / 1000));
   const minutes = Math.floor(seconds / 60);
-  return `â³ VocÃª acabou de chegar a *Vila dos Arrozais*.\nAguarde *${minutes}min ${seconds % 60}s* antes de seguir por outra rota.`;
+  return `⏳ Você acabou de chegar a *Vila dos Arrozais*.\nAguarde *${minutes}min ${seconds % 60}s* antes de seguir por outra rota.`;
 }
 
 function pageNumber(args: readonly string[]): Result<number> {
@@ -116,7 +116,7 @@ function pageNumber(args: readonly string[]): Result<number> {
   const page = Number(args[0]);
   return Number.isSafeInteger(page) && page > 0
     ? ok(page)
-    : err(appError("VALIDATION_FAILED", "PÃ¡gina invÃ¡lida. Use um nÃºmero inteiro maior que zero."));
+    : err(appError("VALIDATION_FAILED", "Página inválida. Use um número inteiro maior que zero."));
 }
 
 function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
@@ -125,7 +125,7 @@ function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
 
 function pageFooter(total: number, page: number, command: string): string {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  return totalPages <= 1 ? "" : `\n\nPÃ¡gina ${page}/${totalPages} Â· ${command} <pÃ¡gina>`;
+  return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
 }
 
 async function resolvePlayer(
@@ -139,30 +139,30 @@ async function resolvePlayer(
 function onboardingMenu(state: string): string {
   switch (state) {
     case "NEW":
-      return "ðŸŽ’ *Bem-vindo ao RPG PokÃ©mon*\n\n1. Crie seu treinador:\n`/registrar Seu Nome`";
+      return "🎒 *Bem-vindo ao RPG Pokémon*\n\n1. Crie seu treinador:\n`/registrar Seu Nome`";
     case "PROFILE_CREATED":
-      return "ðŸ—ºï¸ *Treinador criado*\n\nAgora escolha sua regiÃ£o:\n`/regioes`";
+      return "🗺️ *Treinador criado*\n\nAgora escolha sua região:\n`/regioes`";
     case "REGION_SELECTED":
     case "STARTER_PENDING":
-      return "ðŸ”¥ *RegiÃ£o definida*\n\nVeja os iniciais disponÃ­veis:\n`/starters`\nDepois escolha com `/starter <nÃºmero>`.";
+      return "🔥 *Região definida*\n\nVeja os iniciais disponíveis:\n`/starters`\nDepois escolha com `/starter <número>`.";
     case "STARTER_GRANTED":
-      return "âœ… *Seu inicial jÃ¡ foi entregue.*\n\nFinalize a entrada no mundo com:\n`/concluir`";
+      return "✅ *Seu inicial já foi entregue.*\n\nFinalize a entrada no mundo com:\n`/concluir`";
     case "COMPLETE":
       return [
-        "ðŸ“Ÿ *CENTRAL DO TREINADOR*",
+        "📟 *CENTRAL DO TREINADOR*",
         "",
-        "`/perfil` Â· treinador",
-        "`/equipe` Â· equipe atual",
-        "`/inventario` Â· itens",
-        "`/pokedex` Â· registros",
-        "`/onde` Â· local e rotas",
-        "`/encontro` Â· encontro ativo",
-        "`/batalha` Â· estado mecÃ¢nico da batalha",
+        "`/perfil` · treinador",
+        "`/equipe` · equipe atual",
+        "`/inventario` · itens",
+        "`/pokedex` · registros",
+        "`/onde` · local e rotas",
+        "`/encontro` · encontro ativo",
+        "`/batalha` · estado mecânico da batalha",
         "",
         "Cenas comuns continuam livres entre jogadores e narrador.",
       ].join("\n");
     default:
-      return "Estado de onboarding nÃ£o reconhecido.";
+      return "Estado de onboarding não reconhecido.";
   }
 }
 
@@ -182,7 +182,7 @@ function activeCombatant(
 }
 
 function statusLabel(status: BattleCombatant["majorStatus"]): string {
-  return status === null ? "â€”" : status.key;
+  return status === null ? "—" : status.key;
 }
 
 function actionLabel(
@@ -233,7 +233,7 @@ export function createOperationalUxRoutes(
       locale: "pt-BR",
     });
     if (!created.ok) return created;
-    return textResult(context, `âœ… Treinador *${trainerName}* criado.\n\nAgora use \`/regioes\`.`, {
+    return textResult(context, `✅ Treinador *${trainerName}* criado.\n\nAgora use \`/regioes\`.`, {
       type: "PLAYER",
       id: resolved.value.playerId,
     });
@@ -244,11 +244,11 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const options = await dependencies.reads.listRegionOptions(player.value);
     if (options.length === 0)
-      return err(appError("ACTION_INVALID", "Nenhuma regiÃ£o estÃ¡ disponÃ­vel para este treinador."));
+      return err(appError("ACTION_INVALID", "Nenhuma região está disponível para este treinador."));
     const lines = options.map((option, index) => `${index + 1}. ${option.displayName}`);
     return textResult(
       context,
-      `ðŸ—ºï¸ *REGIÃ•ES*\n\n${lines.join("\n")}\n\nEscolha com \`/regiao <nÃºmero>\`.`,
+      `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`/regiao <número>\`.`,
     );
   };
 
@@ -258,17 +258,17 @@ export function createOperationalUxRoutes(
     const index = Number(commandArgs(context)[0]);
     const options = await dependencies.reads.listRegionOptions(player.value);
     if (!Number.isSafeInteger(index) || index < 1 || index > options.length) {
-      return err(appError("VALIDATION_FAILED", "RegiÃ£o invÃ¡lida. Veja as opÃ§Ãµes com /regioes."));
+      return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com /regioes."));
     }
     const selected = options[index - 1];
-    if (selected === undefined) return err(appError("ACTION_INVALID", "RegiÃ£o nÃ£o encontrada."));
+    if (selected === undefined) return err(appError("ACTION_INVALID", "Região não encontrada."));
     const result = await dependencies.registration.selectRegion(player.value, {
       regionId: selected.regionId,
     });
     if (!result.ok) return result;
     return textResult(
       context,
-      `âœ… RegiÃ£o definida: *${selected.displayName}*.\n\nUse \`/starters\` para ver seus iniciais.`,
+      `✅ Região definida: *${selected.displayName}*.\n\nUse \`/starters\` para ver seus iniciais.`,
     );
   };
 
@@ -278,11 +278,11 @@ export function createOperationalUxRoutes(
     const options = await dependencies.starter.listStarterOptions(player.value);
     if (!options.ok) return options;
     const lines = options.value.map(
-      (option, index) => `${index + 1}. ${option.displayName} Â· Nv. ${option.starterLevel}`,
+      (option, index) => `${index + 1}. ${option.displayName} · Nv. ${option.starterLevel}`,
     );
     return textResult(
       context,
-      `ðŸ”¥ *POKÃ‰MON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`/starter <nÃºmero>\`.`,
+      `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`/starter <número>\`.`,
     );
   };
 
@@ -294,7 +294,7 @@ export function createOperationalUxRoutes(
     if (!prepared.ok) return prepared;
     const selected = prepared.value.options[index - 1];
     if (!Number.isSafeInteger(index) || index < 1 || selected === undefined) {
-      return err(appError("VALIDATION_FAILED", "Inicial invÃ¡lido. Veja as opÃ§Ãµes com /starters."));
+      return err(appError("VALIDATION_FAILED", "Inicial inválido. Veja as opções com /starters."));
     }
     const correlationId = parseCorrelationId(context.correlationId);
     if (!correlationId.ok) return correlationId;
@@ -342,10 +342,10 @@ export function createOperationalUxRoutes(
     return textResult(
       context,
       [
-        "ðŸ‘¤ *PERFIL*",
+        "👤 *PERFIL*",
         "",
-        `Treinador: *${value.trainerName ?? "â€”"}*`,
-        `NÃ­vel: ${value.trainerLevel}`,
+        `Treinador: *${value.trainerName ?? "—"}*`,
+        `Nível: ${value.trainerLevel}`,
         `Pontos: ${value.progressionPoints}`,
         `Status: ${value.playerStatus}`,
         `Onboarding: ${value.onboardingState}`,
@@ -360,11 +360,11 @@ export function createOperationalUxRoutes(
     const members = await dependencies.reads.listTeam(player.value);
     const lines = members.map(
       (member) =>
-        `${member.slotNo}. *${member.displayName}* Â· Nv. ${member.level} Â· HP ${member.currentHp}`,
+        `${member.slotNo}. *${member.displayName}* · Nv. ${member.level} · HP ${member.currentHp}`,
     );
     return textResult(
       context,
-      `âš¡ *EQUIPE*\n\n${lines.length === 0 ? "Nenhum PokÃ©mon na equipe." : lines.join("\n")}`,
+      `⚡ *EQUIPE*\n\n${lines.length === 0 ? "Nenhum Pokémon na equipe." : lines.join("\n")}`,
     );
   };
 
@@ -376,11 +376,11 @@ export function createOperationalUxRoutes(
     const items = await dependencies.reads.listInventory(player.value);
     const slice = pageSlice(items, page.value);
     if (items.length > 0 && slice.length === 0)
-      return err(appError("VALIDATION_FAILED", "Essa pÃ¡gina do inventÃ¡rio nÃ£o existe."));
-    const lines = slice.map((item) => `â€¢ ${item.displayName} Ã—${item.quantity}`);
+      return err(appError("VALIDATION_FAILED", "Essa página do inventário não existe."));
+    const lines = slice.map((item) => `• ${item.displayName} ×${item.quantity}`);
     return textResult(
       context,
-      `ðŸŽ’ *INVENTÃRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "/inventario")}`,
+      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "/inventario")}`,
     );
   };
 
@@ -392,14 +392,14 @@ export function createOperationalUxRoutes(
     const entries = await dependencies.reads.listPokedex(player.value);
     const slice = pageSlice(entries, page.value);
     if (entries.length > 0 && slice.length === 0)
-      return err(appError("VALIDATION_FAILED", "Essa pÃ¡gina da PokÃ©dex nÃ£o existe."));
+      return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
     const lines = slice.map(
       (entry) =>
-        `#${String(entry.nationalDex).padStart(4, "0")} ${entry.displayName} Â· vistos ${entry.seenCount} Â· capturados ${entry.caughtCount}`,
+        `#${String(entry.nationalDex).padStart(4, "0")} ${entry.displayName} · vistos ${entry.seenCount} · capturados ${entry.caughtCount}`,
     );
     return textResult(
       context,
-      `ðŸ“• *POKÃ‰DEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "/pokedex")}`,
+      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "/pokedex")}`,
     );
   };
 
@@ -410,17 +410,17 @@ export function createOperationalUxRoutes(
     if (!location.ok) return location;
     const routes = location.value.connections.map((connection) =>
       connection.available
-        ? `â†’ ${connection.destinationDisplayName}\n  \`/ir ${connection.destinationSlug} v${location.value.revision}\``
-        : `ðŸ”’ ${connection.destinationDisplayName}`,
+        ? `→ ${connection.destinationDisplayName}\n  \`/ir ${connection.destinationSlug} v${location.value.revision}\``
+        : `🔒 ${connection.destinationDisplayName}`,
     );
     return textResult(
       context,
       [
-        `ðŸ“ *${location.value.areaDisplayName}*`,
+        `📍 *${location.value.areaDisplayName}*`,
         location.value.regionDisplayName,
         "",
         "*Rotas:*",
-        routes.length === 0 ? "Nenhuma saÃ­da disponÃ­vel." : routes.join("\n"),
+        routes.length === 0 ? "Nenhuma saída disponível." : routes.join("\n"),
       ].join("\n"),
     );
   };
@@ -434,7 +434,7 @@ export function createOperationalUxRoutes(
       return err(
         appError(
           "VALIDATION_FAILED",
-          "Rota invÃ¡lida ou expirada. Use /onde e escolha uma rota atual.",
+          "Rota inválida ou expirada. Use /onde e escolha uma rota atual.",
         ),
       );
     }
@@ -453,7 +453,7 @@ export function createOperationalUxRoutes(
         return err(
           appError(
             "REVISION_CONFLICT",
-            "Essa rota expirou porque sua localizaÃ§Ã£o mudou. Use /onde novamente.",
+            "Essa rota expirou porque sua localização mudou. Use /onde novamente.",
           ),
         );
       }
@@ -469,7 +469,7 @@ export function createOperationalUxRoutes(
     );
     if (connection === undefined) {
       return err(
-        appError("ACTION_INVALID", "Essa rota nÃ£o estÃ¡ disponÃ­vel agora. Use /onde novamente."),
+        appError("ACTION_INVALID", "Essa rota não está disponível agora. Use /onde novamente."),
       );
     }
     const moved = await dependencies.world.travel({
@@ -488,7 +488,7 @@ export function createOperationalUxRoutes(
         ? err(
             appError(
               "REVISION_CONFLICT",
-              "Essa rota expirou porque sua localizaÃ§Ã£o mudou. Use /onde novamente.",
+              "Essa rota expirou porque sua localização mudou. Use /onde novamente.",
             ),
           )
         : moved;
@@ -510,20 +510,20 @@ export function createOperationalUxRoutes(
       (await dependencies.reads.speciesDisplayName(
         active.value.contentReleaseId,
         active.value.snapshot.speciesId,
-      )) ?? "PokÃ©mon selvagem";
+      )) ?? "Pokémon selvagem";
     const guidance =
       active.value.status === "IN_BATTLE"
-        ? "A batalha jÃ¡ estÃ¡ ativa: use `/batalha`."
-        : "A cena continua sob conduÃ§Ã£o do narrador; o bot nÃ£o inicia combate automaticamente.";
+        ? "A batalha já está ativa: use `/batalha`."
+        : "A cena continua sob condução do narrador; o bot não inicia combate automaticamente.";
     return textResult(
       context,
       [
-        "ðŸŒ¿ *ENCONTRO ATIVO*",
+        "🌿 *ENCONTRO ATIVO*",
         "",
-        `PokÃ©mon: *${name}* Â· Nv. ${active.value.snapshot.level}`,
+        `Pokémon: *${name}* · Nv. ${active.value.snapshot.level}`,
         `HP: ${active.value.snapshot.currentHp}/${active.value.snapshot.maxHp}`,
         `Estado: ${active.value.status}`,
-        `RevisÃ£o: ${active.value.revision}`,
+        `Revisão: ${active.value.revision}`,
         "",
         guidance,
       ].join("\n"),
@@ -534,7 +534,7 @@ export function createOperationalUxRoutes(
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     const battleId = await dependencies.reads.activeBattleId(player.value);
-    if (battleId === null) return err(appError("NOT_FOUND", "VocÃª nÃ£o estÃ¡ em uma batalha ativa."));
+    if (battleId === null) return err(appError("NOT_FOUND", "Você não está em uma batalha ativa."));
     const view = await dependencies.battle.forPlayer(battleId, player.value);
     if (!view.ok) return view;
     const state = view.value.state;
@@ -545,7 +545,7 @@ export function createOperationalUxRoutes(
     const opponent =
       opponentSide === undefined ? null : activeCombatant(state, opponentSide.sideNo);
     if (own === null)
-      return err(appError("ACTION_INVALID", "Batalha ativa sem PokÃ©mon controlÃ¡vel."));
+      return err(appError("ACTION_INVALID", "Batalha ativa sem Pokémon controlável."));
     const moveNames = await dependencies.reads.moveDisplayNames(
       state.contentReleaseId,
       own.moves.map((move) => move.moveId),
@@ -553,30 +553,30 @@ export function createOperationalUxRoutes(
     const moveLines = own.moves.map((move) => {
       const pp =
         move.ppCurrent === null || move.maxPp === null
-          ? "PP â€”"
+          ? "PP —"
           : `PP ${move.ppCurrent}/${move.maxPp}`;
-      return `${move.slotNo}. ${moveNames.get(move.moveId) ?? `Movimento ${move.slotNo}`} Â· ${pp}`;
+      return `${move.slotNo}. ${moveNames.get(move.moveId) ?? `Movimento ${move.slotNo}`} · ${pp}`;
     });
     const legal = view.value.legalActions.map(
-      (action) => `â€¢ ${actionLabel(action, state, moveNames)}`,
+      (action) => `• ${actionLabel(action, state, moveNames)}`,
     );
     return textResult(
       context,
       [
-        `âš”ï¸ *BATALHA Â· Turno ${state.turnNumber} Â· v${state.version}*`,
+        `⚔️ *BATALHA · Turno ${state.turnNumber} · v${state.version}*`,
         "",
-        `Seu PokÃ©mon Â· HP ${own.currentHp}/${own.maxHp} Â· status ${statusLabel(own.majorStatus)}`,
+        `Seu Pokémon · HP ${own.currentHp}/${own.maxHp} · status ${statusLabel(own.majorStatus)}`,
         opponent === null
-          ? "Oponente: â€”"
-          : `Oponente Â· HP ${opponent.currentHp}/${opponent.maxHp} Â· status ${statusLabel(opponent.majorStatus)}`,
+          ? "Oponente: —"
+          : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
         "",
         "*Movimentos:*",
         moveLines.join("\n"),
         "",
-        "*AÃ§Ãµes mecanicamente legais agora:*",
+        "*Ações mecanicamente legais agora:*",
         legal.length === 0 ? "Nenhuma." : legal.join("\n"),
         "",
-        "A cena narrativa continua livre. Esta tela informa legalidade; ela nÃ£o substitui a seleÃ§Ã£o explÃ­cita da aÃ§Ã£o narrativa.",
+        "A cena narrativa continua livre. Esta tela informa legalidade; ela não substitui a seleção explícita da ação narrativa.",
       ].join("\n"),
     );
   };

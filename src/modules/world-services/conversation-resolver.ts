@@ -1,3 +1,5 @@
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { type AppError, ok, type Result } from "../../shared-kernel/result.js";
 import type { CommunityChatContext } from "../community/contracts.js";
 import type { EconomyService } from "../economy/service.js";
 import type {
@@ -7,8 +9,6 @@ import type {
 } from "../messaging/contracts.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { ok, type AppError, type Result } from "../../shared-kernel/result.js";
 import type { WorldServiceSessionRecord } from "./contracts.js";
 import {
   isMartCatalogPromptKey,

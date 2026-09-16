@@ -1,19 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CounterRandomSource } from "../../platform/rng/counter-rng.js";
-import { createPokemonInstanceId } from "../../shared-kernel/ids.js";
 import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
-import { err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
+import { createPokemonInstanceId } from "../../shared-kernel/ids.js";
+import { type AppError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { BattleCombatant } from "../battle/contracts.js";
 import { EffectConfigSchemas, RulesetConfigSchema } from "../catalog/contracts.js";
 import {
-  CaptureAttemptInputBoundarySchema,
-  CaptureProbabilityInputSchema,
-  type CapturedPokemonState,
   type CaptureAttemptInput,
+  CaptureAttemptInputBoundarySchema,
   type CaptureAttemptRecord,
   type CaptureAttemptResult,
   type CaptureContext,
   type CaptureDomainEvent,
+  type CapturedPokemonState,
+  CaptureProbabilityInputSchema,
 } from "./contracts.js";
 import {
   captureBattleVersionConflict,

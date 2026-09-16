@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { Pool, type PoolClient } from "pg";
+import { gen123Id } from "../../db/imports/gen123/ids.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { loadMigrations, verifyAppliedMigrations } from "../../src/platform/db/migrations.js";
-import { gen123Id } from "../../db/imports/gen123/ids.js";
 
 export const STAGING_GEN123_RELEASE_ID = gen123Id("release:gen123-production-candidate-v1");
 

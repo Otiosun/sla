@@ -6,10 +6,10 @@ import {
   baileysOutboundMessageId,
 } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
+import { CommunityGroupAdminService } from "../modules/admin/community-group-service.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
 import { AdminService } from "../modules/admin/service.js";
-import { CommunityGroupAdminService } from "../modules/admin/community-group-service.js";
 import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import {
@@ -227,10 +227,9 @@ export function createOperationalMessagingComposition(
     community,
     completion: new PostgresAdminOperationCompletion(pool),
   });
-  const adminRegistry = registerReceptionAdminOperations(
-    new AdminOperationRegistry(),
-    { communityGroup: communityGroupAdmin },
-  );
+  const adminRegistry = registerReceptionAdminOperations(new AdminOperationRegistry(), {
+    communityGroup: communityGroupAdmin,
+  });
   registerWorldGroupSetupOperation(adminRegistry);
   const adminService = new AdminService(adminRegistry, new PostgresAdminRepository(pool));
   const auditedRegistrationReview = new AuditedRegistrationReviewService({

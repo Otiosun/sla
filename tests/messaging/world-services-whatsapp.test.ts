@@ -3,13 +3,13 @@ import type {
   IncomingMessage,
   MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
-import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
-import { WorldServiceConversationResolver } from "../../src/modules/world-services/conversation-resolver.js";
 import type {
   SceneProofRecord,
   WorldServiceKind,
   WorldServiceSessionRecord,
 } from "../../src/modules/world-services/contracts.js";
+import { WorldServiceConversationResolver } from "../../src/modules/world-services/conversation-resolver.js";
+import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 

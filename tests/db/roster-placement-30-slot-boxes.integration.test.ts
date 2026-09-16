@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
-import { parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;

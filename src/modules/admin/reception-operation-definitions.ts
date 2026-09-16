@@ -29,7 +29,6 @@ const communityGroupInputSchema = z
   })
   .strict();
 
-
 export type CommunityGroupManageInput = z.infer<typeof communityGroupInputSchema>;
 
 export interface CommunityGroupManageApplyPort {
@@ -91,6 +90,8 @@ export function registerReceptionAdminOperations(
     readonly communityGroup?: CommunityGroupManageApplyPort;
   } = {},
 ): AdminOperationRegistry {
+  const communityGroup = dependencies.communityGroup;
+
   registry.register(
     defineAdminOperation({
       kind: "READ",
@@ -160,11 +161,11 @@ export function registerReceptionAdminOperations(
       policy: auditedMutationPolicy,
       inputSchema: communityGroupInputSchema,
       target: (input) => ({ type: "COMMUNITY_GROUP", id: input.groupId }),
-      ...(dependencies.communityGroup === undefined
+      ...(communityGroup === undefined
         ? {}
         : {
             apply: (context, input) =>
-              dependencies.communityGroup!.applyCommunityGroupManage(
+              communityGroup.applyCommunityGroupManage(
                 context.operation,
                 context.actorPrincipalId,
                 input,

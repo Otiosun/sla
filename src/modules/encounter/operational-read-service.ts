@@ -1,5 +1,5 @@
-import { err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { err, ok, type Result } from "../../shared-kernel/result.js";
 import type { EncounterView } from "./contracts.js";
 import { encounterNotFound, encounterNotReady } from "./errors.js";
 import type { EncounterRepository } from "./ports.js";

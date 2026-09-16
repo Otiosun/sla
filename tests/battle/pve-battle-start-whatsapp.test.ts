@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { ok } from "../../src/shared-kernel/result.js";
 import * as pveStartModule from "../../src/modules/battle/pve-battle-start.js";
+import { ok } from "../../src/shared-kernel/result.js";
 
 describe("PVE explicit battle-start WhatsApp route", () => {
   it("starts the mentioned trainer active encounter through the canonical orchestrator", async () => {

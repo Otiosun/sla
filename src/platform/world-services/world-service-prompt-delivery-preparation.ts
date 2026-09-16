@@ -1,7 +1,7 @@
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { OutboxDeliveryPreparation } from "../../modules/messaging/ports.js";
 import type { WorldServiceSessionService } from "../../modules/world-services/session-service.js";
-import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 
 interface WorldServicePromptWriter {
   setActivePrompt: WorldServiceSessionService["setActivePrompt"];

@@ -52,9 +52,13 @@ export function createPvpWhatsAppRoutes(
       return err(appError("VALIDATION_FAILED", "Use /desafiar com exatamente uma menção real."));
     const challenger = await player(dependencies, context);
     if (!challenger.ok) return challenger;
+    const targetMention = mentions[0];
+    if (targetMention === undefined) {
+      return err(appError("VALIDATION_FAILED", "Use /desafiar com exatamente uma menção real."));
+    }
     const target = await dependencies.players.resolvePlayer({
       provider: context.message.provider,
-      externalId: mentions[0]!,
+      externalId: targetMention,
     });
     if (!target.ok) return target;
     const created = await dependencies.pvp.createChallenge({

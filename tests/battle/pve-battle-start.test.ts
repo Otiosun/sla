@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
+import type { EncounterId } from "../../src/shared-kernel/ids.js";
 
 const input = {
   playerId: "11111111-1111-4111-8111-111111111111" as never,
@@ -34,10 +35,7 @@ describe("PveBattleStartService", () => {
       })),
     };
 
-    const service = new PveBattleStartService(
-      encounter as never,
-      battle as never,
-    );
+    const service = new PveBattleStartService(encounter as never, battle as never);
 
     await expect(service.start(input)).resolves.toEqual({
       ok: true,
@@ -71,10 +69,7 @@ describe("PveBattleStartService", () => {
       initialize: vi.fn(),
     };
 
-    const service = new PveBattleStartService(
-      encounter as never,
-      battle as never,
-    );
+    const service = new PveBattleStartService(encounter as never, battle as never);
 
     await expect(service.start(input)).resolves.toEqual(failure);
     expect(battle.initialize).not.toHaveBeenCalled();
@@ -106,10 +101,7 @@ describe("PveBattleStartService", () => {
       })),
     };
 
-    const service = new PveBattleStartService(
-      encounter as never,
-      battle as never,
-    );
+    const service = new PveBattleStartService(encounter as never, battle as never);
 
     await expect(service.start(input)).resolves.toEqual({
       ok: true,
@@ -125,7 +117,7 @@ describe("PveBattleStartService", () => {
 });
 describe("PveBattleStartService canonical encounter orchestration", () => {
   it("advances a CREATED encounter through the canonical lifecycle before initialization", async () => {
-    const encounterId = "55555555-5555-4555-8555-555555555555";
+    const encounterId = "55555555-5555-4555-8555-555555555555" as EncounterId;
     const battleId = "66666666-6666-4666-8666-666666666666";
 
     const encounter = {
@@ -169,19 +161,9 @@ describe("PveBattleStartService canonical encounter orchestration", () => {
       })),
     };
 
-    const service = new PveBattleStartService(
-      encounter as never,
-      battle as never,
-    );
+    const service = new PveBattleStartService(encounter as never, battle as never);
 
-    const result = await (service as unknown as {
-      startCanonical(input: {
-        playerId: typeof input.playerId;
-        encounterId: string;
-        status: "CREATED" | "PRESENTED" | "ENGAGED" | "IN_BATTLE";
-        expectedRevision: bigint;
-      }): Promise<unknown>;
-    }).startCanonical({
+    const result = await service.startCanonical({
       playerId: input.playerId,
       encounterId,
       status: "CREATED",
@@ -218,15 +200,21 @@ describe("PveBattleStartService canonical encounter orchestration", () => {
       },
     });
 
-    expect(encounter.observe.mock.invocationCallOrder[0]).toBeLessThan(
-      encounter.engage.mock.invocationCallOrder[0],
-    );
-    expect(encounter.engage.mock.invocationCallOrder[0]).toBeLessThan(
-      encounter.startBattle.mock.invocationCallOrder[0],
-    );
-    expect(encounter.startBattle.mock.invocationCallOrder[0]).toBeLessThan(
-      battle.initialize.mock.invocationCallOrder[0],
-    );
+    const observeOrder = encounter.observe.mock.invocationCallOrder[0];
+    const engageOrder = encounter.engage.mock.invocationCallOrder[0];
+    const startBattleOrder = encounter.startBattle.mock.invocationCallOrder[0];
+    const initializeOrder = battle.initialize.mock.invocationCallOrder[0];
+    if (
+      observeOrder === undefined ||
+      engageOrder === undefined ||
+      startBattleOrder === undefined ||
+      initializeOrder === undefined
+    ) {
+      throw new Error("Expected canonical PVE lifecycle calls to be recorded");
+    }
+    expect(observeOrder).toBeLessThan(engageOrder);
+    expect(engageOrder).toBeLessThan(startBattleOrder);
+    expect(startBattleOrder).toBeLessThan(initializeOrder);
   });
 });
 describe("PveBattleStartService canonical resume", () => {
@@ -251,13 +239,8 @@ describe("PveBattleStartService canonical resume", () => {
     },
   ])(
     "resumes the canonical lifecycle from $initialStatus",
-    async ({
-      initialStatus,
-      initialRevision,
-      expectObserve,
-      expectEngage,
-    }) => {
-      const encounterId = "77777777-7777-4777-8777-777777777777";
+    async ({ initialStatus, initialRevision, expectObserve, expectEngage }) => {
+      const encounterId = "77777777-7777-4777-8777-777777777777" as EncounterId;
       const battleId = "88888888-8888-4888-8888-888888888888";
 
       const observe = vi.fn(async () => ({
@@ -274,10 +257,7 @@ describe("PveBattleStartService canonical resume", () => {
         value: {
           encounterId,
           status: "ENGAGED" as const,
-          revision:
-            initialStatus === "PRESENTED"
-              ? initialRevision + 1n
-              : initialRevision,
+          revision: initialStatus === "PRESENTED" ? initialRevision + 1n : initialRevision,
         },
       }));
 
@@ -287,10 +267,7 @@ describe("PveBattleStartService canonical resume", () => {
           encounter: {
             encounterId,
             status: "IN_BATTLE" as const,
-            revision:
-              initialStatus === "IN_BATTLE"
-                ? initialRevision
-                : initialRevision + 1n,
+            revision: initialStatus === "IN_BATTLE" ? initialRevision : initialRevision + 1n,
           },
           battleId,
           replayed: initialStatus === "IN_BATTLE",
@@ -310,14 +287,7 @@ describe("PveBattleStartService canonical resume", () => {
         { initialize } as never,
       );
 
-      const result = await (service as unknown as {
-        startCanonical(input: {
-          playerId: typeof input.playerId;
-          encounterId: string;
-          status: "CREATED" | "PRESENTED" | "ENGAGED" | "IN_BATTLE";
-          expectedRevision: bigint;
-        }): Promise<unknown>;
-      }).startCanonical({
+      const result = await service.startCanonical({
         playerId: input.playerId,
         encounterId,
         status: initialStatus,
@@ -330,9 +300,7 @@ describe("PveBattleStartService canonical resume", () => {
       expect(startBattle).toHaveBeenCalledOnce();
 
       const expectedBattleRevision =
-        initialStatus === "PRESENTED"
-          ? initialRevision + 1n
-          : initialRevision;
+        initialStatus === "PRESENTED" ? initialRevision + 1n : initialRevision;
 
       expect(startBattle).toHaveBeenCalledWith({
         playerId: input.playerId,

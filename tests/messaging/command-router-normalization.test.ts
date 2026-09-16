@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  type IncomingMessage,
   IncomingMessageSchema,
   incomingMessageIdempotencyKey,
-  type IncomingMessage,
   type MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
 import { type CommandRouteDefinition, MessageRouter } from "../../src/modules/messaging/router.js";

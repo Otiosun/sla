@@ -1,12 +1,12 @@
 import { z } from "zod";
-import type { BattleMajorStatus, BattleState } from "../battle/contracts.js";
-import type { WildPokemonSnapshot } from "../encounter/contracts.js";
 import type {
   CorrelationId,
   EncounterId,
   PlayerId,
   PokemonInstanceId,
 } from "../../shared-kernel/ids.js";
+import type { BattleMajorStatus, BattleState } from "../battle/contracts.js";
+import type { WildPokemonSnapshot } from "../encounter/contracts.js";
 
 const uuid = z.string().uuid();
 const basisPoints = z.number().int().min(1).max(100_000);

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { CorrelationId, PlayerId } from "../../shared-kernel/ids.js";
 import type { ScopedIdempotencyKey } from "../../shared-kernel/idempotency.js";
+import type { CorrelationId, PlayerId } from "../../shared-kernel/ids.js";
 
 const operationTokenSchema = z
   .string()

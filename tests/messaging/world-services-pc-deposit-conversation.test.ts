@@ -3,8 +3,8 @@ import type {
   IncomingMessage,
   MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
-import { WorldServiceConversationResolver } from "../../src/modules/world-services/conversation-resolver.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
+import { WorldServiceConversationResolver } from "../../src/modules/world-services/conversation-resolver.js";
 import type { PokemonPcStorageSnapshot } from "../../src/modules/world-services/pc-storage-service.js";
 import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";

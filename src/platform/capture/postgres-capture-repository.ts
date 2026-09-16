@@ -28,8 +28,8 @@ import {
   parsePokemonInstanceId,
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
-import { recordPokedexCaught } from "../pokedex/postgres-pokedex-writer.js";
 import { nextCanonicalRosterPlacement } from "../player/postgres-roster-placement.js";
+import { recordPokedexCaught } from "../pokedex/postgres-pokedex-writer.js";
 
 const breakdownSchema = z
   .object({

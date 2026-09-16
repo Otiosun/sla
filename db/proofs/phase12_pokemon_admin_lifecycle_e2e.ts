@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../../src/modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../../src/modules/admin/domain-service.js";
-import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";

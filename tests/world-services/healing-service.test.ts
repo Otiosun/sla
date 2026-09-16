@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  PokemonCenterHealingService,
   type PokemonCenterHealingPersistenceResult,
   type PokemonCenterHealingRepository,
+  PokemonCenterHealingService,
 } from "../../src/modules/world-services/healing-service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 

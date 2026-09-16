@@ -21,8 +21,8 @@ import {
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 import { recordPokedexOwnedByForm } from "../pokedex/postgres-pokedex-writer.js";
-import { nextCanonicalRosterPlacement } from "./postgres-roster-placement.js";
 import { PostgresPlayerRegistrationTransaction } from "./postgres-player-registration-transaction.js";
+import { nextCanonicalRosterPlacement } from "./postgres-roster-placement.js";
 
 function playerId(value: string): PlayerId {
   const parsed = parsePlayerId(value);

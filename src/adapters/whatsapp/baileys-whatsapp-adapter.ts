@@ -444,7 +444,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
         const needsAliasResolution =
           normalized.senderRef.endsWith("@lid") ||
-          normalized.mentions.some((mention) => mention.endsWith("@lid"));
+          (normalized.mentions ?? []).some((mention) => mention.endsWith("@lid"));
 
         if (
           needsAliasResolution &&

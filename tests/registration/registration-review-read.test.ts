@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { RegistrationService } from "../../src/modules/registration/service.js";
 import type {
   RegistrationRepository,
   RegistrationRevisionRecord,
   RegistrationTransaction,
 } from "../../src/modules/registration/ports.js";
+import { RegistrationService } from "../../src/modules/registration/service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const REVIEW_ID = "33333333-3333-4333-8333-333333333333";

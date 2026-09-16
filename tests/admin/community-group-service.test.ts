@@ -1,6 +1,6 @@
 ﻿import { describe, expect, it } from "vitest";
-import { ok } from "../../src/shared-kernel/result.js";
 import { CommunityGroupAdminService } from "../../src/modules/admin/community-group-service.js";
+import { ok } from "../../src/shared-kernel/result.js";
 
 describe("CommunityGroupAdminService", () => {
   it("applies REPLACE_CAPABILITIES and completes the admin operation", async () => {

@@ -4,9 +4,9 @@ import { diffCatalogSnapshots, type ReleaseDiff } from "./diff.js";
 import { validateCatalogDraftExtensions } from "./draft-extension-validation.js";
 import { fingerprintCatalog, fingerprintRuleset } from "./fingerprint.js";
 import {
+  type CatalogSnapshotWithEffects,
   validateCatalogSnapshot,
   validateRulesetSnapshot,
-  type CatalogSnapshotWithEffects,
 } from "./validation.js";
 
 export interface RulesetRecord extends RulesetSnapshot {

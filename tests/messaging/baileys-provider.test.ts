@@ -1,4 +1,4 @@
-﻿import { promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { normalizeBaileysMessage } from "../../src/adapters/whatsapp/baileys-normalizer.js";
@@ -16,7 +16,7 @@ import type {
 } from "../../src/modules/messaging/contracts.js";
 
 class FakeBaileysSocket implements BaileysSocketLike {
-  async groupMetadata() {
+  async groupMetadata(_jid: string) {
     return { participants: [{ id: "123456789@lid" }] };
   }
   readonly sent: Array<{
@@ -490,7 +490,7 @@ describe("Baileys LID/PN identity normalization", () => {
 
   it("resolves mentioned LIDs to phone-number identities through group metadata", async () => {
     class IdentityAwareFakeBaileysSocket extends FakeBaileysSocket {
-      async groupMetadata(jid: string) {
+      override async groupMetadata(jid: string) {
         void jid;
         return {
           participants: [

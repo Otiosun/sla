@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EncounterView } from "../../src/modules/encounter/contracts.js";
 import {
-  FishingService,
-  fishingRarityForRoll,
   type FishingAttemptReserved,
   type FishingDailyLimitReached,
+  FishingService,
+  fishingRarityForRoll,
 } from "../../src/modules/world-services/fishing-service.js";
+import type { RandomSource } from "../../src/platform/rng/index.js";
 import { createEncounterId, createPlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
-import type { RandomSource } from "../../src/platform/rng/index.js";
 
 const PLAYER_ID = createPlayerId();
 const ATTEMPT_ID = "00000000-0000-4000-8000-000000004001";

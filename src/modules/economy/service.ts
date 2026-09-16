@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  createIdempotencyKey,
+  type IdempotencyScope,
+  parseIdempotencyScope,
+} from "../../shared-kernel/idempotency.js";
+import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
+import { type AppError, err, ok, type Result } from "../../shared-kernel/result.js";
+import {
   type EconomyMutationMetadata,
   type EconomyMutationMetadataInput,
   EconomyMutationMetadataInputSchema,
@@ -23,13 +30,6 @@ import {
   saleOfferNotFound,
 } from "./errors.js";
 import type { EconomyRepository, EconomyTransaction } from "./ports.js";
-import { parseCorrelationId, type PlayerId } from "../../shared-kernel/ids.js";
-import {
-  createIdempotencyKey,
-  type IdempotencyScope,
-  parseIdempotencyScope,
-} from "../../shared-kernel/idempotency.js";
-import { type AppError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 const PG_BIGINT_MAX = 9_223_372_036_854_775_807n;
 const uuidSchema = z.string().uuid();

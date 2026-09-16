@@ -1,21 +1,21 @@
-import type { EconomyService } from "../economy/service.js";
-import type { ProgressionService } from "../progression/service.js";
 import { parsePlayerId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
+import type { EconomyService } from "../economy/service.js";
+import type { ProgressionService } from "../progression/service.js";
 import {
-  AdminInventoryAdjustInputSchema,
-  AdminTrainerProgressAdjustInputSchema,
-  AdminWalletAdjustInputSchema,
-} from "./domain-contracts.js";
-import {
-  isCompensatableAdminOperationType,
   type AdminCompensationInput,
+  isCompensatableAdminOperationType,
 } from "./compensation-contracts.js";
 import type {
   AdminCompensationCompletionPort,
   AdminCompensationOperationPort,
 } from "./compensation-ports.js";
 import type { AdminOperationRecord } from "./contracts.js";
+import {
+  AdminInventoryAdjustInputSchema,
+  AdminTrainerProgressAdjustInputSchema,
+  AdminWalletAdjustInputSchema,
+} from "./domain-contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 import type { AdminOperationRepository } from "./ports.js";
 

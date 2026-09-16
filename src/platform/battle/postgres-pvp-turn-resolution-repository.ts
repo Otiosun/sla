@@ -19,6 +19,7 @@ import {
 } from "../../modules/catalog/contracts.js";
 import { withTransaction } from "../db/transaction.js";
 import { loadParticipantControllersInTransaction } from "./postgres-battle-participant-controller-repository.js";
+import { persistPlayerBattleState } from "./postgres-battle-player-state-writeback.js";
 import {
   loadAggregateById,
   openControllerTurnWindowInTransaction,
@@ -186,6 +187,7 @@ export class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTr
        VALUES ($1, $2, 1, $3::jsonb)`,
       [input.battleId, input.nextState.version, JSON.stringify(input.nextState)],
     );
+    await persistPlayerBattleState(this.client, input.battleId, input.nextState);
 
     const seq = await this.client.query<{ next_seq: string }>(
       `SELECT (COALESCE(MAX(seq), 0) + 1)::text AS next_seq

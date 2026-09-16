@@ -1,9 +1,9 @@
 import type { EncounterId, PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
 import type { EncryptedSeedEnvelope, SeedMaterial } from "../encounter/ports.js";
 import type {
-  CapturedPokemonState,
   CaptureAttemptRecord,
   CaptureContext,
+  CapturedPokemonState,
   CaptureProbabilityBreakdown,
   CaptureRosterPlacement,
 } from "./contracts.js";

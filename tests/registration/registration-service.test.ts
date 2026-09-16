@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { RegistrationService } from "../../src/modules/registration/service.js";
 import type {
   RegistrationDraftRecord,
   RegistrationRepository,
   RegistrationRevisionRecord,
   RegistrationTransaction,
 } from "../../src/modules/registration/ports.js";
+import { RegistrationService } from "../../src/modules/registration/service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";

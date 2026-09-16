@@ -25,6 +25,7 @@ import {
 import type { WildPokemonSnapshot } from "../../modules/encounter/contracts.js";
 import { withTransaction } from "../db/transaction.js";
 import { initializeParticipantControllerInTransaction } from "./postgres-battle-participant-controller-repository.js";
+import { persistPlayerBattleState } from "./postgres-battle-player-state-writeback.js";
 import {
   loadAggregateByBattleVersion,
   openControllerTurnWindowInTransaction,
@@ -443,8 +444,8 @@ class PostgresBattleTransaction implements BattleTransaction {
     }
     const playerParties: { playerId: string; party: BattlePokemonBuild[] }[] = [];
     for (const member of members.rows) {
-    const party = await this.client.query<PokemonRow>(
-      `SELECT pi.id AS pokemon_instance_id, prs.slot_no AS roster_position,
+      const party = await this.client.query<PokemonRow>(
+        `SELECT pi.id AS pokemon_instance_id, prs.slot_no AS roster_position,
               pi.form_id, pf.species_id, pi.level, pi.current_hp,
               pfr.type1_id, t1.slug AS type1_slug, pfr.type2_id, t2.slug AS type2_slug,
               pfr.base_hp, pfr.base_attack, pfr.base_defense, pfr.base_sp_attack,
@@ -479,14 +480,18 @@ class PostgresBattleTransaction implements BattleTransaction {
        WHERE member.player_id = $1 AND member.encounter_id = $3
          AND pi.status = 'ACTIVE'
        ORDER BY prs.slot_no`,
-      [member.player_id, root.contentReleaseId, root.encounterId],
-    );
-    if (party.rows.length === 0 || (member.roster_size !== null && party.rows.length !== member.roster_size)) return null;
-    const playerParty: BattlePokemonBuild[] = [];
-    for (const row of party.rows) {
-      playerParty.push(await this.enrichPlayerPokemon(root.contentReleaseId, row));
-    }
-    playerParties.push({ playerId: member.player_id, party: playerParty });
+        [member.player_id, root.contentReleaseId, root.encounterId],
+      );
+      if (
+        party.rows.length === 0 ||
+        (member.roster_size !== null && party.rows.length !== member.roster_size)
+      )
+        return null;
+      const playerParty: BattlePokemonBuild[] = [];
+      for (const row of party.rows) {
+        playerParty.push(await this.enrichPlayerPokemon(root.contentReleaseId, row));
+      }
+      playerParties.push({ playerId: member.player_id, party: playerParty });
     }
     const ownerParty = playerParties[0];
     if (ownerParty === undefined || ownerParty.playerId !== encounterRow.player_id) return null;
@@ -560,7 +565,8 @@ class PostgresBattleTransaction implements BattleTransaction {
             [root.encounterId, combatant.pokemonInstanceId],
           );
           playerId = owner.rows[0]?.player_id ?? null;
-          if (playerId === null) throw new Error("Allied participant is not in its frozen owner roster");
+          if (playerId === null)
+            throw new Error("Allied participant is not in its frozen owner roster");
         }
         await initializeParticipantControllerInTransaction(this.client, {
           battleId: state.battleId,
@@ -682,6 +688,7 @@ class PostgresBattleTransaction implements BattleTransaction {
        VALUES ($1, $2, 1, $3::jsonb)`,
       [input.battleId, input.nextState.version, JSON.stringify(input.nextState)],
     );
+    await persistPlayerBattleState(this.client, input.battleId, input.nextState);
     await this.client.query(
       `INSERT INTO battle_actions(
          id, battle_id, actor_participant_id, action_type, payload,

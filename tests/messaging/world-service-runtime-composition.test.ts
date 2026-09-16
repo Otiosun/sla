@@ -4,8 +4,8 @@ import type {
   IncomingMessage,
   MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
-import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
+import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";

@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { CommunityService } from "../../src/modules/community/service.js";
-import { CommunityGroupAdminService } from "../../src/modules/admin/community-group-service.js";
-import { PostgresCommunityRepository } from "../../src/platform/community/postgres-community-repository.js";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CommunityGroupAdminService } from "../../src/modules/admin/community-group-service.js";
 import { AdminOperationRegistry } from "../../src/modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../../src/modules/admin/reception-operation-definitions.js";
 import { AdminService } from "../../src/modules/admin/service.js";
+import { CommunityService } from "../../src/modules/community/service.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
+import { PostgresCommunityRepository } from "../../src/platform/community/postgres-community-repository.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
@@ -245,12 +245,7 @@ describe.sequential("reception admin audit evidence", () => {
     expect(applied.status).toBe("APPLIED");
 
     expect(
-      (
-        await pool.query(
-          "SELECT revision::int FROM community_groups WHERE id=$1",
-          [groupId],
-        )
-      ).rows,
+      (await pool.query("SELECT revision::int FROM community_groups WHERE id=$1", [groupId])).rows,
     ).toEqual([{ revision: 1 }]);
 
     expect(
@@ -281,5 +276,4 @@ describe.sequential("reception admin audit evidence", () => {
       },
     ]);
   });
-
 });

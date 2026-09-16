@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RandomSource } from "../../src/platform/rng/index.js";
 import {
-  FishingService,
   type FishingRarity,
+  FishingService,
 } from "../../src/modules/world-services/fishing-service.js";
+import type { RandomSource } from "../../src/platform/rng/index.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const PLAYER_ID = createPlayerId();

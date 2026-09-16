@@ -97,7 +97,7 @@ describe.skipIf(!enabled)("UAT completion with the actual PostgreSQL schema", ()
         { status: "PENDING" },
         { status: "PENDING" },
       ]);
-      const send = vi.fn(async () => {});
+      const send = vi.fn(async () => ({ providerExternalMessageId: randomUUID() }));
       const worker = new OutboxWorker(repository, [{ channel: "whatsapp", send }], {
         batchSize: 10,
         staleAfterMs: 30000,

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CommandPolicyRequirement } from "../../src/modules/community/command-policy.js";
 import {
+  type IncomingMessage,
   IncomingMessageSchema,
   incomingMessageIdempotencyKey,
-  type IncomingMessage,
   type MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
 import {

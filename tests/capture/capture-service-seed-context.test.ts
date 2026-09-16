@@ -132,15 +132,24 @@ describe("CaptureService RNG context", () => {
         calls.push("placement");
         return { placementKind: "TEAM" as const, boxNo: null, slotNo: 1 };
       },
-      resolveFailure: async () => calls.push("failure"),
-      resolveSuccess: async () => calls.push("success"),
+      resolveFailure: async () => {
+        calls.push("failure");
+      },
+      resolveSuccess: async () => {
+        calls.push("success");
+      },
     } satisfies CaptureTransaction;
     const capture = new CaptureService(
       { transaction: (work) => work(transaction) },
       {
         create: () => ({
           seed: Buffer.alloc(32),
-          envelope: { ciphertext: Buffer.alloc(1), iv: Buffer.alloc(1), authTag: Buffer.alloc(1), keyVersion: 1 },
+          envelope: {
+            ciphertext: Buffer.alloc(1),
+            iv: Buffer.alloc(1),
+            authTag: Buffer.alloc(1),
+            keyVersion: 1,
+          },
         }),
       },
     );

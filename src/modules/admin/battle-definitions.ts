@@ -1,10 +1,10 @@
 import {
-  AdminBattleCorrectStateInputSchema,
-  AdminBattleForceCancelInputSchema,
-  AdminBattleTargetSchema,
   type AdminBattleCorrectStateInput,
+  AdminBattleCorrectStateInputSchema,
   type AdminBattleForceCancelInput,
+  AdminBattleForceCancelInputSchema,
   type AdminBattleTarget,
+  AdminBattleTargetSchema,
 } from "./battle-contracts.js";
 import type { AdminBattleOperationPort } from "./battle-ports.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";

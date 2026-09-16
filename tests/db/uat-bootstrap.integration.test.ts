@@ -53,14 +53,26 @@ async function seedUatFixture(client: PoolClient): Promise<void> {
     ].map((key) => [key, randomUUID()]),
   ) as Record<string, string>;
   await client.query(
-    `INSERT INTO rulesets(id,key,version,engine_contract_version,config,status,validated_at,validation_report,config_fingerprint,published_at)
-     VALUES ($1,'uat-bootstrap-test',1,1,'{}','PUBLISHED',now(),'{"valid":true,"issues":[]}', $2, now())`,
-    [ids.ruleset, "a".repeat(64)],
+    `INSERT INTO rulesets(id,key,version,engine_contract_version,config,status)
+     VALUES ($1,'uat-bootstrap-test',1,1,'{}','DRAFT')`,
+    [ids.ruleset],
   );
   await client.query(
-    `INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id,validated_at,validation_report,content_fingerprint,published_at)
-     VALUES ($1,1,'UAT Bootstrap Test','PUBLISHED',$2,now(),'{"valid":true,"issues":[]}', $3,now())`,
-    [ids.release, ids.ruleset, "b".repeat(64)],
+    `UPDATE rulesets
+     SET status='VALIDATED',
+         validated_at=now(),
+         validation_report='{"valid":true,"issues":[]}'::jsonb,
+         config_fingerprint=$2
+     WHERE id=$1`,
+    [ids.ruleset, "a".repeat(64)],
+  );
+  await client.query("UPDATE rulesets SET status='PUBLISHED', published_at=now() WHERE id=$1", [
+    ids.ruleset,
+  ]);
+  await client.query(
+    `INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id)
+     VALUES ($1,1,'UAT Bootstrap Test','DRAFT',$2)`,
+    [ids.release, ids.ruleset],
   );
   await client.query("INSERT INTO pokemon_types(id,slug) VALUES ($1,'normal')", [ids.type]);
   await client.query(
@@ -74,7 +86,7 @@ async function seedUatFixture(client: PoolClient): Promise<void> {
   await client.query("INSERT INTO moves(id,slug) VALUES ($1,'tackle')", [ids.move]);
   await client.query("INSERT INTO abilities(id,slug) VALUES ($1,'overgrow')", [ids.ability]);
   await client.query("INSERT INTO natures(id,slug) VALUES ($1,'hardy')", [ids.nature]);
-  await client.query("INSERT INTO regions(id,slug) VALUES ($1,'kanto')", [ids.region]);
+  await client.query("INSERT INTO regions(id,slug) VALUES ($1,'zhoulia')", [ids.region]);
   await client.query("INSERT INTO areas(id,region_id,slug) VALUES ($1,$2,'pallet-town')", [
     ids.area,
     ids.region,
@@ -104,7 +116,7 @@ async function seedUatFixture(client: PoolClient): Promise<void> {
   );
   await client.query(
     `INSERT INTO region_revisions(id,content_release_id,region_id,display_name,active,data)
-     VALUES ($1,$2,$3,'Kanto',TRUE,'{}')`,
+     VALUES ($1,$2,$3,'Zhoulia',TRUE,'{}')`,
     [randomUUID(), ids.release, ids.region],
   );
   await client.query(
@@ -126,6 +138,19 @@ async function seedUatFixture(client: PoolClient): Promise<void> {
     `INSERT INTO starter_options(id,content_release_id,region_id,form_id,starter_level,sort_order)
      VALUES ($1,$2,$3,$4,5,1)`,
     [randomUUID(), ids.release, ids.region, ids.form],
+  );
+  await client.query(
+    `UPDATE content_releases
+     SET status='VALIDATED',
+         validated_at=now(),
+         validation_report='{"valid":true,"issues":[]}'::jsonb,
+         content_fingerprint=$2
+     WHERE id=$1`,
+    [ids.release, "b".repeat(64)],
+  );
+  await client.query(
+    "UPDATE content_releases SET status='PUBLISHED', published_at=now() WHERE id=$1",
+    [ids.release],
   );
   await client.query(
     "INSERT INTO content_release_pointers(pointer_key,content_release_id) VALUES ('ACTIVE',$1)",
@@ -229,10 +254,16 @@ describe.sequential("UAT bootstrap on disposable PostgreSQL", () => {
       area_count: "1",
     });
     const status = await service().status({ provider: "whatsapp", externalId: a });
-    expect(status).toMatchObject({
-      ok: true,
-      value: expect.stringMatching(/TEST\/UAT.*ACTIVE.*Ãrea.*Party.*Roster.*PVE: apto.*PVP: apto/),
-    });
-    if (status.ok) expect(status.value).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/i);
+    expect(status).toMatchObject({ ok: true });
+    if (status.ok) {
+      expect(status.value).toContain("Teste/UAT: ✅ preparado");
+      expect(status.value).toContain("Acesso: ✅ ACTIVE");
+      expect(status.value).toContain("Área: ✅ Pallet Town");
+      expect(status.value).toContain("Party: ✅ ativa");
+      expect(status.value).toContain("Roster: ✅ pronto");
+      expect(status.value).toContain("PVE: ✅ apto");
+      expect(status.value).toContain("PVP: ✅ apto");
+      expect(status.value).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/i);
+    }
   }, 30_000);
 });

@@ -3,7 +3,7 @@ import { chooseHeuristicAction } from "../../src/modules/battle/ai.js";
 import { legalActionsForSide, validateBattleAction } from "../../src/modules/battle/legal.js";
 import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
-import { IDS, TEST_RULES, battleState } from "./fixtures.js";
+import { battleState, IDS, TEST_RULES } from "./fixtures.js";
 
 const rng = (byte: number, counter = 0n) =>
   new CounterRandomSource(Buffer.alloc(32, byte), counter);

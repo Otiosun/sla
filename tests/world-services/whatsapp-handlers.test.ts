@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
-import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import type { WorldServiceWhatsAppDependencies } from "../../src/modules/world-services/whatsapp-handlers.js";
+import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 

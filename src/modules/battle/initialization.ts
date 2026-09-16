@@ -1,10 +1,10 @@
 import {
-  BattleStateSchema,
-  EMPTY_BATTLE_STAGES,
   type BattleCombatant,
   type BattleSide,
   type BattleState,
+  BattleStateSchema,
   type ControllerKind,
+  EMPTY_BATTLE_STAGES,
   type ParticipantKind,
 } from "./contracts.js";
 import type { BattlePokemonBuild, BattleRootRecord } from "./ports.js";
@@ -170,33 +170,52 @@ export function initializeBattleState(
     const groups = side.playerParties;
     if (groups !== undefined) {
       if (
-        input.root.battleType === "PVP" || side.controllerKind !== "PLAYER" ||
-        groups.length === 0 || groups[0]?.playerId !== side.playerId ||
+        input.root.battleType === "PVP" ||
+        side.controllerKind !== "PLAYER" ||
+        groups.length === 0 ||
+        groups[0]?.playerId !== side.playerId ||
         new Set(groups.map((group) => group.playerId)).size !== groups.length ||
-        groups.some((group) => group.party.length === 0 ||
-          group.party.some((build) => build.participantKind !== "PLAYER_POKEMON"))
-      ) return failure("Allied initialization requires distinct player rosters on a PVE side");
+        groups.some(
+          (group) =>
+            group.party.length === 0 ||
+            group.party.some((build) => build.participantKind !== "PLAYER_POKEMON"),
+        )
+      )
+        return failure("Allied initialization requires distinct player rosters on a PVE side");
     }
     const builds = groups === undefined ? side.party : groups.flatMap((group) => group.party);
-    if (new Set(builds.filter((build) => build.pokemonInstanceId !== null)
-      .map((build) => build.pokemonInstanceId)).size !==
-      builds.filter((build) => build.pokemonInstanceId !== null).length) {
+    if (
+      new Set(
+        builds
+          .filter((build) => build.pokemonInstanceId !== null)
+          .map((build) => build.pokemonInstanceId),
+      ).size !== builds.filter((build) => build.pokemonInstanceId !== null).length
+    ) {
       return failure("A Pokemon cannot occupy multiple allied rosters");
     }
     const sideCombatants = builds.map((build, index) =>
-      buildCombatant(groups === undefined ? build : { ...build, rosterPosition: index + 1 }, input.idFactory(), side.sideNo),
+      buildCombatant(
+        groups === undefined ? build : { ...build, rosterPosition: index + 1 },
+        input.idFactory(),
+        side.sideNo,
+      ),
     );
     let offset = 0;
     const slots = groups?.map((group) => {
       const roster = sideCombatants.slice(offset, offset + group.party.length);
       offset += group.party.length;
+      const active = roster.find((entry) => entry.currentHp > 0) ?? roster[0];
+      if (active === undefined) {
+        throw new Error("Allied battle roster unexpectedly resolved empty");
+      }
       return {
         participantIds: roster.map((entry) => entry.participantId),
-        activeParticipantId: (roster.find((entry) => entry.currentHp > 0) ?? roster[0])!.participantId,
+        activeParticipantId: active.participantId,
       };
     });
     const activeParticipantId =
-      slots?.[0]?.activeParticipantId ?? sideCombatants.find((entry) => entry.currentHp > 0)?.participantId ??
+      slots?.[0]?.activeParticipantId ??
+      sideCombatants.find((entry) => entry.currentHp > 0)?.participantId ??
       sideCombatants[0]?.participantId;
     if (activeParticipantId === undefined) {
       return failure("Battle active combatant could not be selected", { sideNo: side.sideNo });

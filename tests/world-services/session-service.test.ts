@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { ManualClock } from "../../src/platform/clock/index.js";
-import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type {
   SceneProofRecord,
   WorldServiceSessionRecord,
@@ -10,6 +8,8 @@ import type {
   WorldServiceSessionTransaction,
 } from "../../src/modules/world-services/ports.js";
 import { WorldServiceSessionService } from "../../src/modules/world-services/session-service.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
+import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
 class FakeWorldServiceSessionRepository implements WorldServiceSessionRepository {
   readonly proofs: SceneProofRecord[] = [];

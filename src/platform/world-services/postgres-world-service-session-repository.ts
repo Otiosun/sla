@@ -15,7 +15,7 @@ import type {
   WorldServiceSessionRepository,
   WorldServiceSessionTransaction,
 } from "../../modules/world-services/ports.js";
-import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
 interface SceneProofRow {

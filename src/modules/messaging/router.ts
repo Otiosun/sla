@@ -1,5 +1,5 @@
-import type { CommandPolicyRequirement } from "../community/command-policy.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { CommandPolicyRequirement } from "../community/command-policy.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,

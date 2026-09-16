@@ -56,9 +56,7 @@ export class CommunityService {
     });
   }
 
-  public async getGroupConfiguration(
-    groupId: string,
-  ): Promise<
+  public async getGroupConfiguration(groupId: string): Promise<
     | (CommunityGroupRecord & {
         readonly capabilities: readonly CommunityCapability[];
       })

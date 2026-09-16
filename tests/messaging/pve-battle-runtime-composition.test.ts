@@ -86,10 +86,7 @@ describe("PVE explicit battle-start wiring", () => {
       } as never),
     ).toBe(true);
 
-    const withoutPve = createOperationalMessagingComposition(
-      pool,
-      encounterRngConfig,
-    );
+    const withoutPve = createOperationalMessagingComposition(pool, encounterRngConfig);
 
     expect(
       withoutPve.admitCommand({

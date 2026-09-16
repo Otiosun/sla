@@ -1,14 +1,11 @@
+import { COMMUNITY_CAPABILITIES, type CommunityCapability } from "../community/contracts.js";
+import type { CommunityService } from "../community/service.js";
 import type { AdminOperationRecord } from "./contracts.js";
 import type { AdminOperationCompletionPort } from "./ports.js";
 import type {
   CommunityGroupManageApplyPort,
   CommunityGroupManageInput,
 } from "./reception-operation-definitions.js";
-import {
-  COMMUNITY_CAPABILITIES,
-  type CommunityCapability,
-} from "../community/contracts.js";
-import type { CommunityService } from "../community/service.js";
 
 interface Dependencies {
   readonly community: Pick<
@@ -39,6 +36,10 @@ function displayName(payload: Readonly<Record<string, unknown>>): string {
   return value.trim();
 }
 
+function auditRecord(value: object): Readonly<Record<string, unknown>> {
+  return Object.fromEntries(Object.entries(value));
+}
+
 function capabilityList(
   payload: Readonly<Record<string, unknown>>,
 ): readonly CommunityCapability[] {
@@ -65,9 +66,7 @@ export class CommunityGroupAdminService implements CommunityGroupManageApplyPort
   ): Promise<AdminOperationRecord> {
     const revision = expectedRevision(operation);
 
-    const before = await this.dependencies.community.getGroupConfiguration(
-      input.groupId,
-    );
+    const before = await this.dependencies.community.getGroupConfiguration(input.groupId);
 
     if (before === null) {
       throw new Error("Community group not found");
@@ -86,8 +85,11 @@ export class CommunityGroupAdminService implements CommunityGroupManageApplyPort
         operation,
         actorPrincipalId,
         input,
-        before,
-        { ...before, ...result.value },
+        auditRecord(before),
+        auditRecord({
+          ...before,
+          ...result.value,
+        }),
       );
     }
 
@@ -106,8 +108,12 @@ export class CommunityGroupAdminService implements CommunityGroupManageApplyPort
         operation,
         actorPrincipalId,
         input,
-        before,
-        { ...before, ...result.value, capabilities },
+        auditRecord(before),
+        auditRecord({
+          ...before,
+          ...result.value,
+          capabilities,
+        }),
       );
     }
 
@@ -123,7 +129,7 @@ export class CommunityGroupAdminService implements CommunityGroupManageApplyPort
       actorPrincipalId,
       input,
       { groupId: input.groupId, revision },
-      result.value,
+      auditRecord(result.value),
     );
   }
 

@@ -136,6 +136,31 @@ function action(actorParticipantId: string, targetParticipantId: string): Battle
   };
 }
 
+async function seedPersistedMovesForCombatant(
+  pool: Pool,
+  combatant: BattleCombatant,
+): Promise<void> {
+  if (combatant.pokemonInstanceId === null) {
+    throw new Error("Persisted player fixture is missing its Pokemon instance");
+  }
+
+  for (const move of combatant.moves) {
+    await pool.query(
+      `INSERT INTO moves(id, slug)
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [move.moveId, `pvp-resolution-move-${move.moveId}`],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_move_slots(pokemon_instance_id, slot_no, move_id, pp_current)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (pokemon_instance_id, slot_no)
+       DO UPDATE SET move_id = EXCLUDED.move_id, pp_current = EXCLUDED.pp_current`,
+      [combatant.pokemonInstanceId, move.slotNo, move.moveId, move.ppCurrent],
+    );
+  }
+}
+
 async function seedLockedFixture(
   pool: Pool,
   mode: "PVP" | "AUTO" | "NARRATOR" | "ALL_AUTO" = "PVP",
@@ -292,6 +317,11 @@ async function seedLockedFixture(
       state.combatants[1]?.currentHp ?? 1,
     ],
   );
+  for (const combatant of state.combatants) {
+    if (combatant.participantKind === "PLAYER_POKEMON") {
+      await seedPersistedMovesForCombatant(pool, combatant);
+    }
+  }
   await pool.query(
     `INSERT INTO battles(
        id, battle_type, status, content_release_id, ruleset_id,
@@ -587,6 +617,7 @@ describe("PVP turn resolution PostgreSQL integration", () => {
       majorStatus: null,
       rosterPosition: 2,
     };
+    await seedPersistedMovesForCombatant(pool, ally);
     side.participantIds.push(ally.participantId);
     side.slots = [
       { activeParticipantId: player.participantId, participantIds: [player.participantId] },
@@ -744,6 +775,8 @@ describe("PVP turn resolution PostgreSQL integration", () => {
        SELECT $1,owner_player_id,form_id,level,current_hp,'TEST' FROM pokemon_instances WHERE id=$2`,
         [reservePokemonId, pokemonId],
       );
+      await seedPersistedMovesForCombatant(pool, ally);
+      await seedPersistedMovesForCombatant(pool, reserve);
       side.participantIds.push(allyId, reserveId);
       side.slots = [
         { activeParticipantId: fixture.actorA, participantIds: [fixture.actorA] },
