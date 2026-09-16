@@ -348,6 +348,7 @@ export function createOperationalMessagingComposition(
         encounter,
         battle,
         reads,
+        sessions: worldServiceSessions,
         ...(worldServiceMedia === null ? {} : { worldMedia: worldServiceMedia }),
       }).filter(
         (definition) =>
