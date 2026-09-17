@@ -28,6 +28,44 @@ const FishingAreaConfigSchema = z
   })
   .strict();
 
+const presentationTokenSchema = z.string().trim().min(1).max(160);
+
+const WorldAreaPresentationSchema = z
+  .object({
+    summary: z.string().trim().min(1).max(2000),
+    narrativeKeys: z
+      .object({
+        firstArrival: presentationTokenSchema.optional(),
+        returnArrival: presentationTokenSchema.optional(),
+      })
+      .strict(),
+    sites: z
+      .array(
+        z
+          .object({
+            identity: presentationTokenSchema,
+            displayName: z.string().trim().min(1).max(160),
+            kind: presentationTokenSchema,
+          })
+          .strict(),
+      )
+      .max(128),
+    npcRoles: z
+      .array(
+        z
+          .object({
+            identity: presentationTokenSchema,
+            roleKey: presentationTokenSchema,
+            displayName: z.string().trim().min(1).max(160).nullable(),
+            locationIdentity: presentationTokenSchema,
+          })
+          .strict(),
+      )
+      .max(128),
+    editorialNotes: z.array(z.string().trim().min(1).max(2000)).max(128),
+  })
+  .strict();
+
 export const WorldAreaKindSchema = z.enum(["TOWN", "CITY", "ROUTE", "FACILITY", "OTHER"]);
 export type WorldAreaKind = z.infer<typeof WorldAreaKindSchema>;
 
@@ -43,6 +81,7 @@ export const WorldAreaConfigSchema = z
     relocationPriority: z.number().int().min(0).max(1_000_000),
     facilities: z.array(WorldAreaFacilitySchema).max(16).default([]),
     fishing: FishingAreaConfigSchema.optional(),
+    presentation: WorldAreaPresentationSchema.optional(),
   })
   .strict();
 export type WorldAreaConfig = z.infer<typeof WorldAreaConfigSchema>;

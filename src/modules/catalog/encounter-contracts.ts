@@ -17,6 +17,10 @@ export const EncounterConditionsSchema = z
     schemaVersion: z.literal(1),
     requiredUnlockKeys: uniqueUnlockKeysSchema,
     blockedUnlockKeys: uniqueUnlockKeysSchema,
+    timeOfDay: z.enum(["DAY", "NIGHT"]).optional(),
+    surface: z.enum(["LAND", "WATER"]).optional(),
+    rarity: z.enum(["COMMON", "RARE"]).optional(),
+    weatherKey: unlockKeySchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
