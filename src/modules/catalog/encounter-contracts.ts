@@ -36,10 +36,21 @@ export const EncounterConditionsSchema = z
     }
   });
 
+export interface EncounterEnvironmentContext {
+  readonly timeOfDay?: "DAY" | "NIGHT";
+  readonly surface?: "LAND" | "WATER";
+  readonly rarity?: "COMMON" | "RARE";
+  readonly weatherKey?: string;
+}
+
 export interface EncounterConditions {
   readonly schemaVersion: 1;
   readonly requiredUnlockKeys: readonly string[];
   readonly blockedUnlockKeys: readonly string[];
+  readonly timeOfDay?: "DAY" | "NIGHT" | undefined;
+  readonly surface?: "LAND" | "WATER" | undefined;
+  readonly rarity?: "COMMON" | "RARE" | undefined;
+  readonly weatherKey?: string | undefined;
 }
 
 const OPEN_CONDITIONS: EncounterConditions = Object.freeze({
@@ -66,8 +77,21 @@ export function parseEncounterConditions(
 export function encounterConditionsAllow(
   conditions: EncounterConditions,
   unlockKeys: ReadonlySet<string>,
+  environment: EncounterEnvironmentContext = {},
 ): boolean {
   if (conditions.requiredUnlockKeys.some((key) => !unlockKeys.has(key))) return false;
   if (conditions.blockedUnlockKeys.some((key) => unlockKeys.has(key))) return false;
+  if (conditions.timeOfDay !== undefined && environment.timeOfDay !== conditions.timeOfDay) {
+    return false;
+  }
+  if (conditions.surface !== undefined && environment.surface !== conditions.surface) {
+    return false;
+  }
+  if (conditions.rarity !== undefined && environment.rarity !== conditions.rarity) {
+    return false;
+  }
+  if (conditions.weatherKey !== undefined && environment.weatherKey !== conditions.weatherKey) {
+    return false;
+  }
   return true;
 }

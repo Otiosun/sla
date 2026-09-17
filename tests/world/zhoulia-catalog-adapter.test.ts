@@ -75,4 +75,18 @@ describe("Zhoulia catalog adapter", () => {
     expect(pools[0]).not.toHaveProperty("minLevel");
     expect(pools[0]).not.toHaveProperty("maxLevel");
   });
+  it("keeps day and night land pools as distinct table slugs", () => {
+    const pools = buildZhouliaEncounterPoolDraftPlans(ZHOULIA_TYPED_CONTENT_V1);
+    expect(
+      pools
+        .filter((pool) => pool.areaIdentity === "zhoulia.area.vila-dos-arrozais")
+        .map((pool) => pool.tableSlug),
+    ).toEqual(["day-land", "water", "village-rare", "night-land"]);
+    expect(
+      pools
+        .filter((pool) => pool.areaIdentity === "zhoulia.area.campos-de-yun")
+        .map((pool) => pool.tableSlug),
+    ).toEqual(["day-land", "rivers", "night-land"]);
+    expect(new Set(pools.map((pool) => `${pool.areaIdentity}:${pool.tableSlug}`)).size).toBe(7);
+  });
 });

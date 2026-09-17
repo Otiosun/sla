@@ -77,6 +77,20 @@ export function zhouliaAreaSlug(area: ZhouliaAreaContent): string {
   return slugFromIdentity(area.identity);
 }
 
+function encounterPoolTableSlug(areaIdentity: string, poolIdentity: string): string {
+  const areaSlug = slugFromIdentity(areaIdentity);
+  const prefix = `zhoulia.encounter-pool.${areaSlug}.`;
+  if (!poolIdentity.startsWith(prefix)) {
+    throw new Error(`Encounter pool ${poolIdentity} does not belong to ${areaIdentity}`);
+  }
+  const suffix = poolIdentity.slice(prefix.length);
+  const slug = suffix.replaceAll(".", "-");
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug) || slug.length > 63) {
+    throw new Error(`Invalid encounter table slug from ${poolIdentity}`);
+  }
+  return slug;
+}
+
 export function zhouliaWorldAreaConfig(
   area: ZhouliaAreaContent,
   areaIndex: number,
@@ -147,7 +161,7 @@ export function buildZhouliaEncounterPoolDraftPlans(
     area.encounterPools.map((pool) => ({
       identity: pool.identity,
       areaIdentity: area.identity,
-      tableSlug: slugFromIdentity(pool.identity),
+      tableSlug: encounterPoolTableSlug(area.identity, pool.identity),
       label: pool.label,
       conditions: zhouliaEncounterConditions(pool),
       speciesKeys: pool.entries.map((entry) => entry.speciesKey),
