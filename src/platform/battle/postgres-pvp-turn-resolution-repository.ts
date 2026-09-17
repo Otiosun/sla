@@ -223,6 +223,53 @@ export class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTr
       );
     }
 
+    // BELL_CONTROLLER_WILD_TERMINAL_SYNC_V1: controller-window resolution is used by PVE too, not only PVP.
+    // Mirror the canonical WILD terminal synchronization from the direct battle path.
+    if (input.nextState.battleType === "WILD") {
+      let wildEncounterId = input.nextState.encounterId;
+      if (wildEncounterId === null) {
+        const battleEncounter = await this.client.query<{ encounter_id: string | null }>(
+          "SELECT encounter_id FROM battles WHERE id = $1",
+          [input.battleId],
+        );
+        wildEncounterId = battleEncounter.rows[0]?.encounter_id ?? null;
+      }
+
+      if (wildEncounterId !== null) {
+        for (const combatant of input.nextState.combatants) {
+          if (combatant.participantKind === "WILD_POKEMON" && combatant.currentHp <= 0) {
+            await this.client.query(
+              `UPDATE encounter_wild_snapshots
+               SET status = 'FAINTED', updated_at = now()
+               WHERE encounter_id = $1
+                 AND wild_no = $2
+                 AND status = 'ACTIVE'`,
+              [wildEncounterId, combatant.rosterPosition],
+            );
+          }
+        }
+
+        if (terminal) {
+          await this.client.query(
+            `UPDATE encounter_wild_snapshots
+             SET status = 'FLED', updated_at = now()
+             WHERE encounter_id = $1 AND status = 'ACTIVE'`,
+            [wildEncounterId],
+          );
+          const encounterTerminalStatus = input.nextState.status === "FLED" ? "FLED" : "CLOSED";
+          await this.client.query(
+            `UPDATE encounters
+             SET status = $2,
+                 revision = revision + 1,
+                 updated_at = now(),
+                 closed_at = now()
+             WHERE id = $1 AND status = 'IN_BATTLE'`,
+            [wildEncounterId, encounterTerminalStatus],
+          );
+        }
+      }
+    }
+
     const activeSubmissionIds = input.lockedWindow.submissions
       .filter((entry) => entry.status === "ACTIVE")
       .map((entry) => entry.id);

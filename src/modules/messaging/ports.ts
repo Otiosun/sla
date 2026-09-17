@@ -28,6 +28,7 @@ export interface MessagingRepository {
     readonly limit: number;
     readonly staleAfterMs: number;
     readonly maxAttempts: number;
+    readonly channels?: readonly string[];
   }): Promise<readonly PendingOutboxMessage[]>;
   markOutboxSent(outboxMessageId: string): Promise<void>;
   markOutboxFailed(input: {

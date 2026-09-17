@@ -761,7 +761,16 @@ class PostgresBattleTransaction implements BattleTransaction {
       );
     }
 
-    if (input.nextState.battleType === "WILD" && input.nextState.encounterId !== null) {
+    let terminalEncounterId = input.nextState.encounterId;
+    if (input.nextState.battleType === "WILD" && terminalEncounterId === null) {
+      const battleEncounter = await this.client.query<{ encounter_id: string | null }>(
+        "SELECT encounter_id FROM battles WHERE id = $1",
+        [input.battleId],
+      );
+      terminalEncounterId = battleEncounter.rows[0]?.encounter_id ?? null;
+    }
+
+    if (input.nextState.battleType === "WILD" && terminalEncounterId !== null) {
       for (const combatant of input.nextState.combatants) {
         if (combatant.participantKind === "WILD_POKEMON" && combatant.currentHp <= 0) {
           await this.client.query(
@@ -770,7 +779,7 @@ class PostgresBattleTransaction implements BattleTransaction {
              WHERE encounter_id = $1
                AND wild_no = $2
                AND status = 'ACTIVE'`,
-            [input.nextState.encounterId, combatant.rosterPosition],
+            [terminalEncounterId, combatant.rosterPosition],
           );
         }
       }
@@ -780,17 +789,43 @@ class PostgresBattleTransaction implements BattleTransaction {
           `UPDATE encounter_wild_snapshots
            SET status = 'FLED', updated_at = now()
            WHERE encounter_id = $1 AND status = 'ACTIVE'`,
-          [input.nextState.encounterId],
+          [terminalEncounterId],
         );
         const encounterTerminalStatus = input.nextState.status === "FLED" ? "FLED" : "CLOSED";
         await this.client.query(
           `UPDATE encounters
            SET status = $2, revision = revision + 1, updated_at = now(), closed_at = now()
            WHERE id = $1 AND status = 'IN_BATTLE'`,
-          [input.nextState.encounterId, encounterTerminalStatus],
+          [terminalEncounterId, encounterTerminalStatus],
         );
       }
     }
+    // BELL_WILD_FLEE_WRITEBACK_V1: battle root owns the authoritative Encounter link.
+    // Keep this idempotent so legacy/parallel terminal sync can coexist safely.
+    if (input.nextState.battleType === "WILD" && input.nextState.status === "FLED") {
+      await this.client.query(
+        `UPDATE encounters AS encounter
+         SET status = 'FLED',
+             revision = encounter.revision + 1,
+             updated_at = now(),
+             closed_at = COALESCE(encounter.closed_at, now())
+         FROM battles AS battle
+         WHERE battle.id = $1
+           AND battle.encounter_id = encounter.id
+           AND encounter.status = 'IN_BATTLE'`,
+        [input.battleId],
+      );
+      await this.client.query(
+        `UPDATE encounter_wild_snapshots AS wild
+         SET status = 'FLED'
+         FROM battles AS battle
+         WHERE battle.id = $1
+           AND battle.encounter_id = wild.encounter_id
+           AND wild.status = 'ACTIVE'`,
+        [input.battleId],
+      );
+    }
+
     return { kind: "PERSISTED", state: input.nextState };
   }
 }

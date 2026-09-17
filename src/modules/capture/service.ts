@@ -270,7 +270,10 @@ export class CaptureService {
           ballMultiplierBasisPoints: ball.data.multiplierBasisPoints,
           status: target.value.majorStatus,
           explicitModifierBasisPoints: context.explicitModifierBasisPoints,
-          ruleset: ruleset.data.capture,
+          ruleset: {
+            model: ruleset.data.capture.model,
+            maxProbabilityBasisPoints: ruleset.data.capture.maxProbabilityBasisPoints,
+          },
         });
         if (!probabilityInput.success) {
           return err(captureNotReady("Capture probability inputs are invalid"));

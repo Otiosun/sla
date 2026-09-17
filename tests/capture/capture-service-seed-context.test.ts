@@ -47,6 +47,7 @@ function context(): CaptureContext {
       capture: {
         model: "POKEMON_INSPIRED_V1",
         maxProbabilityBasisPoints: 9_500,
+        allowedEncounterStates: ["ENGAGED", "IN_BATTLE"],
       },
       defeat: { automaticMoneyLoss: false },
       narrative: { authority: "N0_FLAVOR_ONLY" },

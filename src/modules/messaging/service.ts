@@ -321,6 +321,7 @@ export class OutboxWorker {
       limit: this.options.batchSize,
       staleAfterMs: this.options.staleAfterMs,
       maxAttempts: this.options.maxAttempts,
+      channels: [...this.adapters.keys()],
     });
     let sent = 0;
     let failed = 0;
