@@ -41,7 +41,7 @@ describe("Player Portal runtime composition", () => {
     });
   });
 
-  it.each(["/v1/hub/player/self", "/v1/hub/player/pokemon"])(
+  it.each(["/v1/hub/player/self", "/v1/hub/player/pokemon", "/v1/hub/player/location"])(
     "keeps %s behind the canonical Hub session",
     async (pathname) => {
       const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 6, null));
