@@ -163,7 +163,7 @@ export class EncounterService {
       const eligibleTables = allTables.filter(
         (table) =>
           table.active &&
-          encounterConditionsAllow(table.conditions, unlocks) &&
+          encounterConditionsAllow(table.conditions, unlocks, input.environment ?? {}) &&
           (input.encounterTableSlug === undefined || table.slug === input.encounterTableSlug),
       );
       if (eligibleTables.length === 0) {
@@ -180,7 +180,9 @@ export class EncounterService {
       if (table === undefined)
         return err(encounterNotReady("Encounter table could not be resolved"));
       const entries = table.entries.filter(
-        (entry) => entry.active && encounterConditionsAllow(entry.conditions, unlocks),
+        (entry) =>
+          entry.active &&
+          encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
       );
       if (entries.length === 0) {
         return err(encounterNotReady("Encounter table has no eligible active entries"));

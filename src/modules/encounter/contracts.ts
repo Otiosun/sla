@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
-import type { EncounterConditions } from "../catalog/encounter-contracts.js";
+import type {
+  EncounterConditions,
+  EncounterEnvironmentContext,
+} from "../catalog/encounter-contracts.js";
 
 export const EncounterStatusSchema = z.enum([
   "CREATED",
@@ -144,6 +147,7 @@ export interface CreateEncounterInput {
   readonly encounterTableSlug?: string;
   /** Narrator/admin spawn amount. Player-owned flows omit it and remain single-wild. */
   readonly spawnQuantity?: number;
+  readonly environment?: EncounterEnvironmentContext;
 }
 
 export interface SpawnEncounterInput extends CreateEncounterInput {
