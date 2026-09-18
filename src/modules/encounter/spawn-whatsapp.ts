@@ -1,4 +1,5 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { EncounterEnvironmentContext } from "../catalog/encounter-contracts.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
@@ -47,6 +48,7 @@ export interface SpawnWhatsAppDependencies {
     contentReleaseId: string,
     speciesId: string,
   ) => Promise<string | null>;
+  readonly environment?: () => EncounterEnvironmentContext;
 }
 
 function result(
@@ -153,6 +155,9 @@ export function createSpawnWhatsAppRoute(
         playerId: target.value.playerId,
         participantPlayerIds: [],
         spawnQuantity: quantity.value,
+        ...(dependencies.environment === undefined
+          ? {}
+          : { environment: dependencies.environment() }),
         idempotencyKey: context.idempotencyKey,
       });
       if (!created.ok) return created;

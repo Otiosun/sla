@@ -114,6 +114,7 @@ import {
   createPveBattleRuntime,
   type PveBattleRuntimeConfig,
 } from "./compose-pve-battle-runtime.js";
+import { resolveNarratorEncounterEnvironment } from "./encounter-environment-runtime-config.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
@@ -453,6 +454,7 @@ export function createOperationalMessagingComposition(
             createSpawnWhatsAppRoute({
               players: playerRegistration,
               encounters: encounterWriter,
+              environment: () => resolveNarratorEncounterEnvironment(process.env),
               context: new PostgresNarratorSpawnContextResolver(pool),
               speciesDisplayName: reads.speciesDisplayName.bind(reads),
             }),
