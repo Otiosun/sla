@@ -178,10 +178,17 @@ async function verifySchema(pool: Pool): Promise<void> {
 
 async function runPhase4Seed(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("pnpm", ["--silent", "run", "db:seed:phase4"], {
-      env: process.env,
-      stdio: "inherit",
-    });
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? (process.env.ComSpec ?? "cmd.exe") : "pnpm",
+      windows
+        ? ["/d", "/s", "/c", "pnpm --silent run db:seed:phase4"]
+        : ["--silent", "run", "db:seed:phase4"],
+      {
+        env: process.env,
+        stdio: "inherit",
+      },
+    );
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();

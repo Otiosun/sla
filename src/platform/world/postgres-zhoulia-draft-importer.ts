@@ -38,22 +38,39 @@ async function requireDraftRelease(client: PoolClient, releaseId: string): Promi
   }
 }
 
-async function resolveZhouliaRegion(client: PoolClient, releaseId: string): Promise<string> {
-  const result = await client.query<{ id: string }>(
-    `SELECT region.id
-     FROM regions AS region
-     JOIN region_revisions AS revision
-       ON revision.region_id = region.id
-      AND revision.content_release_id = $1
-     WHERE region.slug = 'zhoulia'
-       AND revision.active = TRUE
-     LIMIT 1`,
-    [releaseId],
+async function ensureZhouliaRegion(client: PoolClient, releaseId: string): Promise<string> {
+  const existing = await client.query<{ id: string }>(
+    "SELECT id FROM regions WHERE slug = 'zhoulia' LIMIT 1",
   );
-  const regionId = result.rows[0]?.id;
-  if (regionId === undefined) {
-    throw new Error("DRAFT release must contain an active Zhoulia region revision");
+  const regionId = existing.rows[0]?.id ?? randomUUID();
+
+  if (existing.rows[0] === undefined) {
+    await client.query("INSERT INTO regions(id, slug) VALUES ($1, 'zhoulia')", [regionId]);
   }
+
+  const revision = await client.query<{ id: string }>(
+    `SELECT id
+     FROM region_revisions
+     WHERE content_release_id = $1 AND region_id = $2`,
+    [releaseId, regionId],
+  );
+
+  if (revision.rows[0] === undefined) {
+    await client.query(
+      `INSERT INTO region_revisions(
+         id, content_release_id, region_id, display_name, active, data
+       ) VALUES ($1, $2, $3, 'Zhoulia', TRUE, '{}'::jsonb)`,
+      [randomUUID(), releaseId, regionId],
+    );
+  } else {
+    await client.query(
+      `UPDATE region_revisions
+       SET display_name = 'Zhoulia', active = TRUE
+       WHERE content_release_id = $1 AND region_id = $2`,
+      [releaseId, regionId],
+    );
+  }
+
   return regionId;
 }
 
@@ -171,7 +188,7 @@ export class PostgresZhouliaDraftStructureImporter {
         `catalog-release:${input.releaseId}`,
       ]);
       await requireDraftRelease(client, input.releaseId);
-      const regionId = await resolveZhouliaRegion(client, input.releaseId);
+      const regionId = await ensureZhouliaRegion(client, input.releaseId);
 
       const areaIdsByIdentity: Record<string, string> = {};
       for (const [index, area] of bundle.areas.entries()) {
