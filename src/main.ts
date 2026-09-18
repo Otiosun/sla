@@ -70,6 +70,7 @@ try {
         encounterRngConfig,
         ...(pveBattleConfig === null ? {} : { pveBattleConfig }),
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
+        hubPublicUrl: runtimeConfig.hubPublicUrl,
         onSessionInvalidated: requestShutdown,
       });
       const supervisor = new WhatsAppRuntimeSupervisor(runtime, {
@@ -103,6 +104,7 @@ try {
         encounterRngConfig,
         ...(pveBattleConfig === null ? {} : { pveBattleConfig }),
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
+        hubPublicUrl: runtimeConfig.hubPublicUrl,
         onSessionInvalidated: releaseProcess.onSessionInvalidated,
         onProviderConnectionState: releaseProcess.onProviderConnectionState,
       });

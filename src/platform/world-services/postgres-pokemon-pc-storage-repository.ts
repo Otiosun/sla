@@ -1,9 +1,11 @@
 import type { Pool, PoolClient } from "pg";
 import type {
   DepositPokemonPcInput,
+  MovePokemonPcInput,
   OrganizePokemonPcInput,
   PokemonPcBoxView,
   PokemonPcDepositPersistenceResult,
+  PokemonPcMovePersistenceResult,
   PokemonPcOrganizePersistenceResult,
   PokemonPcPokemonView,
   PokemonPcStorageRepository,
@@ -250,6 +252,152 @@ export class PostgresPokemonPcStorageRepository implements PokemonPcStorageRepos
         fromSlotNo: targetRow.slot_no,
         toBoxNo: input.boxNo,
         toSlotNo: input.slotNo,
+      };
+    });
+  }
+
+  public async move(input: MovePokemonPcInput): Promise<PokemonPcMovePersistenceResult> {
+    const targetValid =
+      input.target.placementKind === "TEAM"
+        ? input.target.boxNo === null &&
+          Number.isInteger(input.target.slotNo) &&
+          input.target.slotNo >= 1 &&
+          input.target.slotNo <= TEAM_CAPACITY
+        : Number.isInteger(input.target.boxNo) &&
+          input.target.boxNo >= 1 &&
+          Number.isInteger(input.target.slotNo) &&
+          input.target.slotNo >= 1 &&
+          input.target.slotNo <= BOX_CAPACITY;
+
+    if (!targetValid) return { kind: "INVALID_DESTINATION" };
+
+    return withTransaction(this.pool, async (client) => {
+      if (!(await lockPlayer(client, input.playerId))) return { kind: "POKEMON_NOT_FOUND" };
+
+      const roster = await client.query<{
+        pokemon_instance_id: string;
+        placement_kind: "TEAM" | "BOX";
+        box_no: number | null;
+        slot_no: number;
+        pokemon_status: "ACTIVE" | "ARCHIVED";
+      }>(
+        `SELECT roster.pokemon_instance_id::text,
+                roster.placement_kind,
+                roster.box_no,
+                roster.slot_no,
+                pokemon.status AS pokemon_status
+         FROM pokemon_roster_slots roster
+         JOIN pokemon_instances pokemon
+           ON pokemon.id = roster.pokemon_instance_id
+          AND pokemon.owner_player_id = roster.player_id
+         WHERE roster.player_id = $1
+         ORDER BY roster.pokemon_instance_id
+         FOR UPDATE OF roster`,
+        [input.playerId],
+      );
+
+      const source = roster.rows.find((row) => row.pokemon_instance_id === input.pokemonInstanceId);
+      if (source === undefined || source.pokemon_status !== "ACTIVE") {
+        return { kind: "POKEMON_NOT_FOUND" };
+      }
+
+      const targetBoxNo = input.target.placementKind === "TEAM" ? null : input.target.boxNo;
+      const sameDestination =
+        source.placement_kind === input.target.placementKind &&
+        source.box_no === targetBoxNo &&
+        source.slot_no === input.target.slotNo;
+
+      if (sameDestination) {
+        return {
+          kind: "APPLIED",
+          pokemonInstanceId: input.pokemonInstanceId,
+          fromPlacementKind: source.placement_kind,
+          fromBoxNo: source.box_no,
+          fromSlotNo: source.slot_no,
+          toPlacementKind: input.target.placementKind,
+          toBoxNo: targetBoxNo,
+          toSlotNo: input.target.slotNo,
+          swappedPokemonInstanceId: null,
+        };
+      }
+
+      const occupant = roster.rows.find(
+        (row) =>
+          row.placement_kind === input.target.placementKind &&
+          row.box_no === targetBoxNo &&
+          row.slot_no === input.target.slotNo &&
+          row.pokemon_instance_id !== input.pokemonInstanceId,
+      );
+
+      if (
+        source.placement_kind === "TEAM" &&
+        input.target.placementKind === "BOX" &&
+        occupant === undefined
+      ) {
+        const teamCount = roster.rows.filter((row) => row.placement_kind === "TEAM").length;
+        if (teamCount <= 1) return { kind: "LAST_TEAM_MEMBER" };
+      }
+
+      if (occupant === undefined) {
+        const updated = await client.query(
+          `UPDATE pokemon_roster_slots
+           SET placement_kind = $3,
+               box_no = $4,
+               slot_no = $5,
+               updated_at = now()
+           WHERE player_id = $1 AND pokemon_instance_id = $2`,
+          [
+            input.playerId,
+            input.pokemonInstanceId,
+            input.target.placementKind,
+            targetBoxNo,
+            input.target.slotNo,
+          ],
+        );
+        if (updated.rowCount !== 1) return { kind: "POKEMON_NOT_FOUND" };
+      } else {
+        await client.query(
+          `DELETE FROM pokemon_roster_slots
+           WHERE player_id = $1
+             AND pokemon_instance_id = ANY($2::uuid[])`,
+          [input.playerId, [input.pokemonInstanceId, occupant.pokemon_instance_id]],
+        );
+
+        await client.query(
+          `INSERT INTO pokemon_roster_slots(
+             pokemon_instance_id,
+             player_id,
+             placement_kind,
+             box_no,
+             slot_no
+           ) VALUES
+             ($1, $3, $4, $5, $6),
+             ($2, $3, $7, $8, $9)`,
+          [
+            input.pokemonInstanceId,
+            occupant.pokemon_instance_id,
+            input.playerId,
+            input.target.placementKind,
+            targetBoxNo,
+            input.target.slotNo,
+            source.placement_kind,
+            source.box_no,
+            source.slot_no,
+          ],
+        );
+      }
+
+      return {
+        kind: "APPLIED",
+        pokemonInstanceId: input.pokemonInstanceId,
+        fromPlacementKind: source.placement_kind,
+        fromBoxNo: source.box_no,
+        fromSlotNo: source.slot_no,
+        toPlacementKind: input.target.placementKind,
+        toBoxNo: targetBoxNo,
+        toSlotNo: input.target.slotNo,
+        swappedPokemonInstanceId:
+          occupant === undefined ? null : pokemonId(occupant.pokemon_instance_id),
       };
     });
   }

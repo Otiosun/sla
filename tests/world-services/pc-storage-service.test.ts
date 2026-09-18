@@ -68,6 +68,7 @@ function repository(
       toBoxNo: 2,
       toSlotNo: 3,
     })),
+    move: vi.fn(async () => ({ kind: "POKEMON_NOT_FOUND" as const })),
     ...overrides,
   };
 }

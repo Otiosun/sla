@@ -49,6 +49,8 @@ import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
+import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
 import { PvpService } from "../modules/pvp/service.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
@@ -91,6 +93,7 @@ import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
+import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../platform/pvp/postgres-pvp-start-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
@@ -126,6 +129,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly encounterRngConfig?: EncounterRngRuntimeConfig;
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
+  readonly hubPublicUrl?: string | null;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -150,6 +154,7 @@ export function createOperationalMessagingComposition(
   encounterRngConfig: EncounterRngRuntimeConfig | null = null,
   worldServiceMedia: WorldServiceMediaCatalog | null = null,
   pveBattleConfig: PveBattleRuntimeConfig | null = null,
+  hubPublicUrl: string | null = null,
 ): OperationalMessagingComposition {
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const pvp = (() => {
@@ -430,6 +435,10 @@ export function createOperationalMessagingComposition(
     admins: adminIdentity,
     service: new UatBootstrapService(pool, playerRegistration, starter, world),
   });
+  const hubRoutes = createHubWhatsAppRoutes({
+    tickets: new HubLoginTicketService(new PostgresHubLoginTicketStore(pool)),
+    publicUrl: hubPublicUrl,
+  });
   const router = new MessageRouter(
     [
       ...legacyRoutes,
@@ -485,6 +494,7 @@ export function createOperationalMessagingComposition(
         setup: new PostgresWorldGroupSetup(pool),
       }),
       ...uatBootstrapRoutes,
+      ...hubRoutes,
     ],
     policyGate,
     conversationResolver,
@@ -551,6 +561,7 @@ export function createOperationalWhatsAppRuntime(
     options.encounterRngConfig ?? null,
     options.worldServiceMedia ?? null,
     options.pveBattleConfig ?? null,
+    options.hubPublicUrl ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
