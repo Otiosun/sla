@@ -1,5 +1,6 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { EncounterView } from "../encounter/contracts.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
@@ -56,7 +57,9 @@ export interface WorldServiceMediaCatalog {
 
 export interface WorldServiceWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
-  readonly world: Pick<WorldService, "getLocation">;
+  readonly world: Pick<WorldService, "getLocation"> & Partial<Pick<WorldService, "travelLock">>;
+  readonly activeBattleId?: (playerId: PlayerId) => Promise<string | null>;
+  readonly activeEncounter?: (playerId: PlayerId) => Promise<Result<EncounterView>>;
   readonly sessions: Pick<
     WorldServiceSessionService,
     "openVisit" | "loadActiveSession" | "closeVisit"
@@ -102,6 +105,78 @@ async function resolvePlayer(
 ): Promise<Result<PlayerId>> {
   const resolved = await dependencies.players.resolvePlayer(identity(context));
   return resolved.ok ? ok(resolved.value.playerId) : resolved;
+}
+
+interface WorldServiceFlowGuardOptions {
+  readonly requiresFreeWorld?: boolean;
+}
+
+async function ensureHigherPriorityFlowClear(
+  dependencies: WorldServiceWhatsAppDependencies,
+  playerId: PlayerId,
+  options: WorldServiceFlowGuardOptions = {},
+): Promise<Result<void>> {
+  if (dependencies.activeBattleId !== undefined) {
+    const battleId = await dependencies.activeBattleId(playerId);
+    if (battleId !== null) {
+      return err(
+        appError("FLOW_BLOCKED", "Finalize a batalha ativa antes de usar Serviços.", { battleId }),
+      );
+    }
+  }
+
+  if (dependencies.activeEncounter !== undefined) {
+    const activeEncounter = await dependencies.activeEncounter(playerId);
+    if (activeEncounter.ok) {
+      return err(
+        appError("FLOW_BLOCKED", "Resolva o encontro ativo antes de usar Serviços.", {
+          encounterId: activeEncounter.value.encounterId,
+        }),
+      );
+    }
+    if (activeEncounter.error.code !== "NOT_FOUND") return err(activeEncounter.error);
+  }
+
+  if (dependencies.world.travelLock !== undefined) {
+    const travelLock = await dependencies.world.travelLock(playerId);
+    if (!travelLock.ok) return err(travelLock.error);
+    if (travelLock.value !== null) {
+      return err(
+        appError("FLOW_BLOCKED", "Aguarde o fim da viagem antes de usar Serviços.", {
+          destinationAreaId: travelLock.value.destinationAreaId,
+          availableAt: travelLock.value.availableAt.toISOString(),
+        }),
+      );
+    }
+  }
+
+  if (options.requiresFreeWorld === true) {
+    const activeSession = await dependencies.sessions.loadActiveSession(playerId);
+    if (!activeSession.ok) return err(activeSession.error);
+    if (activeSession.value !== null) {
+      return err(
+        appError("FLOW_BLOCKED", "Saia da instalação com `/sair` antes de pescar.", {
+          activeServiceKind: activeSession.value.serviceKind,
+        }),
+      );
+    }
+  }
+
+  return ok(undefined);
+}
+
+function guardWorldServiceHandler(
+  dependencies: WorldServiceWhatsAppDependencies,
+  handler: MessageRouteHandler,
+  options: WorldServiceFlowGuardOptions = {},
+): MessageRouteHandler {
+  return new FunctionalHandler(async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+    const flow = await ensureHigherPriorityFlowClear(dependencies, player.value, options);
+    if (!flow.ok) return flow;
+    return handler.handle(context);
+  });
 }
 
 function textResult(
@@ -222,6 +297,14 @@ function openHandler(
 export function createWorldServiceWhatsAppRoutes(
   dependencies: WorldServiceWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
+  const guarded = (handler: Handler, options: WorldServiceFlowGuardOptions = {}) =>
+    guardWorldServiceHandler(dependencies, new FunctionalHandler(handler), options);
+  const organizeRoute = createPokemonPcOrganizeRoute(dependencies);
+  const guardedOrganizeRoute: CommandRouteDefinition = {
+    ...organizeRoute,
+    handler: guardWorldServiceHandler(dependencies, organizeRoute.handler),
+  };
+
   const close: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -574,63 +657,63 @@ export function createWorldServiceWhatsAppRoutes(
   return [
     {
       command: "pokemart",
-      handler: new FunctionalHandler(openHandler(dependencies, "POKEMART")),
+      handler: guarded(openHandler(dependencies, "POKEMART")),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "comprar",
-      handler: new FunctionalHandler(buy),
+      handler: guarded(buy),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "itens",
-      handler: new FunctionalHandler(items),
+      handler: guarded(items),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "vender",
-      handler: new FunctionalHandler(sell),
+      handler: guarded(sell),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "centropokemon",
-      handler: new FunctionalHandler(openHandler(dependencies, "POKEMON_CENTER")),
+      handler: guarded(openHandler(dependencies, "POKEMON_CENTER")),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "curar",
-      handler: new FunctionalHandler(heal),
+      handler: guarded(heal),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "pc",
-      handler: new FunctionalHandler(pc),
+      handler: guarded(pc),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "caixas",
-      handler: new FunctionalHandler(boxes),
+      handler: guarded(boxes),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "depositar",
-      handler: new FunctionalHandler(deposit),
+      handler: guarded(deposit),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "retirar",
-      handler: new FunctionalHandler(withdraw),
+      handler: guarded(withdraw),
       policy: WORLD_SERVICE_POLICY,
     },
-    createPokemonPcOrganizeRoute(dependencies),
+    guardedOrganizeRoute,
     {
       command: "conversar",
-      handler: new FunctionalHandler(converse),
+      handler: guarded(converse),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "pescar",
-      handler: new FunctionalHandler(fish),
+      handler: guarded(fish, { requiresFreeWorld: true }),
       policy: WORLD_SERVICE_POLICY,
     },
     {

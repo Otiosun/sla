@@ -382,6 +382,8 @@ export function createOperationalMessagingComposition(
     players: playerRegistration,
     world,
     sessions: worldServiceSessions,
+    activeBattleId: reads.activeBattleId.bind(reads),
+    activeEncounter: encounter.activeForPlayer.bind(encounter),
     healing: pokemonCenterHealing,
     economy: martSaleInventory,
     pcStorage: pokemonPcStorage,

@@ -551,6 +551,18 @@ export function createOperationalUxRoutes(
       }
     }
 
+    if (dependencies.sessions !== undefined) {
+      const activeSession = await dependencies.sessions.loadActiveSession(player.value);
+      if (!activeSession.ok) return activeSession;
+      if (activeSession.value !== null) {
+        return err(
+          appError("FLOW_BLOCKED", "Saia da instalação com `/sair` antes de viajar.", {
+            activeServiceKind: activeSession.value.serviceKind,
+          }),
+        );
+      }
+    }
+
     const travelLockBeforeMove =
       dependencies.world.travelLock === undefined
         ? ok(null)

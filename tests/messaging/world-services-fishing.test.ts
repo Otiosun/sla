@@ -100,7 +100,7 @@ function dependencies(
     world: { getLocation: vi.fn() },
     sessions: {
       openVisit: vi.fn(),
-      loadActiveSession: vi.fn(),
+      loadActiveSession: vi.fn(async () => ok(null)),
       closeVisit: vi.fn(),
     },
     fishing: { attempt },
