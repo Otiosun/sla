@@ -8,7 +8,7 @@ import {
 
 export interface ZhouliaWorldAreaConfig {
   readonly schemaVersion: 1;
-  readonly kind: "TOWN" | "ROUTE";
+  readonly kind: "TOWN" | "CITY" | "ROUTE" | "FACILITY" | "OTHER";
   readonly safePoint: boolean;
   readonly startingArea: boolean;
   readonly relocationPriority: number;
@@ -103,7 +103,7 @@ export function zhouliaWorldAreaConfig(
   });
   return {
     schemaVersion: 1,
-    kind: isVila ? "TOWN" : "ROUTE",
+    kind: area.runtimeKind,
     safePoint: isVila,
     startingArea: isVila,
     relocationPriority: areaIndex * 10,

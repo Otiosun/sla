@@ -49,6 +49,7 @@ export interface ZhouliaAreaContent {
   readonly identity: string;
   readonly displayName: string;
   readonly regionKey: "zhoulia";
+  readonly runtimeKind: "TOWN" | "CITY" | "ROUTE" | "FACILITY" | "OTHER";
   readonly summary: string;
   readonly narrativeKeys: {
     readonly firstArrival?: string;
@@ -126,6 +127,7 @@ export const VILA_DOS_ARROZAIS: ZhouliaAreaContent = {
   identity: "zhoulia.area.vila-dos-arrozais",
   displayName: "Vila dos Arrozais",
   regionKey: "zhoulia",
+  runtimeKind: "TOWN",
   summary:
     "Vila rural cercada por arrozais, cursos d'água e pontos comunitários; funciona como ponto seguro inicial de Zhoulia.",
   narrativeKeys: {
@@ -252,6 +254,7 @@ export const CAMPOS_DE_YUN: ZhouliaAreaContent = {
   identity: "zhoulia.area.campos-de-yun",
   displayName: "Campos de Yun",
   regionKey: "zhoulia",
+  runtimeKind: "ROUTE",
   summary:
     "Campos abertos com colinas, trechos de floresta, rios, fazendas, estrada comercial e ruínas.",
   narrativeKeys: {},
@@ -352,10 +355,97 @@ export const CAMPOS_DE_YUN: ZhouliaAreaContent = {
   ],
 };
 
+export const FLORESTA_DE_SEKIGLOOM_MIL_BAMBU: ZhouliaAreaContent = {
+  identity: "zhoulia.area.floresta-de-sekigloom-mil-bambu",
+  displayName: "Floresta de Sekigloom / Mil Bambu",
+  regionKey: "zhoulia",
+  runtimeKind: "ROUTE",
+  summary:
+    "Floresta de bambu coberta por névoa, associada a clãs e ninjas, com referências narrativas noturnas e espectrais.",
+  narrativeKeys: {},
+  sites: [
+    {
+      identity: "zhoulia.site.floresta-de-sekigloom-mil-bambu.santuario-sekizor",
+      displayName: "Santuário Sekizor",
+      kind: "SHRINE",
+    },
+  ],
+  npcRoles: [],
+  encounterPools: [],
+  editorialNotes: [
+    "A fonte usa Floresta de Sekigloom, Santuário Sekizor e Mil Bambu; preservar a inconsistência de nomenclatura e não normalizar silenciosamente.",
+    "A fonte faz referências a noite e a locais ou águas de caráter espectral, mas não fornece neste material uma lista de espécies suficiente para materializar pools mecânicos.",
+    "Nenhuma faixa horária numérica foi fornecida para noite.",
+  ],
+};
+
+export const CIDADE_DO_AQUARIO: ZhouliaAreaContent = {
+  identity: "zhoulia.area.cidade-do-aquario",
+  displayName: "Cidade do Aquário",
+  regionKey: "zhoulia",
+  runtimeKind: "CITY",
+  summary:
+    "Cidade costeira vertical ligada à água, ao mar profundo e a espaços urbanos e submersos.",
+  narrativeKeys: {},
+  sites: [
+    {
+      identity: "zhoulia.site.cidade-do-aquario.ginasio-das-mares",
+      displayName: "Ginásio das Marés",
+      kind: "GYM",
+    },
+  ],
+  npcRoles: [],
+  encounterPools: [],
+  editorialNotes: [
+    "A fonte menciona agrupamentos de encontro urbanos, de água, submersos e raros, mas não fornece aqui espécies suficientes para materializar tabelas sem invenção.",
+    "Nenhum nome canônico de líder do Ginásio das Marés foi fornecido neste material; não criar NPC nomeado.",
+  ],
+};
+
+export const PORTO_DOS_CEUS: ZhouliaAreaContent = {
+  identity: "zhoulia.area.porto-dos-ceus",
+  displayName: "Porto dos Céus",
+  regionKey: "zhoulia",
+  runtimeKind: "OTHER",
+  summary: "Área de baía, montanhas e ilhas com forte identidade ligada a Pokémon do tipo Voador.",
+  narrativeKeys: {},
+  sites: [],
+  npcRoles: [],
+  encounterPools: [],
+  editorialNotes: [
+    "A fonte fornecida não define um ginásio para Porto dos Céus; não adicionar um.",
+    "A fonte não fornece neste material lista de espécies, pools ou conexões de rota suficientes para materialização mecânica.",
+  ],
+};
+
+export const TEMPLO_DO_CEU_ANTIGO: ZhouliaAreaContent = {
+  identity: "zhoulia.area.templo-do-ceu-antigo",
+  displayName: "Templo do Céu Antigo",
+  regionKey: "zhoulia",
+  runtimeKind: "OTHER",
+  summary: "Área montanhosa ligada a um antigo pacto com dragões e a um mistério celeste.",
+  narrativeKeys: {},
+  sites: [],
+  npcRoles: [],
+  encounterPools: [],
+  editorialNotes: [
+    "A fonte cita Dragonite, Salamence, Flygon e Altaria associados ao local; preservar a citação sem fabricar pesos, níveis ou uma tabela de encontro.",
+    "A serpente celeste é descrita apenas como semelhante a Rayquaza e deve permanecer um mistério; não identificar a criatura como Rayquaza.",
+    "Nenhuma rota, NPC nomeado ou faixa horária numérica adicional foi fornecida neste material.",
+  ],
+};
+
 export const ZHOULIA_TYPED_CONTENT_V1: ZhouliaContentBundle = {
   schemaVersion: 1,
   bundleKey: "zhoulia-v1",
-  areas: [VILA_DOS_ARROZAIS, CAMPOS_DE_YUN],
+  areas: [
+    VILA_DOS_ARROZAIS,
+    CAMPOS_DE_YUN,
+    FLORESTA_DE_SEKIGLOOM_MIL_BAMBU,
+    CIDADE_DO_AQUARIO,
+    PORTO_DOS_CEUS,
+    TEMPLO_DO_CEU_ANTIGO,
+  ],
   routes: [
     {
       identity: "zhoulia.route.vila-dos-arrozais.campos-de-yun",

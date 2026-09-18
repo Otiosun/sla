@@ -7,12 +7,16 @@ import {
 } from "../../src/modules/world/zhoulia-catalog-adapter.js";
 import {
   CAMPOS_DE_YUN,
+  CIDADE_DO_AQUARIO,
+  FLORESTA_DE_SEKIGLOOM_MIL_BAMBU,
+  PORTO_DOS_CEUS,
+  TEMPLO_DO_CEU_ANTIGO,
   VILA_DOS_ARROZAIS,
   ZHOULIA_TYPED_CONTENT_V1,
 } from "../../src/modules/world/zhoulia-content.js";
 
 describe("Zhoulia catalog adapter", () => {
-  it("projects Vila into runtime-safe area config with presentation metadata", () => {
+  it("projects authored runtime kinds without inventing safe points", () => {
     expect(zhouliaWorldAreaConfig(VILA_DOS_ARROZAIS, 0)).toMatchObject({
       schemaVersion: 1,
       kind: "TOWN",
@@ -20,20 +24,36 @@ describe("Zhoulia catalog adapter", () => {
       startingArea: true,
       relocationPriority: 0,
       facilities: ["POKEMON_CENTER", "POKEMART"],
-      presentation: {
-        summary: VILA_DOS_ARROZAIS.summary,
-        narrativeKeys: {
-          firstArrival: "zhoulia.vila-dos-arrozais.arrival.first",
-          returnArrival: "zhoulia.vila-dos-arrozais.arrival.return",
-        },
-      },
     });
     expect(zhouliaWorldAreaConfig(CAMPOS_DE_YUN, 1)).toMatchObject({
-      schemaVersion: 1,
       kind: "ROUTE",
       safePoint: false,
       startingArea: false,
       relocationPriority: 10,
+    });
+    expect(zhouliaWorldAreaConfig(FLORESTA_DE_SEKIGLOOM_MIL_BAMBU, 2)).toMatchObject({
+      kind: "ROUTE",
+      safePoint: false,
+      startingArea: false,
+      relocationPriority: 20,
+    });
+    expect(zhouliaWorldAreaConfig(CIDADE_DO_AQUARIO, 3)).toMatchObject({
+      kind: "CITY",
+      safePoint: false,
+      startingArea: false,
+      relocationPriority: 30,
+    });
+    expect(zhouliaWorldAreaConfig(PORTO_DOS_CEUS, 4)).toMatchObject({
+      kind: "OTHER",
+      safePoint: false,
+      startingArea: false,
+      relocationPriority: 40,
+    });
+    expect(zhouliaWorldAreaConfig(TEMPLO_DO_CEU_ANTIGO, 5)).toMatchObject({
+      kind: "OTHER",
+      safePoint: false,
+      startingArea: false,
+      relocationPriority: 50,
     });
   });
 
@@ -52,7 +72,7 @@ describe("Zhoulia catalog adapter", () => {
     });
   });
 
-  it("expands one bidirectional route into two directed world connections", () => {
+  it("keeps only the authored Vila↔Yun route as two directed world connections", () => {
     expect(buildZhouliaDirectedRoutes()).toEqual([
       expect.objectContaining({
         fromAreaIdentity: "zhoulia.area.vila-dos-arrozais",
@@ -67,14 +87,18 @@ describe("Zhoulia catalog adapter", () => {
     ]);
   });
 
-  it("keeps encounter balance explicitly unresolved instead of inventing weights or levels", () => {
+  it("keeps exactly the seven mechanically balanced Vila/Yun encounter pools", () => {
     const pools = buildZhouliaEncounterPoolDraftPlans(ZHOULIA_TYPED_CONTENT_V1);
     expect(pools).toHaveLength(7);
-    expect(pools.every((pool) => pool.balanceStatus === "PENDING_LEVELS_AND_WEIGHTS")).toBe(true);
-    expect(pools[0]).not.toHaveProperty("weight");
-    expect(pools[0]).not.toHaveProperty("minLevel");
-    expect(pools[0]).not.toHaveProperty("maxLevel");
+    expect(
+      pools.every((pool) =>
+        ["zhoulia.area.vila-dos-arrozais", "zhoulia.area.campos-de-yun"].includes(
+          pool.areaIdentity,
+        ),
+      ),
+    ).toBe(true);
   });
+
   it("keeps day and night land pools as distinct table slugs", () => {
     const pools = buildZhouliaEncounterPoolDraftPlans(ZHOULIA_TYPED_CONTENT_V1);
     expect(

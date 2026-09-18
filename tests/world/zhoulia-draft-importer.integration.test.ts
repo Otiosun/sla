@@ -106,6 +106,10 @@ describe.skipIf(!enabled)("Zhoulia DRAFT structure importer", () => {
     expect(Object.keys(first.areaIdsByIdentity)).toEqual([
       "zhoulia.area.vila-dos-arrozais",
       "zhoulia.area.campos-de-yun",
+      "zhoulia.area.floresta-de-sekigloom-mil-bambu",
+      "zhoulia.area.cidade-do-aquario",
+      "zhoulia.area.porto-dos-ceus",
+      "zhoulia.area.templo-do-ceu-antigo",
     ]);
 
     const areas = await pool.query<{
@@ -122,6 +126,10 @@ describe.skipIf(!enabled)("Zhoulia DRAFT structure importer", () => {
     );
     expect(areas.rows.map((row) => [row.slug, row.display_name])).toEqual([
       ["campos-de-yun", "Campos de Yun"],
+      ["cidade-do-aquario", "Cidade do Aquário"],
+      ["floresta-de-sekigloom-mil-bambu", "Floresta de Sekigloom / Mil Bambu"],
+      ["porto-dos-ceus", "Porto dos Céus"],
+      ["templo-do-ceu-antigo", "Templo do Céu Antigo"],
       ["vila-dos-arrozais", "Vila dos Arrozais"],
     ]);
     expect(areas.rows.find((row) => row.slug === "vila-dos-arrozais")?.data).toMatchObject({
@@ -160,7 +168,7 @@ describe.skipIf(!enabled)("Zhoulia DRAFT structure importer", () => {
          FROM area_revisions WHERE content_release_id=$1`,
         [seeded.releaseId],
       ),
-    ).toMatchObject({ rows: [{ count: 2 }] });
+    ).toMatchObject({ rows: [{ count: 6 }] });
     expect(
       await pool.query(
         `SELECT count(*)::int AS count

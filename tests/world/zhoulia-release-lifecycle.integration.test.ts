@@ -257,7 +257,7 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
     const structure = await new PostgresZhouliaDraftStructureImporter(pool).import({
       releaseId,
     });
-    expect(Object.keys(structure.areaIdsByIdentity)).toHaveLength(2);
+    expect(Object.keys(structure.areaIdsByIdentity)).toHaveLength(6);
     expect(structure.directedConnectionCount).toBe(2);
 
     const encounters = await new PostgresZhouliaEncounterDraftMaterializer(pool).materialize({
@@ -361,8 +361,7 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
               JOIN regions region ON region.id=area.region_id
              WHERE revision.content_release_id=$2
                AND revision.active=TRUE
-               AND region.slug='zhoulia'
-               AND area.slug IN ('vila-dos-arrozais','campos-de-yun')) AS zhoulia_areas,
+               AND region.slug='zhoulia') AS zhoulia_areas,
            (SELECT count(*)::int
               FROM encounter_table_revisions revision
               JOIN encounter_tables encounter_table
@@ -380,7 +379,7 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
       parent_status: "PUBLISHED",
       candidate_status: "PUBLISHED",
       zhoulia_regions: 1,
-      zhoulia_areas: 2,
+      zhoulia_areas: 6,
       zhoulia_tables: 7,
     });
 
