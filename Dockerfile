@@ -35,6 +35,7 @@ WORKDIR /app
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/db/migrations ./db/migrations
 COPY --chown=node:node package.json ./package.json
 COPY --chown=node:node certs/supabase/prod-ca-2021.crt ./certs/supabase/prod-ca-2021.crt
 

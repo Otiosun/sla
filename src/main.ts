@@ -67,6 +67,7 @@ try {
         logger,
         encounterRngConfig,
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
+        hubPublicUrl: runtimeConfig.hubPublicUrl,
         onSessionInvalidated: requestShutdown,
       });
       const supervisor = new WhatsAppRuntimeSupervisor(runtime, {
@@ -99,6 +100,7 @@ try {
         logger,
         encounterRngConfig,
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
+        hubPublicUrl: runtimeConfig.hubPublicUrl,
         onSessionInvalidated: releaseProcess.onSessionInvalidated,
         onProviderConnectionState: releaseProcess.onProviderConnectionState,
       });

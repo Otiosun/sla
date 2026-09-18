@@ -35,6 +35,8 @@ import type {
 } from "../modules/messaging/ports.js";
 import { MessageRouter } from "../modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
+import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
@@ -70,6 +72,7 @@ import { PostgresEncounterRepository } from "../platform/encounter/postgres-enco
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
+import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
 import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
@@ -98,6 +101,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly logger: StructuredLogger;
   readonly encounterRngConfig?: EncounterRngRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
+  readonly hubPublicUrl?: string | null;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -120,6 +124,7 @@ export function createOperationalMessagingComposition(
   pool: Pool,
   encounterRngConfig: EncounterRngRuntimeConfig | null = null,
   worldServiceMedia: WorldServiceMediaCatalog | null = null,
+  hubPublicUrl: string | null = null,
 ): OperationalMessagingComposition {
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
   const playerRegistration = new PlayerRegistrationService(playerRepository);
@@ -296,12 +301,17 @@ export function createOperationalMessagingComposition(
     registration: auditedRegistrationReview,
     setup,
   });
+  const hubRoutes = createHubWhatsAppRoutes({
+    tickets: new HubLoginTicketService(new PostgresHubLoginTicketStore(pool)),
+    publicUrl: hubPublicUrl,
+  });
   const router = new MessageRouter(
     [
       ...legacyRoutes,
       ...worldServiceRoutes,
       ...registrationRoutes,
       ...registrationAdminRoutes,
+      ...hubRoutes,
       createWorldGroupSetupRoute({
         admins: adminIdentity,
         admin: adminService,
@@ -370,6 +380,7 @@ export function createOperationalWhatsAppRuntime(
     options.pool,
     options.encounterRngConfig ?? null,
     options.worldServiceMedia ?? null,
+    options.hubPublicUrl ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
