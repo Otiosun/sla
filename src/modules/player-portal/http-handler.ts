@@ -1,4 +1,5 @@
 import type { HubLoginTicketService } from "./login-ticket-service.js";
+import type { PlayerPortalLocationReadService } from "./location-read-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
 import type { PlayerPortalRosterService } from "./roster-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
@@ -11,6 +12,7 @@ interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
   readonly player: Pick<PlayerPortalReadService, "getSelf" | "getPokemon" | "getPokedex">;
+  readonly location: Pick<PlayerPortalLocationReadService, "getLocation">;
   readonly roster: Pick<PlayerPortalRosterService, "move">;
 }
 
@@ -31,6 +33,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokedex") {
       return this.getPokedex(request);
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/location") {
+      return this.getLocation(request);
     }
     if (request.method === "PUT" && url.pathname === "/v1/hub/player/roster") {
       return this.moveRoster(request);
@@ -129,6 +134,25 @@ export class PlayerPortalHttpHandler {
     return jsonResponse(200, { pokedex: pokedex.value });
   }
 
+  private async getLocation(request: Request): Promise<Response> {
+    const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
+    if (sessionToken === null) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const verified = this.dependencies.sessions.verify(sessionToken);
+    if (!verified.ok) {
+      return jsonResponse(401, { error: "UNAUTHENTICATED" });
+    }
+
+    const location = await this.dependencies.location.getLocation(verified.value);
+    if (!location.ok) {
+      return errorResponse(location.error, "location");
+    }
+
+    return jsonResponse(200, { location: location.value });
+  }
+
   private async moveRoster(request: Request): Promise<Response> {
     const sessionToken = readCookie(request.headers.get("cookie"), SESSION_COOKIE_NAME);
     if (sessionToken === null) {
@@ -202,7 +226,10 @@ function serializeSessionCookie(token: string): string {
   ].join("; ");
 }
 
-function errorResponse(error: AppError, context: "exchange" | "self" | "roster"): Response {
+function errorResponse(
+  error: AppError,
+  context: "exchange" | "self" | "location" | "roster",
+): Response {
   if (error.code === "PLAYER_INELIGIBLE") {
     return jsonResponse(403, { error: error.code });
   }
@@ -214,6 +241,12 @@ function errorResponse(error: AppError, context: "exchange" | "self" | "roster")
   }
   if (context === "self" && error.code === "NOT_FOUND") {
     return jsonResponse(401, { error: "UNAUTHENTICATED" });
+  }
+  if (context === "location" && error.code === "NOT_FOUND") {
+    return jsonResponse(404, { error: error.code });
+  }
+  if (context === "location" && error.code === "VALIDATION_FAILED") {
+    return jsonResponse(400, { error: error.code });
   }
   if (context === "roster" && error.code === "VALIDATION_FAILED") {
     return jsonResponse(400, { error: error.code });
