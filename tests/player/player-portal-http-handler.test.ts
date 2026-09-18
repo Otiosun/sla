@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExternalIdentity } from "../../src/modules/player/contracts.js";
+import type { PlayerPortalLocationView } from "../../src/modules/player-portal/location-read-service.js";
 import type { PlayerPortalSelfView } from "../../src/modules/player-portal/read-service.js";
 import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
 import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
@@ -39,6 +40,18 @@ const profile: PlayerPortalSelfView = {
 
 const sessionExpiresAt = new Date("2026-09-10T00:00:00.000Z");
 
+
+const location: PlayerPortalLocationView = {
+  areaId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  areaSlug: "vila-dos-arrozais",
+  areaDisplayName: "Vila dos Arrozais",
+  regionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  regionSlug: "zhoulia",
+  regionDisplayName: "Zhoulia",
+  safePoint: true,
+  enteredAt: "2026-09-10T00:00:00.000Z",
+};
+
 function handler(
   input: {
     selfResult?: Result<PlayerPortalSelfView>;
@@ -63,6 +76,9 @@ function handler(
       getSelf: async () => input.selfResult ?? ok(profile),
       getPokemon: async () => ok([]),
       getPokedex: async () => ok([]),
+    },
+    location: {
+      getLocation: async () => ok(location),
     },
     roster: {
       move: async () => ok(undefined),
@@ -128,6 +144,18 @@ describe("PlayerPortalHttpHandler", () => {
     expect(verifiedToken).toBe("session-token");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ profile });
+  });
+
+  it("reads only the authenticated player's current location from the session cookie", async () => {
+    const response = await handler().handle(
+      new Request("https://api.example.test/v1/hub/player/location", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ location });
   });
 
   it("reads only the authenticated player's Pokedex progress from the session cookie", async () => {
