@@ -8,7 +8,7 @@ import { ok } from "../../src/shared-kernel/result.js";
 const TICKET = "A".repeat(43);
 const SENDER = "5511999999999@s.whatsapp.net";
 
-function context(text = "$hub"): MessageHandlerContext {
+function context(text = "/hub"): MessageHandlerContext {
   return {
     inboxMessageId: "inbox-hub-1",
     correlationId: "00000000-0000-4000-8000-000000000031",
@@ -39,7 +39,7 @@ function textOf(result: Awaited<ReturnType<MessageRouter["dispatch"]>>): string 
   return typeof payload?.text === "string" ? payload.text : "";
 }
 
-describe("WhatsApp $hub command", () => {
+describe("WhatsApp /hub command", () => {
   it("issues a one-shot ticket for the canonical sender identity and returns it only in the URL fragment", async () => {
     const issue = vi.fn(async (_identity: ExternalIdentity) =>
       ok({ ticket: TICKET, expiresAt: new Date("2026-09-10T20:05:00.000Z") }),
