@@ -1,11 +1,11 @@
+import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { BattleAction, BattleCombatant } from "../battle/contracts.js";
 import type { BattleOperationalReadService } from "../battle/operational-read-service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldService } from "../world/service.js";
-import { parseCorrelationId, type PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js";
 import type { OperationalUxReadModel } from "./operational-ux-read-model.js";
 import type { MessageRouteHandler } from "./ports.js";
@@ -101,25 +101,25 @@ async function resolvePlayer(
 function onboardingMenu(state: string): string {
   switch (state) {
     case "NEW":
-      return "🎒 *Bem-vindo ao RPG Pokémon*\n\n1. Crie seu treinador:\n`$registrar Seu Nome`";
+      return "🎒 *Bem-vindo ao RPG Pokémon*\n\n1. Crie seu treinador:\n`/registrar Seu Nome`";
     case "PROFILE_CREATED":
-      return "🗺️ *Treinador criado*\n\nAgora escolha sua região:\n`$regioes`";
+      return "🗺️ *Treinador criado*\n\nAgora escolha sua região:\n`/regioes`";
     case "REGION_SELECTED":
     case "STARTER_PENDING":
-      return "🔥 *Região definida*\n\nVeja os iniciais disponíveis:\n`$starters`\nDepois escolha com `$starter <número>`.";
+      return "🔥 *Região definida*\n\nVeja os iniciais disponíveis:\n`/starters`\nDepois escolha com `/starter <número>`.";
     case "STARTER_GRANTED":
-      return "✅ *Seu inicial já foi entregue.*\n\nFinalize a entrada no mundo com:\n`$concluir`";
+      return "✅ *Seu inicial já foi entregue.*\n\nFinalize a entrada no mundo com:\n`/concluir`";
     case "COMPLETE":
       return [
         "📟 *CENTRAL DO TREINADOR*",
         "",
-        "`$perfil` · treinador",
-        "`$equipe` · equipe atual",
-        "`$inventario` · itens",
-        "`$pokedex` · registros",
-        "`$onde` · local e rotas",
-        "`$encontro` · encontro ativo",
-        "`$batalha` · estado mecânico da batalha",
+        "`/perfil` · treinador",
+        "`/equipe` · equipe atual",
+        "`/inventario` · itens",
+        "`/pokedex` · registros",
+        "`/onde` · local e rotas",
+        "`/encontro` · encontro ativo",
+        "`/batalha` · estado mecânico da batalha",
         "",
         "Cenas comuns continuam livres entre jogadores e narrador.",
       ].join("\n");
@@ -188,14 +188,14 @@ export function createOperationalUxRoutes(
     if (!resolved.ok) return resolved;
     const trainerName = commandArgs(context).join(" ").trim();
     if (trainerName.length === 0) {
-      return err(appError("VALIDATION_FAILED", "Informe o nome: $registrar Seu Nome"));
+      return err(appError("VALIDATION_FAILED", "Informe o nome: /registrar Seu Nome"));
     }
     const created = await dependencies.registration.createProfile(resolved.value.playerId, {
       trainerName,
       locale: "pt-BR",
     });
     if (!created.ok) return created;
-    return textResult(context, `✅ Treinador *${trainerName}* criado.\n\nAgora use \`$regioes\`.`, {
+    return textResult(context, `✅ Treinador *${trainerName}* criado.\n\nAgora use \`/regioes\`.`, {
       type: "PLAYER",
       id: resolved.value.playerId,
     });
@@ -210,7 +210,7 @@ export function createOperationalUxRoutes(
     const lines = options.map((option, index) => `${index + 1}. ${option.displayName}`);
     return textResult(
       context,
-      `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`$regiao <número>\`.`,
+      `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`/regiao <número>\`.`,
     );
   };
 
@@ -220,7 +220,7 @@ export function createOperationalUxRoutes(
     const index = Number(commandArgs(context)[0]);
     const options = await dependencies.reads.listRegionOptions(player.value);
     if (!Number.isSafeInteger(index) || index < 1 || index > options.length) {
-      return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com $regioes."));
+      return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com /regioes."));
     }
     const selected = options[index - 1];
     if (selected === undefined) return err(appError("ACTION_INVALID", "Região não encontrada."));
@@ -230,7 +230,7 @@ export function createOperationalUxRoutes(
     if (!result.ok) return result;
     return textResult(
       context,
-      `✅ Região definida: *${selected.displayName}*.\n\nUse \`$starters\` para ver seus iniciais.`,
+      `✅ Região definida: *${selected.displayName}*.\n\nUse \`/starters\` para ver seus iniciais.`,
     );
   };
 
@@ -244,7 +244,7 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`$starter <número>\`.`,
+      `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`/starter <número>\`.`,
     );
   };
 
@@ -256,7 +256,7 @@ export function createOperationalUxRoutes(
     if (!prepared.ok) return prepared;
     const selected = prepared.value.options[index - 1];
     if (!Number.isSafeInteger(index) || index < 1 || selected === undefined) {
-      return err(appError("VALIDATION_FAILED", "Inicial inválido. Veja as opções com $starters."));
+      return err(appError("VALIDATION_FAILED", "Inicial inválido. Veja as opções com /starters."));
     }
     const correlationId = parseCorrelationId(context.correlationId);
     if (!correlationId.ok) return correlationId;
@@ -272,7 +272,7 @@ export function createOperationalUxRoutes(
     if (!location.ok) return location;
     return textResult(
       context,
-      `✨ *${selected.displayName}* é seu primeiro Pokémon!\n\n📍 Você começa em *${location.value.areaDisplayName}*.\nUse \`$menu\` para abrir sua central.`,
+      `✨ *${selected.displayName}* é seu primeiro Pokémon!\n\n📍 Você começa em *${location.value.areaDisplayName}*.\nUse \`/menu\` para abrir sua central.`,
       { type: "PLAYER", id: player.value },
     );
   };
@@ -286,7 +286,7 @@ export function createOperationalUxRoutes(
     if (!location.ok) return location;
     return textResult(
       context,
-      `✅ Entrada concluída.\n📍 *${location.value.areaDisplayName}*\n\nUse \`$menu\`.`,
+      `✅ Entrada concluída.\n📍 *${location.value.areaDisplayName}*\n\nUse \`/menu\`.`,
     );
   };
 
@@ -337,7 +337,7 @@ export function createOperationalUxRoutes(
     const lines = slice.map((item) => `• ${item.displayName} ×${item.quantity}`);
     return textResult(
       context,
-      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "$inventario")}`,
+      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "/inventario")}`,
     );
   };
 
@@ -356,7 +356,7 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "$pokedex")}`,
+      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "/pokedex")}`,
     );
   };
 
@@ -367,7 +367,7 @@ export function createOperationalUxRoutes(
     if (!location.ok) return location;
     const routes = location.value.connections.map((connection) =>
       connection.available
-        ? `→ ${connection.destinationDisplayName}\n  \`$ir ${connection.destinationSlug} v${location.value.revision}\``
+        ? `→ ${connection.destinationDisplayName}\n  \`/ir ${connection.destinationSlug} v${location.value.revision}\``
         : `🔒 ${connection.destinationDisplayName}`,
     );
     return textResult(
@@ -391,7 +391,7 @@ export function createOperationalUxRoutes(
       return err(
         appError(
           "VALIDATION_FAILED",
-          "Rota inválida ou expirada. Use $onde e escolha uma rota atual.",
+          "Rota inválida ou expirada. Use /onde e escolha uma rota atual.",
         ),
       );
     }
@@ -410,13 +410,13 @@ export function createOperationalUxRoutes(
         return err(
           appError(
             "REVISION_CONFLICT",
-            "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
+            "Essa rota expirou porque sua localização mudou. Use /onde novamente.",
           ),
         );
       }
       return textResult(
         context,
-        `📍 Você chegou a *${replayed.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
+        `📍 Você chegou a *${replayed.value.to.areaDisplayName}*.\n\nUse \`/onde\` para ver as rotas daqui.`,
       );
     }
     const connection = current.value.connections.find(
@@ -424,7 +424,7 @@ export function createOperationalUxRoutes(
     );
     if (connection === undefined) {
       return err(
-        appError("ACTION_INVALID", "Essa rota não está disponível agora. Use $onde novamente."),
+        appError("ACTION_INVALID", "Essa rota não está disponível agora. Use /onde novamente."),
       );
     }
     const moved = await dependencies.world.travel({
@@ -438,14 +438,14 @@ export function createOperationalUxRoutes(
         ? err(
             appError(
               "REVISION_CONFLICT",
-              "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
+              "Essa rota expirou porque sua localização mudou. Use /onde novamente.",
             ),
           )
         : moved;
     }
     return textResult(
       context,
-      `📍 Você chegou a *${moved.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
+      `📍 Você chegou a *${moved.value.to.areaDisplayName}*.\n\nUse \`/onde\` para ver as rotas daqui.`,
     );
   };
 
@@ -461,7 +461,7 @@ export function createOperationalUxRoutes(
       )) ?? "Pokémon selvagem";
     const guidance =
       active.value.status === "IN_BATTLE"
-        ? "A batalha já está ativa: use `$batalha`."
+        ? "A batalha já está ativa: use `/batalha`."
         : "A cena continua sob condução do narrador; o bot não inicia combate automaticamente.";
     return textResult(
       context,

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { ReceptionService } from "../../src/modules/community/reception-service.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { createRegistrationAdminWhatsAppRoutes } from "../../src/modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
-import { createRegistrationAdminWhatsAppRoutes } from "../../src/modules/registration/admin-review-whatsapp.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -58,7 +58,7 @@ function outgoingText(
 }
 
 describe("Reception UX polish", () => {
-  it("welcomes a new player as an arrival in Zhoulia instead of a bare registration instruction", async () => {
+  it("welcomes a new player with the requested Rotom message", async () => {
     const service = new ReceptionService({
       community: {
         resolveChat: async () => ({
@@ -98,7 +98,7 @@ describe("Reception UX polish", () => {
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok || result.value === null) throw new Error("Expected reception welcome");
-    expect(result.value.text).toMatch(/Zhoulia/i);
+    expect(result.value.text).toMatch(/Eu sou Rotom!/);
     expect(result.value.text).toMatch(/jornada|treinador/i);
     expect(result.value.text).not.toBe(
       "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `$registrar` para começar.",

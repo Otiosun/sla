@@ -21,6 +21,7 @@ import {
 } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 import { recordPokedexOwnedByForm } from "../pokedex/postgres-pokedex-writer.js";
+import { nextCanonicalRosterPlacement } from "./postgres-roster-placement.js";
 import { PostgresPlayerRegistrationTransaction } from "./postgres-player-registration-transaction.js";
 
 function playerId(value: string): PlayerId {
@@ -195,22 +196,7 @@ class PostgresPlayerOnboardingTransaction
   }
 
   public async nextRosterPlacement(playerIdValue: PlayerId): Promise<RosterPlacement> {
-    const team = await this.client.query<{ slot_no: number }>(
-      `SELECT slot_no FROM pokemon_roster_slots
-       WHERE player_id = $1 AND placement_kind = 'TEAM' ORDER BY slot_no`,
-      [playerIdValue],
-    );
-    const occupied = new Set(team.rows.map((row) => row.slot_no));
-    for (let slot = 1; slot <= 6; slot += 1) {
-      if (!occupied.has(slot)) return { placementKind: "TEAM", boxNo: null, slotNo: slot };
-    }
-    const box = await this.client.query<{ next_slot: number }>(
-      `SELECT COALESCE(MAX(slot_no), 0) + 1 AS next_slot
-       FROM pokemon_roster_slots
-       WHERE player_id = $1 AND placement_kind = 'BOX' AND box_no = 1`,
-      [playerIdValue],
-    );
-    return { placementKind: "BOX", boxNo: 1, slotNo: box.rows[0]?.next_slot ?? 1 };
+    return nextCanonicalRosterPlacement(this.client, playerIdValue);
   }
 
   public async createStarterBundle(input: StarterGrantWrite): Promise<boolean> {

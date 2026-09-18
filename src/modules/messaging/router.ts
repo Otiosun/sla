@@ -43,13 +43,14 @@ function normalizeCommand(value: string): string {
 }
 
 function normalizeRouteToken(value: string): string {
-  return normalizeCommand(value.replace(/^\$/, ""));
+  return normalizeCommand(value.replace(/^[$/]/, ""));
 }
 
 function commandFromText(text: string | null): string | null {
   if (text === null) return null;
   const trimmed = text.trim();
-  if (!trimmed.startsWith("$")) return null;
+  const prefix = trimmed[0];
+  if (prefix !== "$" && prefix !== "/") return null;
   const token = trimmed.slice(1).split(/\s+/, 1)[0]?.trim();
   return token === undefined || token.length === 0 ? null : normalizeCommand(token);
 }

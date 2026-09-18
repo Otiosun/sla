@@ -84,6 +84,11 @@ export interface BaileysSocketConfigLike {
 }
 
 export interface BaileysEventMapLike {
+  readonly "group-participants.update": {
+    readonly id: string;
+    readonly action: string;
+    readonly participants: readonly { readonly id: string }[];
+  };
   readonly "creds.update": Readonly<Record<string, unknown>>;
   readonly "messages.upsert": BaileysMessagesUpsertLike;
   readonly "connection.update": BaileysConnectionUpdateLike;
@@ -96,11 +101,30 @@ export interface BaileysEventSourceLike {
   ): void;
 }
 
+export interface BaileysTextOutboundContentLike {
+  readonly text: string;
+  readonly mentions?: readonly string[];
+}
+
+export interface BaileysImageOutboundContentLike {
+  readonly image: { readonly url: string };
+  readonly caption?: string;
+  readonly mentions?: readonly string[];
+}
+
+export type BaileysOutboundContentLike =
+  | BaileysTextOutboundContentLike
+  | BaileysImageOutboundContentLike;
+
 export interface BaileysSocketLike {
+  readonly user?: { readonly id: string; readonly lid?: string };
+  groupMetadata?(
+    jid: string,
+  ): Promise<{ readonly participants: readonly { readonly id: string }[] }>;
   readonly ev: BaileysEventSourceLike;
   sendMessage(
     jid: string,
-    content: { readonly text: string; readonly mentions?: readonly string[] },
+    content: BaileysOutboundContentLike,
     options?: { readonly messageId?: string },
   ): Promise<unknown>;
   end(error?: Error): void;

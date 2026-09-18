@@ -23,7 +23,8 @@ export class WhatsAppMessagingRuntime {
   async start(): Promise<void> {
     await this.adapter.start(async (message) => {
       const text = message.text?.trimStart();
-      const commandCandidate = text?.startsWith("$") ?? false;
+      const prefix = text?.[0];
+      const commandCandidate = prefix === "$" || prefix === "/";
       if (commandCandidate) {
         const admitCommand = this.options.admitCommand;
         if (admitCommand !== undefined && !(await admitCommand(message))) return;

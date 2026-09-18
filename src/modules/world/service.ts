@@ -438,6 +438,7 @@ export class WorldService {
       regionSlug: area.regionSlug,
       regionDisplayName: area.regionDisplayName,
       safePoint: area.config.safePoint,
+      facilities: area.config.facilities,
       revision: location.revision,
       enteredAt: location.enteredAt,
       requiresRelocation: !area.active,

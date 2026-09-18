@@ -1,25 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../../src/modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../../src/modules/admin/domain-service.js";
-import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import type { BattleAction, BattleState } from "../../src/modules/battle/contracts.js";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { MessagingService } from "../../src/modules/messaging/service.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
-import { EconomyService } from "../../src/modules/economy/service.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
 import { WorldService } from "../../src/modules/world/service.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
@@ -37,7 +37,7 @@ import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.j
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
-import { createCorrelationId, parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { createCorrelationId, type PlayerId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
     // viajar
     await receiveProcessed(messaging, "f17-happy-where", "$onde", 7);
     const whereText = await outgoingText(pool, "f17-happy-where");
-    const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
+    const travelMatch = whereText.match(/\/ir\s+([a-z0-9-]+)\s+v(\d+)/i);
     const destinationSlug = travelMatch?.[1];
     const revision = travelMatch?.[2];
     if (destinationSlug !== "route-1" || revision === undefined) {

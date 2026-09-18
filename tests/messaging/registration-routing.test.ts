@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
-import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
+import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
+import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
@@ -222,7 +222,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("$salvar") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("/salvar") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({
@@ -238,3 +238,22 @@ describe("registration conversation routing", () => {
     });
   });
 });
+
+it.each(["/", "/menu", "$menu"])(
+  "does not consume a command as a trainer field: %s",
+  async (text) => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(playerId, { mode: "GUIDED", regionId: ZHOULIA_ID });
+    const resolver = new RegistrationConversationResolver({
+      sessions,
+      community: { resolveChat: async () => onboardingContext() },
+      players: { resolvePlayer: async () => ok({ playerId, state: "NEW" as const }) },
+      setup: { load: async () => ok(registrationSetup()) },
+    });
+    const input = context({ text });
+    expect(await resolver.admits(input.message)).toBe(false);
+    expect(await resolver.resolve(input)).toEqual(ok(null));
+    expect(sessions.get(playerId)?.working.trainerName).toBeUndefined();
+  },
+);

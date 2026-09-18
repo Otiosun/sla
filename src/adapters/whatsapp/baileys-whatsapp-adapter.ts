@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ReceptionMembershipEvent } from "../../modules/community/reception-membership.js";
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
 import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
@@ -13,6 +14,7 @@ import type {
   BaileysEventSourceLike,
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
+  BaileysOutboundContentLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "./baileys-provider-contracts.js";
@@ -27,6 +29,7 @@ export type { BaileysEventSourceLike as BaileysEventSource, BaileysSocketLike };
 export type BaileysSocketFactory = (config: BaileysSocketConfigLike) => BaileysSocketLike;
 
 export interface BaileysWhatsAppAdapterOptions {
+  readonly onMembership?: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly auth: BaileysAuthBinding;
   readonly socketFactory?: BaileysSocketFactory;
   readonly reconnectDelayMs?: number;
@@ -68,16 +71,7 @@ function statusCodeFromError(error: unknown): number | null {
   return null;
 }
 
-function outboundContent(message: PendingOutboxMessage): {
-  readonly text: string;
-  readonly mentions?: readonly string[];
-} {
-  if (message.channel !== "whatsapp") {
-    throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
-  }
-  if (message.messageType !== "TEXT") {
-    throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
-  }
+function textOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
   const text = message.payload.text;
   if (typeof text !== "string" || text.length === 0 || text.length > 32_768) {
     throw new Error("Baileys TEXT outbound payload requires non-empty text up to 32768 chars");
@@ -93,6 +87,57 @@ function outboundContent(message: PendingOutboxMessage): {
     throw new Error("Baileys TEXT outbound mentions must be an array of up to 64 non-empty JIDs");
   }
   return { text, mentions: mentions as readonly string[] };
+}
+
+function imageOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  const imageUrl = message.payload.imageUrl;
+  if (typeof imageUrl !== "string" || imageUrl.trim().length === 0) {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl.trim());
+  } catch {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+
+  const caption = message.payload.caption;
+  const mentions = message.payload.mentions;
+  if (
+    mentions !== undefined &&
+    (!Array.isArray(mentions) ||
+      mentions.length > 64 ||
+      mentions.some((mention) => typeof mention !== "string" || mention.trim().length === 0))
+  ) {
+    throw new Error("Baileys IMAGE outbound mentions must be up to 64 non-empty JIDs");
+  }
+  const image = {
+    image: { url: imageUrl.trim() },
+    ...(mentions === undefined ? {} : { mentions: mentions as string[] }),
+  };
+  if (caption === undefined) return image;
+  if (typeof caption !== "string" || caption.length === 0 || caption.length > 32_768) {
+    throw new Error("Baileys IMAGE outbound caption must be non-empty text up to 32768 chars");
+  }
+  return { ...image, caption };
+}
+
+function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  if (message.channel !== "whatsapp") {
+    throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
+  }
+  switch (message.messageType) {
+    case "TEXT":
+      return textOutboundContent(message);
+    case "IMAGE":
+      return imageOutboundContent(message);
+    default:
+      throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
+  }
 }
 
 function providerExternalMessageId(result: unknown): string | null {
@@ -133,8 +178,11 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = true;
   private generation = 0;
+  private membershipQueue: Promise<void> = Promise.resolve();
+  private readonly onMembership: BaileysWhatsAppAdapterOptions["onMembership"];
 
   constructor(options: BaileysWhatsAppAdapterOptions) {
+    this.onMembership = options.onMembership;
     this.auth = options.auth;
     this.socketFactory = options.socketFactory ?? productionSocketFactory;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_500;
@@ -178,6 +226,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     const socket = this.socket;
     this.socket = null;
     socket?.end();
+    await this.membershipQueue;
   }
 
   async send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt> {
@@ -221,6 +270,48 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       syncFullHistory: false,
     });
     this.socket = socket;
+
+    // A join request is not membership. Only provider-confirmed add/remove events
+    // reach Reception; serialize them so a fast leave/rejoin cannot overtake a join.
+    socket.ev.on("group-participants.update", (event) => {
+      this.membershipQueue = this.membershipQueue
+        .then(async () => {
+          if (this.stopped || generation !== this.generation || this.onMembership === undefined)
+            return;
+          if (
+            !/^\d+@g\.us$/.test(event.id) ||
+            (event.action !== "add" && event.action !== "remove")
+          )
+            return;
+          const members = event.action === "add" ? await socket.groupMetadata?.(event.id) : null;
+          if (event.action === "add" && members === undefined)
+            throw new Error("Reception requires confirmed group membership");
+          for (const participant of event.participants) {
+            if (this.stopped || generation !== this.generation) return;
+            if (!/^\d+(?::\d+)?@(s\.whatsapp\.net|lid)$/.test(participant.id)) continue;
+            if (
+              event.action === "add" &&
+              !members?.participants.some((member) => member.id === participant.id)
+            )
+              continue;
+            const canonicalDeviceId = (id: string) => id.replace(/:\d+@/, "@");
+            if (
+              [socket.user?.id, socket.user?.lid].some(
+                (id) =>
+                  id !== undefined && canonicalDeviceId(id) === canonicalDeviceId(participant.id),
+              )
+            )
+              continue;
+            await this.onMembership({
+              provider: "baileys",
+              chatRef: event.id,
+              externalId: participant.id,
+              action: event.action,
+            });
+          }
+        })
+        .catch((error) => this.onProviderError(error));
+    });
 
     socket.ev.on("creds.update", () => {
       void this.auth.saveCredentials().catch((error) => this.onProviderError(error));

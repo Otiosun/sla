@@ -27,11 +27,15 @@ export function economyBalanceOverflow(kind: "inventory" | "wallet"): AppError {
 }
 
 export function noActiveContentRelease(): AppError {
-  return appError("FLOW_BLOCKED", "No active content release is available for purchases");
+  return appError("FLOW_BLOCKED", "No active content release is available for economy operations");
 }
 
 export function purchaseOfferNotFound(contentReleaseId: string, offerKey: string): AppError {
   return appError("NOT_FOUND", "Purchase offer was not found", { contentReleaseId, offerKey });
+}
+
+export function saleOfferNotFound(contentReleaseId: string, offerKey: string): AppError {
+  return appError("NOT_FOUND", "Sale offer was not found", { contentReleaseId, offerKey });
 }
 
 export function idempotencyReplayMismatch(): AppError {
