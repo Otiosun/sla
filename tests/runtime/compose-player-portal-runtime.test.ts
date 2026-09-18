@@ -57,18 +57,24 @@ describe("Player Portal runtime composition", () => {
 
   it("does not expose gameplay routes through the companion API", async () => {
     const runtime = composePlayerPortalRuntime(runtimeOptions(pool, 7, null));
+    const forbiddenRoutes = [
+      ["GET", "/v1/hub/world/location"],
+      ["POST", "/v1/hub/world/travel"],
+      ["PUT", "/v1/hub/player/location"],
+      ["POST", "/v1/hub/encounter"],
+      ["POST", "/v1/hub/encounters"],
+      ["POST", "/v1/hub/battle"],
+      ["POST", "/v1/hub/battles"],
+      ["POST", "/v1/hub/capture"],
+      ["POST", "/v1/hub/player/capture"],
+    ] as const;
 
-    for (const pathname of [
-      "/v1/hub/world/location",
-      "/v1/hub/world/travel",
-      "/v1/hub/encounters",
-    ]) {
+    for (const [method, pathname] of forbiddenRoutes) {
       const response = await runtime.handler.handle(
-        new Request(`http://player-portal.test${pathname}`, {
-          method: pathname.endsWith("location") ? "GET" : "POST",
-        }),
+        new Request(`http://player-portal.test${pathname}`, { method }),
       );
-      expect(response.status).toBe(404);
+      expect(response.status, `${method} ${pathname}`).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
     }
   });
 });
