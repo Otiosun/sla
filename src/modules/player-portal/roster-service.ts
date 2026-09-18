@@ -16,7 +16,7 @@ const BoxPlacementSchema = z
   .object({
     placementKind: z.literal("BOX"),
     boxNo: z.number().int().positive(),
-    slotNo: z.number().int().positive(),
+    slotNo: z.number().int().min(1).max(30),
   })
   .strict();
 
