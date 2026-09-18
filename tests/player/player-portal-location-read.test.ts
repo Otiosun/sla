@@ -17,7 +17,9 @@ const identity: ExternalIdentity = {
   externalId: "5511999999999",
 };
 
-function repositoryFor(playerId: ReturnType<typeof createPlayerId> | null): PlayerOnboardingRepository {
+function repositoryFor(
+  playerId: ReturnType<typeof createPlayerId> | null,
+): PlayerOnboardingRepository {
   const transaction = {
     findPlayerByIdentity: async () => playerId,
   } as unknown as PlayerOnboardingTransaction;
