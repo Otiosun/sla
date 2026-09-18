@@ -1,5 +1,5 @@
 export type SceneActionIntent =
-  | { readonly type: "USE_MOVE"; readonly moveSlot: number }
+  | { readonly type: "USE_MOVE"; readonly moveRef: string }
   | { readonly type: "SWITCH"; readonly switchSlot: number }
   | { readonly type: "USE_ITEM"; readonly itemRef: string }
   | { readonly type: "CAPTURE"; readonly captureRef: string }
@@ -17,49 +17,59 @@ export type SceneActionParseResult =
   | { readonly kind: "NONE" }
   | {
       readonly kind: "INVALID";
-      readonly reason: "MULTIPLE_DIRECTIVES" | "DIRECTIVE_NOT_FINAL" | "INVALID_DIRECTIVE";
+      readonly reason: "MULTIPLE_DIRECTIVES" | "INVALID_DIRECTIVE";
     }
   | { readonly kind: "ACTION"; readonly intent: SceneActionIntent };
 
-function directive(line: string): SceneActionIntent | null {
-  const match = /^(?:\/)(movimento|trocar|item|capturar|fugir|desistir)(?:\s+(.+?))?$/iu.exec(line);
-  if (match === null) return null;
-  const command = match[1]?.toLocaleLowerCase("pt-BR");
-  const argument = match[2]?.trim();
-  if (command === "fugir" && argument === undefined) return { type: "FLEE" };
-  if (command === "desistir" && argument === undefined) return { type: "SURRENDER" };
-  if (
-    (command === "movimento" || command === "trocar") &&
-    argument !== undefined &&
-    /^\d+$/u.test(argument)
-  ) {
-    const slot = Number(argument);
-    return Number.isSafeInteger(slot) && slot > 0
-      ? command === "movimento"
-        ? { type: "USE_MOVE", moveSlot: slot }
-        : { type: "SWITCH", switchSlot: slot }
-      : null;
+const DIRECTIVE = /(^|\s)\/(movimento|trocar|item|capturar|fugir|desistir)(?=\s|$)/giu;
+
+function parseDirective(command: string, argument: string): SceneActionIntent | null {
+  const normalized = command.toLocaleLowerCase("pt-BR");
+  if (normalized === "fugir") return { type: "FLEE" };
+  if (normalized === "desistir") return { type: "SURRENDER" };
+
+  if (normalized === "movimento") {
+    if (argument.length === 0) return null;
+    const firstToken = (argument.split(/\s+/, 1)[0] ?? "").replace(/[_,.!?;:*~`]+$/gu, "");
+    return /^\d+$/u.test(firstToken)
+      ? { type: "USE_MOVE", moveRef: firstToken }
+      : { type: "USE_MOVE", moveRef: argument };
   }
-  if (command === "item" && argument !== undefined) return { type: "USE_ITEM", itemRef: argument };
-  if (command === "capturar") return { type: "CAPTURE", captureRef: argument ?? "" };
+
+  if (normalized === "trocar") {
+    if (!/^\d+$/u.test(argument)) return null;
+    const slot = Number(argument);
+    return Number.isSafeInteger(slot) && slot > 0 ? { type: "SWITCH", switchSlot: slot } : null;
+  }
+
+  if (normalized === "item" && argument.length > 0) {
+    return { type: "USE_ITEM", itemRef: argument };
+  }
+
+  if (normalized === "capturar") {
+    return { type: "CAPTURE", captureRef: argument };
+  }
+
   return null;
 }
 
 export function parseSceneAction(text: string | null): SceneActionParseResult {
-  if (text === null) return { kind: "NONE" };
-  const lines = text.split(/\r?\n/u);
-  const directives = lines
-    .map((line, index) => ({ index, action: directive(line.trim()), raw: line.trim() }))
-    .filter((entry) => entry.raw.startsWith("/"));
-  if (directives.length === 0) return { kind: "NONE" };
-  if (directives.length > 1) return { kind: "INVALID", reason: "MULTIPLE_DIRECTIVES" };
-  const found = directives[0];
-  if (
-    found === undefined ||
-    found.index !== lines.map((line) => line.trim()).findLastIndex((line) => line.length > 0)
-  )
-    return { kind: "INVALID", reason: "DIRECTIVE_NOT_FINAL" };
-  return found.action === null
+  if (text === null || text.trim().length === 0) return { kind: "NONE" };
+
+  const matches = [...text.matchAll(DIRECTIVE)];
+  if (matches.length === 0) return { kind: "NONE" };
+  if (matches.length > 1) return { kind: "INVALID", reason: "MULTIPLE_DIRECTIVES" };
+
+  const found = matches[0];
+  if (found === undefined) return { kind: "NONE" };
+
+  const command = found[2] ?? "";
+  const directiveEnd = (found.index ?? 0) + found[0].length;
+  const lineEnd = text.indexOf("\n", directiveEnd);
+  const argument = text.slice(directiveEnd, lineEnd < 0 ? text.length : lineEnd).trim();
+  const intent = parseDirective(command, argument);
+
+  return intent === null
     ? { kind: "INVALID", reason: "INVALID_DIRECTIVE" }
-    : { kind: "ACTION", intent: found.action };
+    : { kind: "ACTION", intent };
 }

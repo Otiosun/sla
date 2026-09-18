@@ -13,16 +13,59 @@ const battleId = "11111111-1111-4111-8111-111111111111";
 const playerId = "22222222-2222-4222-8222-222222222222";
 const participantId = "33333333-3333-4333-8333-333333333333";
 const enemyId = "44444444-4444-4444-8444-444444444444";
+const releaseId = "77777777-7777-4777-8777-777777777777";
+const pikachuSpecies = "88888888-8888-4888-8888-888888888888";
+const rattataSpecies = "99999999-9999-4999-8999-999999999999";
+const quickAttackId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 const state = {
   battleId,
+  battleType: "WILD",
+  status: "ACTIVE",
+  contentReleaseId: releaseId,
   version: 4,
   turnNumber: 3,
-  combatants: [
-    { participantId, sideNo: 1, currentHp: 12, maxHp: 20 },
-    { participantId: enemyId, sideNo: 2, currentHp: 10, maxHp: 20 },
+  sides: [
+    {
+      sideNo: 1,
+      controllerKind: "PLAYER",
+      playerId,
+      participantIds: [participantId],
+      activeParticipantId: participantId,
+      result: null,
+    },
+    {
+      sideNo: 2,
+      controllerKind: "WILD",
+      playerId: null,
+      participantIds: [enemyId],
+      activeParticipantId: enemyId,
+      result: null,
+    },
   ],
-} as BattleState;
+  combatants: [
+    {
+      participantId,
+      participantKind: "PLAYER_POKEMON",
+      sideNo: 1,
+      speciesId: pikachuSpecies,
+      currentHp: 12,
+      maxHp: 20,
+      moves: [{ slotNo: 1, moveId: quickAttackId }],
+      majorStatus: null,
+    },
+    {
+      participantId: enemyId,
+      participantKind: "WILD_POKEMON",
+      sideNo: 2,
+      speciesId: rattataSpecies,
+      currentHp: 10,
+      maxHp: 20,
+      moves: [],
+      majorStatus: null,
+    },
+  ],
+} as unknown as BattleState;
 
 function context(
   text: string,
@@ -43,6 +86,19 @@ function context(
       mediaRefs: [],
       replyToExternalMessageId: null,
     },
+  };
+}
+
+function presentation() {
+  return {
+    speciesDisplayName: vi.fn(
+      async (_releaseId: string, speciesId: string): Promise<string | null> =>
+        speciesId === pikachuSpecies ? "Pikachu" : speciesId === rattataSpecies ? "Rattata" : null,
+    ),
+    moveDisplayNames: vi.fn(
+      async (_releaseId: string, moveIds: readonly string[]) =>
+        new Map(moveIds.map((id) => [id, id === quickAttackId ? "Quick Attack" : "Move"])),
+    ),
   };
 }
 
@@ -77,10 +133,8 @@ function dependencies(pending: boolean) {
       players: { resolvePlayer: vi.fn(async () => ok({ playerId })) },
       activeBattleId: vi.fn(async () => battleId),
       battle: { currentState: vi.fn(async () => ok(state)), resolvePlayerTurn },
-      controllers: {
-        listByBattle,
-        transition,
-      },
+      controllers: { listByBattle, transition },
+      presentation: presentation(),
       admins: { resolvePrincipal },
     } as unknown as PveSceneDependencies,
   };
@@ -92,41 +146,168 @@ function routeFor(routes: ReturnType<typeof createPveSceneRoutes>, command: stri
   return route;
 }
 
-describe("PVE WhatsApp scene actions", () => {
-  it("admits scene actions from a PVP-capable group too", () => {
+describe("PVE/PVP WhatsApp scene actions", () => {
+  it("admits combat actions embedded in scene messages for PVE and PVP groups", () => {
     const setup = dependencies(false);
     const route = routeFor(createPveSceneRoutes(setup.dependencies), "movimento");
+    expect(route.allowEmbedded).toBe(true);
     expect(route.policy).toMatchObject({
       requiredAnyGroupCapabilities: ["pve", "pvp"],
       requiresMechanicalReady: true,
     });
   });
 
-  it("forwards each PVP player's own actor and stays silent until the second action resolves", async () => {
+  it("accepts an inline move by name and reacts with ✅ while waiting for the other controller", async () => {
+    const setup = dependencies(true);
+    const result = await createPveSceneConversationResolver(setup.dependencies).resolve(
+      context("Pikachu espera uma abertura. /movimento Quick Attack"),
+    );
+
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        battleId,
+        playerId,
+        action: {
+          type: "USE_MOVE",
+          actorParticipantId: participantId,
+          targetParticipantId: enemyId,
+          moveSlot: 1,
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "BATTLE",
+        resultRefId: battleId,
+        outgoing: [
+          {
+            messageType: "REACTION",
+            payload: { emoji: "✅", targetExternalMessageId: "message" },
+          },
+        ],
+      },
+    });
+  });
+
+  it("accepts a command before later prose and does not interpret the prose mechanically", async () => {
+    const setup = dependencies(true);
+    const result = await createPveSceneConversationResolver(setup.dependencies).resolve(
+      context("/movimento 1\nPikachu então continua avançando pela lateral."),
+    );
+    expect(result.ok).toBe(true);
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps each PVP action hidden, then sends one compact resolved turn with both mentions", async () => {
     const playerB = "55555555-5555-4555-8555-555555555555";
     const actorB = "66666666-6666-4666-8666-666666666666";
+    const squirtleSpecies = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const waterGunId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const pvpState = {
       ...state,
       battleType: "PVP" as const,
-      combatants: [
-        ...state.combatants,
-        { participantId: actorB, sideNo: 2, currentHp: 10, maxHp: 20 },
+      version: 4,
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId,
+          participantIds: [participantId],
+          activeParticipantId: participantId,
+          result: null,
+        },
+        {
+          sideNo: 2,
+          controllerKind: "PLAYER",
+          playerId: playerB,
+          participantIds: [actorB],
+          activeParticipantId: actorB,
+          result: null,
+        },
       ],
-    } as BattleState;
+      combatants: [
+        { ...state.combatants[0], currentHp: 17 },
+        {
+          ...state.combatants[1],
+          participantId: actorB,
+          participantKind: "PLAYER_POKEMON",
+          speciesId: squirtleSpecies,
+          currentHp: 14,
+          sideNo: 2,
+          moves: [{ slotNo: 1, moveId: waterGunId }],
+        },
+      ],
+    } as unknown as BattleState;
+
+    const resolvedState = { ...pvpState, version: 5, turnNumber: 4 } as BattleState;
+    const events = [
+      {
+        type: "MoveUsed",
+        payload: {
+          participantId,
+          targetParticipantId: actorB,
+          moveId: quickAttackId,
+          moveSlot: 1,
+        },
+      },
+      {
+        type: "DamageApplied",
+        payload: {
+          participantId: actorB,
+          sourceParticipantId: participantId,
+          moveId: quickAttackId,
+          damage: 7,
+          remainingHp: 14,
+          effectivenessBasisPoints: 10_000,
+        },
+      },
+      {
+        type: "MoveUsed",
+        payload: {
+          participantId: actorB,
+          targetParticipantId: participantId,
+          moveId: waterGunId,
+          moveSlot: 1,
+        },
+      },
+      {
+        type: "DamageApplied",
+        payload: {
+          participantId,
+          sourceParticipantId: actorB,
+          moveId: waterGunId,
+          damage: 7,
+          remainingHp: 17,
+          effectivenessBasisPoints: 10_000,
+        },
+      },
+    ];
     const resolvePlayerTurn = vi
       .fn()
       .mockResolvedValueOnce(ok({ state: pvpState, events: [], replayed: false, pending: true }))
-      .mockResolvedValueOnce(
-        ok({ state: { ...pvpState, version: 5 }, events: [], replayed: false }),
-      );
+      .mockResolvedValueOnce(ok({ state: resolvedState, events, replayed: false }));
+
+    const present = presentation();
+    present.speciesDisplayName.mockImplementation(async (_release, speciesId) => {
+      if (speciesId === pikachuSpecies) return "Pikachu";
+      if (speciesId === squirtleSpecies) return "Squirtle";
+      return null;
+    });
+    present.moveDisplayNames.mockImplementation(
+      async (_release, moveIds) =>
+        new Map(
+          moveIds.map((id) => [
+            id,
+            id === quickAttackId ? "Quick Attack" : id === waterGunId ? "Water Gun" : "Move",
+          ]),
+        ),
+    );
+
     const deps = {
       players: {
         resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
-          ok({
-            playerId: externalId === "b" ? playerB : playerId,
-            state: "COMPLETE",
-            created: false,
-          }),
+          ok({ playerId: externalId === "b" ? playerB : playerId }),
         ),
       },
       activeBattleId: vi.fn(async () => battleId),
@@ -156,42 +337,63 @@ describe("PVE WhatsApp scene actions", () => {
         ]),
         transition: vi.fn(),
       },
+      presentation: present,
+      playerExternalRef: vi.fn(async (id: string) =>
+        id === playerId ? "111@s.whatsapp.net" : "222@s.whatsapp.net",
+      ),
       admins: { resolvePrincipal: vi.fn(async () => null) },
     } as unknown as PveSceneDependencies;
-    const resolver = createPveSceneConversationResolver(deps);
 
-    await expect(
-      resolver.resolve(context("/movimento 1", { idempotencyKey: "a" })),
-    ).resolves.toEqual(ok({ resultRefType: "BATTLE", resultRefId: battleId, outgoing: [] }));
+    const resolver = createPveSceneConversationResolver(deps);
+    const first = await resolver.resolve(context("/movimento 1", { idempotencyKey: "a" }));
+    expect(first.ok && first.value?.outgoing).toHaveLength(1);
+    expect(first.ok && first.value?.outgoing[0]?.messageType).toBe("REACTION");
+
     const second = await resolver.resolve(
       context("/movimento 1", { senderRef: "b", idempotencyKey: "b" }),
     );
-
-    expect(resolvePlayerTurn).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        playerId,
-        action: expect.objectContaining({
-          actorParticipantId: participantId,
-          targetParticipantId: enemyId,
-        }),
-      }),
-    );
-    expect(resolvePlayerTurn).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        playerId: playerB,
-        action: expect.objectContaining({
-          actorParticipantId: actorB,
-          targetParticipantId: participantId,
-        }),
-      }),
-    );
     if (!second.ok || second.value === null) throw new Error("Expected PVP resolution reply");
-    expect(second.value.outgoing).toHaveLength(1);
+    expect(second.value.outgoing).toHaveLength(2);
+    expect(second.value.outgoing[0]?.messageType).toBe("REACTION");
+    const text = String(second.value.outgoing[1]?.payload.text);
+    expect(text).toContain("⚔️ *Turno 4*");
+    expect(text).toContain("Pikachu usou *Quick Attack*.");
+    expect(text).toContain("Squirtle: 21 → 14 HP.");
+    expect(text).toContain("Squirtle usou *Water Gun*.");
+    expect(text).toContain("Pikachu: 24 → 17 HP.");
+    expect(text).toContain("@111\nx\n@222");
+    expect(second.value.outgoing[1]?.payload.mentions).toEqual([
+      "111@s.whatsapp.net",
+      "222@s.whatsapp.net",
+    ]);
   });
 
-  it("lets a PVP participant surrender once with a compact terminal reply", async () => {
+  it("rejects a second action for the same open turn without reacting", async () => {
+    const setup = dependencies(true);
+    setup.resolvePlayerTurn.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "TURN_WINDOW_ALREADY_SUBMITTED",
+        message: "already submitted",
+      },
+    } as never);
+    const result = await createPveSceneConversationResolver(setup.dependencies).resolve(
+      context("/movimento 1"),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        outgoing: [
+          {
+            messageType: "TEXT",
+            payload: { text: "A ação deste turno já foi definida." },
+          },
+        ],
+      },
+    });
+  });
+
+  it("lets a PVP participant surrender once with a compact terminal reply and reaction", async () => {
     const surrendered = {
       ...state,
       battleType: "PVP" as const,
@@ -214,53 +416,44 @@ describe("PVE WhatsApp scene actions", () => {
     expect(surrenderPvp).toHaveBeenCalledWith(
       expect.objectContaining({ battleId, playerId, expectedVersion: state.version }),
     );
-    expect(result.ok && result.value?.outgoing[0]?.payload.text).toContain("desistiu");
+    expect(result.ok && result.value?.outgoing[0]?.messageType).toBe("REACTION");
+    expect(result.ok && result.value?.outgoing[1]?.payload.text).toContain("desistiu");
   });
 
-  it("accepts prose with its final directive and remains silent while an ally is pending", async () => {
-    const setup = dependencies(true);
-    const result = await createPveSceneConversationResolver(setup.dependencies).resolve(
-      context("Eu cubro a frente.\n/movimento 1"),
-    );
-    expect(result).toEqual(ok({ resultRefType: "BATTLE", resultRefId: battleId, outgoing: [] }));
-    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        battleId,
-        playerId,
-        action: {
-          type: "USE_MOVE",
-          actorParticipantId: participantId,
-          targetParticipantId: enemyId,
-          moveSlot: 1,
-        },
-      }),
-    );
-  });
-
-  it("returns one compact result only after the turn resolves and renders a compact PVE HUD", async () => {
+  it("renders a compact battle HUD without listing move options", async () => {
     const setup = dependencies(false);
     const routes = createPveSceneRoutes(setup.dependencies);
-    const action = await routeFor(routes, "movimento").handler.handle(context("/movimento 1"));
-    expect(action.ok && action.value.outgoing).toHaveLength(1);
     const hud = await routeFor(routes, "batalha").handler.handle(context("/batalha"));
-    expect(hud.ok && hud.value.outgoing[0]?.payload.text).toContain("Turno 3");
-    expect(hud.ok && hud.value.outgoing[0]?.payload.text).toContain("HP 12/20");
-  });
-
-  it("rejects a directive that is not final with a compact validation error", async () => {
-    const setup = dependencies(false);
-    const result = await createPveSceneConversationResolver(setup.dependencies).resolve(
-      context("/movimento 1\nmas espero."),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toBe("Use uma única diretiva / na última linha.");
+    const text = String(hud.ok ? hud.value.outgoing[0]?.payload.text : "");
+    expect(text).toContain("Turno 3");
+    expect(text).toContain("HP 12/20");
+    expect(text).not.toContain("Quick Attack");
+    expect(text).not.toContain("Movimentos:");
   });
 
   it("lets an authorized narrator submit, assume, and restore automatic control", async () => {
     const setup = dependencies(false);
     const principalId = "55555555-5555-4555-8555-555555555555";
+    const narratorState = {
+      ...state,
+      combatants: state.combatants.map((combatant) =>
+        combatant.participantId === enemyId
+          ? {
+              ...combatant,
+              moves: [{ slotNo: 1, moveId: quickAttackId }],
+            }
+          : combatant,
+      ),
+    } as BattleState;
+    const narratorDependencies = {
+      ...setup.dependencies,
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(narratorState)),
+      },
+    } as unknown as PveSceneDependencies;
     const narrator = {
-      participantId,
+      participantId: enemyId,
       battleId,
       kind: "NARRATOR" as const,
       playerId: null,
@@ -271,7 +464,8 @@ describe("PVE WhatsApp scene actions", () => {
     };
     setup.listByBattle.mockResolvedValue([narrator]);
     setup.resolvePrincipal.mockResolvedValue({ principalId });
-    const routes = createPveSceneRoutes(setup.dependencies);
+    const routes = createPveSceneRoutes(narratorDependencies);
+
     await routeFor(routes, "movimento").handler.handle(context("/movimento 1"));
     expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
       expect.objectContaining({ playerId: null, adminPrincipalId: principalId }),
@@ -281,12 +475,17 @@ describe("PVE WhatsApp scene actions", () => {
     setup.listByBattle.mockResolvedValue([auto]);
     await routeFor(routes, "assumir").handler.handle(context("/assumir"));
     expect(setup.transition).toHaveBeenLastCalledWith(
-      expect.objectContaining({ participantId, kind: "NARRATOR", adminPrincipalId: principalId }),
+      expect.objectContaining({
+        participantId: enemyId,
+        kind: "NARRATOR",
+        adminPrincipalId: principalId,
+      }),
     );
+
     setup.listByBattle.mockResolvedValue([narrator]);
     await routeFor(routes, "automatico").handler.handle(context("/automatico"));
     expect(setup.transition).toHaveBeenLastCalledWith(
-      expect.objectContaining({ participantId, kind: "AUTO", adminPrincipalId: null }),
+      expect.objectContaining({ participantId: enemyId, kind: "AUTO", adminPrincipalId: null }),
     );
   });
 });

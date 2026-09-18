@@ -1,6 +1,6 @@
-﻿import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { BattleAction, BattleCombatant } from "../battle/contracts.js";
+import type { BattleCombatant } from "../battle/contracts.js";
 import type { BattleOperationalReadService } from "../battle/operational-read-service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
@@ -145,7 +145,7 @@ function travelInProgressText(): string {
     "",
     "_Deslocamento em andamento._",
     "",
-    "O mapa e os encontros voltam a ficar disponíveis em instantes.",
+    "O mapa e os encontros voltam a ficar disponíveis ao final da viagem.",
   ].join("\n");
 }
 
@@ -160,6 +160,7 @@ function onboardingMenu(state: string): string {
       "`/inventario` · itens",
       "`/pokedex` · registros",
       "`/pescar` · quando houver ponto disponível",
+      "`/combate` · regras de combate",
       "",
       "_Explorações são conduzidas em cena pelo narrador._",
       "Cenas comuns continuam livres entre jogadores e narrador.",
@@ -193,30 +194,6 @@ function statusLabel(status: BattleCombatant["majorStatus"]): string {
   return status === null ? "—" : status.key;
 }
 
-function actionLabel(
-  action: BattleAction,
-  state: { readonly combatants: readonly BattleCombatant[] },
-  moveNames: ReadonlyMap<string, string>,
-): string {
-  const actor = state.combatants.find(
-    (candidate) => candidate.participantId === action.actorParticipantId,
-  );
-  if (action.type === "USE_MOVE") {
-    const move = actor?.moves.find((candidate) => candidate.slotNo === action.moveSlot);
-    return move === undefined
-      ? `usar movimento do slot ${action.moveSlot}`
-      : `usar ${moveNames.get(move.moveId) ?? `movimento ${action.moveSlot}`}`;
-  }
-  if (action.type === "SWITCH") {
-    const target = state.combatants.find(
-      (candidate) => candidate.participantId === action.switchToParticipantId,
-    );
-    return `trocar para ${target === undefined ? "reserva" : `reserva #${target.rosterPosition}`}`;
-  }
-  if (action.type === "USE_ITEM") return "usar item";
-  return "tentar fugir";
-}
-
 export function createOperationalUxRoutes(
   dependencies: OperationalUxDependencies,
 ): readonly CommandRouteDefinition[] {
@@ -240,10 +217,7 @@ export function createOperationalUxRoutes(
           "📟 *ROTOM · BATALHA*",
           "",
           "⚔️ `/batalha` · situação atual",
-          "🎯 `/movimento N` · escolher movimento",
-          "✨ `/capturar [Poké Ball]` · PVE selvagem",
-          "💨 `/fugir` · PVE selvagem",
-          "🏳️ `/desistir` · PVP",
+          "📖 `/combate` · regras e comandos",
         ].join("\n"),
         { type: "PLAYER", id: playerId },
       );
@@ -633,7 +607,7 @@ export function createOperationalUxRoutes(
           "",
           `_${moved.value.from.areaDisplayName} → ${moved.value.to.areaDisplayName}_`,
           "",
-          "O deslocamento é curto. O Rotom libera o mapa e os encontros ao final.",
+          "O Rotom libera o mapa e os encontros ao final da viagem.",
         ].join("\n"),
       );
     }
@@ -709,20 +683,7 @@ export function createOperationalUxRoutes(
       opponentSide === undefined ? null : activeCombatant(state, opponentSide.sideNo);
     if (own === null)
       return err(appError("ACTION_INVALID", "Batalha ativa sem Pokémon controlável."));
-    const moveNames = await dependencies.reads.moveDisplayNames(
-      state.contentReleaseId,
-      own.moves.map((move) => move.moveId),
-    );
-    const moveLines = own.moves.map((move) => {
-      const pp =
-        move.ppCurrent === null || move.maxPp === null
-          ? "PP —"
-          : `PP ${move.ppCurrent}/${move.maxPp}`;
-      return `${move.slotNo}. ${moveNames.get(move.moveId) ?? `Movimento ${move.slotNo}`} · ${pp}`;
-    });
-    const legal = view.value.legalActions.map(
-      (action) => `• ${actionLabel(action, state, moveNames)}`,
-    );
+
     return textResult(
       context,
       [
@@ -732,17 +693,34 @@ export function createOperationalUxRoutes(
         opponent === null
           ? "Oponente: —"
           : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
-        "",
-        "*Movimentos:*",
-        moveLines.join("\n"),
-        "",
-        "*Ações mecanicamente legais agora:*",
-        legal.length === 0 ? "Nenhuma." : legal.join("\n"),
-        "",
-        "A cena narrativa continua livre. Esta tela informa legalidade; ela não substitui a seleção explícita da ação narrativa.",
       ].join("\n"),
     );
   };
+
+  const combatGuide: Handler = async (context) =>
+    textResult(
+      context,
+      [
+        "⚔️ *COMBATE*",
+        "",
+        "A cena é livre. O bot não interpreta a narração; ele lê somente o comando mecânico incluído na mensagem.",
+        "",
+        "*Movimento*",
+        "`/movimento 2`",
+        "`/movimento Quick Attack`",
+        "",
+        "O comando pode estar em qualquer ponto da mensagem. Use apenas uma ação mecânica por mensagem.",
+        "",
+        "✅ significa que a ação foi aceita e ficou travada para o turno. A primeira ação aceita não pode ser trocada.",
+        "",
+        "No PVP, o turno só resolve depois que os dois lados enviarem suas ações. O movimento adversário não é revelado antes da resolução.",
+        "",
+        "`/batalha` · estado atual",
+        "`/capturar [Poké Ball]` · PVE",
+        "`/fugir` · PVE",
+        "`/desistir` · PVP",
+      ].join("\n"),
+    );
 
   return [
     { command: "menu", handler: new FunctionalHandler(menu) },
@@ -768,5 +746,6 @@ export function createOperationalUxRoutes(
     { command: "ir", handler: new FunctionalHandler(travel), rateLimitClass: "SENSITIVE" },
     { command: "encontro", handler: new FunctionalHandler(encounter) },
     { command: "batalha", handler: new FunctionalHandler(battle) },
+    { command: "combate", handler: new FunctionalHandler(combatGuide) },
   ];
 }

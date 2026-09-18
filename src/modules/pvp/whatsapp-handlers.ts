@@ -18,9 +18,20 @@ export interface PvpWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly pvp: Pick<PvpService, "createChallenge" | "acceptChallenge" | "startEncounter">;
   readonly openChallengeIdForTarget: (playerId: string) => Promise<string | null>;
+  readonly externalRefForPlayer?: (playerId: string) => Promise<string | null>;
 }
 
-function reply(context: MessageHandlerContext, text: string, refId: string) {
+function mentionTag(ref: string): string {
+  const local = ref.split("@", 1)[0] ?? ref;
+  return `@${local.replace(/:\d+$/u, "")}`;
+}
+
+function reply(
+  context: MessageHandlerContext,
+  text: string,
+  refId: string,
+  mentions: readonly string[] = [],
+) {
   return ok({
     resultRefType: "PVP",
     resultRefId: refId,
@@ -29,7 +40,10 @@ function reply(context: MessageHandlerContext, text: string, refId: string) {
         channel: "whatsapp",
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
-        payload: { text },
+        payload: {
+          text,
+          ...(mentions.length === 0 ? {} : { mentions }),
+        },
         idempotencyKey: `${context.idempotencyKey}:pvp`,
       },
     ],
@@ -69,14 +83,20 @@ export function createPvpWhatsAppRoutes(
       idempotencyKey: context.idempotencyKey,
     });
     if (!created.ok) return created;
+
+    const challengerRef = context.message.senderRef;
     return reply(
       context,
-      created.value.replayed
-        ? "⚔️ Convite PVP já está aguardando aceite."
-        : "⚔️ Convite PVP enviado. Use /aceitar para iniciar.",
+      [
+        `⚔️ *${mentionTag(challengerRef)} desafiou ${mentionTag(targetMention)}.*`,
+        "",
+        `${mentionTag(targetMention)}, \`/aceitar\` para começar.`,
+      ].join("\n"),
       created.value.challenge.id,
+      [challengerRef, targetMention],
     );
   };
+
   const accept: Handler = async (context) => {
     const actor = await player(dependencies, context);
     if (!actor.ok) return actor;
@@ -92,14 +112,32 @@ export function createPvpWhatsAppRoutes(
       actorPlayerId: actor.value.playerId,
     });
     if (!started.ok) return started;
-    return reply(
-      context,
-      started.value.replayed
-        ? "⚔️ Batalha PVP já está em andamento."
-        : "⚔️ Batalha PVP iniciada. Envie sua cena e a ação na última linha.",
-      started.value.battleId,
-    );
+
+    const challenge = accepted.value.challenge;
+    const refs =
+      dependencies.externalRefForPlayer === undefined
+        ? []
+        : (
+            await Promise.all([
+              dependencies.externalRefForPlayer(challenge.challengerPlayerId),
+              dependencies.externalRefForPlayer(challenge.targetPlayerId),
+            ])
+          ).filter((value): value is string => value !== null);
+
+    const challengerRef = refs[0];
+    const targetRef = refs[1];
+    const text =
+      challengerRef !== undefined && targetRef !== undefined
+        ? [
+            `⚔️ *${mentionTag(challengerRef)} × ${mentionTag(targetRef)}*`,
+            "",
+            "Batalha iniciada.",
+          ].join("\n")
+        : ["⚔️ *BATALHA PVP*", "", "Batalha iniciada."].join("\n");
+
+    return reply(context, text, started.value.battleId, refs);
   };
+
   return [
     {
       command: "desafiar",

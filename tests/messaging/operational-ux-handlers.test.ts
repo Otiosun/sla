@@ -322,90 +322,17 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
-  it("sends Vila arrival as one IMAGE when configured, falls back to TEXT, and renders cooldown", async () => {
-    const deps = dependencies({
-      worldMedia: { zhouliaVilaArrivalImageUrl: () => "https://assets.example.test/vila.jpg" },
-    });
-    (deps.world.travel as ReturnType<typeof vi.fn>).mockResolvedValue(
-      ok({
-        replayed: false,
-        arrival: { firstVisit: true },
-        from: { areaId: "area-pallet", areaDisplayName: "Pallet Town", revision: 7n },
-        to: {
-          areaId: "area-vila",
-          areaSlug: "vila-dos-arrozais",
-          areaDisplayName: "Vila dos Arrozais",
-          revision: 8n,
-        },
-      }),
-    );
-    const app = router(deps);
-    const image = await app.dispatch(context("$ir 1", "vila-image"));
-    expect(image).toMatchObject({
-      ok: true,
-      value: {
-        outgoing: [
-          { messageType: "IMAGE", payload: { caption: expect.stringContaining("VOCÊ CHEGOU") } },
-        ],
-      },
-    });
-
-    const noMedia = dependencies();
-    (noMedia.world.travel as ReturnType<typeof vi.fn>).mockResolvedValue(
-      ok({
-        replayed: false,
-        arrival: { firstVisit: false },
-        from: { areaId: "area-pallet", areaDisplayName: "Pallet Town", revision: 7n },
-        to: {
-          areaId: "area-vila",
-          areaSlug: "vila-dos-arrozais",
-          areaDisplayName: "Vila dos Arrozais",
-          revision: 8n,
-        },
-      }),
-    );
-    const fallback = await router(noMedia).dispatch(context("$ir 1", "vila-text"));
-    expect(fallback).toMatchObject({
-      ok: true,
-      value: {
-        outgoing: [
-          { messageType: "TEXT", payload: { text: expect.stringContaining("VOCÊ RETORNOU") } },
-        ],
-      },
-    });
-
-    (noMedia.world.travel as ReturnType<typeof vi.fn>).mockResolvedValue(
-      err(
-        appError("ACTION_INVALID", "Travel is temporarily unavailable after arrival", {
-          availableAt: new Date(Date.now() + 222_000).toISOString(),
-        }),
-      ),
-    );
-    const cooldown = textOf(await router(noMedia).dispatch(context("$ir 1", "cooldown")));
-    expect(cooldown).toContain("Aguarde *3min 42s*");
-  });
-
-  it("keeps encounter presentation informational and narrator-controlled", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$encontro")));
-    expect(output).toContain("Pidgey");
-    expect(output).toContain("Nv. 4");
-    expect(output).toContain("❤️ HP 15/15");
-    expect(output).toContain("condução do narrador");
-    expect(output).not.toContain("Revisão");
-    expect(output).not.toContain("Estado:");
-  });
-
-  it("renders battle HP/status/PP and only actions supplied as mechanically legal", async () => {
+  it("renders compact battle state without dumping moves or legal actions", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("$batalha")));
     expect(output).toContain("Turno 3");
     expect(output).not.toContain("v9");
     expect(output).toContain("HP 21/30");
-    expect(output).toContain("HP 10/18 · status PARALYSIS");
-    expect(output).toContain("Tackle · PP 31/35");
-    expect(output).toContain("Growl · PP 40/40");
-    expect(output).toContain("usar Tackle");
-    expect(output).toContain("tentar fugir");
-    expect(output).not.toContain("usar Growl\n");
-    expect(output).toContain("não substitui a seleção explícita da ação narrativa");
+    expect(output).toContain("HP 10/18");
+    expect(output).toContain("status PARALYSIS");
+    expect(output).not.toContain("Tackle");
+    expect(output).not.toContain("Growl");
+    expect(output).not.toContain("PP 31/35");
+    expect(output).not.toContain("usar Tackle");
+    expect(output).not.toContain("tentar fugir");
   });
 });

@@ -106,18 +106,24 @@ describe("controller-scoped TurnWindow", () => {
     if (!refreshed.ok) throw new Error(refreshed.error.message);
     expect(refreshTurnWindowRequirements(refreshed.value, requirements, now).ok).toBe(false);
   });
-  it("waits for PLAYER and NARRATOR on one side, replaces independently and commits", () => {
+  it("waits for PLAYER and NARRATOR, locks first actions, and commits", () => {
     const first = submitTurnAction(window(), submission());
     if (!first.ok) throw new Error(first.error.message);
     expect(first.value.aggregate.window.status).toBe("COLLECTING");
-    const replaced = submitTurnAction(first.value.aggregate, submission());
-    if (!replaced.ok) throw new Error(replaced.error.message);
-    expect(replaced.value.aggregate.submissions.map((s) => s.status)).toEqual([
-      "SUPERSEDED",
-      "ACTIVE",
-    ]);
+
+    const replacement = submitTurnAction(first.value.aggregate, {
+      ...submission(),
+      id: randomUUID(),
+      idempotencyKey: "replacement",
+    });
+    expect(replacement).toMatchObject({
+      ok: false,
+      error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+    });
+    expect(first.value.aggregate.submissions.map((s) => s.status)).toEqual(["ACTIVE"]);
+
     const input = submission(true);
-    const last = submitTurnAction(replaced.value.aggregate, input);
+    const last = submitTurnAction(first.value.aggregate, input);
     if (!last.ok) throw new Error(last.error.message);
     expect(last.value.aggregate.window.status).toBe("LOCKED");
     expect(submitTurnAction(last.value.aggregate, input)).toMatchObject({

@@ -121,9 +121,20 @@ export interface BaileysImageOutboundContentLike {
   readonly mentions?: readonly string[];
 }
 
+export interface BaileysReactionOutboundContentLike {
+  readonly react: {
+    readonly text: string;
+    readonly key: {
+      readonly remoteJid: string;
+      readonly id: string;
+      readonly participant?: string;
+    };
+  };
+}
 export type BaileysOutboundContentLike =
   | BaileysTextOutboundContentLike
-  | BaileysImageOutboundContentLike;
+  | BaileysImageOutboundContentLike
+  | BaileysReactionOutboundContentLike;
 
 export interface BaileysSocketLike {
   readonly user?: { readonly id: string; readonly lid?: string };

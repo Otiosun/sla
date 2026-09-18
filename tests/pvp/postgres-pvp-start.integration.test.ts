@@ -433,21 +433,47 @@ describe("PVP START PostgreSQL atomicity", () => {
       [...fixture.eligiblePokemonIds].sort(),
     );
 
+    const controllers = await pool.query<{
+      participant_id: string;
+      kind: string;
+      player_id: string | null;
+    }>(
+      `SELECT participant_id, kind, player_id
+       FROM battle_participant_controllers
+       WHERE battle_id = $1
+       ORDER BY participant_id`,
+      [battleId],
+    );
+    expect(controllers.rows).toHaveLength(participants.rows.length);
+    expect(controllers.rows.every((row) => row.kind === "PLAYER" && row.player_id !== null)).toBe(
+      true,
+    );
+    expect(new Set(controllers.rows.map((row) => row.player_id))).toEqual(
+      new Set([fixture.challengerPlayerId, fixture.targetPlayerId]),
+    );
+
     const snapshots = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM battle_state_snapshots WHERE battle_id = $1 AND version = 0",
       [battleId],
     );
     expect(snapshots.rows[0]?.count).toBe("1");
 
-    const windows = await pool.query<{ id: string; status: string }>(
-      `SELECT id, status
+    const windows = await pool.query<{
+      id: string;
+      status: string;
+      required_controllers: unknown | null;
+    }>(
+      `SELECT id, status, required_controllers
        FROM battle_turn_windows
        WHERE battle_id = $1 AND battle_version = 0`,
       [battleId],
     );
-    expect(windows.rows).toEqual([
-      { id: challengerStart.value.turnWindowId, status: "COLLECTING" },
-    ]);
+    expect(windows.rows).toHaveLength(1);
+    expect(windows.rows[0]).toMatchObject({
+      id: challengerStart.value.turnWindowId,
+      status: "COLLECTING",
+    });
+    expect(windows.rows[0]?.required_controllers).not.toBeNull();
     const required = await pool.query<{ player_id: string }>(
       `SELECT player_id
        FROM battle_turn_window_required_players

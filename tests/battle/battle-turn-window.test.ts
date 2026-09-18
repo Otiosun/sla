@@ -128,7 +128,7 @@ describe("PVP Battle TurnWindow", () => {
     expect(conflict.error.code).toBe("TURN_WINDOW_IDEMPOTENCY_CONFLICT");
   });
 
-  it("supersedes the player's prior action while COLLECTING without consuming the old action", () => {
+  it("locks the player's first accepted action while COLLECTING", () => {
     const initial = aggregate();
     const first = submitTurnAction(initial, {
       id: IDS.submissionA1,
@@ -141,7 +141,7 @@ describe("PVP Battle TurnWindow", () => {
     });
     if (!first.ok) throw new Error(first.error.message);
 
-    const replaced = submitTurnAction(first.value.aggregate, {
+    const replacement = submitTurnAction(first.value.aggregate, {
       id: IDS.submissionA2,
       playerId: IDS.playerA,
       sideNo: 1,
@@ -151,14 +151,16 @@ describe("PVP Battle TurnWindow", () => {
       submittedAt: new Date("2026-08-31T12:00:20.000Z"),
     });
 
-    expect(replaced.ok).toBe(true);
-    if (!replaced.ok) return;
-    const mine = replaced.value.aggregate.submissions.filter(
+    expect(replacement).toMatchObject({
+      ok: false,
+      error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+    });
+    const mine = first.value.aggregate.submissions.filter(
       (entry) => entry.playerId === IDS.playerA,
     );
-    expect(mine).toHaveLength(2);
-    expect(mine.map((entry) => entry.status)).toEqual(["SUPERSEDED", "ACTIVE"]);
-    expect(mine[1]?.submissionRevision).toBe(2);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.status).toBe("ACTIVE");
+    expect(mine[0]?.submissionRevision).toBe(1);
   });
 
   it("locks exactly when the final required human submits and rejects further replacement", () => {
@@ -320,7 +322,7 @@ describe("PVE human TurnWindow collection", () => {
     });
   });
 
-  it("waits for each allied player and preserves replacement, stale and duplicate semantics", () => {
+  it("waits for each allied player while keeping the first accepted action immutable", () => {
     const created = pveWindow([
       { playerId: IDS.playerA, sideNo: 1 },
       { playerId: IDS.playerB, sideNo: 1 },
@@ -335,17 +337,14 @@ describe("PVE human TurnWindow collection", () => {
         expectedBattleVersion: 6,
       }),
     ).toMatchObject({ ok: false, error: { code: "TURN_WINDOW_VERSION_CONFLICT" } });
-    const replacement = submitTurnAction(
-      first.value.aggregate,
-      submission(IDS.playerA, IDS.submissionA2, 3),
-    );
-    if (!replacement.ok) throw replacement.error;
-    expect(replacement.value.aggregate.submissions.map((entry) => entry.status)).toEqual([
-      "SUPERSEDED",
-      "ACTIVE",
-    ]);
+    expect(
+      submitTurnAction(first.value.aggregate, submission(IDS.playerA, IDS.submissionA2, 3)),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+    });
     const second = submitTurnAction(
-      replacement.value.aggregate,
+      first.value.aggregate,
       submission(IDS.playerB, IDS.submissionB),
     );
     if (!second.ok) throw second.error;

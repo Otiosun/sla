@@ -224,6 +224,19 @@ export function createOperationalMessagingComposition(
         );
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
   const reads = new PostgresOperationalUxReadModel(pool);
+  const externalRefForPlayer = async (playerId: string): Promise<string | null> => {
+    const result = await pool.query<{ external_id: string }>(
+      `SELECT external_id
+       FROM player_identities
+       WHERE player_id = $1
+         AND provider = 'baileys'
+         AND status = 'ACTIVE'
+       ORDER BY external_id
+       LIMIT 1`,
+      [playerId],
+    );
+    return result.rows[0]?.external_id ?? null;
+  };
   const economy = new EconomyService(new PostgresEconomyRepository(pool));
   const martSaleInventory = new PostgresMartSaleInventoryReader(pool);
   const martEconomy = {
@@ -342,6 +355,8 @@ export function createOperationalMessagingComposition(
           ...(encounterWriter === undefined ? {} : { encounterWriter }),
           ...(capture === undefined ? {} : { capture }),
           captureBalls,
+          presentation: reads,
+          playerExternalRef: externalRefForPlayer,
           admins: adminIdentity,
         });
   const pveBattleStart =
@@ -432,6 +447,8 @@ export function createOperationalMessagingComposition(
             ...(encounterWriter === undefined ? {} : { encounterWriter }),
             ...(capture === undefined ? {} : { capture }),
             captureBalls,
+            presentation: reads,
+            playerExternalRef: externalRefForPlayer,
             admins: adminIdentity,
           })),
       ...(pvp === null
@@ -440,6 +457,7 @@ export function createOperationalMessagingComposition(
             players: playerRegistration,
             pvp: pvp.service,
             openChallengeIdForTarget: pvp.openChallengeIdForTarget,
+            externalRefForPlayer,
           })),
       ...(pveBattleStart === null
         ? []

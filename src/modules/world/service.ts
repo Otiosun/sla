@@ -33,7 +33,7 @@ import type { WorldRepository, WorldTransaction } from "./ports.js";
 import { VILA_DOS_ARROZAIS_SLUG } from "./zhoulia-presentation.js";
 
 const FIRST_ARRIVAL_COOLDOWN_MS = 5 * 60 * 1000;
-const DEFAULT_TRAVEL_LOCK_MS = 30 * 1000;
+const DEFAULT_TRAVEL_LOCK_MS = 5 * 60 * 1000;
 
 const uuidSchema = z.string().uuid();
 const travelScopeResult = parseIdempotencyScope("world.travel");

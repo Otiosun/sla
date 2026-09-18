@@ -69,6 +69,7 @@ export type TurnWindowErrorCode =
   | "TURN_WINDOW_VERSION_CONFLICT"
   | "TURN_WINDOW_IDEMPOTENCY_CONFLICT"
   | "TURN_WINDOW_NOT_COLLECTING"
+  | "TURN_WINDOW_ALREADY_SUBMITTED"
   | "TURN_WINDOW_EXPIRED"
   | "TURN_WINDOW_NOT_LOCKED"
   | "TURN_WINDOW_INCOMPLETE"
@@ -375,24 +376,27 @@ export function submitTurnAction(
     );
   }
 
-  const next = cloneAggregate(aggregate);
   const sameController = (entry: BattleTurnSubmission) =>
     aggregate.window.requiredControllers === undefined
       ? entry.playerId === input.playerId
       : entry.action.actorParticipantId === input.action.actorParticipantId;
-  const priorActiveIndexes = next.submissions
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => sameController(entry) && entry.status === "ACTIVE");
+  const priorActive = aggregate.submissions.find(
+    (entry) => sameController(entry) && entry.status === "ACTIVE",
+  );
+  if (priorActive !== undefined) {
+    return failure(
+      "TURN_WINDOW_ALREADY_SUBMITTED",
+      "This controller already submitted an action for the current turn",
+    );
+  }
+
+  const next = cloneAggregate(aggregate);
   const nextSubmissionRevision =
     next.submissions
       .filter(sameController)
       .reduce((max, entry) => Math.max(max, entry.submissionRevision), 0) + 1;
 
-  const submissions = next.submissions.map((entry, index) =>
-    priorActiveIndexes.some((prior) => prior.index === index)
-      ? { ...entry, status: "SUPERSEDED" as const }
-      : entry,
-  );
+  const submissions = [...next.submissions];
   submissions.push({
     id: input.id,
     playerId: input.playerId,

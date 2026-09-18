@@ -533,7 +533,10 @@ describe("participant controllers PostgreSQL", () => {
         id: randomUUID(),
         idempotencyKey: randomUUID(),
       }),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({
+      ok: false,
+      error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+    });
     expect(
       await restarted.submit(input.id, {
         ...action,
@@ -664,7 +667,10 @@ describe("participant controllers PostgreSQL", () => {
           id: randomUUID(),
           idempotencyKey: randomUUID(),
         });
-        expect(replaced.ok).toBe(true);
+        expect(replaced).toMatchObject({
+          ok: false,
+          error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+        });
         const completed = await restarted.submit(partial.value.window.id, {
           ...submission,
           id: randomUUID(),
@@ -680,7 +686,6 @@ describe("participant controllers PostgreSQL", () => {
               submissions: expect.arrayContaining([
                 expect.objectContaining({ playerId: fixture.playerA, status: "ACTIVE" }),
                 expect.objectContaining({ playerId: fixture.playerB, status: "ACTIVE" }),
-                expect.objectContaining({ playerId: fixture.playerA, status: "SUPERSEDED" }),
               ]),
             },
           },

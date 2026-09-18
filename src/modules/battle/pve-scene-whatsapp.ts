@@ -4,6 +4,7 @@ import type { CaptureService } from "../capture/service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { EncounterService } from "../encounter/service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
@@ -47,6 +48,8 @@ export interface PveSceneDependencies {
   readonly encounterWriter?: Pick<EncounterService, "flee">;
   readonly capture?: Pick<CaptureService, "attempt">;
   readonly captureBalls?: PveCaptureBallReader;
+  readonly presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">;
+  readonly playerExternalRef?: (playerId: string) => Promise<string | null>;
   readonly admins: {
     resolvePrincipal(input: {
       readonly provider: string;
@@ -54,23 +57,54 @@ export interface PveSceneDependencies {
     }): Promise<{ readonly principalId: string } | null>;
   };
 }
+function reactionDraft(context: MessageHandlerContext) {
+  return {
+    channel: "whatsapp",
+    destinationRef: context.message.chatRef,
+    messageType: "REACTION",
+    payload: {
+      emoji: "✅",
+      targetExternalMessageId: context.message.externalMessageId,
+      targetSenderRef: context.message.senderRef,
+    },
+    idempotencyKey: `${context.idempotencyKey}:reaction`,
+  } as const;
+}
+
 function reply(
   context: MessageHandlerContext,
   text: string,
   battleId: string,
+  options: {
+    readonly mentions?: readonly string[];
+    readonly react?: boolean;
+  } = {},
 ): Result<MessageHandlerResult> {
+  const mentions = options.mentions ?? [];
   return ok({
     resultRefType: "BATTLE",
     resultRefId: battleId,
     outgoing: [
+      ...(options.react === true ? [reactionDraft(context)] : []),
       {
         channel: "whatsapp",
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
-        payload: { text },
+        payload: {
+          text,
+          ...(mentions.length === 0 ? {} : { mentions }),
+        },
         idempotencyKey: `${context.idempotencyKey}:battle`,
       },
     ],
+  });
+}
+
+function ackOnly(context: MessageHandlerContext, battleId: string): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: "BATTLE",
+    resultRefId: battleId,
+    outgoing: [reactionDraft(context)],
   });
 }
 
@@ -94,11 +128,60 @@ function encounterReply(
   });
 }
 
-function actionFrom(
+function normalizeLookup(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/gu, " ");
+}
+
+async function moveSlotFor(
+  state: BattleState,
+  actor: BattleState["combatants"][number],
+  moveRef: string,
+  presentation: Pick<OperationalUxReadModel, "moveDisplayNames">,
+): Promise<number | null> {
+  const normalized = normalizeLookup(moveRef);
+  if (/^\d+$/u.test(normalized)) {
+    const slot = Number(normalized);
+    return Number.isSafeInteger(slot) && slot > 0 ? slot : null;
+  }
+
+  const names = await presentation.moveDisplayNames(
+    state.contentReleaseId,
+    actor.moves.map((move) => move.moveId),
+  );
+  const matches = actor.moves.filter((move) => {
+    const name = normalizeLookup(names.get(move.moveId) ?? "");
+    if (name.length === 0) return false;
+    if (normalized === name) return true;
+    if (!normalized.startsWith(name)) return false;
+    const boundary = normalized[name.length];
+    return (
+      boundary === " " ||
+      boundary === "," ||
+      boundary === "." ||
+      boundary === ";" ||
+      boundary === ":" ||
+      boundary === "!" ||
+      boundary === "?" ||
+      boundary === "_" ||
+      boundary === "*" ||
+      boundary === "~" ||
+      boundary === "`"
+    );
+  });
+  return matches.length === 1 ? (matches[0]?.slotNo ?? null) : null;
+}
+
+async function actionFrom(
   state: BattleState,
   actorParticipantId: string,
   intent: ReturnType<typeof parseSceneAction>,
-): Result<BattleAction> {
+  presentation: Pick<OperationalUxReadModel, "moveDisplayNames">,
+): Promise<Result<BattleAction>> {
   if (intent.kind !== "ACTION")
     return err(appError("VALIDATION_FAILED", "Diretiva de batalha inválida."));
   const actor = state.combatants.find((entry) => entry.participantId === actorParticipantId);
@@ -118,16 +201,21 @@ function actionFrom(
       : state.combatants.find(
           (entry) => entry.participantId === targetSide.activeParticipantId && entry.currentHp > 0,
         );
+
   switch (intent.intent.type) {
-    case "USE_MOVE":
-      return target === undefined
-        ? err(appError("ACTION_INVALID", "Sem alvo disponível."))
-        : ok({
-            type: "USE_MOVE",
-            actorParticipantId,
-            targetParticipantId: target.participantId,
-            moveSlot: intent.intent.moveSlot,
-          });
+    case "USE_MOVE": {
+      if (target === undefined) return err(appError("ACTION_INVALID", "Sem alvo disponível."));
+      const moveSlot = await moveSlotFor(state, actor, intent.intent.moveRef, presentation);
+      if (moveSlot === null) {
+        return err(appError("ACTION_INVALID", "Movimento não encontrado para este Pokémon."));
+      }
+      return ok({
+        type: "USE_MOVE",
+        actorParticipantId,
+        targetParticipantId: target.participantId,
+        moveSlot,
+      });
+    }
     case "FLEE":
       return ok({ type: "FLEE", actorParticipantId });
     case "SURRENDER":
@@ -161,23 +249,14 @@ function activeWildParticipant(state: BattleState) {
   return undefined;
 }
 
-function normalizeBallName(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/\p{M}+/gu, "")
-    .trim()
-    .toLocaleLowerCase("pt-BR")
-    .replace(/\s+/gu, " ");
-}
-
 function chooseBall(
   options: readonly PveCaptureBallOption[],
   reference: string,
 ): PveCaptureBallOption | null {
   if (options.length === 0) return null;
-  const normalized = normalizeBallName(reference);
+  const normalized = normalizeLookup(reference);
   if (normalized.length === 0) return options.length === 1 ? (options[0] ?? null) : null;
-  const matches = options.filter((option) => normalizeBallName(option.displayName) === normalized);
+  const matches = options.filter((option) => normalizeLookup(option.displayName) === normalized);
   return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
@@ -195,64 +274,169 @@ function ballPrompt(options: readonly PveCaptureBallOption[]): string {
 }
 
 function statusLabel(status: BattleState["combatants"][number]["majorStatus"]): string {
-  return status === null || status === undefined
-    ? "sem status"
-    : status.key.toLocaleLowerCase("pt-BR");
+  return status === null || status === undefined ? "—" : status.key.toLocaleLowerCase("pt-BR");
 }
 
 function hud(
   state: BattleState,
   controller: { readonly participantId: string; readonly kind: string },
 ): string {
-  const sideEntries =
-    state.sides ??
-    [...new Set(state.combatants.map((combatant) => combatant.sideNo))].map((sideNo) => ({
-      sideNo,
-      activeParticipantId: state.combatants.find((combatant) => combatant.sideNo === sideNo)
-        ?.participantId,
-    }));
-  const sides = sideEntries.map((side) => {
-    const active = state.combatants.find(
-      (combatant) => combatant.participantId === side.activeParticipantId,
-    );
-    return active === undefined
-      ? `Lado ${side.sideNo}: indisponível`
-      : `Lado ${side.sideNo}: HP ${active.currentHp}/${active.maxHp} · ${statusLabel(active.majorStatus)}`;
-  });
   const own = state.combatants.find(
     (combatant) => combatant.participantId === controller.participantId,
   );
-  const moves = own?.moves
-    ?.map((move) => `${move.slotNo}: PP ${move.ppCurrent ?? "—"}/${move.maxPp ?? "—"}`)
-    .join(" · ");
+  const opponentSide = state.sides.find((side) => {
+    const ownSide = own?.sideNo;
+    return ownSide !== undefined && side.sideNo !== ownSide && side.result === null;
+  });
+  const opponent =
+    opponentSide === undefined
+      ? undefined
+      : state.combatants.find(
+          (combatant) => combatant.participantId === opponentSide.activeParticipantId,
+        );
+
   return [
     `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
-    ...sides,
-    ...(moves === undefined || moves.length === 0 ? [] : [`Movimentos: ${moves}`]),
-    "Envie a ação na última linha, por exemplo `/movimento 1`.",
+    "",
+    own === undefined
+      ? "Seu Pokémon · indisponível"
+      : `Seu Pokémon · HP ${own.currentHp}/${own.maxHp} · status ${statusLabel(own.majorStatus)}`,
+    opponent === undefined
+      ? "Oponente · —"
+      : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
   ].join("\n");
 }
 
-function turnSummary(
+function mentionTag(ref: string): string {
+  const local = ref.split("@", 1)[0] ?? ref;
+  return `@${local.replace(/:\d+$/u, "")}`;
+}
+
+function statusText(value: unknown): string {
+  switch (value) {
+    case "BURN":
+      return "queimado";
+    case "POISON":
+      return "envenenado";
+    case "PARALYSIS":
+      return "paralisado";
+    case "SLEEP":
+      return "adormecido";
+    case "FREEZE":
+      return "congelado";
+    default:
+      return "afetado por um status";
+  }
+}
+
+async function turnSummary(
+  dependencies: Pick<PveSceneDependencies, "presentation" | "playerExternalRef">,
   state: BattleState,
   events: readonly { readonly type: string; readonly payload: Readonly<Record<string, unknown>> }[],
-): string {
-  const damage = events
-    .filter((entry) => entry.type === "DamageApplied")
-    .reduce(
-      (total, entry) =>
-        total + (typeof entry.payload.damage === "number" ? entry.payload.damage : 0),
-      0,
-    );
-  const effects = [
-    ...(damage > 0 ? [`dano ${damage}`] : []),
-    ...(events.some((entry) => entry.type === "StatusApplied") ? ["status aplicado"] : []),
-    ...(events.some((entry) => entry.type === "Fainted") ? ["nocaute"] : []),
+): Promise<{ readonly text: string; readonly mentions: readonly string[] }> {
+  const speciesByParticipant = new Map<string, string>();
+  await Promise.all(
+    state.combatants.map(async (combatant) => {
+      const displayName = await dependencies.presentation.speciesDisplayName(
+        state.contentReleaseId,
+        combatant.speciesId,
+      );
+      speciesByParticipant.set(combatant.participantId, displayName ?? "Pokémon");
+    }),
+  );
+
+  const moveIds = [
+    ...new Set(
+      events.flatMap((entry) =>
+        entry.type === "MoveUsed" && typeof entry.payload.moveId === "string"
+          ? [entry.payload.moveId]
+          : [],
+      ),
+    ),
   ];
-  return [
-    `⚔️ Turno ${state.turnNumber} resolvido.`,
-    ...(effects.length === 0 ? [] : [effects.join(" · ")]),
-  ].join(" ");
+  const moveNames = await dependencies.presentation.moveDisplayNames(
+    state.contentReleaseId,
+    moveIds,
+  );
+
+  const nameOf = (participantId: unknown) =>
+    typeof participantId === "string"
+      ? (speciesByParticipant.get(participantId) ?? "Pokémon")
+      : "Pokémon";
+
+  const lines: string[] = [`⚔️ *Turno ${state.turnNumber}*`, ""];
+  let actionStarted = false;
+
+  for (const entry of events) {
+    switch (entry.type) {
+      case "MoveUsed": {
+        if (actionStarted && lines[lines.length - 1] !== "") lines.push("");
+        const moveId = typeof entry.payload.moveId === "string" ? entry.payload.moveId : "";
+        const moveName = moveNames.get(moveId) ?? "Movimento";
+        lines.push(`${nameOf(entry.payload.participantId)} usou *${moveName}*.`);
+        actionStarted = true;
+        break;
+      }
+      case "MoveMissed":
+        lines.push("O ataque errou.");
+        break;
+      case "DamageApplied": {
+        const damage = typeof entry.payload.damage === "number" ? entry.payload.damage : null;
+        const remainingHp =
+          typeof entry.payload.remainingHp === "number" ? entry.payload.remainingHp : null;
+        const effectiveness =
+          typeof entry.payload.effectivenessBasisPoints === "number"
+            ? entry.payload.effectivenessBasisPoints
+            : null;
+        if (entry.payload.critical === true) lines.push("Golpe crítico.");
+        if (effectiveness === 0) lines.push("Não teve efeito.");
+        else if (effectiveness !== null && effectiveness > 10_000) lines.push("É super efetivo.");
+        else if (effectiveness !== null && effectiveness < 10_000)
+          lines.push("Não é muito efetivo.");
+
+        if (damage !== null && remainingHp !== null) {
+          lines.push(
+            `${nameOf(entry.payload.participantId)}: ${remainingHp + damage} → ${remainingHp} HP.`,
+          );
+        }
+        break;
+      }
+      case "StatusApplied":
+        lines.push(
+          `${nameOf(entry.payload.participantId)} ficou ${statusText(entry.payload.status)}.`,
+        );
+        break;
+      case "Fainted":
+        lines.push(`💥 ${nameOf(entry.payload.participantId)} não consegue mais lutar.`);
+        break;
+      case "Switched":
+        lines.push(`${nameOf(entry.payload.toParticipantId)} entrou em campo.`);
+        break;
+      case "BattleEnded":
+        if (entry.payload.status === "FLED") lines.push("💨 A batalha terminou em fuga.");
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (lines.length === 2) lines.push("Turno resolvido.");
+
+  const mentions: string[] = [];
+  if (dependencies.playerExternalRef !== undefined) {
+    for (const side of state.sides) {
+      if (side.playerId === null) continue;
+      const ref = await dependencies.playerExternalRef(side.playerId);
+      if (ref !== null && !mentions.includes(ref)) mentions.push(ref);
+    }
+  }
+  const firstMention = mentions[0];
+  const secondMention = mentions[1];
+  if (firstMention !== undefined && secondMention !== undefined) {
+    lines.push("", mentionTag(firstMention), "x", mentionTag(secondMention));
+  }
+
+  return { text: lines.join("\n"), mentions };
 }
 
 export function createPveSceneRoutes(
@@ -263,7 +447,7 @@ export function createPveSceneRoutes(
     if (parsed.kind === "NONE")
       return err(appError("ACTION_INVALID", "Nenhuma diretiva de batalha encontrada."));
     if (parsed.kind === "INVALID")
-      return err(appError("VALIDATION_FAILED", "Use uma única diretiva / na última linha."));
+      return err(appError("VALIDATION_FAILED", "Use apenas um comando mecânico por mensagem."));
     const player = await dependencies.players.resolvePlayer({
       provider: context.message.provider,
       externalId: context.message.senderRef,
@@ -362,14 +546,9 @@ export function createPveSceneRoutes(
       if (captured.value.status === "FAILED") {
         return reply(
           context,
-          [
-            "💥 *A POKÉ BOLA ABRIU*",
-            "",
-            "_O Pokémon escapou._",
-            "",
-            "⚔️ A batalha continua. Use `/batalha`.",
-          ].join("\n"),
+          ["🔴 A Poké Ball foi lançada.", "", "O Pokémon escapou."].join("\n"),
           battleId,
+          { react: true },
         );
       }
 
@@ -385,16 +564,12 @@ export function createPveSceneRoutes(
       return reply(
         context,
         [
-          "✨ *CAPTURA CONCLUÍDA!*",
-          "",
+          "🔴 *Pokémon capturado.*",
           placementText,
-          "",
-          continues
-            ? "⚔️ _O encontro continua com o próximo Pokémon selvagem._"
-            : "✅ _O encontro foi encerrado._",
-          ...(continues ? ["Use `/batalha` para continuar."] : []),
+          ...(continues ? ["O encontro continua."] : []),
         ].join("\n"),
         battleId,
+        { react: true },
       );
     }
 
@@ -411,10 +586,25 @@ export function createPveSceneRoutes(
         expectedVersion: state.value.version,
       });
       if (!surrendered.ok) return err(appError("ACTION_INVALID", "A batalha já acabou."));
-      return reply(context, "🏳️ Você desistiu. O adversário venceu.", battleId);
+      return reply(context, "🏳️ Você desistiu. O adversário venceu.", battleId, { react: true });
     }
-    const action = actionFrom(state.value, controller.participantId, parsed);
+    const action = await actionFrom(
+      state.value,
+      controller.participantId,
+      parsed,
+      dependencies.presentation,
+    );
     if (!action.ok) return action;
+
+    const rejectedAction = (code: string) =>
+      reply(
+        context,
+        code === "TURN_WINDOW_ALREADY_SUBMITTED"
+          ? "A ação deste turno já foi definida."
+          : "Ação não permitida agora. Use `/batalha`.",
+        battleId,
+      );
+
     if (controller.kind === "NARRATOR") {
       if (principal === null) return err(appError("PLAYER_INELIGIBLE", "Narrador não autorizado."));
       const resolved = await dependencies.battle.resolvePlayerTurn({
@@ -425,11 +615,15 @@ export function createPveSceneRoutes(
         idempotencyKey: context.idempotencyKey,
         action: action.value,
       });
-      if (!resolved.ok) return reply(context, "Ação não permitida agora. Use /batalha.", battleId);
-      if (resolved.value.pending === true)
-        return ok({ resultRefType: "BATTLE", resultRefId: battleId, outgoing: [] });
-      return reply(context, turnSummary(resolved.value.state, resolved.value.events), battleId);
+      if (!resolved.ok) return rejectedAction(resolved.error.code);
+      if (resolved.value.pending === true) return ackOnly(context, battleId);
+      const summary = await turnSummary(dependencies, resolved.value.state, resolved.value.events);
+      return reply(context, summary.text, battleId, {
+        mentions: summary.mentions,
+        react: true,
+      });
     }
+
     const resolved = await dependencies.battle.resolvePlayerTurn({
       battleId,
       playerId: player.value.playerId,
@@ -437,10 +631,13 @@ export function createPveSceneRoutes(
       idempotencyKey: context.idempotencyKey,
       action: action.value,
     });
-    if (!resolved.ok) return reply(context, "Ação não permitida agora. Use /batalha.", battleId);
-    if (resolved.value.pending === true)
-      return ok({ resultRefType: "BATTLE", resultRefId: battleId, outgoing: [] });
-    return reply(context, turnSummary(resolved.value.state, resolved.value.events), battleId);
+    if (!resolved.ok) return rejectedAction(resolved.error.code);
+    if (resolved.value.pending === true) return ackOnly(context, battleId);
+    const summary = await turnSummary(dependencies, resolved.value.state, resolved.value.events);
+    return reply(context, summary.text, battleId, {
+      mentions: summary.mentions,
+      react: true,
+    });
   };
   const controllerRoute =
     (kind: "NARRATOR" | "AUTO"): Handler =>
@@ -523,6 +720,7 @@ export function createPveSceneRoutes(
   return [
     ...["movimento", "trocar", "item", "capturar", "fugir", "desistir"].map((command) => ({
       command,
+      allowEmbedded: true,
       handler: new FunctionalHandler(handle),
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,

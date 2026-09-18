@@ -538,7 +538,7 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
       ok: true,
       value: { status: "PROCESSED" },
     });
-    expect(await activeRuntime.worker.runOnce()).toMatchObject({ failed: 0, sent: 1 });
+    expect(await activeRuntime.worker.runOnce()).toMatchObject({ failed: 0, sent: 2 });
 
     const attempts = await pool.query<{
       status: string;
@@ -627,7 +627,7 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
       ok: true,
       value: { status: "PROCESSED" },
     });
-    expect(await activeRuntime.worker.runOnce()).toMatchObject({ failed: 0, sent: 1 });
+    expect(await activeRuntime.worker.runOnce()).toMatchObject({ failed: 0, sent: 2 });
 
     expect(
       (await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [battle?.id]))
@@ -655,7 +655,7 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
       .filter((value): value is string => typeof value === "string");
     expect(texts.some((text) => text.includes("ENCONTRO SELVAGEM · GRUPO"))).toBe(true);
     expect(texts.some((text) => text.includes("Batalha iniciada"))).toBe(true);
-    expect(texts.some((text) => text.includes("CAPTURA CONCLUÍDA"))).toBe(true);
+    expect(texts.some((text) => text.includes("capturado."))).toBe(true);
     expect(texts.every((text) => !UUID_IN_TEXT.test(text))).toBe(true);
 
     const outbox = await pool.query<{ status: string; count: string }>(
@@ -666,7 +666,7 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
     );
     expect(outbox.rows).toEqual([
       { status: "PENDING", count: "1" },
-      { status: "SENT", count: "4" },
+      { status: "SENT", count: "6" },
     ]);
   }, 60_000);
 });

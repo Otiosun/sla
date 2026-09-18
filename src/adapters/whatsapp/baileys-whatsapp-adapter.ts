@@ -195,6 +195,34 @@ function imageOutboundContent(message: PendingOutboxMessage): BaileysOutboundCon
   return { ...image, caption };
 }
 
+function reactionOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  const emoji = message.payload.emoji;
+  const targetExternalMessageId = message.payload.targetExternalMessageId;
+  const targetSenderRef = message.payload.targetSenderRef;
+  if (typeof emoji !== "string" || emoji.length === 0 || emoji.length > 16) {
+    throw new Error("Baileys REACTION outbound payload requires a non-empty emoji");
+  }
+  if (typeof targetExternalMessageId !== "string" || targetExternalMessageId.trim().length === 0) {
+    throw new Error("Baileys REACTION outbound payload requires targetExternalMessageId");
+  }
+  if (
+    targetSenderRef !== undefined &&
+    (typeof targetSenderRef !== "string" || targetSenderRef.trim().length === 0)
+  ) {
+    throw new Error("Baileys REACTION targetSenderRef must be a non-empty JID when provided");
+  }
+
+  return {
+    react: {
+      text: emoji,
+      key: {
+        remoteJid: message.destinationRef,
+        id: targetExternalMessageId.trim(),
+        ...(targetSenderRef === undefined ? {} : { participant: targetSenderRef.trim() }),
+      },
+    },
+  };
+}
 function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
   if (message.channel !== "whatsapp") {
     throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
@@ -204,6 +232,8 @@ function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentL
       return textOutboundContent(message);
     case "IMAGE":
       return imageOutboundContent(message);
+    case "REACTION":
+      return reactionOutboundContent(message);
     default:
       throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
   }

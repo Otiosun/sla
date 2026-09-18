@@ -10,7 +10,7 @@ describe("PVP WhatsApp routes", () => {
     );
   });
 
-  it("creates a SAME_AREA invitation from one real mention without exposing its id", async () => {
+  it("creates a SAME_AREA invitation, mentions both sides, and never exposes its internal id", async () => {
     const createChallenge = vi.fn(async () =>
       ok({ challenge: { id: "11111111-1111-4111-8111-111111111111" }, replayed: false }),
     );
@@ -19,7 +19,7 @@ describe("PVP WhatsApp routes", () => {
         resolvePlayer: vi.fn(async ({ externalId }) =>
           ok({
             playerId:
-              externalId === "target"
+              externalId === "target@s.whatsapp.net"
                 ? "22222222-2222-4222-8222-222222222222"
                 : "33333333-3333-4333-8333-333333333333",
           }),
@@ -38,11 +38,11 @@ describe("PVP WhatsApp routes", () => {
       message: {
         provider: "baileys",
         externalMessageId: "external",
-        senderRef: "sender",
+        senderRef: "sender@s.whatsapp.net",
         chatRef: "chat",
         occurredAt: "2026-09-11T00:00:00.000Z",
         text: "/desafiar @target",
-        mentions: ["target"],
+        mentions: ["target@s.whatsapp.net"],
         mediaRefs: [],
         replyToExternalMessageId: null,
       },
@@ -50,11 +50,26 @@ describe("PVP WhatsApp routes", () => {
     expect(createChallenge).toHaveBeenCalledWith(
       expect.objectContaining({ formatKey: "1V1", reachPolicy: "SAME_AREA" }),
     );
-    expect(result.ok && JSON.stringify(result.value.outgoing)).not.toContain("11111111");
+    if (!result.ok) throw result.error;
+    const outgoing = result.value.outgoing[0];
+    expect(outgoing?.payload.text).toBe(
+      "⚔️ *@sender desafiou @target.*\n\n@target, `/aceitar` para começar.",
+    );
+    expect(outgoing?.payload.mentions).toEqual(["sender@s.whatsapp.net", "target@s.whatsapp.net"]);
+    expect(JSON.stringify(result.value.outgoing)).not.toContain("11111111");
   });
 
-  it("accepts the target's open invitation and starts the Battle without a READY step", async () => {
-    const acceptChallenge = vi.fn(async () => ok({ challenge: {} }));
+  it("accepts the target's invitation and starts Battle immediately with both mentions", async () => {
+    const challengerPlayerId = "66666666-6666-4666-8666-666666666666";
+    const targetPlayerId = "55555555-5555-4555-8555-555555555555";
+    const acceptChallenge = vi.fn(async () =>
+      ok({
+        challenge: {
+          challengerPlayerId,
+          targetPlayerId,
+        },
+      }),
+    );
     const startEncounter = vi.fn(async () =>
       ok({
         challengeId: "11111111-1111-4111-8111-111111111111",
@@ -64,12 +79,16 @@ describe("PVP WhatsApp routes", () => {
         replayed: false,
       }),
     );
+    const externalRefForPlayer = vi.fn(async (id: string) =>
+      id === challengerPlayerId ? "111@s.whatsapp.net" : "222@s.whatsapp.net",
+    );
     const routes = createPvpWhatsAppRoutes({
       players: {
-        resolvePlayer: vi.fn(async () => ok({ playerId: "55555555-5555-4555-8555-555555555555" })),
+        resolvePlayer: vi.fn(async () => ok({ playerId: targetPlayerId })),
       },
       pvp: { createChallenge: vi.fn(), acceptChallenge, startEncounter },
       openChallengeIdForTarget: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
+      externalRefForPlayer,
     } as never);
     const route = routes.find((entry) => entry.command === "aceitar");
     if (route === undefined) throw new Error("missing route");
@@ -82,7 +101,7 @@ describe("PVP WhatsApp routes", () => {
       message: {
         provider: "baileys",
         externalMessageId: "external",
-        senderRef: "target",
+        senderRef: "222@s.whatsapp.net",
         chatRef: "chat",
         occurredAt: "2026-09-11T00:00:00.000Z",
         text: "/aceitar",
@@ -93,12 +112,16 @@ describe("PVP WhatsApp routes", () => {
 
     expect(acceptChallenge).toHaveBeenCalledWith({
       challengeId: "11111111-1111-4111-8111-111111111111",
-      actorPlayerId: "55555555-5555-4555-8555-555555555555",
+      actorPlayerId: targetPlayerId,
     });
     expect(startEncounter).toHaveBeenCalledWith({
       challengeId: "11111111-1111-4111-8111-111111111111",
-      actorPlayerId: "55555555-5555-4555-8555-555555555555",
+      actorPlayerId: targetPlayerId,
     });
-    expect(result.ok && JSON.stringify(result.value.outgoing)).not.toContain("33333333");
+    if (!result.ok) throw result.error;
+    const outgoing = result.value.outgoing[0];
+    expect(outgoing?.payload.text).toBe("⚔️ *@111 × @222*\n\nBatalha iniciada.");
+    expect(outgoing?.payload.mentions).toEqual(["111@s.whatsapp.net", "222@s.whatsapp.net"]);
+    expect(JSON.stringify(result.value.outgoing)).not.toContain("33333333");
   });
 });
