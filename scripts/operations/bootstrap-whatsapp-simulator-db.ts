@@ -1,8 +1,5 @@
 import { Pool } from "pg";
-import {
-  assertDatabaseSchemaCurrent,
-  runMigrations,
-} from "../../src/platform/db/migrations.js";
+import { assertDatabaseSchemaCurrent, runMigrations } from "../../src/platform/db/migrations.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -109,7 +106,9 @@ if (sourceName === simulatorName) {
   throw new Error("Simulator database name must differ from the source database");
 }
 if (new Set(["postgres", "template0", "template1"]).has(simulatorName)) {
-  throw new Error(`Refusing to use reserved PostgreSQL database as simulator target: ${simulatorName}`);
+  throw new Error(
+    `Refusing to use reserved PostgreSQL database as simulator target: ${simulatorName}`,
+  );
 }
 
 const reset = process.env.SIMULATOR_RESET === "1";
