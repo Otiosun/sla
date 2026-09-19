@@ -12,6 +12,7 @@
   "scripts": {
     "build": "node scripts/build-runtime.mjs",
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "dev:simulator:whatsapp": "node --env-file-if-exists=.env --import tsx scripts/operations/run-whatsapp-simulator.ts",
     "start": "node --env-file=.env --import tsx src/main.ts",
     "start:prod": "node dist/src/main.js",
     "start:player-portal:prod": "node dist/src/player-portal-main.js",
