@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import {
   createOperationalUxRoutes,
   type OperationalUxDependencies,
 } from "../../src/modules/messaging/operational-ux-handlers.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = "00000000-0000-4000-8000-000000000013";
 const POKEMON_ID = "00000000-0000-4000-8000-000000000025";
@@ -97,6 +97,7 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
         }),
       ),
       replayTravelIfCommitted: vi.fn(async () => ok(null)),
+      replayTravelByIdempotency: vi.fn(async () => ok(null)),
       travel: vi.fn(async () =>
         ok({
           replayed: false,
@@ -238,14 +239,49 @@ function router(deps: OperationalUxDependencies): MessageRouter {
 }
 
 describe("Phase 13 operational WhatsApp UX", () => {
-  it("presents a compact complete-player menu without inventing automatic exploration", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$menu")));
-    expect(output).toContain("CENTRAL DO TREINADOR");
-    expect(output).toContain("$onde");
-    expect(output).toContain("$encontro");
-    expect(output).toContain("Cenas comuns continuam livres");
-    expect(output).not.toContain("$explorar");
-    expect(output).not.toContain("$golpe");
+  it("presents the WORLD Rotom menu without automatic exploration", async () => {
+    const deps = dependencies();
+    (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (deps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+
+    const output = textOf(await router(deps).dispatch(context("$menu")));
+    expect(output).toContain("ROTOM · MENU");
+    expect(output).toContain("/onde");
+    expect(output).toContain("Explorações são conduzidas em cena pelo narrador");
+    expect(output).not.toContain("/explorar");
+    expect(output).not.toContain("revision");
+  });
+
+  it("prioritizes BATTLE then ENCOUNTER then FACILITY before WORLD", async () => {
+    const battleDeps = dependencies();
+    expect(textOf(await router(battleDeps).dispatch(context("$menu", "menu-battle")))).toContain(
+      "ROTOM · BATALHA",
+    );
+
+    const encounterDeps = dependencies();
+    (encounterDeps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    expect(
+      textOf(await router(encounterDeps).dispatch(context("$menu", "menu-encounter"))),
+    ).toContain("ROTOM · ENCONTRO");
+
+    const facilityDeps = dependencies({
+      sessions: {
+        loadActiveSession: vi.fn(async () =>
+          ok({
+            serviceKind: "POKEMART",
+          }),
+        ),
+      },
+    });
+    (facilityDeps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (facilityDeps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+    expect(
+      textOf(await router(facilityDeps).dispatch(context("$menu", "menu-facility"))),
+    ).toContain("ROTOM · POKÉ MART");
   });
 
   it("renders profile, team, inventory and Pokedex as readable mobile text", async () => {
@@ -260,27 +296,22 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
-  it("emits revision-bound travel commands and rejects stale text before calling the owner mutation", async () => {
+  it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
     const deps = dependencies();
     const app = router(deps);
+
     const whereText = textOf(await app.dispatch(context("$onde", "where")));
-    expect(whereText).toContain("$ir route-1 v7");
+    expect(whereText).toContain("`/ir 1`");
+    expect(whereText).toContain("*Route 1*");
+    expect(whereText).not.toContain("route-1");
+    expect(whereText).not.toContain("v7");
 
-    const stale = await app.dispatch(context("$ir route-1 v6", "stale"));
-    expect(stale.ok).toBe(false);
-    if (!stale.ok) expect(stale.error.code).toBe("REVISION_CONFLICT");
-    expect(deps.world.replayTravelIfCommitted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        playerId: PLAYER_ID,
-        destinationSlug: "route-1",
-        expectedRevision: 6n,
-        idempotencyKey: "inbox:test:stale",
-      }),
-    );
-    expect(deps.world.travel).not.toHaveBeenCalled();
-
-    const valid = await app.dispatch(context("$ir route-1 v7", "travel"));
+    const valid = await app.dispatch(context("$ir 1", "travel"));
     expect(valid.ok).toBe(true);
+    expect(deps.world.replayTravelByIdempotency).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      idempotencyKey: "inbox:test:travel",
+    });
     expect(deps.world.travel).toHaveBeenCalledWith(
       expect.objectContaining({
         playerId: PLAYER_ID,
@@ -291,25 +322,17 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
-  it("keeps encounter presentation informational and narrator-controlled", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$encontro")));
-    expect(output).toContain("Pidgey");
-    expect(output).toContain("Nv. 4");
-    expect(output).toContain("HP: 15/15");
-    expect(output).toContain("condução do narrador");
-    expect(output).toContain("não inicia combate automaticamente");
-  });
-
-  it("renders battle HP/status/PP and only actions supplied as mechanically legal", async () => {
+  it("renders compact battle state without dumping moves or legal actions", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("$batalha")));
-    expect(output).toContain("Turno 3 · v9");
+    expect(output).toContain("Turno 3");
+    expect(output).not.toContain("v9");
     expect(output).toContain("HP 21/30");
-    expect(output).toContain("HP 10/18 · status PARALYSIS");
-    expect(output).toContain("Tackle · PP 31/35");
-    expect(output).toContain("Growl · PP 40/40");
-    expect(output).toContain("usar Tackle");
-    expect(output).toContain("tentar fugir");
-    expect(output).not.toContain("usar Growl\n");
-    expect(output).toContain("não substitui a seleção explícita da ação narrativa");
+    expect(output).toContain("HP 10/18");
+    expect(output).toContain("status PARALYSIS");
+    expect(output).not.toContain("Tackle");
+    expect(output).not.toContain("Growl");
+    expect(output).not.toContain("PP 31/35");
+    expect(output).not.toContain("usar Tackle");
+    expect(output).not.toContain("tentar fugir");
   });
 });

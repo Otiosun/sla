@@ -35,7 +35,7 @@ function group(row: CommunityGroupRow): CommunityGroupRecord {
   };
 }
 
-class PostgresCommunityTransaction implements CommunityTransaction {
+export class PostgresCommunityTransaction implements CommunityTransaction {
   public constructor(private readonly client: PoolClient) {}
 
   public async loadGroupByProviderRef(

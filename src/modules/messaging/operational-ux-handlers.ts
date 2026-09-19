@@ -1,11 +1,14 @@
-import type { BattleAction, BattleCombatant } from "../battle/contracts.js";
+import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { BattleCombatant } from "../battle/contracts.js";
 import type { BattleOperationalReadService } from "../battle/operational-read-service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldService } from "../world/service.js";
-import { parseCorrelationId, type PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { zhouliaArrivalCaption } from "../world/zhoulia-presentation.js";
+import type { WorldServiceSessionService } from "../world-services/session-service.js";
+import type { WorldServiceMediaCatalog } from "../world-services/whatsapp-handlers.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js";
 import type { OperationalUxReadModel } from "./operational-ux-read-model.js";
 import type { MessageRouteHandler } from "./ports.js";
@@ -29,10 +32,13 @@ export interface OperationalUxDependencies {
   readonly world: Pick<
     WorldService,
     "ensureInitialLocation" | "getLocation" | "travel" | "replayTravelIfCommitted"
-  >;
+  > &
+    Partial<Pick<WorldService, "replayTravelByIdempotency" | "travelLock">>;
   readonly encounter: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly battle: Pick<BattleOperationalReadService, "forPlayer">;
   readonly reads: OperationalUxReadModel;
+  readonly sessions?: Pick<WorldServiceSessionService, "loadActiveSession">;
+  readonly worldMedia?: WorldServiceMediaCatalog;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -73,6 +79,41 @@ function textResult(
   });
 }
 
+function arrivalResult(
+  context: MessageHandlerContext,
+  location: { readonly areaSlug: string; readonly areaDisplayName: string },
+  firstVisit: boolean,
+  media: WorldServiceMediaCatalog | undefined,
+): Result<MessageHandlerResult> {
+  const caption = zhouliaArrivalCaption(location.areaSlug, firstVisit);
+  if (caption === null) {
+    return textResult(
+      context,
+      `📍 Você chegou a *${location.areaDisplayName}*.\n\nUse \`/onde\` para ver as rotas daqui.`,
+    );
+  }
+  const imageUrl = media?.zhouliaVilaArrivalImageUrl?.() ?? null;
+  return ok({
+    resultRefType: null,
+    resultRefId: null,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: imageUrl === null ? "TEXT" : "IMAGE",
+        payload: imageUrl === null ? { text: caption } : { imageUrl, caption },
+        idempotencyKey: `${context.idempotencyKey}:reply`,
+      },
+    ],
+  });
+}
+
+function cooldownText(availableAt: string, now: Date): string {
+  const seconds = Math.max(0, Math.ceil((new Date(availableAt).getTime() - now.getTime()) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `⏳ Você acabou de chegar a *Vila dos Arrozais*.\nAguarde *${minutes}min ${seconds % 60}s* antes de seguir por outra rota.`;
+}
+
 function pageNumber(args: readonly string[]): Result<number> {
   if (args.length === 0) return ok(1);
   const page = Number(args[0]);
@@ -98,34 +139,40 @@ async function resolvePlayer(
   return resolved.ok ? ok(resolved.value.playerId) : resolved;
 }
 
+function travelInProgressText(): string {
+  return [
+    "🚶 *ROTOM · VIAGEM*",
+    "",
+    "_Deslocamento em andamento._",
+    "",
+    "O mapa e os encontros voltam a ficar disponíveis ao final da viagem.",
+  ].join("\n");
+}
+
 function onboardingMenu(state: string): string {
-  switch (state) {
-    case "NEW":
-      return "🎒 *Bem-vindo ao RPG Pokémon*\n\n1. Crie seu treinador:\n`$registrar Seu Nome`";
-    case "PROFILE_CREATED":
-      return "🗺️ *Treinador criado*\n\nAgora escolha sua região:\n`$regioes`";
-    case "REGION_SELECTED":
-    case "STARTER_PENDING":
-      return "🔥 *Região definida*\n\nVeja os iniciais disponíveis:\n`$starters`\nDepois escolha com `$starter <número>`.";
-    case "STARTER_GRANTED":
-      return "✅ *Seu inicial já foi entregue.*\n\nFinalize a entrada no mundo com:\n`$concluir`";
-    case "COMPLETE":
-      return [
-        "📟 *CENTRAL DO TREINADOR*",
-        "",
-        "`$perfil` · treinador",
-        "`$equipe` · equipe atual",
-        "`$inventario` · itens",
-        "`$pokedex` · registros",
-        "`$onde` · local e rotas",
-        "`$encontro` · encontro ativo",
-        "`$batalha` · estado mecânico da batalha",
-        "",
-        "Cenas comuns continuam livres entre jogadores e narrador.",
-      ].join("\n");
-    default:
-      return "Estado de onboarding não reconhecido.";
+  if (state === "COMPLETE") {
+    return [
+      "📟 *ROTOM · MENU*",
+      "",
+      "`/onde` · local e rotas",
+      "`/perfil` · treinador",
+      "`/equipe` · equipe atual",
+      "`/inventario` · itens",
+      "`/pokedex` · registros",
+      "`/pescar` · quando houver ponto disponível",
+      "`/combate` · regras de combate",
+      "",
+      "_Explorações são conduzidas em cena pelo narrador._",
+      "Cenas comuns continuam livres entre jogadores e narrador.",
+    ].join("\n");
   }
+
+  return [
+    "🎒 *RECEPÇÃO*",
+    "",
+    "Sua entrada em Zhoulia ainda está sendo preparada.",
+    "Use `/registrar` para começar ou retomar sua ficha de treinador.",
+  ].join("\n");
 }
 
 function activeCombatant(
@@ -147,39 +194,96 @@ function statusLabel(status: BattleCombatant["majorStatus"]): string {
   return status === null ? "—" : status.key;
 }
 
-function actionLabel(
-  action: BattleAction,
-  state: { readonly combatants: readonly BattleCombatant[] },
-  moveNames: ReadonlyMap<string, string>,
-): string {
-  const actor = state.combatants.find(
-    (candidate) => candidate.participantId === action.actorParticipantId,
-  );
-  if (action.type === "USE_MOVE") {
-    const move = actor?.moves.find((candidate) => candidate.slotNo === action.moveSlot);
-    return move === undefined
-      ? `usar movimento do slot ${action.moveSlot}`
-      : `usar ${moveNames.get(move.moveId) ?? `movimento ${action.moveSlot}`}`;
-  }
-  if (action.type === "SWITCH") {
-    const target = state.combatants.find(
-      (candidate) => candidate.participantId === action.switchToParticipantId,
-    );
-    return `trocar para ${target === undefined ? "reserva" : `reserva #${target.rosterPosition}`}`;
-  }
-  if (action.type === "USE_ITEM") return "usar item";
-  return "tentar fugir";
-}
-
 export function createOperationalUxRoutes(
   dependencies: OperationalUxDependencies,
 ): readonly CommandRouteDefinition[] {
   const menu: Handler = async (context) => {
     const resolved = await dependencies.registration.resolveOrCreatePlayer(identity(context));
     if (!resolved.ok) return resolved;
-    return textResult(context, onboardingMenu(resolved.value.state), {
+
+    if (resolved.value.state !== "COMPLETE") {
+      return textResult(context, onboardingMenu(resolved.value.state), {
+        type: "PLAYER",
+        id: resolved.value.playerId,
+      });
+    }
+
+    const playerId = resolved.value.playerId;
+    const battleId = await dependencies.reads.activeBattleId(playerId);
+    if (battleId !== null) {
+      return textResult(
+        context,
+        [
+          "📟 *ROTOM · BATALHA*",
+          "",
+          "⚔️ `/batalha` · situação atual",
+          "📖 `/combate` · regras e comandos",
+        ].join("\n"),
+        { type: "PLAYER", id: playerId },
+      );
+    }
+
+    const activeEncounter = await dependencies.encounter.activeForPlayer(playerId);
+    if (activeEncounter.ok) {
+      return textResult(
+        context,
+        [
+          "📟 *ROTOM · ENCONTRO*",
+          "",
+          "Há um Pokémon selvagem na cena atual.",
+          "",
+          "🌿 `/encontro` · ver o encontro",
+          "_O narrador conduz o início do combate._",
+          "",
+          "_O encontro continua sob condução do narrador._",
+        ].join("\n"),
+        { type: "PLAYER", id: playerId },
+      );
+    }
+    if (activeEncounter.error.code !== "NOT_FOUND") return err(activeEncounter.error);
+
+    if (dependencies.sessions !== undefined) {
+      const activeSession = await dependencies.sessions.loadActiveSession(playerId);
+      if (!activeSession.ok) return err(activeSession.error);
+      if (activeSession.value !== null) {
+        const facility =
+          activeSession.value.serviceKind === "POKEMART"
+            ? [
+                "📟 *ROTOM · POKÉ MART*",
+                "",
+                "🛒 `/pokemart` · painel da loja",
+                "💰 `/comprar` · comprar",
+                "💵 `/vender` · vender",
+                "🚪 `/sair` · sair da instalação",
+              ]
+            : [
+                "📟 *ROTOM · CENTRO POKÉMON*",
+                "",
+                "❤️ `/centropokemon` · painel do Centro",
+                "✨ `/curar` · recuperar a equipe",
+                "🖥️ `/pc` · acessar boxes",
+                "💬 `/conversar` · falar com Nurse Hana",
+                "🚪 `/sair` · sair da instalação",
+              ];
+        return textResult(context, facility.join("\n"), { type: "PLAYER", id: playerId });
+      }
+    }
+
+    const travelLockForMenu =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(playerId);
+    if (!travelLockForMenu.ok) return travelLockForMenu;
+    if (travelLockForMenu.value !== null) {
+      return textResult(context, travelInProgressText(), {
+        type: "PLAYER",
+        id: playerId,
+      });
+    }
+
+    return textResult(context, onboardingMenu("COMPLETE"), {
       type: "PLAYER",
-      id: resolved.value.playerId,
+      id: playerId,
     });
   };
 
@@ -188,14 +292,14 @@ export function createOperationalUxRoutes(
     if (!resolved.ok) return resolved;
     const trainerName = commandArgs(context).join(" ").trim();
     if (trainerName.length === 0) {
-      return err(appError("VALIDATION_FAILED", "Informe o nome: $registrar Seu Nome"));
+      return err(appError("VALIDATION_FAILED", "Informe o nome: /registrar Seu Nome"));
     }
     const created = await dependencies.registration.createProfile(resolved.value.playerId, {
       trainerName,
       locale: "pt-BR",
     });
     if (!created.ok) return created;
-    return textResult(context, `✅ Treinador *${trainerName}* criado.\n\nAgora use \`$regioes\`.`, {
+    return textResult(context, `✅ Treinador *${trainerName}* criado.\n\nAgora use \`/regioes\`.`, {
       type: "PLAYER",
       id: resolved.value.playerId,
     });
@@ -210,7 +314,7 @@ export function createOperationalUxRoutes(
     const lines = options.map((option, index) => `${index + 1}. ${option.displayName}`);
     return textResult(
       context,
-      `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`$regiao <número>\`.`,
+      `🗺️ *REGIÕES*\n\n${lines.join("\n")}\n\nEscolha com \`/regiao <número>\`.`,
     );
   };
 
@@ -220,7 +324,7 @@ export function createOperationalUxRoutes(
     const index = Number(commandArgs(context)[0]);
     const options = await dependencies.reads.listRegionOptions(player.value);
     if (!Number.isSafeInteger(index) || index < 1 || index > options.length) {
-      return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com $regioes."));
+      return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com /regioes."));
     }
     const selected = options[index - 1];
     if (selected === undefined) return err(appError("ACTION_INVALID", "Região não encontrada."));
@@ -230,7 +334,7 @@ export function createOperationalUxRoutes(
     if (!result.ok) return result;
     return textResult(
       context,
-      `✅ Região definida: *${selected.displayName}*.\n\nUse \`$starters\` para ver seus iniciais.`,
+      `✅ Região definida: *${selected.displayName}*.\n\nUse \`/starters\` para ver seus iniciais.`,
     );
   };
 
@@ -244,7 +348,7 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`$starter <número>\`.`,
+      `🔥 *POKÉMON INICIAIS*\n\n${lines.join("\n")}\n\nEscolha com \`/starter <número>\`.`,
     );
   };
 
@@ -256,7 +360,7 @@ export function createOperationalUxRoutes(
     if (!prepared.ok) return prepared;
     const selected = prepared.value.options[index - 1];
     if (!Number.isSafeInteger(index) || index < 1 || selected === undefined) {
-      return err(appError("VALIDATION_FAILED", "Inicial inválido. Veja as opções com $starters."));
+      return err(appError("VALIDATION_FAILED", "Inicial inválido. Veja as opções com /starters."));
     }
     const correlationId = parseCorrelationId(context.correlationId);
     if (!correlationId.ok) return correlationId;
@@ -270,11 +374,14 @@ export function createOperationalUxRoutes(
     if (!completed.ok) return completed;
     const location = await dependencies.world.ensureInitialLocation({ playerId: player.value });
     if (!location.ok) return location;
-    return textResult(
+    const arrival = arrivalResult(
       context,
-      `✨ *${selected.displayName}* é seu primeiro Pokémon!\n\n📍 Você começa em *${location.value.areaDisplayName}*.\nUse \`$menu\` para abrir sua central.`,
-      { type: "PLAYER", id: player.value },
+      location.value,
+      location.value.arrival?.firstVisit ?? false,
+      dependencies.worldMedia,
     );
+    if (!arrival.ok) return arrival;
+    return ok({ ...arrival.value, resultRefType: "PLAYER", resultRefId: player.value });
   };
 
   const conclude: Handler = async (context) => {
@@ -284,9 +391,11 @@ export function createOperationalUxRoutes(
     if (!completed.ok) return completed;
     const location = await dependencies.world.ensureInitialLocation({ playerId: player.value });
     if (!location.ok) return location;
-    return textResult(
+    return arrivalResult(
       context,
-      `✅ Entrada concluída.\n📍 *${location.value.areaDisplayName}*\n\nUse \`$menu\`.`,
+      location.value,
+      location.value.arrival?.firstVisit ?? false,
+      dependencies.worldMedia,
     );
   };
 
@@ -337,7 +446,7 @@ export function createOperationalUxRoutes(
     const lines = slice.map((item) => `• ${item.displayName} ×${item.quantity}`);
     return textResult(
       context,
-      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "$inventario")}`,
+      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "/inventario")}`,
     );
   };
 
@@ -356,28 +465,42 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "$pokedex")}`,
+      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "/pokedex")}`,
     );
   };
 
   const where: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
+
+    const travelLockForWhere =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(player.value);
+    if (!travelLockForWhere.ok) return travelLockForWhere;
+    if (travelLockForWhere.value !== null) {
+      return textResult(context, travelInProgressText());
+    }
+
     const location = await dependencies.world.getLocation(player.value);
     if (!location.ok) return location;
-    const routes = location.value.connections.map((connection) =>
+
+    const routes = location.value.connections.map((connection, index) =>
       connection.available
-        ? `→ ${connection.destinationDisplayName}\n  \`$ir ${connection.destinationSlug} v${location.value.revision}\``
-        : `🔒 ${connection.destinationDisplayName}`,
+        ? `${index + 1}. *${connection.destinationDisplayName}*\n   → \`/ir ${index + 1}\``
+        : `${index + 1}. 🔒 *${connection.destinationDisplayName}*`,
     );
+
     return textResult(
       context,
       [
         `📍 *${location.value.areaDisplayName}*`,
-        location.value.regionDisplayName,
+        `_${location.value.regionDisplayName}_`,
         "",
         "*Rotas:*",
         routes.length === 0 ? "Nenhuma saída disponível." : routes.join("\n"),
+        "",
+        "_Os requisitos bloqueados permanecem ocultos até fazerem sentido na história._",
       ].join("\n"),
     );
   };
@@ -385,67 +508,115 @@ export function createOperationalUxRoutes(
   const travel: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const [destinationSlug, revisionToken] = commandArgs(context);
-    const match = revisionToken?.match(/^v(\d+)$/i);
-    if (destinationSlug === undefined || match === null || match === undefined) {
-      return err(
-        appError(
-          "VALIDATION_FAILED",
-          "Rota inválida ou expirada. Use $onde e escolha uma rota atual.",
-        ),
-      );
-    }
-    const expectedRevision = BigInt(match[1] ?? "-1");
-    const current = await dependencies.world.getLocation(player.value);
-    if (!current.ok) return current;
-    if (current.value.revision !== expectedRevision) {
-      const replayed = await dependencies.world.replayTravelIfCommitted({
+
+    if (dependencies.world.replayTravelByIdempotency !== undefined) {
+      const replayed = await dependencies.world.replayTravelByIdempotency({
         playerId: player.value,
-        destinationSlug,
-        expectedRevision,
         idempotencyKey: context.idempotencyKey,
       });
       if (!replayed.ok) return replayed;
-      if (replayed.value === null) {
-        return err(
-          appError(
-            "REVISION_CONFLICT",
-            "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
-          ),
+      if (replayed.value !== null) {
+        return arrivalResult(
+          context,
+          replayed.value.to,
+          replayed.value.arrival?.firstVisit ?? false,
+          dependencies.worldMedia,
         );
       }
-      return textResult(
-        context,
-        `📍 Você chegou a *${replayed.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
-      );
     }
-    const connection = current.value.connections.find(
-      (candidate) => candidate.destinationSlug === destinationSlug && candidate.available,
-    );
-    if (connection === undefined) {
+
+    if (dependencies.sessions !== undefined) {
+      const activeSession = await dependencies.sessions.loadActiveSession(player.value);
+      if (!activeSession.ok) return activeSession;
+      if (activeSession.value !== null) {
+        return err(
+          appError("FLOW_BLOCKED", "Saia da instalação com `/sair` antes de viajar.", {
+            activeServiceKind: activeSession.value.serviceKind,
+          }),
+        );
+      }
+    }
+
+    const travelLockBeforeMove =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(player.value);
+    if (!travelLockBeforeMove.ok) return travelLockBeforeMove;
+    if (travelLockBeforeMove.value !== null) {
+      return textResult(context, travelInProgressText());
+    }
+
+    const routeNumber = Number(commandArgs(context)[0]);
+    const current = await dependencies.world.getLocation(player.value);
+    if (!current.ok) return current;
+
+    if (
+      !Number.isSafeInteger(routeNumber) ||
+      routeNumber < 1 ||
+      routeNumber > current.value.connections.length
+    ) {
       return err(
-        appError("ACTION_INVALID", "Essa rota não está disponível agora. Use $onde novamente."),
+        appError("VALIDATION_FAILED", "Rota inválida. Use `/onde` e escolha pelo número mostrado."),
       );
     }
+
+    const connection = current.value.connections[routeNumber - 1];
+    if (connection === undefined || !connection.available) {
+      return err(
+        appError(
+          "ACTION_INVALID",
+          "Essa rota não está disponível agora. Use `/onde` para rever os destinos.",
+        ),
+      );
+    }
+
     const moved = await dependencies.world.travel({
       playerId: player.value,
       destinationAreaId: connection.destinationAreaId,
-      expectedRevision,
+      expectedRevision: current.value.revision,
       idempotencyKey: context.idempotencyKey,
     });
+
     if (!moved.ok) {
+      if (moved.error.code === "ACTION_INVALID") {
+        const availableAt = moved.error.details?.availableAt;
+        if (typeof availableAt === "string") {
+          return textResult(context, cooldownText(availableAt, new Date()));
+        }
+      }
       return moved.error.code === "REVISION_CONFLICT"
         ? err(
             appError(
               "REVISION_CONFLICT",
-              "Essa rota expirou porque sua localização mudou. Use $onde novamente.",
+              "O caminho mudou antes da viagem. Use `/onde` novamente.",
             ),
           )
         : moved;
     }
-    return textResult(
+
+    const travelLockAfterMove =
+      dependencies.world.travelLock === undefined
+        ? ok(null)
+        : await dependencies.world.travelLock(player.value);
+    if (!travelLockAfterMove.ok) return travelLockAfterMove;
+    if (travelLockAfterMove.value !== null) {
+      return textResult(
+        context,
+        [
+          "🚶 *VIAGEM INICIADA*",
+          "",
+          `_${moved.value.from.areaDisplayName} → ${moved.value.to.areaDisplayName}_`,
+          "",
+          "O Rotom libera o mapa e os encontros ao final da viagem.",
+        ].join("\n"),
+      );
+    }
+
+    return arrivalResult(
       context,
-      `📍 Você chegou a *${moved.value.to.areaDisplayName}*.\n\nUse \`$onde\` para ver as rotas daqui.`,
+      moved.value.to,
+      moved.value.arrival?.firstVisit ?? false,
+      dependencies.worldMedia,
     );
   };
 
@@ -454,24 +625,42 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const active = await dependencies.encounter.activeForPlayer(player.value);
     if (!active.ok) return active;
-    const name =
-      (await dependencies.reads.speciesDisplayName(
-        active.value.contentReleaseId,
-        active.value.snapshot.speciesId,
-      )) ?? "Pokémon selvagem";
+
+    const wilds =
+      active.value.wilds === undefined || active.value.wilds.length === 0
+        ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: active.value.snapshot }]
+        : active.value.wilds.filter((wild) => wild.status === "ACTIVE");
+
+    const lines = await Promise.all(
+      wilds.map(async (wild) => {
+        const name =
+          (await dependencies.reads.speciesDisplayName(
+            active.value.contentReleaseId,
+            wild.snapshot.speciesId,
+          )) ?? "Pokémon selvagem";
+        return wilds.length === 1
+          ? [
+              `*${name}* · Nv. ${wild.snapshot.level}`,
+              `❤️ HP ${wild.snapshot.currentHp}/${wild.snapshot.maxHp}`,
+            ]
+          : [
+              `${wild.wildNo}. *${name}* · Nv. ${wild.snapshot.level}`,
+              `   ❤️ HP ${wild.snapshot.currentHp}/${wild.snapshot.maxHp}`,
+            ];
+      }),
+    );
+
     const guidance =
       active.value.status === "IN_BATTLE"
-        ? "A batalha já está ativa: use `$batalha`."
-        : "A cena continua sob condução do narrador; o bot não inicia combate automaticamente.";
+        ? "⚔️ A batalha já está ativa. Use `/batalha`."
+        : "_A cena continua sob condução do narrador._";
+
     return textResult(
       context,
       [
-        "🌿 *ENCONTRO ATIVO*",
+        wilds.length <= 1 ? "🌿 *ENCONTRO ATIVO*" : "🌿 *ENCONTRO ATIVO · GRUPO*",
         "",
-        `Pokémon: *${name}* · Nv. ${active.value.snapshot.level}`,
-        `HP: ${active.value.snapshot.currentHp}/${active.value.snapshot.maxHp}`,
-        `Estado: ${active.value.status}`,
-        `Revisão: ${active.value.revision}`,
+        ...lines.flat(),
         "",
         guidance,
       ].join("\n"),
@@ -494,40 +683,44 @@ export function createOperationalUxRoutes(
       opponentSide === undefined ? null : activeCombatant(state, opponentSide.sideNo);
     if (own === null)
       return err(appError("ACTION_INVALID", "Batalha ativa sem Pokémon controlável."));
-    const moveNames = await dependencies.reads.moveDisplayNames(
-      state.contentReleaseId,
-      own.moves.map((move) => move.moveId),
-    );
-    const moveLines = own.moves.map((move) => {
-      const pp =
-        move.ppCurrent === null || move.maxPp === null
-          ? "PP —"
-          : `PP ${move.ppCurrent}/${move.maxPp}`;
-      return `${move.slotNo}. ${moveNames.get(move.moveId) ?? `Movimento ${move.slotNo}`} · ${pp}`;
-    });
-    const legal = view.value.legalActions.map(
-      (action) => `• ${actionLabel(action, state, moveNames)}`,
-    );
+
     return textResult(
       context,
       [
-        `⚔️ *BATALHA · Turno ${state.turnNumber} · v${state.version}*`,
+        `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
         "",
         `Seu Pokémon · HP ${own.currentHp}/${own.maxHp} · status ${statusLabel(own.majorStatus)}`,
         opponent === null
           ? "Oponente: —"
           : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
-        "",
-        "*Movimentos:*",
-        moveLines.join("\n"),
-        "",
-        "*Ações mecanicamente legais agora:*",
-        legal.length === 0 ? "Nenhuma." : legal.join("\n"),
-        "",
-        "A cena narrativa continua livre. Esta tela informa legalidade; ela não substitui a seleção explícita da ação narrativa.",
       ].join("\n"),
     );
   };
+
+  const combatGuide: Handler = async (context) =>
+    textResult(
+      context,
+      [
+        "⚔️ *COMBATE*",
+        "",
+        "A cena é livre. O bot não interpreta a narração; ele lê somente o comando mecânico incluído na mensagem.",
+        "",
+        "*Movimento*",
+        "`/movimento 2`",
+        "`/movimento Quick Attack`",
+        "",
+        "O comando pode estar em qualquer ponto da mensagem. Use apenas uma ação mecânica por mensagem.",
+        "",
+        "✅ significa que a ação foi aceita e ficou travada para o turno. A primeira ação aceita não pode ser trocada.",
+        "",
+        "No PVP, o turno só resolve depois que os dois lados enviarem suas ações. O movimento adversário não é revelado antes da resolução.",
+        "",
+        "`/batalha` · estado atual",
+        "`/capturar [Poké Ball]` · PVE",
+        "`/fugir` · PVE",
+        "`/desistir` · PVP",
+      ].join("\n"),
+    );
 
   return [
     { command: "menu", handler: new FunctionalHandler(menu) },
@@ -553,5 +746,6 @@ export function createOperationalUxRoutes(
     { command: "ir", handler: new FunctionalHandler(travel), rateLimitClass: "SENSITIVE" },
     { command: "encontro", handler: new FunctionalHandler(encounter) },
     { command: "batalha", handler: new FunctionalHandler(battle) },
+    { command: "combate", handler: new FunctionalHandler(combatGuide) },
   ];
 }

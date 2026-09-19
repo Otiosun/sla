@@ -1,6 +1,6 @@
 import type { Clock } from "../platform/clock/index.js";
 import type { CausalityContext } from "./causality.js";
-import { createDomainEventId, type DomainId, type DomainEventId } from "./ids.js";
+import { createDomainEventId, type DomainEventId, type DomainId } from "./ids.js";
 
 export interface AggregateRef {
   readonly type: string;

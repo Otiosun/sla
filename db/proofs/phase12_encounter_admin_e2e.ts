@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { registerPhase12CEncounterAdminOperations } from "../../src/modules/admin/encounter-definitions.js";
 import { AdminEncounterOperationService } from "../../src/modules/admin/encounter-service.js";
-import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { EncounterAdminOwnerService } from "../../src/modules/encounter/admin-service.js";
-import { parseEncounterId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresEncounterAdminRepository } from "../../src/platform/encounter/postgres-encounter-admin-repository.js";
+import { parseEncounterId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");

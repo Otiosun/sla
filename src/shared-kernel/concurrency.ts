@@ -1,5 +1,5 @@
-import { appError, err, ok, type Result } from "./result.js";
 import type { Brand } from "./ids.js";
+import { appError, err, ok, type Result } from "./result.js";
 
 export type Revision = Brand<number, "Revision">;
 

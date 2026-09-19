@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { MutationRatePolicy } from "../../src/modules/anti-abuse/contracts.js";
 import {
   ExternalPvpMutationEndpoint,
   type PvpMutationOwner,
 } from "../../src/modules/anti-abuse/external-pvp-endpoint.js";
-import type { MutationRatePolicy } from "../../src/modules/anti-abuse/contracts.js";
 import { PostgresMutationAdmission } from "../../src/platform/anti-abuse/postgres-mutation-admission.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { appError, err } from "../../src/shared-kernel/result.js";

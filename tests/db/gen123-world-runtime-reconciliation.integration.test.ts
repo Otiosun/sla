@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Gen123WorldEdge } from "../../db/imports/gen123/world-source.js";
 import * as worldModule from "../../db/imports/gen123/world.js";
+import type { Gen123WorldEdge } from "../../db/imports/gen123/world-source.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
@@ -148,9 +148,14 @@ describe.sequential("Gen I-III world reconciliation with runtime privileges", ()
       ];
       await reconcile(runtimeClient, releaseId, idBySlug, initialTopology);
 
+      const firstEdge = initialTopology[0];
+      const secondEdge = initialTopology[1];
+      if (firstEdge === undefined || secondEdge === undefined) {
+        throw new Error("Initial topology fixture is incomplete");
+      }
       const changedTopology: readonly Gen123WorldEdge[] = [
-        initialTopology[0]!,
-        initialTopology[1]!,
+        firstEdge,
+        secondEdge,
         {
           fromSlug: "viridian-city",
           toSlug: "route-1",

@@ -20,6 +20,7 @@ export const IncomingMessageSchema = z
     chatRef: boundedRef,
     occurredAt: z.string().datetime({ offset: true }),
     text: z.string().max(32_768).nullable().default(null),
+    mentions: z.array(boundedRef).max(64).optional(),
     mediaRefs: z.array(MediaReferenceSchema).max(16).default([]),
     replyToExternalMessageId: boundedRef.nullable().default(null),
   })

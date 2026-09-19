@@ -56,6 +56,26 @@ export class CommunityService {
     });
   }
 
+  public async getGroupConfiguration(groupId: string): Promise<
+    | (CommunityGroupRecord & {
+        readonly capabilities: readonly CommunityCapability[];
+      })
+    | null
+  > {
+    const id = groupId.trim();
+    if (id.length === 0) return null;
+
+    return this.repository.read(async (tx) => {
+      const group = await tx.loadGroupById(id);
+      if (group === null) return null;
+
+      return {
+        ...group,
+        capabilities: capabilities(await tx.listCapabilities(group.id)),
+      };
+    });
+  }
+
   public async registerGroup(
     input: RegisterCommunityGroupInput,
   ): Promise<Result<CommunityGroupRecord>> {

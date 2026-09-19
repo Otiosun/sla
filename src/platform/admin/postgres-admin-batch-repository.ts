@@ -1,10 +1,10 @@
 import type { Pool, PoolClient } from "pg";
 import {
-  batchChildInput,
   type AdminBatchAction,
   type AdminBatchRecord,
   type AdminBatchSelector,
   type AdminBatchTargetResult,
+  batchChildInput,
 } from "../../modules/admin/batch-contracts.js";
 import type { AdminBatchRepository } from "../../modules/admin/batch-service.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../modules/admin/errors.js";

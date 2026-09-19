@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
-  IncomingMessageSchema,
-  incomingMessageFingerprint,
   type InboxClaim,
   type IncomingMessage,
+  IncomingMessageSchema,
+  incomingMessageFingerprint,
   type MessageHandlerResult,
   type MessagingRateLimitDecision,
   type MessagingRateLimitRule,
@@ -13,6 +12,7 @@ import {
   type PendingOutboxMessage,
 } from "../../modules/messaging/contracts.js";
 import type { MessagingRepository } from "../../modules/messaging/ports.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 interface InboxRow {
   readonly id: string;
@@ -507,8 +507,10 @@ export class PostgresMessagingRepository implements MessagingRepository {
     readonly limit: number;
     readonly staleAfterMs: number;
     readonly maxAttempts: number;
+    readonly channels?: readonly string[];
   }): Promise<readonly PendingOutboxMessage[]> {
     const client = await this.pool.connect();
+    const channels = input.channels === undefined ? null : [...input.channels];
     try {
       await client.query("BEGIN");
       await client.query(
@@ -517,14 +519,17 @@ export class PostgresMessagingRepository implements MessagingRepository {
              last_error_code = 'SENDING_LEASE_EXPIRED'
          WHERE status = 'SENDING'
            AND sending_started_at IS NOT NULL
-           AND sending_started_at <= now() - ($1::bigint * interval '1 millisecond')`,
-        [input.staleAfterMs],
+           AND sending_started_at <= now() - ($1::bigint * interval '1 millisecond')
+           AND ($2::text[] IS NULL OR channel = ANY($2::text[]))`,
+        [input.staleAfterMs, channels],
       );
       await client.query(
         `UPDATE outbox_messages
          SET status = 'DEAD', next_attempt_at = NULL, sending_started_at = NULL
-         WHERE status IN ('PENDING', 'FAILED') AND attempts >= $1`,
-        [input.maxAttempts],
+         WHERE status IN ('PENDING', 'FAILED')
+           AND attempts >= $1
+           AND ($2::text[] IS NULL OR channel = ANY($2::text[]))`,
+        [input.maxAttempts, channels],
       );
 
       const claimed = await client.query<OutboxRow>(
@@ -534,6 +539,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
            WHERE status IN ('PENDING', 'FAILED')
              AND attempts < $1
              AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+             AND ($3::text[] IS NULL OR channel = ANY($3::text[]))
            ORDER BY created_at, id
            FOR UPDATE SKIP LOCKED
            LIMIT $2
@@ -546,7 +552,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
          RETURNING message.id, message.channel, message.destination_ref, message.message_type,
                    message.payload, message.idempotency_key, message.correlation_id,
                    message.causation_id, message.attempts`,
-        [input.maxAttempts, input.limit],
+        [input.maxAttempts, input.limit, channels],
       );
       await client.query("COMMIT");
       return claimed.rows.map((row) => ({

@@ -4,6 +4,7 @@ import type {
   EncounterPlayerContext,
   EncounterRecord,
   EncounterTableRecord,
+  EncounterWildSnapshot,
   WildPokemonBuild,
   WildPokemonSnapshot,
 } from "../../modules/encounter/contracts.js";
@@ -160,6 +161,31 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     };
   }
 
+  public async partyMembers(playerId: PlayerId, lock = false): Promise<readonly PlayerId[] | null> {
+    const result = await this.client.query<{ player_id: string }>(
+      `SELECT member.player_id
+       FROM player_party_members member
+       JOIN player_parties party ON party.id = member.party_id
+       WHERE member.player_id = $1 AND member.active = TRUE AND party.active = TRUE
+       ORDER BY member.player_id
+       ${lock ? "FOR UPDATE OF member, party" : ""}`,
+      [playerId],
+    );
+    if (result.rows.length === 0) return null;
+    const party = await this.client.query<{ player_id: string }>(
+      `SELECT member.player_id
+       FROM player_party_members member
+       JOIN player_parties party ON party.id = member.party_id
+       WHERE member.party_id = (
+         SELECT party_id FROM player_party_members WHERE player_id = $1 AND active = TRUE
+       ) AND member.active = TRUE AND party.active = TRUE
+       ORDER BY member.player_id
+       ${lock ? "FOR UPDATE OF member, party" : ""}`,
+      [playerId],
+    );
+    return party.rows.map((row) => row.player_id as PlayerId);
+  }
+
   public async byCreationKey(
     playerId: PlayerId,
     creationIdempotencyKey: string,
@@ -217,6 +243,32 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     const parsed = WildPokemonSnapshotSchema.safeParse(value);
     if (!parsed.success) throw new Error("Database returned an invalid wild Pokemon snapshot");
     return parsed.data;
+  }
+
+  public async wildSnapshots(encounterId: EncounterId): Promise<readonly EncounterWildSnapshot[]> {
+    const result = await this.client.query<{
+      wild_no: number;
+      status: EncounterWildSnapshot["status"];
+      pokemon_snapshot: unknown;
+    }>(
+      `SELECT wild_no, status, pokemon_snapshot
+       FROM encounter_wild_snapshots
+       WHERE encounter_id = $1
+       ORDER BY wild_no`,
+      [encounterId],
+    );
+
+    return result.rows.map((row) => {
+      const parsed = WildPokemonSnapshotSchema.safeParse(row.pokemon_snapshot);
+      if (!parsed.success) {
+        throw new Error("Database returned an invalid wild roster snapshot");
+      }
+      return {
+        wildNo: row.wild_no,
+        status: row.status,
+        snapshot: parsed.data,
+      };
+    });
   }
 
   public async battleId(encounterId: EncounterId): Promise<string | null> {
@@ -413,6 +465,7 @@ class PostgresEncounterTransaction implements EncounterTransaction {
   public async insertEncounter(input: {
     readonly encounterId: EncounterId;
     readonly playerId: PlayerId;
+    readonly participantPlayerIds?: readonly PlayerId[];
     readonly areaId: string;
     readonly contentReleaseId: string;
     readonly rulesetId: string;
@@ -427,7 +480,15 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     readonly createdAt: Date;
     readonly expiresAt: Date;
     readonly snapshot: WildPokemonSnapshot;
+    readonly wildSnapshots?: readonly EncounterWildSnapshot[];
   }): Promise<EncounterRecord> {
+    const participants = input.participantPlayerIds ?? [input.playerId];
+    if (
+      !participants.includes(input.playerId) ||
+      new Set(participants).size !== participants.length
+    ) {
+      throw new Error("Encounter participants must include the owner exactly once");
+    }
     const inserted = await this.client.query<EncounterRow>(
       `INSERT INTO encounters(
          id, player_id, area_id, status, content_release_id, ruleset_id,
@@ -461,11 +522,51 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     );
     const row = inserted.rows[0];
     if (row === undefined) throw new Error("Encounter insert did not return a row");
+    for (const playerId of [...participants].sort()) {
+      if (playerId !== input.playerId) {
+        await this.client.query(
+          `INSERT INTO encounter_players(encounter_id, player_id, side_no, role, active, created_at, updated_at)
+           VALUES ($1, $2, 1, 'ALLY', TRUE, $3, $3)`,
+          [input.encounterId, playerId, input.createdAt],
+        );
+      }
+      await this.client.query(
+        `UPDATE encounter_players SET pokemon_instance_ids = ARRAY(
+           SELECT roster.pokemon_instance_id FROM pokemon_roster_slots roster
+           JOIN pokemon_instances pokemon ON pokemon.id = roster.pokemon_instance_id
+             AND pokemon.owner_player_id = roster.player_id
+           WHERE roster.player_id = $2 AND roster.placement_kind = 'TEAM'
+             AND pokemon.status = 'ACTIVE'
+           ORDER BY roster.slot_no
+         ) WHERE encounter_id = $1 AND player_id = $2`,
+        [input.encounterId, playerId],
+      );
+    }
     await this.client.query(
       `INSERT INTO encounter_snapshots(encounter_id, schema_version, pokemon_snapshot, created_at)
        VALUES ($1, 1, $2::jsonb, $3)`,
       [input.encounterId, JSON.stringify(input.snapshot), input.createdAt],
     );
+
+    const wilds =
+      input.wildSnapshots === undefined || input.wildSnapshots.length === 0
+        ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: input.snapshot }]
+        : input.wildSnapshots;
+
+    for (const wild of wilds) {
+      await this.client.query(
+        `INSERT INTO encounter_wild_snapshots(
+           encounter_id, wild_no, status, schema_version, pokemon_snapshot, created_at, updated_at
+         ) VALUES ($1, $2, $3, 1, $4::jsonb, $5, $5)`,
+        [
+          input.encounterId,
+          wild.wildNo,
+          wild.status,
+          JSON.stringify(wild.snapshot),
+          input.createdAt,
+        ],
+      );
+    }
     return mapEncounter(row);
   }
 

@@ -1,6 +1,6 @@
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
   type MediaReference,
 } from "../../modules/messaging/contracts.js";
 import type {
@@ -99,12 +99,79 @@ function replyIdFromContent(content: BaileysMessageContentLike): string | null {
   return typeof stanzaId === "string" && stanzaId.length > 0 ? stanzaId : null;
 }
 
-export function normalizeBaileysMessage(message: BaileysMessageLike): IncomingMessage | null {
+function canonicalDeviceId(id: string): string {
+  return id.replace(/:\d+@/, "@");
+}
+
+function isPhoneNumberJid(id: string | null | undefined): id is string {
+  return typeof id === "string" && /^\d+(?::\d+)?@s\.whatsapp\.net$/.test(id);
+}
+
+function preferredIdentityRef(
+  primary: string | null | undefined,
+  alternate: string | null | undefined,
+): string | null {
+  const preferred =
+    (isPhoneNumberJid(alternate) ? alternate : null) ??
+    (isPhoneNumberJid(primary) ? primary : null) ??
+    primary ??
+    alternate;
+
+  if (typeof preferred !== "string" || preferred.trim().length === 0) return null;
+  return canonicalDeviceId(preferred.trim());
+}
+
+function resolveIdentityRef(value: string, aliases: ReadonlyMap<string, string>): string {
+  const trimmed = value.trim();
+  const canonical = canonicalDeviceId(trimmed);
+  const resolved = aliases.get(trimmed) ?? aliases.get(canonical) ?? canonical;
+  return canonicalDeviceId(resolved);
+}
+
+function mentionsFromContent(
+  content: BaileysMessageContentLike,
+  aliases: ReadonlyMap<string, string>,
+): readonly string[] {
+  const contextInfo =
+    content.extendedTextMessage?.contextInfo ??
+    content.imageMessage?.contextInfo ??
+    content.videoMessage?.contextInfo ??
+    content.documentMessage?.contextInfo ??
+    null;
+  const mentions = contextInfo?.mentionedJid;
+  return Array.isArray(mentions) && mentions.every((entry) => typeof entry === "string")
+    ? [
+        ...new Set(
+          mentions
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+            .map((entry) => resolveIdentityRef(entry, aliases)),
+        ),
+      ]
+    : [];
+}
+
+export function normalizeBaileysMessage(
+  message: BaileysMessageLike,
+  identityAliases: ReadonlyMap<string, string> = new Map<string, string>(),
+): IncomingMessage | null {
   if (message.key.fromMe) return null;
 
   const externalMessageId = message.key.id;
-  const chatRef = message.key.remoteJid;
-  if (!externalMessageId || !chatRef) return null;
+  const rawChatRef = message.key.remoteJid;
+  if (!externalMessageId || !rawChatRef) return null;
+
+  const chatRef = rawChatRef.endsWith("@g.us")
+    ? rawChatRef
+    : (preferredIdentityRef(rawChatRef, message.key.remoteJidAlt) ?? rawChatRef);
+
+  const rawSenderRef = preferredIdentityRef(
+    message.key.participant ?? chatRef,
+    message.key.participantAlt ?? message.key.remoteJidAlt,
+  );
+  if (rawSenderRef === null) return null;
+
+  const senderRef = resolveIdentityRef(rawSenderRef, identityAliases);
 
   const occurredAt = timestampToIso(message.messageTimestamp);
   if (occurredAt === null) return null;
@@ -119,10 +186,11 @@ export function normalizeBaileysMessage(message: BaileysMessageLike): IncomingMe
   const normalized = IncomingMessageSchema.safeParse({
     provider: "baileys",
     externalMessageId,
-    senderRef: message.key.participant ?? chatRef,
+    senderRef,
     chatRef,
     occurredAt,
     text,
+    mentions: mentionsFromContent(content, identityAliases),
     mediaRefs,
     replyToExternalMessageId: replyIdFromContent(content),
   });

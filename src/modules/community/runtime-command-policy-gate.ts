@@ -59,6 +59,15 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
       }
     }
 
+    if (
+      requirement.requiredAnyGroupCapabilities !== undefined &&
+      !requirement.requiredAnyGroupCapabilities.some((capability) =>
+        group.capabilities.includes(capability),
+      )
+    ) {
+      return err(appError("ACTION_INVALID", "This command is not enabled in this group"));
+    }
+
     if (requirement.requiredAdminCapability !== undefined) {
       const adminCapabilities = await this.dependencies.admins.capabilitiesFor({
         provider: context.message.provider,

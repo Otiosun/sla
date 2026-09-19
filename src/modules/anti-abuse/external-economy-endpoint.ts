@@ -1,12 +1,12 @@
+import { appError, err, type Result } from "../../shared-kernel/result.js";
 import type { PurchaseResult } from "../economy/contracts.js";
 import type { PurchaseInput } from "../economy/service.js";
-import { appError, err, type Result } from "../../shared-kernel/result.js";
+import { admitProtectedMutation } from "./admission-helper.js";
 import {
   DEFAULT_MUTATION_ADMISSION_POLICIES,
   type MutationAdmissionPort,
   type MutationRatePolicy,
 } from "./contracts.js";
-import { admitProtectedMutation } from "./admission-helper.js";
 
 export interface EconomyPurchaseOwner {
   purchase(input: PurchaseInput): Promise<Result<PurchaseResult>>;

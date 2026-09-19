@@ -11,7 +11,8 @@ import type {
   PvpStartRepositoryOutput,
 } from "../../modules/pvp/ports.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import { openTurnWindowInTransaction } from "../battle/postgres-battle-turn-window-repository.js";
+import { initializeParticipantControllerInTransaction } from "../battle/postgres-battle-participant-controller-repository.js";
+import { openControllerTurnWindowInTransaction } from "../battle/postgres-battle-turn-window-repository.js";
 import { loadPlayerBattleParty } from "../battle/postgres-player-party-reader.js";
 import { withTransaction } from "../db/transaction.js";
 
@@ -464,17 +465,27 @@ export class PostgresPvpStartRepository implements PvpStartRepository {
 
       await persistBattleState(client, root, initialized.value);
 
-      const turnWindow = await openTurnWindowInTransaction(client, {
+      for (const combatant of initialized.value.combatants) {
+        const side = initialized.value.sides.find((entry) => entry.sideNo === combatant.sideNo);
+        if (side?.playerId === null || side?.playerId === undefined) {
+          throw new Error("PVP participant has no player controller");
+        }
+        await initializeParticipantControllerInTransaction(client, {
+          participantId: combatant.participantId,
+          battleId,
+          kind: "PLAYER",
+          playerId: side.playerId,
+          adminPrincipalId: null,
+        });
+      }
+
+      const turnWindow = await openControllerTurnWindowInTransaction(client, {
         id: randomUUID(),
         battleId,
         battleVersion: 0,
         turnNumber: 0,
         openedAt: input.startedAt,
         deadlineAt: input.deadlineAt,
-        requiredPlayers: [
-          { playerId: challenge.challenger_player_id, sideNo: 1 },
-          { playerId: challenge.target_player_id, sideNo: 2 },
-        ],
       });
       if (!turnWindow.ok) {
         throw new Error(`Initial PVP TurnWindow failed: ${turnWindow.error.message}`);

@@ -8,8 +8,8 @@ import {
   type ValidationReport,
 } from "../../modules/catalog/contracts.js";
 import {
-  parseEncounterConditions,
   type EncounterConditions,
+  parseEncounterConditions,
 } from "../../modules/catalog/encounter-contracts.js";
 import type {
   CatalogReleaseRecord,

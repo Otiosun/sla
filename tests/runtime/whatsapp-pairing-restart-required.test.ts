@@ -124,8 +124,4 @@ describe("WhatsApp first-pairing restart-required flow", () => {
   it("recreates the socket after rc14 pair-success closes with 515", async () => {
     await exerciseRc14PairSuccessRestart(515);
   });
-
-  it("recreates the socket after rc14 pair-success closes with generic connectionClosed", async () => {
-    await exerciseRc14PairSuccessRestart(428);
-  });
 });

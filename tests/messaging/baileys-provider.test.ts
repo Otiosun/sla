@@ -1,24 +1,27 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import {
-  BaileysWhatsAppAdapter,
-  type BaileysAuthBinding,
-  type BaileysEventSource,
-  type BaileysSocketLike,
-  type BaileysSocketFactory,
-} from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { normalizeBaileysMessage } from "../../src/adapters/whatsapp/baileys-normalizer.js";
 import type { BaileysSocketConfigLike } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
+import {
+  type BaileysAuthBinding,
+  type BaileysEventSource,
+  type BaileysSocketFactory,
+  type BaileysSocketLike,
+  BaileysWhatsAppAdapter,
+} from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type {
   IncomingMessage,
   PendingOutboxMessage,
 } from "../../src/modules/messaging/contracts.js";
 
 class FakeBaileysSocket implements BaileysSocketLike {
+  async groupMetadata(_jid: string) {
+    return { participants: [{ id: "123456789@lid" }] };
+  }
   readonly sent: Array<{
     jid: string;
-    content: { readonly text: string };
+    content: unknown;
     options: { readonly messageId?: string } | undefined;
   }> = [];
   ended = false;
@@ -80,7 +83,7 @@ function outbox(overrides: Partial<PendingOutboxMessage> = {}): PendingOutboxMes
     channel: "whatsapp",
     destinationRef: "5511999999999@s.whatsapp.net",
     messageType: "TEXT",
-    payload: { text: "Olá" },
+    payload: { text: "OlÃ¡" },
     idempotencyKey: "outbox:1",
     correlationId: "11111111-1111-4111-8111-111111111111",
     causationId: null,
@@ -111,6 +114,7 @@ describe("Baileys provider boundary", () => {
       occurredAt: "2023-11-14T22:13:20.000Z",
       text: "$perfil",
       mediaRefs: [],
+      mentions: [],
       replyToExternalMessageId: null,
     });
   });
@@ -174,11 +178,16 @@ describe("BaileysWhatsAppAdapter", () => {
     const socket = new FakeBaileysSocket();
     const configs: BaileysSocketConfigLike[] = [];
     const received: IncomingMessage[] = [];
+    const observedUpserts = vi.fn(async () => {});
     const factory: BaileysSocketFactory = (config) => {
       configs.push(config);
       return socket;
     };
-    const adapter = new BaileysWhatsAppAdapter({ auth: authBinding(), socketFactory: factory });
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: factory,
+      onInboundUpsert: observedUpserts,
+    });
     await adapter.start(async (message) => {
       received.push(message);
     });
@@ -205,6 +214,12 @@ describe("BaileysWhatsAppAdapter", () => {
     });
     await vi.waitFor(() => expect(received).toHaveLength(1));
     expect(received[0]?.externalMessageId).toBe("wamid-1");
+    await vi.waitFor(() => expect(observedUpserts).toHaveBeenCalledTimes(3));
+    expect(observedUpserts).toHaveBeenLastCalledWith({
+      acceptedCount: 1,
+      droppedCount: 1,
+      dropReason: "FROM_ME",
+    });
     await adapter.stop();
   });
 
@@ -238,16 +253,63 @@ describe("BaileysWhatsAppAdapter", () => {
     expect(socket.sent).toEqual([
       {
         jid: "5511999999999@s.whatsapp.net",
-        content: { text: "Olá" },
+        content: { text: "OlÃ¡" },
         options: { messageId: "EA3F80A3C269F3F2A59AD8ACABF449A5" },
       },
     ]);
-    await expect(adapter.send(outbox({ messageType: "IMAGE" }))).rejects.toThrow(
+    await expect(adapter.send(outbox({ messageType: "VIDEO" }))).rejects.toThrow(
       "Unsupported Baileys outbound message type",
     );
     await expect(adapter.send(outbox({ payload: { text: 123 } }))).rejects.toThrow(
       "requires non-empty text",
     );
+    await adapter.stop();
+  });
+
+  it("maps a validated HTTPS IMAGE outbox message with caption and rejects unsafe sources", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    await adapter.send(
+      outbox({
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: "https://assets.example.com/world/pokemart.png",
+          caption: "PokÃ© Mart Â· Vila dos Arrozais",
+        },
+      }),
+    );
+    expect(socket.sent).toEqual([
+      {
+        jid: "5511999999999@s.whatsapp.net",
+        content: {
+          image: { url: "https://assets.example.com/world/pokemart.png" },
+          caption: "PokÃ© Mart Â· Vila dos Arrozais",
+        },
+        options: { messageId: "EA3F80A3C269F3F2A59AD8ACABF449A5" },
+      },
+    ]);
+
+    await expect(
+      adapter.send(
+        outbox({
+          messageType: "IMAGE",
+          payload: { imageUrl: "http://assets.example.com/pokemart.png", caption: "inseguro" },
+        }),
+      ),
+    ).rejects.toThrow("HTTPS image URL");
+    await expect(
+      adapter.send(
+        outbox({
+          messageType: "IMAGE",
+          payload: { imageUrl: "file:///tmp/pokemart.png", caption: "local" },
+        }),
+      ),
+    ).rejects.toThrow("HTTPS image URL");
     await adapter.stop();
   });
 
@@ -311,5 +373,175 @@ describe("BaileysWhatsAppAdapter", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(sockets).toHaveLength(1);
+  });
+});
+
+describe("confirmed Reception membership", () => {
+  it("accepts actual add/remove, canonicalizes verified LID aliases and ignores stopped sockets", async () => {
+    const socket = new FakeBaileysSocket();
+    const membership = vi.fn(async () => {});
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+      onMembership: membership,
+    });
+    await adapter.start(async () => {});
+    const event = {
+      id: "120363000000000001@g.us",
+      participants: [{ id: "123456789@lid", phoneNumber: "5511999999999@s.whatsapp.net" }],
+    };
+    socket.emit("group.join-request", { ...event, action: "created" });
+    socket.emit("group-participants.update", { ...event, action: "promote" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(membership).not.toHaveBeenCalled();
+    socket.emit("group-participants.update", { ...event, action: "add" });
+    socket.emit("group-participants.update", { ...event, action: "remove" });
+    await vi.waitFor(() => expect(membership).toHaveBeenCalledTimes(2));
+    expect(membership.mock.calls).toEqual([
+      [
+        {
+          provider: "baileys",
+          chatRef: event.id,
+          externalId: "5511999999999@s.whatsapp.net",
+          action: "add",
+        },
+      ],
+      [
+        {
+          provider: "baileys",
+          chatRef: event.id,
+          externalId: "5511999999999@s.whatsapp.net",
+          action: "remove",
+        },
+      ],
+    ]);
+    await adapter.stop();
+    socket.emit("group-participants.update", { ...event, action: "add" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(membership).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves the real mention in an image caption", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+    await adapter.send(
+      outbox({
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: "https://example.com/rotom.jpg",
+          caption: "Ol? @123456789",
+          mentions: ["123456789@lid"],
+        },
+      }),
+    );
+    expect(socket.sent[0]?.content).toEqual({
+      image: { url: "https://example.com/rotom.jpg" },
+      caption: "Ol? @123456789",
+      mentions: ["123456789@lid"],
+    });
+    await adapter.stop();
+  });
+});
+
+it("does not welcome an add-shaped notification when the person is still outside the actual group", async () => {
+  const socket = new FakeBaileysSocket();
+  const membership = vi.fn(async () => {});
+  const actualSocket = Object.assign(socket, { groupMetadata: async () => ({ participants: [] }) });
+  const adapter = new BaileysWhatsAppAdapter({
+    auth: authBinding(),
+    socketFactory: () => actualSocket,
+    onMembership: membership,
+  });
+  await adapter.start(async () => {});
+  socket.emit("group-participants.update", {
+    id: "120363000000000001@g.us",
+    action: "add",
+    participants: [{ id: "123456789@lid" }],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(membership).not.toHaveBeenCalled();
+  await adapter.stop();
+});
+
+describe("Baileys LID/PN identity normalization", () => {
+  const LID = "123456789012345@lid";
+  const PN = "5511999999999@s.whatsapp.net";
+
+  it("prefers participantAlt phone-number identity over participant LID", () => {
+    const normalized = normalizeBaileysMessage(
+      providerMessage({
+        key: {
+          id: "wamid-lid-sender",
+          remoteJid: "120363000000000000@g.us",
+          participant: LID,
+          participantAlt: PN,
+          fromMe: false,
+        },
+        message: { conversation: "/onde" },
+      }),
+    );
+
+    expect(normalized?.senderRef).toBe(PN);
+  });
+
+  it("resolves mentioned LIDs to phone-number identities through group metadata", async () => {
+    class IdentityAwareFakeBaileysSocket extends FakeBaileysSocket {
+      override async groupMetadata(jid: string) {
+        void jid;
+        return {
+          participants: [
+            {
+              id: PN,
+              lid: LID,
+              phoneNumber: PN,
+            },
+          ],
+        };
+      }
+    }
+
+    const socket = new IdentityAwareFakeBaileysSocket();
+    const received: IncomingMessage[] = [];
+
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+
+    await adapter.start(async (message) => {
+      received.push(message);
+    });
+
+    socket.emit("messages.upsert", {
+      type: "notify",
+      messages: [
+        providerMessage({
+          key: {
+            id: "wamid-lid-mention",
+            remoteJid: "120363000000000000@g.us",
+            participant: LID,
+            participantAlt: PN,
+            fromMe: false,
+          },
+          message: {
+            extendedTextMessage: {
+              text: "/adm teste criar @Migueel",
+              contextInfo: {
+                mentionedJid: [LID],
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]?.mentions).toEqual([PN]);
+
+    await adapter.stop();
   });
 });

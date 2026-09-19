@@ -1,5 +1,5 @@
-import { EffectConfigSchemas } from "../catalog/contracts.js";
 import type { RandomSource } from "../../platform/rng/index.js";
+import { EffectConfigSchemas } from "../catalog/contracts.js";
 import type { BattleCombatant, BattleMoveSnapshot } from "./contracts.js";
 import type { BattleRules } from "./rules.js";
 import { typeEffectivenessBasisPoints } from "./rules.js";

@@ -22,7 +22,7 @@ export class PostgresReceptionActivationAnnouncement implements PlayerActivation
       for (const group of groups.rows) {
         const idempotencyKey = playerActivationAnnouncementIdempotencyKey(input.reviewId, group.id);
         const payload = {
-          text: `✅ *${input.trainerName}* concluiu o cadastro e já está liberado para o RPG.`,
+          text: `〔⚡〕 𝗥𝗢𝗧𝗢𝗠𝗗𝗘𝗫\n*REGISTRO VALIDADO*\n\n\`TRAINER STATUS: ACTIVE\`\n\n*${input.trainerName}*, pronto! Sua ficha foi aprovada e seu acesso ao RPG está liberado, roto.\n\n\`/menu\`\n\n> Abra sua Central do Treinador.`,
           registrationActivation: {
             reviewId: input.reviewId,
             playerId: input.playerId,

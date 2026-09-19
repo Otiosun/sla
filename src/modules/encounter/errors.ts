@@ -1,4 +1,4 @@
-import { appError, type AppError } from "../../shared-kernel/result.js";
+import { type AppError, appError } from "../../shared-kernel/result.js";
 
 export function encounterNotFound(message = "Encounter was not found"): AppError {
   return appError("NOT_FOUND", message);

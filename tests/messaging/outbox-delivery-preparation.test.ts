@@ -73,4 +73,29 @@ describe("OutboxWorker delivery preparation", () => {
     expect(await worker.runOnce()).toEqual({ claimed: 1, sent: 0, failed: 1 });
     expect(events).toEqual(["prepare", "failed"]);
   });
+  it("claims only channels backed by configured adapters", async () => {
+    let claimedChannels: readonly string[] | undefined;
+    const repository = {
+      async claimOutbox(input: { readonly channels?: readonly string[] }) {
+        claimedChannels = input.channels;
+        return [];
+      },
+    } as unknown as MessagingRepository;
+    const adapter: OutboundMessageAdapter = {
+      channel: "whatsapp",
+      async send() {
+        return { providerExternalMessageId: "unused" };
+      },
+    };
+    const worker = new OutboxWorker(repository, [adapter], {
+      batchSize: 10,
+      staleAfterMs: 30_000,
+      maxAttempts: 8,
+      baseBackoffMs: 1_000,
+      maxBackoffMs: 60_000,
+    });
+
+    expect(await worker.runOnce()).toEqual({ claimed: 0, sent: 0, failed: 0 });
+    expect(claimedChannels).toEqual(["whatsapp"]);
+  });
 });

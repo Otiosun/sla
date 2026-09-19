@@ -1,8 +1,8 @@
+import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
+import type { AppError } from "../../shared-kernel/result.js";
 import type { EconomyService } from "../economy/service.js";
 import type { PokemonAdminService } from "../pokemon/admin-service.js";
 import type { ProgressionService } from "../progression/service.js";
-import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
-import type { AppError } from "../../shared-kernel/result.js";
 import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,

@@ -9,12 +9,12 @@ import {
 } from "../../../src/modules/catalog/world-contracts.js";
 import { PostgresCatalogRepository } from "../../../src/platform/catalog/postgres-catalog-repository.js";
 import { gen123Id } from "./ids.js";
-import { loadGen123Model, type Gen123Model } from "./model.js";
+import { type Gen123Model, loadGen123Model } from "./model.js";
 import { GEN123_SOURCE, Gen123Source, requiredInt, requiredText } from "./source.js";
 import {
   GEN123_WORLD_SOURCES,
-  loadGen123WorldTopology,
   type Gen123WorldTopology,
+  loadGen123WorldTopology,
 } from "./world-source.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;

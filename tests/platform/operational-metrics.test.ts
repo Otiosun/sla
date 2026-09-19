@@ -3,11 +3,11 @@ import {
   DEFAULT_ALERT_THRESHOLDS,
   evaluateOperationalAlerts,
 } from "../../src/platform/metrics/alerts.js";
+import { InMemoryMetricSink, JsonLineMetricSink } from "../../src/platform/metrics/index.js";
 import {
   ObservedAsyncResultOperation,
   ObservedQueueRunner,
 } from "../../src/platform/metrics/instrumentation.js";
-import { InMemoryMetricSink, JsonLineMetricSink } from "../../src/platform/metrics/index.js";
 
 describe("operational metrics", () => {
   it("emits stable JSON metric lines without implicit application context", () => {

@@ -10,3 +10,4 @@ coverage/
 .vscode/
 .tmp/
 tmp/
+/.local-uat/

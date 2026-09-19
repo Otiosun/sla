@@ -5,8 +5,8 @@ import { AdminBattleOperationService } from "../../src/modules/admin/battle-serv
 import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
-import type { BattleState } from "../../src/modules/battle/contracts.js";
 import { BattleAdminOwnerService } from "../../src/modules/battle/admin-service.js";
+import type { BattleState } from "../../src/modules/battle/contracts.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresBattleAdminRepository } from "../../src/platform/battle/postgres-battle-admin-repository.js";

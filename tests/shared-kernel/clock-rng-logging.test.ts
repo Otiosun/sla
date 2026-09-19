@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import {
   type LogSink,
-  StructuredLogger,
   type StructuredLogEntry,
+  StructuredLogger,
 } from "../../src/platform/logging/index.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { rootCausality } from "../../src/shared-kernel/causality.js";

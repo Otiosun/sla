@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  MigrationIntegrityError,
   loadMigrations,
+  MigrationIntegrityError,
   sha256Hex,
 } from "../../src/platform/db/migrations.js";
 

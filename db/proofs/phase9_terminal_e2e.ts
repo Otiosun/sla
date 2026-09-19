@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
-  EMPTY_BATTLE_STAGES,
   type BattleAction,
   type BattleState,
+  EMPTY_BATTLE_STAGES,
 } from "../../src/modules/battle/contracts.js";
 import { BattleRuntimeService } from "../../src/modules/battle/runtime.js";
 import { BattleService } from "../../src/modules/battle/service.js";

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ReceptionMembershipEvent } from "../../modules/community/reception-membership.js";
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
 import { type MetricSink, monotonicNowMs, NOOP_METRICS } from "../../platform/metrics/index.js";
@@ -13,6 +14,7 @@ import type {
   BaileysEventSourceLike,
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
+  BaileysOutboundContentLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "./baileys-provider-contracts.js";
@@ -26,7 +28,22 @@ export interface BaileysAuthBinding {
 export type { BaileysEventSourceLike as BaileysEventSource, BaileysSocketLike };
 export type BaileysSocketFactory = (config: BaileysSocketConfigLike) => BaileysSocketLike;
 
+export type BaileysInboundDropReason =
+  | "FROM_ME"
+  | "HISTORY_REQUEST"
+  | "NON_NOTIFY"
+  | "UNSUPPORTED_OR_INVALID"
+  | "MIXED"
+  | null;
+
+export interface BaileysInboundUpsertObservation {
+  readonly acceptedCount: number;
+  readonly droppedCount: number;
+  readonly dropReason: BaileysInboundDropReason;
+}
+
 export interface BaileysWhatsAppAdapterOptions {
+  readonly onMembership?: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly auth: BaileysAuthBinding;
   readonly socketFactory?: BaileysSocketFactory;
   readonly reconnectDelayMs?: number;
@@ -35,6 +52,7 @@ export interface BaileysWhatsAppAdapterOptions {
   readonly onQr?: (qr: string) => Promise<void> | void;
   readonly onLoggedOut?: () => Promise<void> | void;
   readonly onConnectionState?: (state: WhatsAppProviderConnectionState) => Promise<void> | void;
+  readonly onInboundUpsert?: (observation: BaileysInboundUpsertObservation) => Promise<void> | void;
   readonly onProviderError?: (error: unknown) => void;
 }
 
@@ -68,16 +86,61 @@ function statusCodeFromError(error: unknown): number | null {
   return null;
 }
 
-function outboundContent(message: PendingOutboxMessage): {
-  readonly text: string;
-  readonly mentions?: readonly string[];
-} {
-  if (message.channel !== "whatsapp") {
-    throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
+interface BaileysParticipantIdentityLike {
+  readonly id: string;
+  readonly lid?: string | null;
+  readonly phoneNumber?: string | null;
+}
+
+function canonicalDeviceId(id: string): string {
+  return id.replace(/:\d+@/, "@");
+}
+
+function isPhoneNumberJid(id: string | null | undefined): id is string {
+  return typeof id === "string" && /^\d+(?::\d+)?@s\.whatsapp\.net$/.test(id);
+}
+
+function participantRefs(participant: BaileysParticipantIdentityLike): readonly string[] {
+  return [
+    ...new Set(
+      [participant.id, participant.lid, participant.phoneNumber]
+        .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        .map(canonicalDeviceId),
+    ),
+  ];
+}
+
+function participantPhoneNumber(participant: BaileysParticipantIdentityLike): string | null {
+  const candidate = [participant.phoneNumber, participant.id].find(isPhoneNumberJid);
+  return candidate === undefined ? null : canonicalDeviceId(candidate);
+}
+
+function sameParticipant(
+  left: BaileysParticipantIdentityLike,
+  right: BaileysParticipantIdentityLike,
+): boolean {
+  const rightRefs = new Set(participantRefs(right));
+  return participantRefs(left).some((ref) => rightRefs.has(ref));
+}
+
+function identityAliasesFromParticipants(
+  participants: readonly BaileysParticipantIdentityLike[],
+): ReadonlyMap<string, string> {
+  const aliases = new Map<string, string>();
+
+  for (const participant of participants) {
+    const phoneNumber = participantPhoneNumber(participant);
+    if (phoneNumber === null) continue;
+
+    for (const ref of participantRefs(participant)) {
+      aliases.set(ref, phoneNumber);
+    }
   }
-  if (message.messageType !== "TEXT") {
-    throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
-  }
+
+  return aliases;
+}
+
+function textOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
   const text = message.payload.text;
   if (typeof text !== "string" || text.length === 0 || text.length > 32_768) {
     throw new Error("Baileys TEXT outbound payload requires non-empty text up to 32768 chars");
@@ -93,6 +156,87 @@ function outboundContent(message: PendingOutboxMessage): {
     throw new Error("Baileys TEXT outbound mentions must be an array of up to 64 non-empty JIDs");
   }
   return { text, mentions: mentions as readonly string[] };
+}
+
+function imageOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  const imageUrl = message.payload.imageUrl;
+  if (typeof imageUrl !== "string" || imageUrl.trim().length === 0) {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl.trim());
+  } catch {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
+    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  }
+
+  const caption = message.payload.caption;
+  const mentions = message.payload.mentions;
+  if (
+    mentions !== undefined &&
+    (!Array.isArray(mentions) ||
+      mentions.length > 64 ||
+      mentions.some((mention) => typeof mention !== "string" || mention.trim().length === 0))
+  ) {
+    throw new Error("Baileys IMAGE outbound mentions must be up to 64 non-empty JIDs");
+  }
+  const image = {
+    image: { url: imageUrl.trim() },
+    ...(mentions === undefined ? {} : { mentions: mentions as string[] }),
+  };
+  if (caption === undefined) return image;
+  if (typeof caption !== "string" || caption.length === 0 || caption.length > 32_768) {
+    throw new Error("Baileys IMAGE outbound caption must be non-empty text up to 32768 chars");
+  }
+  return { ...image, caption };
+}
+
+function reactionOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  const emoji = message.payload.emoji;
+  const targetExternalMessageId = message.payload.targetExternalMessageId;
+  const targetSenderRef = message.payload.targetSenderRef;
+  if (typeof emoji !== "string" || emoji.length === 0 || emoji.length > 16) {
+    throw new Error("Baileys REACTION outbound payload requires a non-empty emoji");
+  }
+  if (typeof targetExternalMessageId !== "string" || targetExternalMessageId.trim().length === 0) {
+    throw new Error("Baileys REACTION outbound payload requires targetExternalMessageId");
+  }
+  if (
+    targetSenderRef !== undefined &&
+    (typeof targetSenderRef !== "string" || targetSenderRef.trim().length === 0)
+  ) {
+    throw new Error("Baileys REACTION targetSenderRef must be a non-empty JID when provided");
+  }
+
+  return {
+    react: {
+      text: emoji,
+      key: {
+        remoteJid: message.destinationRef,
+        id: targetExternalMessageId.trim(),
+        ...(targetSenderRef === undefined ? {} : { participant: targetSenderRef.trim() }),
+      },
+    },
+  };
+}
+function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  if (message.channel !== "whatsapp") {
+    throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
+  }
+  switch (message.messageType) {
+    case "TEXT":
+      return textOutboundContent(message);
+    case "IMAGE":
+      return imageOutboundContent(message);
+    case "REACTION":
+      return reactionOutboundContent(message);
+    default:
+      throw new Error(`Unsupported Baileys outbound message type: ${message.messageType}`);
+  }
 }
 
 function providerExternalMessageId(result: unknown): string | null {
@@ -126,6 +270,9 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private readonly onConnectionState:
     | ((state: WhatsAppProviderConnectionState) => Promise<void> | void)
     | undefined;
+  private readonly onInboundUpsert:
+    | ((observation: BaileysInboundUpsertObservation) => Promise<void> | void)
+    | undefined;
   private readonly onProviderError: (error: unknown) => void;
 
   private socket: BaileysSocketLike | null = null;
@@ -133,8 +280,11 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = true;
   private generation = 0;
+  private membershipQueue: Promise<void> = Promise.resolve();
+  private readonly onMembership: BaileysWhatsAppAdapterOptions["onMembership"];
 
   constructor(options: BaileysWhatsAppAdapterOptions) {
+    this.onMembership = options.onMembership;
     this.auth = options.auth;
     this.socketFactory = options.socketFactory ?? productionSocketFactory;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_500;
@@ -143,6 +293,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     this.onQr = options.onQr;
     this.onLoggedOut = options.onLoggedOut;
     this.onConnectionState = options.onConnectionState;
+    this.onInboundUpsert = options.onInboundUpsert;
     this.onProviderError = options.onProviderError ?? (() => {});
 
     if (!Number.isFinite(this.reconnectDelayMs) || this.reconnectDelayMs < 0) {
@@ -178,6 +329,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     const socket = this.socket;
     this.socket = null;
     socket?.end();
+    await this.membershipQueue;
   }
 
   async send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt> {
@@ -222,11 +374,59 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     });
     this.socket = socket;
 
+    // A join request is not membership. Only provider-confirmed add/remove events
+    // reach Reception; serialize them so a fast leave/rejoin cannot overtake a join.
+    socket.ev.on("group-participants.update", (event) => {
+      this.membershipQueue = this.membershipQueue
+        .then(async () => {
+          if (this.stopped || generation !== this.generation || this.onMembership === undefined)
+            return;
+          if (
+            !/^\d+@g\.us$/.test(event.id) ||
+            (event.action !== "add" && event.action !== "remove")
+          )
+            return;
+          const members = event.action === "add" ? await socket.groupMetadata?.(event.id) : null;
+          if (event.action === "add" && members === undefined)
+            throw new Error("Reception requires confirmed group membership");
+          for (const participant of event.participants) {
+            if (this.stopped || generation !== this.generation) return;
+            if (!/^\d+(?::\d+)?@(s\.whatsapp\.net|lid)$/.test(participant.id)) continue;
+
+            const confirmedMember = members?.participants.find((member) =>
+              sameParticipant(member, participant),
+            );
+
+            if (event.action === "add" && confirmedMember === undefined) continue;
+
+            const externalId =
+              participantPhoneNumber(participant) ??
+              (confirmedMember === undefined ? null : participantPhoneNumber(confirmedMember)) ??
+              canonicalDeviceId(participant.id);
+
+            if (
+              [socket.user?.id, socket.user?.lid].some(
+                (id) => id !== undefined && canonicalDeviceId(id) === externalId,
+              )
+            )
+              continue;
+
+            await this.onMembership({
+              provider: "baileys",
+              chatRef: event.id,
+              externalId,
+              action: event.action,
+            });
+          }
+        })
+        .catch((error) => this.onProviderError(error));
+    });
+
     socket.ev.on("creds.update", () => {
       void this.auth.saveCredentials().catch((error) => this.onProviderError(error));
     });
     socket.ev.on("messages.upsert", (event) => {
-      void this.handleMessageUpsert(generation, event).catch((error) => {
+      void this.handleMessageUpsert(generation, socket, event).catch((error) => {
         this.metrics.increment("whatsapp.incoming.errors_total");
         this.onProviderError(error);
       });
@@ -240,20 +440,68 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
   private async handleMessageUpsert(
     generation: number,
+    socket: BaileysSocketLike,
     event: BaileysMessagesUpsertLike,
   ): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
-    if (event.type !== "notify" || event.requestId !== undefined) return;
+    let acceptedCount = 0;
+    let droppedCount = 0;
+    const dropReasons = new Set<Exclude<BaileysInboundDropReason, null | "MIXED">>();
+    const dropped = (reason: Exclude<BaileysInboundDropReason, null | "MIXED">): void => {
+      droppedCount += 1;
+      dropReasons.add(reason);
+    };
 
-    const handler = this.incomingHandler;
-    if (handler === null) return;
+    try {
+      if (event.type !== "notify") {
+        for (const _message of event.messages) dropped("NON_NOTIFY");
+        return;
+      }
+      if (event.requestId !== undefined) {
+        for (const _message of event.messages) dropped("HISTORY_REQUEST");
+        return;
+      }
 
-    for (const message of event.messages) {
-      const normalized = normalizeBaileysMessage(message);
-      if (normalized !== null) {
+      const handler = this.incomingHandler;
+      if (handler === null) return;
+
+      for (const message of event.messages) {
+        let normalized = normalizeBaileysMessage(message);
+        if (normalized === null) {
+          dropped(message.key.fromMe === true ? "FROM_ME" : "UNSUPPORTED_OR_INVALID");
+          continue;
+        }
+
+        const needsAliasResolution =
+          normalized.senderRef.endsWith("@lid") ||
+          (normalized.mentions ?? []).some((mention) => mention.endsWith("@lid"));
+
+        if (
+          needsAliasResolution &&
+          message.key.remoteJid?.endsWith("@g.us") &&
+          socket.groupMetadata !== undefined
+        ) {
+          try {
+            const metadata = await socket.groupMetadata(message.key.remoteJid);
+            const aliases = identityAliasesFromParticipants(metadata.participants);
+            normalized = normalizeBaileysMessage(message, aliases) ?? normalized;
+          } catch (error) {
+            this.onProviderError(error);
+          }
+        }
+
         this.metrics.increment("whatsapp.incoming.total");
+        acceptedCount += 1;
         await handler(normalized);
       }
+    } finally {
+      const dropReason =
+        dropReasons.size === 0
+          ? null
+          : dropReasons.size === 1
+            ? ([...dropReasons][0] ?? null)
+            : "MIXED";
+      await this.onInboundUpsert?.({ acceptedCount, droppedCount, dropReason });
     }
   }
 

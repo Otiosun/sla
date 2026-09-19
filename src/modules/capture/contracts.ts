@@ -1,12 +1,12 @@
 import { z } from "zod";
-import type { BattleMajorStatus, BattleState } from "../battle/contracts.js";
-import type { WildPokemonSnapshot } from "../encounter/contracts.js";
 import type {
   CorrelationId,
   EncounterId,
   PlayerId,
   PokemonInstanceId,
 } from "../../shared-kernel/ids.js";
+import type { BattleMajorStatus, BattleState } from "../battle/contracts.js";
+import type { WildPokemonSnapshot } from "../encounter/contracts.js";
 
 const uuid = z.string().uuid();
 const basisPoints = z.number().int().min(1).max(100_000);
@@ -70,6 +70,10 @@ export interface CaptureAttemptInput {
   readonly encounterId: EncounterId;
   readonly expectedEncounterRevision: bigint;
   readonly expectedBattleVersion: number | null;
+  /** Exact active PLAYER participant reserving the PVE TurnWindow action. */
+  readonly actorParticipantId?: string;
+  /** Frozen wild roster position. Defaults to 1 for legacy single-wild callers. */
+  readonly targetWildNo?: number;
   readonly ballItemId: string;
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
@@ -115,6 +119,7 @@ export interface CaptureAttemptRecord {
   readonly encounterId: EncounterId;
   readonly battleId: string | null;
   readonly ballItemId: string;
+  readonly targetWildNo?: number;
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
   readonly sourceEncounterStatus: CaptureSourceStatus;
@@ -147,6 +152,7 @@ export interface CaptureContext {
   readonly rulesetConfig: unknown;
   readonly catchRate: number;
   readonly encounterSnapshot: WildPokemonSnapshot;
+  readonly targetWildNo?: number;
   readonly battleId: string | null;
   readonly battleState: BattleState | null;
   readonly ball: CaptureItemPolicy;
@@ -159,6 +165,8 @@ export const CaptureAttemptInputBoundarySchema = z
     encounterId: uuid,
     expectedEncounterRevision: z.bigint().nonnegative(),
     expectedBattleVersion: z.number().int().nonnegative().safe().nullable(),
+    actorParticipantId: uuid.optional(),
+    targetWildNo: z.number().int().min(1).max(6).optional(),
     ballItemId: uuid,
     idempotencyKey: z.string().trim().min(1).max(255),
     correlationId: uuid,

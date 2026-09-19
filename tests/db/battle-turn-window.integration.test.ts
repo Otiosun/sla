@@ -297,7 +297,7 @@ describe("battle TurnWindow PostgreSQL integration", () => {
     );
   });
 
-  it("serializes concurrent replacements so one action remains ACTIVE and revisions stay auditable", async () => {
+  it("rejects concurrent replacements after the first accepted action", async () => {
     const replacementFixture = await cloneBattleFixture(pool, fixture, 8);
     const repository = new PostgresBattleTurnWindowRepository(pool);
     const opened = await repository.open(windowInput(replacementFixture, 8));
@@ -335,8 +335,14 @@ describe("battle TurnWindow PostgreSQL integration", () => {
         ),
       ),
     ]);
-    expect(second.ok).toBe(true);
-    expect(third.ok).toBe(true);
+    expect(second).toMatchObject({
+      ok: false,
+      error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+    });
+    expect(third).toMatchObject({
+      ok: false,
+      error: { code: "TURN_WINDOW_ALREADY_SUBMITTED" },
+    });
 
     const persisted = await repository.loadByBattleVersion(replacementFixture.battleId, 8);
     expect(persisted.ok).toBe(true);
@@ -344,10 +350,9 @@ describe("battle TurnWindow PostgreSQL integration", () => {
     const mine = persisted.value.submissions.filter(
       (entry) => entry.playerId === replacementFixture.playerA,
     );
-    expect(mine).toHaveLength(3);
-    expect(mine.map((entry) => entry.submissionRevision).sort()).toEqual([1, 2, 3]);
-    expect(mine.filter((entry) => entry.status === "ACTIVE")).toHaveLength(1);
-    expect(mine.filter((entry) => entry.status === "SUPERSEDED")).toHaveLength(2);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.submissionRevision).toBe(1);
+    expect(mine[0]?.status).toBe("ACTIVE");
     expect(persisted.value.window.status).toBe("COLLECTING");
   });
 });

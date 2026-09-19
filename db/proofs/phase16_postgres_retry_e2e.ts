@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import {
   isRetryablePostgresTransactionError,
   withRetryingTransaction,
 } from "../../src/platform/db/retrying-transaction.js";
+import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) {

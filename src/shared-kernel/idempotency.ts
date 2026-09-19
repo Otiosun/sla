@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { appError, err, ok, type Result } from "./result.js";
 import type { Brand } from "./ids.js";
+import { appError, err, ok, type Result } from "./result.js";
 
 export type IdempotencyScope = Brand<string, "IdempotencyScope">;
 export type IdempotencyStorageKey = Brand<string, "IdempotencyStorageKey">;

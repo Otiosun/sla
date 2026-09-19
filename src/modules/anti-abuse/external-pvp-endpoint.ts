@@ -1,3 +1,4 @@
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   AcceptPvpChallengeOutput,
   AcceptPvpChallengeRequest,
@@ -6,7 +7,6 @@ import type {
   StartPvpEncounterOutput,
   StartPvpEncounterRequest,
 } from "../pvp/service.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { admitProtectedMutation } from "./admission-helper.js";
 import {
   DEFAULT_MUTATION_ADMISSION_POLICIES,

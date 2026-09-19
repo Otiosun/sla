@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WorldService } from "../../src/modules/world/service.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
@@ -290,8 +291,8 @@ async function grantUnlock(client: PoolClient, playerId: PlayerId, key: string):
   );
 }
 
-function service(pool: Pool): WorldService {
-  return new WorldService(new PostgresWorldRepository(pool), FEATURE_ENABLED);
+function service(pool: Pool, clock?: ManualClock): WorldService {
+  return new WorldService(new PostgresWorldRepository(pool), FEATURE_ENABLED, clock);
 }
 
 describe.sequential("Phase 7 world exploration on disposable PostgreSQL", () => {
@@ -396,6 +397,96 @@ describe.sequential("Phase 7 world exploration on disposable PostgreSQL", () => 
     );
     expect(backToPallet.to.areaId).toBe(fixture.palletId);
     expect(backToPallet.to.revision).toBe(4n);
+  });
+
+  it("persists visits, backfills existing locations, and applies replay-safe arrival cooldowns", async () => {
+    const client = await pool.connect();
+    await client.query("UPDATE areas SET slug = 'vila-dos-arrozais' WHERE id = $1", [
+      fixture.route1Id,
+    ]);
+    const playerId = await createEligiblePlayer(client, fixture.regionId);
+    await client.query(
+      `INSERT INTO player_locations(player_id, area_id, entered_at)
+       VALUES ($1, $2, '2026-09-11T00:00:00Z')`,
+      [playerId, fixture.palletId],
+    );
+    await client.query(
+      `INSERT INTO player_area_visits(player_id, area_id, first_visited_at, last_visited_at)
+       SELECT player_id, area_id, entered_at, entered_at FROM player_locations
+       WHERE player_id = $1
+       ON CONFLICT (player_id, area_id) DO NOTHING`,
+      [playerId],
+    );
+    client.release();
+
+    const clock = new ManualClock(new Date("2026-09-11T00:00:00Z"));
+    const world = service(pool, clock);
+    const initial = unwrap(await world.ensureInitialLocation({ playerId }));
+    expect(initial.arrival?.firstVisit).toBe(false);
+    expect(
+      (
+        await pool.query<{ visit_count: string }>(
+          "SELECT visit_count::text FROM player_area_visits WHERE player_id = $1 AND area_id = $2",
+          [playerId, fixture.palletId],
+        )
+      ).rows[0]?.visit_count,
+    ).toBe("1");
+
+    const outbound = unwrap(
+      await world.travel({
+        playerId,
+        destinationAreaId: fixture.route1Id,
+        expectedRevision: 0n,
+        idempotencyKey: "zhoulia-arrival-route",
+      }),
+    );
+    expect(outbound.arrival?.firstVisit).toBe(true);
+    const blocked = await world.travel({
+      playerId,
+      destinationAreaId: fixture.palletId,
+      expectedRevision: 1n,
+      idempotencyKey: "zhoulia-cooldown-blocked",
+    });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(unwrap(await world.getLocation(playerId)).areaId).toBe(fixture.route1Id);
+
+    const replay = unwrap(
+      await world.travel({
+        playerId,
+        destinationAreaId: fixture.route1Id,
+        expectedRevision: 0n,
+        idempotencyKey: "zhoulia-arrival-route",
+      }),
+    );
+    expect(replay).toMatchObject({ replayed: true, arrival: { firstVisit: true } });
+    expect(
+      (
+        await pool.query<{ visit_count: string }>(
+          "SELECT visit_count::text FROM player_area_visits WHERE player_id = $1 AND area_id = $2",
+          [playerId, fixture.route1Id],
+        )
+      ).rows[0]?.visit_count,
+    ).toBe("1");
+
+    clock.advanceMs(5 * 60 * 1000);
+    const returned = unwrap(
+      await world.travel({
+        playerId,
+        destinationAreaId: fixture.palletId,
+        expectedRevision: 1n,
+        idempotencyKey: "zhoulia-return-pallet",
+      }),
+    );
+    expect(returned.arrival?.firstVisit).toBe(false);
+    expect(
+      (
+        await pool.query<{ visit_count: string }>(
+          "SELECT visit_count::text FROM player_area_visits WHERE player_id = $1 AND area_id = $2",
+          [playerId, fixture.palletId],
+        )
+      ).rows[0]?.visit_count,
+    ).toBe("2");
+    await pool.query("UPDATE areas SET slug = 'route-1' WHERE id = $1", [fixture.route1Id]);
   });
 
   it("allows exactly one concurrent move for the same expected revision", async () => {

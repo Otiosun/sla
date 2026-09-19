@@ -180,6 +180,18 @@ export const BattleSideSchema = z
     playerId: uuid.nullable(),
     participantIds: z.array(uuid).min(1).max(64),
     activeParticipantId: uuid,
+    slots: z
+      .array(
+        z
+          .object({
+            activeParticipantId: uuid,
+            participantIds: z.array(uuid).min(1).max(64),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(16)
+      .optional(),
     result: z.enum(["WON", "LOST", "FLED", "DRAW", "CANCELLED"]).nullable(),
   })
   .strict();
@@ -220,12 +232,32 @@ export const BattleStateSchema = z
           message: "active participant must belong to side",
         });
       }
+      if (side.slots !== undefined) {
+        const roster = side.slots.flatMap((slot) => slot.participantIds);
+        if (
+          side.slots[0]?.activeParticipantId !== side.activeParticipantId ||
+          new Set(roster).size !== roster.length ||
+          roster.length !== side.participantIds.length ||
+          !side.participantIds.every((id) => roster.includes(id)) ||
+          side.slots.some((slot) => !slot.participantIds.includes(slot.activeParticipantId))
+        )
+          context.addIssue({
+            code: "custom",
+            path: ["sides", index, "slots"],
+            message:
+              "Slots must partition the side roster and preserve the primary active participant",
+          });
+      }
       for (const participantId of side.participantIds) {
-        if (!combatantIds.has(participantId)) {
+        if (
+          !combatantIds.has(participantId) ||
+          state.combatants.find((entry) => entry.participantId === participantId)?.sideNo !==
+            side.sideNo
+        ) {
           context.addIssue({
             code: "custom",
             path: ["sides", index, "participantIds"],
-            message: "side references missing combatant",
+            message: "side references missing or foreign combatant",
           });
         }
       }
@@ -255,6 +287,11 @@ export const BattleActionSchema = z.discriminatedUnion("type", [
     type: z.literal("USE_ITEM"),
     itemId: uuid,
     targetParticipantId: uuid.optional(),
+  }).strict(),
+  ActionBaseSchema.extend({
+    type: z.literal("CAPTURE_ATTEMPT"),
+    ballItemId: uuid,
+    targetParticipantId: uuid,
   }).strict(),
   ActionBaseSchema.extend({ type: z.literal("FLEE") }).strict(),
 ]);

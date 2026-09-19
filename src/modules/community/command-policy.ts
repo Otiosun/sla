@@ -14,6 +14,7 @@ export interface CommandPolicyContext {
 
 export interface CommandPolicyRequirement {
   readonly requiredGroupCapabilities?: readonly CommunityCapability[];
+  readonly requiredAnyGroupCapabilities?: readonly CommunityCapability[];
   readonly allowedPlayerAccess?: readonly PlayerAccessStatus[];
   readonly requiredAdminCapability?: string;
   readonly requiresMechanicalReady?: boolean;
@@ -31,6 +32,15 @@ export function evaluateCommandPolicy(
     if (!context.group.capabilities.includes(capability)) {
       return err(appError("ACTION_INVALID", "This command is not enabled in this group"));
     }
+  }
+
+  if (
+    requirement.requiredAnyGroupCapabilities !== undefined &&
+    !requirement.requiredAnyGroupCapabilities.some((capability) =>
+      context.group.capabilities.includes(capability),
+    )
+  ) {
+    return err(appError("ACTION_INVALID", "This command is not enabled in this group"));
   }
 
   if (

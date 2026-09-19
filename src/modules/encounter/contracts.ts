@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
-import type { EncounterConditions } from "../catalog/encounter-contracts.js";
+import type {
+  EncounterConditions,
+  EncounterEnvironmentContext,
+} from "../catalog/encounter-contracts.js";
 
 export const EncounterStatusSchema = z.enum([
   "CREATED",
@@ -80,8 +83,17 @@ export interface EncounterRecord {
   readonly closedAt: Date | null;
 }
 
-export interface EncounterView extends EncounterRecord {
+export interface EncounterWildSnapshot {
+  readonly wildNo: number;
+  readonly status: "ACTIVE" | "CAPTURED" | "FAINTED" | "FLED";
   readonly snapshot: WildPokemonSnapshot;
+}
+
+export interface EncounterView extends EncounterRecord {
+  /** Compatibility primary wild: always mirrors wilds[0] for new encounters. */
+  readonly snapshot: WildPokemonSnapshot;
+  /** Frozen wild roster. Optional only for legacy/mocked boundaries. */
+  readonly wilds?: readonly EncounterWildSnapshot[];
   readonly battleId: string | null;
 }
 
@@ -133,6 +145,13 @@ export interface CreateEncounterInput {
   readonly playerId: PlayerId;
   readonly idempotencyKey: string;
   readonly encounterTableSlug?: string;
+  /** Narrator/admin spawn amount. Player-owned flows omit it and remain single-wild. */
+  readonly spawnQuantity?: number;
+  readonly environment?: EncounterEnvironmentContext;
+}
+
+export interface SpawnEncounterInput extends CreateEncounterInput {
+  readonly participantPlayerIds: readonly PlayerId[];
 }
 
 export interface EncounterMutationInput {

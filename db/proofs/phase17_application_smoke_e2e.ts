@@ -26,10 +26,7 @@ function requireProviderFailure(
   code: string,
 ) {
   requireFailure(report, code);
-  if (
-    String(report.providerLiveHealth) !== "UNHEALTHY" ||
-    Boolean(report.finalPostDeploySmokeComplete)
-  ) {
+  if (String(report.providerLiveHealth) !== "UNHEALTHY" || report.finalPostDeploySmokeComplete) {
     throw new Error("Application smoke incorrectly claimed provider-live readiness");
   }
 }
@@ -176,10 +173,7 @@ try {
   if (!happy.passed) {
     throw new Error(`Prepared application smoke unexpectedly failed: ${happy.failures.join(",")}`);
   }
-  if (
-    String(happy.providerLiveHealth) !== "HEALTHY" ||
-    !Boolean(happy.finalPostDeploySmokeComplete)
-  ) {
+  if (String(happy.providerLiveHealth) !== "HEALTHY" || !happy.finalPostDeploySmokeComplete) {
     throw new Error("Application smoke did not prove final provider-live readiness");
   }
   if (
@@ -220,7 +214,7 @@ try {
   if (
     !recovered.passed ||
     String(recovered.providerLiveHealth) !== "HEALTHY" ||
-    !Boolean(recovered.finalPostDeploySmokeComplete)
+    !recovered.finalPostDeploySmokeComplete
   ) {
     throw new Error(
       `Application smoke did not recover after proof fixtures cleared: ${recovered.failures.join(",")}`,

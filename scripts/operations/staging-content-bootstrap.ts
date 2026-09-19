@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { Pool, type PoolClient } from "pg";
+import { gen123Id } from "../../db/imports/gen123/ids.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { loadMigrations, verifyAppliedMigrations } from "../../src/platform/db/migrations.js";
-import { gen123Id } from "../../db/imports/gen123/ids.js";
 
 export const STAGING_GEN123_RELEASE_ID = gen123Id("release:gen123-production-candidate-v1");
 
@@ -178,10 +178,17 @@ async function verifySchema(pool: Pool): Promise<void> {
 
 async function runPhase4Seed(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("pnpm", ["--silent", "run", "db:seed:phase4"], {
-      env: process.env,
-      stdio: "inherit",
-    });
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? (process.env.ComSpec ?? "cmd.exe") : "pnpm",
+      windows
+        ? ["/d", "/s", "/c", "pnpm --silent run db:seed:phase4"]
+        : ["--silent", "run", "db:seed:phase4"],
+      {
+        env: process.env,
+        stdio: "inherit",
+      },
+    );
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();

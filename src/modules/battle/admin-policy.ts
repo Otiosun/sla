@@ -1,5 +1,5 @@
 import type { BattleAdminCorrectionPatch } from "./admin-contracts.js";
-import { BattleStateSchema, type BattleState } from "./contracts.js";
+import { type BattleState, BattleStateSchema } from "./contracts.js";
 
 export type BattleAdminCorrectionResult =
   | {

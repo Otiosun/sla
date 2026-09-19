@@ -1,10 +1,10 @@
+import { ok, type Result } from "../../shared-kernel/result.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
   MessageHandlerResult,
 } from "../messaging/contracts.js";
 import type { MessageConversationResolver } from "../messaging/router.js";
-import { ok, type Result } from "../../shared-kernel/result.js";
 import type { ReceptionFirstInteractionInput, ReceptionWelcome } from "./reception-service.js";
 
 interface RegistrationConversation {
