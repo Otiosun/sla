@@ -7,10 +7,7 @@ import type {
   SimulatedWhatsAppTranscriptEntry,
 } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
 import { loadConfig } from "../../src/platform/config/env.js";
-import {
-  closeDatabasePool,
-  createDatabasePool,
-} from "../../src/platform/db/database.js";
+import { closeDatabasePool, createDatabasePool } from "../../src/platform/db/database.js";
 import { assertDatabaseSchemaCurrent } from "../../src/platform/db/migrations.js";
 import type { PveBattleRuntimeConfig } from "../../src/runtime/compose-pve-battle-runtime.js";
 import {
@@ -78,9 +75,7 @@ function renderOutbound(
   if (entry.message.messageType === "REACTION") {
     const emoji = typeof payload.emoji === "string" ? payload.emoji : "?";
     const target =
-      typeof payload.targetExternalMessageId === "string"
-        ? payload.targetExternalMessageId
-        : "?";
+      typeof payload.targetExternalMessageId === "string" ? payload.targetExternalMessageId : "?";
     return `[REACTION ${emoji} -> ${target}]`;
   }
   return `[${entry.message.messageType}] ${JSON.stringify(payload)}`;
@@ -89,9 +84,7 @@ function renderOutbound(
 function printEntries(entries: readonly SimulatedWhatsAppTranscriptEntry[]): void {
   for (const entry of entries) {
     if (entry.direction === "SYSTEM") {
-      console.log(
-        `[sim] ${entry.event}${entry.detail === null ? "" : ` | ${entry.detail}`}`,
-      );
+      console.log(`[sim] ${entry.event}${entry.detail === null ? "" : ` | ${entry.detail}`}`);
       continue;
     }
     if (entry.direction === "INBOUND") {
@@ -158,12 +151,8 @@ async function listActors(pool: Pool): Promise<readonly ListedActor[]> {
   ]);
 
   return [
-    ...players.rows.map(
-      (row): ListedActor => ({ ref: row.ref, kind: "PLAYER", label: row.label }),
-    ),
-    ...admins.rows.map(
-      (row): ListedActor => ({ ref: row.ref, kind: "ADMIN", label: row.label }),
-    ),
+    ...players.rows.map((row): ListedActor => ({ ref: row.ref, kind: "PLAYER", label: row.label })),
+    ...admins.rows.map((row): ListedActor => ({ ref: row.ref, kind: "ADMIN", label: row.label })),
   ];
 }
 
@@ -198,10 +187,7 @@ function helpText(): string {
   ].join("\n");
 }
 
-function lastOutboundId(
-  adapter: SimulatedWhatsAppAdapter,
-  chatRef: string | null,
-): string | null {
+function lastOutboundId(adapter: SimulatedWhatsAppAdapter, chatRef: string | null): string | null {
   for (let index = adapter.transcript.length - 1; index >= 0; index -= 1) {
     const entry = adapter.transcript[index];
     if (
@@ -298,9 +284,7 @@ async function runShell(
             break;
           }
           groups.forEach((group, index) => {
-            console.log(
-              `[${index + 1}] ${group.role} | ${group.displayName} | ${group.chatRef}`,
-            );
+            console.log(`[${index + 1}] ${group.role} | ${group.displayName} | ${group.chatRef}`);
           });
           break;
         case ":actors":
