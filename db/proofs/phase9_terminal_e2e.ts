@@ -278,8 +278,8 @@ async function main(): Promise<void> {
        WHERE location.player_id = $1`,
       [playerId],
     );
-    if (locationBefore.rows[0]?.slug !== "route-1") {
-      throw new Error("Defeat proof must start from non-safe Route 1");
+    if (locationBefore.rows[0]?.slug !== "campos-de-yun") {
+      throw new Error("Defeat proof must start from non-safe Campos de Yun");
     }
 
     const defeatBattleId = await cloneActiveBattleForTerminalProof(pool, sourceBattleId, source);
@@ -341,8 +341,8 @@ async function main(): Promise<void> {
       [playerId],
     );
     const relocated = locationAfter.rows[0];
-    if (relocated?.slug !== "pallet-town") {
-      throw new Error(`Defeat aftermath did not return player to Pallet Town: ${relocated?.slug}`);
+    if (relocated?.slug !== "vila-dos-arrozais") {
+      throw new Error(`Defeat aftermath did not return player to Vila dos Arrozais: ${relocated?.slug}`);
     }
 
     const defeatReplay = unwrap(
@@ -367,7 +367,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `Phase 9 terminal E2E complete: cancelled ${cancellationBattleId}; defeated ${defeatBattleId}; safe point pallet-town; wallet unchanged`,
+      `Phase 9 terminal E2E complete: cancelled ${cancellationBattleId}; defeated ${defeatBattleId}; safe point vila-dos-arrozais; wallet unchanged`,
     );
   } finally {
     await pool.end();

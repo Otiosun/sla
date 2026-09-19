@@ -142,7 +142,7 @@ describe("participant controllers PostgreSQL", () => {
 
   afterAll(async () => {
     await pool?.end();
-    await adminPool?.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+    await adminPool?.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool?.end();
   });
 

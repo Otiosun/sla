@@ -212,13 +212,79 @@ async function startEncounterBattle(
 }
 
 async function winBattle(
+  pool: Pool,
   battle: BattleService,
   battleId: string,
   playerId: PlayerId,
   initial: BattleState,
 ): Promise<BattleState> {
-  let state = initial;
-  for (let turn = 1; turn <= 64 && state.status === "ACTIVE"; turn += 1) {
+  const prepared = structuredClone(initial);
+  const playerSide = prepared.sides.find((side) => side.controllerKind === "PLAYER");
+  const opponentSide = prepared.sides.find((side) => side.sideNo !== playerSide?.sideNo);
+  if (playerSide === undefined || opponentSide === undefined) {
+    throw new Error("Happy-path deterministic reward battle requires two sides");
+  }
+
+  const actor = prepared.combatants.find(
+    (entry) => entry.participantId === playerSide.activeParticipantId,
+  );
+  const target = prepared.combatants.find(
+    (entry) => entry.participantId === opponentSide.activeParticipantId,
+  );
+  if (actor === undefined || target === undefined) {
+    throw new Error("Happy-path deterministic reward combatants are missing");
+  }
+
+  const move = actor.moves.find(
+    (candidate) =>
+      candidate.power !== null &&
+      candidate.power > 0 &&
+      (candidate.ppCurrent === null || candidate.ppCurrent > 0),
+  );
+  if (move === undefined) {
+    throw new Error("Happy-path deterministic reward battle has no damaging move");
+  }
+
+  actor.currentHp = actor.maxHp;
+  actor.majorStatus = null;
+  actor.baseStats.attack = 65_535;
+  actor.baseStats.spAttack = 65_535;
+  actor.baseStats.speed = 65_535;
+  actor.stages.accuracy = 6;
+  actor.stages.speed = 6;
+  move.power = 999;
+  move.accuracy = 100;
+  move.priority = 10;
+
+  target.currentHp = 1;
+  target.majorStatus = null;
+  target.baseStats.defense = 1;
+  target.baseStats.spDefense = 1;
+  target.baseStats.speed = 1;
+  target.stages.evasion = -6;
+  target.stages.speed = -6;
+  target.type1Id = move.typeId;
+  target.type1Slug = move.typeSlug;
+  target.type2Id = null;
+  target.type2Slug = null;
+  for (const opponentMove of target.moves) {
+    opponentMove.power = opponentMove.power === null ? null : 0;
+    opponentMove.accuracy = 0;
+    opponentMove.priority = -10;
+  }
+
+  const patched = await pool.query(
+    `UPDATE battle_state_snapshots
+     SET state = $3::jsonb
+     WHERE battle_id = $1 AND version = $2`,
+    [battleId, prepared.version, JSON.stringify(prepared)],
+  );
+  if (patched.rowCount !== 1) {
+    throw new Error("Could not prepare deterministic Phase17 reward battle snapshot");
+  }
+
+  let state = prepared;
+  for (let turn = 1; turn <= 8 && state.status === "ACTIVE"; turn += 1) {
     const resolved = unwrapBattle(
       `resolve winning turn ${turn}`,
       await battle.resolvePlayerTurn({
@@ -232,7 +298,7 @@ async function winBattle(
     state = resolved.state;
   }
   if (state.status !== "WON") {
-    throw new Error(`Happy-path battle did not end WON: ${state.status} v${state.version}`);
+    throw new Error(`Happy-path deterministic reward battle did not end WON: ${state.status} v${state.version}`);
   }
   return state;
 }
@@ -458,7 +524,7 @@ async function main(): Promise<void> {
       playerId,
       "phase17-happy-reward-encounter",
     );
-    const won = await winBattle(battle, rewardBattle.battleId, playerId, rewardBattle.state);
+    const won = await winBattle(pool, battle, rewardBattle.battleId, playerId, rewardBattle.state);
     if (won.status !== "WON") throw new Error("Reward battle did not finish with a player win");
 
     const progression = new ProgressionService(new PostgresProgressionRepository(pool));

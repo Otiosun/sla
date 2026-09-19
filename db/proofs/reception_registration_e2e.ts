@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { Pool, type PoolClient } from "pg";
+import { Pool } from "pg";
 import { baileysOutboundMessageId } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
@@ -75,76 +75,31 @@ async function prepareZhouliaRelease(pool: Pool): Promise<{
     }),
   );
 
-  const regionId = await withTransaction(pool, async (client) => {
-    await client.query(
-      `INSERT INTO regions(id, slug)
-       VALUES ($1, 'zhoulia')
-       ON CONFLICT (slug) DO NOTHING`,
-      [randomUUID()],
-    );
-    const region = await client.query<{ id: string }>("SELECT id FROM regions WHERE slug = 'zhoulia'");
-    const resolvedRegionId = region.rows[0]?.id;
-    if (resolvedRegionId === undefined) throw new Error("Could not resolve Zhoulia region identity");
+  const region = await pool.query<{ id: string }>(
+    `SELECT region.id
+     FROM region_revisions revision
+     JOIN regions region ON region.id = revision.region_id
+     WHERE revision.content_release_id = $1
+       AND revision.active = TRUE
+       AND region.slug = 'zhoulia'`,
+    [releaseId],
+  );
+  const regionId = region.rows[0]?.id;
+  if (regionId === undefined) {
+    throw new Error("Cloned reception proof release is missing active Zhoulia");
+  }
 
-    await client.query(
-      `INSERT INTO region_revisions(id, content_release_id, region_id, display_name, active)
-       VALUES ($1, $2, $3, 'Zhoulia', TRUE)`,
-      [randomUUID(), releaseId, resolvedRegionId],
-    );
-
-    const existingStarters = await client.query<{ form_id: string; starter_level: number }>(
-      `SELECT form_id, starter_level
-       FROM starter_options
-       WHERE content_release_id = $1 AND active = TRUE
-       ORDER BY sort_order, form_id
-       LIMIT 2`,
-      [releaseId],
-    );
-    if (existingStarters.rows.length < 2) {
-      throw new Error("Reception E2E requires at least two canonical starter builds");
-    }
-    for (const [index, starter] of existingStarters.rows.entries()) {
-      await client.query(
-        `INSERT INTO starter_options(
-           id, content_release_id, region_id, form_id, starter_level, sort_order, active
-         ) VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-        [randomUUID(), releaseId, resolvedRegionId, starter.form_id, starter.starter_level, index + 1],
-      );
-    }
-
-    const gateId = await ensureArea(client, resolvedRegionId, "zhoulia-gate");
-    const roadId = await ensureArea(client, resolvedRegionId, "zhoulia-road");
-    await client.query(
-      `INSERT INTO area_revisions(id, content_release_id, area_id, display_name, active, data)
-       VALUES
-         ($1, $2, $3, 'Portão de Zhoulia', TRUE, $4::jsonb),
-         ($5, $2, $6, 'Estrada de Zhoulia', TRUE, $7::jsonb)`,
-      [
-        randomUUID(),
-        releaseId,
-        gateId,
-        JSON.stringify({
-          schemaVersion: 1,
-          kind: "TOWN",
-          safePoint: true,
-          startingArea: true,
-          relocationPriority: 0,
-        }),
-        randomUUID(),
-        roadId,
-        JSON.stringify({
-          schemaVersion: 1,
-          kind: "ROUTE",
-          safePoint: false,
-          startingArea: false,
-          relocationPriority: 100,
-        }),
-      ],
-    );
-    await ensureConnection(client, releaseId, gateId, roadId, "outbound");
-    await ensureConnection(client, releaseId, roadId, gateId, "return");
-    return resolvedRegionId;
-  });
+  const fixtureStarters = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM starter_options
+     WHERE content_release_id = $1
+       AND region_id = $2
+       AND active = TRUE`,
+    [releaseId, regionId],
+  );
+  if (Number(fixtureStarters.rows[0]?.count ?? "0") < 2) {
+    throw new Error("Reception E2E requires at least two Zhoulia test-fixture starter options");
+  }
 
   unwrap("validate reception proof release", await catalog.validateRelease(releaseId));
   unwrap("publish reception proof release", await catalog.publishRelease(releaseId));
@@ -162,48 +117,6 @@ async function prepareZhouliaRelease(pool: Pool): Promise<{
     throw new Error("Starter display names are unavailable");
   }
   return { regionId, starterNames: [first, second] };
-}
-
-async function ensureArea(client: PoolClient, regionId: string, slug: string): Promise<string> {
-  await client.query(
-    `INSERT INTO areas(id, region_id, slug)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (region_id, slug) DO NOTHING`,
-    [randomUUID(), regionId, slug],
-  );
-  const result = await client.query<{ id: string }>(
-    "SELECT id FROM areas WHERE region_id = $1 AND slug = $2",
-    [regionId, slug],
-  );
-  const id = result.rows[0]?.id;
-  if (id === undefined) throw new Error(`Could not resolve area ${slug}`);
-  return id;
-}
-
-async function ensureConnection(
-  client: PoolClient,
-  releaseId: string,
-  fromAreaId: string,
-  toAreaId: string,
-  connectionKey: string,
-): Promise<void> {
-  const connectionId = randomUUID();
-  await client.query(
-    `INSERT INTO area_connections(id, from_area_id, to_area_id, connection_key)
-     VALUES ($1, $2, $3, $4)`,
-    [connectionId, fromAreaId, toAreaId, connectionKey],
-  );
-  await client.query(
-    `INSERT INTO area_connection_revisions(
-       id, content_release_id, connection_id, access_rule, active
-     ) VALUES ($1, $2, $3, $4::jsonb, TRUE)`,
-    [
-      randomUUID(),
-      releaseId,
-      connectionId,
-      JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] }),
-    ],
-  );
 }
 
 async function configureReception(pool: Pool): Promise<{ adminPrincipalId: string }> {
@@ -667,12 +580,22 @@ async function main(): Promise<void> {
     assert.equal(announcement.rows[0]?.destination_ref, RECEPTION_CHAT);
     assert.match(announcement.rows[0]?.payload.text ?? "", /Liora Vale/);
 
-    const location = unwrap("load active location", await realWorld.getLocation(playerId as never));
-    const route = location.connections.find(
-      (candidate) => candidate.destinationSlug === "zhoulia-road",
+    const location = unwrap(
+      "load active location",
+      await realWorld.getLocation(playerId as never),
     );
-    if (route === undefined) throw new Error("Zhoulia world route is missing after provisioning");
-    const commandText = `/ir ${route.destinationSlug} v${location.revision}`;
+    if (location.areaSlug !== "vila-dos-arrozais" || location.regionSlug !== "zhoulia") {
+      throw new Error(
+        `Provisioned player did not start in canonical Zhoulia/Vila dos Arrozais: ${location.regionSlug}/${location.areaSlug}`,
+      );
+    }
+    const routeIndex = location.connections.findIndex(
+      (candidate) => candidate.destinationSlug === "campos-de-yun" && candidate.available,
+    );
+    if (routeIndex < 0) {
+      throw new Error("Canonical Campos de Yun route is missing after provisioning");
+    }
+    const commandText = `/ir ${routeIndex + 1}`;
     const receptionContext = directContext(PLAYER_JID, RECEPTION_CHAT, commandText);
     const denied = await runtime.composition.router.dispatch(receptionContext);
     assert.equal(denied.ok, false);
@@ -684,7 +607,7 @@ async function main(): Promise<void> {
     if (!allowed.ok) {
       throw new Error(`World travel was denied in world-capable group: ${allowed.error.code}`);
     }
-    assert.match(String(allowed.value?.outgoing[0]?.payload.text ?? ""), /Estrada de Zhoulia/);
+    assert.match(String(allowed.value?.outgoing[0]?.payload.text ?? ""), /Campos de Yun/);
 
     console.log("Reception registration E2E proof passed");
   } finally {
