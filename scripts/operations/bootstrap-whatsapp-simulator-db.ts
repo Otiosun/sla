@@ -112,25 +112,28 @@ if (new Set(["postgres", "template0", "template1"]).has(simulatorName)) {
 }
 
 const reset = process.env.SIMULATOR_RESET === "1";
+const fresh = process.env.SIMULATOR_FRESH === "1";
 const adminPool = new Pool({
   connectionString: maintenanceUrl(sourceUrl),
   max: 1,
 });
 
 try {
-  const sourceConnections = await adminPool.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count
-     FROM pg_stat_activity
-     WHERE datname = $1
-       AND pid <> pg_backend_pid()
-       AND backend_type = 'client backend'`,
-    [sourceName],
-  );
-  const activeSourceConnections = Number(sourceConnections.rows[0]?.count ?? "0");
-  if (activeSourceConnections > 0) {
-    throw new Error(
-      `Source database ${sourceName} has ${activeSourceConnections} active client connection(s). Stop local runtimes before cloning.`,
+  if (!fresh) {
+    const sourceConnections = await adminPool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM pg_stat_activity
+       WHERE datname = $1
+         AND pid <> pg_backend_pid()
+         AND backend_type = 'client backend'`,
+      [sourceName],
     );
+    const activeSourceConnections = Number(sourceConnections.rows[0]?.count ?? "0");
+    if (activeSourceConnections > 0) {
+      throw new Error(
+        `Source database ${sourceName} has ${activeSourceConnections} active client connection(s). Stop local runtimes before cloning.`,
+      );
+    }
   }
 
   const existing = await adminPool.query<{ exists: boolean }>(
@@ -153,10 +156,15 @@ try {
     await adminPool.query(`DROP DATABASE ${quotedIdentifier(simulatorName)}`);
   }
 
-  await adminPool.query(
-    `CREATE DATABASE ${quotedIdentifier(simulatorName)} TEMPLATE ${quotedIdentifier(sourceName)}`,
-  );
-  console.log(`[sim-bootstrap] cloned ${sourceName} -> ${simulatorName}`);
+  if (fresh) {
+    await adminPool.query(`CREATE DATABASE ${quotedIdentifier(simulatorName)}`);
+    console.log(`[sim-bootstrap] created fresh ${simulatorName}`);
+  } else {
+    await adminPool.query(
+      `CREATE DATABASE ${quotedIdentifier(simulatorName)} TEMPLATE ${quotedIdentifier(sourceName)}`,
+    );
+    console.log(`[sim-bootstrap] cloned ${sourceName} -> ${simulatorName}`);
+  }
 } finally {
   await adminPool.end();
 }
