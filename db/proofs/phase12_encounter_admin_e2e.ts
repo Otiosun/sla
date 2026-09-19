@@ -163,6 +163,13 @@ try {
   await insertBattle(unsettledBattleId, unsettledEncounterId, "WON");
 
   await pool.query(
+    `INSERT INTO encounter_wild_snapshots(
+       encounter_id, wild_no, status, schema_version, pokemon_snapshot
+     ) VALUES ($1, 1, 'ACTIVE', 1, '{}'::jsonb)`,
+    [captureEncounterId],
+  );
+
+  await pool.query(
     `INSERT INTO capture_attempts(
        id, player_id, encounter_id, ball_item_id, idempotency_key,
        status, probability_basis_points, roll_basis_points,

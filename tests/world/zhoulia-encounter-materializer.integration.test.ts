@@ -32,7 +32,11 @@ describe.skipIf(!enabled)("Zhoulia encounter DRAFT materializer", () => {
       cwd: process.cwd(),
       shell: true,
       encoding: "utf8",
-      env: { ...process.env, DATABASE_URL: dbUrl.toString() },
+      env: {
+        ...process.env,
+        DATABASE_URL: dbUrl.toString(),
+        MIGRATOR_DATABASE_URL: dbUrl.toString(),
+      },
     });
     if ((migrated.status ?? 1) !== 0) {
       throw new Error(`db:migrate failed: ${migrated.stdout}\n${migrated.stderr}`);

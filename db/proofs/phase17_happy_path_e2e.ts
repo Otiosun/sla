@@ -171,7 +171,8 @@ async function startEncounterBattle(
     await encounter.createOrReplay({
       playerId,
       idempotencyKey,
-      encounterTableSlug: "grass-day",
+      encounterTableSlug: "day-land",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
     }),
   );
   const observed = unwrap(
@@ -251,7 +252,9 @@ async function main(): Promise<void> {
       reason: null,
     });
     const encounterRepository = new PostgresEncounterRepository(pool);
-    const battleRepository = new PostgresBattleRepository(pool);
+    const battleRepository = new PostgresBattleRepository(pool, {
+      turnWindowTtlMs: 300_000,
+    });
     const reads = new PostgresOperationalUxReadModel(pool);
     const messaging = new MessagingService(
       new PostgresMessagingRepository(pool),
@@ -306,13 +309,19 @@ async function main(): Promise<void> {
     // viajar
     await receiveProcessed(messaging, "f17-happy-where", "$onde", 7);
     const whereText = await outgoingText(pool, "f17-happy-where");
-    const travelMatch = whereText.match(/\/ir\s+([a-z0-9-]+)\s+v(\d+)/i);
-    const destinationSlug = travelMatch?.[1];
-    const revision = travelMatch?.[2];
-    if (destinationSlug !== "route-1" || revision === undefined) {
-      throw new Error(`Happy-path route command was not Route 1: ${whereText}`);
+    const travelMatch = whereText.match(
+      /(\d+)\.\s+\*Campos de Yun\*\s*[\r\n]+\s*→\s*`\/ir\s+(\d+)`/i,
+    );
+    const listedRouteNumber = travelMatch?.[1];
+    const commandRouteNumber = travelMatch?.[2];
+    if (
+      listedRouteNumber === undefined ||
+      commandRouteNumber === undefined ||
+      listedRouteNumber !== commandRouteNumber
+    ) {
+      throw new Error(`Happy-path numbered route command was not Campos de Yun: ${whereText}`);
     }
-    await receiveProcessed(messaging, "f17-happy-travel", `$ir ${destinationSlug} v${revision}`, 8);
+    await receiveProcessed(messaging, "f17-happy-travel", `/ir ${commandRouteNumber}`, 8);
     const location = await pool.query<{ slug: string }>(
       `SELECT area.slug
        FROM player_locations location
@@ -320,8 +329,8 @@ async function main(): Promise<void> {
        WHERE location.player_id = $1`,
       [playerId],
     );
-    if (location.rows[0]?.slug !== "route-1")
-      throw new Error("Happy-path travel did not reach Route 1");
+    if (location.rows[0]?.slug !== "campos-de-yun")
+      throw new Error("Happy-path travel did not reach Campos de Yun");
 
     // encontro → battle
     const encounter = new EncounterService(
@@ -568,7 +577,7 @@ async function main(): Promise<void> {
     if (
       audit === undefined ||
       audit.onboarding_state !== "COMPLETE" ||
-      audit.area_slug !== "route-1" ||
+      audit.area_slug !== "campos-de-yun" ||
       audit.captured !== "1" ||
       Number(audit.pokedex_caught) < 1 ||
       audit.reward_claims !== "1" ||

@@ -22,15 +22,31 @@ function unwrap<T>(label: string, result: Result<T>): T {
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl, max: 8 });
   try {
-    const region = await pool.query<{ id: string }>("SELECT id FROM regions WHERE slug = 'kanto'");
-    const regionId = region.rows[0]?.id;
-    if (regionId === undefined) throw new Error("Kanto is missing from the active seeded catalog");
+    const regions = await pool.query<{ id: string; slug: string }>(
+      `SELECT region.id,region.slug
+         FROM region_revisions revision
+         JOIN regions region ON region.id=revision.region_id
+         JOIN content_release_pointers pointer
+           ON pointer.content_release_id=revision.content_release_id
+        WHERE pointer.pointer_key='ACTIVE'
+          AND revision.active=TRUE
+        ORDER BY region.slug`,
+    );
+    if (
+      regions.rows.length !== 1 ||
+      regions.rows[0]?.slug !== "zhoulia" ||
+      regions.rows[0]?.id === undefined
+    ) {
+      throw new Error(`ACTIVE world must expose only Zhoulia: ${JSON.stringify(regions.rows)}`);
+    }
+    const regionId = regions.rows[0].id;
 
     const onboardingRepository = new PostgresPlayerOnboardingRepository(pool);
     const registration = new PlayerRegistrationService(onboardingRepository);
+    const clock = new ManualClock(new Date("2026-09-19T00:00:00.000Z"));
     const starter = new PlayerStarterService(
       onboardingRepository,
-      new ManualClock(new Date("2026-08-26T00:00:00.000Z")),
+      clock,
       new DeterministicRandomSource(7007),
     );
 
@@ -38,7 +54,7 @@ async function main(): Promise<void> {
       "resolve/create player",
       await registration.resolveOrCreatePlayer({
         provider: "phase7-proof",
-        externalId: "onboarding-to-world-e2e",
+        externalId: "onboarding-to-zhoulia-e2e",
       }),
     );
     unwrap(
@@ -48,13 +64,13 @@ async function main(): Promise<void> {
         locale: "pt-BR",
       }),
     );
-    unwrap("select Kanto", await registration.selectRegion(identity.playerId, { regionId }));
+    unwrap("select Zhoulia", await registration.selectRegion(identity.playerId, { regionId }));
     const selection = unwrap(
       "prepare starter",
       await starter.prepareStarterSelection(identity.playerId),
     );
     const starterOption = selection.options[0];
-    if (starterOption === undefined) throw new Error("Kanto has no active starter option");
+    if (starterOption === undefined) throw new Error("Zhoulia has no active starter option");
     unwrap(
       "grant starter",
       await starter.grantStarter(
@@ -69,45 +85,69 @@ async function main(): Promise<void> {
       throw new Error(`Expected COMPLETE onboarding, got ${profile.onboardingState}`);
     }
 
-    const world = new WorldService(new PostgresWorldRepository(pool), {
-      enabled: true,
-      reason: null,
-    });
+    const world = new WorldService(
+      new PostgresWorldRepository(pool),
+      { enabled: true, reason: null },
+      clock,
+    );
     const initial = unwrap(
       "initialize world location",
       await world.ensureInitialLocation({ playerId: identity.playerId }),
     );
-    if (initial.areaSlug !== "pallet-town" || initial.revision !== 0n) {
+    if (
+      initial.regionSlug !== "zhoulia" ||
+      initial.areaSlug !== "vila-dos-arrozais" ||
+      initial.revision !== 0n
+    ) {
       throw new Error(
-        `Expected Pallet Town revision 0, got ${initial.areaSlug} revision ${initial.revision}`,
+        `Expected Zhoulia/Vila dos Arrozais revision 0, got ` +
+          `${initial.regionSlug}/${initial.areaSlug} revision ${initial.revision}`,
       );
     }
 
     const route = initial.connections.find(
-      (connection) => connection.destinationSlug === "route-1" && connection.available,
+      (connection) =>
+        connection.destinationSlug === "campos-de-yun" &&
+        connection.destinationDisplayName === "Campos de Yun" &&
+        connection.available,
     );
-    if (route === undefined) throw new Error("Pallet Town has no available Route 1 connection");
+    if (route === undefined) {
+      throw new Error("Vila dos Arrozais has no available canonical Campos de Yun route");
+    }
+
     const traveled = unwrap(
-      "travel to Route 1",
+      "travel to Campos de Yun",
       await world.travel({
         playerId: identity.playerId,
         destinationAreaId: route.destinationAreaId,
         expectedRevision: initial.revision,
       }),
     );
-    if (traveled.to.areaSlug !== "route-1" || traveled.to.revision !== 1n) {
+    if (
+      traveled.to.regionSlug !== "zhoulia" ||
+      traveled.to.areaSlug !== "campos-de-yun" ||
+      traveled.to.revision !== 1n
+    ) {
       throw new Error(
-        `Expected Route 1 revision 1, got ${traveled.to.areaSlug} revision ${traveled.to.revision}`,
+        `Expected Campos de Yun revision 1, got ` +
+          `${traveled.to.regionSlug}/${traveled.to.areaSlug} revision ${traveled.to.revision}`,
       );
     }
 
     const local = unwrap("query persisted location", await world.getLocation(identity.playerId));
-    if (local.areaSlug !== "route-1" || local.revision !== 1n) {
-      throw new Error(`Persisted location mismatch: ${local.areaSlug} revision ${local.revision}`);
+    if (
+      local.regionSlug !== "zhoulia" ||
+      local.areaSlug !== "campos-de-yun" ||
+      local.revision !== 1n
+    ) {
+      throw new Error(
+        `Persisted location mismatch: ${local.regionSlug}/${local.areaSlug} revision ${local.revision}`,
+      );
     }
 
     console.log(
-      `Phase 7 E2E complete: player ${identity.playerId} -> ${initial.areaSlug} -> ${local.areaSlug}`,
+      `Phase 7 Zhoulia E2E complete: player ${identity.playerId} -> ` +
+        `${initial.areaSlug} -> ${local.areaSlug}`,
     );
   } finally {
     await pool.end();

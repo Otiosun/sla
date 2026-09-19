@@ -5,8 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { ZHOULIA_TYPED_CONTENT_V1 } from "../../src/modules/world/zhoulia-content.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
-import { PostgresZhouliaDraftStructureImporter } from "../../src/platform/world/postgres-zhoulia-draft-importer.js";
-import { PostgresZhouliaEncounterDraftMaterializer } from "../../src/platform/world/postgres-zhoulia-encounter-materializer.js";
+import { reconcileZhouliaExclusiveRelease } from "../../src/platform/world/postgres-zhoulia-exclusive-release.js";
 
 const enabled =
   process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS === "1" &&
@@ -38,7 +37,11 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
         cwd: process.cwd(),
         encoding: "utf8",
         maxBuffer: 256 * 1024 * 1024,
-        env: { ...process.env, DATABASE_URL: dbUrl.toString() },
+        env: {
+          ...process.env,
+          DATABASE_URL: dbUrl.toString(),
+          MIGRATOR_DATABASE_URL: dbUrl.toString(),
+        },
       },
     );
     if ((migrated.status ?? 1) !== 0) {
@@ -254,17 +257,26 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
 
     await seedZhouliaSpeciesFixture(releaseId);
 
-    const structure = await new PostgresZhouliaDraftStructureImporter(pool).import({
-      releaseId,
-    });
-    expect(Object.keys(structure.areaIdsByIdentity)).toHaveLength(6);
-    expect(structure.directedConnectionCount).toBe(2);
+    const starterForm = await pool.query<{ form_id: string }>(
+      `SELECT form_id
+         FROM pokemon_form_revisions
+        WHERE content_release_id=$1
+          AND active=TRUE
+        ORDER BY form_id
+        LIMIT 1`,
+      [releaseId],
+    );
+    const starterFormId = starterForm.rows[0]?.form_id;
+    if (starterFormId === undefined) throw new Error("Disposable candidate has no active form");
 
-    const encounters = await new PostgresZhouliaEncounterDraftMaterializer(pool).materialize({
+    const exclusive = await reconcileZhouliaExclusiveRelease(pool, {
       releaseId,
+      starterOptions: [{ formId: starterFormId, starterLevel: 5, sortOrder: 0 }],
     });
-    expect(encounters.tablesMaterialized).toBe(7);
-    expect(encounters.entriesMaterialized).toBeGreaterThan(0);
+    expect(exclusive.activeAreaSlugs).toHaveLength(6);
+    expect(exclusive.activeConnectionKeys).toHaveLength(2);
+    expect(exclusive.activeEncounterTables).toHaveLength(7);
+    expect(exclusive.activeStarterCount).toBe(1);
 
     const beforeValidation = await pool.query<{
       status: string;
