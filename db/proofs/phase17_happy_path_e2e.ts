@@ -298,7 +298,9 @@ async function winBattle(
     state = resolved.state;
   }
   if (state.status !== "WON") {
-    throw new Error(`Happy-path deterministic reward battle did not end WON: ${state.status} v${state.version}`);
+    throw new Error(
+      `Happy-path deterministic reward battle did not end WON: ${state.status} v${state.version}`,
+    );
   }
   return state;
 }

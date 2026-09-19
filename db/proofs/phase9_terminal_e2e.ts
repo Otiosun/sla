@@ -342,7 +342,9 @@ async function main(): Promise<void> {
     );
     const relocated = locationAfter.rows[0];
     if (relocated?.slug !== "vila-dos-arrozais") {
-      throw new Error(`Defeat aftermath did not return player to Vila dos Arrozais: ${relocated?.slug}`);
+      throw new Error(
+        `Defeat aftermath did not return player to Vila dos Arrozais: ${relocated?.slug}`,
+      );
     }
 
     const defeatReplay = unwrap(
