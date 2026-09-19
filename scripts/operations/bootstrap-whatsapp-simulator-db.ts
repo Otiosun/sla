@@ -21,11 +21,19 @@ function databaseName(url: URL): string {
   return name;
 }
 
+function normalizedPostgresProtocol(url: URL): string {
+  return url.protocol === "postgres:" ? "postgresql:" : url.protocol;
+}
+
+function normalizedPort(url: URL): string {
+  return url.port.length === 0 ? "5432" : url.port;
+}
+
 function sameServer(left: URL, right: URL): boolean {
   return (
-    left.protocol === right.protocol &&
+    normalizedPostgresProtocol(left) === normalizedPostgresProtocol(right) &&
     left.hostname === right.hostname &&
-    left.port === right.port
+    normalizedPort(left) === normalizedPort(right)
   );
 }
 
@@ -39,6 +47,46 @@ function maintenanceUrl(source: URL): string {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+async function existingTables(pool: Pool, names: readonly string[]): Promise<ReadonlySet<string>> {
+  const result = await pool.query<{ table_name: string }>(
+    `SELECT name AS table_name
+     FROM unnest($1::text[]) AS requested(name)
+     WHERE to_regclass('public.' || name) IS NOT NULL`,
+    [names],
+  );
+  return new Set(result.rows.map((row) => row.table_name));
+}
+
+async function sanitizeSimulatorState(pool: Pool): Promise<void> {
+  const tables = await existingTables(pool, [
+    "whatsapp_auth_keys",
+    "whatsapp_auth_sessions",
+    "inbox_messages",
+    "outbox_messages",
+    "messaging_rate_limit_buckets",
+  ]);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (tables.has("whatsapp_auth_keys") && tables.has("whatsapp_auth_sessions")) {
+      await client.query("TRUNCATE TABLE whatsapp_auth_keys, whatsapp_auth_sessions CASCADE");
+    }
+    if (tables.has("inbox_messages") && tables.has("outbox_messages")) {
+      await client.query("TRUNCATE TABLE inbox_messages, outbox_messages CASCADE");
+    }
+    if (tables.has("messaging_rate_limit_buckets")) {
+      await client.query("TRUNCATE TABLE messaging_rate_limit_buckets");
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 const sourceRaw = requiredEnv("DATABASE_URL");
@@ -120,26 +168,15 @@ const simulatorPool = new Pool({
 });
 
 try {
+  // Strip cloned provider credentials and messaging queues before any migration or runtime work.
+  await sanitizeSimulatorState(simulatorPool);
+
   await runMigrations(simulatorPool, {
     appliedBy: "whatsapp-simulator-bootstrap",
   });
 
-  const client = await simulatorPool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      "TRUNCATE TABLE whatsapp_auth_keys, whatsapp_auth_sessions CASCADE",
-    );
-    await client.query("TRUNCATE TABLE inbox_messages, outbox_messages CASCADE");
-    await client.query("TRUNCATE TABLE messaging_rate_limit_buckets");
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-
+  // Newer migrations may introduce sensitive transport tables; sanitize a second time.
+  await sanitizeSimulatorState(simulatorPool);
   await assertDatabaseSchemaCurrent(simulatorPool);
 
   const [groups, players, admins, authRows, activeRelease] = await Promise.all([
