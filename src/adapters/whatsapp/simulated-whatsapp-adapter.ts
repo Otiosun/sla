@@ -57,9 +57,7 @@ export interface SimulatedWhatsAppAdapterOptions {
   readonly now?: () => Date;
   readonly providerMessageIdFor?: (message: PendingOutboxMessage) => string;
   readonly onMembership?: (event: ReceptionMembershipEvent) => Promise<void>;
-  readonly onConnectionState?: (
-    state: WhatsAppProviderConnectionState,
-  ) => Promise<void> | void;
+  readonly onConnectionState?: (state: WhatsAppProviderConnectionState) => Promise<void> | void;
 }
 
 export class SimulatedWhatsAppAdapter implements WhatsAppAdapter {
