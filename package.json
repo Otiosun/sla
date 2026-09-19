@@ -27,6 +27,7 @@
     "ops:bootstrap:admin": "node --env-file-if-exists=.env --import tsx scripts/operations/bootstrap-initial-admin.ts",
     "ops:bootstrap:content": "node --env-file-if-exists=.env --import tsx scripts/operations/staging-content-bootstrap.ts",
     "ops:bootstrap:whatsapp": "node --env-file-if-exists=.env --import tsx scripts/operations/bootstrap-whatsapp-session.ts",
+    "ops:bootstrap:whatsapp:staging": "tsx scripts/operations/staging-whatsapp-pairing-helper.ts",
     "ops:docs:verify": "node --import tsx scripts/operations/verify-operator-docs.ts",
     "ops:smoke:application": "node --import tsx scripts/operations/post-deploy-application-smoke.ts",
     "lint": "biome lint .",
