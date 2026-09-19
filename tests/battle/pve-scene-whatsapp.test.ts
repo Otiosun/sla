@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { BattleState } from "../../src/modules/battle/contracts.js";
+import type { BattleEvent, BattleState } from "../../src/modules/battle/contracts.js";
 import type { BattleParticipantController } from "../../src/modules/battle/participant-controller.js";
 import {
   createPveSceneConversationResolver,
@@ -58,6 +58,7 @@ const state = {
       participantId: enemyId,
       participantKind: "WILD_POKEMON",
       sideNo: 2,
+      rosterPosition: 1,
       speciesId: rattataSpecies,
       currentHp: 10,
       maxHp: 20,
@@ -104,7 +105,12 @@ function presentation() {
 
 function dependencies(pending: boolean) {
   const resolvePlayerTurn = vi.fn(async () =>
-    ok({ state, events: [], replayed: false, ...(pending ? { pending: true } : {}) }),
+    ok({
+      state,
+      events: [] as BattleEvent[],
+      replayed: false,
+      ...(pending ? { pending: true } : {}),
+    }),
   );
   const listByBattle = vi.fn(
     async (): Promise<readonly BattleParticipantController[]> => [
@@ -487,5 +493,103 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(setup.transition).toHaveBeenLastCalledWith(
       expect.objectContaining({ participantId: enemyId, kind: "AUTO", adminPrincipalId: null }),
     );
+  });
+  it("resolves a failed capture as the player's PVE turn action", async () => {
+    const setup = dependencies(false);
+    const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const ballItemId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const resolvedState = { ...state, version: 5, turnNumber: 4 } as BattleState;
+    setup.resolvePlayerTurn.mockResolvedValueOnce(
+      ok({
+        state: resolvedState,
+        events: [
+          {
+            type: "ActionSkipped",
+            payload: {
+              participantId,
+              targetParticipantId: enemyId,
+              ballItemId,
+              reason: "CAPTURE_FAILED",
+            },
+          },
+          {
+            type: "DamageApplied",
+            payload: {
+              participantId,
+              sourceParticipantId: enemyId,
+              damage: 2,
+              remainingHp: 10,
+            },
+          },
+        ],
+        replayed: false,
+      }),
+    );
+    const attempt = vi.fn(async () =>
+      ok({
+        captureAttemptId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        encounterId,
+        battleId,
+        status: "FAILED" as const,
+        probabilityBasisPoints: 2500,
+        rollBasisPoints: 9000,
+        pokemonInstanceId: null,
+        placement: null,
+        events: [],
+        replayed: false,
+      }),
+    );
+    const deps = {
+      ...setup.dependencies,
+      encounters: {
+        activeForPlayer: vi.fn(async () =>
+          ok({
+            encounterId,
+            battleId,
+            contentReleaseId: releaseId,
+            revision: 7n,
+          }),
+        ),
+      },
+      captureBalls: {
+        listAvailable: vi.fn(async () => [
+          { itemId: ballItemId, displayName: "Poké Ball", quantity: 3n },
+        ]),
+      },
+      capture: { attempt },
+    } as unknown as PveSceneDependencies;
+
+    const result = await createPveSceneConversationResolver(deps).resolve({
+      ...context("/capturar Poke Ball"),
+      correlationId: "12121212-1212-4121-8121-121212121212",
+    });
+
+    expect(attempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId,
+        encounterId,
+        expectedBattleVersion: state.version,
+        actorParticipantId: participantId,
+        targetWildNo: 1,
+        ballItemId,
+      }),
+    );
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        battleId,
+        playerId,
+        expectedVersion: state.version,
+        action: {
+          type: "CAPTURE_ATTEMPT",
+          actorParticipantId: participantId,
+          ballItemId,
+          targetParticipantId: enemyId,
+        },
+      }),
+    );
+    if (!result.ok || result.value === null) throw new Error("Expected failed capture turn reply");
+    expect(String(result.value.outgoing[1]?.payload.text)).toContain("A Poké Ball foi lançada.");
+    expect(String(result.value.outgoing[1]?.payload.text)).toContain("O Pokémon escapou.");
+    expect(String(result.value.outgoing[1]?.payload.text)).toContain("12 → 10 HP.");
   });
 });

@@ -288,6 +288,11 @@ export const BattleActionSchema = z.discriminatedUnion("type", [
     itemId: uuid,
     targetParticipantId: uuid.optional(),
   }).strict(),
+  ActionBaseSchema.extend({
+    type: z.literal("CAPTURE_ATTEMPT"),
+    ballItemId: uuid,
+    targetParticipantId: uuid,
+  }).strict(),
   ActionBaseSchema.extend({ type: z.literal("FLEE") }).strict(),
 ]);
 export type BattleAction = z.infer<typeof BattleActionSchema>;

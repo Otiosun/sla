@@ -70,6 +70,8 @@ export interface CaptureAttemptInput {
   readonly encounterId: EncounterId;
   readonly expectedEncounterRevision: bigint;
   readonly expectedBattleVersion: number | null;
+  /** Exact active PLAYER participant reserving the PVE TurnWindow action. */
+  readonly actorParticipantId?: string;
   /** Frozen wild roster position. Defaults to 1 for legacy single-wild callers. */
   readonly targetWildNo?: number;
   readonly ballItemId: string;
@@ -163,6 +165,7 @@ export const CaptureAttemptInputBoundarySchema = z
     encounterId: uuid,
     expectedEncounterRevision: z.bigint().nonnegative(),
     expectedBattleVersion: z.number().int().nonnegative().safe().nullable(),
+    actorParticipantId: uuid.optional(),
     targetWildNo: z.number().int().min(1).max(6).optional(),
     ballItemId: uuid,
     idempotencyKey: z.string().trim().min(1).max(255),

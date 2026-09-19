@@ -8,12 +8,16 @@ describe("multi-wild capture/flee wiring", () => {
     expect(capture).toContain("encounter_wild_snapshots");
     expect(capture).toContain("active_member = FALSE");
     expect(capture).toContain("openControllerTurnWindowInTransaction");
+    expect(capture).toContain("submitTurnActionInTransaction");
+    expect(capture).toContain('type: "CAPTURE_ATTEMPT"');
     expect(capture).toContain("encounterContinues: !terminal");
   });
 
   it("routes capture/flee through the compact PVE front and follows the active wild controller", () => {
     const scene = fs.readFileSync("src/modules/battle/pve-scene-whatsapp.ts", "utf8");
     expect(scene).toContain("dependencies.capture.attempt");
+    expect(scene).toContain('type: "CAPTURE_ATTEMPT"');
+    expect(scene).toContain("dependencies.battle.resolvePlayerTurn");
     expect(scene).toContain("dependencies.encounterWriter.flee");
     expect(scene).toContain("entry.participantId === activeWild.participantId");
     expect(scene).toContain('state.value.battleType === "PVP"');

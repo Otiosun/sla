@@ -224,6 +224,12 @@ export class BattleService {
       if (controllerWindow?.window.requiredControllers !== undefined) {
         return this.resolveControllerPlayerTurn(transaction, controllerWindow, input);
       }
+      if (parsedAction.data.type === "CAPTURE_ATTEMPT") {
+        return failure(
+          "BATTLE_ACTION_INVALID",
+          "Capture attempts must be reserved by the capture transaction",
+        );
+      }
       const existing = await transaction.findAction(storageKey, true);
       if (existing !== null) {
         if (!actionMatches(existing, input, storageKey)) {
@@ -387,6 +393,17 @@ export class BattleService {
       return failure("BATTLE_STATE_INVALID", "Pinned battle ruleset is missing");
     const rules = normalizeBattleRules(ruleset);
     if (!rules.ok) return rules;
+    if (input.action.type === "CAPTURE_ATTEMPT") {
+      const reserved = aggregate.submissions.some(
+        (entry) =>
+          entry.status === "ACTIVE" &&
+          entry.playerId === input.playerId &&
+          isDeepStrictEqual(entry.action, input.action),
+      );
+      if (!reserved) {
+        return failure("BATTLE_ACTION_INVALID", "Capture attempt has no durable turn reservation");
+      }
+    }
     const invalid = validateBattleAction(state, input.action, rules.value);
     if (invalid !== null) return { ok: false, error: invalid };
     const submitted = await transaction.submitTurnAction(aggregate.window.id, {

@@ -12,6 +12,8 @@ import {
 } from "../../modules/capture/contracts.js";
 import type {
   CaptureBallConsumeResult,
+  CaptureBattleTurnClaimInput,
+  CaptureBattleTurnClaimResult,
   CaptureFailureWrite,
   CapturePendingWrite,
   CaptureRepository,
@@ -27,7 +29,11 @@ import {
   parsePlayerId,
   parsePokemonInstanceId,
 } from "../../shared-kernel/ids.js";
-import { openControllerTurnWindowInTransaction } from "../battle/postgres-battle-turn-window-repository.js";
+import {
+  loadAggregateByBattleVersion,
+  openControllerTurnWindowInTransaction,
+  submitTurnActionInTransaction,
+} from "../battle/postgres-battle-turn-window-repository.js";
 import { withTransaction } from "../db/transaction.js";
 import { nextCanonicalRosterPlacement } from "../player/postgres-roster-placement.js";
 import { recordPokedexCaught } from "../pokedex/postgres-pokedex-writer.js";
@@ -286,6 +292,60 @@ class PostgresCaptureTransaction implements CaptureTransaction {
       },
       explicitModifierBasisPoints: [],
     };
+  }
+
+  public async claimBattleTurn(
+    input: CaptureBattleTurnClaimInput,
+  ): Promise<CaptureBattleTurnClaimResult> {
+    const aggregate = await loadAggregateByBattleVersion(
+      this.client,
+      input.battleId,
+      input.expectedBattleVersion,
+    );
+    if (aggregate === null || aggregate.window.requiredControllers === undefined) {
+      return {
+        kind: "REJECTED",
+        code: "TURN_WINDOW_NOT_FOUND",
+        message: "Current controller turn window was not found",
+      };
+    }
+    const required = aggregate.window.requiredControllers.find(
+      (entry) =>
+        entry.participantId === input.actorParticipantId &&
+        entry.kind === "PLAYER" &&
+        entry.playerId === input.playerId,
+    );
+    if (required === undefined) {
+      return {
+        kind: "REJECTED",
+        code: "TURN_WINDOW_PLAYER_NOT_REQUIRED",
+        message: "Player actor is not required for the current turn",
+      };
+    }
+
+    const submitted = await submitTurnActionInTransaction(this.client, aggregate.window.id, {
+      id: randomUUID(),
+      playerId: input.playerId,
+      sideNo: required.sideNo,
+      controllerRevision: required.revision,
+      expectedBattleVersion: input.expectedBattleVersion,
+      idempotencyKey: input.idempotencyKey,
+      action: {
+        type: "CAPTURE_ATTEMPT",
+        actorParticipantId: input.actorParticipantId,
+        ballItemId: input.ballItemId,
+        targetParticipantId: input.targetParticipantId,
+      },
+      submittedAt: new Date(),
+    });
+    if (!submitted.ok) {
+      return {
+        kind: "REJECTED",
+        code: submitted.error.code,
+        message: submitted.error.message,
+      };
+    }
+    return { kind: "CLAIMED", replayed: submitted.value.replayed };
   }
 
   public async beginResolving(input: {

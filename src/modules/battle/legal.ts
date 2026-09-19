@@ -109,6 +109,11 @@ function sameAction(left: BattleAction, right: BattleAction): boolean {
   if (left.type === "USE_ITEM" && right.type === "USE_ITEM") {
     return left.itemId === right.itemId && left.targetParticipantId === right.targetParticipantId;
   }
+  if (left.type === "CAPTURE_ATTEMPT" && right.type === "CAPTURE_ATTEMPT") {
+    return (
+      left.ballItemId === right.ballItemId && left.targetParticipantId === right.targetParticipantId
+    );
+  }
   return left.type === "FLEE" && right.type === "FLEE";
 }
 
@@ -120,6 +125,45 @@ export function validateBattleAction(
   const actor = combatant(state, action.actorParticipantId);
   if (actor === undefined) {
     return { code: "BATTLE_ACTION_INVALID", message: "Actor participant is absent from battle" };
+  }
+  if (action.type === "CAPTURE_ATTEMPT") {
+    const actorSide = state.sides.find((entry) => entry.sideNo === actor.sideNo);
+    const actorIsActive =
+      actorSide !== undefined &&
+      (actorSide.slots ?? [actorSide]).some(
+        (slot) => slot.activeParticipantId === actor.participantId,
+      );
+    const target = combatant(state, action.targetParticipantId);
+    const targetSide =
+      target === undefined
+        ? undefined
+        : state.sides.find((entry) => entry.sideNo === target.sideNo);
+    const targetIsActive =
+      target !== undefined &&
+      targetSide !== undefined &&
+      (targetSide.slots ?? [targetSide]).some(
+        (slot) => slot.activeParticipantId === target.participantId,
+      );
+
+    if (
+      state.status !== "ACTIVE" ||
+      state.battleType !== "WILD" ||
+      actor.participantKind !== "PLAYER_POKEMON" ||
+      actor.currentHp <= 0 ||
+      !actorIsActive ||
+      target === undefined ||
+      target.participantKind !== "WILD_POKEMON" ||
+      target.currentHp <= 0 ||
+      target.sideNo === actor.sideNo ||
+      !targetIsActive
+    ) {
+      return {
+        code: "BATTLE_ACTION_INVALID",
+        message: "Capture attempt is not legal in the current battle state",
+        details: { actionType: action.type, sideNo: actor.sideNo },
+      };
+    }
+    return null;
   }
   const legal = legalActionsForParticipant(state, actor.participantId, rules);
   if (!legal.some((candidate) => sameAction(candidate, action))) {

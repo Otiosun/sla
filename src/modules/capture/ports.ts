@@ -58,6 +58,24 @@ export interface CaptureSuccessWrite extends CaptureResolutionBase {
 
 export type CaptureBallConsumeResult = "CONSUMED" | "INSUFFICIENT" | "CLAIM_CONFLICT";
 
+export interface CaptureBattleTurnClaimInput {
+  readonly battleId: string;
+  readonly expectedBattleVersion: number;
+  readonly playerId: PlayerId;
+  readonly actorParticipantId: string;
+  readonly targetParticipantId: string;
+  readonly ballItemId: string;
+  readonly idempotencyKey: string;
+}
+
+export type CaptureBattleTurnClaimResult =
+  | { readonly kind: "CLAIMED"; readonly replayed: boolean }
+  | {
+      readonly kind: "REJECTED";
+      readonly code: string;
+      readonly message: string;
+    };
+
 export interface CaptureTransaction {
   findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null>;
   loadContext(
@@ -66,6 +84,7 @@ export interface CaptureTransaction {
     ballItemId: string,
     targetWildNo?: number,
   ): Promise<CaptureContext | null>;
+  claimBattleTurn?(input: CaptureBattleTurnClaimInput): Promise<CaptureBattleTurnClaimResult>;
   beginResolving(input: {
     readonly playerId: PlayerId;
     readonly encounterId: EncounterId;

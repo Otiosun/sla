@@ -61,7 +61,7 @@ export function requiredActionSides(state: BattleState): readonly number[] {
 function actionPriority(state: BattleState, action: BattleAction): number {
   if (action.type === "FLEE") return 100;
   if (action.type === "SWITCH") return 90;
-  if (action.type === "USE_ITEM") return 80;
+  if (action.type === "USE_ITEM" || action.type === "CAPTURE_ATTEMPT") return 80;
   const actor = findCombatant(state, action.actorParticipantId);
   return actor.moves.find((move) => move.slotNo === action.moveSlot)?.priority ?? -100;
 }
@@ -596,6 +596,16 @@ export function resolveTurn(
         break;
       case "FLEE":
         executeFlee(state, action, events);
+        break;
+      case "CAPTURE_ATTEMPT":
+        events.push(
+          event("ActionSkipped", {
+            participantId: action.actorParticipantId,
+            targetParticipantId: action.targetParticipantId,
+            ballItemId: action.ballItemId,
+            reason: "CAPTURE_FAILED",
+          }),
+        );
         break;
       case "USE_ITEM":
         return {

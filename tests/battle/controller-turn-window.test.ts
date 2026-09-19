@@ -175,4 +175,26 @@ describe("controller-scoped TurnWindow", () => {
     expect(last.value.aggregate.submissions.map((s) => s.status)).toEqual(["ACTIVE", "ACTIVE"]);
     expect(last.value.aggregate.window.status).toBe("LOCKED");
   });
+  it("accepts a reserved capture attempt as the player controller action", () => {
+    const initial = window();
+    const ballItemId = randomUUID();
+    const submitted = submitTurnAction(initial, {
+      ...submission(),
+      action: {
+        type: "CAPTURE_ATTEMPT",
+        actorParticipantId: actor,
+        ballItemId,
+        targetParticipantId: wild,
+      },
+    });
+    if (!submitted.ok) throw new Error(submitted.error.message);
+    expect(submitted.value.aggregate.submissions).toHaveLength(1);
+    expect(submitted.value.aggregate.submissions[0]?.action).toEqual({
+      type: "CAPTURE_ATTEMPT",
+      actorParticipantId: actor,
+      ballItemId,
+      targetParticipantId: wild,
+    });
+    expect(submitted.value.aggregate.window.status).toBe("COLLECTING");
+  });
 });

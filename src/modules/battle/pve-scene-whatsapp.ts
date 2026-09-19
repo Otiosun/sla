@@ -412,6 +412,13 @@ async function turnSummary(
       case "Switched":
         lines.push(`${nameOf(entry.payload.toParticipantId)} entrou em campo.`);
         break;
+      case "ActionSkipped":
+        if (entry.payload.reason === "CAPTURE_FAILED") {
+          if (actionStarted && lines[lines.length - 1] !== "") lines.push("");
+          lines.push("🔴 A Poké Ball foi lançada.", "O Pokémon escapou.");
+          actionStarted = true;
+        }
+        break;
       case "BattleEnded":
         if (entry.payload.status === "FLED") lines.push("💨 A batalha terminou em fuga.");
         break;
@@ -500,6 +507,16 @@ export function createPveSceneRoutes(
     }
     if (controller.kind === "NARRATOR" && principal === null)
       return err(appError("PLAYER_INELIGIBLE", "Narrador não autorizado."));
+
+    const rejectedAction = (code: string) =>
+      reply(
+        context,
+        code === "TURN_WINDOW_ALREADY_SUBMITTED"
+          ? "A ação deste turno já foi definida."
+          : "Ação não permitida agora. Use `/batalha`.",
+        battleId,
+      );
+
     if (parsed.intent.type === "CAPTURE") {
       if (
         state.value.battleType !== "WILD" ||
@@ -529,11 +546,18 @@ export function createPveSceneRoutes(
       if (!correlation.ok) {
         return err(appError("ACTION_INVALID", "A captura não pôde ser correlacionada."));
       }
+      const captureAction: BattleAction = {
+        type: "CAPTURE_ATTEMPT",
+        actorParticipantId: controller.participantId,
+        ballItemId: ball.itemId,
+        targetParticipantId: target.participantId,
+      };
       const captured = await dependencies.capture.attempt({
         playerId: player.value.playerId,
         encounterId: encounter.value.encounterId,
         expectedEncounterRevision: encounter.value.revision,
         expectedBattleVersion: state.value.version,
+        actorParticipantId: controller.participantId,
         targetWildNo: target.rosterPosition,
         ballItemId: ball.itemId,
         idempotencyKey: context.idempotencyKey,
@@ -541,15 +565,40 @@ export function createPveSceneRoutes(
         causationId: context.causationId,
       });
       if (!captured.ok) {
+        if (captured.error.details?.turnWindowCode === "TURN_WINDOW_ALREADY_SUBMITTED") {
+          return rejectedAction("TURN_WINDOW_ALREADY_SUBMITTED");
+        }
         return reply(context, "A captura não está disponível agora. Use `/batalha`.", battleId);
       }
       if (captured.value.status === "FAILED") {
-        return reply(
-          context,
-          ["🔴 A Poké Ball foi lançada.", "", "O Pokémon escapou."].join("\n"),
+        const resolved = await dependencies.battle.resolvePlayerTurn({
           battleId,
-          { react: true },
+          playerId: player.value.playerId,
+          expectedVersion: state.value.version,
+          idempotencyKey: context.idempotencyKey,
+          action: captureAction,
+        });
+        if (!resolved.ok) {
+          if (captured.value.replayed) {
+            return reply(
+              context,
+              ["🔴 A Poké Ball foi lançada.", "", "O Pokémon escapou."].join("\n"),
+              battleId,
+              { react: true },
+            );
+          }
+          return rejectedAction(resolved.error.code);
+        }
+        if (resolved.value.pending === true) return ackOnly(context, battleId);
+        const summary = await turnSummary(
+          dependencies,
+          resolved.value.state,
+          resolved.value.events,
         );
+        return reply(context, summary.text, battleId, {
+          mentions: summary.mentions,
+          react: true,
+        });
       }
 
       const placement = captured.value.placement;
@@ -595,15 +644,6 @@ export function createPveSceneRoutes(
       dependencies.presentation,
     );
     if (!action.ok) return action;
-
-    const rejectedAction = (code: string) =>
-      reply(
-        context,
-        code === "TURN_WINDOW_ALREADY_SUBMITTED"
-          ? "A ação deste turno já foi definida."
-          : "Ação não permitida agora. Use `/batalha`.",
-        battleId,
-      );
 
     if (controller.kind === "NARRATOR") {
       if (principal === null) return err(appError("PLAYER_INELIGIBLE", "Narrador não autorizado."));
