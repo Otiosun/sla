@@ -29,6 +29,8 @@ jobs:
       MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
       POSTGRES_INTEGRATION_TEST_URL: postgresql://pokemon:test-only-password@localhost:5432/postgres
       ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
+      # Narrator spawn runtime requires an explicit deterministic world time.
+      BELL_WORLD_TIME_OF_DAY: DAY
       # UAT_POSTGRES_PROOF stays opt-in: it requires the dedicated
       # pokemon_runtime + UAT_PROOF_PORT harness, not generic CI PostgreSQL.
       DATABASE_POOL_MAX: 12
