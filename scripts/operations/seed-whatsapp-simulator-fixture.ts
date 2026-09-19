@@ -116,7 +116,7 @@ async function assertPlayableContent(pool: Pool): Promise<void> {
          JOIN regions region ON region.id=identity.region_id
          WHERE area.content_release_id=release.id
            AND area.active=TRUE
-           AND area.starting_area=TRUE
+           AND (area.data->>'startingArea')::boolean IS TRUE
            AND region.slug='zhoulia'
        ) AS starting_area_count
      FROM content_release_pointers pointer
