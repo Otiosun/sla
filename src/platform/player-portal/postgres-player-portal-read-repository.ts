@@ -231,10 +231,16 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
       display_name: string;
       seen_count: string;
       caught_count: string;
+      shiny_seen_count: string;
+      shiny_caught_count: string;
       first_seen_at: Date | null;
       last_seen_at: Date | null;
       first_caught_at: Date | null;
       last_caught_at: Date | null;
+      first_shiny_seen_at: Date | null;
+      last_shiny_seen_at: Date | null;
+      first_shiny_caught_at: Date | null;
+      last_shiny_caught_at: Date | null;
     }>(
       `SELECT
          dex.species_id::text,
@@ -243,10 +249,16 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          revision.display_name,
          dex.seen_count::text,
          dex.caught_count::text,
+         dex.shiny_seen_count::text,
+         dex.shiny_caught_count::text,
          dex.first_seen_at,
          dex.last_seen_at,
          dex.first_caught_at,
-         dex.last_caught_at
+         dex.last_caught_at,
+         dex.first_shiny_seen_at,
+         dex.last_shiny_seen_at,
+         dex.first_shiny_caught_at,
+         dex.last_shiny_caught_at
        FROM player_pokedex_species dex
        JOIN pokemon_species identity ON identity.id = dex.species_id
        JOIN pokemon_species_revisions revision
@@ -266,10 +278,16 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
       displayName: row.display_name,
       seenCount: row.seen_count,
       caughtCount: row.caught_count,
+      shinySeenCount: row.shiny_seen_count,
+      shinyCaughtCount: row.shiny_caught_count,
       firstSeenAt: row.first_seen_at?.toISOString() ?? null,
       lastSeenAt: row.last_seen_at?.toISOString() ?? null,
       firstCaughtAt: row.first_caught_at?.toISOString() ?? null,
       lastCaughtAt: row.last_caught_at?.toISOString() ?? null,
+      firstShinySeenAt: row.first_shiny_seen_at?.toISOString() ?? null,
+      lastShinySeenAt: row.last_shiny_seen_at?.toISOString() ?? null,
+      firstShinyCaughtAt: row.first_shiny_caught_at?.toISOString() ?? null,
+      lastShinyCaughtAt: row.last_shiny_caught_at?.toISOString() ?? null,
     }));
   }
 
