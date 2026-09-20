@@ -68,9 +68,7 @@ function maxHp(row: OwnedPokemonRow): number | null {
   const iv = row.iv_enabled ? (row.iv_hp ?? 0) : 0;
   const ev = row.ev_enabled ? (row.ev_hp ?? 0) : 0;
   return (
-    Math.floor(((2 * row.base_hp + iv + Math.floor(ev / 4)) * row.level) / 100) +
-    row.level +
-    10
+    Math.floor(((2 * row.base_hp + iv + Math.floor(ev / 4)) * row.level) / 100) + row.level + 10
   );
 }
 
