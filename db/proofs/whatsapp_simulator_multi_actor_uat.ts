@@ -468,6 +468,8 @@ async function main(): Promise<void> {
       onboarding_state: string | null;
       area_slug: string | null;
       team_count: number;
+      pokedollars: string;
+      poke_balls: string;
     }>(
       `SELECT identity.external_id,
               access.status AS access_status,
@@ -477,7 +479,19 @@ async function main(): Promise<void> {
                 SELECT count(*)::integer
                 FROM pokemon_roster_slots roster
                 WHERE roster.player_id=player.id AND roster.placement_kind='TEAM'
-              ) AS team_count
+              ) AS team_count,
+              COALESCE((
+                SELECT balance.amount::text
+                FROM wallet_balances balance
+                JOIN currency_definitions currency ON currency.id=balance.currency_id
+                WHERE balance.player_id=player.id AND currency.slug='pokedollar'
+              ), '0') AS pokedollars,
+              COALESCE((
+                SELECT balance.quantity::text
+                FROM inventory_balances balance
+                JOIN items item ON item.id=balance.item_id
+                WHERE balance.player_id=player.id AND item.slug='poke-ball'
+              ), '0') AS poke_balls
        FROM player_identities identity
        JOIN players player ON player.id=identity.player_id
        LEFT JOIN player_access access ON access.player_id=player.id
@@ -496,7 +510,9 @@ async function main(): Promise<void> {
         row.access_status === "ACTIVE" &&
         row.onboarding_state === "COMPLETE" &&
         row.area_slug === "vila-dos-arrozais" &&
-        row.team_count >= 1;
+        row.team_count >= 1 &&
+        row.pokedollars === "2000" &&
+        row.poke_balls === "5";
       add(
         expectedApproved ? (ready ? "PASS" : "BUG") : "INFO",
         "provisioning",

@@ -16,7 +16,7 @@ import { createOperationalSimulatedWhatsAppRuntime } from "../../src/runtime/com
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
 
-const RECEPTION = "120363900000000001@g.us";
+const _RECEPTION = "120363900000000001@g.us";
 const WORLD = "120363900000000002@g.us";
 const OWNER_ADMIN = "5599999999000@s.whatsapp.net";
 const PLAYER_A = "5599999999101@s.whatsapp.net";
@@ -283,19 +283,28 @@ async function main(): Promise<void> {
     const currencyId = currency.rows[0]?.id;
     if (currencyId === undefined) throw new Error("PokéDollar currency missing");
 
-    const initialWallet = await pool.query<{ amount: string }>(
-      `SELECT COALESCE(
-         (SELECT amount::text FROM wallet_balances WHERE player_id=$1 AND currency_id=$2),
-         '0'
-       ) AS amount`,
+    const initialKit = await pool.query<{ money: string; balls: string }>(
+      `SELECT
+         COALESCE((
+           SELECT amount::text
+           FROM wallet_balances
+           WHERE player_id=$1 AND currency_id=$2
+         ), '0') AS money,
+         COALESCE((
+           SELECT balance.quantity::text
+           FROM inventory_balances balance
+           JOIN items item ON item.id=balance.item_id
+           WHERE balance.player_id=$1 AND item.slug='poke-ball'
+         ), '0') AS balls`,
       [playerBId, currencyId],
     );
+    const initialKitRow = initialKit.rows[0];
     add(
-      "INFO",
+      initialKitRow?.money === "2000" && initialKitRow.balls === "5" ? "PASS" : "BUG",
       "economy",
       "player-b",
-      "fresh wallet",
-      `PokéDollar=${initialWallet.rows[0]?.amount ?? "0"}`,
+      "initial trainer kit",
+      JSON.stringify(initialKitRow ?? null),
     );
 
     // Natural roleplay is the admission token for a facility visit.
@@ -331,13 +340,50 @@ async function main(): Promise<void> {
     );
 
     await replyLast(PLAYER_B, "01");
-    const insufficient = await replyLast(PLAYER_B, "Poké Ball / 5");
+    const starterPurchase = await replyLast(PLAYER_B, "Poké Ball / 5");
+    const starterPurchaseText = starterPurchase.outbound.map(textOf).join(" | ");
+    add(
+      /COMPRA CONCLUÍDA/iu.test(starterPurchaseText) ? "PASS" : "BUG",
+      "economy",
+      "player-b",
+      "buy 5 Poké Balls from initial kit",
+      starterPurchaseText || "purchase produced no response",
+    );
+
+    const afterStarterPurchase = await pool.query<{ balls: string; money: string }>(
+      `SELECT
+         COALESCE((
+           SELECT balance.quantity::text
+           FROM inventory_balances balance
+           JOIN items item ON item.id=balance.item_id
+           WHERE balance.player_id=$1 AND item.slug='poke-ball'
+         ), '0') AS balls,
+         COALESCE((
+           SELECT amount::text FROM wallet_balances
+           WHERE player_id=$1 AND currency_id=$2
+         ), '0') AS money`,
+      [playerBId, currencyId],
+    );
+    add(
+      afterStarterPurchase.rows[0]?.balls === "10" &&
+        afterStarterPurchase.rows[0]?.money === "1000"
+        ? "PASS"
+        : "BUG",
+      "economy",
+      "player-b",
+      "initial-kit purchase persistence",
+      JSON.stringify(afterStarterPurchase.rows[0] ?? null),
+    );
+
+    await send({ actor: PLAYER_B, text: "/comprar" });
+    await replyLast(PLAYER_B, "01");
+    const insufficient = await replyLast(PLAYER_B, "Poké Ball / 6");
     const insufficientText = insufficient.outbound.map(textOf).join(" | ");
     add(
       /DINHEIRO INSUFICIENTE|insuficiente/iu.test(insufficientText) ? "PASS" : "BUG",
       "economy",
       "player-b",
-      "buy 5 Poké Balls with fresh wallet",
+      "insufficient funds after valid spending",
       insufficientText || "no insufficient-funds feedback",
     );
 
@@ -372,7 +418,7 @@ async function main(): Promise<void> {
         currencyId,
         delta: "2000",
       },
-      reason: "Autonomous simulator UAT: fund a player after proving zero-wallet behavior",
+      reason: "Autonomous simulator UAT: verify audited wallet adjustment after starter-kit spending",
       idempotencyKey: "sim-deep-wallet-player-b",
       correlationId: randomUUID(),
     });
@@ -412,7 +458,9 @@ async function main(): Promise<void> {
       [playerBId, currencyId],
     );
     add(
-      afterPurchase.rows[0]?.balls === "5" ? "PASS" : "BUG",
+      afterPurchase.rows[0]?.balls === "15" && afterPurchase.rows[0]?.money === "2000"
+        ? "PASS"
+        : "BUG",
       "economy",
       "player-b",
       "purchase persistence",
@@ -519,7 +567,26 @@ async function main(): Promise<void> {
       JSON.stringify(captureAudit.rows[0] ?? null),
     );
 
-    // Visit the Center after an actual mechanical scene.
+    if (!captured && captureBattleId !== null) {
+      const battleStatus = await pool.query<{ status: string }>(
+        "SELECT status FROM battles WHERE id=$1",
+        [captureBattleId],
+      );
+      if (battleStatus.rows[0]?.status === "ACTIVE") {
+        const flee = await send({ actor: PLAYER_B, text: "/fugir" });
+        add(
+          flee.outbound.some((entry) => /fuga|fugiu|terminou/iu.test(textOf(entry)))
+            ? "PASS"
+            : "BUG",
+          "capture",
+          "player-b",
+          "close failed-capture battle",
+          flee.outbound.map(textOf).join(" | ") || "no flee response",
+        );
+      }
+    }
+
+    // Visit the Center only after the encounter/battle lifecycle is closed.
     await send({ actor: PLAYER_B, text: scene("Centro Pokémon") });
     const center = await send({ actor: PLAYER_B, text: "/centropokemon" });
     add(
@@ -610,7 +677,25 @@ async function main(): Promise<void> {
     }
 
     let rewardBattleStatus = "MISSING";
+    let rewardMoveSlot = 1;
     if (rewardBattleId !== null) {
+      const moveSnapshot = await pool.query<{ slot_no: number }>(
+        `SELECT move.ordinality::int AS slot_no
+         FROM battle_state_snapshots snapshot
+         CROSS JOIN LATERAL jsonb_array_elements(snapshot.state_json->'combatants') combatant
+         CROSS JOIN LATERAL jsonb_array_elements(combatant->'moves') WITH ORDINALITY move(value, ordinality)
+         WHERE snapshot.battle_id=$1
+           AND snapshot.version=(
+             SELECT MAX(version) FROM battle_state_snapshots WHERE battle_id=$1
+           )
+           AND combatant->>'participantKind'='PLAYER_POKEMON'
+           AND COALESCE((move.value->>'power')::int,0)>0
+         ORDER BY move.ordinality
+         LIMIT 1`,
+        [rewardBattleId],
+      );
+      rewardMoveSlot = moveSnapshot.rows[0]?.slot_no ?? 1;
+
       for (let turn = 1; turn <= 12; turn += 1) {
         const status = await pool.query<{ status: string }>(
           "SELECT status FROM battles WHERE id=$1",
@@ -619,7 +704,10 @@ async function main(): Promise<void> {
         rewardBattleStatus = status.rows[0]?.status ?? "MISSING";
         if (rewardBattleStatus !== "ACTIVE") break;
 
-        const action = await send({ actor: PLAYER_B, text: "/movimento 1" });
+        const action = await send({
+          actor: PLAYER_B,
+          text: `/movimento ${rewardMoveSlot}`,
+        });
         add(
           action.outbound.length > 0 ? "INFO" : "WARN",
           "battle",
