@@ -377,6 +377,70 @@ describe("battle effects, abilities and heuristic AI", () => {
     expect(result.critical).toBe(false);
   });
 
+  it("applies escalating bad-poison residual damage across turns", () => {
+    let state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.maxHp = player.currentHp = 200;
+    player.baseStats.speed = 999;
+    wild.maxHp = wild.currentHp = 160;
+    wild.baseStats.speed = 1;
+    const move = player.moves[3];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.category = "STATUS";
+    move.power = null;
+    move.accuracy = null;
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 34,
+      sourceMetaCategoryId: 1,
+      ailment: {
+        kind: "BAD_POISON",
+        chanceBasisPoints: 10_000,
+        minTurns: null,
+        maxTurns: null,
+      },
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: 0,
+      healingPercent: 0,
+    };
+
+    const first = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(21),
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    state = first.value.state;
+    const afterFirst = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    expect(afterFirst?.majorStatus?.key).toBe("BAD_POISON");
+    expect(afterFirst?.majorStatus?.counter).toBe(2);
+    expect(afterFirst?.currentHp).toBe(150);
+
+    const second = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(22, BigInt(state.rngCounter)),
+    );
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const afterSecond = second.value.state.combatants.find((entry) => entry.participantId === IDS.p2);
+    expect(afterSecond?.majorStatus?.counter).toBe(3);
+    expect(afterSecond?.currentHp).toBe(130);
+  });
+
   it("Run Away is an allowlisted ability trigger on a legal FLEE action", () => {
     const state = battleState();
     const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
