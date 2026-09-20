@@ -90,6 +90,151 @@ describe("battle effects, abilities and heuristic AI", () => {
     expect(result.value.events.some((entry) => entry.type === "AbilityTriggered")).toBe(true);
   });
 
+  it("executes imported move metadata for status, stat change, flinch and drain", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.currentHp = 5;
+    player.baseStats.speed = 999;
+    wild.baseStats.speed = 1;
+    wild.currentHp = wild.maxHp = 100;
+    const move = player.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9001,
+      sourceMetaCategoryId: 4,
+      ailment: {
+        kind: "PARALYSIS",
+        chanceBasisPoints: 10_000,
+        minTurns: null,
+        maxTurns: null,
+      },
+      statChanges: [{ stat: "DEFENSE", stages: -1, target: "TARGET" }],
+      statChanceBasisPoints: 10_000,
+      flinchChanceBasisPoints: 10_000,
+      drainPercent: 50,
+      healingPercent: 0,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(14),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const updatedPlayer = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p1,
+    );
+    const updatedWild = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
+    expect(updatedPlayer?.currentHp).toBeGreaterThan(5);
+    expect(updatedWild?.majorStatus?.key).toBe("PARALYSIS");
+    expect(updatedWild?.stages.defense).toBe(-1);
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "ActionBlocked" && entry.payload.reason === "FLINCH",
+      ),
+    ).toBe(true);
+    expect(result.value.events.some((entry) => entry.type === "HpRestored")).toBe(true);
+  });
+
+  it("executes recoil from imported move metadata", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    if (player === undefined) throw new Error("fixture incomplete");
+    player.baseStats.speed = 999;
+    const move = player.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9002,
+      sourceMetaCategoryId: 0,
+      ailment: null,
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: -25,
+      healingPercent: 0,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(15),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "DamageApplied" && entry.payload.source === "RECOIL",
+      ),
+    ).toBe(true);
+  });
+
+  it("executes confusion and percentage healing from imported move metadata", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.currentHp = 5;
+    player.baseStats.speed = 999;
+    const move = player.moves[3];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.category = "STATUS";
+    move.power = null;
+    move.accuracy = null;
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9003,
+      sourceMetaCategoryId: 1,
+      ailment: {
+        kind: "CONFUSION",
+        chanceBasisPoints: 10_000,
+        minTurns: 2,
+        maxTurns: 5,
+      },
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: 0,
+      healingPercent: 50,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(16),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const updatedWild = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
+    expect(updatedWild?.volatile.confusionTurns).toBeGreaterThanOrEqual(1);
+    expect(result.value.events.some((entry) => entry.type === "HpRestored")).toBe(true);
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "StatusApplied" && entry.payload.status === "CONFUSION",
+      ),
+    ).toBe(true);
+  });
+
   it("Run Away is an allowlisted ability trigger on a legal FLEE action", () => {
     const state = battleState();
     const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
