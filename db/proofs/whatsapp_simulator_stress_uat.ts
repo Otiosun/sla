@@ -531,7 +531,24 @@ async function main(): Promise<void> {
          ORDER BY status`,
         [spamIds],
       );
-      add("INFO", "rate-limit", "25-message single-player burst", JSON.stringify(spam.rows));
+      const limited = await pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM outbox_messages outgoing
+         JOIN inbox_messages incoming ON incoming.id=outgoing.causation_id
+         WHERE incoming.external_message_id=ANY($1::text[])
+           AND outgoing.idempotency_key LIKE 'messaging.error:%:RATE_LIMITED'`,
+        [spamIds],
+      );
+      add(
+        limited.rows[0]?.count === "5" ? "PASS" : "BUG",
+        "rate-limit",
+        "25-message single-player burst",
+        JSON.stringify({
+          inbox: spam.rows,
+          rateLimited: limited.rows[0]?.count ?? "0",
+          expectedRateLimited: "5",
+        }),
+      );
     }
 
     const duplicateId = "STRESS-DUPLICATE-ID";

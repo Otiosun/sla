@@ -686,12 +686,15 @@ async function main(): Promise<void> {
       const moveSnapshot = await pool.query<{ slot_no: number }>(
         `SELECT move.ordinality::int AS slot_no
          FROM battle_state_snapshots snapshot
+         CROSS JOIN LATERAL jsonb_array_elements(snapshot.state->'sides') side
          CROSS JOIN LATERAL jsonb_array_elements(snapshot.state->'combatants') combatant
          CROSS JOIN LATERAL jsonb_array_elements(combatant->'moves') WITH ORDINALITY move(value, ordinality)
          WHERE snapshot.battle_id=$1
            AND snapshot.version=(
              SELECT MAX(version) FROM battle_state_snapshots WHERE battle_id=$1
            )
+           AND side->>'controllerKind'='PLAYER'
+           AND combatant->>'participantId'=side->>'activeParticipantId'
            AND combatant->>'participantKind'='PLAYER_POKEMON'
            AND COALESCE((move.value->>'power')::int,0)>0
          ORDER BY move.ordinality
@@ -700,7 +703,7 @@ async function main(): Promise<void> {
       );
       rewardMoveSlot = moveSnapshot.rows[0]?.slot_no ?? 1;
 
-      for (let turn = 1; turn <= 12; turn += 1) {
+      for (let turn = 1; turn <= 20; turn += 1) {
         const status = await pool.query<{ status: string }>(
           "SELECT status FROM battles WHERE id=$1",
           [rewardBattleId],
@@ -708,9 +711,84 @@ async function main(): Promise<void> {
         rewardBattleStatus = status.rows[0]?.status ?? "MISSING";
         if (rewardBattleStatus !== "ACTIVE") break;
 
+        const current = await pool.query<{ state: unknown }>(
+          `SELECT state
+           FROM battle_state_snapshots
+           WHERE battle_id=$1
+           ORDER BY version DESC
+           LIMIT 1`,
+          [rewardBattleId],
+        );
+        const state = current.rows[0]?.state as {
+          sides?: Array<{
+            controllerKind?: string;
+            activeParticipantId?: string;
+            participantIds?: string[];
+          }>;
+          combatants?: Array<{
+            participantId?: string;
+            currentHp?: number;
+            moves?: Array<{ slotNo?: number; power?: number | null }>;
+          }>;
+        } | undefined;
+        const playerSide = state?.sides?.find((side) => side.controllerKind === "PLAYER");
+        const active = state?.combatants?.find(
+          (combatant) => combatant.participantId === playerSide?.activeParticipantId,
+        );
+
+        if ((active?.currentHp ?? 0) <= 0) {
+          const roster = (playerSide?.participantIds ?? [])
+            .map((participantId) =>
+              state?.combatants?.find((combatant) => combatant.participantId === participantId),
+            )
+            .filter(
+              (
+                combatant,
+              ): combatant is NonNullable<
+                NonNullable<typeof state>["combatants"]
+              >[number] => combatant !== undefined,
+            );
+          const reserveSlot =
+            roster.findIndex(
+              (combatant) =>
+                combatant.participantId !== active?.participantId &&
+                (combatant.currentHp ?? 0) > 0,
+            ) + 1;
+          const hud = await send({ actor: PLAYER_B, text: "/batalha" });
+          add(
+            reserveSlot > 0 &&
+              hud.outbound.some((entry) => /TROCA OBRIGATÓRIA/iu.test(textOf(entry)))
+              ? "PASS"
+              : "BUG",
+            "battle",
+            "player-b",
+            "forced-switch HUD",
+            hud.outbound.map(textOf).join(" | ") || "no forced-switch guidance",
+          );
+          if (reserveSlot <= 0) break;
+          const switched = await send({
+            actor: PLAYER_B,
+            text: `/trocar ${reserveSlot}`,
+          });
+          add(
+            switched.outbound.some((entry) => /entrou em campo/iu.test(textOf(entry)))
+              ? "PASS"
+              : "BUG",
+            "battle",
+            "player-b",
+            `/trocar ${reserveSlot}`,
+            switched.outbound.map(textOf).join(" | ") || "switch produced no feedback",
+          );
+          continue;
+        }
+
+        const damaging =
+          active?.moves?.find(
+            (move) => typeof move.power === "number" && move.power > 0,
+          )?.slotNo ?? rewardMoveSlot;
         const action = await send({
           actor: PLAYER_B,
-          text: `/movimento ${rewardMoveSlot}`,
+          text: `/movimento ${damaging}`,
         });
         add(
           action.outbound.length > 0 ? "INFO" : "WARN",

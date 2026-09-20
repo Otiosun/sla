@@ -249,6 +249,71 @@ function activeWildParticipant(state: BattleState) {
   return undefined;
 }
 
+function controlledRoster(
+  state: BattleState,
+  controller: BattleParticipantController,
+  controllers: readonly BattleParticipantController[],
+): readonly BattleState["combatants"][number][] {
+  const actor = state.combatants.find(
+    (combatant) => combatant.participantId === controller.participantId,
+  );
+  if (actor === undefined) return [];
+
+  if (controller.kind === "PLAYER" && controller.playerId !== null) {
+    const controlled = new Set(
+      controllers
+        .filter(
+          (entry) => entry.kind === "PLAYER" && entry.playerId === controller.playerId,
+        )
+        .map((entry) => entry.participantId),
+    );
+    return state.combatants
+      .filter(
+        (combatant) => combatant.sideNo === actor.sideNo && controlled.has(combatant.participantId),
+      )
+      .sort((left, right) => left.rosterPosition - right.rosterPosition);
+  }
+
+  const side = state.sides.find((entry) => entry.sideNo === actor.sideNo);
+  if (side === undefined) return [];
+  const slot = (side.slots ?? [side]).find((entry) =>
+    entry.participantIds.includes(actor.participantId),
+  );
+  const participantIds = new Set(slot?.participantIds ?? []);
+  return state.combatants
+    .filter((combatant) => participantIds.has(combatant.participantId))
+    .sort((left, right) => left.rosterPosition - right.rosterPosition);
+}
+
+function switchAction(
+  state: BattleState,
+  controller: BattleParticipantController,
+  controllers: readonly BattleParticipantController[],
+  switchSlot: number,
+): Result<BattleAction> {
+  const roster = controlledRoster(state, controller, controllers);
+  const target = roster[switchSlot - 1];
+  if (target === undefined) {
+    return err(
+      appError(
+        "ACTION_INVALID",
+        "Slot de troca inválido. Use `/batalha` para ver as opções disponíveis.",
+      ),
+    );
+  }
+  if (target.participantId === controller.participantId) {
+    return err(appError("ACTION_INVALID", "Esse Pokémon já está em campo."));
+  }
+  if (target.currentHp <= 0) {
+    return err(appError("ACTION_INVALID", "Esse Pokémon não pode mais lutar."));
+  }
+  return ok({
+    type: "SWITCH",
+    actorParticipantId: controller.participantId,
+    switchToParticipantId: target.participantId,
+  });
+}
+
 function chooseBall(
   options: readonly PveCaptureBallOption[],
   reference: string,
@@ -279,7 +344,8 @@ function statusLabel(status: BattleState["combatants"][number]["majorStatus"]): 
 
 function hud(
   state: BattleState,
-  controller: { readonly participantId: string; readonly kind: string },
+  controller: BattleParticipantController,
+  controllers: readonly BattleParticipantController[],
 ): string {
   const own = state.combatants.find(
     (combatant) => combatant.participantId === controller.participantId,
@@ -295,7 +361,7 @@ function hud(
           (combatant) => combatant.participantId === opponentSide.activeParticipantId,
         );
 
-  return [
+  const lines = [
     `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
     "",
     own === undefined
@@ -304,7 +370,29 @@ function hud(
     opponent === undefined
       ? "Oponente · —"
       : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
-  ].join("\n");
+  ];
+
+  if (own !== undefined && own.currentHp <= 0) {
+    const roster = controlledRoster(state, controller, controllers);
+    const reserves = roster
+      .map((combatant, index) => ({ combatant, slot: index + 1 }))
+      .filter(
+        ({ combatant }) =>
+          combatant.participantId !== own.participantId && combatant.currentHp > 0,
+      );
+    if (reserves.length > 0) {
+      lines.push(
+        "",
+        "💥 *TROCA OBRIGATÓRIA*",
+        ...reserves.map(
+          ({ combatant, slot }) =>
+            `${slot}. HP ${combatant.currentHp}/${combatant.maxHp} · \`/trocar ${slot}\``,
+        ),
+      );
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function mentionTag(ref: string): string {
@@ -637,12 +725,15 @@ export function createPveSceneRoutes(
       if (!surrendered.ok) return err(appError("ACTION_INVALID", "A batalha já acabou."));
       return reply(context, "🏳️ Você desistiu. O adversário venceu.", battleId, { react: true });
     }
-    const action = await actionFrom(
-      state.value,
-      controller.participantId,
-      parsed,
-      dependencies.presentation,
-    );
+    const action =
+      parsed.intent.type === "SWITCH"
+        ? switchAction(state.value, controller, controllers, parsed.intent.switchSlot)
+        : await actionFrom(
+            state.value,
+            controller.participantId,
+            parsed,
+            dependencies.presentation,
+          );
     if (!action.ok) return action;
 
     if (controller.kind === "NARRATOR") {
@@ -755,7 +846,7 @@ export function createPveSceneRoutes(
     );
     if (controller === undefined)
       return err(appError("ACTION_INVALID", "Você não controla um ator nesta batalha."));
-    return reply(context, hud(state.value, controller), battleId);
+    return reply(context, hud(state.value, controller, controllers), battleId);
   };
   return [
     ...["movimento", "trocar", "item", "capturar", "fugir", "desistir"].map((command) => ({
