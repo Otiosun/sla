@@ -207,6 +207,26 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
           slotNo: 1,
         },
       ]),
+      teamPokemonDetail: vi.fn(async () => ({
+        pokemonInstanceId: POKEMON_ID,
+        slotNo: 1,
+        displayName: "Charmander",
+        nickname: null,
+        level: 5,
+        currentHp: 0,
+        maxHp: 20,
+        gender: "MALE",
+        shiny: false,
+        natureDisplayName: "Adamant",
+        abilityDisplayName: "Blaze",
+        ivs: { hp: 31, attack: 30, defense: 29, spAttack: 12, spDefense: 18, speed: 27 },
+        statuses: [],
+        moves: [
+          { slotNo: 1, displayName: "Scratch", ppCurrent: 35, maxPp: 35 },
+          { slotNo: 2, displayName: "Growl", ppCurrent: 40, maxPp: 40 },
+        ],
+      })),
+      listPendingMoveChoices: vi.fn(async () => []),
       listInventory: vi.fn(async () => [
         { itemId: "item-potion", itemSlug: "potion", displayName: "Potion", quantity: 3n },
       ]),
@@ -294,6 +314,19 @@ describe("Phase 13 operational WhatsApp UX", () => {
     expect(textOf(await app.dispatch(context("$pokedex", "pokedex")))).toContain(
       "#0004 Charmander · vistos 2 · capturados 1",
     );
+  });
+
+  it("shows persisted Pokemon mechanics without exposing internal ids", async () => {
+    const output = textOf(await router(dependencies()).dispatch(context("$pokemon 1", "pokemon")));
+    expect(output).toContain("*POKÉMON*");
+    expect(output).toContain("_Charmander_");
+    expect(output).toContain("HP　`0/20`");
+    expect(output).toContain("`CAÍDO`");
+    expect(output).toContain("*NATURE*　Adamant");
+    expect(output).toContain("*ABILITY*　Blaze");
+    expect(output).toContain("HP `31` · Atk `30` · Def `29`");
+    expect(output).toContain("`1`　*Scratch* · PP 35/35");
+    expect(output).not.toContain(POKEMON_ID);
   });
 
   it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
