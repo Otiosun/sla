@@ -60,10 +60,10 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 152, 'chikorita')",
       [speciesId],
     );
-    await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'chikorita')", [
-      formId,
-      speciesId,
-    ]);
+    await pool.query(
+      "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'chikorita')",
+      [formId, speciesId],
+    );
     await pool.query(
       `INSERT INTO pokemon_species_revisions(
          id, content_release_id, species_id, display_name, active
