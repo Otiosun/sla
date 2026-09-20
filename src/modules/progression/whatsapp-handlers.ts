@@ -46,6 +46,19 @@ function textResult(context: MessageHandlerContext, text: string): Result<Messag
   });
 }
 
+function progressionFailureResult(error: {
+  readonly code: string;
+  readonly message: string;
+}): Result<never> {
+  const code =
+    error.code === "MOVE_CHOICE_NOT_FOUND"
+      ? "NOT_FOUND"
+      : error.code === "PROGRESSION_INPUT_INVALID"
+        ? "VALIDATION_FAILED"
+        : "ACTION_INVALID";
+  return err(appError(code, error.message, { progressionCode: error.code }));
+}
+
 export function createProgressionWhatsAppRoutes(
   dependencies: ProgressionWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
@@ -116,20 +129,23 @@ export function createProgressionWhatsAppRoutes(
     }
 
     const skip = selection === "pular" || selection === "ignorar";
-    const slot = skip ? null : Number(selection);
-    if (
-      !skip &&
-      (!Number.isSafeInteger(slot) ||
-        slot < 1 ||
-        slot > 4 ||
-        !choice.currentMoves.some((move) => move.slotNo === slot))
-    ) {
-      return err(
-        appError(
-          "VALIDATION_FAILED",
-          "Informe um slot ocupado de 1–4 ou `pular`. Ex.: `/aprender 1 3`.",
-        ),
-      );
+    let replaceSlotNo: number | null = null;
+    if (!skip) {
+      const parsedSlot = Number(selection);
+      if (
+        !Number.isSafeInteger(parsedSlot) ||
+        parsedSlot < 1 ||
+        parsedSlot > 4 ||
+        !choice.currentMoves.some((move) => move.slotNo === parsedSlot)
+      ) {
+        return err(
+          appError(
+            "VALIDATION_FAILED",
+            "Informe um slot ocupado de 1–4 ou `pular`. Ex.: `/aprender 1 3`.",
+          ),
+        );
+      }
+      replaceSlotNo = parsedSlot;
     }
 
     const correlationId = parseCorrelationId(context.correlationId);
@@ -137,10 +153,10 @@ export function createProgressionWhatsAppRoutes(
     const result = await dependencies.progression.resolveMoveChoice({
       choiceId: choice.choiceId,
       playerId,
-      replaceSlotNo: slot,
+      replaceSlotNo,
       correlationId: correlationId.value,
     });
-    if (!result.ok) return result;
+    if (!result.ok) return progressionFailureResult(result.error);
 
     if (result.value.status === "SKIPPED") {
       return textResult(
