@@ -11,7 +11,7 @@ describe("Reception activation announcement", () => {
     const client = {
       query: async (text: string, values?: readonly unknown[]) => {
         queries.push(values === undefined ? { text } : { text, values });
-        if (text.includes("FROM community_groups")) {
+        if (text.includes("FROM outbox_messages review_notification")) {
           return { rows: [{ id: GROUP_ID, chat_ref: "120363000000000001@g.us" }], rowCount: 1 };
         }
         if (text.includes("INSERT INTO outbox_messages")) return { rows: [], rowCount: 1 };
@@ -36,5 +36,36 @@ describe("Reception activation announcement", () => {
       registrationActivation: { reviewId: REVIEW_ID, playerId: PLAYER_ID },
     });
     expect(insert.values[3]).toBe(`registration-activated:${REVIEW_ID}:${GROUP_ID}`);
+    const sourceLookup = queries.find((query) =>
+      query.text.includes("FROM outbox_messages review_notification"),
+    );
+    expect(sourceLookup?.values).toEqual([REVIEW_ID]);
+    expect(sourceLookup?.text).toMatch(/registrationReview,reviewId/);
+  });
+
+  it("fails closed instead of broadcasting when the source Reception cannot be resolved", async () => {
+    const queries: string[] = [];
+    const client = {
+      query: async (text: string) => {
+        queries.push(text);
+        if (text.includes("FROM outbox_messages review_notification")) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => undefined,
+    };
+    const announcement = new PostgresReceptionActivationAnnouncement({
+      connect: async () => client,
+    } as never);
+
+    await expect(
+      announcement.enqueueActivated({
+        reviewId: REVIEW_ID,
+        playerId: PLAYER_ID,
+        trainerName: "Liora Vale",
+      }),
+    ).rejects.toThrow(/source Reception/i);
+    expect(queries.some((text) => text.includes("INSERT INTO outbox_messages"))).toBe(false);
   });
 });

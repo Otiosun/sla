@@ -13,11 +13,20 @@ export class PostgresReceptionActivationAnnouncement implements PlayerActivation
   public async enqueueActivated(input: PlayerActivationAnnouncementInput): Promise<void> {
     await withTransaction(this.pool, async (client) => {
       const groups = await client.query<{ id: string; chat_ref: string }>(
-        `SELECT id, chat_ref
-         FROM community_groups
-         WHERE role = 'RECEPTION' AND status = 'ACTIVE'
-         ORDER BY id`,
+        `SELECT DISTINCT reception.id, reception.chat_ref
+         FROM outbox_messages review_notification
+         JOIN community_groups reception
+           ON reception.chat_ref = review_notification.destination_ref
+          AND reception.role = 'RECEPTION'
+          AND reception.status = 'ACTIVE'
+         WHERE review_notification.channel = 'whatsapp'
+           AND review_notification.payload #>> '{registrationReview,reviewId}' = $1
+         ORDER BY reception.id`,
+        [input.reviewId],
       );
+      if (groups.rows.length === 0) {
+        throw new Error("Registration review has no active source Reception group");
+      }
 
       for (const group of groups.rows) {
         const idempotencyKey = playerActivationAnnouncementIdempotencyKey(input.reviewId, group.id);
