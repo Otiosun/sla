@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
 import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
@@ -511,6 +511,28 @@ async function main(): Promise<void> {
 
     const spammer = PLAYERS[2];
     if (spammer !== undefined) {
+      const spammerPlayer = await pool.query<{ player_id: string }>(
+        `SELECT player_id
+         FROM player_identities
+         WHERE provider='baileys' AND external_id=$1 AND status='ACTIVE'`,
+        [spammer],
+      );
+      const spammerPlayerId = spammerPlayer.rows[0]?.player_id;
+      if (spammerPlayerId === undefined) throw new Error("Spammer player identity is missing");
+      const subjectHash = createHash("sha256")
+        .update(`player:${spammerPlayerId}`)
+        .digest("hex");
+      const beforeBucket = await pool.query<{ used: number }>(
+        `SELECT used
+         FROM messaging_rate_limit_buckets
+         WHERE scope_kind='PLAYER'
+           AND subject_hash=$1
+           AND policy_key='messaging.player.v1'`,
+        [subjectHash],
+      );
+      const usedBeforeSpam = beforeBucket.rows[0]?.used ?? 0;
+      const expectedRateLimited = Math.max(0, 25 - Math.max(0, 20 - usedBeforeSpam));
+
       const spamIds: string[] = [];
       for (let index = 0; index < 25; index += 1) {
         const id = `STRESS-SPAM-${index + 1}`;
@@ -540,13 +562,14 @@ async function main(): Promise<void> {
         [spamIds],
       );
       add(
-        limited.rows[0]?.count === "5" ? "PASS" : "BUG",
+        Number(limited.rows[0]?.count ?? "0") === expectedRateLimited ? "PASS" : "BUG",
         "rate-limit",
         "25-message single-player burst",
         JSON.stringify({
           inbox: spam.rows,
           rateLimited: limited.rows[0]?.count ?? "0",
-          expectedRateLimited: "5",
+          usedBeforeSpam,
+          expectedRateLimited,
         }),
       );
     }
