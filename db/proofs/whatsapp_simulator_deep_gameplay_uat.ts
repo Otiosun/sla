@@ -566,7 +566,7 @@ async function main(): Promise<void> {
       [playerBId],
     );
     add(
-      captured && Number(captureAudit.rows[0]?.captured_count ?? "0") >= 1 ? "PASS" : "WARN",
+      captured && Number(captureAudit.rows[0]?.captured_count ?? "0") >= 1 ? "PASS" : "BUG",
       "capture",
       "player-b",
       "capture persistence",

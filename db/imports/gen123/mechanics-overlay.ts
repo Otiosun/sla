@@ -502,10 +502,11 @@ export async function composeGen123MechanicsOverlay(
 
     const targetItems = await client.query<{
       item_id: string;
+      item_kind: string;
       effect_key: string | null;
       effect_config: unknown;
     }>(
-      `SELECT item_id,effect_key,effect_config
+      `SELECT item_id,item_kind,effect_key,effect_config
          FROM item_revisions
         WHERE content_release_id=$1`,
       [input.targetReleaseId],
@@ -544,7 +545,7 @@ export async function composeGen123MechanicsOverlay(
           input.targetReleaseId,
           row.item_id,
           row.display_name,
-          row.item_kind,
+          keepEffect ? inherited.item_kind : row.item_kind,
           keepEffect ? inherited.effect_key : null,
           JSON.stringify(keepEffect ? inherited.effect_config : {}),
           row.active,
