@@ -77,7 +77,7 @@ if (sourceRaw && sourceRaw === simulatorRaw) {
   throw new Error("SIMULATOR_DATABASE_URL_MUST_DIFFER_FROM_DATABASE_URL");
 }
 const simulatorName = databaseName(simulatorRaw);
-if (!/simulator/iu.test(simulatorName)) {
+if (!/(?:simulator|(?:^|_)sim(?:_|$)|(?:^|_)test(?:_|$))/iu.test(simulatorName)) {
   throw new Error(`SIMULATOR_DATABASE_NAME_NOT_EXPLICITLY_DISPOSABLE ${simulatorName}`);
 }
 
