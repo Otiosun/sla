@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { chooseHeuristicAction } from "../../src/modules/battle/ai.js";
+import { computeDamage } from "../../src/modules/battle/damage.js";
 import { legalActionsForSide, validateBattleAction } from "../../src/modules/battle/legal.js";
 import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
-import { battleState, IDS, TEST_RULES } from "./fixtures.js";
+import { battleState, IDS, playerCombatant, TEST_RULES, wildCombatant } from "./fixtures.js";
 
 const rng = (byte: number, counter = 0n) =>
   new CounterRandomSource(Buffer.alloc(32, byte), counter);
@@ -233,6 +234,147 @@ describe("battle effects, abilities and heuristic AI", () => {
         (entry) => entry.type === "StatusApplied" && entry.payload.status === "CONFUSION",
       ),
     ).toBe(true);
+  });
+
+  it("blocks a major status with prevent-status", () => {
+    const state = battleState();
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    if (wild === undefined || player === undefined) throw new Error("fixture incomplete");
+    wild.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "prevent-status",
+      effectConfig: { statuses: ["PARALYSIS"] },
+    };
+    const move = player.moves[3];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9101,
+      sourceMetaCategoryId: 1,
+      ailment: {
+        kind: "PARALYSIS",
+        chanceBasisPoints: 10_000,
+        minTurns: null,
+        maxTurns: null,
+      },
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: 0,
+      healingPercent: 0,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(17),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.state.combatants.find((entry) => entry.participantId === IDS.p2)?.majorStatus,
+    ).toBeNull();
+    expect(
+      result.value.events.some(
+        (entry) =>
+          entry.type === "AbilityTriggered" && entry.payload.preventedCondition === "PARALYSIS",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks opponent stat drops but not self-inflicted drops", () => {
+    const state = battleState();
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (wild === undefined) throw new Error("fixture incomplete");
+    wild.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "prevent-stat-drop",
+      effectConfig: { stats: ["ATTACK", "DEFENSE"] },
+    };
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(18),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const updated = result.value.state.combatants.find((entry) => entry.participantId === IDS.p2);
+    expect(updated?.stages.attack).toBe(0);
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "AbilityTriggered" && entry.payload.preventedStat === "ATTACK",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks flinch with prevent-flinch", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.baseStats.speed = 999;
+    wild.baseStats.speed = 1;
+    wild.ability = { abilityId: IDS.keenEye, effectKey: "prevent-flinch", effectConfig: {} };
+    const move = player.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9102,
+      sourceMetaCategoryId: 0,
+      ailment: null,
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 10_000,
+      drainPercent: 0,
+      healingPercent: 0,
+    };
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(19),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "ActionBlocked" && entry.payload.reason === "FLINCH",
+      ),
+    ).toBe(false);
+    expect(
+      result.value.events.some(
+        (entry) =>
+          entry.type === "AbilityTriggered" && entry.payload.preventedCondition === "FLINCH",
+      ),
+    ).toBe(true);
+  });
+
+  it("prevents critical hits with prevent-critical", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    defender.ability = { abilityId: IDS.keenEye, effectKey: "prevent-critical", effectConfig: {} };
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    const result = computeDamage(
+      attacker,
+      defender,
+      move,
+      { ...TEST_RULES, criticalChanceBasisPoints: 10_000 },
+      rng(20),
+    );
+    expect(result.critical).toBe(false);
   });
 
   it("Run Away is an allowlisted ability trigger on a legal FLEE action", () => {
