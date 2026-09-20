@@ -24,6 +24,7 @@ export const GEN123_SOURCE_FILES = [
   "pokemon_moves.csv",
   "abilities.csv",
   "pokemon_abilities.csv",
+  "pokemon_abilities_past.csv",
   "natures.csv",
   "pokemon_evolution.csv",
   "items.csv",
