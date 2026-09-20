@@ -50,6 +50,8 @@ import { MessagingService, OutboxWorker } from "../modules/messaging/service.js"
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { ProgressionService } from "../modules/progression/service.js";
+import { createProgressionWhatsAppRoutes } from "../modules/progression/whatsapp-handlers.js";
 import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
 import { PvpService } from "../modules/pvp/service.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
@@ -80,6 +82,7 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
+import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
 import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
@@ -233,6 +236,7 @@ export function createOperationalMessagingComposition(
         );
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
   const reads = new PostgresOperationalUxReadModel(pool);
+  const progression = new ProgressionService(new PostgresProgressionRepository(pool));
   const externalRefForPlayer = async (playerId: string): Promise<string | null> => {
     const result = await pool.query<{ external_id: string }>(
       `SELECT external_id
@@ -418,6 +422,11 @@ export function createOperationalMessagingComposition(
     },
     ...(worldServiceMedia === null ? {} : { media: worldServiceMedia }),
   });
+  const progressionRoutes = createProgressionWhatsAppRoutes({
+    players: playerRegistration,
+    reads,
+    progression,
+  });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutesV2({
       players: playerRegistration,
@@ -448,6 +457,7 @@ export function createOperationalMessagingComposition(
     [
       ...legacyRoutes,
       ...worldServiceRoutes,
+      ...progressionRoutes,
       ...registrationRoutes,
       ...registrationAdminRoutes,
       ...(pveBattle === null
