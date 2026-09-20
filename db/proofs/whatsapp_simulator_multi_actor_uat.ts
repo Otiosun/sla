@@ -3,6 +3,11 @@ import { Pool, type PoolClient } from "pg";
 import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
 import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
 import { withTransaction } from "../../src/platform/db/transaction.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { SystemClock } from "../../src/platform/clock/index.js";
+import { PvpService } from "../../src/modules/pvp/service.js";
+import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
+import { PostgresPvpStartRepository } from "../../src/platform/pvp/postgres-pvp-start-repository.js";
 import { createOperationalSimulatedWhatsAppRuntime } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -147,6 +152,24 @@ async function main(): Promise<void> {
 
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+  const diagnosticError = (error: unknown): string => {
+    if (!(error instanceof Error)) return String(error);
+    const record = error as Error & {
+      code?: unknown;
+      constraint?: unknown;
+      detail?: unknown;
+      table?: unknown;
+    };
+    return JSON.stringify({
+      name: error.name,
+      message: error.message,
+      code: typeof record.code === "string" ? record.code : null,
+      constraint: typeof record.constraint === "string" ? record.constraint : null,
+      table: typeof record.table === "string" ? record.table : null,
+      detail: typeof record.detail === "string" ? record.detail : null,
+    });
+  };
+
   const freshOutbound = (): readonly Extract<
     SimulatedWhatsAppTranscriptEntry,
     { direction: "OUTBOUND" }
@@ -193,7 +216,7 @@ async function main(): Promise<void> {
         `uncaught simulator/runtime exception: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    await sleep(80);
+    await sleep(700);
     const inbox = await pool.query<{
       status: string;
       result_ref_type: string | null;
@@ -519,6 +542,99 @@ async function main(): Promise<void> {
       "accept",
       accepted.outbound.map(textOf).join(" | ") || "no accept response",
     );
+
+    if (accepted.inboxStatus === "FAILED") {
+      const target = await pool.query<{ player_id: string }>(
+        "SELECT player_id FROM player_identities WHERE provider='baileys' AND external_id=$1",
+        [PLAYER_B],
+      );
+      const targetPlayerId = target.rows[0]?.player_id;
+      const challengeRow = await pool.query<{
+        id: string;
+        status: string;
+        encounter_id: string | null;
+        battle_id: string | null;
+        revision: string;
+      }>(
+        `SELECT id,status,encounter_id,battle_id,revision::text
+         FROM pvp_challenges
+         WHERE target_player_id=$1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [targetPlayerId],
+      );
+      const currentChallenge = challengeRow.rows[0];
+      add(
+        "INFO",
+        "pvp-diagnostic",
+        "system",
+        "state after runtime /aceitar",
+        JSON.stringify(currentChallenge ?? null),
+      );
+
+      if (targetPlayerId !== undefined && currentChallenge !== undefined) {
+        const seedProvider = new AesEncounterSeedProvider(key, 1);
+        const challenges = new PostgresPvpChallengeRepository(pool);
+        const diagnosticPvp = new PvpService(
+          challenges,
+          seedProvider,
+          new SystemClock(),
+          { enabled: true, reason: null },
+          { challengeTtlMs: 120_000, turnWindowTtlMs: 120_000 },
+          new PostgresPvpStartRepository(pool, seedProvider),
+        );
+        try {
+          const diagnosticAccept = await diagnosticPvp.acceptChallenge({
+            challengeId: currentChallenge.id,
+            actorPlayerId: targetPlayerId,
+          });
+          add(
+            diagnosticAccept.ok ? "INFO" : "BUG",
+            "pvp-diagnostic",
+            "system",
+            "direct accept replay",
+            diagnosticAccept.ok
+              ? JSON.stringify({
+                  status: diagnosticAccept.value.challenge.status,
+                  encounterId: diagnosticAccept.value.encounterId,
+                  replayed: diagnosticAccept.value.replayed,
+                })
+              : JSON.stringify(diagnosticAccept.error),
+          );
+        } catch (error) {
+          add(
+            "BUG",
+            "pvp-diagnostic",
+            "system",
+            "direct accept exception",
+            diagnosticError(error),
+          );
+        }
+
+        try {
+          const diagnosticStart = await diagnosticPvp.startEncounter({
+            challengeId: currentChallenge.id,
+            actorPlayerId: targetPlayerId,
+          });
+          add(
+            diagnosticStart.ok ? "INFO" : "BUG",
+            "pvp-diagnostic",
+            "system",
+            "direct start",
+            diagnosticStart.ok ? JSON.stringify(diagnosticStart.value) : JSON.stringify(diagnosticStart.error),
+          );
+        } catch (error) {
+          add(
+            "BUG",
+            "pvp-diagnostic",
+            "system",
+            "direct start exception",
+            diagnosticError(error),
+          );
+        }
+      }
+    }
+
     await send({ actor: PLAYER_A, chat: WORLD, text: "/batalha" });
     const surrender = await send({ actor: PLAYER_B, chat: WORLD, text: "/desistir" });
     add(
