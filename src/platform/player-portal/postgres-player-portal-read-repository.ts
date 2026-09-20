@@ -15,6 +15,7 @@ interface OwnedPokemonRow {
   readonly pokemon_instance_id: string;
   readonly form_id: string;
   readonly form_slug: string;
+  readonly species_slug: string;
   readonly display_name: string | null;
   readonly national_dex: number | null;
   readonly type1_name: string | null;
@@ -90,6 +91,7 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          instance.id::text AS pokemon_instance_id,
          instance.form_id::text AS form_id,
          form_identity.slug AS form_slug,
+         species.slug AS species_slug,
          form_revision.display_name,
          species.national_dex,
          type1_revision.display_name AS type1_name,
@@ -201,6 +203,7 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
       pokemonInstanceId: pokemonId(row.pokemon_instance_id),
       formId: row.form_id,
       formSlug: row.form_slug,
+      speciesSlug: row.species_slug,
       displayName: row.display_name,
       nationalDex: row.national_dex,
       typeNames:
