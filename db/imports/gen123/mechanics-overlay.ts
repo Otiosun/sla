@@ -496,7 +496,13 @@ export async function composeGen123MechanicsOverlay(
           row.ability_id,
           row.display_name,
           keepEffect ? inherited.effect_key : row.effect_key,
-          JSON.stringify(keepEffect ? inherited.effect_config : row.effect_config),
+          JSON.stringify(
+            keepEffect
+              ? inherited.effect_config
+              : row.effect_key === null
+                ? {}
+                : row.effect_config,
+          ),
           row.active,
         ];
       }),
