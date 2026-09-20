@@ -157,13 +157,198 @@ function applyStatus(
   events.push(event("StatusApplied", { participantId: target.participantId, status, ...source }));
 }
 
-function applyMoveEffect(
+function chanceSucceeds(chanceBasisPoints: number, rng: CounterRandomSource): boolean {
+  if (chanceBasisPoints <= 0) return false;
+  if (chanceBasisPoints >= 10_000) return true;
+  return rng.randomInt(10_000) < chanceBasisPoints;
+}
+
+function applyStatStageChange(
+  source: BattleCombatant,
+  target: BattleCombatant,
+  stat: BattleStatKey,
+  stages: number,
+  moveId: string,
+  events: BattleEvent[],
+): void {
+  if (target.currentHp <= 0) return;
+  if (
+    source.participantId !== target.participantId &&
+    stat === "ACCURACY" &&
+    stages < 0 &&
+    target.ability.effectKey === "prevent-accuracy-drop"
+  ) {
+    events.push(
+      event("AbilityTriggered", {
+        participantId: target.participantId,
+        abilityId: target.ability.abilityId,
+        effectKey: target.ability.effectKey,
+      }),
+    );
+    return;
+  }
+  const key = stageProperty(stat);
+  const before = target.stages[key];
+  const after = clampStage(before + stages);
+  target.stages[key] = after;
+  if (after !== before) {
+    events.push(
+      event("StatStageChanged", {
+        participantId: target.participantId,
+        stat,
+        from: before,
+        to: after,
+        moveId,
+      }),
+    );
+  }
+}
+
+function restoreHp(
+  target: BattleCombatant,
+  amount: number,
+  moveId: string,
+  events: BattleEvent[],
+): void {
+  if (target.currentHp <= 0 || amount <= 0 || target.currentHp >= target.maxHp) return;
+  const before = target.currentHp;
+  target.currentHp = Math.min(target.maxHp, target.currentHp + amount);
+  const restored = target.currentHp - before;
+  if (restored <= 0) return;
+  events.push(
+    event("HpRestored", {
+      participantId: target.participantId,
+      moveId,
+      amount: restored,
+      remainingHp: target.currentHp,
+    }),
+  );
+}
+
+function applyMoveMetaEffect(
+  actor: BattleCombatant,
   defender: BattleCombatant,
   move: BattleCombatant["moves"][number],
+  damageDealt: number,
+  targetHasActed: boolean,
   rules: BattleRules,
   rng: CounterRandomSource,
   events: BattleEvent[],
 ): void {
+  const parsed = EffectConfigSchemas["move-meta-v1"].safeParse(move.effectConfig);
+  if (!parsed.success) return;
+  const meta = parsed.data;
+
+  if (meta.ailment !== null && defender.currentHp > 0) {
+    if (meta.ailment.kind === "CONFUSION") {
+      if (
+        defender.volatile.confusionTurns <= 0 &&
+        chanceSucceeds(meta.ailment.chanceBasisPoints, rng)
+      ) {
+        const minTurns = meta.ailment.minTurns ?? 2;
+        const maxTurns = Math.max(minTurns, meta.ailment.maxTurns ?? minTurns);
+        defender.volatile.confusionTurns =
+          minTurns + (maxTurns > minTurns ? rng.randomInt(maxTurns - minTurns + 1) : 0);
+        events.push(
+          event("StatusApplied", {
+            participantId: defender.participantId,
+            status: "CONFUSION",
+            source: "MOVE",
+            moveId: move.moveId,
+          }),
+        );
+      }
+    } else {
+      applyStatus(
+        defender,
+        meta.ailment.kind,
+        meta.ailment.chanceBasisPoints,
+        rules,
+        rng,
+        events,
+        { source: "MOVE", moveId: move.moveId },
+      );
+    }
+  }
+
+  if (
+    meta.statChanges.length > 0 &&
+    chanceSucceeds(meta.statChanceBasisPoints, rng)
+  ) {
+    for (const change of meta.statChanges) {
+      const target = change.target === "SELF" ? actor : defender;
+      applyStatStageChange(actor, target, change.stat, change.stages, move.moveId, events);
+    }
+  }
+
+  if (
+    !targetHasActed &&
+    defender.currentHp > 0 &&
+    meta.flinchChanceBasisPoints > 0 &&
+    chanceSucceeds(meta.flinchChanceBasisPoints, rng)
+  ) {
+    defender.volatile.flinch = true;
+    events.push(
+      event("StatusApplied", {
+        participantId: defender.participantId,
+        status: "FLINCH",
+        source: "MOVE",
+        moveId: move.moveId,
+      }),
+    );
+  }
+
+  if (meta.healingPercent > 0) {
+    restoreHp(
+      actor,
+      Math.max(1, Math.floor((actor.maxHp * meta.healingPercent) / 100)),
+      move.moveId,
+      events,
+    );
+  }
+
+  if (damageDealt > 0 && meta.drainPercent > 0) {
+    restoreHp(
+      actor,
+      Math.max(1, Math.floor((damageDealt * meta.drainPercent) / 100)),
+      move.moveId,
+      events,
+    );
+  } else if (damageDealt > 0 && meta.drainPercent < 0 && actor.currentHp > 0) {
+    const previousHp = actor.currentHp;
+    const recoil = Math.min(
+      actor.currentHp,
+      Math.max(1, Math.floor((damageDealt * Math.abs(meta.drainPercent)) / 100)),
+    );
+    actor.currentHp -= recoil;
+    events.push(
+      event("DamageApplied", {
+        participantId: actor.participantId,
+        sourceParticipantId: actor.participantId,
+        moveId: move.moveId,
+        damage: recoil,
+        remainingHp: actor.currentHp,
+        source: "RECOIL",
+      }),
+    );
+    emitFaintIfNeeded(actor, previousHp, events);
+  }
+}
+
+function applyMoveEffect(
+  actor: BattleCombatant,
+  defender: BattleCombatant,
+  move: BattleCombatant["moves"][number],
+  damageDealt: number,
+  targetHasActed: boolean,
+  rules: BattleRules,
+  rng: CounterRandomSource,
+  events: BattleEvent[],
+): void {
+  if (move.effectKey === "move-meta-v1") {
+    applyMoveMetaEffect(actor, defender, move, damageDealt, targetHasActed, rules, rng, events);
+    return;
+  }
   if (move.effectKey === "apply-status") {
     const parsed = EffectConfigSchemas["apply-status"].safeParse(move.effectConfig);
     if (parsed.success) {
@@ -176,36 +361,8 @@ function applyMoveEffect(
   }
   if (move.effectKey !== "modify-stat-stage") return;
   const parsed = EffectConfigSchemas["modify-stat-stage"].safeParse(move.effectConfig);
-  if (!parsed.success || defender.currentHp <= 0) return;
-  if (
-    parsed.data.stat === "ACCURACY" &&
-    parsed.data.stages < 0 &&
-    defender.ability.effectKey === "prevent-accuracy-drop"
-  ) {
-    events.push(
-      event("AbilityTriggered", {
-        participantId: defender.participantId,
-        abilityId: defender.ability.abilityId,
-        effectKey: defender.ability.effectKey,
-      }),
-    );
-    return;
-  }
-  const key = stageProperty(parsed.data.stat);
-  const before = defender.stages[key];
-  const after = clampStage(before + parsed.data.stages);
-  defender.stages[key] = after;
-  if (after !== before) {
-    events.push(
-      event("StatStageChanged", {
-        participantId: defender.participantId,
-        stat: parsed.data.stat,
-        from: before,
-        to: after,
-        moveId: move.moveId,
-      }),
-    );
-  }
+  if (!parsed.success) return;
+  applyStatStageChange(actor, defender, parsed.data.stat, parsed.data.stages, move.moveId, events);
 }
 
 function applyContactAbility(
@@ -402,10 +559,12 @@ function executeMove(
   rules: BattleRules,
   rng: CounterRandomSource,
   events: BattleEvent[],
+  completedActors: ReadonlySet<string>,
 ): void {
   const actor = findCombatant(state, action.actorParticipantId);
   const target = findCombatant(state, action.targetParticipantId);
   const move = actor.moves.find((entry) => entry.slotNo === action.moveSlot);
+  const targetHasActed = completedActors.has(target.participantId);
   if (move === undefined) throw new Error("Validated move action lost its move slot");
   if (rules.ppEnabled && move.ppCurrent !== null) move.ppCurrent = Math.max(0, move.ppCurrent - 1);
   events.push(
@@ -429,11 +588,13 @@ function executeMove(
   }
 
   let immune = false;
+  let damageDealt = 0;
   if (move.category !== "STATUS" && move.power !== null && move.power > 0) {
     const result = computeDamage(actor, target, move, rules, rng);
     immune = result.effectivenessBasisPoints === 0;
     const previousHp = target.currentHp;
     const damage = Math.min(target.currentHp, result.damage);
+    damageDealt = damage;
     target.currentHp -= damage;
     events.push(
       event("DamageApplied", {
@@ -453,7 +614,16 @@ function executeMove(
   }
   if (immune) return;
 
-  applyMoveEffect(target, move, rules, rng, events);
+  applyMoveEffect(
+    actor,
+    target,
+    move,
+    damageDealt,
+    targetHasActed,
+    rules,
+    rng,
+    events,
+  );
   applyContactAbility(actor, target, move, rules, rng, events);
 }
 
@@ -574,6 +744,7 @@ export function resolveTurn(
   const state = structuredClone(sourceState);
   const events: BattleEvent[] = [event("TurnStarted", { turnNumber: state.turnNumber + 1 })];
   const ordered = orderedActions(state, actions, rules, rng);
+  const completedActors = new Set<string>();
   for (const action of ordered) {
     if (state.status !== "ACTIVE") break;
     const actor = findCombatant(state, action.actorParticipantId);
@@ -584,12 +755,13 @@ export function resolveTurn(
       continue;
     }
     if (action.type === "USE_MOVE" && !canUseMove(actor, rules, rng, events)) {
+      completedActors.add(actor.participantId);
       if (checkTerminal(state, events)) break;
       continue;
     }
     switch (action.type) {
       case "USE_MOVE":
-        executeMove(state, action, rules, rng, events);
+        executeMove(state, action, rules, rng, events, completedActors);
         break;
       case "SWITCH":
         executeSwitch(state, action, events);
@@ -616,6 +788,7 @@ export function resolveTurn(
           },
         };
     }
+    completedActors.add(actor.participantId);
     if (state.status === "ACTIVE" && checkTerminal(state, events)) break;
   }
 

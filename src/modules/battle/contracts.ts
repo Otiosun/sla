@@ -302,6 +302,7 @@ export const BATTLE_EVENT_TYPES = [
   "MoveUsed",
   "MoveMissed",
   "DamageApplied",
+  "HpRestored",
   "StatusApplied",
   "StatusCleared",
   "StatStageChanged",

@@ -409,6 +409,10 @@ function statusText(value: unknown): string {
       return "adormecido";
     case "FREEZE":
       return "congelado";
+    case "CONFUSION":
+      return "confuso";
+    case "FLINCH":
+      return "abalado";
     default:
       return "afetado por um status";
   }
@@ -482,6 +486,17 @@ async function turnSummary(
         if (damage !== null && remainingHp !== null) {
           lines.push(
             `${nameOf(entry.payload.participantId)}: ${remainingHp + damage} → ${remainingHp} HP.`,
+          );
+        }
+        break;
+      }
+      case "HpRestored": {
+        const amount = typeof entry.payload.amount === "number" ? entry.payload.amount : null;
+        const remainingHp =
+          typeof entry.payload.remainingHp === "number" ? entry.payload.remainingHp : null;
+        if (amount !== null && remainingHp !== null) {
+          lines.push(
+            `${nameOf(entry.payload.participantId)}: ${remainingHp - amount} → ${remainingHp} HP.`,
           );
         }
         break;
