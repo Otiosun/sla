@@ -97,6 +97,7 @@ import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-
 import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../platform/pvp/postgres-pvp-start-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
+import { PostgresPlayerActivationKit } from "../platform/registration/postgres-player-activation-kit.js";
 import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
 import { PostgresReceptionActivationAnnouncement } from "../platform/registration/postgres-reception-activation-announcement.js";
 import { PostgresRegistrationMessageRefRepository } from "../platform/registration/postgres-registration-message-ref-repository.js";
@@ -280,6 +281,7 @@ export function createOperationalMessagingComposition(
     starter,
     world,
     new PostgresReceptionActivationAnnouncement(pool),
+    new PostgresPlayerActivationKit(pool),
   );
   const provisioningWorker = new PlayerProvisioningWorker(
     new PostgresProvisioningCandidateSource(pool),

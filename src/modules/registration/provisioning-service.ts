@@ -22,6 +22,13 @@ interface MechanicalWorldPort {
   ensureInitialLocation(input: { readonly playerId: PlayerId }): Promise<Result<unknown>>;
 }
 
+export interface PlayerActivationKitPort {
+  grant(input: {
+    readonly reviewId: string;
+    readonly playerId: PlayerId;
+  }): Promise<Result<unknown>>;
+}
+
 function invalidState(message: string): Result<never> {
   return err(appError("INVALID_STATE_TRANSITION", message));
 }
@@ -38,6 +45,7 @@ export class PlayerProvisioningService {
     private readonly playerStarter: MechanicalStarterPort,
     private readonly world: MechanicalWorldPort,
     private readonly announcements?: PlayerActivationAnnouncementPort,
+    private readonly activationKit?: PlayerActivationKitPort,
   ) {}
 
   public async provisionApprovedPlayer(reviewId: string): Promise<Result<PlayerAccessRecord>> {
@@ -76,6 +84,14 @@ export class PlayerProvisioningService {
 
     const location = await this.world.ensureInitialLocation({ playerId: review.playerId });
     if (!location.ok) return location;
+
+    if (this.activationKit !== undefined) {
+      const kit = await this.activationKit.grant({
+        reviewId: review.id,
+        playerId: review.playerId,
+      });
+      if (!kit.ok) return kit;
+    }
 
     const activated = await this.activate(review, access.value);
     return activated.ok ? this.finishActivation(review, activated.value) : activated;
