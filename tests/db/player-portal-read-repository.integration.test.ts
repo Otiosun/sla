@@ -155,6 +155,8 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
     expect(pokemon).toEqual([
       expect.objectContaining({
         pokemonInstanceId,
+        formSlug: "default",
+        speciesSlug: "chikorita",
         displayName: "Chikorita",
         nationalDex: 152,
         typeNames: ["Grass"],
@@ -197,6 +199,12 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
         displayName: "Chikorita",
         seenCount: "2",
         caughtCount: "1",
+        shinySeenCount: "0",
+        shinyCaughtCount: "0",
+        firstShinySeenAt: null,
+        lastShinySeenAt: null,
+        firstShinyCaughtAt: null,
+        lastShinyCaughtAt: null,
       }),
     ]);
     expect(inventory).toEqual([
