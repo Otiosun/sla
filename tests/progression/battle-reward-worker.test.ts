@@ -22,7 +22,7 @@ function reward(battleId: string, replayed: boolean): BattleRewardResult {
       afterLevel: 1,
       afterPoints: 100,
       pointsGained: 100,
-      unlockedKeys: [],
+      unlockKeys: [],
     },
     replayed,
   };
