@@ -154,7 +154,10 @@ export class PlayerPortalHttpHandler {
   private async getMoveChoices(identity: ExternalIdentity): Promise<Response> {
     const result = await this.dependencies.moveChoices.list(identity);
     return result.ok
-      ? jsonResponse(200, result.value)
+      ? jsonResponse(200, {
+          blockedByBattle: result.value.blockedByBattle,
+          choices: result.value.choices,
+        })
       : errorResponse(result.error, "moves");
   }
 
