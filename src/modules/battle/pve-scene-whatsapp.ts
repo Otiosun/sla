@@ -365,12 +365,15 @@ function hud(
   const lines = [
     `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
     "",
+    "◇ *SEU POKÉMON*",
     own === undefined
-      ? "Seu Pokémon · indisponível"
-      : `Seu Pokémon · HP ${own.currentHp}/${own.maxHp} · status ${statusLabel(own.majorStatus)}`,
+      ? "╰─ _indisponível_"
+      : `╰─ HP \`${own.currentHp}/${own.maxHp}\` · status \`${statusLabel(own.majorStatus)}\``,
+    "",
+    "◇ *OPONENTE*",
     opponent === undefined
-      ? "Oponente · —"
-      : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
+      ? "╰─ —"
+      : `╰─ HP \`${opponent.currentHp}/${opponent.maxHp}\` · status \`${statusLabel(opponent.majorStatus)}\``,
   ];
 
   if (own !== undefined && own.currentHp <= 0) {
@@ -386,12 +389,13 @@ function hud(
         "💥 *TROCA OBRIGATÓRIA*",
         ...reserves.map(
           ({ combatant, slot }) =>
-            `${slot}. HP ${combatant.currentHp}/${combatant.maxHp} · \`/trocar ${slot}\``,
+            `\`${slot}\`　HP \`${combatant.currentHp}/${combatant.maxHp}\` · \`/trocar ${slot}\``,
         ),
       );
     }
   }
 
+  lines.push("", "`/combate` · comandos e regras");
   return lines.join("\n");
 }
 
