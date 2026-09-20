@@ -604,7 +604,7 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     if (row !== undefined && input.toStatus === "PRESENTED") {
       const snapshot = await this.snapshot(input.encounterId);
       if (snapshot === null) throw new Error("Presented encounter is missing its wild snapshot");
-      await recordPokedexSeen(this.client, input.playerId, snapshot.speciesId);
+      await recordPokedexSeen(this.client, input.playerId, snapshot.speciesId, snapshot.shiny);
     }
     return row === undefined ? null : mapEncounter(row);
   }
