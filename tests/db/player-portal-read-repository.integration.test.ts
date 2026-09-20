@@ -156,6 +156,7 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
       expect.objectContaining({
         pokemonInstanceId,
         formSlug: "default",
+        speciesSlug: "chikorita",
         displayName: "Chikorita",
         nationalDex: 152,
         typeNames: ["Grass"],
