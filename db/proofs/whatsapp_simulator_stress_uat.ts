@@ -208,9 +208,7 @@ async function main(): Promise<void> {
     const output = adapter.transcript
       .slice(cursor)
       .filter(
-        (
-          entry,
-        ): entry is Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }> =>
+        (entry): entry is Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }> =>
           entry.direction === "OUTBOUND",
       );
     cursor = adapter.transcript.length;
@@ -272,12 +270,7 @@ async function main(): Promise<void> {
       await adapter.injectMembership({ chatRef: RECEPTION, externalId: player, action: "add" });
     }
     await operational.runtime.flushOutbox();
-    add(
-      "PASS",
-      "reception",
-      "12 concurrent membership adds",
-      `players=${PLAYERS.length}`,
-    );
+    add("PASS", "reception", "12 concurrent membership adds", `players=${PLAYERS.length}`);
 
     for (let index = 0; index < PLAYERS.length; index += 1) {
       const player = PLAYERS[index];
@@ -321,7 +314,9 @@ async function main(): Promise<void> {
         replyTo: review.providerExternalMessageId,
       });
       add(
-        approval.outbound.some((entry) => /APROVAÇÃO REGISTRADA|TRAINER STATUS: ACTIVE/iu.test(textOf(entry)))
+        approval.outbound.some((entry) =>
+          /APROVAÇÃO REGISTRADA|TRAINER STATUS: ACTIVE/iu.test(textOf(entry)),
+        )
           ? "PASS"
           : "BUG",
         "registration",
@@ -484,9 +479,7 @@ async function main(): Promise<void> {
       [deliveryProbe.externalMessageId],
     );
     add(
-      retried.rows[0]?.status === "SENT" && (retried.rows[0]?.attempts ?? 0) >= 2
-        ? "PASS"
-        : "BUG",
+      retried.rows[0]?.status === "SENT" && (retried.rows[0]?.attempts ?? 0) >= 2 ? "PASS" : "BUG",
       "delivery",
       "one forced send failure then retry",
       JSON.stringify(retried.rows[0] ?? null),

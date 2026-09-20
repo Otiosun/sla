@@ -35,7 +35,10 @@ interface SendResult {
   readonly inboxStatus: string | null;
   readonly resultRefType: string | null;
   readonly resultRefId: string | null;
-  readonly outbound: readonly Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }>[];
+  readonly outbound: readonly Extract<
+    SimulatedWhatsAppTranscriptEntry,
+    { direction: "OUTBOUND" }
+  >[];
 }
 
 const findings: Finding[] = [];
@@ -49,10 +52,14 @@ function add(
   observation: string,
 ): void {
   findings.push({ severity, area, actor, action, observation });
-  console.log(JSON.stringify({ event: "sim.uart.finding", severity, area, actor, action, observation }));
+  console.log(
+    JSON.stringify({ event: "sim.uart.finding", severity, area, actor, action, observation }),
+  );
 }
 
-function textOf(entry: Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }>): string {
+function textOf(
+  entry: Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }>,
+): string {
   const payload = entry.message.payload;
   if (entry.message.messageType === "TEXT") {
     return typeof payload.text === "string" ? payload.text : "";
@@ -177,9 +184,7 @@ async function main(): Promise<void> {
     const entries = adapter.transcript
       .slice(cursor)
       .filter(
-        (
-          entry,
-        ): entry is Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }> =>
+        (entry): entry is Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }> =>
           entry.direction === "OUTBOUND",
       );
     cursor = adapter.transcript.length;
@@ -195,7 +200,8 @@ async function main(): Promise<void> {
     readonly externalMessageId?: string;
   }): Promise<SendResult> => {
     sequence += 1;
-    const externalMessageId = input.externalMessageId ?? `SWARM-${String(sequence).padStart(5, "0")}`;
+    const externalMessageId =
+      input.externalMessageId ?? `SWARM-${String(sequence).padStart(5, "0")}`;
     cursor = adapter.transcript.length;
     try {
       await adapter.injectText({
@@ -267,11 +273,7 @@ async function main(): Promise<void> {
     return null;
   };
 
-  const replyLast = async (
-    actor: string,
-    chat: string,
-    text: string,
-  ): Promise<SendResult> => {
+  const replyLast = async (actor: string, chat: string, text: string): Promise<SendResult> => {
     const last = latestBot(chat);
     if (last === null) throw new Error(`No outbound message available for reply in ${chat}`);
     return send({ actor, chat, text, replyTo: last.providerExternalMessageId });
@@ -307,14 +309,21 @@ async function main(): Promise<void> {
   if (starters.rows.length < 2) throw new Error("Swarm UAT requires at least two starter fixtures");
   const starterA = starters.rows[0]?.display_name;
   const starterB = starters.rows[1]?.display_name;
-  if (starterA === undefined || starterB === undefined) throw new Error("Starter names unavailable");
+  if (starterA === undefined || starterB === undefined)
+    throw new Error("Starter names unavailable");
 
   try {
     await ensureReviewAdmin(pool);
     await operational.runtime.start();
     cursor = adapter.transcript.length;
 
-    add("INFO", "setup", "system", "start", `starters=${starters.rows.map((r) => r.display_name).join(", ")}`);
+    add(
+      "INFO",
+      "setup",
+      "system",
+      "start",
+      `starters=${starters.rows.map((r) => r.display_name).join(", ")}`,
+    );
 
     // Player C intentionally behaves badly first.
     await join(PLAYER_C);
@@ -390,11 +399,7 @@ async function main(): Promise<void> {
 
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/editar" });
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/modo completo" });
-    await replyLast(
-      PLAYER_A,
-      RECEPTION,
-      fullFicha("Ari Voss", starterA, "A-revisado"),
-    );
+    await replyLast(PLAYER_A, RECEPTION, fullFicha("Ari Voss", starterA, "A-revisado"));
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar" });
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar sim" });
 
@@ -440,13 +445,10 @@ async function main(): Promise<void> {
     await send({ actor: PLAYER_B, chat: RECEPTION, text: "/confirmar" });
     await send({ actor: PLAYER_B, chat: RECEPTION, text: "/confirmar sim" });
 
-    const reviewB = latestBot(
-      RECEPTION,
-      (entry) => {
-        const review = entry.message.payload.registrationReview;
-        return typeof review === "object" && entry !== reviewA2;
-      },
-    );
+    const reviewB = latestBot(RECEPTION, (entry) => {
+      const review = entry.message.payload.registrationReview;
+      return typeof review === "object" && entry !== reviewA2;
+    });
     if (reviewB === null) {
       add("BUG", "registration", "player-b", "guided submit", "review notification missing");
     } else {
@@ -618,13 +620,7 @@ async function main(): Promise<void> {
               : JSON.stringify(diagnosticAccept.error),
           );
         } catch (error) {
-          add(
-            "BUG",
-            "pvp-diagnostic",
-            "system",
-            "direct accept exception",
-            diagnosticError(error),
-          );
+          add("BUG", "pvp-diagnostic", "system", "direct accept exception", diagnosticError(error));
         }
 
         try {
@@ -637,16 +633,12 @@ async function main(): Promise<void> {
             "pvp-diagnostic",
             "system",
             "direct start",
-            diagnosticStart.ok ? JSON.stringify(diagnosticStart.value) : JSON.stringify(diagnosticStart.error),
+            diagnosticStart.ok
+              ? JSON.stringify(diagnosticStart.value)
+              : JSON.stringify(diagnosticStart.error),
           );
         } catch (error) {
-          add(
-            "BUG",
-            "pvp-diagnostic",
-            "system",
-            "direct start exception",
-            diagnosticError(error),
-          );
+          add("BUG", "pvp-diagnostic", "system", "direct start exception", diagnosticError(error));
         }
       }
     }
@@ -741,7 +733,13 @@ async function main(): Promise<void> {
     const whereText = where.outbound.map(textOf).join("\n");
     const routeMatch = /→ `\/ir (\d+)`/u.exec(whereText);
     if (routeMatch?.[1] === undefined) {
-      add("WARN", "world", "player-a", "travel discovery", `no available route parsed: ${whereText}`);
+      add(
+        "WARN",
+        "world",
+        "player-a",
+        "travel discovery",
+        `no available route parsed: ${whereText}`,
+      );
     } else {
       const travel = await send({
         actor: PLAYER_A,
@@ -784,9 +782,7 @@ async function main(): Promise<void> {
       externalMessageId: duplicateId,
     });
     add(
-      second.inboxStatus === "PROCESSED" || second.inboxStatus === "REPLAYED"
-        ? "PASS"
-        : "WARN",
+      second.inboxStatus === "PROCESSED" || second.inboxStatus === "REPLAYED" ? "PASS" : "WARN",
       "idempotency",
       "player-a",
       "duplicate /perfil",

@@ -116,9 +116,7 @@ async function main(): Promise<void> {
     const output = adapter.transcript
       .slice(cursor)
       .filter(
-        (
-          entry,
-        ): entry is Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }> =>
+        (entry): entry is Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }> =>
           entry.direction === "OUTBOUND",
       );
     cursor = adapter.transcript.length;
@@ -319,9 +317,7 @@ async function main(): Promise<void> {
 
     const mart = await send({ actor: PLAYER_B, text: "/pokemart" });
     add(
-      mart.outbound.some((entry) => /POKÉ MART|Poké Mart/iu.test(textOf(entry)))
-        ? "PASS"
-        : "BUG",
+      mart.outbound.some((entry) => /POKÉ MART|Poké Mart/iu.test(textOf(entry))) ? "PASS" : "BUG",
       "world-services",
       "player-b",
       "/pokemart after narration",
@@ -365,8 +361,7 @@ async function main(): Promise<void> {
       [playerBId, currencyId],
     );
     add(
-      afterStarterPurchase.rows[0]?.balls === "10" &&
-        afterStarterPurchase.rows[0]?.money === "1000"
+      afterStarterPurchase.rows[0]?.balls === "10" && afterStarterPurchase.rows[0]?.money === "1000"
         ? "PASS"
         : "BUG",
       "economy",
@@ -394,8 +389,7 @@ async function main(): Promise<void> {
       [playerBId, currencyId],
     );
     add(
-      afterInsufficient.rows[0]?.balls === "10" &&
-        afterInsufficient.rows[0]?.money === "1000"
+      afterInsufficient.rows[0]?.balls === "10" && afterInsufficient.rows[0]?.money === "1000"
         ? "PASS"
         : "BUG",
       "economy",
@@ -437,7 +431,8 @@ async function main(): Promise<void> {
         currencyId,
         delta: "2000",
       },
-      reason: "Autonomous simulator UAT: verify audited wallet adjustment after starter-kit spending",
+      reason:
+        "Autonomous simulator UAT: verify audited wallet adjustment after starter-kit spending",
       idempotencyKey: "sim-deep-wallet-player-b",
       correlationId: randomUUID(),
     });
@@ -514,13 +509,7 @@ async function main(): Promise<void> {
         spawn.outbound.map(textOf).join(" | ") || "no spawn output",
       );
     } else {
-      add(
-        "PASS",
-        "fishing",
-        "player-b",
-        "fishing encounter",
-        `encounterId=${encounterId}`,
-      );
+      add("PASS", "fishing", "player-b", "fishing encounter", `encounterId=${encounterId}`);
     }
 
     const start = await send({
@@ -577,9 +566,7 @@ async function main(): Promise<void> {
       [playerBId],
     );
     add(
-      captured && Number(captureAudit.rows[0]?.captured_count ?? "0") >= 1
-        ? "PASS"
-        : "WARN",
+      captured && Number(captureAudit.rows[0]?.captured_count ?? "0") >= 1 ? "PASS" : "WARN",
       "capture",
       "player-b",
       "capture persistence",
@@ -642,9 +629,7 @@ async function main(): Promise<void> {
 
     const boxes = await send({ actor: PLAYER_B, text: "/caixas" });
     add(
-      boxes.outbound.some((entry) => /CAIXAS|Caixa 01/iu.test(textOf(entry)))
-        ? "PASS"
-        : "BUG",
+      boxes.outbound.some((entry) => /CAIXAS|Caixa 01/iu.test(textOf(entry))) ? "PASS" : "BUG",
       "pc",
       "player-b",
       "/caixas",
@@ -735,10 +720,9 @@ async function main(): Promise<void> {
           action.outbound.map(textOf).join(" | ") || "no turn feedback",
         );
       }
-      const final = await pool.query<{ status: string }>(
-        "SELECT status FROM battles WHERE id=$1",
-        [rewardBattleId],
-      );
+      const final = await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [
+        rewardBattleId,
+      ]);
       rewardBattleStatus = final.rows[0]?.status ?? "MISSING";
     }
 
@@ -791,13 +775,7 @@ async function main(): Promise<void> {
        ORDER BY location.player_id`,
       [[playerAId, playerBId]],
     );
-    add(
-      "INFO",
-      "pvp",
-      "system",
-      "post-UAT player areas",
-      JSON.stringify(areas.rows),
-    );
+    add("INFO", "pvp", "system", "post-UAT player areas", JSON.stringify(areas.rows));
 
     const counts = findings.reduce(
       (acc, finding) => {
