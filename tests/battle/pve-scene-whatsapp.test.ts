@@ -431,8 +431,11 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     const routes = createPveSceneRoutes(setup.dependencies);
     const hud = await routeFor(routes, "batalha").handler.handle(context("/batalha"));
     const text = String(hud.ok ? hud.value.outgoing[0]?.payload.text : "");
-    expect(text).toContain("Turno 3");
-    expect(text).toContain("HP 12/20");
+    expect(text).toContain("*BATALHA · Turno 3*");
+    expect(text).toContain("◇ *SEU POKÉMON*");
+    expect(text).toContain("HP `12/20`");
+    expect(text).toContain("◇ *OPONENTE*");
+    expect(text).toContain("`/combate` · comandos e regras");
     expect(text).not.toContain("Quick Attack");
     expect(text).not.toContain("Movimentos:");
   });
