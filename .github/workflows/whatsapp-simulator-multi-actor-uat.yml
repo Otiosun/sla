@@ -167,3 +167,6 @@ jobs:
 
       - name: Run deep gameplay UAT on high-fidelity content
         run: node --import tsx db/proofs/whatsapp_simulator_deep_gameplay_uat.ts
+
+      - name: Run stress swarm UAT on high-fidelity content
+        run: node --import tsx db/proofs/whatsapp_simulator_stress_uat.ts
