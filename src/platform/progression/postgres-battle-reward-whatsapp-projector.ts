@@ -155,12 +155,7 @@ export class PostgresBattleRewardWhatsAppProjector {
                     AND correlation_id=$4::uuid AS same
              FROM outbox_messages
              WHERE idempotency_key=$1`,
-            [
-              idempotencyKey,
-              destination.chat_ref,
-              JSON.stringify(payload),
-              row.correlation_id,
-            ],
+            [idempotencyKey, destination.chat_ref, JSON.stringify(payload), row.correlation_id],
           );
           if (existing.rows[0]?.same !== true) {
             throw new Error("Battle reward WhatsApp projection idempotency conflict");

@@ -45,7 +45,8 @@ try {
     "SELECT content_release_id FROM content_release_pointers WHERE pointer_key='ACTIVE'",
   );
   const activeBeforeId = activeBefore.rows[0]?.content_release_id;
-  if (activeBeforeId === undefined) throw new Error("Simulator preparation requires an ACTIVE release");
+  if (activeBeforeId === undefined)
+    throw new Error("Simulator preparation requires an ACTIVE release");
 
   const starterRows = await pool.query<{
     species_slug: string;
@@ -145,7 +146,10 @@ try {
 
   const catalog = new CatalogService(new PostgresCatalogRepository(pool));
   if (releaseRow.ruleset_status === "VALIDATED") {
-    unwrap("publish simulator Gen I-III ruleset", await catalog.publishRuleset(releaseRow.default_ruleset_id));
+    unwrap(
+      "publish simulator Gen I-III ruleset",
+      await catalog.publishRuleset(releaseRow.default_ruleset_id),
+    );
   } else if (releaseRow.ruleset_status !== "PUBLISHED") {
     throw new Error(`Unexpected simulator Gen I-III ruleset status ${releaseRow.ruleset_status}`);
   }
@@ -203,10 +207,14 @@ try {
   const fidelityRow = fidelity.rows[0];
   if (fidelityRow === undefined) throw new Error("Simulator fidelity audit returned no row");
   if (fidelityRow.total_species < 1 || fidelityRow.sourced_species !== fidelityRow.total_species) {
-    throw new Error(`Encounter species are not fully PokeAPI-backed: ${JSON.stringify(fidelityRow)}`);
+    throw new Error(
+      `Encounter species are not fully PokeAPI-backed: ${JSON.stringify(fidelityRow)}`,
+    );
   }
   if (fidelityRow.generic_learnsets !== 0) {
-    throw new Error(`Legacy generic wild learnsets leaked into Gen I-III simulator: ${fidelityRow.generic_learnsets}`);
+    throw new Error(
+      `Legacy generic wild learnsets leaked into Gen I-III simulator: ${fidelityRow.generic_learnsets}`,
+    );
   }
   if (fidelityRow.type_matchups < 100) {
     throw new Error(`Simulator type chart is unexpectedly sparse: ${fidelityRow.type_matchups}`);
@@ -239,7 +247,9 @@ try {
     [releaseId],
   );
   if ((invalidEncounterMoves.rows[0]?.count ?? 0) !== 0) {
-    throw new Error("Obviously incompatible inherited Ember learnsets remain in Zhoulia encounters");
+    throw new Error(
+      "Obviously incompatible inherited Ember learnsets remain in Zhoulia encounters",
+    );
   }
 
   console.log(
