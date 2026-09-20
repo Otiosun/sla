@@ -96,7 +96,10 @@ function buildCombatant(
     })),
     maxHp: build.maxHp,
     currentHp: Math.max(0, Math.min(build.currentHp, build.maxHp)),
-    majorStatus: build.majorStatus === null ? null : { key: build.majorStatus, counter: null },
+    majorStatus:
+      build.majorStatus === null
+        ? null
+        : { key: build.majorStatus, counter: build.majorStatus === "BAD_POISON" ? 1 : null },
     stages: { ...EMPTY_BATTLE_STAGES },
     volatile: { flinch: false, confusionTurns: 0 },
   };
