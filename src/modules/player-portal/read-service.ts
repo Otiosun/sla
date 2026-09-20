@@ -23,6 +23,7 @@ export interface PlayerPortalMoveView {
 export interface PlayerPortalPokemonView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
+  readonly formSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
@@ -62,6 +63,7 @@ export interface PlayerPortalInventoryItemView {
 export interface PlayerPortalTeamView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
+  readonly formSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
@@ -203,6 +205,7 @@ export class PlayerPortalReadService {
         .map((entry) => ({
           pokemonInstanceId: entry.pokemonInstanceId,
           formId: entry.formId,
+          formSlug: entry.formSlug,
           displayName: entry.displayName,
           nationalDex: entry.nationalDex,
           typeNames: entry.typeNames,
