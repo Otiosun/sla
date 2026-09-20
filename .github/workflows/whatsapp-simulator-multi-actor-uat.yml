@@ -162,6 +162,13 @@ jobs:
       - name: Seed simulator actors and groups
         run: pnpm ops:seed:whatsapp-simulator-fixture
 
+      - name: Verify local-stability invariants on high-fidelity content
+        env:
+          DATABASE_URL: ""
+          SIMULATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_gen123_sim_test
+          POKEAPI_DATA_DIR: ${{ github.workspace }}/.sim-pokeapi/data/v2/csv
+        run: pnpm ops:verify:whatsapp-simulator-local
+
       - name: Run multi-actor UAT on high-fidelity content
         run: pnpm uat:whatsapp:multi
 
