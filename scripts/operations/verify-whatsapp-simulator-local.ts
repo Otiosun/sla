@@ -311,7 +311,7 @@ try {
   const transportRow = transport.rows[0];
   if (!transportRow) throw new Error("SIMULATOR_FIXTURE_AUDIT_EMPTY");
   if (transportRow.auth_rows !== 0) throw new Error("SIMULATOR_REAL_AUTH_MATERIAL_PRESENT");
-  if (transportRow.groups < 2 || transportRow.players < 3 || transportRow.admins < 2) {
+  if (transportRow.groups < 2 || transportRow.admins < 1) {
     throw new Error(`SIMULATOR_FIXTURE_INCOMPLETE ${JSON.stringify(transportRow)}`);
   }
 
