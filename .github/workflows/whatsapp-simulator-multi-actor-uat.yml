@@ -75,16 +75,16 @@ jobs:
           pnpm db:seed:phase7
           pnpm db:seed:phase11
           pnpm db:seed:phase12
-          node --import tsx scripts/operations/seed-whatsapp-simulator-fixture.ts
+          pnpm ops:seed:whatsapp-simulator-fixture
 
       - name: Run autonomous multi-actor UAT
-        run: node --import tsx db/proofs/whatsapp_simulator_multi_actor_uat.ts
+        run: pnpm uat:whatsapp:multi
 
       - name: Run deep gameplay UAT
-        run: node --import tsx db/proofs/whatsapp_simulator_deep_gameplay_uat.ts
+        run: pnpm uat:whatsapp:deep
 
       - name: Run stress swarm UAT
-        run: node --import tsx db/proofs/whatsapp_simulator_stress_uat.ts
+        run: pnpm uat:whatsapp:stress
 
 
   gen123-fidelity:
@@ -157,16 +157,16 @@ jobs:
       - name: Build Gen I-III mechanics + Zhoulia-only simulator release
         env:
           POKEAPI_DATA_DIR: ${{ github.workspace }}/.sim-pokeapi/data/v2/csv
-        run: node --import tsx scripts/operations/prepare-whatsapp-simulator-gen123-content.ts
+        run: pnpm ops:prepare:whatsapp-simulator-gen123
 
       - name: Seed simulator actors and groups
-        run: node --import tsx scripts/operations/seed-whatsapp-simulator-fixture.ts
+        run: pnpm ops:seed:whatsapp-simulator-fixture
 
       - name: Run multi-actor UAT on high-fidelity content
-        run: node --import tsx db/proofs/whatsapp_simulator_multi_actor_uat.ts
+        run: pnpm uat:whatsapp:multi
 
       - name: Run deep gameplay UAT on high-fidelity content
-        run: node --import tsx db/proofs/whatsapp_simulator_deep_gameplay_uat.ts
+        run: pnpm uat:whatsapp:deep
 
       - name: Run stress swarm UAT on high-fidelity content
-        run: node --import tsx db/proofs/whatsapp_simulator_stress_uat.ts
+        run: pnpm uat:whatsapp:stress
