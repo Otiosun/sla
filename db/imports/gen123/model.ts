@@ -259,11 +259,14 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
       const currentAbilitySlots = (pokemonAbilitiesByPokemon.get(pokemonId) ?? [])
         .filter((candidate) => allowedAbilityIds.has(requiredInt(candidate, "ability_id")));
       const historicalAbilitySlots = (pokemonPastAbilitiesByPokemon.get(pokemonId) ?? [])
-        .filter(
-          (candidate) =>
+        .filter((candidate) => {
+          const abilityId = optionalInt(candidate, "ability_id");
+          return (
             requiredInt(candidate, "generation_id") > GEN123_SOURCE.maxGeneration &&
-            allowedAbilityIds.has(requiredInt(candidate, "ability_id")),
-        )
+            abilityId !== null &&
+            allowedAbilityIds.has(abilityId)
+          );
+        })
         .sort(
           (left, right) =>
             requiredInt(left, "generation_id") - requiredInt(right, "generation_id") ||
