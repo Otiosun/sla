@@ -100,6 +100,62 @@ describe("shared Battle initialization", () => {
     expect(initialized.value).toEqual(battleState(false));
   });
 
+  it("rejects a side whose entire roster is fainted before battle starts", () => {
+    const fainted = buildFromCombatant(playerCombatant());
+    fainted.currentHp = 0;
+    const initialized = initializeBattleState({
+      root: root("WILD"),
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId: IDS.player,
+          party: [fainted],
+        },
+        {
+          sideNo: 2,
+          controllerKind: "WILD",
+          playerId: null,
+          party: [buildFromCombatant(wildCombatant())],
+        },
+      ],
+      idFactory: idFactory([IDS.p1, IDS.p2]),
+    });
+
+    expect(initialized.ok).toBe(false);
+    if (initialized.ok) return;
+    expect(initialized.error.code).toBe("BATTLE_INITIALIZATION_INVALID");
+    expect(initialized.error.message).toContain("battle-ready");
+  });
+
+  it("still starts with the first living reserve when slot 1 is fainted", () => {
+    const fainted = buildFromCombatant(playerCombatant());
+    fainted.currentHp = 0;
+    const reserve = buildFromCombatant(reserveCombatant());
+    const initialized = initializeBattleState({
+      root: root("WILD"),
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId: IDS.player,
+          party: [fainted, reserve],
+        },
+        {
+          sideNo: 2,
+          controllerKind: "WILD",
+          playerId: null,
+          party: [buildFromCombatant(wildCombatant())],
+        },
+      ],
+      idFactory: idFactory([IDS.p1, IDS.p1Reserve, IDS.p2]),
+    });
+
+    expect(initialized.ok).toBe(true);
+    if (!initialized.ok) return;
+    expect(initialized.value.sides[0]?.activeParticipantId).toBe(IDS.p1Reserve);
+  });
+
   it("builds a PLAYER-vs-PLAYER version-0 state without a second engine", () => {
     const initialized = initializeBattleState({
       root: root("PVP"),
