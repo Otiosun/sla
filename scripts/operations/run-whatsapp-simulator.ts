@@ -454,9 +454,7 @@ async function runShell(
         case ":state":
           console.log(`[sim] sender=${currentSender ?? "(unset)"}`);
           console.log(`[sim] chat=${currentChat ?? "(unset)"}`);
-          console.log(
-            `[sim] lastBotMessageId=${(await resolveLastOutboundId()) ?? "(none)"}`,
-          );
+          console.log(`[sim] lastBotMessageId=${(await resolveLastOutboundId()) ?? "(none)"}`);
           break;
         default:
           console.log(`[sim] controle desconhecido: ${command}. Use :help.`);
