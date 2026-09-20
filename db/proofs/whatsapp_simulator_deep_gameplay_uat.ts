@@ -840,6 +840,40 @@ async function main(): Promise<void> {
         "automatic reward after WhatsApp victory",
         JSON.stringify({ before, after, battleStatus: rewardBattleStatus }),
       );
+
+      const rewardNotice = await pool.query<{
+        status: string;
+        destination_ref: string;
+        text: string | null;
+        internal_status: string | null;
+      }>(
+        `SELECT notice.status,
+                notice.destination_ref,
+                notice.payload->>'text' AS text,
+                (
+                  SELECT internal.status
+                  FROM outbox_messages internal
+                  WHERE internal.channel='INTERNAL'
+                    AND internal.message_type='BATTLE_REWARD_RESULT'
+                    AND internal.idempotency_key='progression.reward:' || $1::text
+                ) AS internal_status
+         FROM outbox_messages notice
+         WHERE notice.idempotency_key='progression.reward-whatsapp:' || $1::text`,
+        [rewardBattleId],
+      );
+      const rewardNoticeRow = rewardNotice.rows[0];
+      add(
+        rewardNoticeRow?.status === "SENT" &&
+          rewardNoticeRow.destination_ref === WORLD &&
+          rewardNoticeRow.internal_status === "SENT" &&
+          /RECOMPENSA DE BATALHA/iu.test(rewardNoticeRow.text ?? "")
+          ? "PASS"
+          : "GAP",
+        "progression",
+        "player-b",
+        "battle reward notification returns to battle chat",
+        JSON.stringify(rewardNoticeRow ?? null),
+      );
     }
 
     // PVP actual turn exchange, not only surrender.
