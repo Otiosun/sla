@@ -41,10 +41,18 @@ import {
   battlePokemonXp,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
+import { matchesRelativePhysicalStats } from "../../modules/progression/evolution-relative-stats.js";
 import { withTransaction } from "../db/transaction.js";
 import { recordPokedexOwned } from "../pokedex/postgres-pokedex-writer.js";
 
-const MAJOR_STATUS_KEYS = ["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
+const MAJOR_STATUS_KEYS = [
+  "BURN",
+  "POISON",
+  "BAD_POISON",
+  "PARALYSIS",
+  "SLEEP",
+  "FREEZE",
+] as const;
 
 class ProgressionStateViolation extends Error {}
 
@@ -308,6 +316,7 @@ async function findLevelEvolution(
   contentReleaseId: string,
   formId: string,
   level: number,
+  stats: { readonly attack: number; readonly defense: number },
 ): Promise<LevelEvolutionRule | null> {
   const result = await client.query<{ id: string; to_form_id: string; trigger_config: unknown }>(
     `SELECT id, to_form_id, trigger_config
@@ -319,7 +328,11 @@ async function findLevelEvolution(
   const eligible: LevelEvolutionRule[] = [];
   for (const row of result.rows) {
     const parsed = EvolutionTriggerSchemas.LEVEL.safeParse(row.trigger_config);
-    if (parsed.success && level >= parsed.data.level) {
+    if (
+      parsed.success &&
+      level >= parsed.data.level &&
+      matchesRelativePhysicalStats(parsed.data.relativePhysicalStats, stats)
+    ) {
       eligible.push({ id: row.id, toFormId: row.to_form_id, triggerLevel: parsed.data.level });
     }
   }
@@ -760,11 +773,21 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       });
 
       while (input.progression.pokemon.autoLevelEvolution) {
+        const evolutionForm = await loadFormStats(client, input.contentReleaseId, currentFormId);
+        const evolutionStats = calculatePokemonStats({
+          baseStats: evolutionForm,
+          ivs: input.combatant.ivs,
+          level: crossedLevel,
+          nature: input.combatant.nature,
+          ivEnabled: input.config.battle.ivEnabled,
+          natureEnabled: input.config.battle.natureEnabled,
+        });
         const rule = await findLevelEvolution(
           client,
           input.contentReleaseId,
           currentFormId,
           crossedLevel,
+          evolutionStats,
         );
         if (rule === null) break;
         if (visitedForms.has(rule.toFormId)) {
@@ -1418,6 +1441,25 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       const pokemonRow = pokemon.rows[0];
       if (pokemonRow === undefined) return { kind: "NOT_FOUND" };
 
+      const currentForm = await loadFormStats(
+        client,
+        activeRow.content_release_id,
+        pokemonRow.form_id,
+      );
+      const currentNature = await this.loadNature(client, {
+        contentReleaseId: activeRow.content_release_id,
+        natureId: pokemonRow.nature_id,
+      });
+      const currentIvs = this.requireIvs(pokemonRow);
+      const currentStats = calculatePokemonStats({
+        baseStats: currentForm,
+        ivs: currentIvs,
+        level: pokemonRow.level,
+        nature: currentNature,
+        ivEnabled: config.battle.ivEnabled,
+        natureEnabled: config.battle.natureEnabled,
+      });
+
       const rules = await client.query<{
         id: string;
         to_form_id: string;
@@ -1433,7 +1475,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       let eligible = rules.rows.filter((rule) => {
         if (input.trigger.kind === "LEVEL") {
           const parsed = EvolutionTriggerSchemas.LEVEL.safeParse(rule.trigger_config);
-          return parsed.success && pokemonRow.level >= parsed.data.level;
+          return (
+            parsed.success &&
+            pokemonRow.level >= parsed.data.level &&
+            matchesRelativePhysicalStats(parsed.data.relativePhysicalStats, currentStats)
+          );
         }
         if (input.trigger.kind === "ITEM") {
           const parsed = EvolutionTriggerSchemas.ITEM.safeParse(rule.trigger_config);
@@ -1492,21 +1538,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         }
       }
 
-      const oldForm = await loadFormStats(client, activeRow.content_release_id, pokemonRow.form_id);
+      const oldForm = currentForm;
       const newForm = await loadFormStats(client, activeRow.content_release_id, rule.to_form_id);
-      const nature = await this.loadNature(client, {
-        contentReleaseId: activeRow.content_release_id,
-        natureId: pokemonRow.nature_id,
-      });
-      const ivs = this.requireIvs(pokemonRow);
-      const oldStats = calculatePokemonStats({
-        baseStats: oldForm,
-        ivs,
-        level: pokemonRow.level,
-        nature,
-        ivEnabled: config.battle.ivEnabled,
-        natureEnabled: config.battle.natureEnabled,
-      });
+      const nature = currentNature;
+      const ivs = currentIvs;
+      const oldStats = currentStats;
       const newStats = calculatePokemonStats({
         baseStats: newForm,
         ivs,
