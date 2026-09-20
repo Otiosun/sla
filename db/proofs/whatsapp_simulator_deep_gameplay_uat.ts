@@ -526,8 +526,31 @@ async function main(): Promise<void> {
       start.outbound.map(textOf).join(" | ") || "no battle start",
     );
 
+    const captureBaseline = await pool.query<{
+      captured_count: string;
+      caught_count: string;
+      balls: string;
+    }>(
+      `SELECT
+         (SELECT count(*)::text
+          FROM pokemon_instances
+          WHERE owner_player_id=$1 AND origin_type='CAPTURE') AS captured_count,
+         (SELECT COALESCE(sum(caught_count),0)::text
+          FROM player_pokedex_species
+          WHERE player_id=$1) AS caught_count,
+         COALESCE((
+           SELECT balance.quantity::text
+           FROM inventory_balances balance
+           JOIN items item ON item.id=balance.item_id
+           WHERE balance.player_id=$1 AND item.slug='poke-ball'
+         ), '0') AS balls`,
+      [playerBId],
+    );
+
     let captured = false;
+    let captureAttempts = 0;
     for (let attempt = 1; attempt <= 5 && !captured; attempt += 1) {
+      captureAttempts += 1;
       const result = await send({ actor: PLAYER_B, text: "/capturar Poké Ball" });
       const captureText = result.outbound.map(textOf).join(" | ");
       if (/Pokémon capturado/iu.test(captureText)) {
@@ -565,12 +588,33 @@ async function main(): Promise<void> {
          ), '0') AS balls`,
       [playerBId],
     );
+    const captureBefore = captureBaseline.rows[0];
+    const captureAfter = captureAudit.rows[0];
+    const beforeCaptured = Number(captureBefore?.captured_count ?? "0");
+    const afterCaptured = Number(captureAfter?.captured_count ?? "0");
+    const beforeCaught = Number(captureBefore?.caught_count ?? "0");
+    const afterCaught = Number(captureAfter?.caught_count ?? "0");
+    const beforeBalls = Number(captureBefore?.balls ?? "0");
+    const afterBalls = Number(captureAfter?.balls ?? "0");
+    const ballsConsumedExactly = beforeBalls - afterBalls === captureAttempts;
+    const capturePersistenceValid = captured
+      ? afterCaptured === beforeCaptured + 1 &&
+        afterCaught === beforeCaught + 1 &&
+        ballsConsumedExactly
+      : afterCaptured === beforeCaptured &&
+        afterCaught === beforeCaught &&
+        ballsConsumedExactly;
     add(
-      captured && Number(captureAudit.rows[0]?.captured_count ?? "0") >= 1 ? "PASS" : "BUG",
+      capturePersistenceValid ? "PASS" : "BUG",
       "capture",
       "player-b",
-      "capture persistence",
-      JSON.stringify(captureAudit.rows[0] ?? null),
+      captured ? "capture persistence" : "failed-capture persistence",
+      JSON.stringify({
+        before: captureBefore ?? null,
+        after: captureAfter ?? null,
+        attempts: captureAttempts,
+        captured,
+      }),
     );
 
     if (!captured && captureBattleId !== null) {
@@ -896,6 +940,9 @@ async function main(): Promise<void> {
       { PASS: 0, INFO: 0, WARN: 0, BUG: 0, GAP: 0 },
     );
     console.log(JSON.stringify({ event: "sim.deep.complete", counts, findings }));
+    if (counts.BUG > 0) {
+      throw new Error(`Deep gameplay UAT found ${counts.BUG} BUG finding(s)`);
+    }
   } finally {
     await operational.runtime.stop().catch(() => {});
     await pool.end();
