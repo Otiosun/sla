@@ -30,6 +30,27 @@ function databaseName(raw: string): string {
   return value;
 }
 
+function pnpmInvocation(args: readonly string[]): {
+  readonly command: string;
+  readonly args: readonly string[];
+} {
+  const npmExecPath = process.env.npm_execpath?.trim();
+  if (npmExecPath) {
+    return {
+      command: process.execPath,
+      args: [npmExecPath, ...args],
+    };
+  }
+  if (process.platform === "win32") {
+    const command = process.env.ComSpec?.trim() || "cmd.exe";
+    return {
+      command,
+      args: ["/d", "/s", "/c", ["pnpm", ...args].join(" ")],
+    };
+  }
+  return { command: "pnpm", args };
+}
+
 function asRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
@@ -48,7 +69,8 @@ if (!expectedNode || !expectedPnpm) throw new Error("TOOLCHAIN_PIN_MISSING");
 if (process.version.replace(/^v/u, "") !== expectedNode) {
   throw new Error(`NODE_VERSION_MISMATCH expected=${expectedNode} actual=${process.version}`);
 }
-const pnpmVersion = command(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["--version"]);
+const pnpm = pnpmInvocation(["--version"]);
+const pnpmVersion = command(pnpm.command, pnpm.args);
 if (pnpmVersion !== expectedPnpm) {
   throw new Error(`PNPM_VERSION_MISMATCH expected=${expectedPnpm} actual=${pnpmVersion}`);
 }
