@@ -739,6 +739,40 @@ export async function composeGen123MechanicsOverlay(
           },
         };
       }
+      const relativePhysicalStats = sourceConfig.relative_physical_stats;
+      const minimumLevel = sourceConfig.minimumLevel;
+      const sourceTriggerId = sourceConfig.sourceTriggerId;
+      const supportedRelativeStats =
+        sourceTriggerId === 1 &&
+        minimumLevel === 20 &&
+        (relativePhysicalStats === -1 || relativePhysicalStats === 0 || relativePhysicalStats === 1) &&
+        Object.keys(sourceConfig).every((key) =>
+          [
+            "sourceTriggerId",
+            "sourceItemId",
+            "minimumLevel",
+            "relative_physical_stats",
+            "mechanicsSupport",
+            "source",
+            "sourceItemIdentityId",
+          ].includes(key),
+        );
+      if (supportedRelativeStats) {
+        return {
+          ...row,
+          trigger_kind: "LEVEL" as const,
+          active: true,
+          triggerConfig: {
+            level: minimumLevel,
+            relativePhysicalStats:
+              relativePhysicalStats === 1
+                ? "ATTACK_GT_DEFENSE"
+                : relativePhysicalStats === -1
+                  ? "ATTACK_LT_DEFENSE"
+                  : "ATTACK_EQ_DEFENSE",
+          },
+        };
+      }
       return {
         ...row,
         active: false,

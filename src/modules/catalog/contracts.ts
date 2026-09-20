@@ -298,7 +298,12 @@ export const RewardProgramSchema = z
 export type RewardProgram = z.infer<typeof RewardProgramSchema>;
 
 export const EvolutionTriggerSchemas = {
-  LEVEL: z.object({ level: z.number().int().min(2).max(100) }).strict(),
+  LEVEL: z
+    .object({
+      level: z.number().int().min(2).max(100),
+      relativePhysicalStats: z.enum(["ATTACK_GT_DEFENSE", "ATTACK_LT_DEFENSE", "ATTACK_EQ_DEFENSE"]).optional(),
+    })
+    .strict(),
   ITEM: z.object({ itemId: z.string().uuid() }).strict(),
   CONDITION: z.object({ conditionKey: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/) }).strict(),
 } as const;
