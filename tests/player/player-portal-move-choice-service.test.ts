@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PlayerProfileView } from "../../src/modules/player/contracts.js";
 import { PlayerPortalMoveChoiceService } from "../../src/modules/player-portal/move-choice-service.js";
+import type { ProgressionService } from "../../src/modules/progression/service.js";
 import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
@@ -49,20 +50,18 @@ const choice = {
 function service(options: {
   activeBattleId?: string | null;
   choices?: readonly typeof choice[];
-  resolveMoveChoice?: ReturnType<typeof vi.fn>;
+  resolveStatus?: "RESOLVED" | "SKIPPED";
 } = {}) {
-  const resolveMoveChoice =
-    options.resolveMoveChoice ??
-    vi.fn(async () =>
-      ok({
-        choiceId,
-        pokemonInstanceId,
-        moveId,
-        status: "RESOLVED" as const,
-        replacedSlotNo: 2,
-        replayed: false,
-      }),
-    );
+  const resolveMoveChoice = vi.fn<ProgressionService["resolveMoveChoice"]>(async () =>
+    ok({
+      choiceId,
+      pokemonInstanceId,
+      moveId,
+      status: options.resolveStatus ?? "RESOLVED",
+      replacedSlotNo: options.resolveStatus === "SKIPPED" ? null : 2,
+      replayed: false,
+    }),
+  );
 
   return {
     resolveMoveChoice,
@@ -108,17 +107,7 @@ describe("PlayerPortalMoveChoiceService", () => {
   });
 
   it("supports skipping the pending move", async () => {
-    const resolveMoveChoice = vi.fn(async () =>
-      ok({
-        choiceId,
-        pokemonInstanceId,
-        moveId,
-        status: "SKIPPED" as const,
-        replacedSlotNo: null,
-        replayed: false,
-      }),
-    );
-    const { service: subject } = service({ resolveMoveChoice });
+    const { service: subject, resolveMoveChoice } = service({ resolveStatus: "SKIPPED" });
 
     const result = await subject.resolve(identity, {
       choiceId,
