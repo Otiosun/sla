@@ -526,14 +526,30 @@ async function main(): Promise<void> {
 
     // World read UX and service discovery.
     for (const player of [PLAYER_A, PLAYER_B]) {
-      for (const command of ["/menu", "/perfil", "/equipe", "/inventario", "/pokedex", "/onde"]) {
+      for (const command of [
+        "/menu",
+        "/perfil",
+        "/equipe",
+        "/pokemon 1",
+        "/inventario",
+        "/pokedex",
+        "/onde",
+      ]) {
         const result = await send({ actor: player, chat: WORLD, text: command });
+        const rendered = result.outbound.map(textOf).join(" | ");
+        const pokemonDetailComplete =
+          command !== "/pokemon 1" ||
+          (/HP/iu.test(rendered) &&
+            /NATURE/iu.test(rendered) &&
+            /ABILITY/iu.test(rendered) &&
+            /IVs/iu.test(rendered) &&
+            /MOVIMENTOS/iu.test(rendered));
         add(
-          result.outbound.length > 0 ? "PASS" : "BUG",
+          result.outbound.length > 0 && pokemonDetailComplete ? "PASS" : "BUG",
           "world-ux",
           actorName(player),
           command,
-          result.outbound.map(textOf).join(" | ") || "no response",
+          rendered || "no response",
         );
       }
     }
