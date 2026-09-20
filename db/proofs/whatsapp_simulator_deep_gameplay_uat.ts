@@ -719,18 +719,20 @@ async function main(): Promise<void> {
            LIMIT 1`,
           [rewardBattleId],
         );
-        const state = current.rows[0]?.state as {
-          sides?: Array<{
-            controllerKind?: string;
-            activeParticipantId?: string;
-            participantIds?: string[];
-          }>;
-          combatants?: Array<{
-            participantId?: string;
-            currentHp?: number;
-            moves?: Array<{ slotNo?: number; power?: number | null }>;
-          }>;
-        } | undefined;
+        const state = current.rows[0]?.state as
+          | {
+              sides?: Array<{
+                controllerKind?: string;
+                activeParticipantId?: string;
+                participantIds?: string[];
+              }>;
+              combatants?: Array<{
+                participantId?: string;
+                currentHp?: number;
+                moves?: Array<{ slotNo?: number; power?: number | null }>;
+              }>;
+            }
+          | undefined;
         const playerSide = state?.sides?.find((side) => side.controllerKind === "PLAYER");
         const active = state?.combatants?.find(
           (combatant) => combatant.participantId === playerSide?.activeParticipantId,
@@ -744,9 +746,8 @@ async function main(): Promise<void> {
             .filter(
               (
                 combatant,
-              ): combatant is NonNullable<
-                NonNullable<typeof state>["combatants"]
-              >[number] => combatant !== undefined,
+              ): combatant is NonNullable<NonNullable<typeof state>["combatants"]>[number] =>
+                combatant !== undefined,
             );
           const reserveSlot =
             roster.findIndex(

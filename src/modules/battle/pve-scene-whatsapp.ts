@@ -262,9 +262,7 @@ function controlledRoster(
   if (controller.kind === "PLAYER" && controller.playerId !== null) {
     const controlled = new Set(
       controllers
-        .filter(
-          (entry) => entry.kind === "PLAYER" && entry.playerId === controller.playerId,
-        )
+        .filter((entry) => entry.kind === "PLAYER" && entry.playerId === controller.playerId)
         .map((entry) => entry.participantId),
     );
     return state.combatants
