@@ -384,6 +384,32 @@ async function main(): Promise<void> {
       badReadiness.length === 0 ? "all exact" : JSON.stringify(badReadiness),
     );
 
+    const activationDestinations = await pool.query<{
+      destination_ref: string;
+      count: string;
+    }>(
+      `SELECT outgoing.destination_ref,count(*)::text AS count
+       FROM outbox_messages outgoing
+       JOIN player_identities identity
+         ON identity.player_id::text =
+            outgoing.payload #>> '{registrationActivation,playerId}'
+       WHERE identity.provider='baileys'
+         AND identity.external_id=ANY($1::text[])
+       GROUP BY outgoing.destination_ref
+       ORDER BY outgoing.destination_ref`,
+      [PLAYERS],
+    );
+    add(
+      activationDestinations.rows.length === 1 &&
+        activationDestinations.rows[0]?.destination_ref === RECEPTION &&
+        activationDestinations.rows[0]?.count === String(PLAYERS.length)
+        ? "PASS"
+        : "BUG",
+      "registration",
+      "activation announcement stays in source Reception",
+      JSON.stringify(activationDestinations.rows),
+    );
+
     const burstIds = PLAYERS.map((player, index) => ({
       player,
       id: `STRESS-BURST-${index + 1}`,
