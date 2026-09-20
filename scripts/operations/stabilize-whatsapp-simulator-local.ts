@@ -151,9 +151,16 @@ function rebuildPristine(labelPrefix: string): void {
   );
 }
 
-{
-  const pnpm = pnpmInvocation(["check"]);
-  run("static-check", pnpm.command, pnpm.args, process.env);
+for (const [label, args] of [
+  [
+    "static-lint",
+    ["exec", "biome", "ci", "src", "tests", "scripts", "db", "package.json", "biome.json", "tsconfig.json"],
+  ],
+  ["static-typecheck", ["typecheck"]],
+  ["static-tests", ["test"]],
+] as const) {
+  const pnpm = pnpmInvocation(args);
+  run(label, pnpm.command, pnpm.args, process.env);
 }
 rebuildPristine("proof");
 
