@@ -68,6 +68,7 @@ export interface PlayerPortalTeamView {
   readonly level: number;
   readonly currentHp: number;
   readonly maxHp: number | null;
+  readonly shiny: boolean;
   readonly slotNo: number;
   readonly conditions: readonly string[];
   readonly moves: readonly PlayerPortalMoveView[];
@@ -209,6 +210,7 @@ export class PlayerPortalReadService {
           level: entry.level,
           currentHp: entry.currentHp,
           maxHp: entry.maxHp,
+          shiny: entry.shiny,
           slotNo: entry.slotNo,
           conditions: entry.conditions,
           moves: entry.moves,
