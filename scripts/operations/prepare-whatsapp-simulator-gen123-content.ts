@@ -22,10 +22,21 @@ function unwrap<T>(
   label: string,
   result:
     | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } },
+    | {
+        readonly ok: false;
+        readonly error: {
+          readonly code: string;
+          readonly message: string;
+          readonly details?: Readonly<Record<string, unknown>>;
+        };
+      },
 ): T {
   if (result.ok) return result.value;
-  throw new Error(`${label} failed [${result.error.code}]: ${result.error.message}`);
+  throw new Error(
+    `${label} failed [${result.error.code}]: ${result.error.message}; details=${JSON.stringify(
+      result.error.details ?? {},
+    )}`,
+  );
 }
 
 const pool = new Pool({ connectionString: databaseUrl, max: 6 });
