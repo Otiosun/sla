@@ -365,6 +365,7 @@ class PostgresEncounterTransaction implements EncounterTransaction {
       species_id: string;
       type1_id: string;
       type2_id: string | null;
+      gender_rate: number | null;
       base_hp: number;
       base_attack: number;
       base_defense: number;
@@ -374,6 +375,11 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     }>(
       `SELECT form.id AS form_id, form.species_id,
               revision.type1_id, revision.type2_id,
+              CASE
+                WHEN species_revision.data ? 'genderRate'
+                  THEN (species_revision.data->>'genderRate')::int
+                ELSE NULL
+              END AS gender_rate,
               revision.base_hp, revision.base_attack, revision.base_defense,
               revision.base_sp_attack, revision.base_sp_defense, revision.base_speed
        FROM pokemon_forms form
@@ -436,6 +442,7 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     return {
       formId: row.form_id,
       speciesId: row.species_id,
+      genderRate: row.gender_rate,
       type1Id: row.type1_id,
       type2Id: row.type2_id,
       baseStats: {
