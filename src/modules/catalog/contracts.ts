@@ -130,10 +130,18 @@ export const RulesetConfigSchema = z
   .strict();
 export type RulesetConfig = z.infer<typeof RulesetConfigSchema>;
 
-const statusKeySchema = z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]);
+const statusKeySchema = z.enum([
+  "BURN",
+  "POISON",
+  "BAD_POISON",
+  "PARALYSIS",
+  "SLEEP",
+  "FREEZE",
+]);
 const preventableConditionKeySchema = z.enum([
   "BURN",
   "POISON",
+  "BAD_POISON",
   "PARALYSIS",
   "SLEEP",
   "FREEZE",
@@ -155,7 +163,15 @@ const statusChanceSchema = z
 
 const moveMetaAilmentSchema = z
   .object({
-    kind: z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE", "CONFUSION"]),
+    kind: z.enum([
+      "BURN",
+      "POISON",
+      "BAD_POISON",
+      "PARALYSIS",
+      "SLEEP",
+      "FREEZE",
+      "CONFUSION",
+    ]),
     chanceBasisPoints: z.number().int().min(0).max(10_000),
     minTurns: z.number().int().min(1).max(10).nullable(),
     maxTurns: z.number().int().min(1).max(10).nullable(),
@@ -198,7 +214,7 @@ export const EffectConfigSchemas = {
     .strict(),
   "prevent-accuracy-drop": z.object({}).strict(),
   "prevent-status": z
-    .object({ statuses: z.array(preventableConditionKeySchema).min(1).max(6) })
+    .object({ statuses: z.array(preventableConditionKeySchema).min(1).max(7) })
     .strict(),
   "prevent-stat-drop": z
     .object({ stats: z.array(statKeySchema).min(1).max(7) })

@@ -433,16 +433,21 @@ function moveEngineEffect(move: Gen123Model["moves"][number]): {
   readonly effectKey: string | null;
   readonly effectConfig: Readonly<Record<string, unknown>>;
 } {
+  const badlyPoisons = move.effectId === 34 || move.effectId === 203;
   const ailmentKind =
-    [1, 4, 5].includes(move.metaCategoryId) ? moveAilment(move.metaAilmentId) : null;
+    [1, 4, 5].includes(move.metaCategoryId)
+      ? badlyPoisons
+        ? "BAD_POISON"
+        : moveAilment(move.metaAilmentId)
+      : null;
   const ailment =
     ailmentKind === null
       ? null
       : {
           kind: ailmentKind,
           chanceBasisPoints: (move.ailmentChance > 0 ? move.ailmentChance : 100) * 100,
-          minTurns: move.minTurns,
-          maxTurns: move.maxTurns,
+          minTurns: ailmentKind === "CONFUSION" ? move.minTurns : null,
+          maxTurns: ailmentKind === "CONFUSION" ? move.maxTurns : null,
         };
   const supportsStats = [2, 5, 6, 7].includes(move.metaCategoryId);
   const statTarget =
@@ -523,7 +528,6 @@ function abilityEngineEffect(row: CsvRow): {
   >([
     ["limber", "PARALYSIS"],
     ["insomnia", "SLEEP"],
-    ["immunity", "POISON"],
     ["own-tempo", "CONFUSION"],
     ["magma-armor", "FREEZE"],
     ["water-veil", "BURN"],
@@ -531,6 +535,12 @@ function abilityEngineEffect(row: CsvRow): {
   ]).get(slug);
   if (preventedStatus !== undefined) {
     return { effectKey: "prevent-status", effectConfig: { statuses: [preventedStatus] } };
+  }
+  if (slug === "immunity") {
+    return {
+      effectKey: "prevent-status",
+      effectConfig: { statuses: ["POISON", "BAD_POISON"] },
+    };
   }
 
   if (slug === "clear-body" || slug === "white-smoke") {
