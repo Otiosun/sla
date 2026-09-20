@@ -607,7 +607,7 @@ async function main(): Promise<void> {
     // Travel after combat.
     const where = await send({ actor: PLAYER_A, chat: WORLD, text: "/onde" });
     const whereText = where.outbound.map(textOf).join("\n");
-    const routeMatch = /→ \`\/ir (\d+)\`/u.exec(whereText);
+    const routeMatch = /→ `\/ir (\d+)`/u.exec(whereText);
     if (routeMatch?.[1] === undefined) {
       add("WARN", "world", "player-a", "travel discovery", `no available route parsed: ${whereText}`);
     } else {
