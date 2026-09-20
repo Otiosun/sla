@@ -375,8 +375,7 @@ function hud(
     const reserves = roster
       .map((combatant, index) => ({ combatant, slot: index + 1 }))
       .filter(
-        ({ combatant }) =>
-          combatant.participantId !== own.participantId && combatant.currentHp > 0,
+        ({ combatant }) => combatant.participantId !== own.participantId && combatant.currentHp > 0,
       );
     if (reserves.length > 0) {
       lines.push(

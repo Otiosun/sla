@@ -752,8 +752,7 @@ async function main(): Promise<void> {
           const reserveSlot =
             roster.findIndex(
               (combatant) =>
-                combatant.participantId !== active?.participantId &&
-                (combatant.currentHp ?? 0) > 0,
+                combatant.participantId !== active?.participantId && (combatant.currentHp ?? 0) > 0,
             ) + 1;
           const hud = await send({ actor: PLAYER_B, text: "/batalha" });
           add(
@@ -784,9 +783,8 @@ async function main(): Promise<void> {
         }
 
         const damaging =
-          active?.moves?.find(
-            (move) => typeof move.power === "number" && move.power > 0,
-          )?.slotNo ?? rewardMoveSlot;
+          active?.moves?.find((move) => typeof move.power === "number" && move.power > 0)?.slotNo ??
+          rewardMoveSlot;
         const action = await send({
           actor: PLAYER_B,
           text: `/movimento ${damaging}`,
