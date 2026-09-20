@@ -46,6 +46,16 @@ const location: PlayerPortalWorldLocationView = {
 
 function handler() {
   const rosterMove = vi.fn(async () => ok(undefined));
+  const resolveMoveChoice = vi.fn(async () =>
+    ok({
+      choiceId: "11111111-1111-4111-8111-111111111111",
+      pokemonInstanceId: createPokemonInstanceId(),
+      moveId: "22222222-2222-4222-8222-222222222222",
+      status: "SKIPPED" as const,
+      replacedSlotNo: null,
+      replayed: false,
+    }),
+  );
   const instance = new PlayerPortalHttpHandler({
     tickets: { redeem: async () => ok(identity) },
     sessions: {
@@ -65,8 +75,12 @@ function handler() {
       getBattle: async () => ok(null),
     },
     roster: { move: rosterMove },
+    moveChoices: {
+      list: async () => ok({ blockedByBattle: false, choices: [] }),
+      resolve: resolveMoveChoice,
+    },
   });
-  return { instance, rosterMove };
+  return { instance, rosterMove, resolveMoveChoice };
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
@@ -104,8 +118,8 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     }
   });
 
-  it("allows only roster organization as the Hub mutation surface", async () => {
-    const { instance, rosterMove } = handler();
+  it("allows roster organization and move learning while blocking world gameplay mutations", async () => {
+    const { instance, rosterMove, resolveMoveChoice } = handler();
     const response = await instance.handle(
       new Request("https://api.example.test/v1/hub/player/roster", {
         method: "PUT",
@@ -122,6 +136,30 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
 
     expect(response.status).toBe(200);
     expect(rosterMove).toHaveBeenCalledOnce();
+
+    const choices = await instance.handle(
+      new Request("https://api.example.test/v1/hub/player/move-choices", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(choices.status).toBe(200);
+    expect(await choices.json()).toEqual({ blockedByBattle: false, choices: [] });
+
+    const resolved = await instance.handle(
+      new Request("https://api.example.test/v1/hub/player/move-choices/resolve", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          choiceId: "11111111-1111-4111-8111-111111111111",
+          replaceSlotNo: null,
+        }),
+      }),
+    );
+    expect(resolved.status).toBe(200);
+    expect(resolveMoveChoice).toHaveBeenCalledOnce();
 
     for (const path of [
       "/v1/hub/world/travel",
