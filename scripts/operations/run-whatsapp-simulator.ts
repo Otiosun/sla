@@ -173,6 +173,8 @@ function helpText(): string {
     "  :join                   simula entrada do ator no grupo atual",
     "  :leave                  simula saída do ator do grupo atual",
     "  :replylast <texto>      responde à última mensagem do bot no grupo",
+    "  :replylastmulti          resposta multilinha; finalize com .send",
+    "  :multiline               mensagem multilinha; finalize com .send",
     "  :fail [n]               faz os próximos n envios do bot falharem",
     "  :disconnect             derruba o transporte simulado",
     "  :connect                reconecta o transporte simulado",
@@ -199,6 +201,24 @@ function lastOutboundId(adapter: SimulatedWhatsAppAdapter, chatRef: string | nul
     }
   }
   return null;
+}
+
+async function persistedLastOutboundId(pool: Pool, chatRef: string | null): Promise<string | null> {
+  if (chatRef === null) return null;
+  const result = await pool.query<{ id: string }>(
+    `SELECT id
+     FROM outbox_messages
+     WHERE channel='whatsapp'
+       AND destination_ref=$1
+       AND status='SENT'
+     ORDER BY sent_at DESC NULLS LAST, created_at DESC, id DESC
+     LIMIT 1`,
+    [chatRef],
+  );
+  const id = result.rows[0]?.id;
+  if (id === undefined) return null;
+  const compactUuid = id.replaceAll("-", "").toUpperCase();
+  return /^[0-9A-F]{32}$/.test(compactUuid) ? compactUuid : null;
 }
 
 async function runShell(
@@ -247,6 +267,36 @@ async function runShell(
     });
     printNewTranscript();
     await flush();
+  };
+
+  const resolveLastOutboundId = async (): Promise<string | null> =>
+    lastOutboundId(operational.adapter, currentChat) ??
+    (await persistedLastOutboundId(pool, currentChat));
+
+  const readMultiline = async (): Promise<string | null> => {
+    console.log("[sim] modo multilinha: finalize com .send; cancele com .cancel");
+    const lines: string[] = [];
+    let length = 0;
+    while (true) {
+      const line = await rl.question("... ");
+      if (line === ".cancel") {
+        console.log("[sim] mensagem multilinha cancelada.");
+        return null;
+      }
+      if (line === ".send") {
+        if (lines.length === 0) {
+          console.log("[sim] mensagem multilinha vazia; nada enviado.");
+          return null;
+        }
+        return lines.join("\n");
+      }
+      length += line.length + (lines.length === 0 ? 0 : 1);
+      if (length > 32_768) {
+        console.log("[sim] limite de 32768 caracteres excedido; mensagem cancelada.");
+        return null;
+      }
+      lines.push(line);
+    }
   };
 
   await operational.runtime.start();
@@ -348,12 +398,27 @@ async function runShell(
             console.log("uso: :replylast <texto>");
             break;
           }
-          const replyId = lastOutboundId(operational.adapter, currentChat);
+          const replyId = await resolveLastOutboundId();
           if (replyId === null) {
             console.log("[sim] nenhuma mensagem anterior do bot encontrada neste chat.");
             break;
           }
           await sendText(argument, replyId);
+          break;
+        }
+        case ":replylastmulti": {
+          const replyId = await resolveLastOutboundId();
+          if (replyId === null) {
+            console.log("[sim] nenhuma mensagem anterior do bot encontrada neste chat.");
+            break;
+          }
+          const text = await readMultiline();
+          if (text !== null) await sendText(text, replyId);
+          break;
+        }
+        case ":multiline": {
+          const text = await readMultiline();
+          if (text !== null) await sendText(text, null);
           break;
         }
         case ":fail": {
@@ -390,7 +455,7 @@ async function runShell(
           console.log(`[sim] sender=${currentSender ?? "(unset)"}`);
           console.log(`[sim] chat=${currentChat ?? "(unset)"}`);
           console.log(
-            `[sim] lastBotMessageId=${lastOutboundId(operational.adapter, currentChat) ?? "(none)"}`,
+            `[sim] lastBotMessageId=${(await resolveLastOutboundId()) ?? "(none)"}`,
           );
           break;
         default:
