@@ -388,6 +388,102 @@ function category(damageClassId: number): "STATUS" | "PHYSICAL" | "SPECIAL" {
   return "SPECIAL";
 }
 
+function battleStat(statId: number):
+  | "ATTACK"
+  | "DEFENSE"
+  | "SP_ATTACK"
+  | "SP_DEFENSE"
+  | "SPEED"
+  | "ACCURACY"
+  | "EVASION" {
+  const value = new Map<number, "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | "ACCURACY" | "EVASION">([
+    [2, "ATTACK"],
+    [3, "DEFENSE"],
+    [4, "SP_ATTACK"],
+    [5, "SP_DEFENSE"],
+    [6, "SPEED"],
+    [7, "ACCURACY"],
+    [8, "EVASION"],
+  ]).get(statId);
+  if (value === undefined) throw new Error(`Unsupported battle stat id ${statId}`);
+  return value;
+}
+
+function moveAilment(ailmentId: number):
+  | "PARALYSIS"
+  | "SLEEP"
+  | "FREEZE"
+  | "BURN"
+  | "POISON"
+  | "CONFUSION"
+  | null {
+  return (
+    new Map<number, "PARALYSIS" | "SLEEP" | "FREEZE" | "BURN" | "POISON" | "CONFUSION">([
+      [1, "PARALYSIS"],
+      [2, "SLEEP"],
+      [3, "FREEZE"],
+      [4, "BURN"],
+      [5, "POISON"],
+      [6, "CONFUSION"],
+    ]).get(ailmentId) ?? null
+  );
+}
+
+function moveEngineEffect(move: Gen123Model["moves"][number]): {
+  readonly effectKey: string | null;
+  readonly effectConfig: Readonly<Record<string, unknown>>;
+} {
+  const ailmentKind =
+    [1, 4, 5].includes(move.metaCategoryId) ? moveAilment(move.metaAilmentId) : null;
+  const ailment =
+    ailmentKind === null
+      ? null
+      : {
+          kind: ailmentKind,
+          chanceBasisPoints: (move.ailmentChance > 0 ? move.ailmentChance : 100) * 100,
+          minTurns: move.minTurns,
+          maxTurns: move.maxTurns,
+        };
+  const supportsStats = [2, 5, 6, 7].includes(move.metaCategoryId);
+  const statTarget =
+    move.metaCategoryId === 7
+      ? "SELF"
+      : move.metaCategoryId === 5 || move.metaCategoryId === 6
+        ? "TARGET"
+        : move.targetId === 7
+          ? "SELF"
+          : "TARGET";
+  const statChanges = supportsStats
+    ? move.statChanges.map((change) => ({
+        stat: battleStat(change.statId),
+        stages: change.change,
+        target: statTarget,
+      }))
+    : [];
+  const statChanceBasisPoints =
+    statChanges.length === 0 ? 0 : (move.statChance > 0 ? move.statChance : 100) * 100;
+  const supported =
+    ailment !== null ||
+    statChanges.length > 0 ||
+    move.flinchChance > 0 ||
+    move.drainPercent !== 0 ||
+    (move.metaCategoryId === 3 && move.healingPercent > 0);
+  if (!supported) return { effectKey: null, effectConfig: {} };
+  return {
+    effectKey: "move-meta-v1",
+    effectConfig: {
+      sourceEffectId: move.effectId,
+      sourceMetaCategoryId: move.metaCategoryId,
+      ailment,
+      statChanges,
+      statChanceBasisPoints,
+      flinchChanceBasisPoints: move.flinchChance * 100,
+      drainPercent: move.drainPercent,
+      healingPercent: move.metaCategoryId === 3 ? move.healingPercent : 0,
+    },
+  };
+}
+
 function natureStat(id: number): "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" {
   const map = new Map<number, "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED">([
     [2, "ATTACK"],
@@ -543,30 +639,29 @@ async function importReleaseChildren(
       "max_pp",
       "effect_key",
       "effect_config",
+      "flags",
       "active",
     ],
-    model.moves.map((move) => [
-      gen123Id(`rev:${releaseId}:move:${move.sourceId}`),
-      releaseId,
-      ids.move.get(move.sourceId),
-      titleize(move.slug),
-      ids.type.get(move.typeId),
-      category(move.damageClassId),
-      move.power,
-      move.accuracy,
-      move.priority,
-      move.pp,
-      null,
-      JSON.stringify(
-        sourceMetadata({
-          sourceEffectId: move.effectId,
-          effectChance: move.effectChance,
-          mechanicsSupport: "DATA_IMPORTED_EFFECT_UNIMPLEMENTED_UNLESS_ENGINE_KEYED",
-        }),
-      ),
-      true,
-    ]),
-    "ON CONFLICT (content_release_id, move_id) DO UPDATE SET display_name=EXCLUDED.display_name,type_id=EXCLUDED.type_id,category=EXCLUDED.category,power=EXCLUDED.power,accuracy=EXCLUDED.accuracy,priority=EXCLUDED.priority,max_pp=EXCLUDED.max_pp,effect_key=EXCLUDED.effect_key,effect_config=EXCLUDED.effect_config,active=EXCLUDED.active",
+    model.moves.map((move) => {
+      const effect = moveEngineEffect(move);
+      return [
+        gen123Id(`rev:${releaseId}:move:${move.sourceId}`),
+        releaseId,
+        ids.move.get(move.sourceId),
+        titleize(move.slug),
+        ids.type.get(move.typeId),
+        category(move.damageClassId),
+        move.power,
+        move.accuracy,
+        move.priority,
+        move.pp,
+        effect.effectKey,
+        JSON.stringify(effect.effectConfig),
+        JSON.stringify({ schemaVersion: 1, makesContact: move.makesContact }),
+        true,
+      ];
+    }),
+    "ON CONFLICT (content_release_id, move_id) DO UPDATE SET display_name=EXCLUDED.display_name,type_id=EXCLUDED.type_id,category=EXCLUDED.category,power=EXCLUDED.power,accuracy=EXCLUDED.accuracy,priority=EXCLUDED.priority,max_pp=EXCLUDED.max_pp,effect_key=EXCLUDED.effect_key,effect_config=EXCLUDED.effect_config,flags=EXCLUDED.flags,active=EXCLUDED.active",
   );
 
   await insertRows(
