@@ -299,6 +299,74 @@ export async function composeGen123MechanicsOverlay(
     );
     copied.forms = forms.rows.length;
 
+    const legacyForms = await client.query<{ form_id: string }>(
+      `UPDATE pokemon_form_revisions revision
+          SET active=FALSE
+         FROM pokemon_forms legacy_form
+        WHERE revision.content_release_id=$1
+          AND revision.form_id=legacy_form.id
+          AND revision.active=TRUE
+          AND legacy_form.slug IN ('default','normal')
+          AND EXISTS (
+            SELECT 1
+              FROM pokemon_forms canonical_form
+              JOIN pokemon_form_revisions canonical_revision
+                ON canonical_revision.form_id=canonical_form.id
+               AND canonical_revision.content_release_id=$2
+               AND canonical_revision.active=TRUE
+             WHERE canonical_form.species_id=legacy_form.species_id
+               AND canonical_form.id<>legacy_form.id
+          )
+        RETURNING revision.form_id`,
+      [input.targetReleaseId, input.sourceReleaseId],
+    );
+    const legacyFormIds = legacyForms.rows.map((row) => row.form_id);
+    if (legacyFormIds.length > 0) {
+      await client.query(
+        `UPDATE pokemon_form_ability_options
+            SET active=FALSE
+          WHERE content_release_id=$1
+            AND form_id=ANY($2::uuid[])
+            AND active=TRUE`,
+        [input.targetReleaseId, legacyFormIds],
+      );
+      await client.query(
+        `UPDATE move_learnset_entries
+            SET active=FALSE
+          WHERE content_release_id=$1
+            AND form_id=ANY($2::uuid[])
+            AND active=TRUE`,
+        [input.targetReleaseId, legacyFormIds],
+      );
+      await client.query(
+        `UPDATE evolution_rules
+            SET active=FALSE
+          WHERE content_release_id=$1
+            AND (from_form_id=ANY($2::uuid[]) OR to_form_id=ANY($2::uuid[]))
+            AND active=TRUE`,
+        [input.targetReleaseId, legacyFormIds],
+      );
+      await client.query(
+        `UPDATE starter_options
+            SET active=FALSE
+          WHERE content_release_id=$1
+            AND form_id=ANY($2::uuid[])
+            AND active=TRUE`,
+        [input.targetReleaseId, legacyFormIds],
+      );
+      await client.query(
+        `UPDATE encounter_entries entry
+            SET active=FALSE
+           FROM encounter_table_revisions table_revision
+          WHERE entry.encounter_table_revision_id=table_revision.id
+            AND table_revision.content_release_id=$1
+            AND entry.form_id=ANY($2::uuid[])
+            AND entry.active=TRUE`,
+        [input.targetReleaseId, legacyFormIds],
+      );
+    }
+    copied.legacyFormsDeactivated = legacyFormIds.length;
+
     const targetMoves = await client.query<{
       move_id: string;
       effect_key: string | null;
