@@ -13,6 +13,35 @@ export interface OperationalTeamMemberView {
   readonly slotNo: number;
 }
 
+export interface OperationalPokemonDetailView {
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly slotNo: number;
+  readonly displayName: string;
+  readonly nickname: string | null;
+  readonly level: number;
+  readonly currentHp: number;
+  readonly maxHp: number;
+  readonly gender: "MALE" | "FEMALE" | null;
+  readonly shiny: boolean;
+  readonly natureDisplayName: string;
+  readonly abilityDisplayName: string;
+  readonly ivs: Readonly<{
+    hp: number;
+    attack: number;
+    defense: number;
+    spAttack: number;
+    spDefense: number;
+    speed: number;
+  }>;
+  readonly statuses: readonly string[];
+  readonly moves: readonly {
+    readonly slotNo: number;
+    readonly displayName: string;
+    readonly ppCurrent: number | null;
+    readonly maxPp: number | null;
+  }[];
+}
+
 export interface OperationalInventoryItemView {
   readonly itemId: string;
   readonly itemSlug: string;
@@ -50,6 +79,10 @@ export interface OperationalPendingMoveChoiceView {
 export interface OperationalUxReadModel {
   listRegionOptions(playerId: PlayerId): Promise<readonly OperationalRegionOption[]>;
   listTeam(playerId: PlayerId): Promise<readonly OperationalTeamMemberView[]>;
+  teamPokemonDetail(
+    playerId: PlayerId,
+    slotNo: number,
+  ): Promise<OperationalPokemonDetailView | null>;
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
   listPendingMoveChoices(
