@@ -57,6 +57,12 @@ SELECT
 FROM shiny_owned
 ON CONFLICT (player_id, species_id)
 DO UPDATE SET
+  seen_count = GREATEST(player_pokedex_species.seen_count, 1),
+  caught_count = GREATEST(player_pokedex_species.caught_count, 1),
+  first_seen_at = COALESCE(player_pokedex_species.first_seen_at, EXCLUDED.first_seen_at),
+  last_seen_at = COALESCE(player_pokedex_species.last_seen_at, EXCLUDED.last_seen_at),
+  first_caught_at = COALESCE(player_pokedex_species.first_caught_at, EXCLUDED.first_caught_at),
+  last_caught_at = COALESCE(player_pokedex_species.last_caught_at, EXCLUDED.last_caught_at),
   shiny_seen_count = GREATEST(player_pokedex_species.shiny_seen_count, 1),
   shiny_caught_count = GREATEST(player_pokedex_species.shiny_caught_count, 1),
   first_shiny_seen_at = COALESCE(
