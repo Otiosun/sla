@@ -1538,7 +1538,6 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         }
       }
 
-      const oldForm = currentForm;
       const newForm = await loadFormStats(client, activeRow.content_release_id, rule.to_form_id);
       const nature = currentNature;
       const ivs = currentIvs;
