@@ -519,9 +519,7 @@ async function main(): Promise<void> {
       );
       const spammerPlayerId = spammerPlayer.rows[0]?.player_id;
       if (spammerPlayerId === undefined) throw new Error("Spammer player identity is missing");
-      const subjectHash = createHash("sha256")
-        .update(`player:${spammerPlayerId}`)
-        .digest("hex");
+      const subjectHash = createHash("sha256").update(`player:${spammerPlayerId}`).digest("hex");
       const beforeBucket = await pool.query<{ used: number }>(
         `SELECT used
          FROM messaging_rate_limit_buckets
