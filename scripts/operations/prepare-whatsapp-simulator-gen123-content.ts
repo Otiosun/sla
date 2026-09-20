@@ -37,14 +37,18 @@ try {
   if (activeBeforeId === undefined) throw new Error("Simulator preparation requires an ACTIVE release");
 
   const starterRows = await pool.query<{
-    form_id: string;
+    species_slug: string;
     starter_level: number;
     sort_order: number;
   }>(
-    `SELECT form_id,starter_level::int,sort_order::int
-     FROM starter_options
-     WHERE content_release_id=$1 AND active=TRUE
-     ORDER BY sort_order,form_id`,
+    `SELECT species.slug AS species_slug,
+            option.starter_level::int,
+            option.sort_order::int
+     FROM starter_options option
+     JOIN pokemon_forms form ON form.id=option.form_id
+     JOIN pokemon_species species ON species.id=form.species_id
+     WHERE option.content_release_id=$1 AND option.active=TRUE
+     ORDER BY option.sort_order,species.slug`,
     [activeBeforeId],
   );
   if (starterRows.rows.length !== 3) {
@@ -52,18 +56,42 @@ try {
       `Simulator UAT expects exactly 3 inherited starter fixtures before Gen I-III import; found ${starterRows.rows.length}`,
     );
   }
-  const starters: readonly ZhouliaStarterOptionInput[] = starterRows.rows.map((row) => ({
-    formId: row.form_id,
-    starterLevel: row.starter_level,
-    sortOrder: row.sort_order,
-  }));
-
   const imported = await importGen123();
   if (imported.status !== "DRAFT") {
     throw new Error(`Fresh simulator Gen I-III import must be DRAFT; found ${imported.status}`);
   }
 
   const releaseId = imported.releaseId;
+
+  const starters: ZhouliaStarterOptionInput[] = [];
+  for (const starter of starterRows.rows) {
+    const canonical = await pool.query<{ form_id: string }>(
+      `SELECT form.id AS form_id
+       FROM pokemon_species species
+       JOIN pokemon_forms form
+         ON form.species_id=species.id
+        AND form.slug=species.slug
+       JOIN pokemon_form_revisions revision
+         ON revision.form_id=form.id
+        AND revision.content_release_id=$1
+        AND revision.active=TRUE
+       WHERE species.slug=$2
+       LIMIT 1`,
+      [releaseId, starter.species_slug],
+    );
+    const formId = canonical.rows[0]?.form_id;
+    if (formId === undefined) {
+      throw new Error(
+        `Gen I-III import did not provide the canonical form for starter fixture ${starter.species_slug}`,
+      );
+    }
+    starters.push({
+      formId,
+      starterLevel: starter.starter_level,
+      sortOrder: starter.sort_order,
+    });
+  }
+
   const release = await pool.query<{
     default_ruleset_id: string;
     ruleset_status: string;
