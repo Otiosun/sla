@@ -1,5 +1,7 @@
 import { Pool } from "pg";
+import { gen123Id } from "../../db/imports/gen123/ids.js";
 import { importGen123 } from "../../db/imports/gen123/import.js";
+import { composeGen123MechanicsOverlay } from "../../db/imports/gen123/mechanics-overlay.js";
 import { GEN123_SOURCE } from "../../db/imports/gen123/source.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { ZHOULIA_TYPED_CONTENT_V1 } from "../../src/modules/world/zhoulia-content.js";
@@ -73,7 +75,15 @@ try {
     throw new Error(`Fresh simulator Gen I-III import must be DRAFT; found ${imported.status}`);
   }
 
-  const releaseId = imported.releaseId;
+  const sourceReleaseId = imported.releaseId;
+  const overlay = await composeGen123MechanicsOverlay(pool, {
+    parentReleaseId: activeBeforeId,
+    sourceReleaseId,
+    targetReleaseId: gen123Id("release:zhoulia-gen123-mechanics-v1"),
+    targetReleaseNo: 15002n,
+    targetReleaseName: "Simulator - Zhoulia + Gen I-III Mechanics",
+  });
+  const releaseId = overlay.releaseId;
 
   const starters: ZhouliaStarterOptionInput[] = [];
   for (const starter of starterRows.rows) {
@@ -131,13 +141,6 @@ try {
   ) {
     throw new Error("Gen I-III simulator ruleset lost the progression policy");
   }
-
-  await pool.query(
-    `UPDATE content_releases
-     SET name='Simulator - Zhoulia + Gen I-III Mechanics'
-     WHERE id=$1 AND status='DRAFT'`,
-    [releaseId],
-  );
 
   await reconcileZhouliaExclusiveRelease(pool, {
     releaseId,
@@ -262,6 +265,7 @@ try {
       activeConnections: exclusive.activeConnectionKeys,
       encounterTables: exclusive.activeEncounterTables.length,
       starterFixtures: exclusive.activeStarterCount,
+      mechanicsOverlay: overlay.copied,
       fidelity: fidelityRow,
     }),
   );
