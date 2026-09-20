@@ -826,7 +826,9 @@ async function main(): Promise<void> {
       }),
     );
 
-    // Product findings do not fail the proof. Only infrastructure/unhandled harness failures do.
+    if (counts.BUG > 0) {
+      throw new Error(`Multi-actor UAT found ${counts.BUG} BUG finding(s)`);
+    }
   } finally {
     await operational.runtime.stop().catch(() => {});
     await pool.end();
