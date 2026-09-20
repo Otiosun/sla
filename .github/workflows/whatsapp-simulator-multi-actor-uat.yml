@@ -82,3 +82,6 @@ jobs:
 
       - name: Run deep gameplay UAT
         run: node --import tsx db/proofs/whatsapp_simulator_deep_gameplay_uat.ts
+
+      - name: Run stress swarm UAT
+        run: node --import tsx db/proofs/whatsapp_simulator_stress_uat.ts
