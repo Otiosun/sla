@@ -159,6 +159,7 @@ function onboardingMenu(state: string): string {
       "`/equipe` · equipe atual",
       "`/inventario` · itens",
       "`/pokedex` · registros",
+      "`/golpes` · aprendizado de movimentos",
       "`/pescar` · quando houver ponto disponível",
       "`/combate` · regras de combate",
       "",
@@ -191,9 +192,9 @@ function activeCombatant(
 }
 
 function statusLabel(status: BattleCombatant["majorStatus"]): string {
-  return status === null ? "—" : status.key;
+  if (status === null) return "—";
+  return status.key === "BAD_POISON" ? "TOXIC" : status.key;
 }
-
 export function createOperationalUxRoutes(
   dependencies: OperationalUxDependencies,
 ): readonly CommandRouteDefinition[] {
@@ -409,31 +410,38 @@ export function createOperationalUxRoutes(
       context,
       [
         "👤 *PERFIL*",
+        "　_Registro do treinador_",
         "",
-        `Treinador: *${value.trainerName ?? "—"}*`,
-        `Nível: ${value.trainerLevel}`,
-        `Pontos: ${value.progressionPoints}`,
-        `Status: ${value.playerStatus}`,
-        `Onboarding: ${value.onboardingState}`,
+        "Treinador: *" + (value.trainerName ?? "—") + "*",
+        "Nível: `" + String(value.trainerLevel) + "`",
+        "Insígnias: `" + String(value.progressionPoints) + "`",
+        "Status: `" + value.playerStatus + "`",
       ].join("\n"),
       { type: "PLAYER", id: player.value },
     );
   };
-
   const team: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     const members = await dependencies.reads.listTeam(player.value);
     const lines = members.map(
       (member) =>
-        `${member.slotNo}. *${member.displayName}* · Nv. ${member.level} · HP ${member.currentHp}`,
+        "`" + String(member.slotNo) + "`　*" + member.displayName + "* · Nv. " +
+        String(member.level) + " · HP " + String(member.currentHp),
     );
     return textResult(
       context,
-      `⚡ *EQUIPE*\n\n${lines.length === 0 ? "Nenhum Pokémon na equipe." : lines.join("\n")}`,
+      [
+        "⚡ *EQUIPE POKÉMON*",
+        "　_Formação atual_",
+        "",
+        lines.length === 0 ? "_Nenhum Pokémon na equipe._" : lines.join("\n"),
+        "",
+        "`/golpes` · decisões de aprendizado",
+        "`/pc` · organizar equipe e boxes",
+      ].join("\n"),
     );
   };
-
   const inventory: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -443,13 +451,18 @@ export function createOperationalUxRoutes(
     const slice = pageSlice(items, page.value);
     if (items.length > 0 && slice.length === 0)
       return err(appError("VALIDATION_FAILED", "Essa página do inventário não existe."));
-    const lines = slice.map((item) => `• ${item.displayName} ×${item.quantity}`);
+    const lines = slice.map((item) => "• " + item.displayName + " ×" + String(item.quantity));
     return textResult(
       context,
-      `🎒 *INVENTÁRIO*\n\n${lines.length === 0 ? "Vazio." : lines.join("\n")}${pageFooter(items.length, page.value, "/inventario")}`,
+      [
+        "🎒 *INVENTÁRIO*",
+        "　_Itens carregados_",
+        "",
+        lines.length === 0 ? "_Vazio._" : lines.join("\n"),
+        pageFooter(items.length, page.value, "/inventario"),
+      ].join("\n"),
     );
   };
-
   const pokedex: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -461,14 +474,20 @@ export function createOperationalUxRoutes(
       return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
     const lines = slice.map(
       (entry) =>
-        `#${String(entry.nationalDex).padStart(4, "0")} ${entry.displayName} · vistos ${entry.seenCount} · capturados ${entry.caughtCount}`,
+        "#" + String(entry.nationalDex).padStart(4, "0") + " " + entry.displayName +
+        " · vistos " + String(entry.seenCount) + " · capturados " + String(entry.caughtCount),
     );
     return textResult(
       context,
-      `📕 *POKÉDEX*\n\n${lines.length === 0 ? "Nenhum registro ainda." : lines.join("\n")}${pageFooter(entries.length, page.value, "/pokedex")}`,
+      [
+        "📕 *POKÉDEX*",
+        "　_Registros de campo_",
+        "",
+        lines.length === 0 ? "_Nenhum registro ainda._" : lines.join("\n"),
+        pageFooter(entries.length, page.value, "/pokedex"),
+      ].join("\n"),
     );
   };
-
   const where: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -687,16 +706,22 @@ export function createOperationalUxRoutes(
     return textResult(
       context,
       [
-        `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
+        "⚔️ *BATALHA · Turno " + String(state.turnNumber) + "*",
         "",
-        `Seu Pokémon · HP ${own.currentHp}/${own.maxHp} · status ${statusLabel(own.majorStatus)}`,
+        "◇ *SEU POKÉMON*",
+        "╰─ HP " + String(own.currentHp) + "/" + String(own.maxHp) +
+          " · status " + statusLabel(own.majorStatus),
+        "",
+        "◇ *OPONENTE*",
         opponent === null
-          ? "Oponente: —"
-          : `Oponente · HP ${opponent.currentHp}/${opponent.maxHp} · status ${statusLabel(opponent.majorStatus)}`,
+          ? "╰─ —"
+          : "╰─ HP " + String(opponent.currentHp) + "/" + String(opponent.maxHp) +
+            " · status " + statusLabel(opponent.majorStatus),
+        "",
+        "`/combate` · comandos e regras",
       ].join("\n"),
     );
   };
-
   const combatGuide: Handler = async (context) =>
     textResult(
       context,
