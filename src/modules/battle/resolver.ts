@@ -141,7 +141,14 @@ function emitFaintIfNeeded(
 
 function abilityPreventsCondition(
   target: BattleCombatant,
-  condition: "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | "CONFUSION",
+  condition:
+    | "BURN"
+    | "POISON"
+    | "BAD_POISON"
+    | "PARALYSIS"
+    | "SLEEP"
+    | "FREEZE"
+    | "CONFUSION",
   events: BattleEvent[],
 ): boolean {
   if (target.ability.effectKey !== "prevent-status") return false;
@@ -160,7 +167,7 @@ function abilityPreventsCondition(
 
 function applyStatus(
   target: BattleCombatant,
-  status: "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE",
+  status: "BURN" | "POISON" | "BAD_POISON" | "PARALYSIS" | "SLEEP" | "FREEZE",
   chanceBasisPoints: number,
   rules: BattleRules,
   rng: CounterRandomSource,
@@ -572,15 +579,25 @@ function checkTerminal(state: BattleState, events: BattleEvent[]): boolean {
 function residualDamage(state: BattleState, rules: BattleRules, events: BattleEvent[]): void {
   for (const active of state.sides.flatMap((side) => activeCombatants(state, side.sideNo))) {
     if (active.currentHp <= 0 || active.majorStatus === null) continue;
-    const divisor =
-      active.majorStatus.key === "BURN"
-        ? rules.status.burnResidualDivisor
-        : active.majorStatus.key === "POISON"
-          ? rules.status.poisonResidualDivisor
-          : null;
-    if (divisor === null) continue;
     const previousHp = active.currentHp;
-    const damage = Math.min(active.currentHp, Math.max(1, Math.floor(active.maxHp / divisor)));
+    let damage: number;
+    if (active.majorStatus.key === "BAD_POISON") {
+      const counter = Math.max(1, Math.min(15, active.majorStatus.counter ?? 1));
+      damage = Math.min(
+        active.currentHp,
+        Math.max(1, Math.floor((active.maxHp * counter) / 16)),
+      );
+      active.majorStatus.counter = Math.min(15, counter + 1);
+    } else {
+      const divisor =
+        active.majorStatus.key === "BURN"
+          ? rules.status.burnResidualDivisor
+          : active.majorStatus.key === "POISON"
+            ? rules.status.poisonResidualDivisor
+            : null;
+      if (divisor === null) continue;
+      damage = Math.min(active.currentHp, Math.max(1, Math.floor(active.maxHp / divisor)));
+    }
     active.currentHp -= damage;
     events.push(
       event("DamageApplied", {
