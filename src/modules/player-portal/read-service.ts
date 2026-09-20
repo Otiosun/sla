@@ -32,6 +32,8 @@ export interface PlayerPortalPokemonIvView {
 export interface PlayerPortalPokemonView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
+  readonly formSlug: string;
+  readonly speciesSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
@@ -60,10 +62,16 @@ export interface PlayerPortalPokedexSpeciesView {
   readonly displayName: string;
   readonly seenCount: string;
   readonly caughtCount: string;
+  readonly shinySeenCount: string;
+  readonly shinyCaughtCount: string;
   readonly firstSeenAt: string | null;
   readonly lastSeenAt: string | null;
   readonly firstCaughtAt: string | null;
   readonly lastCaughtAt: string | null;
+  readonly firstShinySeenAt: string | null;
+  readonly lastShinySeenAt: string | null;
+  readonly firstShinyCaughtAt: string | null;
+  readonly lastShinyCaughtAt: string | null;
 }
 
 export interface PlayerPortalInventoryItemView {
@@ -76,6 +84,8 @@ export interface PlayerPortalInventoryItemView {
 export interface PlayerPortalTeamView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
+  readonly formSlug: string;
+  readonly speciesSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
@@ -217,6 +227,8 @@ export class PlayerPortalReadService {
         .map((entry) => ({
           pokemonInstanceId: entry.pokemonInstanceId,
           formId: entry.formId,
+          formSlug: entry.formSlug,
+          speciesSlug: entry.speciesSlug,
           displayName: entry.displayName,
           nationalDex: entry.nationalDex,
           typeNames: entry.typeNames,
