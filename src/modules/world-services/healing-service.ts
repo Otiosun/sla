@@ -4,6 +4,7 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 export const POKEMON_CENTER_HEALABLE_CONDITIONS = [
   "BURN",
   "POISON",
+  "BAD_POISON",
   "PARALYSIS",
   "SLEEP",
   "FREEZE",

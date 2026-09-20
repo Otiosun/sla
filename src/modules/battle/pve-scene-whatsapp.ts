@@ -337,7 +337,10 @@ function ballPrompt(options: readonly PveCaptureBallOption[]): string {
 }
 
 function statusLabel(status: BattleState["combatants"][number]["majorStatus"]): string {
-  return status === null || status === undefined ? "—" : status.key.toLocaleLowerCase("pt-BR");
+  if (status === null || status === undefined) return "—";
+  return status.key === "BAD_POISON"
+    ? "gravemente envenenado"
+    : status.key.toLocaleLowerCase("pt-BR");
 }
 
 function hud(
@@ -403,6 +406,8 @@ function statusText(value: unknown): string {
       return "queimado";
     case "POISON":
       return "envenenado";
+    case "BAD_POISON":
+      return "gravemente envenenado";
     case "PARALYSIS":
       return "paralisado";
     case "SLEEP":
