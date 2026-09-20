@@ -71,6 +71,13 @@ function fakeRepository(state: FakeState) {
       readonly expectedRevision: number;
       readonly next: PvpChallenge;
     }) => {
+      if (
+        input.next.status === "ACCEPTED" &&
+        input.next.encounterId !== null &&
+        !state.encounters.includes(input.next.encounterId)
+      ) {
+        throw new Error("PVP challenge encounter FK requires Encounter to exist first");
+      }
       const current = state.challenges.get(input.next.id);
       if (current === undefined || current.revision !== input.expectedRevision) return false;
       state.challenges.set(input.next.id, input.next);

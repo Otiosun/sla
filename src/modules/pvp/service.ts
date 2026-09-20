@@ -312,6 +312,12 @@ export class PvpService {
       });
       if (!accepted.ok) return err(mapPvpChallengeError(accepted.error));
 
+      const seed = this.seedProvider.create(`pvp:challenge:${challenge.id}:encounter`);
+      await transaction.insertAcceptedEncounter({
+        challenge: accepted.value,
+        seed: seed.envelope,
+      });
+
       if (
         !(await transaction.replaceChallenge({
           expectedRevision: challenge.revision,
@@ -320,12 +326,6 @@ export class PvpService {
       ) {
         return err(appError("REVISION_CONFLICT", "PVP challenge acceptance lost a revision race"));
       }
-
-      const seed = this.seedProvider.create(`pvp:challenge:${challenge.id}:encounter`);
-      await transaction.insertAcceptedEncounter({
-        challenge: accepted.value,
-        seed: seed.envelope,
-      });
 
       return ok({
         challenge: accepted.value,
