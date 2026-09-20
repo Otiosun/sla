@@ -101,8 +101,7 @@ describe("shared Battle initialization", () => {
   });
 
   it("rejects a side whose entire roster is fainted before battle starts", () => {
-    const fainted = buildFromCombatant(playerCombatant());
-    fainted.currentHp = 0;
+    const fainted = { ...buildFromCombatant(playerCombatant()), currentHp: 0 };
     const initialized = initializeBattleState({
       root: root("WILD"),
       sides: [
@@ -129,8 +128,7 @@ describe("shared Battle initialization", () => {
   });
 
   it("still starts with the first living reserve when slot 1 is fainted", () => {
-    const fainted = buildFromCombatant(playerCombatant());
-    fainted.currentHp = 0;
+    const fainted = { ...buildFromCombatant(playerCombatant()), currentHp: 0 };
     const reserve = buildFromCombatant(reserveCombatant());
     const initialized = initializeBattleState({
       root: root("WILD"),
