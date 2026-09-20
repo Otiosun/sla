@@ -29,6 +29,20 @@ export interface OperationalPokedexSpeciesView {
   readonly caughtCount: bigint;
 }
 
+export interface OperationalPendingMoveChoiceView {
+  readonly choiceId: string;
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly pokemonDisplayName: string;
+  readonly learnLevel: number;
+  readonly moveId: string;
+  readonly moveDisplayName: string;
+  readonly currentMoves: readonly {
+    readonly slotNo: number;
+    readonly moveId: string;
+    readonly displayName: string;
+  }[];
+}
+
 /**
  * Read-only projection used by messaging presentation. It may join display metadata, but it must
  * never decide or mutate gameplay mechanics; mutations remain owned by the domain services.
@@ -38,6 +52,9 @@ export interface OperationalUxReadModel {
   listTeam(playerId: PlayerId): Promise<readonly OperationalTeamMemberView[]>;
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
+  listPendingMoveChoices(
+    playerId: PlayerId,
+  ): Promise<readonly OperationalPendingMoveChoiceView[]>;
   activeBattleId(playerId: PlayerId): Promise<string | null>;
   speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
   moveDisplayNames(

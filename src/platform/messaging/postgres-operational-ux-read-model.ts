@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type {
   OperationalInventoryItemView,
+  OperationalPendingMoveChoiceView,
   OperationalPokedexSpeciesView,
   OperationalRegionOption,
   OperationalTeamMemberView,
@@ -131,6 +132,91 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
       seenCount: BigInt(row.seen_count),
       caughtCount: BigInt(row.caught_count),
     }));
+  }
+
+  public async listPendingMoveChoices(
+    playerId: PlayerId,
+  ): Promise<readonly OperationalPendingMoveChoiceView[]> {
+    const result = await this.pool.query<{
+      choice_id: string;
+      pokemon_instance_id: string;
+      pokemon_display_name: string;
+      learn_level: number;
+      move_id: string;
+      move_display_name: string;
+      slot_no: number | null;
+      current_move_id: string | null;
+      current_move_display_name: string | null;
+    }>(
+      `SELECT choice.id AS choice_id,
+              choice.pokemon_instance_id,
+              species_revision.display_name AS pokemon_display_name,
+              choice.learn_level,
+              choice.move_id,
+              pending_move_revision.display_name AS move_display_name,
+              slot.slot_no,
+              slot.move_id AS current_move_id,
+              current_move_revision.display_name AS current_move_display_name
+       FROM pending_move_choices choice
+       JOIN pokemon_instances pokemon
+         ON pokemon.id = choice.pokemon_instance_id
+        AND pokemon.owner_player_id = $1
+       JOIN pokemon_forms form_identity ON form_identity.id = pokemon.form_id
+       JOIN pokemon_species_revisions species_revision
+         ON species_revision.content_release_id = choice.content_release_id
+        AND species_revision.species_id = form_identity.species_id
+        AND species_revision.active = TRUE
+       JOIN move_revisions pending_move_revision
+         ON pending_move_revision.content_release_id = choice.content_release_id
+        AND pending_move_revision.move_id = choice.move_id
+        AND pending_move_revision.active = TRUE
+       LEFT JOIN pokemon_move_slots slot
+         ON slot.pokemon_instance_id = choice.pokemon_instance_id
+       LEFT JOIN move_revisions current_move_revision
+         ON current_move_revision.content_release_id = choice.content_release_id
+        AND current_move_revision.move_id = slot.move_id
+        AND current_move_revision.active = TRUE
+       WHERE choice.status = 'PENDING'
+       ORDER BY choice.id, slot.slot_no`,
+      [playerId],
+    );
+
+    const grouped = new Map<string, OperationalPendingMoveChoiceView>();
+    for (const row of result.rows) {
+      let view = grouped.get(row.choice_id);
+      if (view === undefined) {
+        const parsed = parsePokemonInstanceId(row.pokemon_instance_id);
+        if (!parsed.ok) {
+          throw new Error("Pending move projection returned invalid PokemonInstanceId");
+        }
+        view = {
+          choiceId: row.choice_id,
+          pokemonInstanceId: parsed.value,
+          pokemonDisplayName: row.pokemon_display_name,
+          learnLevel: row.learn_level,
+          moveId: row.move_id,
+          moveDisplayName: row.move_display_name,
+          currentMoves: [],
+        };
+        grouped.set(row.choice_id, view);
+      }
+      if (
+        row.slot_no !== null &&
+        row.current_move_id !== null &&
+        row.current_move_display_name !== null
+      ) {
+        (view.currentMoves as Array<{
+          slotNo: number;
+          moveId: string;
+          displayName: string;
+        }>).push({
+          slotNo: row.slot_no,
+          moveId: row.current_move_id,
+          displayName: row.current_move_display_name,
+        });
+      }
+    }
+    return [...grouped.values()];
   }
 
   public async activeBattleId(playerId: PlayerId): Promise<string | null> {
