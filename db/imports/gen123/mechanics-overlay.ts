@@ -465,9 +465,11 @@ export async function composeGen123MechanicsOverlay(
     const abilities = await client.query<{
       ability_id: string;
       display_name: string;
+      effect_key: string | null;
+      effect_config: unknown;
       active: boolean;
     }>(
-      `SELECT ability_id,display_name,active
+      `SELECT ability_id,display_name,effect_key,effect_config,active
          FROM ability_revisions
         WHERE content_release_id=$1
         ORDER BY ability_id`,
@@ -493,8 +495,8 @@ export async function composeGen123MechanicsOverlay(
           input.targetReleaseId,
           row.ability_id,
           row.display_name,
-          keepEffect ? inherited.effect_key : null,
-          JSON.stringify(keepEffect ? inherited.effect_config : {}),
+          keepEffect ? inherited.effect_key : row.effect_key,
+          JSON.stringify(keepEffect ? inherited.effect_config : row.effect_config),
           row.active,
         ];
       }),
