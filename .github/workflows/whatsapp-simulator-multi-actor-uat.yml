@@ -76,3 +76,6 @@ jobs:
 
       - name: Run autonomous multi-actor UAT
         run: node --import tsx db/proofs/whatsapp_simulator_multi_actor_uat.ts
+
+      - name: Run deep gameplay UAT
+        run: node --import tsx db/proofs/whatsapp_simulator_deep_gameplay_uat.ts
