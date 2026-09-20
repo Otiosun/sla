@@ -388,10 +388,12 @@ export async function composeGen123MechanicsOverlay(
       accuracy: number | null;
       priority: number;
       max_pp: number | null;
+      effect_key: string | null;
+      effect_config: unknown;
       flags: unknown;
       active: boolean;
     }>(
-      `SELECT move_id,display_name,type_id,category,power,accuracy,priority,max_pp,flags,active
+      `SELECT move_id,display_name,type_id,category,power,accuracy,priority,max_pp,effect_key,effect_config,flags,active
          FROM move_revisions
         WHERE content_release_id=$1
         ORDER BY move_id`,
@@ -419,6 +421,8 @@ export async function composeGen123MechanicsOverlay(
       moves.rows.map((row) => {
         const inherited = targetMoveById.get(row.move_id);
         const keepEffect = inherited?.effect_key !== null && inherited?.effect_key !== undefined;
+        const effectKey = keepEffect ? inherited.effect_key : row.effect_key;
+        const effectConfig = keepEffect ? inherited.effect_config : row.effect_config;
         return [
           gen123Id(`overlay:${input.targetReleaseId}:move:${row.move_id}`),
           input.targetReleaseId,
@@ -430,8 +434,8 @@ export async function composeGen123MechanicsOverlay(
           row.accuracy,
           row.priority,
           row.max_pp,
-          keepEffect ? inherited.effect_key : null,
-          JSON.stringify(keepEffect ? inherited.effect_config : {}),
+          effectKey,
+          JSON.stringify(effectKey === null ? {} : effectConfig),
           JSON.stringify(inherited?.flags ?? row.flags ?? {}),
           row.active,
         ];
