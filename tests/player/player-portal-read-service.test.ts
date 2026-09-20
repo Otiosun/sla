@@ -50,7 +50,17 @@ function service(activeBattle: PlayerPortalActiveBattleRecord | null = null) {
           enteredAt: new Date("2026-09-18T20:00:00.000Z"),
           requiresRelocation: false,
           relocationAreaId: null,
-          connections: [],
+          connections: [
+            {
+              connectionId: "20202020-2020-4020-8020-202020202020",
+              connectionKey: "vila-campos",
+              destinationAreaId: "21212121-2121-4121-8121-212121212121",
+              destinationSlug: "campos-de-yun",
+              destinationDisplayName: "Campos de Yun",
+              available: false,
+              missingUnlockKeys: ["story.secret-route-key"],
+            },
+          ],
         }),
     },
     repository: {
@@ -125,8 +135,20 @@ describe("PlayerPortalReadService", () => {
         regionDisplayName: "Zhoulia",
         revision: "7",
         enteredAt: "2026-09-18T20:00:00.000Z",
+        connections: [
+          {
+            connectionId: "20202020-2020-4020-8020-202020202020",
+            connectionKey: "vila-campos",
+            destinationAreaId: "21212121-2121-4121-8121-212121212121",
+            destinationSlug: "campos-de-yun",
+            destinationDisplayName: "Campos de Yun",
+            available: false,
+          },
+        ],
       }),
     );
+    expect(JSON.stringify(result.value)).not.toContain("story.secret-route-key");
+    expect(JSON.stringify(result.value)).not.toContain("missingUnlockKeys");
   });
 
   it("reports no active battle without inventing one", async () => {

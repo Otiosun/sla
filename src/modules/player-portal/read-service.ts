@@ -101,7 +101,6 @@ export interface PlayerPortalWorldConnectionView {
   readonly destinationSlug: string;
   readonly destinationDisplayName: string;
   readonly available: boolean;
-  readonly missingUnlockKeys: readonly string[];
 }
 
 export interface PlayerPortalWorldLocationView {
@@ -382,7 +381,6 @@ function worldLocationView(location: WorldLocationView): PlayerPortalWorldLocati
       destinationSlug: connection.destinationSlug,
       destinationDisplayName: connection.destinationDisplayName,
       available: connection.available,
-      missingUnlockKeys: connection.missingUnlockKeys,
     })),
   };
 }
