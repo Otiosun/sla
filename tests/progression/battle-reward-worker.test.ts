@@ -21,7 +21,7 @@ function reward(battleId: string, replayed: boolean): BattleRewardResult {
       beforePoints: 0,
       afterLevel: 1,
       afterPoints: 100,
-      awardedPoints: 100,
+      pointsGained: 100,
       unlockedKeys: [],
     },
     replayed,
