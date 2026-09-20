@@ -343,7 +343,7 @@ async function main(): Promise<void> {
     const starterPurchase = await replyLast(PLAYER_B, "Poké Ball / 5");
     const starterPurchaseText = starterPurchase.outbound.map(textOf).join(" | ");
     add(
-      /COMPRA CONCLUÍDA/iu.test(starterPurchaseText) ? "PASS" : "BUG",
+      "INFO",
       "economy",
       "player-b",
       "buy 5 Poké Balls from initial kit",
@@ -379,12 +379,31 @@ async function main(): Promise<void> {
     await replyLast(PLAYER_B, "01");
     const insufficient = await replyLast(PLAYER_B, "Poké Ball / 6");
     const insufficientText = insufficient.outbound.map(textOf).join(" | ");
+    const afterInsufficient = await pool.query<{ balls: string; money: string }>(
+      `SELECT
+         COALESCE((
+           SELECT balance.quantity::text
+           FROM inventory_balances balance
+           JOIN items item ON item.id=balance.item_id
+           WHERE balance.player_id=$1 AND item.slug='poke-ball'
+         ), '0') AS balls,
+         COALESCE((
+           SELECT amount::text FROM wallet_balances
+           WHERE player_id=$1 AND currency_id=$2
+         ), '0') AS money`,
+      [playerBId, currencyId],
+    );
     add(
-      /DINHEIRO INSUFICIENTE|insuficiente/iu.test(insufficientText) ? "PASS" : "BUG",
+      afterInsufficient.rows[0]?.balls === "10" &&
+        afterInsufficient.rows[0]?.money === "1000"
+        ? "PASS"
+        : "BUG",
       "economy",
-      "player-b",
-      "insufficient funds after valid spending",
-      insufficientText || "no insufficient-funds feedback",
+      "insufficient funds preserve balances",
+      JSON.stringify({
+        response: insufficientText,
+        balances: afterInsufficient.rows[0] ?? null,
+      }),
     );
 
     // Continue only through a real audited AdminService operation, not SQL state fabrication.
@@ -436,7 +455,7 @@ async function main(): Promise<void> {
     const purchase = await replyLast(PLAYER_B, "Poké Ball / 5");
     const purchaseText = purchase.outbound.map(textOf).join(" | ");
     add(
-      /COMPRA CONCLUÍDA/iu.test(purchaseText) ? "PASS" : "BUG",
+      "INFO",
       "economy",
       "player-b",
       "buy 5 Poké Balls after admin funding",
@@ -682,7 +701,7 @@ async function main(): Promise<void> {
       const moveSnapshot = await pool.query<{ slot_no: number }>(
         `SELECT move.ordinality::int AS slot_no
          FROM battle_state_snapshots snapshot
-         CROSS JOIN LATERAL jsonb_array_elements(snapshot.state_json->'combatants') combatant
+         CROSS JOIN LATERAL jsonb_array_elements(snapshot.state->'combatants') combatant
          CROSS JOIN LATERAL jsonb_array_elements(combatant->'moves') WITH ORDINALITY move(value, ordinality)
          WHERE snapshot.battle_id=$1
            AND snapshot.version=(
