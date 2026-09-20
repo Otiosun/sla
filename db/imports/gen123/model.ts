@@ -256,8 +256,9 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
         .filter((typeId) => allowedTypeIds.has(typeId));
       if (typeIds.length < 1 || typeIds.length > 2)
         throw new Error(`Species ${speciesId} has invalid Gen I-III type set`);
-      const currentAbilitySlots = (pokemonAbilitiesByPokemon.get(pokemonId) ?? [])
-        .filter((candidate) => allowedAbilityIds.has(requiredInt(candidate, "ability_id")));
+      const currentAbilitySlots = (pokemonAbilitiesByPokemon.get(pokemonId) ?? []).filter(
+        (candidate) => allowedAbilityIds.has(requiredInt(candidate, "ability_id")),
+      );
       const historicalAbilitySlots = (pokemonPastAbilitiesByPokemon.get(pokemonId) ?? [])
         .filter((candidate) => {
           const abilityId = optionalInt(candidate, "ability_id");

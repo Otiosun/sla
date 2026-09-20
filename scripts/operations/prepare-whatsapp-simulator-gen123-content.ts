@@ -4,7 +4,6 @@ import { importGen123 } from "../../db/imports/gen123/import.js";
 import { composeGen123MechanicsOverlay } from "../../db/imports/gen123/mechanics-overlay.js";
 import { GEN123_SOURCE } from "../../db/imports/gen123/source.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
-import { ZHOULIA_TYPED_CONTENT_V1 } from "../../src/modules/world/zhoulia-content.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import {
   assertZhouliaExclusiveRelease,

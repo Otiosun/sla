@@ -67,19 +67,14 @@ function requirePositiveInt(value: unknown, label: string): number {
 function requireUuid(value: unknown, label: string): string {
   if (
     typeof value !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    )
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
   ) {
     throw new Error(`${label} must be a UUID`);
   }
   return value;
 }
 
-async function ensureTargetClone(
-  pool: Pool,
-  input: Gen123MechanicsOverlayInput,
-): Promise<void> {
+async function ensureTargetClone(pool: Pool, input: Gen123MechanicsOverlayInput): Promise<void> {
   const existing = await pool.query<{
     status: string;
     parent_release_id: string | null;
@@ -97,9 +92,7 @@ async function ensureTargetClone(
       row.parent_release_id !== input.parentReleaseId ||
       row.release_no !== input.targetReleaseNo.toString()
     ) {
-      throw new Error(
-        `Existing mechanics overlay release is incompatible: ${JSON.stringify(row)}`,
-      );
+      throw new Error(`Existing mechanics overlay release is incompatible: ${JSON.stringify(row)}`);
     }
     return;
   }
@@ -112,9 +105,7 @@ async function ensureTargetClone(
     name: input.targetReleaseName,
   });
   if (!cloned.ok) {
-    throw new Error(
-      `clone Zhoulia release failed [${cloned.error.code}]: ${cloned.error.message}`,
-    );
+    throw new Error(`clone Zhoulia release failed [${cloned.error.code}]: ${cloned.error.message}`);
   }
 }
 
