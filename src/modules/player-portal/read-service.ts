@@ -46,10 +46,16 @@ export interface PlayerPortalPokedexSpeciesView {
   readonly displayName: string;
   readonly seenCount: string;
   readonly caughtCount: string;
+  readonly shinySeenCount: string;
+  readonly shinyCaughtCount: string;
   readonly firstSeenAt: string | null;
   readonly lastSeenAt: string | null;
   readonly firstCaughtAt: string | null;
   readonly lastCaughtAt: string | null;
+  readonly firstShinySeenAt: string | null;
+  readonly lastShinySeenAt: string | null;
+  readonly firstShinyCaughtAt: string | null;
+  readonly lastShinyCaughtAt: string | null;
 }
 
 export interface PlayerPortalInventoryItemView {
