@@ -131,6 +131,14 @@ export const RulesetConfigSchema = z
 export type RulesetConfig = z.infer<typeof RulesetConfigSchema>;
 
 const statusKeySchema = z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]);
+const preventableConditionKeySchema = z.enum([
+  "BURN",
+  "POISON",
+  "PARALYSIS",
+  "SLEEP",
+  "FREEZE",
+  "CONFUSION",
+]);
 const statKeySchema = z.enum([
   "ATTACK",
   "DEFENSE",
@@ -189,6 +197,14 @@ export const EffectConfigSchemas = {
     })
     .strict(),
   "prevent-accuracy-drop": z.object({}).strict(),
+  "prevent-status": z
+    .object({ statuses: z.array(preventableConditionKeySchema).min(1).max(6) })
+    .strict(),
+  "prevent-stat-drop": z
+    .object({ stats: z.array(statKeySchema).min(1).max(7) })
+    .strict(),
+  "prevent-flinch": z.object({}).strict(),
+  "prevent-critical": z.object({}).strict(),
   "run-away": z.object({}).strict(),
   "move-meta-v1": z
     .object({

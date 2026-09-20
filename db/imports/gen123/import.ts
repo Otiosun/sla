@@ -484,6 +484,78 @@ function moveEngineEffect(move: Gen123Model["moves"][number]): {
   };
 }
 
+function abilityEngineEffect(row: CsvRow): {
+  readonly effectKey: string | null;
+  readonly effectConfig: Readonly<Record<string, unknown>>;
+} {
+  const slug = requiredText(row, "identifier");
+  const lowHpType = new Map<string, string>([
+    ["overgrow", "grass"],
+    ["blaze", "fire"],
+    ["torrent", "water"],
+    ["swarm", "bug"],
+  ]).get(slug);
+  if (lowHpType !== undefined) {
+    return {
+      effectKey: "low-hp-type-boost",
+      effectConfig: { typeSlug: lowHpType, multiplierBasisPoints: 15_000 },
+    };
+  }
+
+  const contactStatus = new Map<
+    string,
+    "PARALYSIS" | "POISON" | "BURN"
+  >([
+    ["static", "PARALYSIS"],
+    ["poison-point", "POISON"],
+    ["flame-body", "BURN"],
+  ]).get(slug);
+  if (contactStatus !== undefined) {
+    return {
+      effectKey: "apply-status-on-contact-received",
+      effectConfig: { status: contactStatus, chanceBasisPoints: 3_000 },
+    };
+  }
+
+  const preventedStatus = new Map<
+    string,
+    "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | "CONFUSION"
+  >([
+    ["limber", "PARALYSIS"],
+    ["insomnia", "SLEEP"],
+    ["immunity", "POISON"],
+    ["own-tempo", "CONFUSION"],
+    ["magma-armor", "FREEZE"],
+    ["water-veil", "BURN"],
+    ["vital-spirit", "SLEEP"],
+  ]).get(slug);
+  if (preventedStatus !== undefined) {
+    return { effectKey: "prevent-status", effectConfig: { statuses: [preventedStatus] } };
+  }
+
+  if (slug === "clear-body" || slug === "white-smoke") {
+    return {
+      effectKey: "prevent-stat-drop",
+      effectConfig: {
+        stats: ["ATTACK", "DEFENSE", "SP_ATTACK", "SP_DEFENSE", "SPEED", "ACCURACY", "EVASION"],
+      },
+    };
+  }
+  if (slug === "hyper-cutter") {
+    return { effectKey: "prevent-stat-drop", effectConfig: { stats: ["ATTACK"] } };
+  }
+  if (slug === "inner-focus") return { effectKey: "prevent-flinch", effectConfig: {} };
+  if (slug === "battle-armor" || slug === "shell-armor") {
+    return { effectKey: "prevent-critical", effectConfig: {} };
+  }
+  if (slug === "keen-eye") return { effectKey: "prevent-accuracy-drop", effectConfig: {} };
+  if (slug === "run-away") return { effectKey: "run-away", effectConfig: {} };
+  return {
+    effectKey: null,
+    effectConfig: sourceMetadata({ mechanicsSupport: "UNSUPPORTED_IN_V1" }),
+  };
+}
+
 function natureStat(id: number): "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" {
   const map = new Map<number, "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED">([
     [2, "ATTACK"],
@@ -676,15 +748,18 @@ async function importReleaseChildren(
       "effect_config",
       "active",
     ],
-    model.abilityRows.map((row) => [
-      gen123Id(`rev:${releaseId}:ability:${requiredInt(row, "id")}`),
-      releaseId,
-      ids.ability.get(requiredInt(row, "id")),
-      titleize(requiredText(row, "identifier")),
-      null,
-      JSON.stringify(sourceMetadata({ mechanicsSupport: "UNSUPPORTED_IN_V1" })),
-      true,
-    ]),
+    model.abilityRows.map((row) => {
+      const effect = abilityEngineEffect(row);
+      return [
+        gen123Id(`rev:${releaseId}:ability:${requiredInt(row, "id")}`),
+        releaseId,
+        ids.ability.get(requiredInt(row, "id")),
+        titleize(requiredText(row, "identifier")),
+        effect.effectKey,
+        JSON.stringify(effect.effectConfig),
+        true,
+      ];
+    }),
     "ON CONFLICT (content_release_id, ability_id) DO UPDATE SET display_name=EXCLUDED.display_name,effect_key=EXCLUDED.effect_key,effect_config=EXCLUDED.effect_config,active=EXCLUDED.active",
   );
 
