@@ -40,6 +40,19 @@ function unwrap<T>(
   );
 }
 
+const ZHOULIA_GEN123_STARTERS = [
+  "bulbasaur",
+  "charmander",
+  "squirtle",
+  "chikorita",
+  "cyndaquil",
+  "totodile",
+  "treecko",
+  "torchic",
+  "mudkip",
+] as const;
+const ZHOULIA_STARTER_LEVEL = 5;
+
 const pool = new Pool({ connectionString: databaseUrl, max: 6 });
 try {
   const activeBefore = await pool.query<{ content_release_id: string }>(
@@ -85,7 +98,7 @@ try {
   const releaseId = overlay.releaseId;
 
   const starters: ZhouliaStarterOptionInput[] = [];
-  for (const starter of starterRows.rows) {
+  for (const [sortOrder, speciesSlug] of ZHOULIA_GEN123_STARTERS.entries()) {
     const canonical = await pool.query<{ form_id: string }>(
       `SELECT form.id AS form_id
        FROM pokemon_species species
@@ -98,18 +111,18 @@ try {
         AND revision.active=TRUE
        WHERE species.slug=$2
        LIMIT 1`,
-      [releaseId, starter.species_slug],
+      [releaseId, speciesSlug],
     );
     const formId = canonical.rows[0]?.form_id;
     if (formId === undefined) {
       throw new Error(
-        `Gen I-III import did not provide the canonical form for starter fixture ${starter.species_slug}`,
+        `Gen I-III import did not provide the canonical form for Zhoulia starter ${speciesSlug}`,
       );
     }
     starters.push({
       formId,
-      starterLevel: starter.starter_level,
-      sortOrder: starter.sort_order,
+      starterLevel: ZHOULIA_STARTER_LEVEL,
+      sortOrder,
     });
   }
 
@@ -161,6 +174,11 @@ try {
   unwrap("activate simulator Zhoulia release", await catalog.activateRelease(releaseId));
 
   const exclusive = await assertZhouliaExclusiveRelease(pool, { releaseId });
+  if (exclusive.activeStarterCount !== ZHOULIA_GEN123_STARTERS.length) {
+    throw new Error(
+      `Zhoulia Gen I-III starter count mismatch: expected ${ZHOULIA_GEN123_STARTERS.length}, got ${exclusive.activeStarterCount}`,
+    );
+  }
 
   const fidelity = await pool.query<{
     total_species: number;
