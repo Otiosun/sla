@@ -442,6 +442,76 @@ export function createOperationalUxRoutes(
       ].join("\n"),
     );
   };
+  const pokemonDetail: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+    const slotNo = Number(commandArgs(context)[0]);
+    if (!Number.isSafeInteger(slotNo) || slotNo < 1 || slotNo > 6) {
+      return err(
+        appError(
+          "VALIDATION_FAILED",
+          "Informe o slot da equipe. Ex.: `/pokemon 1`.",
+        ),
+      );
+    }
+
+    const detail = await dependencies.reads.teamPokemonDetail(player.value, slotNo);
+    if (detail === null) {
+      return err(appError("NOT_FOUND", "Não há um Pokémon nesse slot da equipe."));
+    }
+
+    const displayName =
+      detail.nickname === null || detail.nickname.trim().length === 0
+        ? detail.displayName
+        : detail.nickname + " · " + detail.displayName;
+    const gender =
+      detail.gender === "MALE" ? "♂" : detail.gender === "FEMALE" ? "♀" : "—";
+    const statuses =
+      detail.statuses.length === 0
+        ? detail.currentHp <= 0
+          ? "CAÍDO"
+          : "OK"
+        : detail.statuses
+            .map((status) => (status === "BAD_POISON" ? "TOXIC" : status))
+            .join(", ");
+    const moves = detail.moves.map(
+      (move) =>
+        "`" +
+        String(move.slotNo) +
+        "`　*" +
+        move.displayName +
+        "* · PP " +
+        (move.ppCurrent === null || move.maxPp === null
+          ? "—"
+          : String(move.ppCurrent) + "/" + String(move.maxPp)),
+    );
+
+    return textResult(
+      context,
+      [
+        "◈ *POKÉMON*",
+        "　_" + displayName + "_",
+        "",
+        "Nv. `" + String(detail.level) + "`　" + gender + (detail.shiny ? "　✦ SHINY" : ""),
+        "HP　`" + String(detail.currentHp) + "/" + String(detail.maxHp) + "`　·　`" + statuses + "`",
+        "",
+        "◇ *NATURE*　" + detail.natureDisplayName,
+        "◇ *ABILITY*　" + detail.abilityDisplayName,
+        "",
+        "◇ *IVs*",
+        "HP `" + String(detail.ivs.hp) + "` · Atk `" + String(detail.ivs.attack) +
+          "` · Def `" + String(detail.ivs.defense) + "`",
+        "SpA `" + String(detail.ivs.spAttack) + "` · SpD `" +
+          String(detail.ivs.spDefense) + "` · Spe `" + String(detail.ivs.speed) + "`",
+        "",
+        "◇ *MOVIMENTOS*",
+        ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
+        "",
+        "`/golpes` · decisões de aprendizado",
+        "`/pc` · equipe e boxes",
+      ].join("\n"),
+    );
+  };
   const inventory: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -765,6 +835,7 @@ export function createOperationalUxRoutes(
     { command: "concluir", handler: new FunctionalHandler(conclude), rateLimitClass: "SENSITIVE" },
     { command: "perfil", handler: new FunctionalHandler(profile) },
     { command: "equipe", handler: new FunctionalHandler(team) },
+    { command: "pokemon", aliases: ["pkm"], handler: new FunctionalHandler(pokemonDetail) },
     { command: "inventario", handler: new FunctionalHandler(inventory) },
     { command: "pokedex", handler: new FunctionalHandler(pokedex) },
     { command: "onde", handler: new FunctionalHandler(where) },
