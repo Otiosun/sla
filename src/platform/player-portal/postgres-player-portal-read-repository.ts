@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { BattleStateSchema } from "../../modules/battle/contracts.js";
+import { pokemonXpRequiredForNextLevel } from "../../modules/progression/rules.js";
 import type {
   PlayerPortalActiveBattleRecord,
   PlayerPortalInventoryItemView,
@@ -20,7 +21,10 @@ interface OwnedPokemonRow {
   readonly type2_name: string | null;
   readonly nickname: string | null;
   readonly level: number;
+  readonly xp: string;
   readonly current_hp: number;
+  readonly nature_display_name: string | null;
+  readonly ability_display_name: string | null;
   readonly gender: string | null;
   readonly shiny: boolean;
   readonly placement_kind: "TEAM" | "BOX";
@@ -28,6 +32,11 @@ interface OwnedPokemonRow {
   readonly slot_no: number;
   readonly base_hp: number | null;
   readonly iv_hp: number | null;
+  readonly iv_attack: number | null;
+  readonly iv_defense: number | null;
+  readonly iv_sp_attack: number | null;
+  readonly iv_sp_defense: number | null;
+  readonly iv_speed: number | null;
   readonly ev_hp: number | null;
   readonly iv_enabled: boolean;
   readonly ev_enabled: boolean;
@@ -97,7 +106,10 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          type2_revision.display_name AS type2_name,
          instance.nickname,
          instance.level,
+         instance.xp::text AS xp,
          instance.current_hp,
+         nature_revision.display_name AS nature_display_name,
+         ability_revision.display_name AS ability_display_name,
          instance.gender,
          instance.shiny,
          roster.placement_kind,
@@ -105,6 +117,11 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          roster.slot_no,
          form_revision.base_hp,
          training.iv_hp,
+         training.iv_attack,
+         training.iv_defense,
+         training.iv_sp_attack,
+         training.iv_sp_defense,
+         training.iv_speed,
          training.ev_hp,
          COALESCE((ruleset.config->'battle'->>'ivEnabled')::boolean, TRUE) AS iv_enabled,
          COALESCE((ruleset.config->'battle'->>'evEnabled')::boolean, FALSE) AS ev_enabled
@@ -132,6 +149,14 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
         AND type2_revision.active = TRUE
        LEFT JOIN pokemon_training_values training
          ON training.pokemon_instance_id = instance.id
+       LEFT JOIN nature_revisions nature_revision
+         ON nature_revision.content_release_id = $2
+        AND nature_revision.nature_id = training.nature_id
+        AND nature_revision.active = TRUE
+       LEFT JOIN ability_revisions ability_revision
+         ON ability_revision.content_release_id = $2
+        AND ability_revision.ability_id = instance.ability_id
+        AND ability_revision.active = TRUE
        WHERE instance.owner_player_id = $1
          AND instance.status = 'ACTIVE'
        ORDER BY CASE roster.placement_kind WHEN 'TEAM' THEN 0 ELSE 1 END,
@@ -217,8 +242,20 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
             : [row.type1_name, row.type2_name],
       nickname: row.nickname,
       level: row.level,
+      xp: row.xp,
+      xpToNextLevel: pokemonXpRequiredForNextLevel(row.level),
       currentHp: row.current_hp,
       maxHp: maxHp(row),
+      natureDisplayName: row.nature_display_name,
+      abilityDisplayName: row.ability_display_name,
+      ivs: {
+        hp: row.iv_hp,
+        attack: row.iv_attack,
+        defense: row.iv_defense,
+        spAttack: row.iv_sp_attack,
+        spDefense: row.iv_sp_defense,
+        speed: row.iv_speed,
+      },
       gender: row.gender,
       shiny: row.shiny,
       placementKind: row.placement_kind,

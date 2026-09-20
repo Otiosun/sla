@@ -20,6 +20,15 @@ export interface PlayerPortalMoveView {
   readonly maxPp: number | null;
 }
 
+export interface PlayerPortalPokemonIvView {
+  readonly hp: number | null;
+  readonly attack: number | null;
+  readonly defense: number | null;
+  readonly spAttack: number | null;
+  readonly spDefense: number | null;
+  readonly speed: number | null;
+}
+
 export interface PlayerPortalPokemonView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
@@ -28,8 +37,13 @@ export interface PlayerPortalPokemonView {
   readonly typeNames: readonly string[];
   readonly nickname: string | null;
   readonly level: number;
+  readonly xp: string;
+  readonly xpToNextLevel: number;
   readonly currentHp: number;
   readonly maxHp: number | null;
+  readonly natureDisplayName: string | null;
+  readonly abilityDisplayName: string | null;
+  readonly ivs: PlayerPortalPokemonIvView;
   readonly gender: string | null;
   readonly shiny: boolean;
   readonly placementKind: "TEAM" | "BOX";
