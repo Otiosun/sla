@@ -79,6 +79,7 @@ import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-adm
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
+import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
 import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
@@ -158,6 +159,8 @@ export function createOperationalMessagingComposition(
   hubPublicUrl: string | null = null,
 ): OperationalMessagingComposition {
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
+  const battleRewardNotifications =
+    pveBattleConfig === null ? null : new PostgresBattleRewardWhatsAppProjector(pool);
   const pvp = (() => {
     if (pveBattleConfig === null) return null;
     const keyEntries = [...pveBattleConfig.encryptionKeys.entries()];
@@ -513,6 +516,7 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
+      await battleRewardNotifications?.runOnce(pveBattleConfig?.maintenanceBatchSize ?? 25);
     },
   };
 }
