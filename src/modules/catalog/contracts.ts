@@ -145,6 +145,23 @@ const statusChanceSchema = z
   .object({ status: statusKeySchema, chanceBasisPoints: basisPointsSchema.max(10_000) })
   .strict();
 
+const moveMetaAilmentSchema = z
+  .object({
+    kind: z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE", "CONFUSION"]),
+    chanceBasisPoints: z.number().int().min(0).max(10_000),
+    minTurns: z.number().int().min(1).max(10).nullable(),
+    maxTurns: z.number().int().min(1).max(10).nullable(),
+  })
+  .strict();
+
+const moveMetaStatChangeSchema = z
+  .object({
+    stat: statKeySchema,
+    stages: z.number().int().min(-6).max(6).refine((value) => value !== 0),
+    target: z.enum(["SELF", "TARGET"]),
+  })
+  .strict();
+
 export const EffectConfigSchemas = {
   "heal-hp": z.object({ amount: z.number().int().positive().max(9_999) }).strict(),
   "cure-status": z.object({ status: statusKeySchema }).strict(),
@@ -173,6 +190,18 @@ export const EffectConfigSchemas = {
     .strict(),
   "prevent-accuracy-drop": z.object({}).strict(),
   "run-away": z.object({}).strict(),
+  "move-meta-v1": z
+    .object({
+      sourceEffectId: z.number().int().positive(),
+      sourceMetaCategoryId: z.number().int().min(0),
+      ailment: moveMetaAilmentSchema.nullable(),
+      statChanges: z.array(moveMetaStatChangeSchema).max(8),
+      statChanceBasisPoints: z.number().int().min(0).max(10_000),
+      flinchChanceBasisPoints: z.number().int().min(0).max(10_000),
+      drainPercent: z.number().int().min(-100).max(100),
+      healingPercent: z.number().int().min(0).max(100),
+    })
+    .strict(),
 } as const;
 
 export type EffectKey = keyof typeof EffectConfigSchemas;

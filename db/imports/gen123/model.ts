@@ -33,6 +33,18 @@ export interface Gen123Move {
   readonly pp: number | null;
   readonly effectId: number;
   readonly effectChance: number | null;
+  readonly targetId: number;
+  readonly metaCategoryId: number;
+  readonly metaAilmentId: number;
+  readonly minTurns: number | null;
+  readonly maxTurns: number | null;
+  readonly drainPercent: number;
+  readonly healingPercent: number;
+  readonly ailmentChance: number;
+  readonly flinchChance: number;
+  readonly statChance: number;
+  readonly statChanges: readonly { readonly statId: number; readonly change: number }[];
+  readonly makesContact: boolean;
 }
 
 export interface Gen123LearnsetEntry {
@@ -178,6 +190,9 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
     typeRowsAll,
     typeEfficacyRows,
     moveRowsAll,
+    moveMetaRows,
+    moveMetaStatChangeRows,
+    moveFlagMapRows,
     pokemonMoveRows,
     abilityRowsAll,
     pokemonAbilityRows,
@@ -199,6 +214,9 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
     source.csv("types.csv"),
     source.csv("type_efficacy.csv"),
     source.csv("moves.csv"),
+    source.csv("move_meta.csv"),
+    source.csv("move_meta_stat_changes.csv"),
+    source.csv("move_flag_map.csv"),
     source.csv("pokemon_moves.csv"),
     source.csv("abilities.csv"),
     source.csv("pokemon_abilities.csv"),
@@ -309,11 +327,17 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
 
   if (species.length !== 386) throw new Error(`Expected 386 species, got ${species.length}`);
 
+  const moveMetaByMove = byInt(moveMetaRows, "move_id");
+  const moveMetaStatsByMove = groupByInt(moveMetaStatChangeRows, "move_id");
+  const moveFlagsByMove = groupByInt(moveFlagMapRows, "move_id");
   const moves = moveRowsAll
     .filter((row) => requiredInt(row, "generation_id") <= GEN123_SOURCE.maxGeneration)
-    .map(
-      (row): Gen123Move => ({
-        sourceId: requiredInt(row, "id"),
+    .map((row): Gen123Move => {
+      const sourceId = requiredInt(row, "id");
+      const meta = moveMetaByMove.get(sourceId);
+      if (meta === undefined) throw new Error(`Move ${sourceId} is missing move_meta.csv data`);
+      return {
+        sourceId,
         slug: requiredText(row, "identifier"),
         typeId: requiredInt(row, "type_id"),
         damageClassId: requiredInt(row, "damage_class_id"),
@@ -323,8 +347,25 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
         pp: optionalInt(row, "pp"),
         effectId: requiredInt(row, "effect_id"),
         effectChance: optionalInt(row, "effect_chance"),
-      }),
-    )
+        targetId: requiredInt(row, "target_id"),
+        metaCategoryId: requiredInt(meta, "meta_category_id"),
+        metaAilmentId: requiredInt(meta, "meta_ailment_id"),
+        minTurns: optionalInt(meta, "min_turns"),
+        maxTurns: optionalInt(meta, "max_turns"),
+        drainPercent: requiredInt(meta, "drain"),
+        healingPercent: requiredInt(meta, "healing"),
+        ailmentChance: requiredInt(meta, "ailment_chance"),
+        flinchChance: requiredInt(meta, "flinch_chance"),
+        statChance: requiredInt(meta, "stat_chance"),
+        statChanges: (moveMetaStatsByMove.get(sourceId) ?? []).map((change) => ({
+          statId: requiredInt(change, "stat_id"),
+          change: requiredInt(change, "change"),
+        })),
+        makesContact: (moveFlagsByMove.get(sourceId) ?? []).some(
+          (flag) => requiredInt(flag, "move_flag_id") === 1,
+        ),
+      };
+    })
     .filter((move) => allowedTypeIds.has(move.typeId));
   // Moves with unknown PP remain catalogued, but cannot enter executable START/LEVEL learnsets.
   const allowedMoveIds = new Set(
