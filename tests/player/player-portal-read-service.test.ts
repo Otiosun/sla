@@ -59,6 +59,7 @@ function service(activeBattle: PlayerPortalActiveBattleRecord | null = null) {
         {
           pokemonInstanceId,
           formId: "66666666-6666-4666-8666-666666666666",
+          formSlug: "default",
           displayName: "Chikorita",
           nationalDex: 152,
           typeNames: ["Grass"],
@@ -100,6 +101,7 @@ describe("PlayerPortalReadService", () => {
       team: [
         {
           pokemonInstanceId,
+          formSlug: "default",
           displayName: "Chikorita",
           currentHp: 20,
           maxHp: 21,
