@@ -1,8 +1,10 @@
 import type { Pool } from "pg";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
+import { ProgressionService } from "../modules/progression/service.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { PlayerPortalMoveChoiceService } from "../modules/player-portal/move-choice-service.js";
 import { PlayerPortalReadService } from "../modules/player-portal/read-service.js";
 import { PlayerPortalRosterService } from "../modules/player-portal/roster-service.js";
 import { HubSessionTokenService } from "../modules/player-portal/session-token-service.js";
@@ -11,6 +13,7 @@ import { PokemonPcStorageService } from "../modules/world-services/pc-storage-se
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
+import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresPlayerPortalReadRepository } from "../platform/player-portal/postgres-player-portal-read-repository.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
@@ -62,9 +65,21 @@ export function composePlayerPortalRuntime(
     profiles,
     storage: pcStorage,
   });
+  const moveChoices = new PlayerPortalMoveChoiceService({
+    players,
+    profiles,
+    reads: presentation,
+    progression: new ProgressionService(new PostgresProgressionRepository(options.pool)),
+  });
   const tickets = new HubLoginTicketService(new PostgresHubLoginTicketStore(options.pool));
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
-  const portal = new PlayerPortalHttpHandler({ tickets, sessions, player, roster });
+  const portal = new PlayerPortalHttpHandler({
+    tickets,
+    sessions,
+    player,
+    roster,
+    moveChoices,
+  });
 
   return {
     handler: {

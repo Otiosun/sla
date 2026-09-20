@@ -1,6 +1,7 @@
 import type { AppError } from "../../shared-kernel/result.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
+import type { PlayerPortalMoveChoiceService } from "./move-choice-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
 import type { PlayerPortalRosterService } from "./roster-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
@@ -16,6 +17,7 @@ interface PlayerPortalHttpDependencies {
     "getSelf" | "getPokemon" | "getPokedex" | "getInventory" | "getLocation" | "getBattle"
   >;
   readonly roster: Pick<PlayerPortalRosterService, "move">;
+  readonly moveChoices: Pick<PlayerPortalMoveChoiceService, "list" | "resolve">;
 }
 
 export class PlayerPortalHttpHandler {
@@ -41,6 +43,12 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/battle") {
       return this.withSession(request, (identity) => this.getBattle(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/move-choices") {
+      return this.withSession(request, (identity) => this.getMoveChoices(identity));
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/player/move-choices/resolve") {
+      return this.withSession(request, (identity) => this.resolveMoveChoice(request, identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/world/location") {
       return this.withSession(request, (identity) => this.getLocation(identity));
@@ -143,6 +151,36 @@ export class PlayerPortalHttpHandler {
       : errorResponse(result.error, "read");
   }
 
+  private async getMoveChoices(identity: ExternalIdentity): Promise<Response> {
+    const result = await this.dependencies.moveChoices.list(identity);
+    return result.ok
+      ? jsonResponse(200, result.value)
+      : errorResponse(result.error, "moves");
+  }
+
+  private async resolveMoveChoice(request: Request, identity: ExternalIdentity): Promise<Response> {
+    const body = await readJsonBody(request);
+    if (body === null) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
+
+    const result = await this.dependencies.moveChoices.resolve(identity, body);
+    if (!result.ok) {
+      return errorResponse(result.error, "moves");
+    }
+
+    const refreshed = await this.dependencies.moveChoices.list(identity);
+    if (!refreshed.ok) {
+      return errorResponse(refreshed.error, "moves");
+    }
+
+    return jsonResponse(200, {
+      result: result.value,
+      blockedByBattle: refreshed.value.blockedByBattle,
+      choices: refreshed.value.choices,
+    });
+  }
+
   private async moveRoster(request: Request, identity: ExternalIdentity): Promise<Response> {
     const body = await readJsonBody(request);
     if (body === null) {
@@ -206,7 +244,10 @@ function serializeSessionCookie(token: string): string {
   ].join("; ");
 }
 
-function errorResponse(error: AppError, context: "exchange" | "read" | "roster"): Response {
+function errorResponse(
+  error: AppError,
+  context: "exchange" | "read" | "roster" | "moves",
+): Response {
   if (error.code === "PLAYER_INELIGIBLE") {
     return jsonResponse(403, { error: error.code });
   }
@@ -226,6 +267,15 @@ function errorResponse(error: AppError, context: "exchange" | "read" | "roster")
     return jsonResponse(404, { error: error.code });
   }
   if (context === "roster" && error.code === "ACTION_INVALID") {
+    return jsonResponse(409, { error: error.code });
+  }
+  if (context === "moves" && error.code === "NOT_FOUND") {
+    return jsonResponse(404, { error: error.code });
+  }
+  if (
+    context === "moves" &&
+    (error.code === "ACTION_INVALID" || error.code === "FLOW_BLOCKED")
+  ) {
     return jsonResponse(409, { error: error.code });
   }
 
