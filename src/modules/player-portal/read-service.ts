@@ -24,6 +24,7 @@ export interface PlayerPortalPokemonView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
   readonly formSlug: string;
+  readonly speciesSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
@@ -64,6 +65,7 @@ export interface PlayerPortalTeamView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
   readonly formSlug: string;
+  readonly speciesSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
@@ -206,6 +208,7 @@ export class PlayerPortalReadService {
           pokemonInstanceId: entry.pokemonInstanceId,
           formId: entry.formId,
           formSlug: entry.formSlug,
+          speciesSlug: entry.speciesSlug,
           displayName: entry.displayName,
           nationalDex: entry.nationalDex,
           typeNames: entry.typeNames,
