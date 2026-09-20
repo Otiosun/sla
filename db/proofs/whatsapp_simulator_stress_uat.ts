@@ -637,6 +637,9 @@ async function main(): Promise<void> {
       { PASS: 0, INFO: 0, WARN: 0, BUG: 0 },
     );
     console.log(JSON.stringify({ event: "sim.stress.complete", counts, findings }));
+    if (counts.BUG > 0) {
+      throw new Error(`Stress UAT found ${counts.BUG} BUG finding(s)`);
+    }
   } finally {
     await operational.runtime.stop().catch(() => {});
     await pool.end();
