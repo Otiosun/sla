@@ -181,6 +181,7 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
     pokemonMoveRows,
     abilityRowsAll,
     pokemonAbilityRows,
+    pokemonAbilityPastRows,
     natureRows,
     evolutionRows,
     itemRows,
@@ -201,6 +202,7 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
     source.csv("pokemon_moves.csv"),
     source.csv("abilities.csv"),
     source.csv("pokemon_abilities.csv"),
+    source.csv("pokemon_abilities_past.csv"),
     source.csv("natures.csv"),
     source.csv("pokemon_evolution.csv"),
     source.csv("items.csv"),
@@ -223,6 +225,7 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
   const pokemonStatsByPokemon = groupByInt(pokemonStatRows, "pokemon_id");
   const pokemonTypesByPokemon = groupByInt(pokemonTypeRows, "pokemon_id");
   const pokemonAbilitiesByPokemon = groupByInt(pokemonAbilityRows, "pokemon_id");
+  const pokemonPastAbilitiesByPokemon = groupByInt(pokemonAbilityPastRows, "pokemon_id");
   const abilityRows = abilityRowsAll.filter(
     (row) =>
       requiredInt(row, "generation_id") <= GEN123_SOURCE.maxGeneration &&
@@ -253,13 +256,37 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
         .filter((typeId) => allowedTypeIds.has(typeId));
       if (typeIds.length < 1 || typeIds.length > 2)
         throw new Error(`Species ${speciesId} has invalid Gen I-III type set`);
-      const abilitySlots = (pokemonAbilitiesByPokemon.get(pokemonId) ?? [])
-        .filter((candidate) => allowedAbilityIds.has(requiredInt(candidate, "ability_id")))
-        .map((candidate) => ({
-          abilityId: requiredInt(candidate, "ability_id"),
-          slot: requiredInt(candidate, "slot"),
-          hidden: requiredInt(candidate, "is_hidden") === 1,
-        }));
+      const currentAbilitySlots = (pokemonAbilitiesByPokemon.get(pokemonId) ?? [])
+        .filter((candidate) => allowedAbilityIds.has(requiredInt(candidate, "ability_id")));
+      const historicalAbilitySlots = (pokemonPastAbilitiesByPokemon.get(pokemonId) ?? [])
+        .filter(
+          (candidate) =>
+            requiredInt(candidate, "generation_id") > GEN123_SOURCE.maxGeneration &&
+            allowedAbilityIds.has(requiredInt(candidate, "ability_id")),
+        )
+        .sort(
+          (left, right) =>
+            requiredInt(left, "generation_id") - requiredInt(right, "generation_id") ||
+            requiredInt(left, "slot") - requiredInt(right, "slot"),
+        );
+      const selectedAbilityRows =
+        currentAbilitySlots.length > 0
+          ? currentAbilitySlots
+          : historicalAbilitySlots.filter(
+              (candidate) =>
+                requiredInt(candidate, "generation_id") ===
+                requiredInt(historicalAbilitySlots[0] ?? candidate, "generation_id"),
+            );
+      const abilitySlots = selectedAbilityRows.map((candidate) => ({
+        abilityId: requiredInt(candidate, "ability_id"),
+        slot: requiredInt(candidate, "slot"),
+        hidden: requiredInt(candidate, "is_hidden") === 1,
+      }));
+      if (abilitySlots.length === 0) {
+        throw new Error(
+          `Species ${speciesId} has no ability assignment compatible with Gen I-III scope`,
+        );
+      }
       return {
         sourceSpeciesId: speciesId,
         sourcePokemonId: pokemonId,
