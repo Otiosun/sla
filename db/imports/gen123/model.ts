@@ -331,7 +331,11 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
   const moveMetaStatsByMove = groupByInt(moveMetaStatChangeRows, "move_id");
   const moveFlagsByMove = groupByInt(moveFlagMapRows, "move_id");
   const moves = moveRowsAll
-    .filter((row) => requiredInt(row, "generation_id") <= GEN123_SOURCE.maxGeneration)
+    .filter(
+      (row) =>
+        requiredInt(row, "generation_id") <= GEN123_SOURCE.maxGeneration &&
+        allowedTypeIds.has(requiredInt(row, "type_id")),
+    )
     .map((row): Gen123Move => {
       const sourceId = requiredInt(row, "id");
       const meta = moveMetaByMove.get(sourceId);
@@ -365,8 +369,7 @@ export async function loadGen123Model(source: Gen123Source): Promise<Gen123Model
           (flag) => requiredInt(flag, "move_flag_id") === 1,
         ),
       };
-    })
-    .filter((move) => allowedTypeIds.has(move.typeId));
+    });
   // Moves with unknown PP remain catalogued, but cannot enter executable START/LEVEL learnsets.
   const allowedMoveIds = new Set(
     moves.filter((move) => move.pp !== null).map((move) => move.sourceId),
