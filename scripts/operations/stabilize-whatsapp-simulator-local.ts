@@ -19,6 +19,27 @@ function databaseName(raw: string): string {
   return value;
 }
 
+function pnpmInvocation(args: readonly string[]): {
+  readonly command: string;
+  readonly args: readonly string[];
+} {
+  const npmExecPath = process.env.npm_execpath?.trim();
+  if (npmExecPath) {
+    return {
+      command: process.execPath,
+      args: [npmExecPath, ...args],
+    };
+  }
+  if (process.platform === "win32") {
+    const command = process.env.ComSpec?.trim() || "cmd.exe";
+    return {
+      command,
+      args: ["/d", "/s", "/c", ["pnpm", ...args].join(" ")],
+    };
+  }
+  return { command: "pnpm", args };
+}
+
 function run(
   label: string,
   command: string,
@@ -85,7 +106,6 @@ if (pokeapiRevision !== GEN123_SOURCE.commit) {
   );
 }
 
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const node = process.execPath;
 const simulatorEnv = {
   DATABASE_URL: simulatorUrl,
@@ -131,7 +151,10 @@ function rebuildPristine(labelPrefix: string): void {
   );
 }
 
-run("static-check", pnpm, ["check"], process.env);
+{
+  const pnpm = pnpmInvocation(["check"]);
+  run("static-check", pnpm.command, pnpm.args, process.env);
+}
 rebuildPristine("proof");
 
 for (const [label, script] of [
