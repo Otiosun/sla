@@ -29,6 +29,8 @@ interface OwnedPokemonRow {
   readonly base_hp: number | null;
   readonly iv_hp: number | null;
   readonly ev_hp: number | null;
+  readonly iv_enabled: boolean;
+  readonly ev_enabled: boolean;
 }
 
 interface MoveRow {
@@ -51,10 +53,11 @@ function pokemonId(value: string): PokemonInstanceId {
 }
 
 function maxHp(row: OwnedPokemonRow): number | null {
-  if (row.base_hp === null || row.iv_hp === null) return null;
-  const ev = row.ev_hp ?? 0;
+  if (row.base_hp === null) return null;
+  const iv = row.iv_enabled ? (row.iv_hp ?? 0) : 0;
+  const ev = row.ev_enabled ? (row.ev_hp ?? 0) : 0;
   return (
-    Math.floor(((2 * row.base_hp + row.iv_hp + Math.floor(ev / 4)) * row.level) / 100) +
+    Math.floor(((2 * row.base_hp + iv + Math.floor(ev / 4)) * row.level) / 100) +
     row.level +
     10
   );
@@ -102,8 +105,14 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          roster.slot_no,
          form_revision.base_hp,
          training.iv_hp,
-         training.ev_hp
+         training.ev_hp,
+         COALESCE((ruleset.config->'battle'->>'ivEnabled')::boolean, TRUE) AS iv_enabled,
+         COALESCE((ruleset.config->'battle'->>'evEnabled')::boolean, FALSE) AS ev_enabled
        FROM pokemon_instances instance
+       JOIN content_releases release
+         ON release.id = $2
+       JOIN rulesets ruleset
+         ON ruleset.id = release.default_ruleset_id
        JOIN pokemon_roster_slots roster
          ON roster.pokemon_instance_id = instance.id
         AND roster.player_id = instance.owner_player_id

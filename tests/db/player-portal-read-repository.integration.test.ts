@@ -105,7 +105,7 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
     await pool.query(
       `INSERT INTO pokemon_training_values(
          pokemon_instance_id, iv_hp, ev_hp
-       ) VALUES ($1, 31, 0)`,
+       ) VALUES ($1, 31, 252)`,
       [pokemonInstanceId],
     );
     await pool.query(
