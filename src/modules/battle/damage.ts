@@ -20,6 +20,11 @@ function multiplyBasisPoints(value: number, multiplier: number): number {
   return Math.floor((value * multiplier) / BP);
 }
 
+function preventsCritical(defender: BattleCombatant): boolean {
+  if (defender.ability.effectKey !== "prevent-critical") return false;
+  return EffectConfigSchemas["prevent-critical"].safeParse(defender.ability.effectConfig).success;
+}
+
 function abilityDamageMultiplier(attacker: BattleCombatant, move: BattleMoveSnapshot): number {
   if (attacker.ability.effectKey !== "low-hp-type-boost") return BP;
   const parsed = EffectConfigSchemas["low-hp-type-boost"].safeParse(attacker.ability.effectConfig);
@@ -71,7 +76,8 @@ export function computeDamage(
   if (stabApplied) damage = multiplyBasisPoints(damage, rules.stabMultiplierBasisPoints);
   damage = multiplyBasisPoints(damage, effectivenessBasisPoints);
 
-  const critical = rng.randomInt(BP) < rules.criticalChanceBasisPoints;
+  const criticalRoll = rng.randomInt(BP) < rules.criticalChanceBasisPoints;
+  const critical = criticalRoll && !preventsCritical(defender);
   if (critical) damage = multiplyBasisPoints(damage, rules.criticalMultiplierBasisPoints);
 
   const abilityMultiplierBasisPoints = abilityDamageMultiplier(attacker, move);

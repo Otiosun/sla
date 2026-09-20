@@ -139,6 +139,25 @@ function emitFaintIfNeeded(
   }
 }
 
+function abilityPreventsCondition(
+  target: BattleCombatant,
+  condition: "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | "CONFUSION",
+  events: BattleEvent[],
+): boolean {
+  if (target.ability.effectKey !== "prevent-status") return false;
+  const parsed = EffectConfigSchemas["prevent-status"].safeParse(target.ability.effectConfig);
+  if (!parsed.success || !parsed.data.statuses.includes(condition)) return false;
+  events.push(
+    event("AbilityTriggered", {
+      participantId: target.participantId,
+      abilityId: target.ability.abilityId,
+      effectKey: target.ability.effectKey,
+      preventedCondition: condition,
+    }),
+  );
+  return true;
+}
+
 function applyStatus(
   target: BattleCombatant,
   status: "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE",
@@ -150,6 +169,7 @@ function applyStatus(
 ): void {
   if (target.currentHp <= 0 || target.majorStatus !== null) return;
   if (rng.randomInt(10_000) >= chanceBasisPoints) return;
+  if (abilityPreventsCondition(target, status, events)) return;
   target.majorStatus = {
     key: status,
     counter: statusCounterOnApply(status, (maxExclusive) => rng.randomInt(maxExclusive), rules),
@@ -172,20 +192,26 @@ function applyStatStageChange(
   events: BattleEvent[],
 ): void {
   if (target.currentHp <= 0) return;
-  if (
-    source.participantId !== target.participantId &&
-    stat === "ACCURACY" &&
-    stages < 0 &&
-    target.ability.effectKey === "prevent-accuracy-drop"
-  ) {
-    events.push(
-      event("AbilityTriggered", {
-        participantId: target.participantId,
-        abilityId: target.ability.abilityId,
-        effectKey: target.ability.effectKey,
-      }),
-    );
-    return;
+  if (source.participantId !== target.participantId && stages < 0) {
+    const accuracyBlocked =
+      stat === "ACCURACY" && target.ability.effectKey === "prevent-accuracy-drop";
+    const parsed =
+      target.ability.effectKey === "prevent-stat-drop"
+        ? EffectConfigSchemas["prevent-stat-drop"].safeParse(target.ability.effectConfig)
+        : null;
+    const statBlocked =
+      parsed !== null && parsed.success && parsed.data.stats.includes(stat);
+    if (accuracyBlocked || statBlocked) {
+      events.push(
+        event("AbilityTriggered", {
+          participantId: target.participantId,
+          abilityId: target.ability.abilityId,
+          effectKey: target.ability.effectKey,
+          preventedStat: stat,
+        }),
+      );
+      return;
+    }
   }
   const key = stageProperty(stat);
   const before = target.stages[key];
@@ -243,7 +269,8 @@ function applyMoveMetaEffect(
     if (meta.ailment.kind === "CONFUSION") {
       if (
         defender.volatile.confusionTurns <= 0 &&
-        chanceSucceeds(meta.ailment.chanceBasisPoints, rng)
+        chanceSucceeds(meta.ailment.chanceBasisPoints, rng) &&
+        !abilityPreventsCondition(defender, "CONFUSION", events)
       ) {
         const minTurns = meta.ailment.minTurns ?? 2;
         const maxTurns = Math.max(minTurns, meta.ailment.maxTurns ?? minTurns);
@@ -287,15 +314,29 @@ function applyMoveMetaEffect(
     meta.flinchChanceBasisPoints > 0 &&
     chanceSucceeds(meta.flinchChanceBasisPoints, rng)
   ) {
-    defender.volatile.flinch = true;
-    events.push(
-      event("StatusApplied", {
-        participantId: defender.participantId,
-        status: "FLINCH",
-        source: "MOVE",
-        moveId: move.moveId,
-      }),
-    );
+    if (defender.ability.effectKey === "prevent-flinch") {
+      const parsed = EffectConfigSchemas["prevent-flinch"].safeParse(defender.ability.effectConfig);
+      if (parsed.success) {
+        events.push(
+          event("AbilityTriggered", {
+            participantId: defender.participantId,
+            abilityId: defender.ability.abilityId,
+            effectKey: defender.ability.effectKey,
+            preventedCondition: "FLINCH",
+          }),
+        );
+      }
+    } else {
+      defender.volatile.flinch = true;
+      events.push(
+        event("StatusApplied", {
+          participantId: defender.participantId,
+          status: "FLINCH",
+          source: "MOVE",
+          moveId: move.moveId,
+        }),
+      );
+    }
   }
 
   if (meta.healingPercent > 0) {
