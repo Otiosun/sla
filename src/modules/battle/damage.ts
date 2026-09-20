@@ -33,6 +33,21 @@ function abilityDamageMultiplier(attacker: BattleCombatant, move: BattleMoveSnap
   return parsed.data.typeSlug === move.typeSlug ? parsed.data.multiplierBasisPoints : BP;
 }
 
+function abilityTypeImmunity(defender: BattleCombatant, move: BattleMoveSnapshot): boolean {
+  if (defender.ability.effectKey !== "type-immunity") return false;
+  const parsed = EffectConfigSchemas["type-immunity"].safeParse(defender.ability.effectConfig);
+  return parsed.success && parsed.data.typeSlug === move.typeSlug;
+}
+
+function incomingAbilityMultiplier(defender: BattleCombatant, move: BattleMoveSnapshot): number {
+  if (defender.ability.effectKey !== "incoming-type-damage-multiplier") return BP;
+  const parsed = EffectConfigSchemas["incoming-type-damage-multiplier"].safeParse(
+    defender.ability.effectConfig,
+  );
+  if (!parsed.success || !parsed.data.typeSlugs.includes(move.typeSlug)) return BP;
+  return parsed.data.multiplierBasisPoints;
+}
+
 export function computeDamage(
   attacker: BattleCombatant,
   defender: BattleCombatant,
@@ -55,7 +70,9 @@ export function computeDamage(
     defender.type1Id,
     ...(defender.type2Id === null ? [] : [defender.type2Id]),
   ];
-  const effectivenessBasisPoints = typeEffectivenessBasisPoints(rules, move.typeId, defendingTypes);
+  const effectivenessBasisPoints = abilityTypeImmunity(defender, move)
+    ? 0
+    : typeEffectivenessBasisPoints(rules, move.typeId, defendingTypes);
   if (effectivenessBasisPoints === 0) {
     return {
       damage: 0,
@@ -80,7 +97,10 @@ export function computeDamage(
   const critical = criticalRoll && !preventsCritical(defender);
   if (critical) damage = multiplyBasisPoints(damage, rules.criticalMultiplierBasisPoints);
 
-  const abilityMultiplierBasisPoints = abilityDamageMultiplier(attacker, move);
+  const abilityMultiplierBasisPoints = multiplyBasisPoints(
+    abilityDamageMultiplier(attacker, move),
+    incomingAbilityMultiplier(defender, move),
+  );
   damage = multiplyBasisPoints(damage, abilityMultiplierBasisPoints);
 
   const width = rules.damageRandomMaxBasisPoints - rules.damageRandomMinBasisPoints + 1;

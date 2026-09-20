@@ -560,6 +560,48 @@ function abilityEngineEffect(row: CsvRow): {
   }
   if (slug === "keen-eye") return { effectKey: "prevent-accuracy-drop", effectConfig: {} };
   if (slug === "run-away") return { effectKey: "run-away", effectConfig: {} };
+  if (slug === "levitate") {
+    return { effectKey: "type-immunity", effectConfig: { typeSlug: "ground" } };
+  }
+  if (slug === "thick-fat") {
+    return {
+      effectKey: "incoming-type-damage-multiplier",
+      effectConfig: { typeSlugs: ["fire", "ice"], multiplierBasisPoints: 5_000 },
+    };
+  }
+  if (slug === "huge-power" || slug === "pure-power") {
+    return {
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 20_000,
+        condition: "ALWAYS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+  }
+  if (slug === "guts") {
+    return {
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: true,
+      },
+    };
+  }
+  if (slug === "marvel-scale") {
+    return {
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "DEFENSE",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+  }
   return {
     effectKey: null,
     effectConfig: sourceMetadata({ mechanicsSupport: "UNSUPPORTED_IN_V1" }),

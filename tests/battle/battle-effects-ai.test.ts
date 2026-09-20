@@ -441,6 +441,106 @@ describe("battle effects, abilities and heuristic AI", () => {
     expect(afterSecond?.currentHp).toBe(130);
   });
 
+  it("Levitate grants Ground immunity through the generic type-immunity primitive", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.typeId = IDS.normal;
+    move.typeSlug = "ground";
+    defender.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "type-immunity",
+      effectConfig: { typeSlug: "ground" },
+    };
+    const result = computeDamage(attacker, defender, move, TEST_RULES, rng(30));
+    expect(result.damage).toBe(0);
+    expect(result.effectivenessBasisPoints).toBe(0);
+  });
+
+  it("Thick Fat halves incoming Fire and Ice damage", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[1];
+    if (move === undefined) throw new Error("fixture incomplete");
+    const baseline = computeDamage(attacker, defender, move, TEST_RULES, rng(31));
+    defender.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "incoming-type-damage-multiplier",
+      effectConfig: { typeSlugs: ["fire", "ice"], multiplierBasisPoints: 5_000 },
+    };
+    const reduced = computeDamage(attacker, defender, move, TEST_RULES, rng(31));
+    expect(reduced.damage).toBeLessThan(baseline.damage);
+    expect(reduced.abilityMultiplierBasisPoints).toBe(5_000);
+  });
+
+  it("Huge Power and Pure Power can double physical Attack", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    attacker.ability = { abilityId: IDS.blaze, effectKey: null, effectConfig: {} };
+    const baseline = computeDamage(attacker, defender, move, TEST_RULES, rng(32));
+    attacker.ability = {
+      abilityId: IDS.blaze,
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 20_000,
+        condition: "ALWAYS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+    const boosted = computeDamage(attacker, defender, move, TEST_RULES, rng(32));
+    expect(boosted.damage).toBeGreaterThan(baseline.damage);
+  });
+
+  it("Guts boosts Attack under status and ignores the burn Attack penalty", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    attacker.ability = { abilityId: IDS.blaze, effectKey: null, effectConfig: {} };
+    const healthy = computeDamage(attacker, defender, move, TEST_RULES, rng(33));
+    attacker.majorStatus = { key: "BURN", counter: null };
+    const burned = computeDamage(attacker, defender, move, TEST_RULES, rng(33));
+    attacker.ability = {
+      abilityId: IDS.blaze,
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: true,
+      },
+    };
+    const guts = computeDamage(attacker, defender, move, TEST_RULES, rng(33));
+    expect(burned.damage).toBeLessThan(healthy.damage);
+    expect(guts.damage).toBeGreaterThan(healthy.damage);
+  });
+
+  it("Marvel Scale raises physical Defense while a major status is active", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    defender.ability = { abilityId: IDS.keenEye, effectKey: null, effectConfig: {} };
+    defender.majorStatus = { key: "POISON", counter: null };
+    const baseline = computeDamage(attacker, defender, move, TEST_RULES, rng(34));
+    defender.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "DEFENSE",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+    const scaled = computeDamage(attacker, defender, move, TEST_RULES, rng(34));
+    expect(scaled.damage).toBeLessThan(baseline.damage);
+  });
+
   it("Run Away is an allowlisted ability trigger on a legal FLEE action", () => {
     const state = battleState();
     const player = state.combatants.find((entry) => entry.participantId === IDS.p1);

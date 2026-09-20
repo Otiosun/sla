@@ -212,6 +212,23 @@ export const EffectConfigSchemas = {
       multiplierBasisPoints: z.number().int().min(10_001).max(100_000),
     })
     .strict(),
+  "type-immunity": z
+    .object({ typeSlug: z.string().min(1).max(64) })
+    .strict(),
+  "incoming-type-damage-multiplier": z
+    .object({
+      typeSlugs: z.array(z.string().min(1).max(64)).min(1).max(18),
+      multiplierBasisPoints: z.number().int().min(1).max(100_000),
+    })
+    .strict(),
+  "battle-stat-multiplier": z
+    .object({
+      stat: z.enum(["ATTACK", "DEFENSE", "SP_ATTACK", "SP_DEFENSE", "SPEED"]),
+      multiplierBasisPoints: z.number().int().min(1).max(100_000),
+      condition: z.enum(["ALWAYS", "MAJOR_STATUS"]),
+      ignoreBurnAttackPenalty: z.boolean(),
+    })
+    .strict(),
   "prevent-accuracy-drop": z.object({}).strict(),
   "prevent-status": z
     .object({ statuses: z.array(preventableConditionKeySchema).min(1).max(7) })
