@@ -52,8 +52,9 @@ export function composePlayerPortalRuntime(
   );
   const presentation = new PostgresOperationalUxReadModel(options.pool);
   const readRepository = new PostgresPlayerPortalReadRepository(options.pool);
-  const customizationRepository =
-    new PostgresPlayerPortalProfileCustomizationRepository(options.pool);
+  const customizationRepository = new PostgresPlayerPortalProfileCustomizationRepository(
+    options.pool,
+  );
   const player = new PlayerPortalReadService({
     players,
     profiles,
