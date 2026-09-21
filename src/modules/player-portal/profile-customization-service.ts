@@ -28,7 +28,7 @@ export const DEFAULT_PLAYER_PORTAL_PROFILE_CUSTOMIZATION: PlayerPortalProfileCus
   appearance: null,
   age: null,
   height: null,
-  accent: "teal",
+  accent: "crimson",
 };
 
 export interface PlayerPortalProfileCustomizationRepository {
