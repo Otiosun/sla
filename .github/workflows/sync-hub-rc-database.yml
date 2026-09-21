@@ -14,31 +14,89 @@ concurrency:
 
 jobs:
   sync:
-    name: sync canonical staging DB credential to Hub RC
+    name: release staging DB and sync Hub RC runtime credential
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: staging
     env:
+      APP_ENV: staging
+      DEPLOY_REVISION: ${{ github.sha }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
       RAILWAY_SERVICE: pokemon-rpg-player-api-rc
+      STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+      STAGING_SUPABASE_POOLER_HOST: ${{ vars.STAGING_SUPABASE_POOLER_HOST }}
+      STAGING_SUPABASE_JIT_TOKEN: ${{ secrets.STAGING_SUPABASE_JIT_TOKEN }}
+      STAGING_RUNTIME_PASSWORD: ${{ secrets.STAGING_RUNTIME_PASSWORD }}
 
     steps:
-      - name: Guard RC branch and secrets
+      - name: Guard RC branch and required staging material
         shell: bash
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/gate/hub-profile-customization-v1" ]] || exit 64
           [[ -n "$RAILWAY_TOKEN" ]] || { echo "RAILWAY_TOKEN missing" >&2; exit 64; }
-          [[ -n "$DATABASE_URL" ]] || { echo "STAGING_RUNTIME_DATABASE_URL missing" >&2; exit 64; }
+          [[ -n "$STAGING_SUPABASE_PROJECT_REF" ]] || { echo "STAGING_SUPABASE_PROJECT_REF missing" >&2; exit 64; }
+          [[ -n "$STAGING_SUPABASE_POOLER_HOST" ]] || { echo "STAGING_SUPABASE_POOLER_HOST missing" >&2; exit 64; }
+          [[ -n "$STAGING_SUPABASE_JIT_TOKEN" ]] || { echo "STAGING_SUPABASE_JIT_TOKEN missing" >&2; exit 64; }
+          [[ -n "$STAGING_RUNTIME_PASSWORD" ]] || { echo "STAGING_RUNTIME_PASSWORD missing" >&2; exit 64; }
 
-      - name: Install pinned Railway CLI
+      - name: Checkout exact RC revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exact pnpm and Railway CLI
         shell: bash
         run: |
           set -euo pipefail
+          npm install --global pnpm@11.23.0
           npm install --global @railway/cli@5.45.10
 
-      - name: Resolve staging project token scope
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Run controlled staging database release via Supabase JIT
+        shell: bash
+        env:
+          RUN_APPLICATION_SMOKE: "false"
+        run: bash scripts/operations/staging-database-release-supabase-jit.sh
+
+      - name: Build and verify durable runtime URL for current Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          durable_runtime_url="$(
+            node --input-type=module -e '
+              const projectRef = process.env.STAGING_SUPABASE_PROJECT_REF;
+              const poolerHost = process.env.STAGING_SUPABASE_POOLER_HOST;
+              const password = process.env.STAGING_RUNTIME_PASSWORD;
+              if (!projectRef || !poolerHost || !password) process.exit(64);
+              const url = new URL("postgresql://placeholder@localhost/postgres");
+              url.username = `pokemon_runtime.${projectRef}`;
+              url.password = password;
+              url.hostname = poolerHost;
+              url.port = "5432";
+              url.pathname = "/postgres";
+              url.search = "?sslmode=verify-full";
+              process.stdout.write(url.toString());
+            '
+          )"
+          [[ -n "$durable_runtime_url" ]] || exit 64
+          printf '::add-mask::%s\n' "$durable_runtime_url"
+
+          DATABASE_URL="$durable_runtime_url" \
+          NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/supabase/prod-ca-2021.crt" \
+            pnpm db:verify
+
+          printf 'DURABLE_RUNTIME_URL=%s\n' "$durable_runtime_url" >> "$GITHUB_ENV"
+
+      - name: Resolve Railway staging token scope and exact RC service
         shell: bash
         run: |
           set -euo pipefail
@@ -49,12 +107,7 @@ jobs:
             echo "Railway staging project token scope unavailable" >&2
             exit 1
           }
-          echo "RAILWAY_PROJECT_ID=$project_id" >> "$GITHUB_ENV"
 
-      - name: Require exact RC service
-        shell: bash
-        run: |
-          set -euo pipefail
           services_json="$(railway service list --environment staging --json)"
           matches="$(jq --arg service "$RAILWAY_SERVICE" '[.[] | select(.name == $service)] | length' <<<"$services_json")"
           [[ "$matches" == "1" ]] || {
@@ -62,12 +115,20 @@ jobs:
             exit 1
           }
 
-      - name: Sync canonical DB credential without deploying
+      - name: Sync verified durable runtime credential to Hub RC without deploying
         shell: bash
         run: |
           set -euo pipefail
-          railway variable set DATABASE_URL="$DATABASE_URL"             --service "$RAILWAY_SERVICE"             --environment staging             --skip-deploys             --json >/tmp/railway-db-sync.json
+          railway variable set DATABASE_URL="$DURABLE_RUNTIME_URL" \
+            --service "$RAILWAY_SERVICE" \
+            --environment staging \
+            --skip-deploys \
+            --json >/tmp/railway-db-sync.json
 
-          railway variable set DEPLOY_REVISION="$GITHUB_SHA"             --service "$RAILWAY_SERVICE"             --environment staging             --skip-deploys             --json >/tmp/railway-revision-sync.json
+          railway variable set DEPLOY_REVISION="$GITHUB_SHA" \
+            --service "$RAILWAY_SERVICE" \
+            --environment staging \
+            --skip-deploys \
+            --json >/tmp/railway-revision-sync.json
 
-          echo "Canonical staging database credential synchronized to Hub RC without deployment."
+          echo "Verified durable staging runtime credential synchronized to Hub RC without deployment."
