@@ -33,7 +33,7 @@ describe("simulated whatsapp adapter", () => {
       externalMessageId: "WA-IN-1",
       senderRef: "5579999999999@s.whatsapp.net",
       chatRef: "120363000000000001@g.us",
-      text: "$menu",
+      text: "/menu",
       mentions: ["5579888888888@s.whatsapp.net"],
       replyToExternalMessageId: "WA-OUT-0",
     });
@@ -46,7 +46,7 @@ describe("simulated whatsapp adapter", () => {
       senderRef: "5579999999999@s.whatsapp.net",
       chatRef: "120363000000000001@g.us",
       occurredAt: "2026-09-19T23:00:00.000Z",
-      text: "$menu",
+      text: "/menu",
       mentions: ["5579888888888@s.whatsapp.net"],
       mediaRefs: [],
       replyToExternalMessageId: "WA-OUT-0",
@@ -84,7 +84,7 @@ describe("simulated whatsapp adapter", () => {
       adapter.injectText({
         senderRef: "5579999999999@s.whatsapp.net",
         chatRef: "120363000000000001@g.us",
-        text: "$menu",
+        text: "/menu",
       }),
     ).rejects.toThrow("disconnected");
 
@@ -93,13 +93,13 @@ describe("simulated whatsapp adapter", () => {
       externalMessageId: "REPLAY-ME",
       senderRef: "5579999999999@s.whatsapp.net",
       chatRef: "120363000000000001@g.us",
-      text: "$menu",
+      text: "/menu",
     });
     const replay = await adapter.injectText({
       externalMessageId: "REPLAY-ME",
       senderRef: "5579999999999@s.whatsapp.net",
       chatRef: "120363000000000001@g.us",
-      text: "$menu",
+      text: "/menu",
     });
     expect(replay.externalMessageId).toBe(first.externalMessageId);
 

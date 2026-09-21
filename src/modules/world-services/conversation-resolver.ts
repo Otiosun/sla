@@ -108,6 +108,8 @@ function isSceneProofCandidate(message: IncomingMessage): boolean {
   return (
     message.replyToExternalMessageId === null &&
     message.text !== null &&
+    !message.text.trim().startsWith("/") &&
+    !message.text.trim().startsWith("$") &&
     nonEmptyLineCount(message.text) >= 4
   );
 }

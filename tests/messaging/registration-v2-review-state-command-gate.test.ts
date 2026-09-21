@@ -134,11 +134,11 @@ function route(routes: ReturnType<typeof createRegistrationWhatsAppRoutesV2>, co
 
 describe("v2 compatibility aliases while a registration review is submitted", () => {
   for (const [command, text] of [
-    ["modo", "$modo completo"],
-    ["ficha", "$ficha"],
-    ["salvar", "$salvar"],
-    ["continuar", "$continuar"],
-    ["confirmar", "$confirmar"],
+    ["modo", "/modo completo"],
+    ["ficha", "/ficha"],
+    ["salvar", "/salvar"],
+    ["continuar", "/continuar"],
+    ["confirmar", "/confirmar"],
   ] as const) {
     it(`${command} reports the pending review without reopening mutable conversation state`, async () => {
       const state = harness();

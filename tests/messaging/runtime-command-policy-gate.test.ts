@@ -20,7 +20,7 @@ function context(
       senderRef: input.senderRef ?? "5511999999999@s.whatsapp.net",
       chatRef: input.chatRef ?? "reception@g.us",
       occurredAt: "2026-09-02T04:30:00.000Z",
-      text: "$registrar",
+      text: "/registrar",
       mediaRefs: [],
       replyToExternalMessageId: null,
     },

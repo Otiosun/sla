@@ -266,7 +266,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
       err(appError("NOT_FOUND", "No active encounter")),
     );
 
-    const output = textOf(await router(deps).dispatch(context("$menu")));
+    const output = textOf(await router(deps).dispatch(context("/menu")));
     expect(output).toContain("ROTOM · MENU");
     expect(output).toContain("/onde");
     expect(output).toContain("Explorações são conduzidas em cena pelo narrador");
@@ -276,14 +276,14 @@ describe("Phase 13 operational WhatsApp UX", () => {
 
   it("prioritizes BATTLE then ENCOUNTER then FACILITY before WORLD", async () => {
     const battleDeps = dependencies();
-    expect(textOf(await router(battleDeps).dispatch(context("$menu", "menu-battle")))).toContain(
+    expect(textOf(await router(battleDeps).dispatch(context("/menu", "menu-battle")))).toContain(
       "ROTOM · BATALHA",
     );
 
     const encounterDeps = dependencies();
     (encounterDeps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     expect(
-      textOf(await router(encounterDeps).dispatch(context("$menu", "menu-encounter"))),
+      textOf(await router(encounterDeps).dispatch(context("/menu", "menu-encounter"))),
     ).toContain("ROTOM · ENCONTRO");
 
     const facilityDeps = dependencies({
@@ -300,24 +300,24 @@ describe("Phase 13 operational WhatsApp UX", () => {
       err(appError("NOT_FOUND", "No active encounter")),
     );
     expect(
-      textOf(await router(facilityDeps).dispatch(context("$menu", "menu-facility"))),
+      textOf(await router(facilityDeps).dispatch(context("/menu", "menu-facility"))),
     ).toContain("ROTOM · POKÉ MART");
   });
 
   it("renders profile, team, inventory and Pokedex as readable mobile text", async () => {
     const app = router(dependencies());
-    expect(textOf(await app.dispatch(context("$perfil", "profile")))).toContain("Treinador: *Red*");
-    expect(textOf(await app.dispatch(context("$equipe", "team")))).toContain(
+    expect(textOf(await app.dispatch(context("/perfil", "profile")))).toContain("Treinador: *Red*");
+    expect(textOf(await app.dispatch(context("/equipe", "team")))).toContain(
       "*Charmander* · Nv. 5 · HP 19",
     );
-    expect(textOf(await app.dispatch(context("$inventario", "inventory")))).toContain("Potion ×3");
-    expect(textOf(await app.dispatch(context("$pokedex", "pokedex")))).toContain(
+    expect(textOf(await app.dispatch(context("/inventario", "inventory")))).toContain("Potion ×3");
+    expect(textOf(await app.dispatch(context("/pokedex", "pokedex")))).toContain(
       "#0004 Charmander · vistos 2 · capturados 1",
     );
   });
 
   it("shows persisted Pokemon mechanics without exposing internal ids", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$pokemon 1", "pokemon")));
+    const output = textOf(await router(dependencies()).dispatch(context("/pokemon 1", "pokemon")));
     expect(output).toContain("*POKÉMON*");
     expect(output).toContain("_Charmander_");
     expect(output).toContain("HP　`0/20`");
@@ -333,13 +333,13 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const deps = dependencies();
     const app = router(deps);
 
-    const whereText = textOf(await app.dispatch(context("$onde", "where")));
+    const whereText = textOf(await app.dispatch(context("/onde", "where")));
     expect(whereText).toContain("`/ir 1`");
     expect(whereText).toContain("*Route 1*");
     expect(whereText).not.toContain("route-1");
     expect(whereText).not.toContain("v7");
 
-    const valid = await app.dispatch(context("$ir 1", "travel"));
+    const valid = await app.dispatch(context("/ir 1", "travel"));
     expect(valid.ok).toBe(true);
     expect(deps.world.replayTravelByIdempotency).toHaveBeenCalledWith({
       playerId: PLAYER_ID,
@@ -356,7 +356,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
   });
 
   it("renders compact battle state without dumping moves or legal actions", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$batalha")));
+    const output = textOf(await router(dependencies()).dispatch(context("/batalha")));
     expect(output).toContain("Turno 3");
     expect(output).not.toContain("v9");
     expect(output).toContain("HP 21/30");

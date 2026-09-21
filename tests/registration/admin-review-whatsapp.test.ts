@@ -161,7 +161,7 @@ describe("registration admin review over WhatsApp", () => {
 
   it("shows the exact immutable ficha through the audited read boundary", async () => {
     const { found, deps } = route("verficha");
-    const result = await found.handler.handle(context("$verficha"));
+    const result = await found.handler.handle(context("/verficha"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -199,7 +199,7 @@ describe("registration admin review over WhatsApp", () => {
   ] as const)("accepts /%s when replying to the rendered ficha", async (command, kind) => {
     const deps = dependencies();
     const { found: view } = route("verficha", deps);
-    const rendered = await view.handler.handle(context("$verficha"));
+    const rendered = await view.handler.handle(context("/verficha"));
     if (!rendered.ok) throw rendered.error;
     expect(rendered.value.outgoing[0]?.payload.registrationReview).toEqual({
       reviewId: REVIEW_ID,
@@ -225,7 +225,7 @@ describe("registration admin review over WhatsApp", () => {
 
   it("approves only the review revision anchored by the replied message", async () => {
     const { found, deps } = route("aprovar");
-    const result = await found.handler.handle(context("$aprovar"));
+    const result = await found.handler.handle(context("/aprovar"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -242,7 +242,7 @@ describe("registration admin review over WhatsApp", () => {
           principalId: ADMIN_ID,
           reviewId: REVIEW_ID,
           expectedRevision: 4,
-          idempotencyKey: "inbox:baileys:$aprovar:registration-review:approve",
+          idempotencyKey: "inbox:baileys:/aprovar:registration-review:approve",
           correlationId: CORRELATION_ID,
           sourceChannel: "WHATSAPP",
         },
@@ -252,14 +252,14 @@ describe("registration admin review over WhatsApp", () => {
 
   it("maps request-changes and reject without requiring an embedded manual comment", async () => {
     const adjust = route("ajustes");
-    expect(await adjust.found.handler.handle(context("$ajustes"))).toMatchObject({ ok: true });
+    expect(await adjust.found.handler.handle(context("/ajustes"))).toMatchObject({ ok: true });
     expect(adjust.deps.decisions[0]).toEqual({
       kind: "REQUEST_CHANGES",
       input: {
         principalId: ADMIN_ID,
         reviewId: REVIEW_ID,
         expectedRevision: 4,
-        idempotencyKey: "inbox:baileys:$ajustes:registration-review:request_changes",
+        idempotencyKey: "inbox:baileys:/ajustes:registration-review:request_changes",
         correlationId: CORRELATION_ID,
         sourceChannel: "WHATSAPP",
       },
@@ -267,7 +267,7 @@ describe("registration admin review over WhatsApp", () => {
 
     const reject = route("rejeitar");
     expect(
-      await reject.found.handler.handle(context("$rejeitar qualquer comentário livre")),
+      await reject.found.handler.handle(context("/rejeitar qualquer comentário livre")),
     ).toMatchObject({ ok: true });
     expect(reject.deps.decisions[0]).toEqual({
       kind: "REJECT",
@@ -276,7 +276,7 @@ describe("registration admin review over WhatsApp", () => {
         reviewId: REVIEW_ID,
         expectedRevision: 4,
         idempotencyKey:
-          "inbox:baileys:$rejeitar qualquer comentário livre:registration-review:reject",
+          "inbox:baileys:/rejeitar qualquer comentário livre:registration-review:reject",
         correlationId: CORRELATION_ID,
         sourceChannel: "WHATSAPP",
       },
@@ -285,7 +285,7 @@ describe("registration admin review over WhatsApp", () => {
 
   it("fails closed when the admin command is not a reply to a persisted review notification", async () => {
     const { found, deps } = route("aprovar");
-    expect(await found.handler.handle(context("$aprovar", null))).toMatchObject({
+    expect(await found.handler.handle(context("/aprovar", null))).toMatchObject({
       ok: false,
       error: { code: "VALIDATION_FAILED" },
     });
@@ -295,7 +295,7 @@ describe("registration admin review over WhatsApp", () => {
   it("rejects an unrelated reply anchor without recording a decision", async () => {
     const { found, deps } = route("aprovar");
 
-    expect(await found.handler.handle(context("$aprovar", "unrelated-message-id"))).toMatchObject({
+    expect(await found.handler.handle(context("/aprovar", "unrelated-message-id"))).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -305,7 +305,7 @@ describe("registration admin review over WhatsApp", () => {
   it("rejects an actor without an administrative principal", async () => {
     const { found, deps } = route("aprovar", dependencies(review(), false, null));
 
-    expect(await found.handler.handle(context("$aprovar"))).toMatchObject({
+    expect(await found.handler.handle(context("/aprovar"))).toMatchObject({
       ok: false,
       error: { code: "PLAYER_INELIGIBLE" },
     });
@@ -316,7 +316,7 @@ describe("registration admin review over WhatsApp", () => {
     const deps = dependencies(review(5), true);
     const { found } = route("aprovar", deps);
 
-    expect(await found.handler.handle(context("$aprovar"))).toMatchObject({
+    expect(await found.handler.handle(context("/aprovar"))).toMatchObject({
       ok: false,
       error: { code: "REVISION_CONFLICT" },
     });

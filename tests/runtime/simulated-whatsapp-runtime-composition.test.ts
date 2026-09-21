@@ -16,9 +16,9 @@ describe("operational simulated WhatsApp runtime", () => {
       senderRef: "5579999999999@s.whatsapp.net",
       chatRef: "120363000000000001@g.us",
       occurredAt: "2026-09-19T23:30:00.000Z",
-      text: "$registrar",
+      text: "/registrar",
     });
-    const menu = { ...registration, externalMessageId: "sim-menu", text: "$Menu" };
+    const menu = { ...registration, externalMessageId: "sim-menu", text: "/Menu" };
 
     expect(runtime.adapter.channel).toBe("whatsapp");
     expect(registration.provider).toBe("baileys");

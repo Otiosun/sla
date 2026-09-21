@@ -72,7 +72,7 @@ function providerMessage(
       fromMe: false,
     },
     messageTimestamp: 1_700_000_000,
-    message: { conversation: "$perfil" },
+    message: { conversation: "/perfil" },
   };
   return { ...base, ...overrides } as Parameters<typeof normalizeBaileysMessage>[0];
 }
@@ -112,7 +112,7 @@ describe("Baileys provider boundary", () => {
       senderRef: "5511999999999@s.whatsapp.net",
       chatRef: "120363000000000000@g.us",
       occurredAt: "2023-11-14T22:13:20.000Z",
-      text: "$perfil",
+      text: "/perfil",
       mediaRefs: [],
       mentions: [],
       replyToExternalMessageId: null,

@@ -291,7 +291,7 @@ export function renderEditSelect(): string {
 }
 
 export function renderPause(): string {
-  return ["💾 Seu progresso está salvo.", "Quando quiser continuar, use `$registrar`."].join("\n");
+  return ["💾 Seu progresso está salvo.", "Quando quiser continuar, use `/registrar`."].join("\n");
 }
 
 export function renderResumeMenu(): string {

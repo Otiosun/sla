@@ -156,7 +156,7 @@ function parseMode(value: string | undefined): RegistrationEditingMode | null {
 
 function guidedPrompt(session: RegistrationConversationSession): string {
   return session.currentField === null
-    ? "✅ Todos os campos atuais estão preenchidos. Use `$ficha` para revisar."
+    ? "✅ Todos os campos atuais estão preenchidos. Use `/ficha` para revisar."
     : `📝 *${LABELS[session.currentField]}*\n\nResponda a esta mensagem.`;
 }
 
@@ -268,7 +268,7 @@ function confirmationText(
     `Região: ${setup.regionDisplayName}`,
     "",
     "Confira tudo acima. Nada foi enviado ainda.",
-    "Se estiver correto, use `$confirmar sim`.",
+    "Se estiver correto, use `/confirmar sim`.",
   ].join("\n");
 }
 
@@ -491,7 +491,7 @@ export function createRegistrationWhatsAppRoutes(
     if (!player.ok) return player;
     const selected = parseMode(args(context)[0]);
     if (selected === null) {
-      return err(appError("VALIDATION_FAILED", "Use `$modo guiado` ou `$modo completo`."));
+      return err(appError("VALIDATION_FAILED", "Use `/modo guiado` ou `/modo completo`."));
     }
     pendingConfirmations.delete(player.value);
 
@@ -631,7 +631,7 @@ export function createRegistrationWhatsAppRoutes(
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
-        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."),
+        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."),
       );
     }
     const setup = await dependencies.setup.load();
@@ -671,7 +671,7 @@ export function createRegistrationWhatsAppRoutes(
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
-        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."),
+        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."),
       );
     }
     if (session.mode === "CHOOSING") {
@@ -695,7 +695,7 @@ export function createRegistrationWhatsAppRoutes(
     return reply(
       context,
       player.value,
-      `💾 Rascunho salvo.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean) : "Use `$ficha` para revisar ou `$modo completo` para reenviar a ficha completa."}`,
+      `💾 Rascunho salvo.\n\n${clean.mode === "GUIDED" ? guidedPrompt(clean) : "Use `/ficha` para revisar ou `/modo completo` para reenviar a ficha completa."}`,
       dependencies.sessions,
       clean.mode === "GUIDED" && clean.currentField !== null,
     );
@@ -708,7 +708,7 @@ export function createRegistrationWhatsAppRoutes(
     if (!draft.ok) {
       return err(
         draft.error.code === "NOT_FOUND"
-          ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `$registrar` para começar.")
+          ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `/registrar` para começar.")
           : draft.error,
       );
     }
@@ -824,7 +824,7 @@ export function createRegistrationWhatsAppRoutes(
 
     const editArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (editArg !== undefined && editArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$editar` ou `$editar sim`."));
+      return err(appError("VALIDATION_FAILED", "Use `/editar` ou `/editar sim`."));
     }
 
     const getConversation = dependencies.registration.getConversation;
@@ -849,7 +849,7 @@ export function createRegistrationWhatsAppRoutes(
             return err(
               appError(
                 "INVALID_STATE_TRANSITION",
-                "A revisão em análise mudou. Use `$editar` novamente antes de retirar.",
+                "A revisão em análise mudou. Use `/editar` novamente antes de retirar.",
               ),
             );
           }
@@ -898,7 +898,7 @@ export function createRegistrationWhatsAppRoutes(
           return persistedReply(
             context,
             player.value,
-            "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `$editar sim`.",
+            "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `/editar sim`.",
           );
         } else if (
           current.value.status !== "CHANGES_REQUESTED" &&
@@ -952,7 +952,7 @@ export function createRegistrationWhatsAppRoutes(
       return err(
         appError(
           "INVALID_STATE_TRANSITION",
-          "A confirmação de retirada exige o fluxo persistido. Use `$registrar` para recuperar sua ficha.",
+          "A confirmação de retirada exige o fluxo persistido. Use `/registrar` para recuperar sua ficha.",
         ),
       );
     }
@@ -975,7 +975,7 @@ export function createRegistrationWhatsAppRoutes(
 
     const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (confirmationArg !== undefined && confirmationArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$confirmar` ou `$confirmar sim`."));
+      return err(appError("VALIDATION_FAILED", "Use `/confirmar` ou `/confirmar sim`."));
     }
 
     const getConversation = dependencies.registration.getConversation;
@@ -1021,7 +1021,7 @@ export function createRegistrationWhatsAppRoutes(
           return err(
             appError(
               "INVALID_STATE_TRANSITION",
-              "A ficha atual ainda não foi revisada. Use `$confirmar` novamente antes de enviar.",
+              "A ficha atual ainda não foi revisada. Use `/confirmar` novamente antes de enviar.",
             ),
           );
         }
@@ -1079,7 +1079,7 @@ export function createRegistrationWhatsAppRoutes(
     const session = dependencies.sessions.get(player.value);
     if (session === null) {
       return err(
-        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."),
+        appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."),
       );
     }
     if (session.mode === "CHOOSING") {
@@ -1106,7 +1106,7 @@ export function createRegistrationWhatsAppRoutes(
       return err(
         appError(
           "INVALID_STATE_TRANSITION",
-          "A ficha atual ainda não foi revisada. Use `$confirmar` novamente antes de enviar.",
+          "A ficha atual ainda não foi revisada. Use `/confirmar` novamente antes de enviar.",
         ),
       );
     }

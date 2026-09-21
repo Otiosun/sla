@@ -81,7 +81,7 @@ describe("registration conversation routing", () => {
     });
     const registrar = routes.find((route) => route.command === "registrar");
     if (registrar === undefined) throw new Error("registrar route missing");
-    const incoming = context({ text: "$registrar", replyToExternalMessageId: null });
+    const incoming = context({ text: "/registrar", replyToExternalMessageId: null });
 
     const routed = await registrar.handler.handle(incoming);
 
@@ -282,7 +282,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("$salvar") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("/salvar") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({

@@ -58,37 +58,43 @@ describe("command router normalization", () => {
         observedText = handlerContext.message.text;
       }),
     ]);
-    const message = incoming("$POKÉDEX João Ávila");
+    const message = incoming("/POKÉDEX João Ávila");
 
     const result = await router.dispatch(context(message));
 
     expect(result.ok).toBe(true);
-    expect(observedText).toBe("$POKÉDEX João Ávila");
+    expect(observedText).toBe("/POKÉDEX João Ávila");
     expect(router.classify(message)).toEqual({ command: "pokedex", sensitiveActionKey: null });
   });
 
-  it("accepts slash commands without changing the existing dollar command behavior", async () => {
+  it("accepts slash commands as the only mechanical prefix", async () => {
     const observed: string[] = [];
     const router = new MessageRouter([
       route("pokedex", [], "STANDARD", (handlerContext) => {
         observed.push(handlerContext.message.text ?? "");
       }),
     ]);
-    const slashMessage = incoming("/POKÉDEX João Ávila");
-    const dollarMessage = incoming("$POKÉDEX João Ávila");
+    const message = incoming("/POKÉDEX João Ávila");
 
-    expect(router.admitsCommand(slashMessage)).toBe(true);
-    expect(router.classify(slashMessage)).toEqual({ command: "pokedex", sensitiveActionKey: null });
-    expect((await router.dispatch(context(slashMessage))).ok).toBe(true);
+    expect(router.admitsCommand(message)).toBe(true);
+    expect(router.classify(message)).toEqual({ command: "pokedex", sensitiveActionKey: null });
+    expect((await router.dispatch(context(message))).ok).toBe(true);
+    expect(observed).toEqual(["/POKÉDEX João Ávila"]);
+  });
 
-    expect(router.admitsCommand(dollarMessage)).toBe(true);
-    expect(router.classify(dollarMessage)).toEqual({
-      command: "pokedex",
-      sensitiveActionKey: null,
-    });
-    expect((await router.dispatch(context(dollarMessage))).ok).toBe(true);
+  it("keeps dollar-prefixed text mechanically inert", async () => {
+    let calls = 0;
+    const router = new MessageRouter([
+      route("pokedex", [], "STANDARD", () => {
+        calls += 1;
+      }),
+    ]);
+    const message = incoming("$POKÉDEX João Ávila");
 
-    expect(observed).toEqual(["/POKÉDEX João Ávila", "$POKÉDEX João Ávila"]);
+    expect(router.admitsCommand(message)).toBe(false);
+    expect(router.classify(message)).toEqual({ command: null, sensitiveActionKey: null });
+    expect(await router.dispatch(context(message))).toEqual({ ok: true, value: null });
+    expect(calls).toBe(0);
   });
 
   it("routes aliases while classifying them as the canonical command", async () => {
@@ -98,7 +104,7 @@ describe("command router normalization", () => {
         calls += 1;
       }),
     ]);
-    const message = incoming("$DEX");
+    const message = incoming("/DEX");
 
     expect(router.classify(message)).toEqual({ command: "pokedex", sensitiveActionKey: null });
     expect((await router.dispatch(context(message))).ok).toBe(true);
@@ -108,7 +114,7 @@ describe("command router normalization", () => {
   it("keeps sensitive rate-limit identity canonical across aliases", () => {
     const router = new MessageRouter([route("regiao", ["region"], "SENSITIVE")]);
 
-    expect(router.classify(incoming("$REGION 2"))).toEqual({
+    expect(router.classify(incoming("/REGION 2"))).toEqual({
       command: "regiao",
       sensitiveActionKey: "command:regiao",
     });

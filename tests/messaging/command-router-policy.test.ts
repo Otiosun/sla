@@ -64,7 +64,7 @@ describe("MessageRouter command policy gate", () => {
       }),
     ]);
 
-    const result = await router.dispatch(context(incoming("$ir rota-1 v1")));
+    const result = await router.dispatch(context(incoming("/ir rota-1 v1")));
 
     expect(result).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
     expect(handlerCalls).toBe(0);
@@ -84,7 +84,7 @@ describe("MessageRouter command policy gate", () => {
       gate,
     );
 
-    const result = await router.dispatch(context(incoming("$ir rota-1 v1")));
+    const result = await router.dispatch(context(incoming("/ir rota-1 v1")));
 
     expect(result).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
     expect(handlerCalls).toBe(0);
@@ -110,7 +110,7 @@ describe("MessageRouter command policy gate", () => {
       gate,
     );
 
-    const result = await router.dispatch(context(incoming("$ir rota-1 v1")));
+    const result = await router.dispatch(context(incoming("/ir rota-1 v1")));
 
     expect(result.ok).toBe(true);
     expect(observedPolicy).toEqual(worldPolicy);
@@ -132,7 +132,7 @@ describe("MessageRouter command policy gate", () => {
       },
     ]);
 
-    expect((await router.dispatch(context(incoming("$menu")))).ok).toBe(true);
+    expect((await router.dispatch(context(incoming("/menu")))).ok).toBe(true);
     expect(handlerCalls).toBe(1);
   });
 });

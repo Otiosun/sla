@@ -28,7 +28,7 @@ function context(suffix: string): MessageHandlerContext {
       senderRef: "5511999999999@s.whatsapp.net",
       chatRef: CHAT_REF,
       occurredAt: "2026-09-06T04:00:00.000-03:00",
-      text: "$registrar",
+      text: "/registrar",
       mediaRefs: [],
       replyToExternalMessageId: null,
     },
@@ -151,7 +151,7 @@ function harness(input: {
   return { registrar, checkpoints };
 }
 
-describe("contextual $registrar home", () => {
+describe("contextual /registrar home", () => {
   it("offers resume actions for an incomplete persisted draft", async () => {
     const state = harness({
       conversation: conversation(PLAYER_ID, "PAUSED"),

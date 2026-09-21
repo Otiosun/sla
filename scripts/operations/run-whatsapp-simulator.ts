@@ -185,7 +185,7 @@ function helpText(): string {
     "  :quit                   encerra",
     "",
     "Qualquer outra linha é enviada exatamente ao runtime real do bot.",
-    "Ex.: $menu, $registrar, /onde, /ir 1",
+    "Ex.: /menu, /registrar, /onde, /ir 1",
   ].join("\n");
 }
 

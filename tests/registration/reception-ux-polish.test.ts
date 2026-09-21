@@ -112,7 +112,7 @@ describe("Reception UX polish", () => {
     expect(result.value.text).toMatch(/Eu sou Rotom!/);
     expect(result.value.text).toMatch(/jornada|treinador/i);
     expect(result.value.text).not.toBe(
-      "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `$registrar` para começar.",
+      "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `/registrar` para começar.",
     );
   });
 
@@ -226,7 +226,7 @@ describe("Reception UX polish", () => {
     );
     if (route === undefined) throw new Error("Missing verficha route");
 
-    const result = await route.handler.handle(context("$verficha", "review-message"));
+    const result = await route.handler.handle(context("/verficha", "review-message"));
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error("Expected admin ficha");
     const text = result.value.outgoing[0]?.payload.text;

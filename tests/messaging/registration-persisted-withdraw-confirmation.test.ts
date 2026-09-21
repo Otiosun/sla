@@ -201,7 +201,7 @@ function editRoute(shared: ReturnType<typeof harness>["shared"]) {
 describe("persisted post-submit edit confirmation", () => {
   it("persists the exact submitted review and survives a runtime restart before confirmation", async () => {
     const state = harness();
-    const first = await editRoute(state.shared).handler.handle(message("$editar", "01"));
+    const first = await editRoute(state.shared).handler.handle(message("/editar", "01"));
 
     expect(first.ok).toBe(true);
     expect(state.withdrawals).toHaveLength(0);
@@ -218,7 +218,7 @@ describe("persisted post-submit edit confirmation", () => {
     });
 
     // Simulate a Node/runtime restart: route-local Maps and sessions are gone.
-    const second = await editRoute(state.shared).handler.handle(message("$editar sim", "02"));
+    const second = await editRoute(state.shared).handler.handle(message("/editar sim", "02"));
 
     expect(second.ok).toBe(true);
     expect(state.withdrawals).toEqual([
@@ -235,13 +235,13 @@ describe("persisted post-submit edit confirmation", () => {
     );
   });
 
-  it("invalidates confirmation when the submitted review revision changes after $editar", async () => {
+  it("invalidates confirmation when the submitted review revision changes after /editar", async () => {
     const state = harness();
-    const first = await editRoute(state.shared).handler.handle(message("$editar", "03"));
+    const first = await editRoute(state.shared).handler.handle(message("/editar", "03"));
     expect(first.ok).toBe(true);
 
     state.setCurrentReview(review(1));
-    const second = await editRoute(state.shared).handler.handle(message("$editar sim", "04"));
+    const second = await editRoute(state.shared).handler.handle(message("/editar sim", "04"));
 
     expect(second).toMatchObject({
       ok: false,

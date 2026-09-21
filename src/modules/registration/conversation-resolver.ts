@@ -207,7 +207,7 @@ function renderGuidedSessionPrompt(
   modeSelected = false,
 ): string {
   if (session.currentField === null) {
-    return "✅ Ficha preenchida. Use `$ficha` para revisar ou `$confirmar` para conferir o envio. Se quiser continuar depois, use `$salvar`.";
+    return "✅ Ficha preenchida. Use `/ficha` para revisar ou `/confirmar` para conferir o envio. Se quiser continuar depois, use `/salvar`.";
   }
 
   if (session.currentField === "starterFormId" && setup !== undefined) {
@@ -1185,7 +1185,13 @@ export class RegistrationConversationResolver {
 
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
+    if (
+      text === null ||
+      text.trim().length === 0 ||
+      text.trim().startsWith("/") ||
+      text.trim().startsWith("$")
+    )
+      return false;
 
     const community = await this.dependencies.community.resolveChat({
       provider: message.provider,
@@ -1219,7 +1225,13 @@ export class RegistrationConversationResolver {
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
     const text = context.message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return ok(null);
+    if (
+      text === null ||
+      text.trim().length === 0 ||
+      text.trim().startsWith("/") ||
+      text.trim().startsWith("$")
+    )
+      return ok(null);
 
     const community = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
@@ -1330,7 +1342,7 @@ export class RegistrationConversationResolver {
     return textResult(
       context,
       player.value.playerId,
-      "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` quando quiser conferir o envio.",
+      "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `/ficha` para revisar, `/salvar` para guardar o rascunho ou `/confirmar` quando quiser conferir o envio.",
       sessions,
       false,
     );

@@ -60,7 +60,7 @@ function normalizeCommand(value: string): string {
 }
 
 function normalizeRouteToken(value: string): string {
-  return normalizeCommand(value.replace(/^[$/]/, ""));
+  return normalizeCommand(value.replace(/^\//, ""));
 }
 
 function commandCandidateAtStart(text: string | null): CommandCandidate | null {
@@ -68,7 +68,7 @@ function commandCandidateAtStart(text: string | null): CommandCandidate | null {
   const first = text.search(/\S/);
   if (first < 0) return null;
   const prefix = text[first];
-  if (prefix !== "$" && prefix !== "/") return null;
+  if (prefix !== "/") return null;
 
   const lineEnd = text.indexOf("\n", first);
   const commandText = text.slice(first, lineEnd < 0 ? text.length : lineEnd).trim();
@@ -88,7 +88,7 @@ function embeddedCommandCandidates(text: string | null): readonly CommandCandida
 
   const firstNonWhitespace = text.search(/\S/);
   const candidates: CommandCandidate[] = [];
-  const pattern = /(^|\s)([$/])([^\s]+)/g;
+  const pattern = /(^|\s)(\/)([^\s]+)/g;
 
   for (const match of text.matchAll(pattern)) {
     const whitespacePrefix = match[1] ?? "";
