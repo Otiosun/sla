@@ -311,7 +311,11 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const options = await dependencies.reads.listRegionOptions(player.value);
     if (options.length === 0)
-      return err(appError("ACTION_INVALID", "Nenhuma região está disponível para este treinador."));
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Nenhuma região está disponível para este treinador.", {
+          userMessage: "Nenhuma região está disponível para este treinador no momento.",
+        }),
+      );
     const lines = options.map((option, index) => `${index + 1}. ${option.displayName}`);
     return textResult(
       context,
@@ -328,7 +332,12 @@ export function createOperationalUxRoutes(
       return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com /regioes."));
     }
     const selected = options[index - 1];
-    if (selected === undefined) return err(appError("ACTION_INVALID", "Região não encontrada."));
+    if (selected === undefined)
+      return err(
+        appError("NOT_FOUND", "Região não encontrada.", {
+          userMessage: "Essa região não foi encontrada. Use `/regioes` para atualizar as opções.",
+        }),
+      );
     const result = await dependencies.registration.selectRegion(player.value, {
       regionId: selected.regionId,
     });
@@ -673,8 +682,11 @@ export function createOperationalUxRoutes(
     if (connection === undefined || !connection.available) {
       return err(
         appError(
-          "ACTION_INVALID",
+          "FLOW_BLOCKED",
           "Essa rota não está disponível agora. Use `/onde` para rever os destinos.",
+          {
+            userMessage: "Essa rota não está disponível agora. Use `/onde` para rever os destinos.",
+          },
         ),
       );
     }
@@ -692,6 +704,12 @@ export function createOperationalUxRoutes(
         if (typeof availableAt === "string") {
           return textResult(context, cooldownText(availableAt, new Date()));
         }
+        return err(
+          appError("FLOW_BLOCKED", moved.error.message, {
+            userMessage:
+              "Essa rota não pode ser usada agora. Use `/onde` para atualizar os destinos.",
+          }),
+        );
       }
       return moved.error.code === "REVISION_CONFLICT"
         ? err(
@@ -791,7 +809,11 @@ export function createOperationalUxRoutes(
     const opponent =
       opponentSide === undefined ? null : activeCombatant(state, opponentSide.sideNo);
     if (own === null)
-      return err(appError("ACTION_INVALID", "Batalha ativa sem Pokémon controlável."));
+      return err(
+        appError("FLOW_BLOCKED", "Batalha ativa sem Pokémon controlável.", {
+          userMessage: "A batalha está ativa, mas você não tem um Pokémon controlável agora.",
+        }),
+      );
 
     return textResult(
       context,

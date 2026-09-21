@@ -287,7 +287,7 @@ describe("registration admin review over WhatsApp", () => {
     const { found, deps } = route("aprovar");
     expect(await found.handler.handle(context("$aprovar", null))).toMatchObject({
       ok: false,
-      error: { code: "ACTION_INVALID" },
+      error: { code: "VALIDATION_FAILED" },
     });
     expect(deps.decisions).toEqual([]);
   });

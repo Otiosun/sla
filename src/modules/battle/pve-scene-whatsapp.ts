@@ -185,7 +185,12 @@ async function actionFrom(
   if (intent.kind !== "ACTION")
     return err(appError("VALIDATION_FAILED", "Diretiva de batalha inválida."));
   const actor = state.combatants.find((entry) => entry.participantId === actorParticipantId);
-  if (actor === undefined) return err(appError("ACTION_INVALID", "Ator de batalha indisponível."));
+  if (actor === undefined)
+    return err(
+      appError("FLOW_BLOCKED", "Ator de batalha indisponível.", {
+        userMessage: "Ator de batalha indisponível agora.",
+      }),
+    );
   const sides =
     state.sides ??
     [...new Set(state.combatants.map((combatant) => combatant.sideNo))].map((sideNo) => ({
@@ -204,10 +209,19 @@ async function actionFrom(
 
   switch (intent.intent.type) {
     case "USE_MOVE": {
-      if (target === undefined) return err(appError("ACTION_INVALID", "Sem alvo disponível."));
+      if (target === undefined)
+        return err(
+          appError("FLOW_BLOCKED", "Sem alvo disponível.", {
+            userMessage: "Não há um alvo disponível para essa ação.",
+          }),
+        );
       const moveSlot = await moveSlotFor(state, actor, intent.intent.moveRef, presentation);
       if (moveSlot === null) {
-        return err(appError("ACTION_INVALID", "Movimento não encontrado para este Pokémon."));
+        return err(
+          appError("VALIDATION_FAILED", "Movimento não encontrado para este Pokémon.", {
+            userMessage: "Esse Pokémon não possui o movimento informado.",
+          }),
+        );
       }
       return ok({
         type: "USE_MOVE",
@@ -219,9 +233,17 @@ async function actionFrom(
     case "FLEE":
       return ok({ type: "FLEE", actorParticipantId });
     case "SURRENDER":
-      return err(appError("ACTION_INVALID", "Desistir não é uma ação PVE disponível."));
+      return err(
+        appError("FLOW_BLOCKED", "Desistir não é uma ação PVE disponível.", {
+          userMessage: "Desistir não está disponível nesta batalha PVE.",
+        }),
+      );
     default:
-      return err(appError("ACTION_INVALID", "Essa diretiva ainda não é uma ação PVE disponível."));
+      return err(
+        appError("FLOW_BLOCKED", "Essa diretiva ainda não é uma ação PVE disponível.", {
+          userMessage: "Essa ação não está disponível nesta batalha PVE.",
+        }),
+      );
   }
 }
 
@@ -294,16 +316,27 @@ function switchAction(
   if (target === undefined) {
     return err(
       appError(
-        "ACTION_INVALID",
+        "VALIDATION_FAILED",
         "Slot de troca inválido. Use `/batalha` para ver as opções disponíveis.",
+        {
+          userMessage: "Slot de troca inválido. Use `/batalha` para ver as opções disponíveis.",
+        },
       ),
     );
   }
   if (target.participantId === controller.participantId) {
-    return err(appError("ACTION_INVALID", "Esse Pokémon já está em campo."));
+    return err(
+      appError("FLOW_BLOCKED", "Esse Pokémon já está em campo.", {
+        userMessage: "Esse Pokémon já está em campo.",
+      }),
+    );
   }
   if (target.currentHp <= 0) {
-    return err(appError("ACTION_INVALID", "Esse Pokémon não pode mais lutar."));
+    return err(
+      appError("FLOW_BLOCKED", "Esse Pokémon não pode mais lutar.", {
+        userMessage: "Esse Pokémon não pode mais lutar.",
+      }),
+    );
   }
   return ok({
     type: "SWITCH",
@@ -561,7 +594,11 @@ export function createPveSceneRoutes(
   const handle: Handler = async (context) => {
     const parsed = parseSceneAction(context.message.text);
     if (parsed.kind === "NONE")
-      return err(appError("ACTION_INVALID", "Nenhuma diretiva de batalha encontrada."));
+      return err(
+        appError("VALIDATION_FAILED", "Nenhuma diretiva de batalha encontrada.", {
+          userMessage: "Não encontrei um comando mecânico de batalha nessa mensagem.",
+        }),
+      );
     if (parsed.kind === "INVALID")
       return err(appError("VALIDATION_FAILED", "Use apenas um comando mecânico por mensagem."));
     const player = await dependencies.players.resolvePlayer({
@@ -588,7 +625,11 @@ export function createPveSceneRoutes(
         expectedRevision: encounter.value.revision,
       });
       if (!fled.ok) {
-        return err(appError("ACTION_INVALID", "Não foi possível fugir deste encontro."));
+        return err(
+          appError("FLOW_BLOCKED", "Não foi possível fugir deste encontro.", {
+            userMessage: "Não foi possível fugir deste encontro agora.",
+          }),
+        );
       }
       return encounterReply(
         context,
@@ -598,7 +639,12 @@ export function createPveSceneRoutes(
     }
 
     const state = await dependencies.battle.currentState(battleId);
-    if (!state.ok) return err(appError("ACTION_INVALID", state.error.message));
+    if (!state.ok)
+      return err(
+        appError("FLOW_BLOCKED", state.error.message, {
+          userMessage: "A batalha não aceita essa ação no estado atual.",
+        }),
+      );
     const principal = await dependencies.admins.resolvePrincipal({
       provider: context.message.provider,
       externalId: context.message.senderRef,
@@ -612,7 +658,11 @@ export function createPveSceneRoutes(
         (entry.kind === "NARRATOR" && entry.adminPrincipalId === principal?.principalId),
     );
     if (controller === undefined) {
-      return err(appError("ACTION_INVALID", "Você não controla um ator nesta batalha."));
+      return err(
+        appError("PLAYER_INELIGIBLE", "Você não controla um ator nesta batalha.", {
+          userMessage: "Você não controla um ator nesta batalha.",
+        }),
+      );
     }
     if (controller.kind === "NARRATOR" && principal === null)
       return err(appError("PLAYER_INELIGIBLE", "Narrador não autorizado."));
@@ -653,7 +703,12 @@ export function createPveSceneRoutes(
 
       const correlation = parseCorrelationId(context.correlationId);
       if (!correlation.ok) {
-        return err(appError("ACTION_INVALID", "A captura não pôde ser correlacionada."));
+        return err(
+          appError("ACTION_INVALID", "A captura não pôde ser correlacionada.", {
+            userMessage:
+              "Não foi possível registrar a captura. Tente novamente; se persistir, envie o código de suporte.",
+          }),
+        );
       }
       const captureAction: BattleAction = {
         type: "CAPTURE_ATTEMPT",
@@ -737,13 +792,22 @@ export function createPveSceneRoutes(
 
     if (parsed.intent.type === "SURRENDER") {
       if (state.value.battleType !== "PVP" || controller.kind !== "PLAYER")
-        return err(appError("ACTION_INVALID", "Desistência não permitida agora."));
+        return err(
+          appError("FLOW_BLOCKED", "Desistência não permitida agora.", {
+            userMessage: "Você não pode desistir desta batalha agora.",
+          }),
+        );
       const surrendered = await dependencies.battle.surrenderPvp({
         battleId,
         playerId: player.value.playerId,
         expectedVersion: state.value.version,
       });
-      if (!surrendered.ok) return err(appError("ACTION_INVALID", "A batalha já acabou."));
+      if (!surrendered.ok)
+        return err(
+          appError("FLOW_BLOCKED", "A batalha já acabou.", {
+            userMessage: "Essa batalha já terminou.",
+          }),
+        );
       return reply(context, "🏳️ Você desistiu. O adversário venceu.", battleId, { react: true });
     }
     const action =
@@ -810,7 +874,12 @@ export function createPveSceneRoutes(
       const battleId = await dependencies.activeBattleId(player.value.playerId);
       if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
       const state = await dependencies.battle.currentState(battleId);
-      if (!state.ok) return err(appError("ACTION_INVALID", state.error.message));
+      if (!state.ok)
+        return err(
+          appError("FLOW_BLOCKED", state.error.message, {
+            userMessage: "A batalha não aceita essa ação no estado atual.",
+          }),
+        );
       const activeWild = activeWildParticipant(state.value);
       const eligible = (await dependencies.controllers.listByBattle(battleId)).filter((entry) =>
         kind === "NARRATOR"
@@ -824,7 +893,11 @@ export function createPveSceneRoutes(
             : undefined
           : eligible.find((entry) => entry.participantId === activeWild.participantId);
       if (candidate === undefined) {
-        return err(appError("ACTION_INVALID", "Controle de narrador indisponível."));
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Controle de narrador indisponível.", {
+            userMessage: "O controle de narrador não está disponível agora.",
+          }),
+        );
       }
       const changed = await dependencies.controllers.transition({
         participantId: candidate.participantId,
@@ -858,7 +931,12 @@ export function createPveSceneRoutes(
     const battleId = await dependencies.activeBattleId(player.value.playerId);
     if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
     const state = await dependencies.battle.currentState(battleId);
-    if (!state.ok) return err(appError("ACTION_INVALID", state.error.message));
+    if (!state.ok)
+      return err(
+        appError("FLOW_BLOCKED", state.error.message, {
+          userMessage: "A batalha não aceita essa ação no estado atual.",
+        }),
+      );
     const controllers = await dependencies.controllers.listByBattle(battleId);
     const controller = activeController(
       state.value,
@@ -866,7 +944,11 @@ export function createPveSceneRoutes(
       (entry) => entry.kind === "PLAYER" && entry.playerId === player.value.playerId,
     );
     if (controller === undefined)
-      return err(appError("ACTION_INVALID", "Você não controla um ator nesta batalha."));
+      return err(
+        appError("PLAYER_INELIGIBLE", "Você não controla um ator nesta batalha.", {
+          userMessage: "Você não controla um ator nesta batalha.",
+        }),
+      );
     return reply(context, hud(state.value, controller, controllers), battleId);
   };
   return [

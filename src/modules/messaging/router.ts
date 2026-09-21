@@ -222,9 +222,10 @@ export class MessageRouter implements MessageRouterPort {
     const route = match.route;
     if (route === undefined) {
       return err(
-        appError("ACTION_INVALID", "Unknown command", {
+        appError("VALIDATION_FAILED", "Unknown command", {
           command: match.candidate.command,
           correlationId: context.correlationId,
+          userMessage: "Comando desconhecido. Use `/menu` para ver os comandos disponíveis.",
         }),
       );
     }

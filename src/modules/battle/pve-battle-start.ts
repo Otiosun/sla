@@ -121,7 +121,9 @@ export function createPveBattleStartWhatsAppRoute(
 
       if (!isCanonicalStartStatus(active.value.status)) {
         return err(
-          appError("ACTION_INVALID", "O encontro ativo não pode iniciar uma batalha neste estado."),
+          appError("FLOW_BLOCKED", "O encontro ativo não pode iniciar uma batalha neste estado.", {
+            userMessage: "O encontro ativo ainda não pode iniciar uma batalha neste estado.",
+          }),
         );
       }
 
@@ -133,7 +135,11 @@ export function createPveBattleStartWhatsAppRoute(
       });
 
       if (!started.ok) {
-        return err(appError("ACTION_INVALID", started.error.message));
+        return err(
+          appError("FLOW_BLOCKED", started.error.message, {
+            userMessage: "Não foi possível iniciar a batalha a partir do estado atual do encontro.",
+          }),
+        );
       }
 
       const battleId = started.value.start.battleId;

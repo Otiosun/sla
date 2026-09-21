@@ -260,9 +260,10 @@ function openHandler(
     if (!location.ok) return location;
     if (!location.value.facilities?.includes(serviceKind)) {
       return err(
-        appError("ACTION_INVALID", "World service is not available in the current area", {
+        appError("FLOW_BLOCKED", "World service is not available in the current area", {
           serviceKind,
           areaId: location.value.areaId,
+          userMessage: "Esse serviço não está disponível na área em que você está agora.",
         }),
       );
     }
@@ -351,7 +352,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMART") {
-      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Poké Mart visit is not active", {
+          userMessage: "Entre no Poké Mart com `/pokemart` antes de usar esse comando.",
+        }),
+      );
     }
 
     return textResult(
@@ -373,7 +378,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMART") {
-      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Poké Mart visit is not active", {
+          userMessage: "Entre no Poké Mart com `/pokemart` antes de usar esse comando.",
+        }),
+      );
     }
 
     return textResult(context, renderMartCatalog(), active.value.sessionId, null, ":mart:items");
@@ -386,7 +395,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMART") {
-      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Poké Mart visit is not active", {
+          userMessage: "Entre no Poké Mart com `/pokemart` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.economy === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Poké Mart sale service is unavailable"));
@@ -418,7 +431,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.healing === undefined) {
       return err(
@@ -450,7 +467,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
 
     let rendered = renderWorldServiceEntry("PC");
@@ -479,7 +500,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
@@ -504,7 +529,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
@@ -532,7 +561,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
@@ -563,7 +596,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
 
     return textResult(
