@@ -41,7 +41,7 @@ function createService(currentProfile: PlayerProfileView = profile) {
         appearance: null,
         age: null,
         height: null,
-        accent: "teal",
+        accent: "crimson",
       }),
       update,
     },
