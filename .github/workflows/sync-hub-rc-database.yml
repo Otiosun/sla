@@ -26,7 +26,6 @@ jobs:
       STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
       STAGING_SUPABASE_POOLER_HOST: ${{ vars.STAGING_SUPABASE_POOLER_HOST }}
       STAGING_SUPABASE_JIT_TOKEN: ${{ secrets.STAGING_SUPABASE_JIT_TOKEN }}
-      STAGING_RUNTIME_PASSWORD: ${{ secrets.STAGING_RUNTIME_PASSWORD }}
 
     steps:
       - name: Guard RC branch and required staging material
@@ -38,7 +37,6 @@ jobs:
           [[ -n "$STAGING_SUPABASE_PROJECT_REF" ]] || { echo "STAGING_SUPABASE_PROJECT_REF missing" >&2; exit 64; }
           [[ -n "$STAGING_SUPABASE_POOLER_HOST" ]] || { echo "STAGING_SUPABASE_POOLER_HOST missing" >&2; exit 64; }
           [[ -n "$STAGING_SUPABASE_JIT_TOKEN" ]] || { echo "STAGING_SUPABASE_JIT_TOKEN missing" >&2; exit 64; }
-          [[ -n "$STAGING_RUNTIME_PASSWORD" ]] || { echo "STAGING_RUNTIME_PASSWORD missing" >&2; exit 64; }
 
       - name: Checkout exact RC revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,35 +65,6 @@ jobs:
           RUN_APPLICATION_SMOKE: "false"
         run: bash scripts/operations/staging-database-release-supabase-jit.sh
 
-      - name: Build and verify durable runtime URL for current Supabase project
-        shell: bash
-        run: |
-          set -euo pipefail
-          durable_runtime_url="$(
-            node --input-type=module -e '
-              const projectRef = process.env.STAGING_SUPABASE_PROJECT_REF;
-              const poolerHost = process.env.STAGING_SUPABASE_POOLER_HOST;
-              const password = process.env.STAGING_RUNTIME_PASSWORD;
-              if (!projectRef || !poolerHost || !password) process.exit(64);
-              const url = new URL("postgresql://placeholder@localhost/postgres");
-              url.username = `pokemon_runtime.${projectRef}`;
-              url.password = password;
-              url.hostname = poolerHost;
-              url.port = "5432";
-              url.pathname = "/postgres";
-              url.search = "?sslmode=verify-full";
-              process.stdout.write(url.toString());
-            '
-          )"
-          [[ -n "$durable_runtime_url" ]] || exit 64
-          printf '::add-mask::%s\n' "$durable_runtime_url"
-
-          DATABASE_URL="$durable_runtime_url" \
-          NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/supabase/prod-ca-2021.crt" \
-            pnpm db:verify
-
-          printf 'DURABLE_RUNTIME_URL=%s\n' "$durable_runtime_url" >> "$GITHUB_ENV"
-
       - name: Resolve Railway staging token scope and exact RC service
         shell: bash
         run: |
@@ -115,20 +84,9 @@ jobs:
             exit 1
           }
 
-      - name: Sync verified durable runtime credential to Hub RC without deploying
+
+      - name: Confirm controlled JIT release completed
         shell: bash
         run: |
           set -euo pipefail
-          railway variable set DATABASE_URL="$DURABLE_RUNTIME_URL" \
-            --service "$RAILWAY_SERVICE" \
-            --environment staging \
-            --skip-deploys \
-            --json >/tmp/railway-db-sync.json
-
-          railway variable set DEPLOY_REVISION="$GITHUB_SHA" \
-            --service "$RAILWAY_SERVICE" \
-            --environment staging \
-            --skip-deploys \
-            --json >/tmp/railway-revision-sync.json
-
-          echo "Verified durable staging runtime credential synchronized to Hub RC without deployment."
+          echo "Supabase JIT staging database release completed for $GITHUB_SHA."
