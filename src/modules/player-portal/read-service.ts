@@ -6,6 +6,10 @@ import type { ExternalIdentity, PlayerProfileView } from "../player/contracts.js
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldLocationView } from "../world/contracts.js";
+import type {
+  PlayerPortalProfileCustomization,
+  PlayerPortalProfileCustomizationRepository,
+} from "./profile-customization-service.js";
 import type { WorldService } from "../world/service.js";
 
 export interface PlayerPortalMoveView {
@@ -86,6 +90,7 @@ export interface PlayerPortalTeamView {
 export type PlayerPortalSelfView = Omit<PlayerProfileView, "progressionPoints" | "team"> & {
   readonly progressionPoints: string;
   readonly originRegionName: string | null;
+  readonly profileCustomization: PlayerPortalProfileCustomization;
   readonly team: readonly PlayerPortalTeamView[];
 };
 
@@ -179,6 +184,7 @@ interface PlayerPortalReadDependencies {
   readonly profiles: Pick<PlayerStarterService, "getProfile">;
   readonly world: Pick<WorldService, "getLocation">;
   readonly repository: PlayerPortalReadRepository;
+  readonly customization: Pick<PlayerPortalProfileCustomizationRepository, "read">;
   readonly presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">;
 }
 
@@ -194,19 +200,23 @@ export class PlayerPortalReadService {
     const eligible = await this.resolveEligible(identity);
     if (!eligible.ok) return eligible;
 
-    const pokemon = await this.dependencies.repository.listOwnedPokemon(
-      eligible.value.playerId,
-      eligible.value.profile.contentReleaseId,
-    );
-    const originRegionName = await this.dependencies.repository.originRegionDisplayName(
-      eligible.value.profile.contentReleaseId,
-      eligible.value.profile.originRegionId,
-    );
+    const [pokemon, originRegionName, profileCustomization] = await Promise.all([
+      this.dependencies.repository.listOwnedPokemon(
+        eligible.value.playerId,
+        eligible.value.profile.contentReleaseId,
+      ),
+      this.dependencies.repository.originRegionDisplayName(
+        eligible.value.profile.contentReleaseId,
+        eligible.value.profile.originRegionId,
+      ),
+      this.dependencies.customization.read(eligible.value.playerId),
+    ]);
 
     return ok({
       ...eligible.value.profile,
       progressionPoints: eligible.value.profile.progressionPoints.toString(),
       originRegionName,
+      profileCustomization,
       team: pokemon
         .filter((entry) => entry.placementKind === "TEAM")
         .sort((left, right) => left.slotNo - right.slotNo)

@@ -3,6 +3,7 @@ import { PlayerRegistrationService } from "../modules/player/registration-servic
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { PlayerPortalProfileCustomizationService } from "../modules/player-portal/profile-customization-service.js";
 import { PlayerPortalReadService } from "../modules/player-portal/read-service.js";
 import { PlayerPortalRosterService } from "../modules/player-portal/roster-service.js";
 import { HubSessionTokenService } from "../modules/player-portal/session-token-service.js";
@@ -12,6 +13,7 @@ import { SystemClock } from "../platform/clock/index.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
+import { PostgresPlayerPortalProfileCustomizationRepository } from "../platform/player-portal/postgres-player-portal-profile-customization-repository.js";
 import { PostgresPlayerPortalReadRepository } from "../platform/player-portal/postgres-player-portal-read-repository.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
@@ -50,11 +52,15 @@ export function composePlayerPortalRuntime(
   );
   const presentation = new PostgresOperationalUxReadModel(options.pool);
   const readRepository = new PostgresPlayerPortalReadRepository(options.pool);
+  const customizationRepository = new PostgresPlayerPortalProfileCustomizationRepository(
+    options.pool,
+  );
   const player = new PlayerPortalReadService({
     players,
     profiles,
     world,
     repository: readRepository,
+    customization: customizationRepository,
     presentation,
   });
   const roster = new PlayerPortalRosterService({
@@ -62,9 +68,20 @@ export function composePlayerPortalRuntime(
     profiles,
     storage: pcStorage,
   });
+  const customization = new PlayerPortalProfileCustomizationService({
+    players,
+    profiles,
+    repository: customizationRepository,
+  });
   const tickets = new HubLoginTicketService(new PostgresHubLoginTicketStore(options.pool));
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
-  const portal = new PlayerPortalHttpHandler({ tickets, sessions, player, roster });
+  const portal = new PlayerPortalHttpHandler({
+    tickets,
+    sessions,
+    player,
+    roster,
+    customization,
+  });
 
   return {
     handler: {
