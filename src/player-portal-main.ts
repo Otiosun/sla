@@ -64,5 +64,8 @@ try {
   });
 } catch (error) {
   process.exitCode = 1;
-  logger.log("ERROR", "player_portal.start_failed", {\n    errorKind: errorKind(error),\n    databaseCode: databaseErrorCode(error),\n  });
+  logger.log("ERROR", "player_portal.start_failed", {
+    errorKind: errorKind(error),
+    databaseCode: databaseErrorCode(error),
+  });
 }
