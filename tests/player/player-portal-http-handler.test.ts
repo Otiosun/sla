@@ -32,7 +32,7 @@ const profile: PlayerPortalSelfView = {
     appearance: null,
     age: null,
     height: null,
-    accent: "teal",
+    accent: "crimson",
   },
   team: [],
 };
