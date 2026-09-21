@@ -56,7 +56,7 @@ describe.sequential("Hub profile customization on disposable PostgreSQL", () => 
       appearance: null,
       age: null,
       height: null,
-      accent: "teal",
+      accent: "crimson",
     });
 
     const customization = {
