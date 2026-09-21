@@ -412,10 +412,10 @@ export function createOperationalUxRoutes(
         "👤 *PERFIL*",
         "　_Registro do treinador_",
         "",
-        "Treinador: *" + (value.trainerName ?? "—") + "*",
-        "Nível: `" + String(value.trainerLevel) + "`",
-        "Insígnias: `" + String(value.progressionPoints) + "`",
-        "Status: `" + value.playerStatus + "`",
+        `Treinador: *${value.trainerName ?? "—"}*`,
+        `Nível: \`${String(value.trainerLevel)}\``,
+        `Insígnias: \`${String(value.progressionPoints)}\``,
+        `Status: \`${value.playerStatus}\``,
       ].join("\n"),
       { type: "PLAYER", id: player.value },
     );
@@ -426,8 +426,14 @@ export function createOperationalUxRoutes(
     const members = await dependencies.reads.listTeam(player.value);
     const lines = members.map(
       (member) =>
-        "`" + String(member.slotNo) + "`　*" + member.displayName + "* · Nv. " +
-        String(member.level) + " · HP " + String(member.currentHp),
+        "`" +
+        String(member.slotNo) +
+        "`　*" +
+        member.displayName +
+        "* · Nv. " +
+        String(member.level) +
+        " · HP " +
+        String(member.currentHp),
     );
     return textResult(
       context,
@@ -447,12 +453,7 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const slotNo = Number(commandArgs(context)[0]);
     if (!Number.isSafeInteger(slotNo) || slotNo < 1 || slotNo > 6) {
-      return err(
-        appError(
-          "VALIDATION_FAILED",
-          "Informe o slot da equipe. Ex.: `/pokemon 1`.",
-        ),
-      );
+      return err(appError("VALIDATION_FAILED", "Informe o slot da equipe. Ex.: `/pokemon 1`."));
     }
 
     const detail = await dependencies.reads.teamPokemonDetail(player.value, slotNo);
@@ -463,17 +464,14 @@ export function createOperationalUxRoutes(
     const displayName =
       detail.nickname === null || detail.nickname.trim().length === 0
         ? detail.displayName
-        : detail.nickname + " · " + detail.displayName;
-    const gender =
-      detail.gender === "MALE" ? "♂" : detail.gender === "FEMALE" ? "♀" : "—";
+        : `${detail.nickname} · ${detail.displayName}`;
+    const gender = detail.gender === "MALE" ? "♂" : detail.gender === "FEMALE" ? "♀" : "—";
     const statuses =
       detail.statuses.length === 0
         ? detail.currentHp <= 0
           ? "CAÍDO"
           : "OK"
-        : detail.statuses
-            .map((status) => (status === "BAD_POISON" ? "TOXIC" : status))
-            .join(", ");
+        : detail.statuses.map((status) => (status === "BAD_POISON" ? "TOXIC" : status)).join(", ");
     const moves = detail.moves.map(
       (move) =>
         "`" +
@@ -483,26 +481,42 @@ export function createOperationalUxRoutes(
         "* · PP " +
         (move.ppCurrent === null || move.maxPp === null
           ? "—"
-          : String(move.ppCurrent) + "/" + String(move.maxPp)),
+          : `${String(move.ppCurrent)}/${String(move.maxPp)}`),
     );
 
     return textResult(
       context,
       [
         "◈ *POKÉMON*",
-        "　_" + displayName + "_",
+        `　_${displayName}_`,
         "",
-        "Nv. `" + String(detail.level) + "`　" + gender + (detail.shiny ? "　✦ SHINY" : ""),
-        "HP　`" + String(detail.currentHp) + "/" + String(detail.maxHp) + "`　·　`" + statuses + "`",
+        `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
+        "HP　`" +
+          String(detail.currentHp) +
+          "/" +
+          String(detail.maxHp) +
+          "`　·　`" +
+          statuses +
+          "`",
         "",
-        "◇ *NATURE*　" + detail.natureDisplayName,
-        "◇ *ABILITY*　" + detail.abilityDisplayName,
+        `◇ *NATURE*　${detail.natureDisplayName}`,
+        `◇ *ABILITY*　${detail.abilityDisplayName}`,
         "",
         "◇ *IVs*",
-        "HP `" + String(detail.ivs.hp) + "` · Atk `" + String(detail.ivs.attack) +
-          "` · Def `" + String(detail.ivs.defense) + "`",
-        "SpA `" + String(detail.ivs.spAttack) + "` · SpD `" +
-          String(detail.ivs.spDefense) + "` · Spe `" + String(detail.ivs.speed) + "`",
+        "HP `" +
+          String(detail.ivs.hp) +
+          "` · Atk `" +
+          String(detail.ivs.attack) +
+          "` · Def `" +
+          String(detail.ivs.defense) +
+          "`",
+        "SpA `" +
+          String(detail.ivs.spAttack) +
+          "` · SpD `" +
+          String(detail.ivs.spDefense) +
+          "` · Spe `" +
+          String(detail.ivs.speed) +
+          "`",
         "",
         "◇ *MOVIMENTOS*",
         ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
@@ -521,7 +535,7 @@ export function createOperationalUxRoutes(
     const slice = pageSlice(items, page.value);
     if (items.length > 0 && slice.length === 0)
       return err(appError("VALIDATION_FAILED", "Essa página do inventário não existe."));
-    const lines = slice.map((item) => "• " + item.displayName + " ×" + String(item.quantity));
+    const lines = slice.map((item) => `• ${item.displayName} ×${String(item.quantity)}`);
     return textResult(
       context,
       [
@@ -544,8 +558,14 @@ export function createOperationalUxRoutes(
       return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
     const lines = slice.map(
       (entry) =>
-        "#" + String(entry.nationalDex).padStart(4, "0") + " " + entry.displayName +
-        " · vistos " + String(entry.seenCount) + " · capturados " + String(entry.caughtCount),
+        "#" +
+        String(entry.nationalDex).padStart(4, "0") +
+        " " +
+        entry.displayName +
+        " · vistos " +
+        String(entry.seenCount) +
+        " · capturados " +
+        String(entry.caughtCount),
     );
     return textResult(
       context,
@@ -776,17 +796,25 @@ export function createOperationalUxRoutes(
     return textResult(
       context,
       [
-        "⚔️ *BATALHA · Turno " + String(state.turnNumber) + "*",
+        `⚔️ *BATALHA · Turno ${String(state.turnNumber)}*`,
         "",
         "◇ *SEU POKÉMON*",
-        "╰─ HP " + String(own.currentHp) + "/" + String(own.maxHp) +
-          " · status " + statusLabel(own.majorStatus),
+        "╰─ HP " +
+          String(own.currentHp) +
+          "/" +
+          String(own.maxHp) +
+          " · status " +
+          statusLabel(own.majorStatus),
         "",
         "◇ *OPONENTE*",
         opponent === null
           ? "╰─ —"
-          : "╰─ HP " + String(opponent.currentHp) + "/" + String(opponent.maxHp) +
-            " · status " + statusLabel(opponent.majorStatus),
+          : "╰─ HP " +
+            String(opponent.currentHp) +
+            "/" +
+            String(opponent.maxHp) +
+            " · status " +
+            statusLabel(opponent.majorStatus),
         "",
         "`/combate` · comandos e regras",
       ].join("\n"),

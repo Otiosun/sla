@@ -194,10 +194,13 @@ export function initializeBattleState(
       group.party.every((build) => build.currentHp <= 0),
     );
     if (exhaustedRoster !== undefined) {
-      return failure("Battle initialization requires at least one battle-ready Pokemon per roster", {
-        sideNo: side.sideNo,
-        playerId: exhaustedRoster.playerId,
-      });
+      return failure(
+        "Battle initialization requires at least one battle-ready Pokemon per roster",
+        {
+          sideNo: side.sideNo,
+          playerId: exhaustedRoster.playerId,
+        },
+      );
     }
 
     const builds = groups === undefined ? side.party : groups.flatMap((group) => group.party);

@@ -436,7 +436,9 @@ describe("battle effects, abilities and heuristic AI", () => {
     );
     expect(second.ok).toBe(true);
     if (!second.ok) return;
-    const afterSecond = second.value.state.combatants.find((entry) => entry.participantId === IDS.p2);
+    const afterSecond = second.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
     expect(afterSecond?.majorStatus?.counter).toBe(3);
     expect(afterSecond?.currentHp).toBe(130);
   });

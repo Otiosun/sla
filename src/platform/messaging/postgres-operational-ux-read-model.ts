@@ -350,11 +350,13 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
         row.current_move_id !== null &&
         row.current_move_display_name !== null
       ) {
-        (view.currentMoves as Array<{
-          slotNo: number;
-          moveId: string;
-          displayName: string;
-        }>).push({
+        (
+          view.currentMoves as Array<{
+            slotNo: number;
+            moveId: string;
+            displayName: string;
+          }>
+        ).push({
           slotNo: row.slot_no,
           moveId: row.current_move_id,
           displayName: row.current_move_display_name,

@@ -1,21 +1,21 @@
 import type { Pool } from "pg";
+import { baileysOutboundMessageId } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
+import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
 import {
   SimulatedWhatsAppAdapter,
   type SimulatedWhatsAppAdapterOptions,
 } from "../adapters/whatsapp/simulated-whatsapp-adapter.js";
-import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
-import { baileysOutboundMessageId } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { MessagingService } from "../modules/messaging/service.js";
+import type { WorldServiceMediaCatalog } from "../modules/world-services/whatsapp-handlers.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
+import type { PveBattleRuntimeConfig } from "./compose-pve-battle-runtime.js";
 import {
   createOperationalMessagingComposition,
   createOperationalOutboxWorker,
   type OperationalMessagingComposition,
 } from "./compose-whatsapp-runtime.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
-import type { PveBattleRuntimeConfig } from "./compose-pve-battle-runtime.js";
-import type { WorldServiceMediaCatalog } from "../modules/world-services/whatsapp-handlers.js";
 
 export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly pool: Pool;

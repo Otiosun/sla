@@ -50,9 +50,9 @@ import { MessagingService, OutboxWorker } from "../modules/messaging/service.js"
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
 import { ProgressionService } from "../modules/progression/service.js";
 import { createProgressionWhatsAppRoutes } from "../modules/progression/whatsapp-handlers.js";
-import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
 import { PvpService } from "../modules/pvp/service.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
@@ -81,8 +81,6 @@ import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-adm
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
-import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
-import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
 import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
@@ -98,6 +96,8 @@ import { PostgresMessagingRepository } from "../platform/messaging/postgres-mess
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
+import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
+import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../platform/pvp/postgres-pvp-start-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";

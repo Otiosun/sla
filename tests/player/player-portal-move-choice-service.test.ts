@@ -47,11 +47,13 @@ const choice = {
   ],
 };
 
-function service(options: {
-  activeBattleId?: string | null;
-  choices?: readonly typeof choice[];
-  resolveStatus?: "RESOLVED" | "SKIPPED";
-} = {}) {
+function service(
+  options: {
+    activeBattleId?: string | null;
+    choices?: readonly (typeof choice)[];
+    resolveStatus?: "RESOLVED" | "SKIPPED";
+  } = {},
+) {
   const resolveMoveChoice = vi.fn<ProgressionService["resolveMoveChoice"]>(async () =>
     ok({
       choiceId,

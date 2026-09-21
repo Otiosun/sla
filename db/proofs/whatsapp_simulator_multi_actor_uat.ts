@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
-import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
-import { withTransaction } from "../../src/platform/db/transaction.js";
-import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
-import { SystemClock } from "../../src/platform/clock/index.js";
 import { PvpService } from "../../src/modules/pvp/service.js";
+import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
+import { SystemClock } from "../../src/platform/clock/index.js";
+import { withTransaction } from "../../src/platform/db/transaction.js";
 import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../../src/platform/pvp/postgres-pvp-start-repository.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { createOperationalSimulatedWhatsAppRuntime } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 
 const databaseUrl = process.env.DATABASE_URL;

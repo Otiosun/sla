@@ -154,7 +154,18 @@ function rebuildPristine(labelPrefix: string): void {
 for (const [label, args] of [
   [
     "static-lint",
-    ["exec", "biome", "ci", "src", "tests", "scripts", "db", "package.json", "biome.json", "tsconfig.json"],
+    [
+      "exec",
+      "biome",
+      "ci",
+      "src",
+      "tests",
+      "scripts",
+      "db",
+      "package.json",
+      "biome.json",
+      "tsconfig.json",
+    ],
   ],
   ["static-typecheck", ["typecheck"]],
   ["static-tests", ["test"]],
@@ -169,12 +180,7 @@ for (const [label, script] of [
   ["deep-gameplay", "db/proofs/whatsapp_simulator_deep_gameplay_uat.ts"],
   ["stress-swarm", "db/proofs/whatsapp_simulator_stress_uat.ts"],
 ] as const) {
-  run(
-    `uat:${label}`,
-    node,
-    ["--import", "tsx", script],
-    simulatorEnv,
-  );
+  run(`uat:${label}`, node, ["--import", "tsx", script], simulatorEnv);
 }
 
 // UATs intentionally mutate the disposable simulator. Rebuild once more so the

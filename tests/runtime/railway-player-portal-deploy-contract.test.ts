@@ -23,7 +23,7 @@ describe("Railway staging Player Portal deploy contract", () => {
 
     expect(workflow).toContain("/v1/hub/player/self");
     expect(workflow).toContain('status" == "401"');
-    expect(workflow).toContain('UNAUTHENTICATED');
+    expect(workflow).toContain("UNAUTHENTICATED");
     expect(workflow).not.toContain("WHATSAPP_SESSION_KEY");
     expect(workflow).not.toContain("WHATSAPP_AUTH_KEY");
     expect(workflow).not.toContain("PAIRING_QR");

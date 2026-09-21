@@ -497,11 +497,7 @@ export async function composeGen123MechanicsOverlay(
           row.display_name,
           keepEffect ? inherited.effect_key : row.effect_key,
           JSON.stringify(
-            keepEffect
-              ? inherited.effect_config
-              : row.effect_key === null
-                ? {}
-                : row.effect_config,
+            keepEffect ? inherited.effect_config : row.effect_key === null ? {} : row.effect_config,
           ),
           row.active,
         ];
@@ -753,7 +749,9 @@ export async function composeGen123MechanicsOverlay(
       const supportedRelativeStats =
         sourceTriggerId === 1 &&
         minimumLevel === 20 &&
-        (relativePhysicalStats === -1 || relativePhysicalStats === 0 || relativePhysicalStats === 1) &&
+        (relativePhysicalStats === -1 ||
+          relativePhysicalStats === 0 ||
+          relativePhysicalStats === 1) &&
         Object.keys(sourceConfig).every((key) =>
           [
             "sourceTriggerId",

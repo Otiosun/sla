@@ -19,30 +19,30 @@ describe("relative-stat level evolutions", () => {
   });
 
   it("selects Hitmonlee-style Attack greater than Defense", () => {
-    expect(
-      matchesRelativePhysicalStats("ATTACK_GT_DEFENSE", { attack: 55, defense: 40 }),
-    ).toBe(true);
-    expect(
-      matchesRelativePhysicalStats("ATTACK_GT_DEFENSE", { attack: 40, defense: 55 }),
-    ).toBe(false);
+    expect(matchesRelativePhysicalStats("ATTACK_GT_DEFENSE", { attack: 55, defense: 40 })).toBe(
+      true,
+    );
+    expect(matchesRelativePhysicalStats("ATTACK_GT_DEFENSE", { attack: 40, defense: 55 })).toBe(
+      false,
+    );
   });
 
   it("selects Hitmonchan-style Attack lower than Defense", () => {
-    expect(
-      matchesRelativePhysicalStats("ATTACK_LT_DEFENSE", { attack: 40, defense: 55 }),
-    ).toBe(true);
-    expect(
-      matchesRelativePhysicalStats("ATTACK_LT_DEFENSE", { attack: 55, defense: 40 }),
-    ).toBe(false);
+    expect(matchesRelativePhysicalStats("ATTACK_LT_DEFENSE", { attack: 40, defense: 55 })).toBe(
+      true,
+    );
+    expect(matchesRelativePhysicalStats("ATTACK_LT_DEFENSE", { attack: 55, defense: 40 })).toBe(
+      false,
+    );
   });
 
   it("selects Hitmontop-style equal Attack and Defense", () => {
-    expect(
-      matchesRelativePhysicalStats("ATTACK_EQ_DEFENSE", { attack: 48, defense: 48 }),
-    ).toBe(true);
-    expect(
-      matchesRelativePhysicalStats("ATTACK_EQ_DEFENSE", { attack: 48, defense: 47 }),
-    ).toBe(false);
+    expect(matchesRelativePhysicalStats("ATTACK_EQ_DEFENSE", { attack: 48, defense: 48 })).toBe(
+      true,
+    );
+    expect(matchesRelativePhysicalStats("ATTACK_EQ_DEFENSE", { attack: 48, defense: 47 })).toBe(
+      false,
+    );
   });
 
   it("keeps ordinary level evolutions unconditional", () => {

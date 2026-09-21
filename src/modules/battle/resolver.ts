@@ -141,14 +141,7 @@ function emitFaintIfNeeded(
 
 function abilityPreventsCondition(
   target: BattleCombatant,
-  condition:
-    | "BURN"
-    | "POISON"
-    | "BAD_POISON"
-    | "PARALYSIS"
-    | "SLEEP"
-    | "FREEZE"
-    | "CONFUSION",
+  condition: "BURN" | "POISON" | "BAD_POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | "CONFUSION",
   events: BattleEvent[],
 ): boolean {
   if (target.ability.effectKey !== "prevent-status") return false;
@@ -206,8 +199,7 @@ function applyStatStageChange(
       target.ability.effectKey === "prevent-stat-drop"
         ? EffectConfigSchemas["prevent-stat-drop"].safeParse(target.ability.effectConfig)
         : null;
-    const statBlocked =
-      parsed !== null && parsed.success && parsed.data.stats.includes(stat);
+    const statBlocked = parsed?.success && parsed.data.stats.includes(stat);
     if (accuracyBlocked || statBlocked) {
       events.push(
         event("AbilityTriggered", {
@@ -293,22 +285,14 @@ function applyMoveMetaEffect(
         );
       }
     } else {
-      applyStatus(
-        defender,
-        meta.ailment.kind,
-        meta.ailment.chanceBasisPoints,
-        rules,
-        rng,
-        events,
-        { source: "MOVE", moveId: move.moveId },
-      );
+      applyStatus(defender, meta.ailment.kind, meta.ailment.chanceBasisPoints, rules, rng, events, {
+        source: "MOVE",
+        moveId: move.moveId,
+      });
     }
   }
 
-  if (
-    meta.statChanges.length > 0 &&
-    chanceSucceeds(meta.statChanceBasisPoints, rng)
-  ) {
+  if (meta.statChanges.length > 0 && chanceSucceeds(meta.statChanceBasisPoints, rng)) {
     for (const change of meta.statChanges) {
       const target = change.target === "SELF" ? actor : defender;
       applyStatStageChange(actor, target, change.stat, change.stages, move.moveId, events);
@@ -583,10 +567,7 @@ function residualDamage(state: BattleState, rules: BattleRules, events: BattleEv
     let damage: number;
     if (active.majorStatus.key === "BAD_POISON") {
       const counter = Math.max(1, Math.min(15, active.majorStatus.counter ?? 1));
-      damage = Math.min(
-        active.currentHp,
-        Math.max(1, Math.floor((active.maxHp * counter) / 16)),
-      );
+      damage = Math.min(active.currentHp, Math.max(1, Math.floor((active.maxHp * counter) / 16)));
       active.majorStatus.counter = Math.min(15, counter + 1);
     } else {
       const divisor =
@@ -672,16 +653,7 @@ function executeMove(
   }
   if (immune) return;
 
-  applyMoveEffect(
-    actor,
-    target,
-    move,
-    damageDealt,
-    targetHasActed,
-    rules,
-    rng,
-    events,
-  );
+  applyMoveEffect(actor, target, move, damageDealt, targetHasActed, rules, rng, events);
   applyContactAbility(actor, target, move, rules, rng, events);
 }
 

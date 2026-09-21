@@ -1,7 +1,7 @@
 import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
@@ -40,7 +40,7 @@ function textResult(context: MessageHandlerContext, text: string): Result<Messag
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: { text },
-        idempotencyKey: context.idempotencyKey + ":reply",
+        idempotencyKey: `${context.idempotencyKey}:reply`,
       },
     ],
   });
@@ -83,17 +83,22 @@ export function createProgressionWhatsAppRoutes(
     const lines: string[] = ["✦ *MOVIMENTOS · APRENDIZADO*", ""];
     choices.forEach((choice, index) => {
       lines.push(
-        "*" + String(index + 1) + ". " + choice.pokemonDisplayName + "* · Nv. " + String(choice.learnLevel),
-        "　_quer aprender_ *" + choice.moveDisplayName + "*",
+        "*" +
+          String(index + 1) +
+          ". " +
+          choice.pokemonDisplayName +
+          "* · Nv. " +
+          String(choice.learnLevel),
+        `　_quer aprender_ *${choice.moveDisplayName}*`,
         "",
       );
       for (const move of choice.currentMoves) {
-        lines.push("　`" + String(move.slotNo) + "`　" + move.displayName);
+        lines.push(`　\`${String(move.slotNo)}\`　${move.displayName}`);
       }
       lines.push(
         "",
-        "　→ `/aprender " + String(index + 1) + " <1-4>`",
-        "　→ `/aprender " + String(index + 1) + " pular`",
+        `　→ \`/aprender ${String(index + 1)} <1-4>\``,
+        `　→ \`/aprender ${String(index + 1)} pular\``,
       );
       if (index < choices.length - 1) lines.push("", "┄┄┄┄┄┄┄┄┄┄", "");
     });
@@ -116,9 +121,7 @@ export function createProgressionWhatsAppRoutes(
     const selection = args[1]?.trim().toLocaleLowerCase("pt-BR");
     const choices = await dependencies.reads.listPendingMoveChoices(playerId);
     const choice =
-      Number.isSafeInteger(choiceIndex) && choiceIndex >= 1
-        ? choices[choiceIndex - 1]
-        : undefined;
+      Number.isSafeInteger(choiceIndex) && choiceIndex >= 1 ? choices[choiceIndex - 1] : undefined;
     if (choice === undefined) {
       return err(
         appError(
@@ -164,7 +167,7 @@ export function createProgressionWhatsAppRoutes(
         [
           "✦ *APRENDIZADO ENCERRADO*",
           "",
-          "*" + choice.pokemonDisplayName + "* não aprendeu *" + choice.moveDisplayName + "*.",
+          `*${choice.pokemonDisplayName}* não aprendeu *${choice.moveDisplayName}*.`,
           "",
           "_Os movimentos atuais foram preservados._",
         ].join("\n"),
@@ -179,9 +182,9 @@ export function createProgressionWhatsAppRoutes(
       [
         "✦ *NOVO MOVIMENTO*",
         "",
-        "*" + choice.pokemonDisplayName + "* aprendeu *" + choice.moveDisplayName + "*.",
+        `*${choice.pokemonDisplayName}* aprendeu *${choice.moveDisplayName}*.`,
         replaced === undefined
-          ? "Slot `" + String(result.value.replacedSlotNo ?? "—") + "` atualizado."
+          ? `Slot \`${String(result.value.replacedSlotNo ?? "—")}\` atualizado.`
           : "`" +
             String(replaced.slotNo) +
             "`　~" +

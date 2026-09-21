@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  BattleRewardResultSchema,
   type BattleRewardResult,
+  BattleRewardResultSchema,
 } from "../../modules/progression/contracts.js";
 import { withTransaction } from "../db/transaction.js";
 

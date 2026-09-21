@@ -130,14 +130,7 @@ export const RulesetConfigSchema = z
   .strict();
 export type RulesetConfig = z.infer<typeof RulesetConfigSchema>;
 
-const statusKeySchema = z.enum([
-  "BURN",
-  "POISON",
-  "BAD_POISON",
-  "PARALYSIS",
-  "SLEEP",
-  "FREEZE",
-]);
+const statusKeySchema = z.enum(["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP", "FREEZE"]);
 const preventableConditionKeySchema = z.enum([
   "BURN",
   "POISON",
@@ -163,15 +156,7 @@ const statusChanceSchema = z
 
 const moveMetaAilmentSchema = z
   .object({
-    kind: z.enum([
-      "BURN",
-      "POISON",
-      "BAD_POISON",
-      "PARALYSIS",
-      "SLEEP",
-      "FREEZE",
-      "CONFUSION",
-    ]),
+    kind: z.enum(["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP", "FREEZE", "CONFUSION"]),
     chanceBasisPoints: z.number().int().min(0).max(10_000),
     minTurns: z.number().int().min(1).max(10).nullable(),
     maxTurns: z.number().int().min(1).max(10).nullable(),
@@ -181,7 +166,12 @@ const moveMetaAilmentSchema = z
 const moveMetaStatChangeSchema = z
   .object({
     stat: statKeySchema,
-    stages: z.number().int().min(-6).max(6).refine((value) => value !== 0),
+    stages: z
+      .number()
+      .int()
+      .min(-6)
+      .max(6)
+      .refine((value) => value !== 0),
     target: z.enum(["SELF", "TARGET"]),
   })
   .strict();
@@ -212,9 +202,7 @@ export const EffectConfigSchemas = {
       multiplierBasisPoints: z.number().int().min(10_001).max(100_000),
     })
     .strict(),
-  "type-immunity": z
-    .object({ typeSlug: z.string().min(1).max(64) })
-    .strict(),
+  "type-immunity": z.object({ typeSlug: z.string().min(1).max(64) }).strict(),
   "incoming-type-damage-multiplier": z
     .object({
       typeSlugs: z.array(z.string().min(1).max(64)).min(1).max(18),
@@ -233,9 +221,7 @@ export const EffectConfigSchemas = {
   "prevent-status": z
     .object({ statuses: z.array(preventableConditionKeySchema).min(1).max(7) })
     .strict(),
-  "prevent-stat-drop": z
-    .object({ stats: z.array(statKeySchema).min(1).max(7) })
-    .strict(),
+  "prevent-stat-drop": z.object({ stats: z.array(statKeySchema).min(1).max(7) }).strict(),
   "prevent-flinch": z.object({}).strict(),
   "prevent-critical": z.object({}).strict(),
   "run-away": z.object({}).strict(),
@@ -318,7 +304,9 @@ export const EvolutionTriggerSchemas = {
   LEVEL: z
     .object({
       level: z.number().int().min(2).max(100),
-      relativePhysicalStats: z.enum(["ATTACK_GT_DEFENSE", "ATTACK_LT_DEFENSE", "ATTACK_EQ_DEFENSE"]).optional(),
+      relativePhysicalStats: z
+        .enum(["ATTACK_GT_DEFENSE", "ATTACK_LT_DEFENSE", "ATTACK_EQ_DEFENSE"])
+        .optional(),
     })
     .strict(),
   ITEM: z.object({ itemId: z.string().uuid() }).strict(),

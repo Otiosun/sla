@@ -388,15 +388,13 @@ function category(damageClassId: number): "STATUS" | "PHYSICAL" | "SPECIAL" {
   return "SPECIAL";
 }
 
-function battleStat(statId: number):
-  | "ATTACK"
-  | "DEFENSE"
-  | "SP_ATTACK"
-  | "SP_DEFENSE"
-  | "SPEED"
-  | "ACCURACY"
-  | "EVASION" {
-  const value = new Map<number, "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | "ACCURACY" | "EVASION">([
+function battleStat(
+  statId: number,
+): "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | "ACCURACY" | "EVASION" {
+  const value = new Map<
+    number,
+    "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | "ACCURACY" | "EVASION"
+  >([
     [2, "ATTACK"],
     [3, "DEFENSE"],
     [4, "SP_ATTACK"],
@@ -409,14 +407,9 @@ function battleStat(statId: number):
   return value;
 }
 
-function moveAilment(ailmentId: number):
-  | "PARALYSIS"
-  | "SLEEP"
-  | "FREEZE"
-  | "BURN"
-  | "POISON"
-  | "CONFUSION"
-  | null {
+function moveAilment(
+  ailmentId: number,
+): "PARALYSIS" | "SLEEP" | "FREEZE" | "BURN" | "POISON" | "CONFUSION" | null {
   return (
     new Map<number, "PARALYSIS" | "SLEEP" | "FREEZE" | "BURN" | "POISON" | "CONFUSION">([
       [1, "PARALYSIS"],
@@ -434,12 +427,11 @@ function moveEngineEffect(move: Gen123Model["moves"][number]): {
   readonly effectConfig: Readonly<Record<string, unknown>>;
 } {
   const badlyPoisons = move.effectId === 34 || move.effectId === 203;
-  const ailmentKind =
-    [1, 4, 5].includes(move.metaCategoryId)
-      ? badlyPoisons
-        ? "BAD_POISON"
-        : moveAilment(move.metaAilmentId)
-      : null;
+  const ailmentKind = [1, 4, 5].includes(move.metaCategoryId)
+    ? badlyPoisons
+      ? "BAD_POISON"
+      : moveAilment(move.metaAilmentId)
+    : null;
   const ailment =
     ailmentKind === null
       ? null
@@ -507,10 +499,7 @@ function abilityEngineEffect(row: CsvRow): {
     };
   }
 
-  const contactStatus = new Map<
-    string,
-    "PARALYSIS" | "POISON" | "BURN"
-  >([
+  const contactStatus = new Map<string, "PARALYSIS" | "POISON" | "BURN">([
     ["static", "PARALYSIS"],
     ["poison-point", "POISON"],
     ["flame-body", "BURN"],

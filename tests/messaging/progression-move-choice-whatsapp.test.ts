@@ -14,10 +14,10 @@ const NEW_MOVE_ID = "00000000-0000-4000-8000-000000000045";
 
 function context(text: string, id = "msg-1"): MessageHandlerContext {
   return {
-    inboxMessageId: "inbox-" + id,
+    inboxMessageId: `inbox-${id}`,
     correlationId: "00000000-0000-4000-8000-000000000031",
-    causationId: "inbox-" + id,
-    idempotencyKey: "inbox:test:" + id,
+    causationId: `inbox-${id}`,
+    idempotencyKey: `inbox:test:${id}`,
     message: {
       provider: "test",
       externalMessageId: id,
@@ -74,7 +74,7 @@ function deps(activeBattleId: string | null = null): ProgressionWhatsAppDependen
 }
 
 function textOf(result: Awaited<ReturnType<MessageRouter["dispatch"]>>): string {
-  if (!result.ok) throw new Error("expected success: " + result.error.code);
+  if (!result.ok) throw new Error(`expected success: ${result.error.code}`);
   const payload = result.value?.outgoing[0]?.payload;
   return typeof payload?.text === "string" ? payload.text : "";
 }
@@ -88,7 +88,7 @@ describe("progression WhatsApp move choices", () => {
     expect(output).toContain("*1. Charmander* · Nv. 13");
     expect(output).toContain("*Metal Claw*");
     expect(output).toContain("`3`　Ember");
-    expect(output).toContain("`/aprender 1 3`");
+    expect(output).toContain("`/aprender 1 <1-4>`");
     expect(output).not.toContain(CHOICE_ID);
     expect(output).not.toContain(POKEMON_ID);
   });

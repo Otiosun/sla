@@ -275,10 +275,7 @@ function errorResponse(
   if (context === "moves" && error.code === "NOT_FOUND") {
     return jsonResponse(404, { error: error.code });
   }
-  if (
-    context === "moves" &&
-    (error.code === "ACTION_INVALID" || error.code === "FLOW_BLOCKED")
-  ) {
+  if (context === "moves" && (error.code === "ACTION_INVALID" || error.code === "FLOW_BLOCKED")) {
     return jsonResponse(409, { error: error.code });
   }
 

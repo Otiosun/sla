@@ -601,9 +601,7 @@ async function main(): Promise<void> {
       ? afterCaptured === beforeCaptured + 1 &&
         afterCaught === beforeCaught + 1 &&
         ballsConsumedExactly
-      : afterCaptured === beforeCaptured &&
-        afterCaught === beforeCaught &&
-        ballsConsumedExactly;
+      : afterCaptured === beforeCaptured && afterCaught === beforeCaught && ballsConsumedExactly;
     add(
       capturePersistenceValid ? "PASS" : "BUG",
       "capture",

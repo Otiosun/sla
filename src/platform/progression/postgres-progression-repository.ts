@@ -29,6 +29,7 @@ import {
   TrainerProgressAdjustmentResultSchema,
   type TrainerProgressResult,
 } from "../../modules/progression/contracts.js";
+import { matchesRelativePhysicalStats } from "../../modules/progression/evolution-relative-stats.js";
 import type {
   BattleRewardPersistenceResult,
   EvolutionPersistenceResult,
@@ -41,18 +42,10 @@ import {
   battlePokemonXp,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
-import { matchesRelativePhysicalStats } from "../../modules/progression/evolution-relative-stats.js";
 import { withTransaction } from "../db/transaction.js";
 import { recordPokedexOwned } from "../pokedex/postgres-pokedex-writer.js";
 
-const MAJOR_STATUS_KEYS = [
-  "BURN",
-  "POISON",
-  "BAD_POISON",
-  "PARALYSIS",
-  "SLEEP",
-  "FREEZE",
-] as const;
+const MAJOR_STATUS_KEYS = ["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
 
 class ProgressionStateViolation extends Error {}
 

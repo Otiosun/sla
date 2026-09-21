@@ -170,9 +170,12 @@ function evolutionConfig(row: CsvRow): Readonly<Record<string, string | number |
     const raw = row[field] ?? "";
     if (raw === "") continue;
     if (
-      ["needs_overworld_rain", "turn_upside_down", "needs_multiplayer", "near_special_rock"].includes(
-        field,
-      )
+      [
+        "needs_overworld_rain",
+        "turn_upside_down",
+        "needs_multiplayer",
+        "near_special_rock",
+      ].includes(field)
     ) {
       if (raw === "1") result[field] = true;
     } else if (/^-?\d+$/.test(raw)) {

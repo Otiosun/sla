@@ -85,9 +85,7 @@ export interface OperationalUxReadModel {
   ): Promise<OperationalPokemonDetailView | null>;
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
-  listPendingMoveChoices(
-    playerId: PlayerId,
-  ): Promise<readonly OperationalPendingMoveChoiceView[]>;
+  listPendingMoveChoices(playerId: PlayerId): Promise<readonly OperationalPendingMoveChoiceView[]>;
   activeBattleId(playerId: PlayerId): Promise<string | null>;
   speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
   moveDisplayNames(

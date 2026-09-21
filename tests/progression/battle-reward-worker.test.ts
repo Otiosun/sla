@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { BattleRewardResult } from "../../src/modules/progression/contracts.js";
 import {
-  BattleRewardWorker,
   type BattleRewardCandidateSource,
   type BattleRewardExecutor,
+  BattleRewardWorker,
 } from "../../src/modules/progression/battle-reward-worker.js";
+import type { BattleRewardResult } from "../../src/modules/progression/contracts.js";
 import type { ProgressionResult } from "../../src/modules/progression/errors.js";
 
 const BATTLE_A = "11111111-1111-4111-8111-111111111111";
