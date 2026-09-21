@@ -1,0 +1,73 @@
+name: Sync Hub RC Database Credential
+
+on:
+  push:
+    branches:
+      - gate/hub-profile-customization-v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hub-rc-database-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: sync canonical staging DB credential to Hub RC
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      DATABASE_URL: ${{ secrets.STAGING_RUNTIME_DATABASE_URL }}
+      RAILWAY_SERVICE: pokemon-rpg-player-api-rc
+
+    steps:
+      - name: Guard RC branch and secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/gate/hub-profile-customization-v1" ]] || exit 64
+          [[ -n "$RAILWAY_TOKEN" ]] || { echo "RAILWAY_TOKEN missing" >&2; exit 64; }
+          [[ -n "$DATABASE_URL" ]] || { echo "STAGING_RUNTIME_DATABASE_URL missing" >&2; exit 64; }
+
+      - name: Install pinned Railway CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global @railway/cli@5.45.10
+
+      - name: Resolve staging project token scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          scope_json="$(railway api 'query { projectToken { projectId environmentId } }' --compact)"
+          project_id="$(jq -r '.data.projectToken.projectId // empty' <<<"$scope_json")"
+          environment_id="$(jq -r '.data.projectToken.environmentId // empty' <<<"$scope_json")"
+          [[ -n "$project_id" && -n "$environment_id" ]] || {
+            echo "Railway staging project token scope unavailable" >&2
+            exit 1
+          }
+          echo "RAILWAY_PROJECT_ID=$project_id" >> "$GITHUB_ENV"
+
+      - name: Require exact RC service
+        shell: bash
+        run: |
+          set -euo pipefail
+          services_json="$(railway service list --environment staging --json)"
+          matches="$(jq --arg service "$RAILWAY_SERVICE" '[.[] | select(.name == $service)] | length' <<<"$services_json")"
+          [[ "$matches" == "1" ]] || {
+            echo "RC service was not resolved uniquely" >&2
+            exit 1
+          }
+
+      - name: Sync canonical DB credential without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway variable set DATABASE_URL="$DATABASE_URL"             --service "$RAILWAY_SERVICE"             --environment staging             --skip-deploys             --json >/tmp/railway-db-sync.json
+
+          railway variable set DEPLOY_REVISION="$GITHUB_SHA"             --service "$RAILWAY_SERVICE"             --environment staging             --skip-deploys             --json >/tmp/railway-revision-sync.json
+
+          echo "Canonical staging database credential synchronized to Hub RC without deployment."
