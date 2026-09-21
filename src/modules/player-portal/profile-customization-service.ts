@@ -33,10 +33,7 @@ export const DEFAULT_PLAYER_PORTAL_PROFILE_CUSTOMIZATION: PlayerPortalProfileCus
 
 export interface PlayerPortalProfileCustomizationRepository {
   read(playerId: PlayerId): Promise<PlayerPortalProfileCustomization>;
-  update(
-    playerId: PlayerId,
-    customization: PlayerPortalProfileCustomization,
-  ): Promise<boolean>;
+  update(playerId: PlayerId, customization: PlayerPortalProfileCustomization): Promise<boolean>;
 }
 
 interface PlayerPortalProfileCustomizationDependencies {
@@ -46,9 +43,7 @@ interface PlayerPortalProfileCustomizationDependencies {
 }
 
 export class PlayerPortalProfileCustomizationService {
-  public constructor(
-    private readonly dependencies: PlayerPortalProfileCustomizationDependencies,
-  ) {}
+  public constructor(private readonly dependencies: PlayerPortalProfileCustomizationDependencies) {}
 
   public async update(
     identity: ExternalIdentity,
