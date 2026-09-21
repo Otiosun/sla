@@ -26,6 +26,14 @@ const profile: PlayerPortalSelfView = {
   contentReleaseId: "22222222-2222-4222-8222-222222222222",
   rulesetId: "33333333-3333-4333-8333-333333333333",
   starterPokemonInstanceId: createPokemonInstanceId(),
+  profileCustomization: {
+    title: null,
+    bio: null,
+    appearance: null,
+    age: null,
+    height: null,
+    accent: "teal",
+  },
   team: [],
 };
 
@@ -46,6 +54,7 @@ const location: PlayerPortalWorldLocationView = {
 
 function handler() {
   const rosterMove = vi.fn(async () => ok(undefined));
+  const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
   const instance = new PlayerPortalHttpHandler({
     tickets: { redeem: async () => ok(identity) },
     sessions: {
@@ -65,8 +74,9 @@ function handler() {
       getBattle: async () => ok(null),
     },
     roster: { move: rosterMove },
+    customization: { update: customizationUpdate },
   });
-  return { instance, rosterMove };
+  return { instance, rosterMove, customizationUpdate };
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
@@ -104,8 +114,8 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     }
   });
 
-  it("allows only roster organization as the Hub mutation surface", async () => {
-    const { instance, rosterMove } = handler();
+  it("allows roster and cosmetic profile updates without opening gameplay mutations", async () => {
+    const { instance, rosterMove, customizationUpdate } = handler();
     const response = await instance.handle(
       new Request("https://api.example.test/v1/hub/player/roster", {
         method: "PUT",
@@ -122,6 +132,27 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
 
     expect(response.status).toBe(200);
     expect(rosterMove).toHaveBeenCalledOnce();
+
+    const profileResponse = await instance.handle(
+      new Request("https://api.example.test/v1/hub/player/profile-customization", {
+        method: "PUT",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "Explorador",
+          bio: "Sempre seguindo a próxima trilha.",
+          appearance: null,
+          age: 29,
+          height: "1,94 m",
+          accent: "gold",
+        }),
+      }),
+    );
+    expect(profileResponse.status).toBe(200);
+    expect(customizationUpdate).toHaveBeenCalledOnce();
+    expect(await profileResponse.json()).toHaveProperty("profile");
 
     for (const path of [
       "/v1/hub/world/travel",
