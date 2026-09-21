@@ -50,10 +50,7 @@ export class PlayerPortalHttpHandler {
     if (request.method === "PUT" && url.pathname === "/v1/hub/player/roster") {
       return this.withSession(request, (identity) => this.moveRoster(request, identity));
     }
-    if (
-      request.method === "PUT" &&
-      url.pathname === "/v1/hub/player/profile-customization"
-    ) {
+    if (request.method === "PUT" && url.pathname === "/v1/hub/player/profile-customization") {
       return this.withSession(request, (identity) =>
         this.updateProfileCustomization(request, identity),
       );
