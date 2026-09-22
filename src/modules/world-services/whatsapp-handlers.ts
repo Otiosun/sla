@@ -34,6 +34,7 @@ import {
   renderWorldServiceExit,
 } from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
+import { qualifiesAsSceneProof } from "./scene-proof.js";
 
 const WORLD_SERVICE_POLICY = {
   requiredGroupCapabilities: ["world"],
@@ -63,7 +64,8 @@ export interface WorldServiceWhatsAppDependencies {
   readonly sessions: Pick<
     WorldServiceSessionService,
     "openVisit" | "loadActiveSession" | "closeVisit"
-  >;
+  > &
+    Partial<Pick<WorldServiceSessionService, "recordSceneProof">>;
   readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
   readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
@@ -268,6 +270,21 @@ function openHandler(
       );
     }
 
+    const fullInboundText = context.originalMessageText ?? context.message.text;
+    if (
+      dependencies.sessions.recordSceneProof !== undefined &&
+      fullInboundText !== null &&
+      qualifiesAsSceneProof(fullInboundText)
+    ) {
+      const recorded = await dependencies.sessions.recordSceneProof({
+        playerId: player.value,
+        areaId: location.value.areaId,
+        sourceInboxMessageId: context.inboxMessageId,
+        text: fullInboundText,
+      });
+      if (!recorded.ok) return recorded;
+    }
+
     const opened = await dependencies.sessions.openVisit({
       playerId: player.value,
       areaId: location.value.areaId,
@@ -303,6 +320,7 @@ export function createWorldServiceWhatsAppRoutes(
   const organizeRoute = createPokemonPcOrganizeRoute(dependencies);
   const guardedOrganizeRoute: CommandRouteDefinition = {
     ...organizeRoute,
+    allowEmbedded: true,
     handler: guardWorldServiceHandler(dependencies, organizeRoute.handler),
   };
 
@@ -694,67 +712,80 @@ export function createWorldServiceWhatsAppRoutes(
   return [
     {
       command: "pokemart",
+      allowEmbedded: true,
       handler: guarded(openHandler(dependencies, "POKEMART")),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "comprar",
+      allowEmbedded: true,
       handler: guarded(buy),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "itens",
+      allowEmbedded: true,
       handler: guarded(items),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "vender",
+      allowEmbedded: true,
       handler: guarded(sell),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "centropokemon",
+      allowEmbedded: true,
       handler: guarded(openHandler(dependencies, "POKEMON_CENTER")),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "curar",
+      allowEmbedded: true,
       handler: guarded(heal),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "pc",
+      allowEmbedded: true,
       handler: guarded(pc),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "caixas",
+      allowEmbedded: true,
       handler: guarded(boxes),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "depositar",
+      allowEmbedded: true,
       handler: guarded(deposit),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "retirar",
+      allowEmbedded: true,
       handler: guarded(withdraw),
       policy: WORLD_SERVICE_POLICY,
     },
     guardedOrganizeRoute,
     {
       command: "conversar",
+      allowEmbedded: true,
       handler: guarded(converse),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "pescar",
+      allowEmbedded: true,
       handler: guarded(fish, { requiresFreeWorld: true }),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "sair",
+      allowEmbedded: true,
       handler: new FunctionalHandler(close),
       policy: WORLD_SERVICE_POLICY,
     },
