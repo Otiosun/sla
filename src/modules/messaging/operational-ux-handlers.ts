@@ -11,8 +11,10 @@ import type { PokemonPcStorageService } from "../world-services/pc-storage-servi
 import type { WorldServiceSessionService } from "../world-services/session-service.js";
 import type { WorldServiceMediaCatalog } from "../world-services/whatsapp-handlers.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js";
+import { normalizeHumanText, parseCollectionNumber, parseMenuNumber } from "./human-input.js";
 import type {
   OperationalOwnedPokemonDetailView,
+  OperationalOwnedPokemonView,
   OperationalPokemonDetailView,
   OperationalUxReadModel,
 } from "./operational-ux-read-model.js";
@@ -135,6 +137,56 @@ function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
 function pageFooter(total: number, page: number, command: string): string {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
+}
+
+function resolveOwnedPokemonReference(
+  owned: readonly OperationalOwnedPokemonView[],
+  rawReference: string,
+): Result<OperationalOwnedPokemonView> {
+  const collectionNo = parseCollectionNumber(rawReference);
+  if (collectionNo !== null) {
+    const byNumber = owned.find((entry) => entry.collectionNo === collectionNo);
+    return byNumber === undefined
+      ? err(appError("NOT_FOUND", "Não existe um Pokémon com esse número na sua coleção."))
+      : ok(byNumber);
+  }
+
+  const normalized = normalizeHumanText(rawReference);
+  if (normalized.length === 0) {
+    return err(
+      appError(
+        "VALIDATION_FAILED",
+        "Informe o Pokémon por número da coleção ou nome. Ex.: `/pokemon #13`.",
+      ),
+    );
+  }
+
+  const matches = owned.filter((entry) => {
+    const displayName = normalizeHumanText(entry.displayName);
+    const nickname = entry.nickname === null ? "" : normalizeHumanText(entry.nickname);
+    return normalized === displayName || (nickname.length > 0 && normalized === nickname);
+  });
+  if (matches.length === 0) {
+    return err(
+      appError(
+        "NOT_FOUND",
+        "Não encontrei esse Pokémon na sua coleção. Use `/colecao` para conferir os números.",
+      ),
+    );
+  }
+  if (matches.length > 1) {
+    const options = matches.map((entry) => `#${String(entry.collectionNo)}`).join(", ");
+    return err(
+      appError(
+        "VALIDATION_FAILED",
+        `Há mais de um Pokémon com esse nome. Use o número da coleção: ${options}.`,
+      ),
+    );
+  }
+  const match = matches[0];
+  return match === undefined
+    ? err(appError("NOT_FOUND", "Não encontrei esse Pokémon na sua coleção."))
+    : ok(match);
 }
 
 function isOwnedPokemonDetail(
@@ -578,28 +630,33 @@ export function createOperationalUxRoutes(
           appError("FEATURE_UNAVAILABLE", "Gerenciamento da equipe ainda não está disponível."),
         );
       }
-      const action = args[0]?.toLocaleLowerCase("pt-BR");
-      const ref = Number(args[1]);
-      if (!Number.isSafeInteger(ref) || ref < 1) {
+      const action = normalizeHumanText(args[0] ?? "");
+      if (action !== "colocar" && action !== "guardar") {
         return err(
           appError(
             "VALIDATION_FAILED",
-            "Use `/equipe colocar <#> [slot]` ou `/equipe guardar <#>`.",
+            "Use `/equipe colocar <# ou nome> [slot]` ou `/equipe guardar <# ou nome>`.",
           ),
         );
       }
-      const pokemon = owned.find((entry) => entry.collectionNo === ref);
-      if (pokemon === undefined) {
-        return err(appError("NOT_FOUND", "Não existe um Pokémon com esse número na sua coleção."));
-      }
+
+      const lastArg = args.at(-1) ?? "";
+      const explicitSlot =
+        action === "colocar" && args.length >= 3 ? parseMenuNumber(lastArg) : null;
+      const hasExplicitSlot = explicitSlot !== null && explicitSlot <= 6;
+      const referenceParts = hasExplicitSlot ? args.slice(1, -1) : args.slice(1);
+      const pokemonRef = resolveOwnedPokemonReference(owned, referenceParts.join(" "));
+      if (!pokemonRef.ok) return pokemonRef;
+      const pokemon = pokemonRef.value;
+      const ref = pokemon.collectionNo;
       const clear = await ensureRosterMutationClear(player.value);
       if (!clear.ok) return clear;
       const storage = await dependencies.pcStorage.getStorage(player.value);
       if (!storage.ok) return storage;
 
       if (action === "colocar") {
-        let slotNo = Number(args[2]);
-        if (!Number.isSafeInteger(slotNo) || slotNo < 1 || slotNo > 6) {
+        let slotNo = hasExplicitSlot ? explicitSlot : null;
+        if (slotNo === null) {
           const occupied = new Set(storage.value.team.map((entry) => entry.slotNo));
           const free = [1, 2, 3, 4, 5, 6].find((slot) => !occupied.has(slot));
           if (free === undefined) {
@@ -705,10 +762,23 @@ export function createOperationalUxRoutes(
   const pokemonDetail: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const ref = Number(commandArgs(context)[0]);
-    if (!Number.isSafeInteger(ref) || ref < 1) {
-      return err(appError("VALIDATION_FAILED", "Informe o número da coleção. Ex.: `/pokemon 1`."));
+    const rawReference = commandArgs(context).join(" ");
+    const owned = await listOwned(player.value);
+    const numericFallback = parseCollectionNumber(rawReference);
+    if (owned === null && numericFallback === null) {
+      return err(
+        appError(
+          "VALIDATION_FAILED",
+          "Informe o Pokémon pelo número. Ex.: `/pokemon #1`.",
+        ),
+      );
     }
+    const resolvedReference =
+      owned === null
+        ? ok({ collectionNo: numericFallback as number })
+        : resolveOwnedPokemonReference(owned, rawReference);
+    if (!resolvedReference.ok) return resolvedReference;
+    const ref = resolvedReference.value.collectionNo;
 
     const detail =
       dependencies.reads.ownedPokemonDetail === undefined
