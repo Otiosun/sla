@@ -1,4 +1,5 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { parseMenuNumber, parsePositiveQuantity } from "../messaging/human-input.js";
 import type { Result } from "../../shared-kernel/result.js";
 
 export interface MartSellableInventoryItem {
@@ -33,10 +34,8 @@ export function martSaleItemByCode(
   items: readonly MartSellableInventoryItem[],
   input: string,
 ): MartSellableInventoryItem | null {
-  const normalized = input.trim();
-  if (!/^[0-9]{1,2}$/.test(normalized)) return null;
-  const index = Number(normalized) - 1;
-  return Number.isInteger(index) && index >= 0 ? (items[index] ?? null) : null;
+  const choice = parseMenuNumber(input);
+  return choice === null ? null : (items[choice - 1] ?? null);
 }
 
 export function martSaleItemByOfferKey(
@@ -50,13 +49,13 @@ export function parseMartSaleQuantityReply(
   text: string,
   selected: MartSellableInventoryItem,
 ): bigint | null {
-  const match = /^\s*(.+?)\s*\/\s*([0-9]+)\s*$/.exec(text);
+  const direct = parsePositiveQuantity(text);
+  if (direct !== null) return direct;
+
+  const match = /^\s*(.+?)\s*\/\s*(.+?)\s*$/.exec(text);
   if (match === null) return null;
   if (match[1]?.localeCompare(selected.displayName, undefined, { sensitivity: "accent" }) !== 0) {
     return null;
   }
-  const rawQuantity = match[2];
-  if (rawQuantity === undefined) return null;
-  const quantity = BigInt(rawQuantity);
-  return quantity > 0n ? quantity : null;
+  return parsePositiveQuantity(match[2] ?? "");
 }
