@@ -376,11 +376,12 @@ function statusLabel(status: BattleState["combatants"][number]["majorStatus"]): 
     : status.key.toLocaleLowerCase("pt-BR");
 }
 
-function hud(
+async function hud(
   state: BattleState,
   controller: BattleParticipantController,
   controllers: readonly BattleParticipantController[],
-): string {
+  presentation: Pick<OperationalUxReadModel, "moveDisplayNames">,
+): Promise<string> {
   const own = state.combatants.find(
     (combatant) => combatant.participantId === controller.participantId,
   );
@@ -408,6 +409,26 @@ function hud(
       ? "╰─ —"
       : `╰─ HP \`${opponent.currentHp}/${opponent.maxHp}\` · status \`${statusLabel(opponent.majorStatus)}\``,
   ];
+
+  if (own !== undefined && own.currentHp > 0) {
+    const moveNames = await presentation.moveDisplayNames(
+      state.contentReleaseId,
+      own.moves.map((move) => move.moveId),
+    );
+    lines.push(
+      "",
+      "◇ *AÇÕES*",
+      ...own.moves.map(
+        (move) =>
+          `\`${String(move.slotNo)}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP ${
+            move.ppCurrent === null || move.ppCurrent === undefined ? "—" : String(move.ppCurrent)
+          } · \`/movimento ${String(move.slotNo)}\``,
+      ),
+    );
+    if (state.battleType === "WILD") {
+      lines.push("`/capturar` · tentar captura", "`/fugir` · fugir");
+    }
+  }
 
   if (own !== undefined && own.currentHp <= 0) {
     const roster = controlledRoster(state, controller, controllers);
@@ -949,10 +970,14 @@ export function createPveSceneRoutes(
           userMessage: "Você não controla um ator nesta batalha.",
         }),
       );
-    return reply(context, hud(state.value, controller, controllers), battleId);
+    return reply(
+      context,
+      await hud(state.value, controller, controllers, dependencies.presentation),
+      battleId,
+    );
   };
   return [
-    ...["movimento", "trocar", "item", "capturar", "fugir", "desistir"].map((command) => ({
+    ...["movimento", "trocar", "capturar", "fugir", "desistir"].map((command) => ({
       command,
       allowEmbedded: true,
       handler: new FunctionalHandler(handle),
