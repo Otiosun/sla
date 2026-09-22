@@ -396,6 +396,7 @@ export function createOperationalMessagingComposition(
         encounter,
         battle,
         reads,
+        pcStorage: pokemonPcStorage,
         sessions: worldServiceSessions,
         ...(worldServiceMedia === null ? {} : { worldMedia: worldServiceMedia }),
       }).filter(
