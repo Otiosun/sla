@@ -86,22 +86,24 @@ function commandCandidateAtStart(text: string | null): CommandCandidate | null {
 function embeddedCommandCandidates(text: string | null): readonly CommandCandidate[] {
   if (text === null || text.length === 0) return [];
 
-  const firstNonWhitespace = text.search(/\S/);
+  const firstNonWhitespace = text.search(/\S/u);
   const candidates: CommandCandidate[] = [];
-  const pattern = /(^|\s)(\/)([^\s]+)/g;
+  const pattern = /(^|[\s([{'"“”‘’—–,:;!?])\/([\p{L}\p{N}_-]+)/gu;
 
   for (const match of text.matchAll(pattern)) {
-    const whitespacePrefix = match[1] ?? "";
-    const start = (match.index ?? 0) + whitespacePrefix.length;
-    if (start === firstNonWhitespace) continue;
+    const boundary = match[1] ?? "";
+    const rawToken = match[2] ?? "";
+    const start = (match.index ?? 0) + boundary.length;
+    if (start === firstNonWhitespace || rawToken.length === 0) continue;
 
     const lineEnd = text.indexOf("\n", start);
-    const commandText = text.slice(start, lineEnd < 0 ? text.length : lineEnd).trim();
-    const token = commandText.slice(1).split(/\s+/, 1)[0]?.trim();
-    if (token === undefined || token.length === 0) continue;
+    const line = text.slice(start, lineEnd < 0 ? text.length : lineEnd).trim();
+    const tokenText = `/${rawToken}`;
+    const afterToken = line.slice(tokenText.length);
+    const commandText = /^[,.;!?)}\]]/u.test(afterToken) ? tokenText : line;
 
     candidates.push({
-      command: normalizeCommand(token),
+      command: normalizeCommand(rawToken),
       commandText,
       start,
       embedded: true,
@@ -232,6 +234,7 @@ export class MessageRouter implements MessageRouterPort {
 
     const routedContext: MessageHandlerContext = {
       ...context,
+      originalMessageText: context.originalMessageText ?? context.message.text,
       message: {
         ...context.message,
         text: match.candidate.commandText,
