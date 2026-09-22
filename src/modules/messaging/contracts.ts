@@ -61,6 +61,8 @@ export interface MessageHandlerContext {
   readonly causationId: string;
   readonly idempotencyKey: string;
   readonly message: IncomingMessage;
+  /** Full inbound text before mechanical command extraction. */
+  readonly originalMessageText?: string | null;
 }
 
 export interface MessageHandlerResult {
