@@ -306,10 +306,7 @@ interface LevelEvolutionRule {
 
 function parseLevelEvolutionTrigger(config: unknown): {
   readonly level: number;
-  readonly relativePhysicalStats?:
-    | "ATTACK_GT_DEFENSE"
-    | "ATTACK_LT_DEFENSE"
-    | "ATTACK_EQ_DEFENSE";
+  readonly relativePhysicalStats?: "ATTACK_GT_DEFENSE" | "ATTACK_LT_DEFENSE" | "ATTACK_EQ_DEFENSE";
 } | null {
   const canonical = EvolutionTriggerSchemas.LEVEL.safeParse(config);
   if (canonical.success) {
