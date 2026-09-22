@@ -18,7 +18,11 @@ export interface PvpWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly pvp: Pick<
     PvpService,
-    "createChallenge" | "acceptChallenge" | "startEncounter" | "declineChallenge" | "cancelChallenge"
+    | "createChallenge"
+    | "acceptChallenge"
+    | "startEncounter"
+    | "declineChallenge"
+    | "cancelChallenge"
   >;
   readonly openChallengeIdForTarget: (playerId: string) => Promise<string | null>;
   readonly openChallengeIdForChallenger: (playerId: string) => Promise<string | null>;
