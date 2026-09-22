@@ -191,6 +191,11 @@ export function createOperationalMessagingComposition(
         challenges.read(
           async (transaction) => (await transaction.openChallengeForTarget(playerId))?.id ?? null,
         ),
+      openChallengeIdForChallenger: async (playerId: string) =>
+        challenges.read(
+          async (transaction) =>
+            (await transaction.openChallengeForChallenger(playerId))?.id ?? null,
+        ),
     };
   })();
   const playerRepository = new PostgresPlayerOnboardingRepository(pool);
@@ -482,6 +487,7 @@ export function createOperationalMessagingComposition(
             players: playerRegistration,
             pvp: pvp.service,
             openChallengeIdForTarget: pvp.openChallengeIdForTarget,
+            openChallengeIdForChallenger: pvp.openChallengeIdForChallenger,
             externalRefForPlayer,
           })),
       ...(pveBattleStart === null
