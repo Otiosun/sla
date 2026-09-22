@@ -10,7 +10,7 @@ const FRIENDLY_ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   FEATURE_UNAVAILABLE: "Esse recurso está indisponível agora.",
   PLAYER_INELIGIBLE: "Você não pode usar essa ação neste momento.",
   FLOW_BLOCKED: "Essa ação está bloqueada pelo fluxo atual.",
-  ACTION_INVALID: "O bot encontrou uma falha interna ao processar esta ação.",
+  ACTION_INVALID: "Essa ação não pode ser concluída agora.",
   NOT_FOUND: "Não encontrei o alvo dessa ação.",
   FINGERPRINT_MISMATCH: "Recebi uma repetição incompatível dessa mensagem.",
   RATE_LIMITED: "Você está enviando ações rápido demais. Aguarde um pouco e tente novamente.",
@@ -56,8 +56,8 @@ function knownActionInvalidUserMessage(error: AppError): string | null {
       "Você não pode curar a equipe enquanto estiver em uma batalha ativa.",
     "An active Pokémon Center visit is required":
       "Entre no Centro Pokémon com `/centropokemon` antes de usar esse recurso.",
-    "A recent four-line scene in the current area is required":
-      "Faça uma cena recente de pelo menos quatro linhas nesta área antes de usar esse serviço.",
+    "A 50-word scene in the current area is required":
+      "Essa ação precisa de uma cena com pelo menos 50 palavras na área atual.",
     "PC is only available inside an active Pokémon Center visit":
       "O PC só pode ser usado dentro de uma visita ativa ao Centro Pokémon.",
     "At least one Pokemon must remain in the team":
@@ -107,10 +107,13 @@ export function presentMessagingError(
   context: MessageHandlerContext,
   error: AppError,
 ): MessageHandlerResult {
-  const message =
-    explicitUserMessage(error) ??
-    knownActionInvalidUserMessage(error) ??
-    FRIENDLY_ERROR_MESSAGES[error.code];
+  const explicit = explicitUserMessage(error);
+  const known = knownActionInvalidUserMessage(error);
+  const message = explicit ?? known ?? FRIENDLY_ERROR_MESSAGES[error.code];
+  const shouldShowSupportCode =
+    explicit === null &&
+    known === null &&
+    (error.code === "ACTION_INVALID" || error.code === "FEATURE_UNAVAILABLE");
   return {
     resultRefType: "MESSAGING_ERROR",
     resultRefId: null,
@@ -120,7 +123,9 @@ export function presentMessagingError(
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: {
-          text: `${message}\n\nCódigo de suporte: ${context.correlationId}`,
+          text: shouldShowSupportCode
+            ? `${message}\n\nCódigo de suporte: ${context.correlationId}`
+            : message,
         },
         idempotencyKey: `messaging.error:${context.inboxMessageId}:${error.code}`,
       },
