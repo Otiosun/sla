@@ -305,7 +305,7 @@ export function createOperationalUxRoutes(
           ? []
           : [`⚠️ ${String(pending.length)} decisão(ões) de golpe · \`/golpes\``]),
         "",
-        "_Explorações continuam sendo conduzidas em cena pelo narrador._",
+        "_Explorações são conduzidas em cena pelo narrador._",
       ].join("\n"),
       { type: "PLAYER", id: playerId },
     );
