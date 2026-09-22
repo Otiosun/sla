@@ -14,6 +14,7 @@ import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
+const VALID_SCENE = Array.from({ length: 50 }, (_, index) => `palavra${index + 1}`).join(" ");
 const AREA_ID = "00000000-0000-4000-8000-000000000501";
 const CHAT_REF = "120363000000000501@g.us";
 const CURRENT_PROMPT = "WA-WORLD-SERVICE-CURRENT";
@@ -157,7 +158,7 @@ function resolverFixture(session: WorldServiceSessionRecord | null) {
     playerId: PLAYER_ID,
     areaId: AREA_ID,
     sourceInboxMessageId: "00000000-0000-4000-8000-000000000601",
-    lineCount: 4,
+    wordCount: 50,
     createdAt: new Date("2026-09-07T05:40:00.000Z"),
     consumedAt: null,
   };
@@ -246,13 +247,13 @@ describe("World Services WhatsApp", () => {
     });
   });
 
-  it("records a standalone four-line scene proof in the player's current area without speaking", async () => {
+  it("records a standalone 50-word scene proof in the player's current area without speaking", async () => {
     const fixture = resolverFixture(null);
-    const incoming = message("linha 1\nlinha 2\nlinha 3\nlinha 4", null, "scene-proof");
+    const incoming = message(VALID_SCENE, null, "scene-proof");
     expect(await fixture.resolver.admits(incoming)).toBe(true);
 
     const resolved = await fixture.resolver.resolve(
-      context("linha 1\nlinha 2\nlinha 3\nlinha 4", null, "31"),
+      context(VALID_SCENE, null, "31"),
     );
 
     expect(resolved).toMatchObject({
@@ -266,7 +267,7 @@ describe("World Services WhatsApp", () => {
       playerId: PLAYER_ID,
       areaId: AREA_ID,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000631",
-      text: "linha 1\nlinha 2\nlinha 3\nlinha 4",
+      text: VALID_SCENE,
     });
   });
 
