@@ -15,7 +15,7 @@ import type {
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
   BaileysOutboundContentLike,
-  type BaileysQuotedMessageLike,
+  BaileysQuotedMessageLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "./baileys-provider-contracts.js";
