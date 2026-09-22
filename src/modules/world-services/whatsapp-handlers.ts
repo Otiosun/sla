@@ -33,8 +33,8 @@ import {
   renderWorldServiceEntry,
   renderWorldServiceExit,
 } from "./renderer.js";
-import type { WorldServiceSessionService } from "./session-service.js";
 import { qualifiesAsSceneProof } from "./scene-proof.js";
+import type { WorldServiceSessionService } from "./session-service.js";
 
 const WORLD_SERVICE_POLICY = {
   requiredGroupCapabilities: ["world"],
