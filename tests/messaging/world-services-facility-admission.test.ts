@@ -111,7 +111,7 @@ describe("World Service area facility admission", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe("ACTION_INVALID");
+        expect(result.error.code).toBe("FLOW_BLOCKED");
         expect(result.error.message).toMatch(/not available/i);
       }
       expect(current.openVisit).not.toHaveBeenCalled();
