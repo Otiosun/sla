@@ -24,6 +24,20 @@ function explicitUserMessage(error: AppError): string | null {
   return trimmed;
 }
 
+function validationUserMessage(error: AppError): string | null {
+  if (error.code !== "VALIDATION_FAILED") return null;
+  const candidate = error.message.trim();
+  if (candidate.length === 0 || candidate.length > 1_200) return null;
+  if (
+    /^(Unknown command|Incoming message is invalid|Handler produced|Messaging |Command route)/u.test(
+      candidate,
+    )
+  ) {
+    return null;
+  }
+  return candidate;
+}
+
 function knownActionInvalidUserMessage(error: AppError): string | null {
   if (error.code !== "ACTION_INVALID") return null;
 
@@ -109,10 +123,12 @@ export function presentMessagingError(
 ): MessageHandlerResult {
   const explicit = explicitUserMessage(error);
   const known = knownActionInvalidUserMessage(error);
-  const message = explicit ?? known ?? FRIENDLY_ERROR_MESSAGES[error.code];
+  const validation = validationUserMessage(error);
+  const message = explicit ?? known ?? validation ?? FRIENDLY_ERROR_MESSAGES[error.code];
   const shouldShowSupportCode =
     explicit === null &&
     known === null &&
+    validation === null &&
     (error.code === "ACTION_INVALID" || error.code === "FEATURE_UNAVAILABLE");
   return {
     resultRefType: "MESSAGING_ERROR",
