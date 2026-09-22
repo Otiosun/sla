@@ -7,6 +7,7 @@ import type { PlayerRegistrationService } from "../player/registration-service.j
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldService } from "../world/service.js";
 import { zhouliaArrivalCaption } from "../world/zhoulia-presentation.js";
+import type { PokemonPcStorageService } from "../world-services/pc-storage-service.js";
 import type { WorldServiceSessionService } from "../world-services/session-service.js";
 import type { WorldServiceMediaCatalog } from "../world-services/whatsapp-handlers.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js";
@@ -37,6 +38,7 @@ export interface OperationalUxDependencies {
   readonly encounter: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly battle: Pick<BattleOperationalReadService, "forPlayer">;
   readonly reads: OperationalUxReadModel;
+  readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage" | "move">;
   readonly sessions?: Pick<WorldServiceSessionService, "loadActiveSession">;
   readonly worldMedia?: WorldServiceMediaCatalog;
 }
@@ -282,10 +284,31 @@ export function createOperationalUxRoutes(
       });
     }
 
-    return textResult(context, onboardingMenu("COMPLETE"), {
-      type: "PLAYER",
-      id: playerId,
-    });
+    const location = await dependencies.world.getLocation(playerId);
+    if (!location.ok) return location;
+    const pending = await dependencies.reads.listPendingMoveChoices(playerId);
+    return textResult(
+      context,
+      [
+        "📟 *ROTOM · AGORA*",
+        "",
+        `📍 *${location.value.areaDisplayName}* · ${location.value.regionDisplayName}`,
+        "",
+        "*Você pode:*",
+        "`/onde` · área, serviços e rotas",
+        "`/equipe` · formação atual",
+        "`/colecao` · todos os Pokémon",
+        "`/pokemon <#>` · ficha individual",
+        "`/inventario` · mochila",
+        "`/pokedex` · registros",
+        ...(pending.length === 0
+          ? []
+          : [`⚠️ ${String(pending.length)} decisão(ões) de golpe · \`/golpes\``]),
+        "",
+        "_Explorações continuam sendo conduzidas em cena pelo narrador._",
+      ].join("\n"),
+      { type: "PLAYER", id: playerId },
+    );
   };
 
   const register: Handler = async (context) => {
@@ -429,9 +452,214 @@ export function createOperationalUxRoutes(
       { type: "PLAYER", id: player.value },
     );
   };
+  const listOwned = async (playerId: PlayerId) =>
+    dependencies.reads.listOwnedPokemon === undefined
+      ? null
+      : dependencies.reads.listOwnedPokemon(playerId);
+
+  const collection: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+    const page = pageNumber(commandArgs(context));
+    if (!page.ok) return page;
+    const owned = await listOwned(player.value);
+    if (owned === null) {
+      return err(appError("FEATURE_UNAVAILABLE", "Coleção Pokémon ainda não está disponível."));
+    }
+    const slice = pageSlice(owned, page.value);
+    if (owned.length > 0 && slice.length === 0) {
+      return err(appError("VALIDATION_FAILED", "Essa página da coleção não existe."));
+    }
+    const lines = slice.map((pokemon) => {
+      const name =
+        pokemon.nickname === null || pokemon.nickname.trim().length === 0
+          ? pokemon.displayName
+          : `${pokemon.nickname} · ${pokemon.displayName}`;
+      const placement =
+        pokemon.placementKind === "TEAM"
+          ? `Equipe ${String(pokemon.slotNo)}`
+          : `Box ${String(pokemon.boxNo ?? 1)} · slot ${String(pokemon.slotNo)}`;
+      return `#${String(pokemon.collectionNo)}　*${name}* · Nv. ${String(pokemon.level)} · ${placement}`;
+    });
+    return textResult(
+      context,
+      [
+        "◈ *COLEÇÃO POKÉMON*",
+        "",
+        lines.length === 0 ? "_Nenhum Pokémon ainda._" : lines.join("\n"),
+        pageFooter(owned.length, page.value, "/colecao"),
+        "",
+        "Abra com `/pokemon <#>`.",
+      ].join("\n"),
+    );
+  };
+
+  const box: Handler = async (context) => {
+    const player = await resolvePlayer(dependencies, context);
+    if (!player.ok) return player;
+    const page = pageNumber(commandArgs(context));
+    if (!page.ok) return page;
+    const owned = await listOwned(player.value);
+    if (owned === null) {
+      return err(appError("FEATURE_UNAVAILABLE", "Boxes ainda não estão disponíveis."));
+    }
+    const stored = owned.filter((pokemon) => pokemon.placementKind === "BOX");
+    const slice = pageSlice(stored, page.value);
+    if (stored.length > 0 && slice.length === 0) {
+      return err(appError("VALIDATION_FAILED", "Essa página da Box não existe."));
+    }
+    const lines = slice.map(
+      (pokemon) =>
+        `#${String(pokemon.collectionNo)}　*${pokemon.nickname ?? pokemon.displayName}* · Nv. ${String(pokemon.level)} · Box ${String(pokemon.boxNo ?? 1)}/${String(pokemon.slotNo)}`,
+    );
+    return textResult(
+      context,
+      [
+        "🗃️ *BOXES*",
+        "",
+        lines.length === 0 ? "_Nenhum Pokémon armazenado._" : lines.join("\n"),
+        pageFooter(stored.length, page.value, "/box"),
+      ].join("\n"),
+    );
+  };
+
+  const ensureRosterMutationClear = async (playerId: PlayerId): Promise<Result<void>> => {
+    if ((await dependencies.reads.activeBattleId(playerId)) !== null) {
+      return err(
+        appError("FLOW_BLOCKED", "A equipe não pode ser reorganizada durante uma batalha.", {
+          userMessage: "Finalize a batalha antes de reorganizar sua equipe.",
+        }),
+      );
+    }
+    const encounter = await dependencies.encounter.activeForPlayer(playerId);
+    if (encounter.ok) {
+      return err(
+        appError("FLOW_BLOCKED", "A equipe não pode ser reorganizada durante um encontro.", {
+          userMessage: "Resolva o encontro atual antes de reorganizar sua equipe.",
+        }),
+      );
+    }
+    if (encounter.error.code !== "NOT_FOUND") return err(encounter.error);
+    if (dependencies.world.travelLock !== undefined) {
+      const travel = await dependencies.world.travelLock(playerId);
+      if (!travel.ok) return err(travel.error);
+      if (travel.value !== null) {
+        return err(
+          appError("FLOW_BLOCKED", "A equipe não pode ser reorganizada durante uma viagem.", {
+            userMessage: "Aguarde o fim da viagem antes de reorganizar sua equipe.",
+          }),
+        );
+      }
+    }
+    return ok(undefined);
+  };
+
   const team: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
+    const args = commandArgs(context);
+    const owned = await listOwned(player.value);
+
+    if (args.length > 0) {
+      if (dependencies.pcStorage === undefined || owned === null) {
+        return err(appError("FEATURE_UNAVAILABLE", "Gerenciamento da equipe ainda não está disponível."));
+      }
+      const action = args[0]?.toLocaleLowerCase("pt-BR");
+      const ref = Number(args[1]);
+      if (!Number.isSafeInteger(ref) || ref < 1) {
+        return err(
+          appError("VALIDATION_FAILED", "Use `/equipe colocar <#> [slot]` ou `/equipe guardar <#>`."),
+        );
+      }
+      const pokemon = owned.find((entry) => entry.collectionNo === ref);
+      if (pokemon === undefined) {
+        return err(appError("NOT_FOUND", "Não existe um Pokémon com esse número na sua coleção."));
+      }
+      const clear = await ensureRosterMutationClear(player.value);
+      if (!clear.ok) return clear;
+      const storage = await dependencies.pcStorage.getStorage(player.value);
+      if (!storage.ok) return storage;
+
+      if (action === "colocar") {
+        let slotNo = Number(args[2]);
+        if (!Number.isSafeInteger(slotNo) || slotNo < 1 || slotNo > 6) {
+          const occupied = new Set(storage.value.team.map((entry) => entry.slotNo));
+          const free = [1, 2, 3, 4, 5, 6].find((slot) => !occupied.has(slot));
+          if (free === undefined) {
+            return err(
+              appError("VALIDATION_FAILED", "Sua equipe está cheia.", {
+                userMessage: "Sua equipe está cheia. Use `/equipe colocar <#> <1-6>` para escolher quem será trocado.",
+              }),
+            );
+          }
+          slotNo = free;
+        }
+        const moved = await dependencies.pcStorage.move({
+          playerId: player.value,
+          pokemonInstanceId: pokemon.pokemonInstanceId,
+          target: { placementKind: "TEAM", boxNo: null, slotNo },
+        });
+        if (!moved.ok) return moved;
+        return textResult(
+          context,
+          `✅ *Equipe atualizada.*\n\n#${String(ref)} agora está no slot ${String(slotNo)}.\nUse \`/equipe\` para conferir.`,
+        );
+      }
+
+      if (action === "guardar") {
+        const occupied = new Set(
+          storage.value.boxes.flatMap((entry) =>
+            entry.pokemon.map((boxPokemon) => `${String(entry.boxNo)}:${String(boxPokemon.slotNo)}`),
+          ),
+        );
+        const maxBox = Math.max(1, ...storage.value.boxes.map((entry) => entry.boxNo));
+        let target: { boxNo: number; slotNo: number } | null = null;
+        for (let boxNo = 1; boxNo <= maxBox + 1 && target === null; boxNo += 1) {
+          for (let slotNo = 1; slotNo <= 30; slotNo += 1) {
+            if (!occupied.has(`${String(boxNo)}:${String(slotNo)}`)) {
+              target = { boxNo, slotNo };
+              break;
+            }
+          }
+        }
+        if (target === null) return err(appError("FLOW_BLOCKED", "Não há espaço livre nas Boxes."));
+        const moved = await dependencies.pcStorage.move({
+          playerId: player.value,
+          pokemonInstanceId: pokemon.pokemonInstanceId,
+          target: { placementKind: "BOX", boxNo: target.boxNo, slotNo: target.slotNo },
+        });
+        if (!moved.ok) return moved;
+        return textResult(
+          context,
+          `✅ *Pokémon guardado.*\n\n#${String(ref)} foi para a Box ${String(target.boxNo)}, slot ${String(target.slotNo)}.`,
+        );
+      }
+
+      return err(
+        appError("VALIDATION_FAILED", "Use `/equipe colocar <#> [slot]` ou `/equipe guardar <#>`."),
+      );
+    }
+
+    if (owned !== null) {
+      const members = owned.filter((entry) => entry.placementKind === "TEAM");
+      const lines = members.map(
+        (member) =>
+          `#${String(member.collectionNo)}　*${member.nickname ?? member.displayName}* · Nv. ${String(member.level)} · HP ${String(member.currentHp)} · slot ${String(member.slotNo)}`,
+      );
+      return textResult(
+        context,
+        [
+          "⚡ *EQUIPE POKÉMON*",
+          "",
+          lines.length === 0 ? "_Nenhum Pokémon na equipe._" : lines.join("\n"),
+          "",
+          "`/colecao` · todos os seus Pokémon",
+          "`/box` · armazenados",
+          "`/pokemon <#>` · ficha individual",
+        ].join("\n"),
+      );
+    }
+
     const members = await dependencies.reads.listTeam(player.value);
     const lines = members.map(
       (member) =>
@@ -446,28 +674,24 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      [
-        "⚡ *EQUIPE POKÉMON*",
-        "　_Formação atual_",
-        "",
-        lines.length === 0 ? "_Nenhum Pokémon na equipe._" : lines.join("\n"),
-        "",
-        "`/golpes` · decisões de aprendizado",
-        "`/pc` · organizar equipe e boxes",
-      ].join("\n"),
+      ["⚡ *EQUIPE POKÉMON*", "", lines.length === 0 ? "_Nenhum Pokémon na equipe._" : lines.join("\n")].join("\n"),
     );
   };
+
   const pokemonDetail: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const slotNo = Number(commandArgs(context)[0]);
-    if (!Number.isSafeInteger(slotNo) || slotNo < 1 || slotNo > 6) {
-      return err(appError("VALIDATION_FAILED", "Informe o slot da equipe. Ex.: `/pokemon 1`."));
+    const ref = Number(commandArgs(context)[0]);
+    if (!Number.isSafeInteger(ref) || ref < 1) {
+      return err(appError("VALIDATION_FAILED", "Informe o número da coleção. Ex.: `/pokemon 1`."));
     }
 
-    const detail = await dependencies.reads.teamPokemonDetail(player.value, slotNo);
+    const detail =
+      dependencies.reads.ownedPokemonDetail === undefined
+        ? await dependencies.reads.teamPokemonDetail(player.value, ref)
+        : await dependencies.reads.ownedPokemonDetail(player.value, ref);
     if (detail === null) {
-      return err(appError("NOT_FOUND", "Não há um Pokémon nesse slot da equipe."));
+      return err(appError("NOT_FOUND", "Não existe um Pokémon com esse número na sua coleção."));
     }
 
     const displayName =
@@ -492,49 +716,41 @@ export function createOperationalUxRoutes(
           ? "—"
           : `${String(move.ppCurrent)}/${String(move.maxPp)}`),
     );
+    const ownedDetail = "collectionNo" in detail ? detail : null;
+    const placement =
+      ownedDetail === null
+        ? `Equipe · slot ${String(detail.slotNo)}`
+        : ownedDetail.placementKind === "TEAM"
+          ? `Equipe · slot ${String(ownedDetail.slotNo)}`
+          : `Box ${String(ownedDetail.boxNo ?? 1)} · slot ${String(ownedDetail.slotNo)}`;
 
     return textResult(
       context,
       [
-        "◈ *POKÉMON*",
+        `◈ *POKÉMON #${String(ref)}*`,
         `　_${displayName}_`,
         "",
         `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
-        "HP　`" +
-          String(detail.currentHp) +
-          "/" +
-          String(detail.maxHp) +
-          "`　·　`" +
-          statuses +
-          "`",
+        "HP　`" + String(detail.currentHp) + "/" + String(detail.maxHp) + "`　·　`" + statuses + "`",
+        ...(ownedDetail === null ? [] : [`XP　\`${ownedDetail.xp.toString()}\``]),
+        `Posição: *${placement}*`,
         "",
         `◇ *NATURE*　${detail.natureDisplayName}`,
         `◇ *ABILITY*　${detail.abilityDisplayName}`,
         "",
         "◇ *IVs*",
-        "HP `" +
-          String(detail.ivs.hp) +
-          "` · Atk `" +
-          String(detail.ivs.attack) +
-          "` · Def `" +
-          String(detail.ivs.defense) +
-          "`",
-        "SpA `" +
-          String(detail.ivs.spAttack) +
-          "` · SpD `" +
-          String(detail.ivs.spDefense) +
-          "` · Spe `" +
-          String(detail.ivs.speed) +
-          "`",
+        `HP \`${String(detail.ivs.hp)}\` · Atk \`${String(detail.ivs.attack)}\` · Def \`${String(detail.ivs.defense)}\``,
+        `SpA \`${String(detail.ivs.spAttack)}\` · SpD \`${String(detail.ivs.spDefense)}\` · Spe \`${String(detail.ivs.speed)}\``,
         "",
         "◇ *MOVIMENTOS*",
         ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
         "",
         "`/golpes` · decisões de aprendizado",
-        "`/pc` · equipe e boxes",
+        "`/equipe` · administrar formação",
       ].join("\n"),
     );
   };
+
   const inventory: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
@@ -614,6 +830,15 @@ export function createOperationalUxRoutes(
       [
         `📍 *${location.value.areaDisplayName}*`,
         `_${location.value.regionDisplayName}_`,
+        "",
+        "*Serviços:*",
+        ...(location.value.facilities?.length
+          ? location.value.facilities.map((facility) =>
+              facility === "POKEMON_CENTER"
+                ? "🏥 Centro Pokémon · `/centropokemon`"
+                : "🛒 Poké Mart · `/pokemart`",
+            )
+          : ["_Nenhum serviço mecânico nesta área._"]),
         "",
         "*Rotas:*",
         routes.length === 0 ? "Nenhuma saída disponível." : routes.join("\n"),
@@ -883,15 +1108,27 @@ export function createOperationalUxRoutes(
       rateLimitClass: "SENSITIVE",
     },
     { command: "concluir", handler: new FunctionalHandler(conclude), rateLimitClass: "SENSITIVE" },
-    { command: "perfil", handler: new FunctionalHandler(profile) },
-    { command: "equipe", handler: new FunctionalHandler(team) },
-    { command: "pokemon", aliases: ["pkm"], handler: new FunctionalHandler(pokemonDetail) },
-    { command: "inventario", handler: new FunctionalHandler(inventory) },
-    { command: "pokedex", handler: new FunctionalHandler(pokedex) },
-    { command: "onde", handler: new FunctionalHandler(where) },
-    { command: "ir", handler: new FunctionalHandler(travel), rateLimitClass: "SENSITIVE" },
-    { command: "encontro", handler: new FunctionalHandler(encounter) },
+    { command: "perfil", allowEmbedded: true, handler: new FunctionalHandler(profile) },
+    { command: "equipe", allowEmbedded: true, handler: new FunctionalHandler(team) },
+    { command: "colecao", aliases: ["pokemonbox"], handler: new FunctionalHandler(collection) },
+    { command: "box", aliases: ["boxes"], handler: new FunctionalHandler(box) },
+    {
+      command: "pokemon",
+      aliases: ["pkm"],
+      allowEmbedded: true,
+      handler: new FunctionalHandler(pokemonDetail),
+    },
+    { command: "inventario", allowEmbedded: true, handler: new FunctionalHandler(inventory) },
+    { command: "pokedex", allowEmbedded: true, handler: new FunctionalHandler(pokedex) },
+    { command: "onde", allowEmbedded: true, handler: new FunctionalHandler(where) },
+    {
+      command: "ir",
+      allowEmbedded: true,
+      handler: new FunctionalHandler(travel),
+      rateLimitClass: "SENSITIVE",
+    },
+    { command: "encontro", allowEmbedded: true, handler: new FunctionalHandler(encounter) },
     { command: "batalha", handler: new FunctionalHandler(battle) },
-    { command: "combate", handler: new FunctionalHandler(combatGuide) },
+    { command: "combate", allowEmbedded: true, handler: new FunctionalHandler(combatGuide) },
   ];
 }
