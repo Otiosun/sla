@@ -357,9 +357,9 @@ export function createOperationalMessagingComposition(
         const sceneResult = await pveScene.resolve(context);
         if (!sceneResult.ok || sceneResult.value !== null) return sceneResult;
       }
-      const receptionResult = await receptionConversationResolver.resolve(context);
-      if (!receptionResult.ok || receptionResult.value !== null) return receptionResult;
-      return worldServiceConversationResolver.resolve(context);
+      const worldServiceResult = await worldServiceConversationResolver.resolve(context);
+      if (!worldServiceResult.ok || worldServiceResult.value !== null) return worldServiceResult;
+      return receptionConversationResolver.resolve(context);
     },
   };
   const pveScene =
