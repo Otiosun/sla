@@ -1,7 +1,6 @@
 export type SceneActionIntent =
   | { readonly type: "USE_MOVE"; readonly moveRef: string }
   | { readonly type: "SWITCH"; readonly switchSlot: number }
-  | { readonly type: "USE_ITEM"; readonly itemRef: string }
   | { readonly type: "CAPTURE"; readonly captureRef: string }
   | { readonly type: "FLEE" }
   | { readonly type: "SURRENDER" };
@@ -21,7 +20,7 @@ export type SceneActionParseResult =
     }
   | { readonly kind: "ACTION"; readonly intent: SceneActionIntent };
 
-const DIRECTIVE = /(^|\s)\/(movimento|trocar|item|capturar|fugir|desistir)(?=\s|$)/giu;
+const DIRECTIVE = /(^|\s)\/(movimento|trocar|capturar|fugir|desistir)(?=\s|$)/giu;
 
 function parseDirective(command: string, argument: string): SceneActionIntent | null {
   const normalized = command.toLocaleLowerCase("pt-BR");
@@ -40,10 +39,6 @@ function parseDirective(command: string, argument: string): SceneActionIntent | 
     if (!/^\d+$/u.test(argument)) return null;
     const slot = Number(argument);
     return Number.isSafeInteger(slot) && slot > 0 ? { type: "SWITCH", switchSlot: slot } : null;
-  }
-
-  if (normalized === "item" && argument.length > 0) {
-    return { type: "USE_ITEM", itemRef: argument };
   }
 
   if (normalized === "capturar") {
