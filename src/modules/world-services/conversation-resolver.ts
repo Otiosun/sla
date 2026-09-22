@@ -57,6 +57,7 @@ import {
   renderMartSaleUnavailable,
 } from "./renderer.js";
 import type { WorldServiceSessionService } from "./session-service.js";
+import { qualifiesAsSceneProof } from "./scene-proof.js";
 
 interface CommunityContextResolver {
   resolveChat(input: {
@@ -100,17 +101,13 @@ function hasWorldCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("world");
 }
 
-function nonEmptyLineCount(text: string): number {
-  return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
-}
-
 function isSceneProofCandidate(message: IncomingMessage): boolean {
   return (
     message.replyToExternalMessageId === null &&
     message.text !== null &&
     !message.text.trim().startsWith("/") &&
     !message.text.trim().startsWith("$") &&
-    nonEmptyLineCount(message.text) >= 4
+    qualifiesAsSceneProof(message.text)
   );
 }
 
