@@ -11,7 +11,11 @@ import type { PokemonPcStorageService } from "../world-services/pc-storage-servi
 import type { WorldServiceSessionService } from "../world-services/session-service.js";
 import type { WorldServiceMediaCatalog } from "../world-services/whatsapp-handlers.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js";
-import type { OperationalUxReadModel } from "./operational-ux-read-model.js";
+import type {
+  OperationalOwnedPokemonDetailView,
+  OperationalPokemonDetailView,
+  OperationalUxReadModel,
+} from "./operational-ux-read-model.js";
 import type { MessageRouteHandler } from "./ports.js";
 import type { CommandRouteDefinition } from "./router.js";
 
@@ -131,6 +135,17 @@ function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
 function pageFooter(total: number, page: number, command: string): string {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
+}
+
+function isOwnedPokemonDetail(
+  detail: OperationalPokemonDetailView | OperationalOwnedPokemonDetailView,
+): detail is OperationalOwnedPokemonDetailView {
+  return (
+    "collectionNo" in detail &&
+    "placementKind" in detail &&
+    "boxNo" in detail &&
+    "xp" in detail
+  );
 }
 
 async function resolvePlayer(
@@ -716,7 +731,7 @@ export function createOperationalUxRoutes(
           ? "—"
           : `${String(move.ppCurrent)}/${String(move.maxPp)}`),
     );
-    const ownedDetail = "collectionNo" in detail ? detail : null;
+    const ownedDetail = isOwnedPokemonDetail(detail) ? detail : null;
     const placement =
       ownedDetail === null
         ? `Equipe · slot ${String(detail.slotNo)}`
