@@ -600,5 +600,4 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     const routes = createPveSceneRoutes(setup.dependencies);
     expect(routes.some((route) => route.command === "item")).toBe(false);
   });
-
 });
