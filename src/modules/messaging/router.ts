@@ -160,10 +160,13 @@ export class MessageRouter implements MessageRouterPort {
   private matchCommand(text: string | null): CommandMatch | null {
     const leading = commandCandidateAtStart(text);
     if (leading !== null) {
+      const additionalMechanicalCommands = embeddedCommandCandidates(text)
+        .map((candidate) => ({ candidate, route: this.routes.get(candidate.command) }))
+        .filter((value) => value.route?.allowEmbedded === true);
       return {
         candidate: leading,
         route: this.routes.get(leading.command),
-        ambiguous: false,
+        ambiguous: additionalMechanicalCommands.length > 0,
       };
     }
 
