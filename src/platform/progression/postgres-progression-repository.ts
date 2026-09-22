@@ -304,6 +304,48 @@ interface LevelEvolutionRule {
   readonly triggerLevel: number;
 }
 
+function parseLevelEvolutionTrigger(config: unknown): {
+  readonly level: number;
+  readonly relativePhysicalStats?:
+    | "ATTACK_GT_DEFENSE"
+    | "ATTACK_LT_DEFENSE"
+    | "ATTACK_EQ_DEFENSE";
+} | null {
+  const canonical = EvolutionTriggerSchemas.LEVEL.safeParse(config);
+  if (canonical.success) return canonical.data;
+  if (typeof config !== "object" || config === null) return null;
+  const legacy = config as Record<string, unknown>;
+  const minimumLevel = legacy.minimumLevel;
+  if (
+    typeof minimumLevel !== "number" ||
+    !Number.isInteger(minimumLevel) ||
+    minimumLevel < 2 ||
+    minimumLevel > 100
+  ) {
+    return null;
+  }
+  const relative = legacy.relativePhysicalStats;
+  return {
+    level: minimumLevel,
+    ...(relative === "ATTACK_GT_DEFENSE" ||
+    relative === "ATTACK_LT_DEFENSE" ||
+    relative === "ATTACK_EQ_DEFENSE"
+      ? { relativePhysicalStats: relative }
+      : {}),
+  };
+}
+
+function parseItemEvolutionTrigger(config: unknown): { readonly itemId: string } | null {
+  const canonical = EvolutionTriggerSchemas.ITEM.safeParse(config);
+  if (canonical.success) return canonical.data;
+  if (typeof config !== "object" || config === null) return null;
+  const legacy = config as Record<string, unknown>;
+  const candidate = legacy.sourceItemIdentityId;
+  return typeof candidate === "string" && z.string().uuid().safeParse(candidate).success
+    ? { itemId: candidate }
+    : null;
+}
+
 async function findLevelEvolution(
   client: PoolClient,
   contentReleaseId: string,
@@ -320,13 +362,13 @@ async function findLevelEvolution(
   );
   const eligible: LevelEvolutionRule[] = [];
   for (const row of result.rows) {
-    const parsed = EvolutionTriggerSchemas.LEVEL.safeParse(row.trigger_config);
+    const parsed = parseLevelEvolutionTrigger(row.trigger_config);
     if (
-      parsed.success &&
-      level >= parsed.data.level &&
-      matchesRelativePhysicalStats(parsed.data.relativePhysicalStats, stats)
+      parsed !== null &&
+      level >= parsed.level &&
+      matchesRelativePhysicalStats(parsed.relativePhysicalStats, stats)
     ) {
-      eligible.push({ id: row.id, toFormId: row.to_form_id, triggerLevel: parsed.data.level });
+      eligible.push({ id: row.id, toFormId: row.to_form_id, triggerLevel: parsed.level });
     }
   }
   if (eligible.length > 1) {
@@ -1467,16 +1509,16 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       );
       let eligible = rules.rows.filter((rule) => {
         if (input.trigger.kind === "LEVEL") {
-          const parsed = EvolutionTriggerSchemas.LEVEL.safeParse(rule.trigger_config);
+          const parsed = parseLevelEvolutionTrigger(rule.trigger_config);
           return (
-            parsed.success &&
-            pokemonRow.level >= parsed.data.level &&
-            matchesRelativePhysicalStats(parsed.data.relativePhysicalStats, currentStats)
+            parsed !== null &&
+            pokemonRow.level >= parsed.level &&
+            matchesRelativePhysicalStats(parsed.relativePhysicalStats, currentStats)
           );
         }
         if (input.trigger.kind === "ITEM") {
-          const parsed = EvolutionTriggerSchemas.ITEM.safeParse(rule.trigger_config);
-          return parsed.success && parsed.data.itemId === input.trigger.itemId;
+          const parsed = parseItemEvolutionTrigger(rule.trigger_config);
+          return parsed !== null && parsed.itemId === input.trigger.itemId;
         }
         return false;
       });
