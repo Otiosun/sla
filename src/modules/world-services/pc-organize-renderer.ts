@@ -54,7 +54,7 @@ export function renderPokemonPcOrganizeDestination(pokemon: PokemonPcPokemonView
     "▣ *Destino*",
     "`Caixa / Vaga`",
     "",
-    "Exemplo · `2 / 5`",
+    "Ex.: `2/5`, `2 5` ou `caixa 2 slot 5`",
     "",
     "› _Informe a caixa e a vaga desejadas._",
   ].join("\n");
@@ -75,7 +75,7 @@ export function renderPokemonPcOrganizeConfirmation(
     "`01` Confirmar",
     "`02` Cancelar",
     "",
-    "› _Responda com o número da opção._",
+    "› _Responda com `1`/sim para confirmar ou `2`/não para cancelar._",
   ].join("\n");
 }
 
