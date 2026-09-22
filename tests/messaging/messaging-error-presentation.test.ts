@@ -34,7 +34,7 @@ describe("messaging error presentation", () => {
     expect(result.outgoing[0]?.payload.text).toContain(
       "Este comando não está habilitado neste grupo.",
     );
-    expect(result.outgoing[0]?.payload.text).toContain("Código de suporte:");
+    expect(result.outgoing[0]?.payload.text).not.toContain("Código de suporte:");
   });
 
   it("never uses the old generic ACTION_INVALID copy", () => {
@@ -44,9 +44,9 @@ describe("messaging error presentation", () => {
     );
 
     expect(result.outgoing[0]?.payload.text).toContain(
-      "O bot encontrou uma falha interna ao processar esta ação.",
+      "Essa ação não pode ser concluída agora.",
     );
-    expect(result.outgoing[0]?.payload.text).not.toContain("Essa ação não pôde ser executada.");
+    expect(result.outgoing[0]?.payload.text).toContain("Código de suporte:");
     expect(result.outgoing[0]?.payload.text).not.toContain("internal detail must not be exposed");
   });
   it.each([
@@ -87,7 +87,7 @@ describe("messaging error presentation", () => {
 
     expect(result.outgoing[0]?.payload.text).toContain(expected);
     expect(result.outgoing[0]?.payload.text).not.toContain(
-      "O bot encontrou uma falha interna ao processar esta ação.",
+      "Essa ação não pode ser concluída agora.",
     );
   });
 });
