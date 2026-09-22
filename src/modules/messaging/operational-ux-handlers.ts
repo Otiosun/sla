@@ -140,12 +140,7 @@ function pageFooter(total: number, page: number, command: string): string {
 function isOwnedPokemonDetail(
   detail: OperationalPokemonDetailView | OperationalOwnedPokemonDetailView,
 ): detail is OperationalOwnedPokemonDetailView {
-  return (
-    "collectionNo" in detail &&
-    "placementKind" in detail &&
-    "boxNo" in detail &&
-    "xp" in detail
-  );
+  return "collectionNo" in detail && "placementKind" in detail && "boxNo" in detail && "xp" in detail;
 }
 
 async function resolvePlayer(
@@ -577,13 +572,18 @@ export function createOperationalUxRoutes(
 
     if (args.length > 0) {
       if (dependencies.pcStorage === undefined || owned === null) {
-        return err(appError("FEATURE_UNAVAILABLE", "Gerenciamento da equipe ainda não está disponível."));
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Gerenciamento da equipe ainda não está disponível."),
+        );
       }
       const action = args[0]?.toLocaleLowerCase("pt-BR");
       const ref = Number(args[1]);
       if (!Number.isSafeInteger(ref) || ref < 1) {
         return err(
-          appError("VALIDATION_FAILED", "Use `/equipe colocar <#> [slot]` ou `/equipe guardar <#>`."),
+          appError(
+            "VALIDATION_FAILED",
+            "Use `/equipe colocar <#> [slot]` ou `/equipe guardar <#>`.",
+          ),
         );
       }
       const pokemon = owned.find((entry) => entry.collectionNo === ref);
@@ -603,7 +603,8 @@ export function createOperationalUxRoutes(
           if (free === undefined) {
             return err(
               appError("VALIDATION_FAILED", "Sua equipe está cheia.", {
-                userMessage: "Sua equipe está cheia. Use `/equipe colocar <#> <1-6>` para escolher quem será trocado.",
+                userMessage:
+                  "Sua equipe está cheia. Use `/equipe colocar <#> <1-6>` para escolher quem será trocado.",
               }),
             );
           }
@@ -624,7 +625,9 @@ export function createOperationalUxRoutes(
       if (action === "guardar") {
         const occupied = new Set(
           storage.value.boxes.flatMap((entry) =>
-            entry.pokemon.map((boxPokemon) => `${String(entry.boxNo)}:${String(boxPokemon.slotNo)}`),
+            entry.pokemon.map(
+              (boxPokemon) => `${String(entry.boxNo)}:${String(boxPokemon.slotNo)}`,
+            ),
           ),
         );
         const maxBox = Math.max(1, ...storage.value.boxes.map((entry) => entry.boxNo));
@@ -689,7 +692,11 @@ export function createOperationalUxRoutes(
     );
     return textResult(
       context,
-      ["⚡ *EQUIPE POKÉMON*", "", lines.length === 0 ? "_Nenhum Pokémon na equipe._" : lines.join("\n")].join("\n"),
+      [
+        "⚡ *EQUIPE POKÉMON*",
+        "",
+        lines.length === 0 ? "_Nenhum Pokémon na equipe._" : lines.join("\n"),
+      ].join("\n"),
     );
   };
 
@@ -746,7 +753,7 @@ export function createOperationalUxRoutes(
         `　#${String(ref)} · _${displayName}_`,
         "",
         `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
-        "HP　`" + String(detail.currentHp) + "/" + String(detail.maxHp) + "`　·　`" + statuses + "`",
+        `HP　\`${String(detail.currentHp)}/${String(detail.maxHp)}\`　·　\`${statuses}\``,
         ...(ownedDetail === null ? [] : [`XP　\`${ownedDetail.xp.toString()}\``]),
         `Posição: *${placement}*`,
         "",
