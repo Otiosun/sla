@@ -6,7 +6,6 @@ import type {
   WorldServiceSessionRecord,
   WorldServiceSessionState,
 } from "../../modules/world-services/contracts.js";
-import { MIN_SCENE_PROOF_WORDS, SCENE_PROOF_MAX_AGE_MS } from "../../modules/world-services/scene-proof.js";
 import type {
   ClaimSceneProofWrite,
   CloseWorldServiceSessionWrite,
@@ -16,6 +15,10 @@ import type {
   WorldServiceSessionRepository,
   WorldServiceSessionTransaction,
 } from "../../modules/world-services/ports.js";
+import {
+  MIN_SCENE_PROOF_WORDS,
+  SCENE_PROOF_MAX_AGE_MS,
+} from "../../modules/world-services/scene-proof.js";
 import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
