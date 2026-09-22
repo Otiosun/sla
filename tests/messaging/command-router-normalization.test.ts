@@ -142,6 +142,21 @@ describe("command router normalization", () => {
     expect(originalText).toBe(text);
   });
 
+  it("rejects a second mechanical command when the first command is leading", async () => {
+    const router = new MessageRouter([
+      route("menu"),
+      { ...route("centropokemon"), allowEmbedded: true },
+    ]);
+    const message = incoming("/menu e depois /centropokemon");
+
+    const result = await router.dispatch(context(message));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("VALIDATION_FAILED");
+    expect(result.error.message).toContain("apenas um comando");
+  });
+
   it("keeps embedded commands disabled unless the route explicitly opts in", () => {
     const router = new MessageRouter([route("centropokemon")]);
     const message = incoming("Eu caminho até lá e uso /centropokemon no meio da narrativa.");
