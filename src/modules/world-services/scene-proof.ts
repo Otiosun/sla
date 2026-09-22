@@ -1,4 +1,5 @@
 export const MIN_SCENE_PROOF_WORDS = 50;
+export const SCENE_PROOF_MAX_AGE_MS = 15 * 60 * 1000;
 
 const WORD_PATTERN = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
 const COMMAND_TOKEN_PATTERN = /\/[\p{L}\p{N}_-]+/gu;
