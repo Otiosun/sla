@@ -216,7 +216,7 @@ export function renderMartItemSelection(item: MartCatalogItem): string {
     "🧑‍🌾 _— Quantas unidades deseja levar?_",
     "",
     "╭─ ◇ *𝗣𝗘𝗗𝗜𝗗𝗢*",
-    `╰─ \`${item.displayName} / 5\``,
+    "╰─ Responda só a quantidade · ex.: `5`",
   ].join("\n");
 }
 
@@ -315,7 +315,7 @@ export function renderMartSaleItemSelection(item: MartSellableInventoryItem): st
     "🧑‍🌾 _— Quantas unidades quer vender?_",
     "",
     "╭─ ◇ *𝗣𝗘𝗗𝗜𝗗𝗢*",
-    `╰─ \`${item.displayName} / 2\``,
+    "╰─ Responda só a quantidade · ex.: `2`",
   ].join("\n");
 }
 
