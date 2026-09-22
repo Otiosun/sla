@@ -73,6 +73,40 @@ describe("MessagingService completion failures", () => {
     );
   });
 
+  it("attaches the inbound WhatsApp message as reply context before persistence", async () => {
+    const completeIncoming = vi.fn(async () => ok(undefined));
+    const store = repository(completeIncoming);
+    const replyRouter: MessageRouterPort = {
+      classify: () => ({ command: "teste", sensitiveActionKey: null }),
+      dispatch: async (context) =>
+        ok({
+          resultRefType: null,
+          resultRefId: null,
+          outgoing: [
+            {
+              channel: "whatsapp",
+              destinationRef: context.message.chatRef,
+              messageType: "TEXT",
+              payload: { text: "Resposta" },
+              idempotencyKey: "reply-context-test",
+            },
+          ],
+        }),
+    };
+
+    const result = await new MessagingService(store, replyRouter).receive(message);
+
+    expect(result.ok).toBe(true);
+    expect(completeIncoming).toHaveBeenCalledOnce();
+    const persisted = completeIncoming.mock.calls[0]?.[1];
+    expect(persisted?.outgoing[0]?.payload).toMatchObject({
+      text: "Resposta",
+      replyToExternalMessageId: "completion-test",
+      replyToSenderRef: "sender",
+      replyToText: "/teste",
+    });
+  });
+
   it("terminalizes the inbox when completeIncoming throws", async () => {
     const store = repository(async () => {
       throw new Error("database write failed");
