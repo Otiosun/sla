@@ -398,5 +398,4 @@ describe("PvpService Create / Accept", () => {
     expect(cancelResult.ok).toBe(true);
     if (cancelResult.ok) expect(cancelResult.value.challenge.status).toBe("CANCELLED");
   });
-
 });
