@@ -55,7 +55,8 @@ function sceneProofRecord(row: SceneProofRow): SceneProofRecord {
     playerId: asPlayerId(row.player_id),
     areaId: row.area_id,
     sourceInboxMessageId: row.source_inbox_message_id,
-    // Legacy DB column name: line_count stores the validated word count.\n    wordCount: row.line_count,
+    // Legacy DB column name: line_count stores the validated word count.
+    wordCount: row.line_count,
     createdAt: row.created_at,
     consumedAt: row.consumed_at,
   };
