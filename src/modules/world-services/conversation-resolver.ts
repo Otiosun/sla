@@ -56,8 +56,8 @@ import {
   renderMartSaleSuccess,
   renderMartSaleUnavailable,
 } from "./renderer.js";
-import type { WorldServiceSessionService } from "./session-service.js";
 import { qualifiesAsSceneProof } from "./scene-proof.js";
+import type { WorldServiceSessionService } from "./session-service.js";
 
 interface CommunityContextResolver {
   resolveChat(input: {
