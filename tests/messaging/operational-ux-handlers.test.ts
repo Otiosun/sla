@@ -329,6 +329,66 @@ describe("Phase 13 operational WhatsApp UX", () => {
     expect(output).not.toContain(POKEMON_ID);
   });
 
+  it("accepts collection hash and unique Pokemon name references", async () => {
+    const deps = dependencies();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+      ]),
+      ownedPokemonDetail: vi.fn(async (_playerId: string, collectionNo: number) =>
+        collectionNo === 13
+          ? {
+              collectionNo: 13,
+              pokemonInstanceId: POKEMON_ID,
+              slotNo: 7,
+              displayName: "Charmander",
+              nickname: null,
+              level: 5,
+              xp: 0n,
+              currentHp: 19,
+              maxHp: 20,
+              gender: "MALE" as const,
+              shiny: false,
+              natureDisplayName: "Adamant",
+              abilityDisplayName: "Blaze",
+              ivs: {
+                hp: 31,
+                attack: 30,
+                defense: 29,
+                spAttack: 12,
+                spDefense: 18,
+                speed: 27,
+              },
+              statuses: [],
+              moves: [{ slotNo: 1, displayName: "Scratch", ppCurrent: 35, maxPp: 35 }],
+              placementKind: "BOX" as const,
+              boxNo: 1,
+            }
+          : null,
+      ),
+    });
+    const app = router(deps);
+
+    const byHash = textOf(await app.dispatch(context("/pokemon #13", "pokemon-hash")));
+    const byName = textOf(await app.dispatch(context("/pokemon Charmander", "pokemon-name")));
+
+    expect(byHash).toContain("#13");
+    expect(byHash).toContain("_Charmander_");
+    expect(byName).toContain("#13");
+    expect(byName).toContain("_Charmander_");
+  });
+
   it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
     const deps = dependencies();
     const app = router(deps);
