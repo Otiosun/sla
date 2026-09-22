@@ -47,6 +47,18 @@ describe("messaging error presentation", () => {
     expect(result.outgoing[0]?.payload.text).toContain("Código de suporte:");
     expect(result.outgoing[0]?.payload.text).not.toContain("internal detail must not be exposed");
   });
+  it("keeps safe validation guidance instead of replacing it with a generic error", () => {
+    const result = presentMessagingError(
+      context(),
+      appError("VALIDATION_FAILED", "Informe o Pokémon por número da coleção ou nome."),
+    );
+
+    expect(result.outgoing[0]?.payload.text).toBe(
+      "Informe o Pokémon por número da coleção ou nome.",
+    );
+    expect(result.outgoing[0]?.payload.text).not.toContain("Não consegui entender");
+  });
+
   it.each([
     ["PVP action is invalid", { reason: "self-challenge" }, "Você não pode desafiar a si mesmo."],
     [
