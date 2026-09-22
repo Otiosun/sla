@@ -1,3 +1,5 @@
+import { parseMenuNumber, parsePositiveQuantity } from "../messaging/human-input.js";
+
 export type MartCatalogCategory = "CAPTURE" | "RECOVERY" | "TREATMENT" | "FIELD" | "BATTLE";
 
 export interface MartCatalogItem {
@@ -124,8 +126,9 @@ export const MART_CATALOG: readonly MartCatalogItem[] = [
 ] as const;
 
 export function martItemByCode(input: string): MartCatalogItem | null {
-  const normalized = input.trim().padStart(2, "0");
-  return MART_CATALOG.find((item) => item.code === normalized) ?? null;
+  const choice = parseMenuNumber(input);
+  if (choice === null) return null;
+  return MART_CATALOG[choice - 1] ?? null;
 }
 
 export function martItemByOfferKey(offerKey: string): MartCatalogItem | null {
@@ -146,13 +149,13 @@ export function isMartCatalogPromptKey(key: string): boolean {
 }
 
 export function parseMartQuantityReply(text: string, selected: MartCatalogItem): bigint | null {
-  const match = /^\s*(.+?)\s*\/\s*([0-9]+)\s*$/.exec(text);
+  const direct = parsePositiveQuantity(text);
+  if (direct !== null) return direct;
+
+  const match = /^\s*(.+?)\s*\/\s*(.+?)\s*$/.exec(text);
   if (match === null) return null;
   if (match[1]?.localeCompare(selected.displayName, undefined, { sensitivity: "accent" }) !== 0) {
     return null;
   }
-  const rawQuantity = match[2];
-  if (rawQuantity === undefined) return null;
-  const quantity = BigInt(rawQuantity);
-  return quantity > 0n ? quantity : null;
+  return parsePositiveQuantity(match[2] ?? "");
 }
