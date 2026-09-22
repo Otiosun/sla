@@ -181,18 +181,19 @@ describe("Pokemon PC deposit conversation", () => {
     });
   });
 
-  it("ignores a stale quoted reply and never reaches PC storage", async () => {
+  it("rejects a stale quoted reply with contextual feedback and preserves PC state", async () => {
     const current = fixture();
     const stale = incoming("01", "WA-PC-DEPOSIT-OLD");
 
-    await expect(current.resolver.admits(stale)).resolves.toBe(false);
+    await expect(current.resolver.admits(stale)).resolves.toBe(true);
     const result = await current.resolver.resolve(context("01", "WA-PC-DEPOSIT-OLD", "02"));
 
     expect(current.getStorage).not.toHaveBeenCalled();
     expect(current.deposit).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toBeNull();
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("etapa anterior");
+    expect(result.value.outgoing[0]?.payload.worldServicePrompt).toBeUndefined();
   });
 
   it("mutates storage only after an exact confirmation reply and renders the applied destination", async () => {
