@@ -22,7 +22,20 @@ class FakeBaileysSocket implements BaileysSocketLike {
   readonly sent: Array<{
     jid: string;
     content: unknown;
-    options: { readonly messageId?: string } | undefined;
+    options:
+      | {
+          readonly messageId?: string;
+          readonly quoted?: {
+            readonly key: {
+              readonly remoteJid: string;
+              readonly id: string;
+              readonly participant?: string;
+              readonly fromMe?: boolean;
+            };
+            readonly message: { readonly conversation?: string };
+          };
+        }
+      | undefined;
   }> = [];
   ended = false;
 
@@ -39,7 +52,18 @@ class FakeBaileysSocket implements BaileysSocketLike {
   async sendMessage(
     jid: string,
     content: { readonly text: string },
-    options?: { readonly messageId?: string },
+    options?: {
+      readonly messageId?: string;
+      readonly quoted?: {
+        readonly key: {
+          readonly remoteJid: string;
+          readonly id: string;
+          readonly participant?: string;
+          readonly fromMe?: boolean;
+        };
+        readonly message: { readonly conversation?: string };
+      };
+    },
   ): Promise<unknown> {
     this.sent.push({ jid, content, options });
     return { key: { id: options?.messageId ?? null } };
@@ -263,6 +287,37 @@ describe("BaileysWhatsAppAdapter", () => {
     await expect(adapter.send(outbox({ payload: { text: 123 } }))).rejects.toThrow(
       "requires non-empty text",
     );
+    await adapter.stop();
+  });
+
+  it("quotes the inbound player message when reply metadata is present", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    await adapter.send(
+      outbox({
+        payload: {
+          text: "ROTOM · MENU",
+          replyToExternalMessageId: "wamid-player-command",
+          replyToSenderRef: "5511888888888@s.whatsapp.net",
+          replyToText: "/menu",
+        },
+      }),
+    );
+
+    expect(socket.sent[0]?.options?.quoted).toEqual({
+      key: {
+        remoteJid: "5511999999999@s.whatsapp.net",
+        id: "wamid-player-command",
+        participant: "5511888888888@s.whatsapp.net",
+        fromMe: false,
+      },
+      message: { conversation: "/menu" },
+    });
     await adapter.stop();
   });
 
