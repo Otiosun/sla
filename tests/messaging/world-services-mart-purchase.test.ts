@@ -177,7 +177,39 @@ describe("Poké Mart purchase conversation", () => {
     });
   });
 
-  it("executes Potion / 5 as one atomic quantity purchase and renders the receipt", async () => {
+  it("accepts loose catalog reply 11 as Escape Rope inside the active Mart session", async () => {
+    const promptId = "WA-MART-CATALOG-LOOSE";
+    const current = session("inbox:x:world-service:mart:catalog", promptId, 4n);
+    const resolver = new WorldServiceConversationResolver({
+      community: {
+        resolveChat: async () => ({
+          known: true,
+          groupId: "00000000-0000-4000-8000-000000001006",
+          role: "GAME" as const,
+          capabilities: ["world" as const],
+        }),
+      },
+      players: playerResolver(),
+      world: { getLocation: async () => ok(worldLocation()) },
+      sessions: {
+        loadActiveSession: async () => ok(current),
+        recordSceneProof: vi.fn(),
+      },
+      replyIntent: exactReplyVerifier(promptId),
+      economy: { purchaseQuantity: vi.fn() },
+    });
+
+    const result = await resolver.resolve(context("11", null, "11"));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("ESCAPE ROPE");
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(
+      ":mart:quantity:shop.escape-rope",
+    );
+  });
+
+  it("executes loose quantity 5 as one atomic purchase and renders the receipt", async () => {
     const promptId = "WA-MART-QUANTITY";
     const current = session("inbox:x:world-service:mart:quantity:shop.potion", promptId, 5n);
     const purchaseQuantity = vi.fn(async () =>
@@ -214,7 +246,7 @@ describe("Poké Mart purchase conversation", () => {
       economy: { purchaseQuantity },
     });
 
-    const result = await resolver.resolve(context("Potion / 5", promptId, "03"));
+    const result = await resolver.resolve(context("5", null, "03"));
 
     expect(purchaseQuantity).toHaveBeenCalledWith({
       playerId: PLAYER_ID,
