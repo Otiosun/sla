@@ -42,6 +42,26 @@ export interface OperationalPokemonDetailView {
   }[];
 }
 
+export interface OperationalOwnedPokemonView {
+  readonly collectionNo: number;
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly displayName: string;
+  readonly nickname: string | null;
+  readonly level: number;
+  readonly xp: bigint;
+  readonly currentHp: number;
+  readonly placementKind: "TEAM" | "BOX";
+  readonly boxNo: number | null;
+  readonly slotNo: number;
+}
+
+export interface OperationalOwnedPokemonDetailView extends OperationalPokemonDetailView {
+  readonly collectionNo: number;
+  readonly xp: bigint;
+  readonly placementKind: "TEAM" | "BOX";
+  readonly boxNo: number | null;
+}
+
 export interface OperationalInventoryItemView {
   readonly itemId: string;
   readonly itemSlug: string;
@@ -79,6 +99,11 @@ export interface OperationalPendingMoveChoiceView {
 export interface OperationalUxReadModel {
   listRegionOptions(playerId: PlayerId): Promise<readonly OperationalRegionOption[]>;
   listTeam(playerId: PlayerId): Promise<readonly OperationalTeamMemberView[]>;
+  listOwnedPokemon?(playerId: PlayerId): Promise<readonly OperationalOwnedPokemonView[]>;
+  ownedPokemonDetail?(
+    playerId: PlayerId,
+    collectionNo: number,
+  ): Promise<OperationalOwnedPokemonDetailView | null>;
   teamPokemonDetail(
     playerId: PlayerId,
     slotNo: number,
