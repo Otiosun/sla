@@ -120,6 +120,34 @@ describe("command router normalization", () => {
     });
   });
 
+  it("recognizes opted-in gameplay commands inside natural prose and preserves the original scene", async () => {
+    let routedText: string | null = null;
+    let originalText: string | null | undefined = null;
+    const router = new MessageRouter([
+      {
+        ...route("centropokemon", [], "STANDARD", (handlerContext) => {
+          routedText = handlerContext.message.text;
+          originalText = handlerContext.originalMessageText;
+        }),
+        allowEmbedded: true,
+      },
+    ]);
+    const text =
+      "Depois de caminhar pela vila e conversar com algumas pessoas, entro no prédio e uso (/CENTROPOKÉMON), antes de continuar a cena.";
+    const message = incoming(text);
+
+    expect(router.admitsCommand(message)).toBe(true);
+    expect((await router.dispatch(context(message))).ok).toBe(true);
+    expect(routedText).toBe("/CENTROPOKÉMON");
+    expect(originalText).toBe(text);
+  });
+
+  it("keeps embedded commands disabled unless the route explicitly opts in", () => {
+    const router = new MessageRouter([route("centropokemon")]);
+    const message = incoming("Eu caminho até lá e uso /centropokemon no meio da narrativa.");
+    expect(router.admitsCommand(message)).toBe(false);
+  });
+
   it("rejects aliases that collide after command normalization", () => {
     expect(() => new MessageRouter([route("pokedex", ["dex"]), route("dex")])).toThrow(
       "Messaging command route is already registered: dex",
