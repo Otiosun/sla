@@ -252,9 +252,7 @@ describe("World Services WhatsApp", () => {
     const incoming = message(VALID_SCENE, null, "scene-proof");
     expect(await fixture.resolver.admits(incoming)).toBe(true);
 
-    const resolved = await fixture.resolver.resolve(
-      context(VALID_SCENE, null, "31"),
-    );
+    const resolved = await fixture.resolver.resolve(context(VALID_SCENE, null, "31"));
 
     expect(resolved).toMatchObject({
       ok: true,
