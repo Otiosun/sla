@@ -312,7 +312,12 @@ function parseLevelEvolutionTrigger(config: unknown): {
     | "ATTACK_EQ_DEFENSE";
 } | null {
   const canonical = EvolutionTriggerSchemas.LEVEL.safeParse(config);
-  if (canonical.success) return canonical.data;
+  if (canonical.success) {
+    const relative = canonical.data.relativePhysicalStats;
+    return relative === undefined
+      ? { level: canonical.data.level }
+      : { level: canonical.data.level, relativePhysicalStats: relative };
+  }
   if (typeof config !== "object" || config === null) return null;
   const legacy = config as Record<string, unknown>;
   const minimumLevel = legacy.minimumLevel;
