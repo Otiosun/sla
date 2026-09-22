@@ -290,7 +290,7 @@ export function createOperationalUxRoutes(
     return textResult(
       context,
       [
-        "📟 *ROTOM · AGORA*",
+        "📟 *ROTOM · MENU*",
         "",
         `📍 *${location.value.areaDisplayName}* · ${location.value.regionDisplayName}`,
         "",
@@ -727,8 +727,8 @@ export function createOperationalUxRoutes(
     return textResult(
       context,
       [
-        `◈ *POKÉMON #${String(ref)}*`,
-        `　_${displayName}_`,
+        "◈ *POKÉMON*",
+        `　#${String(ref)} · _${displayName}_`,
         "",
         `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
         "HP　`" + String(detail.currentHp) + "/" + String(detail.maxHp) + "`　·　`" + statuses + "`",
