@@ -6,6 +6,7 @@ import type {
   WorldServiceSessionRecord,
   WorldServiceSessionState,
 } from "../../modules/world-services/contracts.js";
+import { MIN_SCENE_PROOF_WORDS, SCENE_PROOF_MAX_AGE_MS } from "../../modules/world-services/scene-proof.js";
 import type {
   ClaimSceneProofWrite,
   CloseWorldServiceSessionWrite,
@@ -135,6 +136,8 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
          WHERE player_id = $1
            AND area_id = $2
            AND consumed_at IS NULL
+           AND line_count >= $4
+           AND created_at >= $5
          ORDER BY created_at DESC, id DESC
          LIMIT 1
          FOR UPDATE
@@ -150,7 +153,13 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
                  proof.line_count,
                  proof.created_at,
                  proof.consumed_at`,
-      [input.playerId, input.areaId, input.consumedAt],
+      [
+        input.playerId,
+        input.areaId,
+        input.consumedAt,
+        MIN_SCENE_PROOF_WORDS,
+        new Date(input.consumedAt.getTime() - SCENE_PROOF_MAX_AGE_MS),
+      ],
     );
     const row = result.rows[0];
     return row === undefined ? null : sceneProofRecord(row);
