@@ -341,7 +341,8 @@ function parseItemEvolutionTrigger(config: unknown): { readonly itemId: string }
   if (typeof config !== "object" || config === null) return null;
   const legacy = config as Record<string, unknown>;
   const candidate = legacy.sourceItemIdentityId;
-  return typeof candidate === "string" && z.string().uuid().safeParse(candidate).success
+  return typeof candidate === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(candidate)
     ? { itemId: candidate }
     : null;
 }
