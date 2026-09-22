@@ -43,9 +43,7 @@ describe("messaging error presentation", () => {
       appError("ACTION_INVALID", "internal detail must not be exposed"),
     );
 
-    expect(result.outgoing[0]?.payload.text).toContain(
-      "Essa ação não pode ser concluída agora.",
-    );
+    expect(result.outgoing[0]?.payload.text).toContain("Essa ação não pode ser concluída agora.");
     expect(result.outgoing[0]?.payload.text).toContain("Código de suporte:");
     expect(result.outgoing[0]?.payload.text).not.toContain("internal detail must not be exposed");
   });
