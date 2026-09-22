@@ -140,7 +140,9 @@ function pageFooter(total: number, page: number, command: string): string {
 function isOwnedPokemonDetail(
   detail: OperationalPokemonDetailView | OperationalOwnedPokemonDetailView,
 ): detail is OperationalOwnedPokemonDetailView {
-  return "collectionNo" in detail && "placementKind" in detail && "boxNo" in detail && "xp" in detail;
+  return (
+    "collectionNo" in detail && "placementKind" in detail && "boxNo" in detail && "xp" in detail
+  );
 }
 
 async function resolvePlayer(
