@@ -16,8 +16,12 @@ class FunctionalHandler implements MessageRouteHandler {
 
 export interface PvpWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
-  readonly pvp: Pick<PvpService, "createChallenge" | "acceptChallenge" | "startEncounter">;
+  readonly pvp: Pick<
+    PvpService,
+    "createChallenge" | "acceptChallenge" | "startEncounter" | "declineChallenge" | "cancelChallenge"
+  >;
   readonly openChallengeIdForTarget: (playerId: string) => Promise<string | null>;
+  readonly openChallengeIdForChallenger: (playerId: string) => Promise<string | null>;
   readonly externalRefForPlayer?: (playerId: string) => Promise<string | null>;
 }
 
@@ -90,7 +94,7 @@ export function createPvpWhatsAppRoutes(
       [
         `⚔️ *${mentionTag(challengerRef)} desafiou ${mentionTag(targetMention)}.*`,
         "",
-        `${mentionTag(targetMention)}, \`/aceitar\` para começar.`,
+        `${mentionTag(targetMention)}, \`/aceitar\` para começar ou \`/recusar\`.\nO desafiante pode usar \`/cancelar\` antes da resposta.`,
       ].join("\n"),
       created.value.challenge.id,
       [challengerRef, targetMention],
@@ -138,6 +142,34 @@ export function createPvpWhatsAppRoutes(
     return reply(context, text, started.value.battleId, refs);
   };
 
+  const decline: Handler = async (context) => {
+    const actor = await player(dependencies, context);
+    if (!actor.ok) return actor;
+    const challengeId = await dependencies.openChallengeIdForTarget(actor.value.playerId);
+    if (challengeId === null) return err(appError("NOT_FOUND", "Nenhum convite PVP pendente."));
+    const declined = await dependencies.pvp.declineChallenge({
+      challengeId,
+      actorPlayerId: actor.value.playerId,
+    });
+    if (!declined.ok) return declined;
+    return reply(context, "❌ *Desafio recusado.*", challengeId);
+  };
+
+  const cancel: Handler = async (context) => {
+    const actor = await player(dependencies, context);
+    if (!actor.ok) return actor;
+    const challengeId = await dependencies.openChallengeIdForChallenger(actor.value.playerId);
+    if (challengeId === null) {
+      return err(appError("NOT_FOUND", "Você não possui um desafio PVP aberto."));
+    }
+    const cancelled = await dependencies.pvp.cancelChallenge({
+      challengeId,
+      actorPlayerId: actor.value.playerId,
+    });
+    if (!cancelled.ok) return cancelled;
+    return reply(context, "🚫 *Desafio cancelado.*", challengeId);
+  };
+
   return [
     {
       command: "desafiar",
@@ -147,6 +179,16 @@ export function createPvpWhatsAppRoutes(
     {
       command: "aceitar",
       handler: new FunctionalHandler(accept),
+      policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
+    },
+    {
+      command: "recusar",
+      handler: new FunctionalHandler(decline),
+      policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
+    },
+    {
+      command: "cancelar",
+      handler: new FunctionalHandler(cancel),
       policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
     },
   ];
