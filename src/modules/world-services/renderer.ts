@@ -423,6 +423,60 @@ export function renderCenterEmployeeConversation(): string {
   ].join("\n");
 }
 
+function normalizeNpcInput(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+}
+
+export function renderCenterHanaContinuation(input: string): string {
+  const normalized = normalizeNpcInput(input);
+  const line =
+    /\b(cur(ar|a)|cura|recuper(ar|acao)|hp|machucad|ferid)/u.test(normalized)
+      ? "👩‍⚕️ _— Se algum deles estiver cansado ou ferido, eu posso cuidar da equipe. É só usar `/curar` enquanto estiver aqui._"
+      : /\b(pc|box|caixa|guardar|retirar|equipe)/u.test(normalized)
+        ? "👩‍⚕️ _— Para organizar quem viaja com você, o terminal do PC fica logo ali. Use `/pc` e escolha com calma._"
+        : input.includes("?")
+          ? "👩‍⚕️ _— Posso ajudar com recuperação, cuidados básicos e orientação sobre o Centro. Se quiser tratar sua equipe ou usar o PC, é só me dizer._"
+          : /^\s*[*_]/u.test(input)
+            ? "👩‍⚕️ _Hana acompanha a cena por um instante, claramente tentando entender o que você pretende fazer._\n\n— Tudo bem... quer me perguntar alguma coisa ou precisa de ajuda com seus Pokémon?_"
+            : "👩‍⚕️ _Hana escuta sem interromper e responde com tranquilidade._\n\n— Entendi. Enquanto estiver no Centro, pode falar comigo ou pedir ajuda com sua equipe.";
+
+  return [
+    "♡ *𝗘𝗡𝗙𝗘𝗥𝗠𝗘𝗜𝗥𝗔 𝗛𝗔𝗡𝗔*",
+    "　Conversa em andamento",
+    "",
+    line,
+    "",
+    "_Continue falando normalmente, use `/conversar` para trocar de pessoa ou `/sair` para encerrar a visita._",
+  ].join("\n");
+}
+
+export function renderCenterEmployeeContinuation(input: string): string {
+  const normalized = normalizeNpcInput(input);
+  const line =
+    /\b(pc|box|caixa|guardar|retirar|organizar)/u.test(normalized)
+      ? "_— O PC separa equipe e Boxes. Use `/pc`; lá você pode depositar, retirar e organizar sem precisar decorar identificadores internos._"
+      : /\b(seis|6|equipe|time)/u.test(normalized)
+        ? "_— A equipe ativa comporta até seis Pokémon. Os demais continuam pertencendo a você e ficam disponíveis nas Boxes._"
+        : input.includes("?")
+          ? "_— Posso explicar o terminal, as Boxes e a organização da equipe. Se sua dúvida for sobre tratamento, a Hana é a pessoa certa._"
+          : /^\s*[*_]/u.test(input)
+            ? "_O funcionário observa a cena, um pouco confuso, mas não encerra o atendimento._\n\n— Certo... se isso tiver a ver com o terminal ou com suas Boxes, pode me explicar._"
+            : "_O funcionário presta atenção e faz um gesto para que você continue._\n\n— Pode falar. Se for algo sobre o PC, Boxes ou composição da equipe, eu tento ajudar.";
+
+  return [
+    "▣ *𝗙𝗨𝗡𝗖𝗜𝗢𝗡Á𝗥𝗜𝗢 𝗗𝗢 𝗖𝗘𝗡𝗧𝗥𝗢*",
+    "　Conversa em andamento",
+    "",
+    line,
+    "",
+    "_Continue falando normalmente, use `/conversar` para trocar de pessoa ou `/sair` para encerrar a visita._",
+  ].join("\n");
+}
+
 export function renderWorldServiceExit(): string {
   return "‹ *Atendimento encerrado.* Você voltou à cena normal.";
 }
