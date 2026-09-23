@@ -33,6 +33,4 @@ export const AdminPlayerAdjustmentRequestSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
-export type AdminPlayerAdjustmentRequest = z.infer<
-  typeof AdminPlayerAdjustmentRequestSchema
->;
+export type AdminPlayerAdjustmentRequest = z.infer<typeof AdminPlayerAdjustmentRequestSchema>;
