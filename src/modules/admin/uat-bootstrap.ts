@@ -525,7 +525,7 @@ export function createUatBootstrapRoutes(deps: {
   const protectedRoute = (command: string): CommandRouteDefinition => ({
     command,
     rateLimitClass: "SENSITIVE",
-    policy: { requiredAdminCapability: "UAT_BOOTSTRAP" },
+    policy: { requiredGroupCapabilities: ["world"], requiredAdminCapability: "UAT_BOOTSTRAP" },
     handler,
   });
 
