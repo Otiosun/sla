@@ -1,5 +1,6 @@
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
+import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
@@ -17,6 +18,21 @@ interface PlayerPortalAdminAccess {
   capabilitiesFor(identity: ExternalIdentity): Promise<readonly string[]>;
 }
 
+interface PlayerPortalAdminMutationAccess {
+  prepareMutation(request: unknown): Promise<{
+    readonly operation: { readonly id: string };
+    readonly replayed: boolean;
+  }>;
+  apply(
+    operationId: string,
+    actorPrincipalId: string,
+  ): Promise<{
+    readonly id: string;
+    readonly status: string;
+    readonly result: Readonly<Record<string, unknown>> | null;
+  }>;
+}
+
 interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
@@ -29,6 +45,7 @@ interface PlayerPortalHttpDependencies {
   readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
+  readonly adminMutations: PlayerPortalAdminMutationAccess;
 }
 
 export class PlayerPortalHttpHandler {
@@ -48,6 +65,12 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/players") {
       return this.withSession(request, (identity) => this.searchAdminPlayers(url, identity));
+    }
+    const adminAdjustmentPlayerId = adminPlayerAdjustmentIdFromPath(url.pathname);
+    if (request.method === "POST" && adminAdjustmentPlayerId !== null) {
+      return this.withSession(request, (identity) =>
+        this.adjustAdminPlayer(request, adminAdjustmentPlayerId, identity),
+      );
     }
     const adminPlayerId = adminPlayerIdFromPath(url.pathname);
     if (request.method === "GET" && adminPlayerId !== null) {
@@ -206,6 +229,61 @@ export class PlayerPortalHttpHandler {
     }
   }
 
+  private async adjustAdminPlayer(
+    request: Request,
+    playerId: string,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const body = await readJsonBody(request);
+    const parsed = AdminPlayerAdjustmentRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
+
+    const data = parsed.data;
+    const operation =
+      data.kind === "INVENTORY"
+        ? {
+            operationType: "inventory.adjust",
+            input: { playerId, itemId: data.itemId, delta: data.delta },
+          }
+        : data.kind === "WALLET"
+          ? {
+              operationType: "wallet.adjust",
+              input: { playerId, currencyId: data.currencyId, delta: data.delta },
+            }
+          : {
+              operationType: "progression.trainer.adjust",
+              input: { playerId, delta: data.delta },
+            };
+
+    try {
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: principal.principalId,
+        operationType: operation.operationType,
+        input: operation.input,
+        reason: data.reason,
+        idempotencyKey: `hub-player-adjust:${data.requestId}`,
+        correlationId: data.requestId,
+      });
+      const applied = await this.dependencies.adminMutations.apply(
+        prepared.operation.id,
+        principal.principalId,
+      );
+      return jsonResponse(200, {
+        operationId: applied.id,
+        status: applied.status,
+        replayed: prepared.replayed,
+        result: applied.result,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
   private async getPokemon(identity: ExternalIdentity): Promise<Response> {
     const result = await this.dependencies.player.getPokemon(identity);
     return result.ok
@@ -314,6 +392,13 @@ export class PlayerPortalHttpHandler {
 
     return jsonResponse(200, { profile: profile.value });
   }
+}
+
+function adminPlayerAdjustmentIdFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/adjustments$/i,
+  );
+  return match?.[1] ?? null;
 }
 
 function adminPlayerIdFromPath(pathname: string): string | null {
