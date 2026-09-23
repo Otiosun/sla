@@ -49,6 +49,11 @@ describe("WhatsApp /site command", () => {
     if (!result.ok) return;
     const text = result.value?.outgoing[0]?.payload.text;
     expect(text).toContain(`https://site.example.test/#hub_ticket=${TICKET}`);
+    expect(result.value?.outgoing[0]).toMatchObject({
+      messageType: "TEXT_WITH_TYPING",
+      destinationRef: SENDER,
+      payload: { typingMs: 5000 },
+    });
     expect(text).not.toContain("playerId");
     expect(text).not.toContain(SENDER);
     expect(issue).toHaveBeenCalledWith({ provider: "baileys", externalId: SENDER });
