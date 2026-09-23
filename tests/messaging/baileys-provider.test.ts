@@ -271,7 +271,6 @@ describe("BaileysWhatsAppAdapter", () => {
     await adapter.stop();
   });
 
-
   it("shows composing presence before delayed site text and pauses before send", async () => {
     vi.useFakeTimers();
     try {
