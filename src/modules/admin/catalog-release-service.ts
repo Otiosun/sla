@@ -1,9 +1,9 @@
 import type { AppError } from "../../shared-kernel/result.js";
 import {
-  CatalogReleaseDiffInputSchema,
-  CatalogReleaseLifecycleInputSchema,
   type CatalogReleaseDiffInput,
+  CatalogReleaseDiffInputSchema,
   type CatalogReleaseLifecycleInput,
+  CatalogReleaseLifecycleInputSchema,
   type CatalogReleaseLifecycleMutationResult,
 } from "../catalog/release-admin-contracts.js";
 import type { CatalogReleaseAdminService } from "../catalog/release-admin-service.js";

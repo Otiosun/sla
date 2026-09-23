@@ -1,9 +1,9 @@
 import type { EncounterId, PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
 import type { EncryptedSeedEnvelope, SeedMaterial } from "../encounter/ports.js";
 import type {
-  CapturedPokemonState,
   CaptureAttemptRecord,
   CaptureContext,
+  CapturedPokemonState,
   CaptureProbabilityBreakdown,
   CaptureRosterPlacement,
 } from "./contracts.js";
@@ -17,6 +17,7 @@ export interface CapturePendingWrite {
   readonly playerId: PlayerId;
   readonly encounterId: EncounterId;
   readonly battleId: string | null;
+  readonly targetWildNo?: number;
   readonly ballItemId: string;
   readonly idempotencyStorageKey: string;
   readonly requestFingerprint: string;
@@ -45,6 +46,7 @@ export interface CaptureFailureWrite extends CaptureResolutionBase {}
 
 export interface CaptureSuccessWrite extends CaptureResolutionBase {
   readonly battleId: string | null;
+  readonly targetWildNo?: number;
   readonly expectedBattleVersion: number | null;
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly placement: CaptureRosterPlacement;
@@ -56,13 +58,33 @@ export interface CaptureSuccessWrite extends CaptureResolutionBase {
 
 export type CaptureBallConsumeResult = "CONSUMED" | "INSUFFICIENT" | "CLAIM_CONFLICT";
 
+export interface CaptureBattleTurnClaimInput {
+  readonly battleId: string;
+  readonly expectedBattleVersion: number;
+  readonly playerId: PlayerId;
+  readonly actorParticipantId: string;
+  readonly targetParticipantId: string;
+  readonly ballItemId: string;
+  readonly idempotencyKey: string;
+}
+
+export type CaptureBattleTurnClaimResult =
+  | { readonly kind: "CLAIMED"; readonly replayed: boolean }
+  | {
+      readonly kind: "REJECTED";
+      readonly code: string;
+      readonly message: string;
+    };
+
 export interface CaptureTransaction {
   findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null>;
   loadContext(
     playerId: PlayerId,
     encounterId: EncounterId,
     ballItemId: string,
+    targetWildNo?: number,
   ): Promise<CaptureContext | null>;
+  claimBattleTurn?(input: CaptureBattleTurnClaimInput): Promise<CaptureBattleTurnClaimResult>;
   beginResolving(input: {
     readonly playerId: PlayerId;
     readonly encounterId: EncounterId;

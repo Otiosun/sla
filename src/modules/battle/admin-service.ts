@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   BattleAdminCorrectStateInput,
   BattleAdminForceCancelInput,
@@ -7,7 +8,6 @@ import type {
 } from "./admin-contracts.js";
 import type { BattleAdminRepository } from "./admin-ports.js";
 import type { BattleCancellationPort } from "./runtime.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 function hashRequest(value: Readonly<Record<string, unknown>>): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");

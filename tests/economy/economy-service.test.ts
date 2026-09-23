@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { EconomyService } from "../../src/modules/economy/service.js";
 import type { EconomyRepository } from "../../src/modules/economy/ports.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 function unusedRepository(): EconomyRepository {

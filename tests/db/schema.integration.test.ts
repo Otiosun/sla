@@ -3,8 +3,8 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   DatabaseSchemaOutOfDateError,
-  MigrationIntegrityError,
   loadMigrations,
+  MigrationIntegrityError,
   runMigrations,
   verifyAppliedMigrations,
 } from "../../src/platform/db/migrations.js";

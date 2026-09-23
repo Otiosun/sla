@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
   type PendingMediaJob,
 } from "../../src/modules/messaging/contracts.js";
 import type {
@@ -13,12 +13,12 @@ import type {
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import {
   MediaWorker,
-  MessagingService,
   type MessagingRateLimitPolicySet,
+  MessagingService,
 } from "../../src/modules/messaging/service.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
-import { parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;

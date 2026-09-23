@@ -1,5 +1,18 @@
-import type { BattleAction, BattleEvent, BattleState, BattleStatus } from "./contracts.js";
 import type { RulesetSnapshot } from "../catalog/contracts.js";
+import type {
+  BattleAction,
+  BattleEvent,
+  BattleState,
+  BattleStatus,
+  MajorStatusKey,
+} from "./contracts.js";
+import type { PvpTurnResolutionTransaction } from "./pvp-turn-resolution.js";
+import type {
+  SubmitTurnActionInput,
+  SubmitTurnActionOutput,
+  TurnWindowAggregate,
+  TurnWindowResult,
+} from "./turn-window.js";
 
 export interface BattleSeedEnvelope {
   readonly ciphertext: Uint8Array;
@@ -78,12 +91,16 @@ export interface BattlePokemonBuild {
   readonly moves: readonly BattleMoveBuild[];
   readonly maxHp: number;
   readonly currentHp: number;
-  readonly majorStatus: "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | null;
+  readonly majorStatus: MajorStatusKey | null;
 }
 
 export interface BattleInitializationData {
   readonly playerId: string;
   readonly playerParty: readonly BattlePokemonBuild[];
+  readonly playerParties?: readonly {
+    readonly playerId: string;
+    readonly party: readonly BattlePokemonBuild[];
+  }[];
   readonly opponentParty: readonly BattlePokemonBuild[];
 }
 
@@ -123,6 +140,15 @@ export interface PersistTurnConflict {
 export type PersistTurnResult = PersistTurnSuccess | PersistTurnConflict;
 
 export interface BattleTransaction {
+  readonly turnResolution: PvpTurnResolutionTransaction;
+  loadTurnWindowByBattleVersion(
+    battleId: string,
+    version: number,
+  ): Promise<TurnWindowAggregate | null>;
+  submitTurnAction(
+    windowId: string,
+    input: SubmitTurnActionInput,
+  ): Promise<TurnWindowResult<SubmitTurnActionOutput>>;
   loadRoot(battleId: string, lock?: boolean): Promise<BattleRootRecord | null>;
   loadRuleset(rulesetId: string): Promise<RulesetSnapshot | null>;
   loadState(battleId: string, version?: number): Promise<BattleState | null>;

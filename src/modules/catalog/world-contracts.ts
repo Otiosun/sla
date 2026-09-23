@@ -7,8 +7,70 @@ const unlockKeySchema = z
   .max(96)
   .regex(/^[a-z0-9][a-z0-9._:-]*$/);
 
+const encounterTableSlugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(96)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/);
+
+const FishingAreaConfigSchema = z
+  .object({
+    pointName: z.string().trim().min(1).max(120),
+    encounterTables: z
+      .object({
+        COMMON: encounterTableSlugSchema,
+        UNCOMMON: encounterTableSlugSchema,
+        RARE: encounterTableSlugSchema.optional(),
+        EXTREMELY_RARE: encounterTableSlugSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const presentationTokenSchema = z.string().trim().min(1).max(160);
+
+const WorldAreaPresentationSchema = z
+  .object({
+    summary: z.string().trim().min(1).max(2000),
+    narrativeKeys: z
+      .object({
+        firstArrival: presentationTokenSchema.optional(),
+        returnArrival: presentationTokenSchema.optional(),
+      })
+      .strict(),
+    sites: z
+      .array(
+        z
+          .object({
+            identity: presentationTokenSchema,
+            displayName: z.string().trim().min(1).max(160),
+            kind: presentationTokenSchema,
+          })
+          .strict(),
+      )
+      .max(128),
+    npcRoles: z
+      .array(
+        z
+          .object({
+            identity: presentationTokenSchema,
+            roleKey: presentationTokenSchema,
+            displayName: z.string().trim().min(1).max(160).nullable(),
+            locationIdentity: presentationTokenSchema,
+          })
+          .strict(),
+      )
+      .max(128),
+    editorialNotes: z.array(z.string().trim().min(1).max(2000)).max(128),
+  })
+  .strict();
+
 export const WorldAreaKindSchema = z.enum(["TOWN", "CITY", "ROUTE", "FACILITY", "OTHER"]);
 export type WorldAreaKind = z.infer<typeof WorldAreaKindSchema>;
+
+export const WorldAreaFacilitySchema = z.enum(["POKEMART", "POKEMON_CENTER"]);
+export type WorldAreaFacility = z.infer<typeof WorldAreaFacilitySchema>;
 
 export const WorldAreaConfigSchema = z
   .object({
@@ -17,6 +79,9 @@ export const WorldAreaConfigSchema = z
     safePoint: z.boolean(),
     startingArea: z.boolean(),
     relocationPriority: z.number().int().min(0).max(1_000_000),
+    facilities: z.array(WorldAreaFacilitySchema).max(16).default([]),
+    fishing: FishingAreaConfigSchema.optional(),
+    presentation: WorldAreaPresentationSchema.optional(),
   })
   .strict();
 export type WorldAreaConfig = z.infer<typeof WorldAreaConfigSchema>;
@@ -25,6 +90,7 @@ export const ConnectionAccessRuleSchema = z
   .object({
     schemaVersion: z.literal(1),
     requiredUnlockKeys: z.array(unlockKeySchema).max(32),
+    travelSeconds: z.number().int().min(5).max(600).optional(),
   })
   .strict();
 export type ConnectionAccessRule = z.infer<typeof ConnectionAccessRuleSchema>;

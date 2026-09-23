@@ -1,25 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../../src/modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../../src/modules/admin/domain-service.js";
-import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import type { BattleAction, BattleState } from "../../src/modules/battle/contracts.js";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { MessagingService } from "../../src/modules/messaging/service.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
-import { EconomyService } from "../../src/modules/economy/service.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
 import { WorldService } from "../../src/modules/world/service.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
@@ -37,7 +37,7 @@ import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.j
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
-import { createCorrelationId, parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { createCorrelationId, type PlayerId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -171,7 +171,8 @@ async function startEncounterBattle(
     await encounter.createOrReplay({
       playerId,
       idempotencyKey,
-      encounterTableSlug: "grass-day",
+      encounterTableSlug: "day-land",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
     }),
   );
   const observed = unwrap(
@@ -211,13 +212,79 @@ async function startEncounterBattle(
 }
 
 async function winBattle(
+  pool: Pool,
   battle: BattleService,
   battleId: string,
   playerId: PlayerId,
   initial: BattleState,
 ): Promise<BattleState> {
-  let state = initial;
-  for (let turn = 1; turn <= 64 && state.status === "ACTIVE"; turn += 1) {
+  const prepared = structuredClone(initial);
+  const playerSide = prepared.sides.find((side) => side.controllerKind === "PLAYER");
+  const opponentSide = prepared.sides.find((side) => side.sideNo !== playerSide?.sideNo);
+  if (playerSide === undefined || opponentSide === undefined) {
+    throw new Error("Happy-path deterministic reward battle requires two sides");
+  }
+
+  const actor = prepared.combatants.find(
+    (entry) => entry.participantId === playerSide.activeParticipantId,
+  );
+  const target = prepared.combatants.find(
+    (entry) => entry.participantId === opponentSide.activeParticipantId,
+  );
+  if (actor === undefined || target === undefined) {
+    throw new Error("Happy-path deterministic reward combatants are missing");
+  }
+
+  const move = actor.moves.find(
+    (candidate) =>
+      candidate.power !== null &&
+      candidate.power > 0 &&
+      (candidate.ppCurrent === null || candidate.ppCurrent > 0),
+  );
+  if (move === undefined) {
+    throw new Error("Happy-path deterministic reward battle has no damaging move");
+  }
+
+  actor.currentHp = actor.maxHp;
+  actor.majorStatus = null;
+  actor.baseStats.attack = 65_535;
+  actor.baseStats.spAttack = 65_535;
+  actor.baseStats.speed = 65_535;
+  actor.stages.accuracy = 6;
+  actor.stages.speed = 6;
+  move.power = 999;
+  move.accuracy = 100;
+  move.priority = 10;
+
+  target.currentHp = 1;
+  target.majorStatus = null;
+  target.baseStats.defense = 1;
+  target.baseStats.spDefense = 1;
+  target.baseStats.speed = 1;
+  target.stages.evasion = -6;
+  target.stages.speed = -6;
+  target.type1Id = move.typeId;
+  target.type1Slug = move.typeSlug;
+  target.type2Id = null;
+  target.type2Slug = null;
+  for (const opponentMove of target.moves) {
+    opponentMove.power = opponentMove.power === null ? null : 0;
+    opponentMove.accuracy = 0;
+    opponentMove.priority = -10;
+  }
+
+  const patched = await pool.query(
+    `UPDATE battle_state_snapshots
+     SET state = $3::jsonb
+     WHERE battle_id = $1 AND version = $2`,
+    [battleId, prepared.version, JSON.stringify(prepared)],
+  );
+  if (patched.rowCount !== 1) {
+    throw new Error("Could not prepare deterministic Phase17 reward battle snapshot");
+  }
+
+  let state = prepared;
+  for (let turn = 1; turn <= 8 && state.status === "ACTIVE"; turn += 1) {
     const resolved = unwrapBattle(
       `resolve winning turn ${turn}`,
       await battle.resolvePlayerTurn({
@@ -231,7 +298,9 @@ async function winBattle(
     state = resolved.state;
   }
   if (state.status !== "WON") {
-    throw new Error(`Happy-path battle did not end WON: ${state.status} v${state.version}`);
+    throw new Error(
+      `Happy-path deterministic reward battle did not end WON: ${state.status} v${state.version}`,
+    );
   }
   return state;
 }
@@ -251,7 +320,9 @@ async function main(): Promise<void> {
       reason: null,
     });
     const encounterRepository = new PostgresEncounterRepository(pool);
-    const battleRepository = new PostgresBattleRepository(pool);
+    const battleRepository = new PostgresBattleRepository(pool, {
+      turnWindowTtlMs: 300_000,
+    });
     const reads = new PostgresOperationalUxReadModel(pool);
     const messaging = new MessagingService(
       new PostgresMessagingRepository(pool),
@@ -269,7 +340,7 @@ async function main(): Promise<void> {
     );
 
     // cadastro → starter
-    const menu = await messaging.receive(message("f17-happy-menu", "$menu"));
+    const menu = await messaging.receive(message("f17-happy-menu", "/menu"));
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId === null) {
       throw new Error(`Happy-path initial menu failed: ${JSON.stringify(menu)}`);
     }
@@ -277,11 +348,11 @@ async function main(): Promise<void> {
     if (!parsedPlayerId.ok) throw new Error("Happy-path menu returned invalid PlayerId");
     const playerId = parsedPlayerId.value;
 
-    await receiveProcessed(messaging, "f17-happy-register", "$registrar HappyPath", 1);
-    await receiveProcessed(messaging, "f17-happy-regions", "$regioes", 2);
-    await receiveProcessed(messaging, "f17-happy-region", "$regiao 1", 3);
-    await receiveProcessed(messaging, "f17-happy-starters", "$starters", 4);
-    await receiveProcessed(messaging, "f17-happy-starter", "$starter 1", 5);
+    await receiveProcessed(messaging, "f17-happy-register", "/registrar HappyPath", 1);
+    await receiveProcessed(messaging, "f17-happy-regions", "/regioes", 2);
+    await receiveProcessed(messaging, "f17-happy-region", "/regiao 1", 3);
+    await receiveProcessed(messaging, "f17-happy-starters", "/starters", 4);
+    await receiveProcessed(messaging, "f17-happy-starter", "/starter 1", 5);
 
     const onboarding = await pool.query<{ state: string }>(
       "SELECT state FROM onboarding_states WHERE player_id = $1",
@@ -294,7 +365,7 @@ async function main(): Promise<void> {
     }
 
     // perfil: prove the post-starter user-facing projection, not a second profile mutation.
-    await receiveProcessed(messaging, "f17-happy-profile", "$perfil", 6);
+    await receiveProcessed(messaging, "f17-happy-profile", "/perfil", 6);
     const profileText = await outgoingText(pool, "f17-happy-profile");
     if (!profileText.includes("PERFIL") || !profileText.includes("HappyPath")) {
       throw new Error(`Post-starter profile is not readable: ${profileText}`);
@@ -304,15 +375,21 @@ async function main(): Promise<void> {
       throw new Error(`Starter team projection expected 1 member, got ${team.length}`);
 
     // viajar
-    await receiveProcessed(messaging, "f17-happy-where", "$onde", 7);
+    await receiveProcessed(messaging, "f17-happy-where", "/onde", 7);
     const whereText = await outgoingText(pool, "f17-happy-where");
-    const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
-    const destinationSlug = travelMatch?.[1];
-    const revision = travelMatch?.[2];
-    if (destinationSlug !== "route-1" || revision === undefined) {
-      throw new Error(`Happy-path route command was not Route 1: ${whereText}`);
+    const travelMatch = whereText.match(
+      /(\d+)\.\s+\*Campos de Yun\*\s*[\r\n]+\s*→\s*`\/ir\s+(\d+)`/i,
+    );
+    const listedRouteNumber = travelMatch?.[1];
+    const commandRouteNumber = travelMatch?.[2];
+    if (
+      listedRouteNumber === undefined ||
+      commandRouteNumber === undefined ||
+      listedRouteNumber !== commandRouteNumber
+    ) {
+      throw new Error(`Happy-path numbered route command was not Campos de Yun: ${whereText}`);
     }
-    await receiveProcessed(messaging, "f17-happy-travel", `$ir ${destinationSlug} v${revision}`, 8);
+    await receiveProcessed(messaging, "f17-happy-travel", `/ir ${commandRouteNumber}`, 8);
     const location = await pool.query<{ slug: string }>(
       `SELECT area.slug
        FROM player_locations location
@@ -320,8 +397,8 @@ async function main(): Promise<void> {
        WHERE location.player_id = $1`,
       [playerId],
     );
-    if (location.rows[0]?.slug !== "route-1")
-      throw new Error("Happy-path travel did not reach Route 1");
+    if (location.rows[0]?.slug !== "campos-de-yun")
+      throw new Error("Happy-path travel did not reach Campos de Yun");
 
     // encontro → battle
     const encounter = new EncounterService(
@@ -385,7 +462,7 @@ async function main(): Promise<void> {
     const ballView = inventory.find((entry) => entry.itemId === ballItemId);
     if (ballView?.quantity !== 1n)
       throw new Error("Poké Ball is not visible in operational inventory");
-    await receiveProcessed(messaging, "f17-happy-inventory", "$inventario", 9);
+    await receiveProcessed(messaging, "f17-happy-inventory", "/inventario", 9);
     const inventoryText = await outgoingText(pool, "f17-happy-inventory");
     if (!inventoryText.includes("INVENTÁRIO") || !inventoryText.includes(ballView.displayName)) {
       throw new Error(`Granted item is not visible through inventory UX: ${inventoryText}`);
@@ -436,7 +513,7 @@ async function main(): Promise<void> {
     const caughtSpecies = pokedex.find((entry) => entry.caughtCount > 0n);
     if (caughtSpecies === undefined)
       throw new Error("Capture did not establish a caught Pokédex entry");
-    await receiveProcessed(messaging, "f17-happy-pokedex", "$pokedex", 10);
+    await receiveProcessed(messaging, "f17-happy-pokedex", "/pokedex", 10);
     const pokedexText = await outgoingText(pool, "f17-happy-pokedex");
     if (!pokedexText.includes("POKÉDEX") || !pokedexText.includes(caughtSpecies.displayName)) {
       throw new Error(`Caught species is not visible through Pokédex UX: ${pokedexText}`);
@@ -449,7 +526,7 @@ async function main(): Promise<void> {
       playerId,
       "phase17-happy-reward-encounter",
     );
-    const won = await winBattle(battle, rewardBattle.battleId, playerId, rewardBattle.state);
+    const won = await winBattle(pool, battle, rewardBattle.battleId, playerId, rewardBattle.state);
     if (won.status !== "WON") throw new Error("Reward battle did not finish with a player win");
 
     const progression = new ProgressionService(new PostgresProgressionRepository(pool));
@@ -568,7 +645,7 @@ async function main(): Promise<void> {
     if (
       audit === undefined ||
       audit.onboarding_state !== "COMPLETE" ||
-      audit.area_slug !== "route-1" ||
+      audit.area_slug !== "campos-de-yun" ||
       audit.captured !== "1" ||
       Number(audit.pokedex_caught) < 1 ||
       audit.reward_claims !== "1" ||

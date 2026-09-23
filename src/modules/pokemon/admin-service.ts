@@ -1,3 +1,4 @@
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
   ApplyPokemonEffectInputSchema,
   ArchivePokemonInputSchema,
@@ -16,7 +17,6 @@ import type {
   PokemonCreatePersistenceResult,
   PokemonLifecycleAdminRepository,
 } from "./lifecycle-admin-ports.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 function translatePersistence(
   persisted: PokemonAdminPersistenceResult,

@@ -3,12 +3,12 @@ import type {
   ResolvePlayerTurnInput,
   ResolvePlayerTurnOutput,
 } from "../battle/service.js";
+import { admitProtectedMutation } from "./admission-helper.js";
 import {
   DEFAULT_MUTATION_ADMISSION_POLICIES,
   type MutationAdmissionPort,
   type MutationRatePolicy,
 } from "./contracts.js";
-import { admitProtectedMutation } from "./admission-helper.js";
 
 export interface BattleActionOwner {
   resolvePlayerTurn(
@@ -24,6 +24,15 @@ export class ProtectedBattleGateway {
   ) {}
 
   public async resolvePlayerTurn(input: ResolvePlayerTurnInput) {
+    if (input.playerId === null) {
+      return {
+        ok: false as const,
+        error: {
+          code: "BATTLE_ACTION_INVALID" as const,
+          message: "Narrator actions must use the battle scene gateway",
+        },
+      };
+    }
     const admitted = await admitProtectedMutation(this.admission, {
       subjectKind: "PLAYER",
       subjectId: input.playerId,

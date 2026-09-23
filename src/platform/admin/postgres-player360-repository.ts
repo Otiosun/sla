@@ -1,6 +1,5 @@
 import type { Pool, PoolClient } from "pg";
 import {
-  PlayerStatusSchema,
   type Player360ActivityView,
   type Player360BattleView,
   type Player360EffectView,
@@ -12,6 +11,7 @@ import {
   type Player360SearchItemView,
   type Player360View,
   type Player360WalletView,
+  PlayerStatusSchema,
 } from "../../modules/admin/player360-contracts.js";
 import type {
   Player360ReadRepository,

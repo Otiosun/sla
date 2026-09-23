@@ -70,6 +70,19 @@ function maxHp(baseHp: number, ivHp: number, level: number): number {
   return Math.floor(((2 * baseHp + ivHp) * level) / 100) + level + 10;
 }
 
+function chooseGender(
+  genderRate: number | null | undefined,
+  rng: RandomSource,
+): "MALE" | "FEMALE" | null {
+  if (genderRate === null || genderRate === undefined || genderRate === -1) return null;
+  if (!Number.isSafeInteger(genderRate) || genderRate < 0 || genderRate > 8) {
+    throw new RangeError("Pokemon gender rate must be -1 or an integer in the range 0..8");
+  }
+  if (genderRate === 0) return "MALE";
+  if (genderRate === 8) return "FEMALE";
+  return rng.randomInt(8) < genderRate ? "FEMALE" : "MALE";
+}
+
 export function generateWildPokemon(
   build: WildPokemonBuild,
   level: number,
@@ -117,6 +130,6 @@ export function generateWildPokemon(
     maxHp: hp,
     currentHp: hp,
     shiny: false,
-    gender: null,
+    gender: chooseGender(build.genderRate, rng),
   };
 }

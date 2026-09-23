@@ -1,6 +1,6 @@
 import type { CounterRandomSource } from "../../platform/rng/counter-rng.js";
 import type { BattleAction, BattleState } from "./contracts.js";
-import { legalActionsForSide } from "./legal.js";
+import { legalActionsForParticipant, legalActionsForSide } from "./legal.js";
 import type { BattleRules } from "./rules.js";
 import { typeEffectivenessBasisPoints } from "./rules.js";
 
@@ -26,10 +26,13 @@ export function chooseHeuristicAction(
   sideNo: number,
   rules: BattleRules,
   rng: CounterRandomSource,
+  participantId?: string,
 ): BattleAction | null {
-  const legal = legalActionsForSide(state, sideNo, rules).filter(
-    (action) => action.type !== "FLEE",
-  );
+  const legal = (
+    participantId === undefined
+      ? legalActionsForSide(state, sideNo, rules)
+      : legalActionsForParticipant(state, participantId, rules)
+  ).filter((action) => action.type !== "FLEE");
   if (legal.length === 0) return null;
   const scored = legal.map((action) => ({
     action,

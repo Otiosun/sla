@@ -1,4 +1,4 @@
-import { EvolutionTriggerSchemas, type EvolutionTriggerKind } from "../catalog/contracts.js";
+import { type EvolutionTriggerKind, EvolutionTriggerSchemas } from "../catalog/contracts.js";
 
 export type EvolutionTrigger =
   | { readonly kind: "LEVEL"; readonly level: number }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AdminRoleAssignInputSchema, type AdminRoleAssignInput } from "./contracts.js";
+import { type AdminRoleAssignInput, AdminRoleAssignInputSchema } from "./contracts.js";
 import { AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
 import type { AdminRoleAssignmentPort } from "./ports.js";
 

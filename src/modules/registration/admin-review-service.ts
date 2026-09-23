@@ -1,9 +1,9 @@
+import { appError, err, type Result } from "../../shared-kernel/result.js";
 import type { AdminPreparedOperation, AdminTarget } from "../admin/contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { AdminOperationCompletionPort } from "../admin/ports.js";
 import type { AdminSourceChannel } from "../admin/reception-operation-definitions.js";
 import type { AdminService } from "../admin/service.js";
-import { appError, err, type Result } from "../../shared-kernel/result.js";
 import type { RegistrationRevisionRecord } from "./ports.js";
 import type { RegistrationService } from "./service.js";
 

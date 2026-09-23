@@ -92,9 +92,9 @@ async function prepareEngagedEncounter(
   externalId: string,
   encounterKey: string,
 ): Promise<EngagedFixture> {
-  const region = await pool.query<{ id: string }>("SELECT id FROM regions WHERE slug = 'kanto'");
+  const region = await pool.query<{ id: string }>("SELECT id FROM regions WHERE slug = 'zhoulia'");
   const regionId = region.rows[0]?.id;
-  if (regionId === undefined) throw new Error("Kanto is missing from the active catalog");
+  if (regionId === undefined) throw new Error("Zhoulia is missing from the active catalog");
 
   const onboardingRepository = new PostgresPlayerOnboardingRepository(pool);
   const registration = new PlayerRegistrationService(onboardingRepository);
@@ -114,7 +114,7 @@ async function prepareEngagedEncounter(
       locale: "pt-BR",
     }),
   );
-  unwrap("select Kanto", await registration.selectRegion(identity.playerId, { regionId }));
+  unwrap("select Zhoulia", await registration.selectRegion(identity.playerId, { regionId }));
   const selection = unwrap(
     "prepare capture starter",
     await starter.prepareStarterSelection(identity.playerId),
@@ -140,12 +140,18 @@ async function prepareEngagedEncounter(
     "initialize capture world location",
     await world.ensureInitialLocation({ playerId: identity.playerId }),
   );
+  if (initial.regionSlug !== "zhoulia" || initial.areaSlug !== "vila-dos-arrozais") {
+    throw new Error(
+      `Capture proof expected Zhoulia/Vila dos Arrozais, got ${initial.regionSlug}/${initial.areaSlug}`,
+    );
+  }
   const route = initial.connections.find(
-    (connection) => connection.destinationSlug === "route-1" && connection.available,
+    (connection) => connection.destinationSlug === "campos-de-yun" && connection.available,
   );
-  if (route === undefined) throw new Error("Pallet Town has no available Route 1 connection");
+  if (route === undefined)
+    throw new Error("Vila dos Arrozais has no available Campos de Yun connection");
   unwrap(
-    "travel capture player to Route 1",
+    "travel capture player to Campos de Yun",
     await world.travel({
       playerId: identity.playerId,
       destinationAreaId: route.destinationAreaId,
@@ -164,7 +170,8 @@ async function prepareEngagedEncounter(
     await encounter.createOrReplay({
       playerId: identity.playerId,
       idempotencyKey: encounterKey,
-      encounterTableSlug: "grass-day",
+      encounterTableSlug: "day-land",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
     }),
   );
   const presented = unwrap(
@@ -306,7 +313,9 @@ async function proveConcurrentBattleSuccess(pool: Pool, ballItemId: string): Pro
       expectedRevision: fixture.revision,
     }),
   );
-  const battleRepository = new PostgresBattleRepository(pool);
+  const battleRepository = new PostgresBattleRepository(pool, {
+    turnWindowTtlMs: 300_000,
+  });
   const battle = new BattleService(
     battleRepository,
     new AesBattleSeedReader(new Map([[1, BATTLE_KEY]])),

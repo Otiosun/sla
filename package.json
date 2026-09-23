@@ -12,8 +12,10 @@
   "scripts": {
     "build": "node scripts/build-runtime.mjs",
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "dev:simulator:whatsapp": "node --env-file-if-exists=.env --import tsx scripts/operations/run-whatsapp-simulator.ts",
     "start": "node --env-file=.env --import tsx src/main.ts",
     "start:prod": "node dist/src/main.js",
+    "start:player-portal:prod": "node dist/src/player-portal-main.js",
     "db:migrate": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts migrate",
     "db:verify": "node --env-file-if-exists=.env --import tsx src/platform/db/cli.ts verify",
     "db:seed:phase4": "node --env-file-if-exists=.env --import tsx db/seeds/phase4_vertical_slice.ts",
@@ -27,6 +29,8 @@
     "ops:bootstrap:admin": "node --env-file-if-exists=.env --import tsx scripts/operations/bootstrap-initial-admin.ts",
     "ops:bootstrap:content": "node --env-file-if-exists=.env --import tsx scripts/operations/staging-content-bootstrap.ts",
     "ops:bootstrap:whatsapp": "node --env-file-if-exists=.env --import tsx scripts/operations/bootstrap-whatsapp-session.ts",
+    "ops:cleanup:uat-integration-debris": "node --import tsx scripts/operations/cleanup-uat-integration-debris.ts",
+    "ops:transition:legacy-postgres-roles": "node --import tsx scripts/operations/transition-legacy-postgres-roles.ts",
     "ops:docs:verify": "node --import tsx scripts/operations/verify-operator-docs.ts",
     "ops:smoke:application": "node --import tsx scripts/operations/post-deploy-application-smoke.ts",
     "lint": "biome lint .",
@@ -36,7 +40,16 @@
     "test": "vitest run",
     "test:db": "vitest run tests/db",
     "test:watch": "vitest",
-    "check": "biome ci . && pnpm typecheck && pnpm test"
+    "check": "biome ci . && pnpm typecheck && pnpm test",
+    "ops:bootstrap:whatsapp-simulator-db": "node --env-file-if-exists=.env --import tsx scripts/operations/bootstrap-whatsapp-simulator-db.ts",
+    "ops:seed:whatsapp-simulator-fixture": "node --env-file-if-exists=.env --import tsx scripts/operations/seed-whatsapp-simulator-fixture.ts",
+    "ops:prepare:whatsapp-simulator-gen123": "node --env-file-if-exists=.env --import tsx scripts/operations/prepare-whatsapp-simulator-gen123-content.ts",
+    "ops:verify:whatsapp-simulator-local": "node --env-file-if-exists=.env --import tsx scripts/operations/verify-whatsapp-simulator-local.ts",
+    "ops:stabilize:whatsapp-simulator-local": "node --env-file-if-exists=.env --import tsx scripts/operations/stabilize-whatsapp-simulator-local.ts",
+    "uat:whatsapp:multi": "node --env-file-if-exists=.env --import tsx db/proofs/whatsapp_simulator_multi_actor_uat.ts",
+    "uat:whatsapp:deep": "node --env-file-if-exists=.env --import tsx db/proofs/whatsapp_simulator_deep_gameplay_uat.ts",
+    "uat:whatsapp:stress": "node --env-file-if-exists=.env --import tsx db/proofs/whatsapp_simulator_stress_uat.ts",
+    "uat:whatsapp:full": "pnpm uat:whatsapp:multi && pnpm uat:whatsapp:deep && pnpm uat:whatsapp:stress"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",

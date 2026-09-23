@@ -1,11 +1,11 @@
-import type { CaptureAttemptInput, CaptureAttemptResult } from "../capture/contracts.js";
 import { appError, err, type Result } from "../../shared-kernel/result.js";
+import type { CaptureAttemptInput, CaptureAttemptResult } from "../capture/contracts.js";
+import { admitProtectedMutation } from "./admission-helper.js";
 import {
   DEFAULT_MUTATION_ADMISSION_POLICIES,
   type MutationAdmissionPort,
   type MutationRatePolicy,
 } from "./contracts.js";
-import { admitProtectedMutation } from "./admission-helper.js";
 
 export interface CaptureMutationOwner {
   attempt(input: CaptureAttemptInput): Promise<Result<CaptureAttemptResult>>;

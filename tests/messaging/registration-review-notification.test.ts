@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
 import { withRegistrationReviewMentions } from "../../src/modules/registration/review-notification-mentions.js";
 import { createRegistrationWhatsAppRoutes } from "../../src/modules/registration/whatsapp-handlers.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -98,8 +98,8 @@ describe("registration review notification", () => {
     const confirm = routes.find((candidate) => candidate.command === "confirmar");
     if (confirm === undefined) throw new Error("Missing confirmar route");
 
-    expect(await confirm.handler.handle(context("$confirmar"))).toMatchObject({ ok: true });
-    const submitted = await confirm.handler.handle(context("$confirmar sim"));
+    expect(await confirm.handler.handle(context("/confirmar"))).toMatchObject({ ok: true });
+    const submitted = await confirm.handler.handle(context("/confirmar sim"));
 
     expect(submitted).toMatchObject({
       ok: true,
@@ -112,7 +112,7 @@ describe("registration review notification", () => {
             messageType: "TEXT",
             payload: {
               text: expect.stringMatching(
-                /nova ficha.*Liora Vale.*revisão[\s\S]*@5511888888888.*@5511999999999/i,
+                /Nova ficha de Liora Vale aguardando revisão[\s\S]*Responsáveis:[\s\S]*@5511888888888.*@5511999999999/i,
               ),
               mentions: STAFF_JIDS,
               registrationReview: { reviewId: REVIEW_ID, reviewRevision: 0 },

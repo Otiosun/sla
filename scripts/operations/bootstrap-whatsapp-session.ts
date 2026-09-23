@@ -1,13 +1,16 @@
 import { createRequire } from "node:module";
 import { Pool } from "pg";
-import { makeSocket } from "../../src/adapters/whatsapp/baileys-runtime.js";
+import {
+  makeSocket,
+  resolveLatestWaWebVersion,
+} from "../../src/adapters/whatsapp/baileys-runtime.js";
 import { PostgresBaileysAuthBinding } from "../../src/adapters/whatsapp/postgres-baileys-auth.js";
+import { runWhatsAppPairingBootstrap } from "../../src/operations/whatsapp-pairing-bootstrap.js";
 import {
   resolveInstalledBaileysIdentity,
   runWhatsAppPairingBootstrapCli,
   type TerminalQrRenderer,
 } from "../../src/operations/whatsapp-pairing-bootstrap-cli.js";
-import { runWhatsAppPairingBootstrap } from "../../src/operations/whatsapp-pairing-bootstrap.js";
 import { loadConfig } from "../../src/platform/config/env.js";
 import { assertDatabaseSchemaCurrent } from "../../src/platform/db/migrations.js";
 
@@ -32,7 +35,7 @@ await runWhatsAppPairingBootstrapCli({
   resolveProviderIdentity: resolveInstalledBaileysIdentity,
   renderQr,
   writeStdout: (chunk) => process.stdout.write(chunk),
-  executePairing: async (config, providerIdentity, qrSink) => {
+  executePairing: async (config, providerIdentity, qrSink, codeSink) => {
     const appConfig = loadConfig(process.env);
     const pool = new Pool({
       connectionString: appConfig.databaseUrl,
@@ -47,12 +50,14 @@ await runWhatsAppPairingBootstrapCli({
 
     try {
       await assertDatabaseSchemaCurrent(pool);
+      const waWebVersion = await resolveLatestWaWebVersion();
       await runWhatsAppPairingBootstrap({
         config,
         providerIdentity,
         reserveBootstrap: (options) => PostgresBaileysAuthBinding.reserveBootstrap(pool, options),
-        socketFactory: makeSocket,
+        socketFactory: (socketConfig) => makeSocket({ ...socketConfig, version: waWebVersion }),
         qrSink,
+        codeSink,
       });
     } finally {
       await pool.end();

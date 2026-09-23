@@ -1,5 +1,5 @@
-import type { PlayerAccessRecord } from "./player-access-ports.js";
 import type { Result } from "../../shared-kernel/result.js";
+import type { PlayerAccessRecord } from "./player-access-ports.js";
 
 export interface PlayerProvisioningCandidateSource {
   listPendingReviewIds(limit: number): Promise<readonly string[]>;

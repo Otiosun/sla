@@ -1,18 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../../src/modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../../src/modules/admin/domain-service.js";
-import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { RulesetConfigSchema } from "../../src/modules/catalog/contracts.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
-import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");

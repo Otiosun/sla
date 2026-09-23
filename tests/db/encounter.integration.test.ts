@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { BattleService } from "../../src/modules/battle/service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
+import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
+import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
-import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = (() => {
@@ -37,10 +41,14 @@ function unwrap<T>(result: Result<T>): T {
   return result.value;
 }
 
-function service(pool: Pool, clock: ManualClock): EncounterService {
+function service(
+  pool: Pool,
+  clock: ManualClock,
+  seedFactory: () => Buffer = () => Buffer.alloc(32, 0x4c),
+): EncounterService {
   return new EncounterService(
     new PostgresEncounterRepository(pool),
-    new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c)),
+    new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, seedFactory),
     clock,
     FEATURE_ENABLED,
   );
@@ -281,11 +289,7 @@ describe("encounter PostgreSQL integration", () => {
 
   afterAll(async () => {
     await pool.end();
-    await adminPool.query(
-      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-      [dbName],
-    );
-    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
     await adminPool.end();
   }, 30_000);
 
@@ -318,6 +322,265 @@ describe("encounter PostgreSQL integration", () => {
       [playerId],
     );
     expect(counts.rows[0]).toEqual({ encounters: "1", snapshots: "1" });
+  });
+
+  it("creates one frozen shared encounter for a co-located durable party and replays it", async () => {
+    const client = await pool.connect();
+    let owner: PlayerId;
+    let ally: PlayerId;
+    try {
+      owner = await createEligiblePlayer(client, fixture.areaId);
+      ally = await createEligiblePlayer(client, fixture.areaId);
+      const partyId = randomUUID();
+      await client.query(`INSERT INTO player_parties(id,leader_player_id) VALUES ($1,$2)`, [
+        partyId,
+        owner,
+      ]);
+      await client.query(
+        `INSERT INTO player_party_members(party_id,player_id) VALUES ($1,$2),($1,$3)`,
+        [partyId, owner, ally],
+      );
+    } finally {
+      client.release();
+    }
+
+    const first = unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId: owner,
+        participantPlayerIds: [owner, ally],
+        idempotencyKey: "party-spawn",
+      }),
+    );
+    const replay = unwrap(
+      await service(pool, new ManualClock(new Date(FIXED_NOW.getTime() + 1_000))).createOrReplay({
+        playerId: owner,
+        participantPlayerIds: [owner, ally],
+        idempotencyKey: "party-spawn",
+      }),
+    );
+
+    expect(replay).toMatchObject({ encounterId: first.encounterId, snapshot: first.snapshot });
+    expect(
+      await new PostgresEncounterRepository(pool).read((tx) => tx.activeForPlayer(ally)),
+    ).toMatchObject({ encounterId: first.encounterId });
+    const participants = await pool.query(
+      `SELECT player_id,role,pokemon_instance_ids FROM encounter_players
+      WHERE encounter_id=$1 ORDER BY player_id`,
+      [first.encounterId],
+    );
+    expect(participants.rows).toEqual([
+      {
+        player_id: [owner, ally].sort()[0],
+        role: [owner, ally].sort()[0] === owner ? "OWNER" : "ALLY",
+        pokemon_instance_ids: [],
+      },
+      {
+        player_id: [owner, ally].sort()[1],
+        role: [owner, ally].sort()[1] === owner ? "OWNER" : "ALLY",
+        pokemon_instance_ids: [],
+      },
+    ]);
+  });
+
+  it("rejects an invalid requested party before creating an RNG seed", async () => {
+    const client = await pool.connect();
+    let owner: PlayerId;
+    let ally: PlayerId;
+    try {
+      owner = await createEligiblePlayer(client, fixture.areaId);
+      ally = await createEligiblePlayer(client, fixture.areaId);
+      const partyId = randomUUID();
+      await client.query(`INSERT INTO player_parties(id,leader_player_id) VALUES ($1,$2)`, [
+        partyId,
+        owner,
+      ]);
+      await client.query(
+        `INSERT INTO player_party_members(party_id,player_id) VALUES ($1,$2),($1,$3)`,
+        [partyId, owner, ally],
+      );
+    } finally {
+      client.release();
+    }
+
+    let seedCalls = 0;
+    const created = await service(pool, new ManualClock(FIXED_NOW), () => {
+      seedCalls += 1;
+      return Buffer.alloc(32, 0x4c);
+    }).createOrReplay({
+      playerId: owner,
+      participantPlayerIds: [owner],
+      idempotencyKey: "invalid-party-before-rng",
+    });
+
+    expect(created).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(seedCalls).toBe(0);
+  });
+
+  it("freezes allied rosters and initializes two real owners on one side through the runtime", async () => {
+    const client = await pool.connect();
+    let source: PlayerId;
+    let owner: PlayerId;
+    let ally: PlayerId;
+    try {
+      source = await createEligiblePlayer(client, fixture.areaId);
+      owner = await createEligiblePlayer(client, fixture.areaId);
+      ally = await createEligiblePlayer(client, fixture.areaId);
+    } finally {
+      client.release();
+    }
+    const generated = unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId: source,
+        idempotencyKey: "allied-snapshot-source",
+      }),
+    );
+    const pokemonIds = [randomUUID(), randomUUID()];
+    for (const [index, playerId] of [owner, ally].entries()) {
+      await pool.query(
+        `INSERT INTO pokemon_instances(id,owner_player_id,form_id,ability_id,level,current_hp,origin_type)
+         VALUES ($1,$2,$3,$4,10,30,'TEST')`,
+        [pokemonIds[index], playerId, generated.snapshot.formId, generated.snapshot.abilityId],
+      );
+      await pool.query(
+        `INSERT INTO pokemon_training_values(pokemon_instance_id,nature_id)
+        VALUES ($1,$2)`,
+        [pokemonIds[index], generated.snapshot.natureId],
+      );
+      await pool.query(
+        `INSERT INTO pokemon_move_slots(pokemon_instance_id,slot_no,move_id,pp_current)
+        VALUES ($1,1,$2,35)`,
+        [pokemonIds[index], generated.snapshot.moves[0]?.moveId],
+      );
+      await pool.query(
+        `INSERT INTO pokemon_roster_slots(pokemon_instance_id,player_id,placement_kind,slot_no)
+        VALUES ($1,$2,'TEAM',1)`,
+        [pokemonIds[index], playerId],
+      );
+    }
+    const repository = new PostgresEncounterRepository(pool);
+    const encounterId = createEncounterId();
+    const seed = {
+      ciphertext: Buffer.alloc(32, 1),
+      iv: Buffer.alloc(12, 2),
+      authTag: Buffer.alloc(16, 3),
+      keyVersion: 1,
+    };
+    const inserted = await repository.transaction((tx) =>
+      tx.insertEncounter({
+        encounterId,
+        playerId: owner,
+        participantPlayerIds: [ally, owner],
+        areaId: fixture.areaId,
+        contentReleaseId: fixture.releaseId,
+        rulesetId: fixture.rulesetId,
+        creationIdempotencyKey: "allied-runtime",
+        seed,
+        rngCounter: 0n,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        snapshot: generated.snapshot,
+      }),
+    );
+    expect(await repository.read((tx) => tx.activeForPlayer(ally))).toMatchObject({ encounterId });
+    expect(await repository.read((tx) => tx.byId(ally, encounterId))).toBeNull();
+    const frozen = await pool.query(
+      `SELECT player_id,side_no,role,pokemon_instance_ids FROM encounter_players
+      WHERE encounter_id=$1 ORDER BY role`,
+      [encounterId],
+    );
+    expect(frozen.rows).toEqual([
+      { player_id: ally, side_no: 1, role: "ALLY", pokemon_instance_ids: [pokemonIds[1]] },
+      { player_id: owner, side_no: 1, role: "OWNER", pokemon_instance_ids: [pokemonIds[0]] },
+    ]);
+    await expect(
+      pool.query(`UPDATE encounter_players SET pokemon_instance_ids='{}' WHERE encounter_id=$1`, [
+        encounterId,
+      ]),
+    ).rejects.toMatchObject({ code: "23514" });
+    await expect(
+      pool.query(`DELETE FROM encounter_players WHERE encounter_id=$1`, [encounterId]),
+    ).rejects.toMatchObject({ code: "23514" });
+    await expect(
+      pool.query(
+        `INSERT INTO encounter_players(encounter_id,player_id,side_no,role,active)
+      VALUES ($1,$2,1,'ALLY',TRUE)`,
+        [encounterId, createPlayerId()],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+    // A live roster move after creation cannot substitute the frozen battle roster.
+    await pool.query(
+      `UPDATE pokemon_roster_slots SET placement_kind='BOX',box_no=1 WHERE player_id=$1`,
+      [ally],
+    );
+    const battleId = await repository.transaction((tx) =>
+      tx.createBattle({ battleId: randomUUID(), encounter: inserted, seed }),
+    );
+    const battleRepository = new PostgresBattleRepository(pool, { turnWindowTtlMs: 60_000 });
+    const battle = new BattleService(battleRepository, { decrypt: () => Buffer.alloc(32, 7) });
+    const initialized = await battle.initialize(battleId);
+    if (!initialized.ok) throw initialized.error;
+    expect(initialized.value.state.sides).toHaveLength(2);
+    expect(initialized.value.state.sides[0]?.slots).toHaveLength(2);
+    expect(
+      initialized.value.state.combatants
+        .filter((entry) => entry.sideNo === 1)
+        .map((entry) => entry.pokemonInstanceId),
+    ).toEqual(pokemonIds);
+    const controllers = await new PostgresBattleParticipantControllerRepository(pool).listByBattle(
+      battleId,
+    );
+    expect(
+      controllers
+        .filter((entry) => entry.kind === "PLAYER")
+        .map((entry) => entry.playerId)
+        .sort(),
+    ).toEqual([owner, ally].sort());
+    const window = await new PostgresBattleTurnWindowRepository(pool).loadByBattleVersion(
+      battleId,
+      0,
+    );
+    if (!window.ok) throw new Error(window.error.message);
+    expect(window.value.window.requiredControllers).toHaveLength(2);
+    const actors = initialized.value.state.sides[0]?.slots;
+    const target = initialized.value.state.sides[1]?.activeParticipantId;
+    const [ownerActor, allyActor] = actors ?? [];
+    if (ownerActor === undefined || allyActor === undefined || target === undefined) {
+      throw new Error("Missing initialized actors");
+    }
+    const first = await battle.resolvePlayerTurn({
+      battleId,
+      playerId: owner,
+      expectedVersion: 0,
+      idempotencyKey: "allied-owner",
+      action: {
+        type: "USE_MOVE",
+        actorParticipantId: ownerActor.activeParticipantId,
+        targetParticipantId: target,
+        moveSlot: 1,
+      },
+    });
+    expect(first).toMatchObject({ ok: true, value: { pending: true } });
+    const restarted = new BattleService(
+      new PostgresBattleRepository(pool, { turnWindowTtlMs: 60_000 }),
+      { decrypt: () => Buffer.alloc(32, 7) },
+    );
+    expect(await restarted.initialize(battleId)).toMatchObject({
+      ok: true,
+      value: { replayed: true },
+    });
+    const second = await restarted.resolvePlayerTurn({
+      battleId,
+      playerId: ally,
+      expectedVersion: 0,
+      idempotencyKey: "allied-ally",
+      action: {
+        type: "USE_MOVE",
+        actorParticipantId: allyActor.activeParticipantId,
+        targetParticipantId: target,
+        moveSlot: 1,
+      },
+    });
+    expect(second).toMatchObject({ ok: true, value: { state: { version: 1 } } });
   });
 
   it("serializes concurrent creation so only one incompatible encounter becomes active", async () => {

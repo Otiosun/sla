@@ -1,5 +1,5 @@
 diff --git a/lib/Socket/messages-recv.js b/lib/Socket/messages-recv.js
-index f2003ac00ef223468c432a1bbe0a0eb02c1453b2..af2d9a081e57bcc5ff83c6c90a0ab1919473e40a 100644
+index f2003ac00ef223468c432a1bbe0a0eb02c1453b2..f1d26a9343b8d57a9debfb243cc9ac66cecf18ca 100644
 --- a/lib/Socket/messages-recv.js
 +++ b/lib/Socket/messages-recv.js
 @@ -359,7 +359,7 @@ export const makeMessagesRecvSocket = (config) => {
@@ -11,8 +11,19 @@ index f2003ac00ef223468c432a1bbe0a0eb02c1453b2..af2d9a081e57bcc5ff83c6c90a0ab191
          logger.debug({ recv: { tag: node.tag, attrs: node.attrs }, sent: stanza.attrs }, 'sent ack');
          await sendNode(stanza);
      };
+@@ -880,6 +880,10 @@ export const makeMessagesRecvSocket = (config) => {
+                 break;
+             case 'link_code_companion_reg':
+                 const linkCodeCompanionReg = getBinaryNodeChild(node, 'link_code_companion_reg');
++                if (!getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub')) {
++                    logger.debug({ node }, 'link_code_companion_reg notification without pairing data, skipping');
++                    break;
++                }
+                 const ref = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_ref'));
+                 const primaryIdentityPublicKey = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub'));
+                 const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_wrapped_primary_ephemeral_pub'));
 diff --git a/lib/Socket/socket.js b/lib/Socket/socket.js
-index ae34a8f315a0b9fd101472cc69e59624c6c63861..2a0bbc0e9ab02c6ba90faeb38f470bcd535c958b 100644
+index ae34a8f315a0b9fd101472cc69e59624c6c63861..a9d21b790ca20d8b01225d1dc72248fd88a762e3 100644
 --- a/lib/Socket/socket.js
 +++ b/lib/Socket/socket.js
 @@ -6,7 +6,7 @@ import { proto } from '../../WAProto/index.js';
@@ -20,11 +31,126 @@ index ae34a8f315a0b9fd101472cc69e59624c6c63861..2a0bbc0e9ab02c6ba90faeb38f470bcd
  import { QueryIds, ReachoutTimelockEnforcementType } from '../Types/index.js';
  import { DisconnectReason, XWAPaths } from '../Types/index.js';
 -import { addTransactionCapability, aesEncryptCTR, bindWaitForConnectionUpdate, buildPairingQRData, bytesToCrockford, configureSuccessfulPairing, Curve, derivePairingCodeKey, generateLoginNode, generateMdTagPrefix, generateRegistrationNode, getCodeFromWSError, getCompanionPlatformId, getErrorCodeFromStreamError, getNextPreKeysNode, makeEventBuffer, makeNoiseHandler, promiseTimeout, signedKeyPair, xmppSignedPreKey } from '../Utils/index.js';
-+import { addTransactionCapability, aesEncryptCTR, bindWaitForConnectionUpdate, buildPairingQRData, bytesToCrockford, configureSuccessfulPairing, Curve, derivePairingCodeKey, generateLoginNode, generateMdTagPrefix, generateRegistrationNode, getCodeFromWSError, getCompanionPlatformId, getErrorCodeFromStreamError, getNextPreKeysNode, handleCompanionRegRefresh, makeEventBuffer, makeNoiseHandler, makePairingQRRenderer, promiseTimeout, signedKeyPair, xmppSignedPreKey } from '../Utils/index.js';
++import { addTransactionCapability, aesEncryptCTR, bindWaitForConnectionUpdate, buildPairingQRData, bytesToCrockford, configureSuccessfulPairing, Curve, derivePairingCodeKey, generateLoginNode, generateMdTagPrefix, generateRegistrationNode, getCodeFromWSError, getErrorCodeFromStreamError, getNextPreKeysNode, getPairingCodePlatform, handleCompanionRegRefresh, makeEventBuffer, makeNoiseHandler, makePairingQRRenderer, promiseTimeout, signedKeyPair, xmppSignedPreKey } from '../Utils/index.js';
  import { assertNodeErrorFree, binaryNodeToString, encodeBinaryNode, getAllBinaryNodeChildren, getBinaryNodeChild, getBinaryNodeChildren, isLidUser, jidDecode, jidEncode, S_WHATSAPP_NET } from '../WABinary/index.js';
  import { BinaryInfo } from '../WAM/BinaryInfo.js';
  import { USyncQuery, USyncUser } from '../WAUSync/index.js';
-@@ -690,6 +690,7 @@ export const makeSocket = (config) => {
+@@ -22,6 +22,10 @@ export const makeSocket = (config) => {
+     const { waWebSocketUrl, connectTimeoutMs, logger, keepAliveIntervalMs, browser, auth: authState, printQRInTerminal, defaultQueryTimeoutMs, transactionOpts, qrTimeout, makeSignalRepository } = config;
+     const publicWAMBuffer = new BinaryInfo();
+     let serverTimeOffsetMs = 0;
++    let pairingReady = false;
++    let pairingInProgress = false;
++    let pendingPairingResolve;
++    let pendingPairingReject;
+     const uqTagId = generateMdTagPrefix();
+     const generateMessageTag = () => `${uqTagId}${epoch++}`;
+     if (printQRInTerminal) {
+@@ -478,6 +482,11 @@ export const makeSocket = (config) => {
+         logger.info({ trace: error?.stack }, error ? 'connection errored' : 'connection closed');
+         clearInterval(keepAliveReq);
+         clearTimeout(qrTimer);
++        pairingReady = false;
++        pairingInProgress = false;
++        pendingPairingReject?.(error || new Boom('Connection closed before pairing completed', { statusCode: DisconnectReason.connectionClosed }));
++        pendingPairingResolve = undefined;
++        pendingPairingReject = undefined;
+         ws.removeAllListeners('close');
+         ws.removeAllListeners('open');
+         ws.removeAllListeners('message');
+@@ -593,30 +602,27 @@ export const makeSocket = (config) => {
+         }
+         void end(new Boom(msg || 'Intentional Logout', { statusCode: DisconnectReason.loggedOut }));
+     };
+-    const requestPairingCode = async (phoneNumber, customPairingCode) => {
++    const sendPairingCodeRequest = async (phoneNumber, customPairingCode) => {
+         const pairingCode = customPairingCode ?? bytesToCrockford(randomBytes(5));
+         if (customPairingCode && customPairingCode?.length !== 8) {
+             throw new Error('Custom pairing code must be exactly 8 chars');
+         }
+         authState.creds.pairingCode = pairingCode;
+-        authState.creds.me = {
+-            id: jidEncode(phoneNumber, 's.whatsapp.net'),
+-            name: '~'
+-        };
+-        ev.emit('creds.update', authState.creds);
+-        await sendNode({
++        const jid = jidEncode(phoneNumber, 's.whatsapp.net');
++        const pairingPlatform = getPairingCodePlatform(browser);
++        try {
++            const result = await query({
+             tag: 'iq',
+             attrs: {
+                 to: S_WHATSAPP_NET,
+                 type: 'set',
+-                id: generateMessageTag(),
+                 xmlns: 'md'
+             },
+             content: [
+                 {
+                     tag: 'link_code_companion_reg',
+                     attrs: {
+-                        jid: authState.creds.me.id,
++                        jid,
+                         stage: 'companion_hello',
+                         should_show_push_notification: 'true'
+                     },
+@@ -634,12 +640,12 @@ export const makeSocket = (config) => {
+                         {
+                             tag: 'companion_platform_id',
+                             attrs: {},
+-                            content: getCompanionPlatformId(browser)
++                            content: pairingPlatform.id
+                         },
+                         {
+                             tag: 'companion_platform_display',
+                             attrs: {},
+-                            content: `${browser[1]} (${browser[0]})`
++                            content: pairingPlatform.display
+                         },
+                         {
+                             tag: 'link_code_pairing_nonce',
+@@ -649,8 +655,37 @@ export const makeSocket = (config) => {
+                     ]
+                 }
+             ]
+-        });
+-        return authState.creds.pairingCode;
++            });
++            if (!result)
++                throw new Boom('Timed out waiting for pairing code response', { statusCode: DisconnectReason.timedOut });
++        }
++        catch (error) {
++            if (authState.creds.pairingCode === pairingCode)
++                authState.creds.pairingCode = undefined;
++            throw error;
++        }
++        authState.creds.me = { id: jid, name: '~' };
++        ev.emit('creds.update', authState.creds);
++        return pairingCode;
++    };
++    const requestPairingCode = async (phoneNumber, customPairingCode) => {
++        if (customPairingCode && customPairingCode.length !== 8)
++            throw new Error('Custom pairing code must be exactly 8 chars');
++        if (pairingInProgress)
++            throw new Boom('A pairing request is already in progress', { statusCode: 400 });
++        pairingInProgress = true;
++        try {
++            if (!pairingReady) {
++                await new Promise((resolve, reject) => {
++                    pendingPairingResolve = () => { pendingPairingResolve = undefined; pendingPairingReject = undefined; resolve(); };
++                    pendingPairingReject = (error) => { pendingPairingResolve = undefined; pendingPairingReject = undefined; reject(error); };
++                });
++            }
++            return await sendPairingCodeRequest(phoneNumber, customPairingCode);
++        }
++        finally {
++            pairingInProgress = false;
++        }
+     };
+     async function generatePairingKey() {
+         const salt = randomBytes(32);
+@@ -690,6 +725,7 @@ export const makeSocket = (config) => {
      ws.on('close', () => void end(new Boom('Connection Terminated', { statusCode: DisconnectReason.connectionClosed })));
      // the server terminated the connection
      ws.on('CB:xmlstreamend', () => void end(new Boom('Connection Terminated by Server', { statusCode: DisconnectReason.connectionClosed })));
@@ -32,7 +158,13 @@ index ae34a8f315a0b9fd101472cc69e59624c6c63861..2a0bbc0e9ab02c6ba90faeb38f470bcd
      // QR gen
      ws.on('CB:iq,type:set,pair-device', async (stanza) => {
          const iq = {
-@@ -705,25 +706,32 @@ export const makeSocket = (config) => {
+@@ -701,29 +737,38 @@ export const makeSocket = (config) => {
+             }
+         };
+         await sendNode(iq);
++        pairingReady = true;
++        pendingPairingResolve?.();
+         const pairDeviceNode = getBinaryNodeChild(stanza, 'pair-device');
          const refNodes = getBinaryNodeChildren(pairDeviceNode, 'ref');
          const noiseKeyB64 = Buffer.from(creds.noiseKey.public).toString('base64');
          const identityKeyB64 = Buffer.from(creds.signedIdentityKey.public).toString('base64');
@@ -72,7 +204,7 @@ index ae34a8f315a0b9fd101472cc69e59624c6c63861..2a0bbc0e9ab02c6ba90faeb38f470bcd
      // if device pairs successfully, the server asks to restart the connection
      ws.on('CB:iq,,pair-success', async (stanza) => {
 diff --git a/lib/Utils/companion-reg-client-utils.js b/lib/Utils/companion-reg-client-utils.js
-index f5edebd725cec9a7b62aa5b768826e53bacc810a..9efdd5ef26293fa732dd33926442187f37a0234f 100644
+index f5edebd725cec9a7b62aa5b768826e53bacc810a..f369b7514c26418fd672656e4165949b3647acf6 100644
 --- a/lib/Utils/companion-reg-client-utils.js
 +++ b/lib/Utils/companion-reg-client-utils.js
 @@ -1,3 +1,5 @@
@@ -81,7 +213,19 @@ index f5edebd725cec9a7b62aa5b768826e53bacc810a..9efdd5ef26293fa732dd33926442187f
  export var CompanionWebClientType;
  (function (CompanionWebClientType) {
      CompanionWebClientType[CompanionWebClientType["UNKNOWN"] = 0] = "UNKNOWN";
-@@ -32,4 +34,43 @@ export const buildPairingQRData = (ref, noiseKeyB64, identityKeyB64, advB64, bro
+@@ -28,8 +30,55 @@ export const getCompanionWebClientType = ([os, browserName]) => {
+ export const getCompanionPlatformId = (browser) => {
+     return getCompanionWebClientType(browser).toString();
+ };
++const DEFAULT_PAIRING_CODE_BROWSER_PLATFORM = { id: '1', displayName: 'Chrome' };
++const PAIRING_CODE_BROWSER_PLATFORM = { Chrome: DEFAULT_PAIRING_CODE_BROWSER_PLATFORM, Firefox: { id: '2', displayName: 'Firefox' }, IE: { id: '3', displayName: 'IE' }, Opera: { id: '4', displayName: 'Opera' }, Safari: { id: '5', displayName: 'Safari' }, Edge: { id: '6', displayName: 'Edge' } };
++const PAIRING_CODE_OS_DISPLAY = new Set(['Mac OS', 'Windows', 'Ubuntu']);
++export const getPairingCodePlatform = ([os, browserName]) => {
++    const browser = PAIRING_CODE_BROWSER_PLATFORM[browserName] || DEFAULT_PAIRING_CODE_BROWSER_PLATFORM;
++    const osDisplay = PAIRING_CODE_OS_DISPLAY.has(os) ? os : 'Mac OS';
++    return { id: browser.id, display: `${browser.displayName} (${osDisplay})` };
++};
+ export const buildPairingQRData = (ref, noiseKeyB64, identityKeyB64, advB64, browser) => {
      return ('https://wa.me/settings/linked_devices#' +
          [ref, noiseKeyB64, identityKeyB64, advB64, getCompanionPlatformId(browser)].join(','));
  };
@@ -125,7 +269,6 @@ index f5edebd725cec9a7b62aa5b768826e53bacc810a..9efdd5ef26293fa732dd33926442187f
 +    return 'rotated';
 +};
  //# sourceMappingURL=companion-reg-client-utils.js.map
-\ No newline at end of file
 diff --git a/package.json b/package.json
 index 65620380ba2150fe545841192147631fde5492a6..5000b4b84b3484898797a8c1ce5838896fe0c8ab 100644
 --- a/package.json

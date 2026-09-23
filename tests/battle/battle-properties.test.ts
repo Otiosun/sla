@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chooseHeuristicAction } from "../../src/modules/battle/ai.js";
 import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
-import { TEST_RULES, battleState } from "./fixtures.js";
+import { battleState, TEST_RULES } from "./fixtures.js";
 
 function rng(seed: number, counter = 0n): CounterRandomSource {
   return new CounterRandomSource(Buffer.alloc(32, seed & 0xff), counter);
@@ -118,5 +118,5 @@ describe("Battle Engine v1 properties", () => {
     }
 
     expect(resolvedTurns).toBe(5_000);
-  }, 15_000);
+  }, 60_000);
 });

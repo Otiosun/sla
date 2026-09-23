@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  createIdempotencyKey,
-  parseIdempotencyScope,
-} from "../../src/shared-kernel/idempotency.js";
-import {
   nextRevision,
   requireExpectedRevision,
   revision,
 } from "../../src/shared-kernel/concurrency.js";
+import {
+  createIdempotencyKey,
+  parseIdempotencyScope,
+} from "../../src/shared-kernel/idempotency.js";
 
 describe("idempotency and optimistic concurrency", () => {
   it("scopes and hashes external idempotency keys deterministically", () => {

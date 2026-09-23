@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
-import type { RulesetSnapshot } from "../../src/modules/catalog/contracts.js";
 import type { BattleAction, BattleSide, BattleState } from "../../src/modules/battle/contracts.js";
+import type { BattleParticipantController } from "../../src/modules/battle/participant-controller.js";
 import type { BattleRootRecord, BattleSeedReader } from "../../src/modules/battle/ports.js";
+import {
+  type PersistPvpTurnResolutionInput,
+  type PvpTurnResolutionRepository,
+  PvpTurnResolutionService,
+  type PvpTurnResolutionTransaction,
+} from "../../src/modules/battle/pvp-turn-resolution.js";
 import {
   createTurnWindow,
   submitTurnAction,
   type TurnWindowAggregate,
 } from "../../src/modules/battle/turn-window.js";
-import {
-  PvpTurnResolutionService,
-  type PersistPvpTurnResolutionInput,
-  type PvpTurnResolutionRepository,
-  type PvpTurnResolutionTransaction,
-} from "../../src/modules/battle/pvp-turn-resolution.js";
-import { IDS, battleState, playerCombatant, wildCombatant } from "./fixtures.js";
+import type { RulesetSnapshot } from "../../src/modules/catalog/contracts.js";
+import { battleState, IDS, playerCombatant, wildCombatant } from "./fixtures.js";
 
 const PLAYER_TWO = "00000000-0000-4000-8000-000000000006";
 const PLAYER_TWO_INSTANCE = "00000000-0000-4000-8000-000000000303";
@@ -174,6 +175,10 @@ function lockedWindow(order: readonly [1 | 2, 1 | 2] = [1, 2]): TurnWindowAggreg
 }
 
 class FakeTransaction implements PvpTurnResolutionTransaction {
+  public controllers: readonly BattleParticipantController[] = [];
+  public async loadParticipantControllers() {
+    return structuredClone(this.controllers);
+  }
   public persistCalls: PersistPvpTurnResolutionInput[] = [];
   public calls: string[] = [];
   public persistedState: BattleState | null = null;
@@ -248,6 +253,145 @@ function service(transaction: FakeTransaction, onDecrypt?: () => void) {
     () => COMMITTED_AT,
   );
 }
+
+function controllerTransaction(narrated = false, order = [1, 2]): FakeTransaction {
+  const state = battleState();
+  const controllers: BattleParticipantController[] = [
+    {
+      participantId: IDS.p1,
+      battleId: IDS.battle,
+      kind: "PLAYER",
+      playerId: IDS.player,
+      adminPrincipalId: null,
+      revision: 0,
+      createdAt: OPENED_AT,
+      updatedAt: OPENED_AT,
+    },
+    {
+      participantId: IDS.p2,
+      battleId: IDS.battle,
+      kind: narrated ? "NARRATOR" : "AUTO",
+      playerId: null,
+      adminPrincipalId: narrated ? PLAYER_TWO : null,
+      revision: 0,
+      createdAt: OPENED_AT,
+      updatedAt: OPENED_AT,
+    },
+  ];
+  const requiredControllers = controllers.flatMap((c, index) =>
+    c.kind === "AUTO"
+      ? []
+      : [
+          {
+            participantId: c.participantId,
+            sideNo: index + 1,
+            kind: c.kind,
+            playerId: c.playerId,
+            adminPrincipalId: c.adminPrincipalId,
+            revision: c.revision,
+          },
+        ],
+  );
+  const created = createTurnWindow({
+    id: WINDOW_ID,
+    battleId: IDS.battle,
+    battleVersion: 0,
+    turnNumber: 0,
+    openedAt: OPENED_AT,
+    deadlineAt: DEADLINE_AT,
+    requiredPlayers: [],
+    requiredControllers,
+  });
+  if (!created.ok) throw created.error;
+  let aggregate = created.value;
+  for (const sideNo of order) {
+    const required = requiredControllers.find((c) => c.sideNo === sideNo);
+    if (required === undefined) continue;
+    const submitted = submitTurnAction(aggregate, {
+      id: sideNo === 1 ? SUBMISSION_ONE : SUBMISSION_TWO,
+      playerId: required.playerId,
+      adminPrincipalId: required.adminPrincipalId,
+      controllerRevision: 0,
+      sideNo,
+      expectedBattleVersion: 0,
+      idempotencyKey: `controller-${sideNo}`,
+      action: sideNo === 1 ? actionOne(state) : actionTwo(state),
+      submittedAt: COMMITTED_AT,
+    });
+    if (!submitted.ok) throw submitted.error;
+    aggregate = submitted.value.aggregate;
+  }
+  const transaction = new FakeTransaction(
+    aggregate,
+    { ...root(state), battleType: state.battleType, encounterId: state.encounterId },
+    state,
+  );
+  transaction.controllers = controllers;
+  return transaction;
+}
+
+describe("controller turn resolution", () => {
+  it("resolves solo PVE with AUTO in the same commit and replays without RNG", async () => {
+    const transaction = controllerTransaction();
+    let decryptions = 0;
+    const resolver = service(transaction, () => {
+      decryptions += 1;
+    });
+    const result = await resolver.resolve(WINDOW_ID);
+    expect(result).toMatchObject({ ok: true, value: { state: { version: 1 }, replayed: false } });
+    expect(transaction.persistCalls[0]?.committedWindow.submissions).toHaveLength(1);
+    expect(transaction.persistCalls[0]?.events.filter((e) => e.type === "MoveUsed")).toHaveLength(
+      2,
+    );
+    expect(await resolver.resolve(WINDOW_ID)).toMatchObject({
+      ok: true,
+      value: { replayed: true },
+    });
+    expect(decryptions).toBe(1);
+    expect(transaction.persistCalls).toHaveLength(1);
+  });
+  it("waits for the narrator without RNG and resolves independently of posting order", async () => {
+    const partial = controllerTransaction(true, [1]);
+    let decryptions = 0;
+    expect(
+      await service(partial, () => {
+        decryptions += 1;
+      }).resolve(WINDOW_ID),
+    ).toMatchObject({ ok: false, error: { code: "TURN_WINDOW_NOT_LOCKED" } });
+    expect(decryptions).toBe(0);
+    expect(partial.persistCalls).toHaveLength(0);
+    const first = await service(controllerTransaction(true)).resolve(WINDOW_ID);
+    const reversed = await service(controllerTransaction(true, [2, 1])).resolve(WINDOW_ID);
+    expect(first.ok).toBe(true);
+    expect(reversed).toEqual(first);
+  });
+  it("rejects a stale or incomplete human snapshot before RNG or persistence", async () => {
+    for (const variant of ["stale", "missing", "owner"] as const) {
+      const transaction = controllerTransaction();
+      transaction.controllers = transaction.controllers.map((c) =>
+        variant === "missing" && c.kind === "AUTO"
+          ? { ...c, kind: "NARRATOR", adminPrincipalId: PLAYER_TWO }
+          : c.kind === "PLAYER"
+            ? {
+                ...c,
+                revision: variant === "stale" ? 1 : 0,
+                playerId: variant === "owner" ? PLAYER_TWO : c.playerId,
+              }
+            : c,
+      );
+      let decryptions = 0;
+      expect(
+        (
+          await service(transaction, () => {
+            decryptions += 1;
+          }).resolve(WINDOW_ID)
+        ).ok,
+      ).toBe(false);
+      expect(decryptions).toBe(0);
+      expect(transaction.persistCalls).toHaveLength(0);
+    }
+  });
+});
 
 describe("PVP turn resolution", () => {
   it("rejects a turn window that is not locked without touching battle persistence", async () => {

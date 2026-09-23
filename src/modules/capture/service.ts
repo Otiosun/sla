@@ -1,19 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CounterRandomSource } from "../../platform/rng/counter-rng.js";
-import { createPokemonInstanceId } from "../../shared-kernel/ids.js";
 import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
-import { err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
+import { createPokemonInstanceId } from "../../shared-kernel/ids.js";
+import { type AppError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { BattleCombatant } from "../battle/contracts.js";
 import { EffectConfigSchemas, RulesetConfigSchema } from "../catalog/contracts.js";
 import {
-  CaptureAttemptInputBoundarySchema,
-  CaptureProbabilityInputSchema,
-  type CapturedPokemonState,
   type CaptureAttemptInput,
+  CaptureAttemptInputBoundarySchema,
   type CaptureAttemptRecord,
   type CaptureAttemptResult,
   type CaptureContext,
   type CaptureDomainEvent,
+  type CapturedPokemonState,
+  CaptureProbabilityInputSchema,
 } from "./contracts.js";
 import {
   captureBattleVersionConflict,
@@ -49,6 +49,8 @@ function semanticFingerprint(input: CaptureAttemptInput): string {
       JSON.stringify({
         playerId: input.playerId,
         encounterId: input.encounterId,
+        actorParticipantId: input.actorParticipantId ?? null,
+        targetWildNo: input.targetWildNo ?? 1,
         ballItemId: input.ballItemId,
       }),
     )
@@ -131,13 +133,29 @@ function battleWild(context: CaptureContext): Result<BattleCombatant> {
   ) {
     return err(captureNotReady("Pinned battle is not an active wild battle for this encounter"));
   }
-  const wild = state.combatants.filter((entry) => entry.participantKind === "WILD_POKEMON");
-  if (wild.length !== 1 || wild[0] === undefined) {
-    return err(captureNotReady("Wild battle must contain exactly one capturable wild combatant"));
+
+  const wildSide = state.sides.find((side) =>
+    state.combatants.some(
+      (entry) => entry.sideNo === side.sideNo && entry.participantKind === "WILD_POKEMON",
+    ),
+  );
+  if (wildSide === undefined) {
+    return err(captureNotReady("Wild battle has no capturable wild side"));
   }
-  if (wild[0].currentHp <= 0)
+
+  const active = state.combatants.find(
+    (entry) => entry.participantId === wildSide.activeParticipantId,
+  );
+  if (active === undefined || active.participantKind !== "WILD_POKEMON") {
+    return err(captureNotReady("Wild battle has no active capturable Pokemon"));
+  }
+  if (active.rosterPosition !== (context.targetWildNo ?? 1)) {
+    return err(captureNotReady("Only the active wild Pokemon can be captured"));
+  }
+  if (active.currentHp <= 0) {
     return err(captureNotReady("A fainted wild Pokemon cannot be captured"));
-  return ok(wild[0]);
+  }
+  return ok(active);
 }
 
 function capturedState(context: CaptureContext): Result<CapturedPokemonState> {
@@ -178,7 +196,8 @@ export class CaptureService {
       `${input.playerId}:${input.idempotencyKey.trim()}`,
     );
     if (!idempotency.ok) return idempotency;
-    const fingerprint = semanticFingerprint(input);
+    const targetWildNo = input.targetWildNo ?? 1;
+    const fingerprint = semanticFingerprint({ ...input, targetWildNo });
 
     try {
       return await this.repository.transaction(async (transaction) => {
@@ -189,6 +208,7 @@ export class CaptureService {
           input.playerId,
           input.encounterId,
           input.ballItemId,
+          targetWildNo,
         );
         if (context === null) {
           const terminalReplay = await transaction.findAttempt(idempotency.value.storageKey);
@@ -213,13 +233,16 @@ export class CaptureService {
           return err(captureNotReady("Capture is not allowed from the current encounter state"));
         }
 
+        let battleActorParticipantId: string | null = null;
+        let battleTargetParticipantId: string | null = null;
         if (context.sourceStatus === "ENGAGED") {
           if (
             input.expectedBattleVersion !== null ||
             context.battleId !== null ||
-            context.battleState !== null
+            context.battleState !== null ||
+            input.actorParticipantId !== undefined
           ) {
-            return err(captureNotReady("Engaged encounter must not carry a battle version"));
+            return err(captureNotReady("Engaged encounter must not carry battle turn context"));
           }
         } else {
           if (input.expectedBattleVersion === null) {
@@ -232,6 +255,46 @@ export class CaptureService {
           if (context.battleState?.version !== input.expectedBattleVersion) {
             return err(captureBattleVersionConflict(input.expectedBattleVersion));
           }
+
+          const requestedActor = input.actorParticipantId;
+          const state = context.battleState;
+          if (state === null) {
+            return err(captureNotReady("Battle capture snapshot is unavailable"));
+          }
+          const actor =
+            requestedActor === undefined
+              ? state.sides
+                  .filter(
+                    (side) => side.controllerKind === "PLAYER" && side.playerId === input.playerId,
+                  )
+                  .flatMap((side) => side.slots ?? [side])
+                  .map((slot) =>
+                    state.combatants.find(
+                      (entry) => entry.participantId === slot.activeParticipantId,
+                    ),
+                  )
+                  .find((entry) => entry !== undefined && entry.currentHp > 0)
+              : state.combatants.find((entry) => entry.participantId === requestedActor);
+          const actorSide =
+            actor === undefined
+              ? undefined
+              : state.sides.find((side) => side.sideNo === actor.sideNo);
+          const actorIsActive =
+            actor !== undefined &&
+            actorSide !== undefined &&
+            (actorSide.slots ?? [actorSide]).some(
+              (slot) => slot.activeParticipantId === actor.participantId,
+            );
+          if (
+            actor === undefined ||
+            actor.participantKind !== "PLAYER_POKEMON" ||
+            actor.currentHp <= 0 ||
+            !actorIsActive
+          ) {
+            return err(captureNotReady("Capture requires a living active player Pokemon"));
+          }
+          battleActorParticipantId = actor.participantId;
+          battleTargetParticipantId = wild.value.participantId;
         }
 
         if (context.ball.itemKind !== "BALL" || context.ball.effectKey !== "catch-modifier") {
@@ -251,12 +314,50 @@ export class CaptureService {
           ballMultiplierBasisPoints: ball.data.multiplierBasisPoints,
           status: target.value.majorStatus,
           explicitModifierBasisPoints: context.explicitModifierBasisPoints,
-          ruleset: ruleset.data.capture,
+          ruleset: {
+            model: ruleset.data.capture.model,
+            maxProbabilityBasisPoints: ruleset.data.capture.maxProbabilityBasisPoints,
+          },
         });
         if (!probabilityInput.success) {
           return err(captureNotReady("Capture probability inputs are invalid"));
         }
         const probability = captureProbability(probabilityInput.data);
+
+        if (context.sourceStatus === "IN_BATTLE") {
+          if (
+            context.battleId === null ||
+            input.expectedBattleVersion === null ||
+            battleActorParticipantId === null ||
+            battleTargetParticipantId === null ||
+            transaction.claimBattleTurn === undefined
+          ) {
+            return err(captureIntegrityError("Battle capture turn reservation is unavailable"));
+          }
+          const claim = await transaction.claimBattleTurn({
+            battleId: context.battleId,
+            expectedBattleVersion: input.expectedBattleVersion,
+            playerId: input.playerId,
+            actorParticipantId: battleActorParticipantId,
+            targetParticipantId: battleTargetParticipantId,
+            ballItemId: input.ballItemId,
+            idempotencyKey: input.idempotencyKey,
+          });
+          if (claim.kind === "REJECTED") {
+            return err(
+              captureNotReady("Capture cannot reserve this battle turn", {
+                turnWindowCode: claim.code,
+              }),
+            );
+          }
+          if (claim.replayed) {
+            return err(
+              captureIntegrityError(
+                "Capture turn reservation replayed without a durable capture attempt",
+              ),
+            );
+          }
+        }
 
         const attemptId = randomUUID();
         const seed = this.seedProvider.create(`${idempotency.value.storageKey}:${fingerprint}`);
@@ -279,6 +380,7 @@ export class CaptureService {
           playerId: input.playerId,
           encounterId: input.encounterId,
           battleId: context.battleId,
+          targetWildNo,
           ballItemId: input.ballItemId,
           idempotencyStorageKey: idempotency.value.storageKey,
           requestFingerprint: fingerprint,
@@ -354,6 +456,7 @@ export class CaptureService {
           probabilityBasisPoints: probability.probabilityBasisPoints,
           rollBasisPoints,
           battleId: context.battleId,
+          targetWildNo,
           expectedBattleVersion: input.expectedBattleVersion,
           pokemonInstanceId,
           placement,

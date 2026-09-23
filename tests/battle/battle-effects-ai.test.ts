@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { chooseHeuristicAction } from "../../src/modules/battle/ai.js";
+import { computeDamage } from "../../src/modules/battle/damage.js";
 import { legalActionsForSide, validateBattleAction } from "../../src/modules/battle/legal.js";
 import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
-import { IDS, TEST_RULES, battleState } from "./fixtures.js";
+import { battleState, IDS, playerCombatant, TEST_RULES, wildCombatant } from "./fixtures.js";
 
 const rng = (byte: number, counter = 0n) =>
   new CounterRandomSource(Buffer.alloc(32, byte), counter);
@@ -88,6 +89,458 @@ describe("battle effects, abilities and heuristic AI", () => {
     const updated = result.value.state.combatants.find((entry) => entry.participantId === IDS.p2);
     expect(updated?.stages.accuracy).toBe(0);
     expect(result.value.events.some((entry) => entry.type === "AbilityTriggered")).toBe(true);
+  });
+
+  it("executes imported move metadata for status, stat change, flinch and drain", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.currentHp = 5;
+    player.baseStats.speed = 999;
+    wild.baseStats.speed = 1;
+    wild.currentHp = wild.maxHp = 100;
+    const move = player.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9001,
+      sourceMetaCategoryId: 4,
+      ailment: {
+        kind: "PARALYSIS",
+        chanceBasisPoints: 10_000,
+        minTurns: null,
+        maxTurns: null,
+      },
+      statChanges: [{ stat: "DEFENSE", stages: -1, target: "TARGET" }],
+      statChanceBasisPoints: 10_000,
+      flinchChanceBasisPoints: 10_000,
+      drainPercent: 50,
+      healingPercent: 0,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(14),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const updatedPlayer = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p1,
+    );
+    const updatedWild = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
+    expect(updatedPlayer?.currentHp).toBeGreaterThan(5);
+    expect(updatedWild?.majorStatus?.key).toBe("PARALYSIS");
+    expect(updatedWild?.stages.defense).toBe(-1);
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "ActionBlocked" && entry.payload.reason === "FLINCH",
+      ),
+    ).toBe(true);
+    expect(result.value.events.some((entry) => entry.type === "HpRestored")).toBe(true);
+  });
+
+  it("executes recoil from imported move metadata", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    if (player === undefined) throw new Error("fixture incomplete");
+    player.baseStats.speed = 999;
+    const move = player.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9002,
+      sourceMetaCategoryId: 0,
+      ailment: null,
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: -25,
+      healingPercent: 0,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(15),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "DamageApplied" && entry.payload.source === "RECOIL",
+      ),
+    ).toBe(true);
+  });
+
+  it("executes confusion and percentage healing from imported move metadata", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.currentHp = 5;
+    player.baseStats.speed = 999;
+    const move = player.moves[3];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.category = "STATUS";
+    move.power = null;
+    move.accuracy = null;
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9003,
+      sourceMetaCategoryId: 1,
+      ailment: {
+        kind: "CONFUSION",
+        chanceBasisPoints: 10_000,
+        minTurns: 2,
+        maxTurns: 5,
+      },
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: 0,
+      healingPercent: 50,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(16),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const updatedWild = result.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
+    expect(updatedWild?.volatile.confusionTurns).toBeGreaterThanOrEqual(1);
+    expect(result.value.events.some((entry) => entry.type === "HpRestored")).toBe(true);
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "StatusApplied" && entry.payload.status === "CONFUSION",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks a major status with prevent-status", () => {
+    const state = battleState();
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    if (wild === undefined || player === undefined) throw new Error("fixture incomplete");
+    wild.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "prevent-status",
+      effectConfig: { statuses: ["PARALYSIS"] },
+    };
+    const move = player.moves[3];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9101,
+      sourceMetaCategoryId: 1,
+      ailment: {
+        kind: "PARALYSIS",
+        chanceBasisPoints: 10_000,
+        minTurns: null,
+        maxTurns: null,
+      },
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: 0,
+      healingPercent: 0,
+    };
+
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(17),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.state.combatants.find((entry) => entry.participantId === IDS.p2)?.majorStatus,
+    ).toBeNull();
+    expect(
+      result.value.events.some(
+        (entry) =>
+          entry.type === "AbilityTriggered" && entry.payload.preventedCondition === "PARALYSIS",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks opponent stat drops but not self-inflicted drops", () => {
+    const state = battleState();
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (wild === undefined) throw new Error("fixture incomplete");
+    wild.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "prevent-stat-drop",
+      effectConfig: { stats: ["ATTACK", "DEFENSE"] },
+    };
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(18),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const updated = result.value.state.combatants.find((entry) => entry.participantId === IDS.p2);
+    expect(updated?.stages.attack).toBe(0);
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "AbilityTriggered" && entry.payload.preventedStat === "ATTACK",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks flinch with prevent-flinch", () => {
+    const state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.baseStats.speed = 999;
+    wild.baseStats.speed = 1;
+    wild.ability = { abilityId: IDS.keenEye, effectKey: "prevent-flinch", effectConfig: {} };
+    const move = player.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 9102,
+      sourceMetaCategoryId: 0,
+      ailment: null,
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 10_000,
+      drainPercent: 0,
+      healingPercent: 0,
+    };
+    const result = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 1, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(19),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.events.some(
+        (entry) => entry.type === "ActionBlocked" && entry.payload.reason === "FLINCH",
+      ),
+    ).toBe(false);
+    expect(
+      result.value.events.some(
+        (entry) =>
+          entry.type === "AbilityTriggered" && entry.payload.preventedCondition === "FLINCH",
+      ),
+    ).toBe(true);
+  });
+
+  it("prevents critical hits with prevent-critical", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    defender.ability = { abilityId: IDS.keenEye, effectKey: "prevent-critical", effectConfig: {} };
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    const result = computeDamage(
+      attacker,
+      defender,
+      move,
+      { ...TEST_RULES, criticalChanceBasisPoints: 10_000 },
+      rng(20),
+    );
+    expect(result.critical).toBe(false);
+  });
+
+  it("applies escalating bad-poison residual damage across turns", () => {
+    let state = battleState();
+    const player = state.combatants.find((entry) => entry.participantId === IDS.p1);
+    const wild = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    if (player === undefined || wild === undefined) throw new Error("fixture incomplete");
+    player.maxHp = player.currentHp = 200;
+    player.baseStats.speed = 999;
+    wild.maxHp = wild.currentHp = 160;
+    wild.baseStats.speed = 1;
+    const move = player.moves[3];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.category = "STATUS";
+    move.power = null;
+    move.accuracy = null;
+    move.effectKey = "move-meta-v1";
+    move.effectConfig = {
+      sourceEffectId: 34,
+      sourceMetaCategoryId: 1,
+      ailment: {
+        kind: "BAD_POISON",
+        chanceBasisPoints: 10_000,
+        minTurns: null,
+        maxTurns: null,
+      },
+      statChanges: [],
+      statChanceBasisPoints: 0,
+      flinchChanceBasisPoints: 0,
+      drainPercent: 0,
+      healingPercent: 0,
+    };
+
+    const first = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(21),
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    state = first.value.state;
+    const afterFirst = state.combatants.find((entry) => entry.participantId === IDS.p2);
+    expect(afterFirst?.majorStatus?.key).toBe("BAD_POISON");
+    expect(afterFirst?.majorStatus?.counter).toBe(2);
+    expect(afterFirst?.currentHp).toBe(150);
+
+    const second = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 4, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(22, BigInt(state.rngCounter)),
+    );
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const afterSecond = second.value.state.combatants.find(
+      (entry) => entry.participantId === IDS.p2,
+    );
+    expect(afterSecond?.majorStatus?.counter).toBe(3);
+    expect(afterSecond?.currentHp).toBe(130);
+  });
+
+  it("Levitate grants Ground immunity through the generic type-immunity primitive", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    move.typeId = IDS.normal;
+    move.typeSlug = "ground";
+    defender.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "type-immunity",
+      effectConfig: { typeSlug: "ground" },
+    };
+    const result = computeDamage(attacker, defender, move, TEST_RULES, rng(30));
+    expect(result.damage).toBe(0);
+    expect(result.effectivenessBasisPoints).toBe(0);
+  });
+
+  it("Thick Fat halves incoming Fire and Ice damage", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[1];
+    if (move === undefined) throw new Error("fixture incomplete");
+    const baseline = computeDamage(attacker, defender, move, TEST_RULES, rng(31));
+    defender.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "incoming-type-damage-multiplier",
+      effectConfig: { typeSlugs: ["fire", "ice"], multiplierBasisPoints: 5_000 },
+    };
+    const reduced = computeDamage(attacker, defender, move, TEST_RULES, rng(31));
+    expect(reduced.damage).toBeLessThan(baseline.damage);
+    expect(reduced.abilityMultiplierBasisPoints).toBe(5_000);
+  });
+
+  it("Huge Power and Pure Power can double physical Attack", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    attacker.ability = { abilityId: IDS.blaze, effectKey: null, effectConfig: {} };
+    const baseline = computeDamage(attacker, defender, move, TEST_RULES, rng(32));
+    attacker.ability = {
+      abilityId: IDS.blaze,
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 20_000,
+        condition: "ALWAYS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+    const boosted = computeDamage(attacker, defender, move, TEST_RULES, rng(32));
+    expect(boosted.damage).toBeGreaterThan(baseline.damage);
+  });
+
+  it("Guts boosts Attack under status and ignores the burn Attack penalty", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    attacker.ability = { abilityId: IDS.blaze, effectKey: null, effectConfig: {} };
+    const healthy = computeDamage(attacker, defender, move, TEST_RULES, rng(33));
+    attacker.majorStatus = { key: "BURN", counter: null };
+    const burned = computeDamage(attacker, defender, move, TEST_RULES, rng(33));
+    attacker.ability = {
+      abilityId: IDS.blaze,
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: true,
+      },
+    };
+    const guts = computeDamage(attacker, defender, move, TEST_RULES, rng(33));
+    expect(burned.damage).toBeLessThan(healthy.damage);
+    expect(guts.damage).toBeGreaterThan(healthy.damage);
+  });
+
+  it("Marvel Scale raises physical Defense while a major status is active", () => {
+    const attacker = playerCombatant();
+    const defender = wildCombatant();
+    const move = attacker.moves[0];
+    if (move === undefined) throw new Error("fixture incomplete");
+    defender.ability = { abilityId: IDS.keenEye, effectKey: null, effectConfig: {} };
+    defender.majorStatus = { key: "POISON", counter: null };
+    const baseline = computeDamage(attacker, defender, move, TEST_RULES, rng(34));
+    defender.ability = {
+      abilityId: IDS.keenEye,
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "DEFENSE",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+    const scaled = computeDamage(attacker, defender, move, TEST_RULES, rng(34));
+    expect(scaled.damage).toBeLessThan(baseline.damage);
   });
 
   it("Run Away is an allowlisted ability trigger on a legal FLEE action", () => {

@@ -6,8 +6,10 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { EncounterSeedProvider } from "../encounter/ports.js";
 import {
   acceptPvpChallenge,
+  cancelPvpChallenge,
   canonicalPvpChallengeCreationKey,
   createPvpChallenge,
+  declinePvpChallenge,
   expirePvpChallenge,
   type PvpChallenge,
   type PvpFormatKey,
@@ -47,6 +49,11 @@ export interface AcceptPvpChallengeRequest {
 }
 
 export interface StartPvpEncounterRequest {
+  readonly challengeId: string;
+  readonly actorPlayerId: string;
+}
+
+export interface ClosePvpChallengeRequest {
   readonly challengeId: string;
   readonly actorPlayerId: string;
 }
@@ -312,6 +319,12 @@ export class PvpService {
       });
       if (!accepted.ok) return err(mapPvpChallengeError(accepted.error));
 
+      const seed = this.seedProvider.create(`pvp:challenge:${challenge.id}:encounter`);
+      await transaction.insertAcceptedEncounter({
+        challenge: accepted.value,
+        seed: seed.envelope,
+      });
+
       if (
         !(await transaction.replaceChallenge({
           expectedRevision: challenge.revision,
@@ -321,18 +334,78 @@ export class PvpService {
         return err(appError("REVISION_CONFLICT", "PVP challenge acceptance lost a revision race"));
       }
 
-      const seed = this.seedProvider.create(`pvp:challenge:${challenge.id}:encounter`);
-      await transaction.insertAcceptedEncounter({
-        challenge: accepted.value,
-        seed: seed.envelope,
-      });
-
       return ok({
         challenge: accepted.value,
         encounterId,
         replayed: false,
       });
     });
+  }
+
+  private async closeOpenChallenge(
+    input: ClosePvpChallengeRequest,
+    mode: "DECLINE" | "CANCEL",
+  ): Promise<Result<{ readonly challenge: PvpChallenge; readonly replayed: boolean }>> {
+    const feature = this.featureError();
+    if (feature !== null) return err(feature);
+    if (
+      !uuid.safeParse(input.challengeId).success ||
+      !uuid.safeParse(input.actorPlayerId).success
+    ) {
+      return err(appError("INVALID_ID", "PVP challenge and actor ids must be valid UUIDs"));
+    }
+
+    return this.repository.transaction(async (transaction) => {
+      const challenge = await transaction.challengeById(input.challengeId, true);
+      if (challenge === null) {
+        return err(appError("NOT_FOUND", "PVP challenge was not found"));
+      }
+
+      const expectedActor =
+        mode === "DECLINE" ? challenge.targetPlayerId : challenge.challengerPlayerId;
+      const terminalStatus = mode === "DECLINE" ? "DECLINED" : "CANCELLED";
+      if (input.actorPlayerId !== expectedActor) {
+        return err(pvpActionInvalid("challenge-actor-forbidden"));
+      }
+      if (challenge.status === terminalStatus) {
+        return ok({ challenge, replayed: true });
+      }
+      if (challenge.status !== "OPEN") return err(pvpFlowBlocked("challenge-not-open"));
+
+      const changed =
+        mode === "DECLINE"
+          ? declinePvpChallenge(challenge, {
+              actorPlayerId: input.actorPlayerId,
+              closedAt: this.clock.now(),
+            })
+          : cancelPvpChallenge(challenge, {
+              actorPlayerId: input.actorPlayerId,
+              closedAt: this.clock.now(),
+            });
+      if (!changed.ok) return err(mapPvpChallengeError(changed.error));
+
+      if (
+        !(await transaction.replaceChallenge({
+          expectedRevision: challenge.revision,
+          next: changed.value,
+        }))
+      ) {
+        return err(appError("REVISION_CONFLICT", "PVP challenge close lost a revision race"));
+      }
+      return ok({ challenge: changed.value, replayed: false });
+    });
+  }
+
+  public declineChallenge(
+    input: ClosePvpChallengeRequest,
+  ): Promise<Result<{ readonly challenge: PvpChallenge; readonly replayed: boolean }>> {
+    return this.closeOpenChallenge(input, "DECLINE");
+  }
+
+  public cancelChallenge(
+    input: ClosePvpChallengeRequest,
+  ): Promise<Result<{ readonly challenge: PvpChallenge; readonly replayed: boolean }>> {
+    return this.closeOpenChallenge(input, "CANCEL");
   }
 
   public async startEncounter(

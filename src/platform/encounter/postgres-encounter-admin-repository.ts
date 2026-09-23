@@ -2,17 +2,17 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { BattleStatusSchema, BattleTypeSchema } from "../../modules/battle/contracts.js";
 import {
-  EncounterAdminCloseResultSchema,
-  EncounterAdminStateSchema,
   type EncounterAdminCloseInput,
   type EncounterAdminCloseResult,
+  EncounterAdminCloseResultSchema,
   type EncounterAdminState,
+  EncounterAdminStateSchema,
 } from "../../modules/encounter/admin-contracts.js";
+import { encounterAdminCloseUnsafeReason } from "../../modules/encounter/admin-policy.js";
 import type {
   EncounterAdminClosePersistenceResult,
   EncounterAdminRepository,
 } from "../../modules/encounter/admin-ports.js";
-import { encounterAdminCloseUnsafeReason } from "../../modules/encounter/admin-policy.js";
 import { EncounterStatusSchema } from "../../modules/encounter/contracts.js";
 import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";

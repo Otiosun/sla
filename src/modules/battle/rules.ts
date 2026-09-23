@@ -123,6 +123,7 @@ export function statusCounterOnApply(
   randomInt: (maxExclusive: number) => number,
   rules: BattleRules,
 ): number | null {
+  if (status === "BAD_POISON") return 1;
   if (status !== "SLEEP") return null;
   const width = rules.status.sleepMaxTurns - rules.status.sleepMinTurns + 1;
   return rules.status.sleepMinTurns + randomInt(width);

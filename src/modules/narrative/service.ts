@@ -1,23 +1,23 @@
 import type { Clock } from "../../platform/clock/index.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import {
-  NarrativeIntentV1Schema,
-  ResolvedNarrativeEventSchema,
-  type NarrativeContextInput,
-  type NarrativeFallbackReason,
-  type NarrativeInterpretation,
-  type NarrativeIntentV1,
-  type NarrativeLegalAction,
-  type ResolvedNarrativeEvent,
-} from "./contracts.js";
 import { NarrativeContextBuilder } from "./context-builder.js";
 import {
-  NOOP_NARRATIVE_TELEMETRY,
+  type NarrativeContextInput,
+  type NarrativeFallbackReason,
+  type NarrativeIntentV1,
+  NarrativeIntentV1Schema,
+  type NarrativeInterpretation,
+  type NarrativeLegalAction,
+  type ResolvedNarrativeEvent,
+  ResolvedNarrativeEventSchema,
+} from "./contracts.js";
+import {
   type NarrativeInterpreter,
   type NarrativeInterpreterRequest,
   type NarrativeInterpreterResult,
   type NarrativeRenderer,
   type NarrativeTelemetry,
+  NOOP_NARRATIVE_TELEMETRY,
 } from "./ports.js";
 
 export interface NarrativeN0Policy {

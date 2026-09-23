@@ -58,27 +58,27 @@ describe("operational WhatsApp registration composition", () => {
   it("composes player registration and administrative review routes without legacy collisions", () => {
     const composition = createOperationalMessagingComposition(pool);
 
-    expect(composition.router.classify(message("$registrar"))).toEqual({
+    expect(composition.router.classify(message("/registrar"))).toEqual({
       command: "registrar",
       sensitiveActionKey: "command:registrar",
     });
-    expect(composition.router.classify(message("$confirmar"))).toEqual({
+    expect(composition.router.classify(message("/confirmar"))).toEqual({
       command: "confirmar",
       sensitiveActionKey: null,
     });
-    expect(composition.router.classify(message("$verficha"))).toEqual({
+    expect(composition.router.classify(message("/verficha"))).toEqual({
       command: "verficha",
       sensitiveActionKey: null,
     });
-    expect(composition.router.classify(message("$aprovar"))).toEqual({
+    expect(composition.router.classify(message("/aprovar"))).toEqual({
       command: "aprovar",
       sensitiveActionKey: "command:aprovar",
     });
-    expect(composition.router.classify(message("$ajustes"))).toEqual({
+    expect(composition.router.classify(message("/ajustes"))).toEqual({
       command: "ajustes",
       sensitiveActionKey: "command:ajustes",
     });
-    expect(composition.router.classify(message("$rejeitar"))).toEqual({
+    expect(composition.router.classify(message("/rejeitar"))).toEqual({
       command: "rejeitar",
       sensitiveActionKey: "command:rejeitar",
     });
@@ -89,8 +89,8 @@ describe("operational WhatsApp registration composition", () => {
   it("admits only registered command tokens", () => {
     const composition = createOperationalMessagingComposition(pool);
 
-    expect(composition.admitCommand(message("$registrar"))).toBe(true);
-    expect(composition.admitCommand(message("$Menu"))).toBe(true);
+    expect(composition.admitCommand(message("/registrar"))).toBe(true);
+    expect(composition.admitCommand(message("/Menu"))).toBe(true);
     expect(composition.admitCommand(message("$registro"))).toBe(false);
     expect(composition.admitCommand(message("$naoexiste"))).toBe(false);
   });

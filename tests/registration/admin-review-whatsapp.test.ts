@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
-import type { RegistrationRevisionRecord } from "../../src/modules/registration/ports.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../../src/modules/registration/admin-review-whatsapp.js";
+import type { RegistrationRevisionRecord } from "../../src/modules/registration/ports.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const REVIEW_ID = "33333333-3333-4333-8333-333333333333";
 const PLAYER_ID = "44444444-4444-4444-8444-444444444444" as never;
 const ADMIN_ID = "55555555-5555-4555-8555-555555555555";
 const REPLY_ID = "00000000000040008000000000000921";
+const RENDERED_FICHA_ID = "00000000000040008000000000000922";
 const CORRELATION_ID = "77777777-7777-4777-8777-777777777777";
 
 function snapshot() {
@@ -57,29 +58,41 @@ function context(
   };
 }
 
-function dependencies(current = review(), approveConflict = false) {
+function dependencies(
+  current = review(),
+  approveConflict = false,
+  adminPrincipalId: string | null = ADMIN_ID,
+) {
   const decisions: Array<{ kind: string; input: unknown }> = [];
   const reads: unknown[] = [];
+  const references = new Map([
+    [
+      REPLY_ID,
+      {
+        provider: "baileys",
+        providerExternalMessageId: REPLY_ID,
+        outboxMessageId: "88888888-8888-4888-8888-888888888888",
+        reviewId: REVIEW_ID,
+        reviewRevision: 4,
+      },
+    ],
+  ]);
   return {
     decisions,
     reads,
+    references,
     messageRefs: {
       findByProviderMessage: async (input: {
         readonly provider: string;
         readonly providerExternalMessageId: string;
       }) =>
-        input.provider === "baileys" && input.providerExternalMessageId === REPLY_ID
-          ? {
-              provider: "baileys",
-              providerExternalMessageId: REPLY_ID,
-              outboxMessageId: "88888888-8888-4888-8888-888888888888",
-              reviewId: REVIEW_ID,
-              reviewRevision: 4,
-            }
+        input.provider === "baileys"
+          ? (references.get(input.providerExternalMessageId) ?? null)
           : null,
     },
     admins: {
-      resolvePrincipal: async () => ({ principalId: ADMIN_ID }),
+      resolvePrincipal: async () =>
+        adminPrincipalId === null ? null : { principalId: adminPrincipalId },
     },
     registration: {
       getReview: async (input: unknown) => {
@@ -148,7 +161,7 @@ describe("registration admin review over WhatsApp", () => {
 
   it("shows the exact immutable ficha through the audited read boundary", async () => {
     const { found, deps } = route("verficha");
-    const result = await found.handler.handle(context("$verficha"));
+    const result = await found.handler.handle(context("/verficha"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -158,7 +171,10 @@ describe("registration admin review over WhatsApp", () => {
         outgoing: [
           {
             payload: {
-              text: expect.stringMatching(/Liora Vale[\s\S]*17[\s\S]*Curiosa e competitiva/i),
+              text: expect.stringMatching(
+                /Liora Vale[\s\S]*17[\s\S]*Curiosa e competitiva[\s\S]*\/aprovar[\s\S]*\/ajustes[\s\S]*\/rejeitar/i,
+              ),
+              registrationReview: { reviewId: REVIEW_ID, reviewRevision: 4 },
             },
           },
         ],
@@ -172,11 +188,44 @@ describe("registration admin review over WhatsApp", () => {
       },
     ]);
     expect(deps.decisions).toEqual([]);
+    if (!result.ok) throw result.error;
+    expect(result.value.outgoing[0]?.payload.text).not.toContain("FICHA #");
+  });
+
+  it.each([
+    ["aprovar", "APPROVE"],
+    ["ajustes", "REQUEST_CHANGES"],
+    ["rejeitar", "REJECT"],
+  ] as const)("accepts /%s when replying to the rendered ficha", async (command, kind) => {
+    const deps = dependencies();
+    const { found: view } = route("verficha", deps);
+    const rendered = await view.handler.handle(context("/verficha"));
+    if (!rendered.ok) throw rendered.error;
+    expect(rendered.value.outgoing[0]?.payload.registrationReview).toEqual({
+      reviewId: REVIEW_ID,
+      reviewRevision: 4,
+    });
+    deps.references.set(RENDERED_FICHA_ID, {
+      provider: "baileys",
+      providerExternalMessageId: RENDERED_FICHA_ID,
+      outboxMessageId: "99999999-9999-4999-8999-999999999999",
+      reviewId: REVIEW_ID,
+      reviewRevision: 4,
+    });
+
+    const { found: decision } = route(command, deps);
+    expect(await decision.handler.handle(context(`$${command}`, RENDERED_FICHA_ID))).toMatchObject({
+      ok: true,
+    });
+    expect(deps.decisions).toContainEqual({
+      kind,
+      input: expect.objectContaining({ reviewId: REVIEW_ID, expectedRevision: 4 }),
+    });
   });
 
   it("approves only the review revision anchored by the replied message", async () => {
     const { found, deps } = route("aprovar");
-    const result = await found.handler.handle(context("$aprovar"));
+    const result = await found.handler.handle(context("/aprovar"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -193,7 +242,7 @@ describe("registration admin review over WhatsApp", () => {
           principalId: ADMIN_ID,
           reviewId: REVIEW_ID,
           expectedRevision: 4,
-          idempotencyKey: "inbox:baileys:$aprovar:registration-review:approve",
+          idempotencyKey: "inbox:baileys:/aprovar:registration-review:approve",
           correlationId: CORRELATION_ID,
           sourceChannel: "WHATSAPP",
         },
@@ -203,14 +252,14 @@ describe("registration admin review over WhatsApp", () => {
 
   it("maps request-changes and reject without requiring an embedded manual comment", async () => {
     const adjust = route("ajustes");
-    expect(await adjust.found.handler.handle(context("$ajustes"))).toMatchObject({ ok: true });
+    expect(await adjust.found.handler.handle(context("/ajustes"))).toMatchObject({ ok: true });
     expect(adjust.deps.decisions[0]).toEqual({
       kind: "REQUEST_CHANGES",
       input: {
         principalId: ADMIN_ID,
         reviewId: REVIEW_ID,
         expectedRevision: 4,
-        idempotencyKey: "inbox:baileys:$ajustes:registration-review:request_changes",
+        idempotencyKey: "inbox:baileys:/ajustes:registration-review:request_changes",
         correlationId: CORRELATION_ID,
         sourceChannel: "WHATSAPP",
       },
@@ -218,7 +267,7 @@ describe("registration admin review over WhatsApp", () => {
 
     const reject = route("rejeitar");
     expect(
-      await reject.found.handler.handle(context("$rejeitar qualquer comentário livre")),
+      await reject.found.handler.handle(context("/rejeitar qualquer comentário livre")),
     ).toMatchObject({ ok: true });
     expect(reject.deps.decisions[0]).toEqual({
       kind: "REJECT",
@@ -227,7 +276,7 @@ describe("registration admin review over WhatsApp", () => {
         reviewId: REVIEW_ID,
         expectedRevision: 4,
         idempotencyKey:
-          "inbox:baileys:$rejeitar qualquer comentário livre:registration-review:reject",
+          "inbox:baileys:/rejeitar qualquer comentário livre:registration-review:reject",
         correlationId: CORRELATION_ID,
         sourceChannel: "WHATSAPP",
       },
@@ -236,9 +285,29 @@ describe("registration admin review over WhatsApp", () => {
 
   it("fails closed when the admin command is not a reply to a persisted review notification", async () => {
     const { found, deps } = route("aprovar");
-    expect(await found.handler.handle(context("$aprovar", null))).toMatchObject({
+    expect(await found.handler.handle(context("/aprovar", null))).toMatchObject({
       ok: false,
-      error: { code: "ACTION_INVALID" },
+      error: { code: "VALIDATION_FAILED" },
+    });
+    expect(deps.decisions).toEqual([]);
+  });
+
+  it("rejects an unrelated reply anchor without recording a decision", async () => {
+    const { found, deps } = route("aprovar");
+
+    expect(await found.handler.handle(context("/aprovar", "unrelated-message-id"))).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+    expect(deps.decisions).toEqual([]);
+  });
+
+  it("rejects an actor without an administrative principal", async () => {
+    const { found, deps } = route("aprovar", dependencies(review(), false, null));
+
+    expect(await found.handler.handle(context("/aprovar"))).toMatchObject({
+      ok: false,
+      error: { code: "PLAYER_INELIGIBLE" },
     });
     expect(deps.decisions).toEqual([]);
   });
@@ -247,7 +316,7 @@ describe("registration admin review over WhatsApp", () => {
     const deps = dependencies(review(5), true);
     const { found } = route("aprovar", deps);
 
-    expect(await found.handler.handle(context("$aprovar"))).toMatchObject({
+    expect(await found.handler.handle(context("/aprovar"))).toMatchObject({
       ok: false,
       error: { code: "REVISION_CONFLICT" },
     });

@@ -1,5 +1,6 @@
 export interface BaileysContextInfoLike {
   readonly stanzaId?: string | null;
+  readonly mentionedJid?: readonly string[] | null;
 }
 
 export interface BaileysTextMessageLike {
@@ -43,7 +44,9 @@ export interface BaileysMessageLike {
   readonly key: {
     readonly id?: string | null;
     readonly remoteJid?: string | null;
+    readonly remoteJidAlt?: string | null;
     readonly participant?: string | null;
+    readonly participantAlt?: string | null;
     readonly fromMe?: boolean | null;
   };
   readonly messageTimestamp?: BaileysTimestampLike;
@@ -81,9 +84,20 @@ export interface BaileysSocketConfigLike {
   readonly markOnlineOnConnect: boolean;
   readonly shouldSyncHistoryMessage: (...args: unknown[]) => boolean;
   readonly syncFullHistory: boolean;
+  readonly browser?: readonly [string, string, string];
+  readonly version?: readonly [number, number, number];
 }
 
 export interface BaileysEventMapLike {
+  readonly "group-participants.update": {
+    readonly id: string;
+    readonly action: string;
+    readonly participants: readonly {
+      readonly id: string;
+      readonly lid?: string | null;
+      readonly phoneNumber?: string | null;
+    }[];
+  };
   readonly "creds.update": Readonly<Record<string, unknown>>;
   readonly "messages.upsert": BaileysMessagesUpsertLike;
   readonly "connection.update": BaileysConnectionUpdateLike;
@@ -96,11 +110,48 @@ export interface BaileysEventSourceLike {
   ): void;
 }
 
+export interface BaileysTextOutboundContentLike {
+  readonly text: string;
+  readonly mentions?: readonly string[];
+}
+
+export interface BaileysImageOutboundContentLike {
+  readonly image: { readonly url: string };
+  readonly caption?: string;
+  readonly mentions?: readonly string[];
+}
+
+export interface BaileysReactionOutboundContentLike {
+  readonly react: {
+    readonly text: string;
+    readonly key: {
+      readonly remoteJid: string;
+      readonly id: string;
+      readonly participant?: string;
+    };
+  };
+}
+export type BaileysOutboundContentLike =
+  | BaileysTextOutboundContentLike
+  | BaileysImageOutboundContentLike
+  | BaileysReactionOutboundContentLike;
+
 export interface BaileysSocketLike {
+  readonly user?: { readonly id: string; readonly lid?: string };
+  groupMetadata?(jid: string): Promise<{
+    readonly participants: readonly {
+      readonly id: string;
+      readonly lid?: string | null;
+      readonly phoneNumber?: string | null;
+    }[];
+  }>;
   readonly ev: BaileysEventSourceLike;
+  requestPairingCode?(phoneNumber: string, customPairingCode?: string): Promise<string>;
+  waitForSocketOpen?(): Promise<void>;
+  sendPresenceUpdate?(type: "composing" | "paused", jid: string): Promise<void>;
   sendMessage(
     jid: string,
-    content: { readonly text: string; readonly mentions?: readonly string[] },
+    content: BaileysOutboundContentLike,
     options?: { readonly messageId?: string },
   ): Promise<unknown>;
   end(error?: Error): void;

@@ -20,6 +20,7 @@ export const IncomingMessageSchema = z
     chatRef: boundedRef,
     occurredAt: z.string().datetime({ offset: true }),
     text: z.string().max(32_768).nullable().default(null),
+    mentions: z.array(boundedRef).max(64).optional(),
     mediaRefs: z.array(MediaReferenceSchema).max(16).default([]),
     replyToExternalMessageId: boundedRef.nullable().default(null),
   })
@@ -35,6 +36,7 @@ export const OutgoingMessageDraftSchema = z
     messageType: z.string().trim().min(1).max(128),
     payload: z.record(z.string(), z.unknown()),
     idempotencyKey: z.string().trim().min(1).max(512),
+    delayMs: z.number().int().min(0).max(60_000).optional(),
   })
   .strict();
 
@@ -60,6 +62,8 @@ export interface MessageHandlerContext {
   readonly causationId: string;
   readonly idempotencyKey: string;
   readonly message: IncomingMessage;
+  /** Full inbound text before mechanical command extraction. */
+  readonly originalMessageText?: string | null;
 }
 
 export interface MessageHandlerResult {

@@ -4,6 +4,7 @@ import type {
   EncounterRecord,
   EncounterStatus,
   EncounterTableRecord,
+  EncounterWildSnapshot,
   WildPokemonBuild,
   WildPokemonSnapshot,
 } from "./contracts.js";
@@ -34,6 +35,7 @@ export interface EncounterTransaction {
   activeContent(): Promise<ActiveEncounterContent | null>;
   rulesetConfig(rulesetId: string): Promise<unknown | null>;
   playerContext(playerId: PlayerId, lock?: boolean): Promise<EncounterPlayerContext | null>;
+  partyMembers(playerId: PlayerId, lock?: boolean): Promise<readonly PlayerId[] | null>;
   byCreationKey(
     playerId: PlayerId,
     creationIdempotencyKey: string,
@@ -46,12 +48,15 @@ export interface EncounterTransaction {
     lock?: boolean,
   ): Promise<EncounterRecord | null>;
   snapshot(encounterId: EncounterId): Promise<WildPokemonSnapshot | null>;
+  wildSnapshots?(encounterId: EncounterId): Promise<readonly EncounterWildSnapshot[]>;
   battleId(encounterId: EncounterId): Promise<string | null>;
   tables(contentReleaseId: string, areaId: string): Promise<readonly EncounterTableRecord[]>;
   wildBuild(contentReleaseId: string, formId: string): Promise<WildPokemonBuild | null>;
   insertEncounter(input: {
     readonly encounterId: EncounterId;
     readonly playerId: PlayerId;
+    /** Complete frozen player set, including the owner; omitted for solo encounters. */
+    readonly participantPlayerIds?: readonly PlayerId[];
     readonly areaId: string;
     readonly contentReleaseId: string;
     readonly rulesetId: string;
@@ -61,6 +66,7 @@ export interface EncounterTransaction {
     readonly createdAt: Date;
     readonly expiresAt: Date;
     readonly snapshot: WildPokemonSnapshot;
+    readonly wildSnapshots?: readonly EncounterWildSnapshot[];
   }): Promise<EncounterRecord>;
   transition(input: {
     readonly playerId: PlayerId;

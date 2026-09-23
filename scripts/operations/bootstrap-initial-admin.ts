@@ -1,7 +1,7 @@
 import { Pool } from "pg";
+import { loadInitialAdminBootstrapConfig } from "../../src/operations/initial-admin-bootstrap-config.js";
 import { bootstrapInitialAdmin } from "../../src/platform/admin/postgres-initial-admin-bootstrap.js";
 import { assertDatabaseSchemaCurrent } from "../../src/platform/db/migrations.js";
-import { loadInitialAdminBootstrapConfig } from "../../src/operations/initial-admin-bootstrap-config.js";
 
 const config = loadInitialAdminBootstrapConfig();
 const pool = new Pool({
