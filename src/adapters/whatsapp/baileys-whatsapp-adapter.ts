@@ -225,12 +225,7 @@ function reactionOutboundContent(message: PendingOutboxMessage): BaileysOutbound
 }
 function typingDelayMs(message: PendingOutboxMessage): number {
   const value = message.payload.typingMs;
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 1_000 ||
-    value > 10_000
-  ) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1_000 || value > 10_000) {
     throw new Error("Baileys TEXT_WITH_TYPING requires typingMs from 1000 to 10000");
   }
   return value;
