@@ -110,7 +110,9 @@ function evolutionOptionLine(
     return [
       `*${String(index + 1)}. ${option.targetDisplayName}*`,
       `　${option.itemDisplayName ?? "Item de evolução"} · mochila ×${quantity.toString()}`,
-      `　→ \`/evoluir #${String(collectionNo)} ${String(index + 1)}\``,
+      quantity > 0n
+        ? `　→ \`/evoluir #${String(collectionNo)} ${String(index + 1)}\``
+        : "　_Item necessário não disponível na mochila._",
     ];
   }
   return [
