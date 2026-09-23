@@ -764,21 +764,23 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const rawReference = commandArgs(context).join(" ");
     const owned = await listOwned(player.value);
-    const numericFallback = parseCollectionNumber(rawReference);
-    if (owned === null && numericFallback === null) {
-      return err(
-        appError(
-          "VALIDATION_FAILED",
-          "Informe o Pokémon pelo número. Ex.: `/pokemon #1`.",
-        ),
-      );
+    let ref: number;
+    if (owned === null) {
+      const numericFallback = parseCollectionNumber(rawReference);
+      if (numericFallback === null) {
+        return err(
+          appError(
+            "VALIDATION_FAILED",
+            "Informe o Pokémon pelo número. Ex.: `/pokemon #1`.",
+          ),
+        );
+      }
+      ref = numericFallback;
+    } else {
+      const resolvedReference = resolveOwnedPokemonReference(owned, rawReference);
+      if (!resolvedReference.ok) return resolvedReference;
+      ref = resolvedReference.value.collectionNo;
     }
-    const resolvedReference =
-      owned === null
-        ? ok({ collectionNo: numericFallback as number })
-        : resolveOwnedPokemonReference(owned, rawReference);
-    if (!resolvedReference.ok) return resolvedReference;
-    const ref = resolvedReference.value.collectionNo;
 
     const detail =
       dependencies.reads.ownedPokemonDetail === undefined
