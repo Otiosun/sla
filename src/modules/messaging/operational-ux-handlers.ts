@@ -793,6 +793,7 @@ export function createOperationalUxRoutes(
         ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
         "",
         "`/golpes` · decisões de aprendizado",
+        ``/evolucao #${String(ref)}` · evolução e requisitos`,
         "`/equipe` · administrar formação",
       ].join("\n"),
     );
