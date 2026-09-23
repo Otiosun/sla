@@ -67,6 +67,12 @@ function handler() {
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
   const instance = new PlayerPortalHttpHandler({
     tickets: { redeem: async () => ok(identity) },
+    adminAccess: {
+      get: async () => ({
+        capabilities: [{ key: "player.read", riskTier: 0 }],
+        scopes: [{ scopeType: "GLOBAL", scopeId: null }],
+      }),
+    },
     sessions: {
       issue: () =>
         ok({
@@ -127,6 +133,27 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toHaveProperty(key);
     }
+  });
+
+  it("exposes admin access only through an authenticated Hub session", async () => {
+    const authenticated = await handler().instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/self", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(authenticated.status).toBe(200);
+    expect(await authenticated.json()).toEqual({
+      admin: {
+        capabilities: [{ key: "player.read", riskTier: 0 }],
+        scopes: [{ scopeType: "GLOBAL", scopeId: null }],
+      },
+    });
+
+    const anonymous = await handler().instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/self"),
+    );
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ error: "UNAUTHENTICATED" });
   });
 
   it("allows roster, move learning and cosmetic profile updates without gameplay mutations", async () => {
