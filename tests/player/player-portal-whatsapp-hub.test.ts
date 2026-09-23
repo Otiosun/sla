@@ -47,13 +47,22 @@ describe("WhatsApp /site command", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const outgoing = result.value?.outgoing[0];
-    const text = outgoing?.payload.text;
-    expect(outgoing).toMatchObject({
+    expect(result.value?.outgoing).toHaveLength(2);
+    const [presence, link] = result.value?.outgoing ?? [];
+    expect(presence).toMatchObject({
       destinationRef: SENDER,
-      messageType: "TEXT_WITH_TYPING",
-      payload: { typingMs: 5_000 },
+      messageType: "PRESENCE",
+      payload: { state: "composing" },
+      idempotencyKey: "inbox:test:hub-1:typing",
     });
+    expect(link).toMatchObject({
+      destinationRef: SENDER,
+      messageType: "TEXT",
+      payload: { clearTyping: true },
+      delayMs: 5_000,
+      idempotencyKey: "inbox:test:hub-1:reply",
+    });
+    const text = link?.payload.text;
     expect(text).toContain(`https://hub.example.test/#hub_ticket=${TICKET}`);
     expect(text).not.toContain("playerId");
     expect(text).not.toContain(SENDER);
