@@ -1,6 +1,10 @@
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
+import {
+  AdminOperationApprovalRequestSchema,
+  AdminOperationPrepareRequestSchema,
+} from "./admin-operation-contracts.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
@@ -18,19 +22,47 @@ interface PlayerPortalAdminAccess {
   capabilitiesFor(identity: ExternalIdentity): Promise<readonly string[]>;
 }
 
+interface PlayerPortalAdminOperationPolicy {
+  readonly version: number;
+  readonly requiresReason: boolean;
+  readonly requiresExpectedRevision: boolean;
+  readonly requiresSimulation: boolean;
+  readonly requiresConfirmation: boolean;
+  readonly requiredApprovals: number;
+}
+
+interface PlayerPortalAdminOperationDefinition {
+  readonly kind: "READ" | "MUTATION";
+  readonly operationType: string;
+  readonly capabilityKey: string;
+  readonly riskTier: number;
+  readonly authorizationMode: "GLOBAL_ONLY" | "SUBJECT";
+  readonly policy: PlayerPortalAdminOperationPolicy;
+}
+
+interface PlayerPortalAdminOperationResult {
+  readonly id: string;
+  readonly status: string;
+  readonly result: Readonly<Record<string, unknown>> | null;
+}
+
 interface PlayerPortalAdminMutationAccess {
+  listOperationDefinitions(): readonly PlayerPortalAdminOperationDefinition[];
   prepareMutation(request: unknown): Promise<{
-    readonly operation: { readonly id: string };
+    readonly operation: PlayerPortalAdminOperationResult;
     readonly replayed: boolean;
   }>;
-  apply(
+  simulate(
     operationId: string,
     actorPrincipalId: string,
-  ): Promise<{
-    readonly id: string;
-    readonly status: string;
-    readonly result: Readonly<Record<string, unknown>> | null;
-  }>;
+  ): Promise<PlayerPortalAdminOperationResult>;
+  confirm(operationId: string, actorPrincipalId: string): Promise<PlayerPortalAdminOperationResult>;
+  approve(
+    operationId: string,
+    actorPrincipalId: string,
+    reason: string,
+  ): Promise<PlayerPortalAdminOperationResult>;
+  apply(operationId: string, actorPrincipalId: string): Promise<PlayerPortalAdminOperationResult>;
 }
 
 interface PlayerPortalHttpDependencies {
@@ -65,6 +97,18 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/players") {
       return this.withSession(request, (identity) => this.searchAdminPlayers(url, identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/operations") {
+      return this.withSession(request, (identity) => this.listAdminOperations(identity));
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/admin/operations") {
+      return this.withSession(request, (identity) => this.prepareAdminOperation(request, identity));
+    }
+    const adminOperationAction = adminOperationActionFromPath(url.pathname);
+    if (request.method === "POST" && adminOperationAction !== null) {
+      return this.withSession(request, (identity) =>
+        this.advanceAdminOperation(request, adminOperationAction, identity),
+      );
     }
     const adminAdjustmentPlayerId = adminPlayerAdjustmentIdFromPath(url.pathname);
     if (request.method === "POST" && adminAdjustmentPlayerId !== null) {
@@ -181,6 +225,112 @@ export class PlayerPortalHttpHandler {
         capabilities: [...capabilities],
       },
     });
+  }
+
+  private async listAdminOperations(identity: ExternalIdentity): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const capabilities = new Set(await this.dependencies.admin.capabilitiesFor(identity));
+    const operations = this.dependencies.adminMutations
+      .listOperationDefinitions()
+      .filter((operation) => capabilities.has(operation.capabilityKey))
+      .map((operation) => ({
+        kind: operation.kind,
+        operationType: operation.operationType,
+        capabilityKey: operation.capabilityKey,
+        riskTier: operation.riskTier,
+        authorizationMode: operation.authorizationMode,
+        policy: { ...operation.policy },
+      }));
+
+    return jsonResponse(200, { operations });
+  }
+
+  private async prepareAdminOperation(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const body = await readJsonBody(request);
+    const parsed = AdminOperationPrepareRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+
+    const data = parsed.data;
+    try {
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: principal.principalId,
+        operationType: data.operationType,
+        input: data.input,
+        ...(data.reason === undefined ? {} : { reason: data.reason }),
+        ...(data.expectedRevision === undefined ? {} : { expectedRevision: data.expectedRevision }),
+        idempotencyKey: `hub-admin-operation:${data.requestId}`,
+        correlationId: data.requestId,
+      });
+      return jsonResponse(200, {
+        operationId: prepared.operation.id,
+        status: prepared.operation.status,
+        replayed: prepared.replayed,
+        result: prepared.operation.result,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async advanceAdminOperation(
+    request: Request,
+    action: {
+      readonly operationId: string;
+      readonly action: "simulate" | "confirm" | "approve" | "apply";
+    },
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    try {
+      const operation =
+        action.action === "simulate"
+          ? await this.dependencies.adminMutations.simulate(
+              action.operationId,
+              principal.principalId,
+            )
+          : action.action === "confirm"
+            ? await this.dependencies.adminMutations.confirm(
+                action.operationId,
+                principal.principalId,
+              )
+            : action.action === "approve"
+              ? await this.approveAdminOperation(request, action.operationId, principal.principalId)
+              : await this.dependencies.adminMutations.apply(
+                  action.operationId,
+                  principal.principalId,
+                );
+
+      return jsonResponse(200, {
+        operationId: operation.id,
+        status: operation.status,
+        result: operation.result,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async approveAdminOperation(
+    request: Request,
+    operationId: string,
+    principalId: string,
+  ): Promise<PlayerPortalAdminOperationResult> {
+    const body = await readJsonBody(request);
+    const parsed = AdminOperationApprovalRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid approval request");
+    }
+    return this.dependencies.adminMutations.approve(operationId, principalId, parsed.data.reason);
   }
 
   private async searchAdminPlayers(url: URL, identity: ExternalIdentity): Promise<Response> {
@@ -392,6 +542,25 @@ export class PlayerPortalHttpHandler {
 
     return jsonResponse(200, { profile: profile.value });
   }
+}
+
+function adminOperationActionFromPath(pathname: string): {
+  readonly operationId: string;
+  readonly action: "simulate" | "confirm" | "approve" | "apply";
+} | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/operations\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(simulate|confirm|approve|apply)$/i,
+  );
+  if (match === null) return null;
+  const operationId = match[1];
+  const action = match[2]?.toLowerCase();
+  if (
+    operationId === undefined ||
+    (action !== "simulate" && action !== "confirm" && action !== "approve" && action !== "apply")
+  ) {
+    return null;
+  }
+  return { operationId, action };
 }
 
 function adminPlayerAdjustmentIdFromPath(pathname: string): string | null {

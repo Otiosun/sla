@@ -52,7 +52,9 @@ const location: PlayerPortalWorldLocationView = {
   connections: [],
 };
 
-function handler(options: { admin?: boolean } = {}) {
+function handler(
+  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
     ok({
@@ -69,9 +71,60 @@ function handler(options: { admin?: boolean } = {}) {
   const adminPlayerGet = vi.fn(async () => {
     throw new Error("admin player get not used in this harness");
   });
+  const adminListOperationDefinitions = vi.fn(() => [
+    {
+      kind: "MUTATION" as const,
+      operationType: "wallet.adjust",
+      capabilityKey: "wallet.adjust",
+      riskTier: 2,
+      authorizationMode: "SUBJECT" as const,
+      policy: {
+        version: 1,
+        requiresReason: true,
+        requiresExpectedRevision: false,
+        requiresSimulation: false,
+        requiresConfirmation: false,
+        requiredApprovals: 0,
+      },
+    },
+    {
+      kind: "MUTATION" as const,
+      operationType: "pokemon.create",
+      capabilityKey: "pokemon.create",
+      riskTier: 3,
+      authorizationMode: "SUBJECT" as const,
+      policy: {
+        version: 1,
+        requiresReason: true,
+        requiresExpectedRevision: false,
+        requiresSimulation: false,
+        requiresConfirmation: true,
+        requiredApprovals: 0,
+      },
+    },
+  ]);
   const adminPrepareMutation = vi.fn(async () => ({
-    operation: { id: "88888888-8888-4888-8888-888888888888" },
+    operation: {
+      id: "88888888-8888-4888-8888-888888888888",
+      status: "PENDING_CONFIRMATION",
+      result: null,
+    },
     replayed: false,
+  }));
+  const adminSimulateMutation = vi.fn(async () => ({
+    id: "88888888-8888-4888-8888-888888888888",
+    status: "PENDING_CONFIRMATION",
+    result: { simulated: true },
+  }));
+  const adminConfirmMutation = vi.fn(async () => ({
+    id: "88888888-8888-4888-8888-888888888888",
+    status: "READY",
+    result: null,
+  }));
+  const adminApproveMutation = vi.fn(async () => ({
+    id: "88888888-8888-4888-8888-888888888888",
+    status: "READY",
+    result: null,
   }));
   const adminApplyMutation = vi.fn(async () => ({
     id: "88888888-8888-4888-8888-888888888888",
@@ -104,15 +157,22 @@ function handler(options: { admin?: boolean } = {}) {
     customization: { update: customizationUpdate },
     admin: {
       resolvePrincipal: async () =>
-        options.admin ? { principalId: "77777777-7777-4777-8777-777777777777" } : null,
-      capabilitiesFor: async () => (options.admin ? ["player.read"] : []),
+        options.admin
+          ? { principalId: options.principalId ?? "77777777-7777-4777-8777-777777777777" }
+          : null,
+      capabilitiesFor: async () =>
+        options.admin ? [...(options.capabilities ?? ["player.read"])] : [],
     },
     adminPlayers: {
       search: adminPlayerSearch,
       get: adminPlayerGet,
     },
     adminMutations: {
+      listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
+      simulate: adminSimulateMutation,
+      confirm: adminConfirmMutation,
+      approve: adminApproveMutation,
       apply: adminApplyMutation,
     },
   });
@@ -123,7 +183,11 @@ function handler(options: { admin?: boolean } = {}) {
     customizationUpdate,
     adminPlayerSearch,
     adminPlayerGet,
+    adminListOperationDefinitions,
     adminPrepareMutation,
+    adminSimulateMutation,
+    adminConfirmMutation,
+    adminApproveMutation,
     adminApplyMutation,
   };
 }
@@ -198,6 +262,163 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       trainerNamePrefix: "Nat",
       limit: 10,
     });
+  });
+
+  it("lists only registered admin operations granted to the current principal", async () => {
+    const denied = await handler().instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/operations", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(denied.status).toBe(403);
+
+    const { instance, adminListOperationDefinitions } = handler({
+      admin: true,
+      capabilities: ["pokemon.create"],
+    });
+    const allowed = await instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/operations", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({
+      operations: [
+        {
+          kind: "MUTATION",
+          operationType: "pokemon.create",
+          capabilityKey: "pokemon.create",
+          riskTier: 3,
+          authorizationMode: "SUBJECT",
+          policy: {
+            version: 1,
+            requiresReason: true,
+            requiresExpectedRevision: false,
+            requiresSimulation: false,
+            requiresConfirmation: true,
+            requiredApprovals: 0,
+          },
+        },
+      ],
+    });
+    expect(adminListOperationDefinitions).toHaveBeenCalledOnce();
+  });
+
+  it("drives audited admin operations through prepare, confirm, approve and apply without accepting actor mass-assignment", async () => {
+    const requestId = "99999999-9999-4999-8999-999999999999";
+    const operationId = "88888888-8888-4888-8888-888888888888";
+    const {
+      instance,
+      adminPrepareMutation,
+      adminConfirmMutation,
+      adminApproveMutation,
+      adminApplyMutation,
+    } = handler({ admin: true, capabilities: ["pokemon.create"] });
+
+    const prepared = await instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/operations", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId,
+          operationType: "pokemon.create",
+          input: {
+            playerId: "22222222-2222-4222-8222-222222222222",
+            speciesId: "33333333-3333-4333-8333-333333333333",
+          },
+          reason: "Restore audited Pokémon reward",
+        }),
+      }),
+    );
+
+    expect(prepared.status).toBe(200);
+    expect(await prepared.json()).toEqual({
+      operationId,
+      status: "PENDING_CONFIRMATION",
+      replayed: false,
+      result: null,
+    });
+    expect(adminPrepareMutation).toHaveBeenCalledWith({
+      principalId: "77777777-7777-4777-8777-777777777777",
+      operationType: "pokemon.create",
+      input: {
+        playerId: "22222222-2222-4222-8222-222222222222",
+        speciesId: "33333333-3333-4333-8333-333333333333",
+      },
+      reason: "Restore audited Pokémon reward",
+      idempotencyKey: `hub-admin-operation:${requestId}`,
+      correlationId: requestId,
+    });
+
+    const confirmed = await instance.handle(
+      new Request(`https://api.example.test/v1/hub/admin/operations/${operationId}/confirm`, {
+        method: "POST",
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(confirmed.status).toBe(200);
+    expect(adminConfirmMutation).toHaveBeenCalledWith(
+      operationId,
+      "77777777-7777-4777-8777-777777777777",
+    );
+
+    const { instance: approverInstance, adminApproveMutation: secondAdminApproveMutation } =
+      handler({
+        admin: true,
+        capabilities: ["pokemon.create"],
+        principalId: "66666666-6666-4666-8666-666666666666",
+      });
+    const approved = await approverInstance.handle(
+      new Request(`https://api.example.test/v1/hub/admin/operations/${operationId}/approve`, {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ reason: "Second-admin review" }),
+      }),
+    );
+    expect(approved.status).toBe(200);
+    expect(secondAdminApproveMutation).toHaveBeenCalledWith(
+      operationId,
+      "66666666-6666-4666-8666-666666666666",
+      "Second-admin review",
+    );
+    expect(adminApproveMutation).not.toHaveBeenCalled();
+
+    const applied = await instance.handle(
+      new Request(`https://api.example.test/v1/hub/admin/operations/${operationId}/apply`, {
+        method: "POST",
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(applied.status).toBe(200);
+    expect(adminApplyMutation).toHaveBeenCalledWith(
+      operationId,
+      "77777777-7777-4777-8777-777777777777",
+    );
+
+    const rejectedMassAssignment = await instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/operations", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId,
+          operationType: "pokemon.create",
+          input: {},
+          principalId: "11111111-1111-4111-8111-111111111111",
+        }),
+      }),
+    );
+    expect(rejectedMassAssignment.status).toBe(400);
+    expect(adminPrepareMutation).toHaveBeenCalledTimes(1);
   });
 
   it("keeps audited player adjustments admin-only and binds the target player to the route", async () => {
