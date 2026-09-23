@@ -89,6 +89,10 @@ function handler() {
       resolve: resolveMoveChoice,
     },
     customization: { update: customizationUpdate },
+    admin: {
+      resolvePrincipal: async () => null,
+      capabilitiesFor: async () => [],
+    },
   });
   return { instance, rosterMove, resolveMoveChoice, customizationUpdate };
 }
@@ -127,6 +131,17 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toHaveProperty(key);
     }
+  });
+
+  it("hides the admin surface from ordinary authenticated players", async () => {
+    const response = await handler().instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/self", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ admin: null });
   });
 
   it("allows roster, move learning and cosmetic profile updates without gameplay mutations", async () => {
