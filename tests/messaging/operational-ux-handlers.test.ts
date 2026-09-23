@@ -389,6 +389,173 @@ describe("Phase 13 operational WhatsApp UX", () => {
     expect(byName).toContain("_Charmander_");
   });
 
+  it("rejects ambiguous Pokemon names and asks for collection numbers", async () => {
+    const deps = dependencies();
+    const detail = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+        {
+          collectionNo: 14,
+          pokemonInstanceId: "00000000-0000-4000-8000-000000000026",
+          displayName: "Charmander",
+          nickname: null,
+          level: 6,
+          xp: 0n,
+          currentHp: 20,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 8,
+        },
+      ]),
+      ownedPokemonDetail: detail,
+    });
+
+    const result = await router(deps).dispatch(
+      context("/pokemon Charmander", "pokemon-ambiguous"),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("VALIDATION_FAILED");
+    expect(result.error.message).toContain("#13");
+    expect(result.error.message).toContain("#14");
+    expect(detail).not.toHaveBeenCalled();
+  });
+
+  it("moves a boxed Pokemon into the team by human name reference", async () => {
+    const deps = dependencies();
+    (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (deps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+      ]),
+    });
+    const move = vi.fn(async () => ok({}));
+    Object.assign(deps, {
+      pcStorage: {
+        getStorage: vi.fn(async () =>
+          ok({
+            playerId: PLAYER_ID,
+            team: [],
+            boxes: [
+              {
+                boxNo: 1,
+                occupied: 1,
+                capacity: 30,
+                pokemon: [
+                  {
+                    pokemonInstanceId: POKEMON_ID,
+                    displayName: "Charmander",
+                    level: 5,
+                    placementKind: "BOX" as const,
+                    boxNo: 1,
+                    slotNo: 7,
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+        move,
+      },
+    });
+
+    const result = await router(deps).dispatch(
+      context("/equipe colocar Charmander 2", "team-human-name"),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(move).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: POKEMON_ID,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: 2 },
+    });
+  });
+
+  it("stores a team Pokemon by collection hash without exposing its internal id", async () => {
+    const deps = dependencies();
+    (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (deps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 1,
+        },
+      ]),
+    });
+    const move = vi.fn(async () => ok({}));
+    Object.assign(deps, {
+      pcStorage: {
+        getStorage: vi.fn(async () =>
+          ok({
+            playerId: PLAYER_ID,
+            team: [
+              {
+                pokemonInstanceId: POKEMON_ID,
+                displayName: "Charmander",
+                level: 5,
+                placementKind: "TEAM" as const,
+                boxNo: null,
+                slotNo: 1,
+              },
+            ],
+            boxes: [],
+          }),
+        ),
+        move,
+      },
+    });
+
+    const result = await router(deps).dispatch(
+      context("/equipe guardar #13", "team-human-hash"),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(move).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: POKEMON_ID,
+      target: { placementKind: "BOX", boxNo: 1, slotNo: 1 },
+    });
+    expect(textOf(result)).not.toContain(POKEMON_ID);
+  });
+
   it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
     const deps = dependencies();
     const app = router(deps);
