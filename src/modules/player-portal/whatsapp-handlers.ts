@@ -38,7 +38,7 @@ class HubLoginHandler implements MessageRouteHandler {
     if (!issued.ok) return issued;
 
     const url = hubLoginUrl(this.dependencies.publicUrl, issued.value.ticket);
-    return typingTextResult(
+    return scheduledPrivateSiteResult(
       context,
       [
         "📟 *ROTOM · SITE*",
@@ -82,7 +82,7 @@ function textResult(context: MessageHandlerContext, text: string): Result<Messag
   });
 }
 
-function typingTextResult(
+function scheduledPrivateSiteResult(
   context: MessageHandlerContext,
   text: string,
   typingMs: number,
@@ -94,9 +94,17 @@ function typingTextResult(
       {
         channel: "whatsapp",
         destinationRef: context.message.senderRef,
-        messageType: "TEXT_WITH_TYPING",
-        payload: { text, typingMs },
+        messageType: "PRESENCE",
+        payload: { state: "composing" },
+        idempotencyKey: `${context.idempotencyKey}:typing`,
+      },
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.senderRef,
+        messageType: "TEXT",
+        payload: { text, clearTyping: true },
         idempotencyKey: `${context.idempotencyKey}:reply`,
+        delayMs: typingMs,
       },
     ],
   });
