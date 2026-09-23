@@ -1,9 +1,9 @@
+import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
 import type {
   EncounterAdminCloseInput,
   EncounterAdminCloseResult,
   EncounterAdminState,
 } from "./admin-contracts.js";
-import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
 
 export type EncounterAdminClosePersistenceResult =
   | { readonly kind: "APPLIED"; readonly result: EncounterAdminCloseResult }

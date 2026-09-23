@@ -9,10 +9,11 @@ import type {
   WorldConnectionRecord,
   WorldFlowState,
   WorldPlayerEligibility,
+  WorldTravelLock,
   WorldTravelReceipt,
 } from "../../modules/world/contracts.js";
 import type { WorldRepository, WorldTransaction } from "../../modules/world/ports.js";
-import { parsePlayerId, type PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
 function playerId(value: string): PlayerId {
@@ -160,6 +161,86 @@ class PostgresWorldTransaction implements WorldTransaction {
     return result.rowCount === 1;
   }
 
+  public async recordAreaVisit(player: PlayerId, areaId: string): Promise<boolean> {
+    const result = await this.client.query<{ visit_count: string }>(
+      `INSERT INTO player_area_visits(player_id, area_id)
+       VALUES ($1, $2)
+       ON CONFLICT (player_id, area_id)
+       DO UPDATE SET visit_count = player_area_visits.visit_count + 1,
+                     last_visited_at = now()
+       RETURNING visit_count::text`,
+      [player, areaId],
+    );
+    return result.rows[0]?.visit_count === "1";
+  }
+
+  public async travelCooldownUntil(player: PlayerId): Promise<Date | null> {
+    const result = await this.client.query<{ available_at: Date }>(
+      `SELECT available_at
+       FROM player_travel_cooldowns
+       WHERE player_id = $1
+         AND reason = 'POST_ARRIVAL'`,
+      [player],
+    );
+    return result.rows[0]?.available_at ?? null;
+  }
+
+  public async setTravelCooldown(player: PlayerId, availableAt: Date): Promise<void> {
+    await this.client.query(
+      `INSERT INTO player_travel_cooldowns(
+         player_id, available_at, reason, started_at, destination_area_id
+       )
+       VALUES ($1, $2, 'POST_ARRIVAL', NULL, NULL)
+       ON CONFLICT (player_id)
+       DO UPDATE SET available_at = EXCLUDED.available_at,
+                     reason = 'POST_ARRIVAL',
+                     started_at = NULL,
+                     destination_area_id = NULL`,
+      [player, availableAt],
+    );
+  }
+
+  public async travelLock(player: PlayerId): Promise<WorldTravelLock | null> {
+    const result = await this.client.query<{
+      available_at: Date;
+      destination_area_id: string;
+    }>(
+      `SELECT available_at, destination_area_id
+       FROM player_travel_cooldowns
+       WHERE player_id = $1
+         AND reason = 'TRAVEL'
+         AND destination_area_id IS NOT NULL
+         AND available_at > now()`,
+      [player],
+    );
+    const row = result.rows[0];
+    return row === undefined
+      ? null
+      : {
+          availableAt: row.available_at,
+          destinationAreaId: row.destination_area_id,
+        };
+  }
+
+  public async setTravelLock(input: {
+    readonly playerId: PlayerId;
+    readonly destinationAreaId: string;
+    readonly availableAt: Date;
+  }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO player_travel_cooldowns(
+         player_id, available_at, reason, started_at, destination_area_id
+       )
+       VALUES ($1, $2, 'TRAVEL', now(), $3)
+       ON CONFLICT (player_id)
+       DO UPDATE SET available_at = EXCLUDED.available_at,
+                     reason = 'TRAVEL',
+                     started_at = now(),
+                     destination_area_id = EXCLUDED.destination_area_id`,
+      [input.playerId, input.availableAt, input.destinationAreaId],
+    );
+  }
+
   public async moveLocation(input: {
     readonly playerId: PlayerId;
     readonly destinationAreaId: string;
@@ -206,11 +287,12 @@ class PostgresWorldTransaction implements WorldTransaction {
       resulting_revision: string;
       from_entered_at: Date;
       to_entered_at: Date;
+      arrival_first_visit: boolean;
     }>(
       `SELECT idempotency_key, player_id, content_release_id,
               from_area_id, destination_area_id,
               expected_revision::text, resulting_revision::text,
-              from_entered_at, to_entered_at
+              from_entered_at, to_entered_at, arrival_first_visit
        FROM world_travel_receipts
        WHERE idempotency_key = $1`,
       [idempotencyKey],
@@ -228,6 +310,7 @@ class PostgresWorldTransaction implements WorldTransaction {
           resultingRevision: BigInt(row.resulting_revision),
           fromEnteredAt: row.from_entered_at,
           toEnteredAt: row.to_entered_at,
+          arrivalFirstVisit: row.arrival_first_visit,
         };
   }
 
@@ -237,8 +320,8 @@ class PostgresWorldTransaction implements WorldTransaction {
          idempotency_key, player_id, content_release_id,
          from_area_id, destination_area_id,
          expected_revision, resulting_revision,
-         from_entered_at, to_entered_at
-       ) VALUES ($1, $2, $3, $4, $5, $6::bigint, $7::bigint, $8, $9)`,
+         from_entered_at, to_entered_at, arrival_first_visit
+       ) VALUES ($1, $2, $3, $4, $5, $6::bigint, $7::bigint, $8, $9, $10)`,
       [
         receipt.idempotencyKey,
         receipt.playerId,
@@ -249,6 +332,7 @@ class PostgresWorldTransaction implements WorldTransaction {
         receipt.resultingRevision.toString(),
         receipt.fromEnteredAt,
         receipt.toEnteredAt,
+        receipt.arrivalFirstVisit,
       ],
     );
   }

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import type { WhatsAppProviderConnectionState } from "../../src/adapters/whatsapp/adapter.js";
 import {
-  BaileysWhatsAppAdapter,
   type BaileysAuthBinding,
   type BaileysEventSource,
   type BaileysSocketLike,
+  BaileysWhatsAppAdapter,
 } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
-import type { WhatsAppProviderConnectionState } from "../../src/adapters/whatsapp/adapter.js";
 
 class HealthTestSocket implements BaileysSocketLike {
   private readonly listeners = new Map<string, Array<(value: unknown) => void>>();
@@ -48,6 +48,8 @@ describe("Baileys provider health transitions", () => {
     });
 
     await adapter.start(async () => {});
+    expect(onConnectionState).not.toHaveBeenCalled();
+
     socket.emit("connection.update", { connection: "open" });
     await vi.waitFor(() => expect(onConnectionState).toHaveBeenCalledWith("CONNECTED"));
 

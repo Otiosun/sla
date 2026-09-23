@@ -1,4 +1,4 @@
-import { appError, type AppError } from "../../shared-kernel/result.js";
+import { type AppError, appError } from "../../shared-kernel/result.js";
 import type { PvpChallengeError } from "./challenge.js";
 
 export function pvpPlayerIneligible(reason: string, playerId: string): AppError {

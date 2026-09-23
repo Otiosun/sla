@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { WhatsAppPairingProviderVersionBlockedError } from "../../src/operations/whatsapp-pairing-bootstrap.js";
 import {
+  createTerminalPairingCodeSink,
   createTerminalPairingQrSink,
   type PairingCliExecutor,
   resolveInstalledBaileysIdentity,
   runWhatsAppPairingBootstrapCli,
   WhatsAppPairingInteractiveTerminalRequiredError,
 } from "../../src/operations/whatsapp-pairing-bootstrap-cli.js";
-import { WhatsAppPairingProviderVersionBlockedError } from "../../src/operations/whatsapp-pairing-bootstrap.js";
 
 const REVISION = "a".repeat(40);
 const AUTH_KEY = Buffer.alloc(32, 0x63);
@@ -124,6 +125,13 @@ describe("WhatsApp pairing CLI boundary", () => {
     expect(renderQr).toHaveBeenCalledTimes(1);
     expect(writes.join("")).toContain("██");
     expect(writes.join("")).not.toContain("super-sensitive-qr-payload");
+  });
+
+  it("writes the pairing code only to the interactive terminal sink", async () => {
+    const writes: string[] = [];
+    const sink = createTerminalPairingCodeSink((chunk) => writes.push(chunk));
+    await sink.render("1234-5678");
+    expect(writes).toEqual(["Código de pareamento: 1234-5678\n"]);
   });
 
   it("passes only the validated release config, audited provider identity and sensitive sink", async () => {

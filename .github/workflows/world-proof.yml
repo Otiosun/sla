@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   proof:
-    name: migrate / seed / world invariants
+    name: migrate / seed / Zhoulia invariants
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -80,7 +80,7 @@ jobs:
       - name: Seed Phase 6 economy slice
         run: pnpm db:seed:phase6
 
-      - name: Seed Phase 7 world twice
+      - name: Seed Phase 7 Zhoulia world twice
         run: |
           pnpm db:seed:phase7
           pnpm db:seed:phase7
@@ -88,38 +88,59 @@ jobs:
       - name: Verify migrated schema
         run: pnpm db:verify
 
-      - name: Verify Phase 7 active release and graph
+      - name: Verify Phase 7 ACTIVE world is Zhoulia-only
         shell: bash
         run: |
           set -euo pipefail
+
           release_no="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT release.release_no FROM content_release_pointers pointer JOIN content_releases release ON release.id = pointer.content_release_id WHERE pointer.pointer_key = 'ACTIVE';")"
-          areas="$(docker exec pokemon-postgres psql \
+            --command "SELECT release.release_no FROM content_release_pointers pointer JOIN content_releases release ON release.id=pointer.content_release_id WHERE pointer.pointer_key='ACTIVE';")"
+
+          active_regions="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT string_agg(area.slug || ':' || (revision.data->>'kind') || ':' || (revision.data->>'safePoint') || ':' || (revision.data->>'startingArea'), ',' ORDER BY area.slug) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE;")"
-          connection_count="$(docker exec pokemon-postgres psql \
+            --command "SELECT string_agg(region.slug,',' ORDER BY region.slug) FROM region_revisions revision JOIN regions region ON region.id=revision.region_id JOIN content_release_pointers pointer ON pointer.content_release_id=revision.content_release_id WHERE pointer.pointer_key='ACTIVE' AND revision.active=TRUE;")"
+
+          active_areas="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT count(*) FROM area_connection_revisions revision JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND revision.active = TRUE;")"
-          starting_count="$(docker exec pokemon-postgres psql \
+            --command "SELECT string_agg(area.slug,',' ORDER BY area.slug) FROM area_revisions revision JOIN areas area ON area.id=revision.area_id JOIN content_release_pointers pointer ON pointer.content_release_id=revision.content_release_id WHERE pointer.pointer_key='ACTIVE' AND revision.active=TRUE;")"
+
+          starting_areas="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT count(*) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE AND (revision.data->>'startingArea')::boolean;")"
-          safe_count="$(docker exec pokemon-postgres psql \
+            --command "SELECT string_agg(area.slug,',' ORDER BY area.slug) FROM area_revisions revision JOIN areas area ON area.id=revision.area_id JOIN content_release_pointers pointer ON pointer.content_release_id=revision.content_release_id WHERE pointer.pointer_key='ACTIVE' AND revision.active=TRUE AND COALESCE((revision.data->>'startingArea')::boolean,FALSE);")"
+
+          connections="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT count(*) FROM area_revisions revision JOIN areas area ON area.id = revision.area_id JOIN regions region ON region.id = area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND region.slug = 'kanto' AND revision.active = TRUE AND (revision.data->>'safePoint')::boolean;")"
-          viridian_gate="$(docker exec pokemon-postgres psql \
+            --command "SELECT string_agg(connection.connection_key,',' ORDER BY connection.connection_key) FROM area_connection_revisions revision JOIN area_connections connection ON connection.id=revision.connection_id JOIN content_release_pointers pointer ON pointer.content_release_id=revision.content_release_id WHERE pointer.pointer_key='ACTIVE' AND revision.active=TRUE;")"
+
+          encounter_tables="$(docker exec pokemon-postgres psql \
             --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
-            --command "SELECT revision.access_rule->'requiredUnlockKeys'->>0 FROM area_connection_revisions revision JOIN area_connections connection ON connection.id = revision.connection_id JOIN areas source ON source.id = connection.from_area_id JOIN areas destination ON destination.id = connection.to_area_id JOIN content_release_pointers pointer ON pointer.content_release_id = revision.content_release_id WHERE pointer.pointer_key = 'ACTIVE' AND source.slug = 'route-1' AND destination.slug = 'viridian-city' AND revision.active = TRUE;")"
+            --command "SELECT count(*) FROM encounter_table_revisions revision JOIN encounter_tables table_identity ON table_identity.id=revision.encounter_table_id JOIN areas area ON area.id=table_identity.area_id JOIN regions region ON region.id=area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id=revision.content_release_id WHERE pointer.pointer_key='ACTIVE' AND revision.active=TRUE AND region.slug='zhoulia';")"
+
+          foreign_encounter_tables="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM encounter_table_revisions revision JOIN encounter_tables table_identity ON table_identity.id=revision.encounter_table_id JOIN areas area ON area.id=table_identity.area_id JOIN regions region ON region.id=area.region_id JOIN content_release_pointers pointer ON pointer.content_release_id=revision.content_release_id WHERE pointer.pointer_key='ACTIVE' AND revision.active=TRUE AND region.slug<>'zhoulia';")"
+
+          active_starters="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM starter_options option JOIN content_release_pointers pointer ON pointer.content_release_id=option.content_release_id WHERE pointer.pointer_key='ACTIVE' AND option.active=TRUE;")"
+
+          foreign_starters="$(docker exec pokemon-postgres psql \
+            --username pokemon --dbname pokemon_rpg_test --tuples-only --no-align \
+            --command "SELECT count(*) FROM starter_options option JOIN regions region ON region.id=option.region_id JOIN content_release_pointers pointer ON pointer.content_release_id=option.content_release_id WHERE pointer.pointer_key='ACTIVE' AND option.active=TRUE AND region.slug<>'zhoulia';")"
 
           test "$release_no" = "4"
-          test "$areas" = "pallet-town:TOWN:true:true,route-1:ROUTE:false:false,viridian-city:CITY:true:false"
-          test "$connection_count" = "4"
-          test "$starting_count" = "1"
-          test "$safe_count" = "2"
-          test "$viridian_gate" = "world.kanto.viridian-access"
+          test "$active_regions" = "zhoulia"
+          test "$active_areas" = "campos-de-yun,cidade-do-aquario,floresta-de-sekigloom-mil-bambu,porto-dos-ceus,templo-do-ceu-antigo,vila-dos-arrozais"
+          test "$starting_areas" = "vila-dos-arrozais"
+          test "$connections" = "campos-de-yun-to-vila-dos-arrozais,vila-dos-arrozais-to-campos-de-yun"
+          test "$encounter_tables" = "7"
+          test "$foreign_encounter_tables" = "0"
+          test "$foreign_starters" = "0"
+          test "$active_starters" -gt 0
 
       - name: Run PostgreSQL world integration proof
-        run: pnpm exec vitest run tests/db/world.integration.test.ts
+        run: pnpm exec vitest run tests/db/world.integration.test.ts tests/world/zhoulia-content.test.ts
 
-      - name: Run onboarding to exploration E2E proof
+      - name: Run onboarding to Zhoulia exploration E2E proof
         run: node --import tsx db/proofs/phase7_world_onboarding_e2e.ts

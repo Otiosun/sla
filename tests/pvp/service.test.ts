@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ManualClock } from "../../src/platform/clock/index.js";
 import type { EncounterSeedProvider } from "../../src/modules/encounter/ports.js";
 import type { PvpChallenge } from "../../src/modules/pvp/challenge.js";
 import { PvpService } from "../../src/modules/pvp/service.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
 
 interface FakePlayerContext {
   readonly playerId: string;
@@ -56,6 +56,15 @@ function fakeRepository(state: FakeState) {
     activeContent: async () => state.content,
     pinnedContentAvailable: async () => state.pinnedContentAvailable,
     challengeById: async (challengeId: string) => state.challenges.get(challengeId) ?? null,
+    openChallengeForTarget: async (targetPlayerId: string) =>
+      [...state.challenges.values()].find(
+        (challenge) => challenge.targetPlayerId === targetPlayerId && challenge.status === "OPEN",
+      ) ?? null,
+    openChallengeForChallenger: async (challengerPlayerId: string) =>
+      [...state.challenges.values()].find(
+        (challenge) =>
+          challenge.challengerPlayerId === challengerPlayerId && challenge.status === "OPEN",
+      ) ?? null,
     challengeByCreationKey: async (challengerPlayerId: string, creationKey: string) =>
       [...state.challenges.values()].find(
         (challenge) =>
@@ -71,6 +80,13 @@ function fakeRepository(state: FakeState) {
       readonly expectedRevision: number;
       readonly next: PvpChallenge;
     }) => {
+      if (
+        input.next.status === "ACCEPTED" &&
+        input.next.encounterId !== null &&
+        !state.encounters.includes(input.next.encounterId)
+      ) {
+        throw new Error("PVP challenge encounter FK requires Encounter to exist first");
+      }
       const current = state.challenges.get(input.next.id);
       if (current === undefined || current.revision !== input.expectedRevision) return false;
       state.challenges.set(input.next.id, input.next);
@@ -355,5 +371,31 @@ describe("PvpService Create / Accept", () => {
     }
     expect(state.challenges.get(created.value.challenge.id)?.status).toBe("EXPIRED");
     expect(state.encounters).toHaveLength(0);
+  });
+
+  it("lets the target decline and the challenger cancel an open challenge", async () => {
+    const declined = harness();
+    const createdDecline = await declined.service.createChallenge(
+      createInput(declined.challengerPlayerId, declined.targetPlayerId),
+    );
+    if (!createdDecline.ok) throw createdDecline.error;
+    const declineResult = await declined.service.declineChallenge({
+      challengeId: createdDecline.value.challenge.id,
+      actorPlayerId: declined.targetPlayerId,
+    });
+    expect(declineResult.ok).toBe(true);
+    if (declineResult.ok) expect(declineResult.value.challenge.status).toBe("DECLINED");
+
+    const cancelled = harness();
+    const createdCancel = await cancelled.service.createChallenge(
+      createInput(cancelled.challengerPlayerId, cancelled.targetPlayerId),
+    );
+    if (!createdCancel.ok) throw createdCancel.error;
+    const cancelResult = await cancelled.service.cancelChallenge({
+      challengeId: createdCancel.value.challenge.id,
+      actorPlayerId: cancelled.challengerPlayerId,
+    });
+    expect(cancelResult.ok).toBe(true);
+    if (cancelResult.ok) expect(cancelResult.value.challenge.status).toBe("CANCELLED");
   });
 });

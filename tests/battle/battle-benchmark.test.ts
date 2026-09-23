@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { chooseHeuristicAction } from "../../src/modules/battle/ai.js";
 import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
-import { TEST_RULES, battleState } from "./fixtures.js";
+import { battleState, TEST_RULES } from "./fixtures.js";
 
 describe("Battle Engine resolver benchmark", () => {
   it("measures pure resolver throughput without DB or UI", () => {

@@ -1,5 +1,5 @@
-import type { AdminOperationRecord } from "./contracts.js";
 import type { AdminCompensationInput } from "./compensation-contracts.js";
+import type { AdminOperationRecord } from "./contracts.js";
 
 export interface CompleteAdminCompensationInput {
   readonly sourceOperation: AdminOperationRecord;

@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import type { MessageRouteHandler } from "../../src/modules/messaging/ports.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
-import { EconomyService } from "../../src/modules/economy/service.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
-import { parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;

@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { BattleState } from "../../modules/battle/contracts.js";
+import { type BattleState, BattleStateSchema } from "../../modules/battle/contracts.js";
 import type { BattleAftermathPort, BattleAftermathResult } from "../../modules/battle/runtime.js";
 import { RulesetConfigSchema } from "../../modules/catalog/contracts.js";
 import { WorldAreaConfigSchema } from "../../modules/catalog/world-contracts.js";
@@ -83,12 +83,48 @@ async function relocatePlayer(
 export class PostgresBattleAftermath implements BattleAftermathPort {
   public constructor(private readonly pool: Pool) {}
 
+  public async runOnce(limit: number): Promise<readonly { battleId: string; error?: unknown }[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new Error("Battle aftermath batch limit must be a positive safe integer");
+    }
+    const pending = await this.pool.query<{ battle_id: string; state: unknown }>(
+      `SELECT task.battle_id, snapshot.state
+       FROM battle_defeat_aftermath task
+       JOIN battle_state_snapshots snapshot
+         ON snapshot.battle_id = task.battle_id AND snapshot.version = task.battle_version
+       WHERE task.completed_at IS NULL ORDER BY task.created_at, task.battle_id LIMIT $1`,
+      [limit],
+    );
+    const outcomes: { battleId: string; error?: unknown }[] = [];
+    for (const row of pending.rows) {
+      try {
+        await this.applyDefeat(BattleStateSchema.parse(row.state));
+        outcomes.push({ battleId: row.battle_id });
+      } catch (error) {
+        outcomes.push({ battleId: row.battle_id, error });
+      }
+    }
+    return outcomes;
+  }
+
   public async applyDefeat(state: BattleState): Promise<BattleAftermathResult> {
     if (state.status !== "LOST") return { relocatedPlayerIds: [] };
 
     return withTransaction(
       this.pool,
       async (client) => {
+        const task = await client.query<{ battle_version: string; completed_at: Date | null }>(
+          `SELECT battle_version, completed_at FROM battle_defeat_aftermath
+           WHERE battle_id = $1 FOR UPDATE`,
+          [state.battleId],
+        );
+        const delivery = task.rows[0];
+        if (delivery !== undefined) {
+          if (Number(delivery.battle_version) !== state.version) {
+            throw new Error("Defeat aftermath snapshot version conflicts with durable delivery");
+          }
+          if (delivery.completed_at !== null) return { relocatedPlayerIds: [] };
+        }
         const ruleset = await client.query<{ config: unknown }>(
           `SELECT config FROM rulesets WHERE id = $1`,
           [state.rulesetId],
@@ -105,18 +141,36 @@ export class PostgresBattleAftermath implements BattleAftermathPort {
           throw new Error("Battle Engine v1 forbids automatic money loss on defeat");
         }
 
+        const owners = await client.query<{ player_id: string }>(
+          `SELECT DISTINCT controller.player_id
+           FROM battle_participant_controllers controller
+           JOIN battle_participants participant ON participant.id = controller.participant_id
+           JOIN battle_sides side ON side.id = participant.battle_side_id
+           WHERE controller.battle_id = $1 AND controller.kind = 'PLAYER'
+             AND side.side_no = ANY($2::smallint[])
+           ORDER BY controller.player_id`,
+          [
+            state.battleId,
+            state.sides.filter((side) => side.result === "LOST").map((side) => side.sideNo),
+          ],
+        );
+        const playerIds =
+          delivery === undefined
+            ? state.sides
+                .filter((side) => side.controllerKind === "PLAYER" && side.result === "LOST")
+                .flatMap((side) => (side.playerId === null ? [] : [side.playerId]))
+            : owners.rows.map((row) => row.player_id);
         const relocated: string[] = [];
-        for (const side of state.sides) {
-          if (
-            side.controllerKind !== "PLAYER" ||
-            side.playerId === null ||
-            side.result !== "LOST"
-          ) {
-            continue;
+        for (const playerId of [...new Set(playerIds)].sort()) {
+          if (await relocatePlayer(client, playerId, state.contentReleaseId)) {
+            relocated.push(playerId);
           }
-          if (await relocatePlayer(client, side.playerId, state.contentReleaseId)) {
-            relocated.push(side.playerId);
-          }
+        }
+        if (delivery !== undefined) {
+          await client.query(
+            `UPDATE battle_defeat_aftermath SET completed_at = now() WHERE battle_id = $1`,
+            [state.battleId],
+          );
         }
         return { relocatedPlayerIds: relocated };
       },

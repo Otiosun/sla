@@ -6,16 +6,18 @@ import type {
 } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
 import type { BaileysAuthSnapshot } from "../../src/adapters/whatsapp/postgres-baileys-auth.js";
 import {
-  loadWhatsAppPairingBootstrapConfig,
-  WhatsAppPairingBootstrapConfigError,
-} from "../../src/operations/whatsapp-pairing-bootstrap-config.js";
-import {
   runWhatsAppPairingBootstrap,
+  WhatsAppPairingCodeConnectionError,
+  WhatsAppPairingCodeRequestError,
   WhatsAppPairingIncompleteAuthError,
   WhatsAppPairingProviderClosedError,
   WhatsAppPairingProviderVersionBlockedError,
   WhatsAppPairingTimeoutError,
 } from "../../src/operations/whatsapp-pairing-bootstrap.js";
+import {
+  loadWhatsAppPairingBootstrapConfig,
+  WhatsAppPairingBootstrapConfigError,
+} from "../../src/operations/whatsapp-pairing-bootstrap-config.js";
 
 const REVISION = "a".repeat(40);
 const AUTH_KEY = Buffer.alloc(32, 0x63);
@@ -44,6 +46,12 @@ class FakePairingSocket implements BaileysSocketLike {
     return {};
   }
 
+  async requestPairingCode(): Promise<string> {
+    return "1234-5678";
+  }
+
+  async waitForSocketOpen(): Promise<void> {}
+
   end(): void {
     this.ended = true;
   }
@@ -71,6 +79,8 @@ function coreConfig(timeoutMs = 1_000) {
     authEncryptionKeyVersion: 1,
     deploymentRevision: REVISION,
     timeoutMs,
+    pairingMode: "qr" as const,
+    pairingPhoneE164: null,
   };
 }
 
@@ -115,6 +125,24 @@ describe("WhatsApp pairing bootstrap config", () => {
       ),
     ).toThrow(WhatsAppPairingBootstrapConfigError);
   });
+
+  it("defaults pairing mode to QR and requires a valid phone only for code mode", () => {
+    expect(loadWhatsAppPairingBootstrapConfig({ appEnv: "staging" }, validEnv()).pairingMode).toBe(
+      "qr",
+    );
+    expect(() =>
+      loadWhatsAppPairingBootstrapConfig(
+        { appEnv: "staging" },
+        { ...validEnv(), WHATSAPP_PAIRING_MODE: "code" },
+      ),
+    ).toThrow(/PHONE/);
+    expect(() =>
+      loadWhatsAppPairingBootstrapConfig(
+        { appEnv: "staging" },
+        { ...validEnv(), WHATSAPP_PAIRING_MODE: "code", WHATSAPP_PAIRING_PHONE_E164: "abc" },
+      ),
+    ).toThrow(/E\.164/);
+  });
 });
 
 describe("WhatsApp first-pairing bootstrap core", () => {
@@ -156,6 +184,9 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     });
 
     await vi.waitFor(() => expect(socketConfigs).toHaveLength(1));
+    expect(socketConfigs[0]?.browser).toEqual(["Ubuntu", "Chrome", "22.04.4"]);
+    expect(socketConfigs[0]?.browser).not.toContain("Windows");
+    expect(socketConfigs[0]?.browser).not.toContain("Mac OS");
     const auth = socketConfigs[0]?.auth as PairingAuthState;
     await auth.keys.set({
       "pre-key": {
@@ -177,6 +208,129 @@ describe("WhatsApp first-pairing bootstrap core", () => {
     expect(snapshot?.keys["pre-key"]?.alpha).toEqual(Buffer.from([1, 2, 3, 4]));
     expect(reservation.close).toHaveBeenCalledTimes(1);
     expect(socket.ended).toBe(true);
+  });
+
+  it("requests one pairing code without rendering QR and persists through the existing snapshot flow", async () => {
+    const socket = new FakePairingSocket();
+    const requestPairingCode = vi.spyOn(socket, "requestPairingCode");
+    const reservation = fakeReservation();
+    const qrSink = { render: vi.fn(async () => {}) };
+    const codeSink = { render: vi.fn(async () => {}) };
+    const pairing = runWhatsAppPairingBootstrap({
+      config: {
+        ...coreConfig(),
+        pairingMode: "code",
+        pairingPhoneE164: "5511999999999",
+      },
+      providerIdentity: PATCHED_RC14,
+      reserveBootstrap: vi.fn(async () => reservation),
+      socketFactory: () => socket,
+      qrSink,
+      codeSink,
+    });
+
+    await vi.waitFor(() => expect(requestPairingCode).toHaveBeenCalledTimes(1));
+    expect(requestPairingCode).toHaveBeenCalledWith("5511999999999");
+    await vi.waitFor(() => expect(codeSink.render).toHaveBeenCalledWith("1234-5678"));
+    expect(qrSink.render).not.toHaveBeenCalled();
+    socket.emit("creds.update", { registered: true, me: { id: "paired-user" } });
+    socket.emit("connection.update", { connection: "open" });
+    await pairing;
+    expect(reservation.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a redacted pairing-code provider error and leaves the reservation uncommitted", async () => {
+    const socket = new FakePairingSocket();
+    const requestError = Object.assign(
+      new Error("request failed for 5511999999999 code 1234-5678"),
+      {
+        output: { statusCode: 428 },
+      },
+    );
+    vi.spyOn(socket, "requestPairingCode").mockRejectedValue(requestError);
+    const reservation = fakeReservation();
+
+    const error = await runWhatsAppPairingBootstrap({
+      config: { ...coreConfig(), pairingMode: "code", pairingPhoneE164: "5511999999999" },
+      providerIdentity: PATCHED_RC14,
+      reserveBootstrap: vi.fn(async () => reservation),
+      socketFactory: () => socket,
+      qrSink: { render: vi.fn(async () => {}) },
+      codeSink: { render: vi.fn(async () => {}) },
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(WhatsAppPairingCodeRequestError);
+    expect((error as Error).cause).toBe(requestError);
+    expect(String(error)).toContain("status 428");
+    expect(String(error)).not.toContain("5511999999999");
+    expect(String(error)).not.toContain("1234-5678");
+    expect(reservation.commit).not.toHaveBeenCalled();
+    expect(reservation.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a redacted code-mode disconnect status without committing auth", async () => {
+    const socket = new FakePairingSocket();
+    const requestPairingCode = vi.spyOn(socket, "requestPairingCode");
+    const reservation = fakeReservation();
+    const pairing = runWhatsAppPairingBootstrap({
+      config: { ...coreConfig(), pairingMode: "code", pairingPhoneE164: "5511999999999" },
+      providerIdentity: PATCHED_RC14,
+      reserveBootstrap: vi.fn(async () => reservation),
+      socketFactory: () => socket,
+      qrSink: { render: vi.fn(async () => {}) },
+      codeSink: { render: vi.fn(async () => {}) },
+    });
+    await vi.waitFor(() => expect(requestPairingCode).toHaveBeenCalledTimes(1));
+    const disconnect = Object.assign(new Error("closed 5511999999999 1234-5678"), {
+      output: { statusCode: 401 },
+    });
+    socket.emit("connection.update", {
+      connection: "close",
+      lastDisconnect: { error: disconnect },
+    });
+    const error = await pairing.catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(WhatsAppPairingCodeConnectionError);
+    expect((error as Error).cause).toBe(disconnect);
+    expect(String(error)).toContain("status 401");
+    expect(String(error)).not.toContain("5511999999999");
+    expect(String(error)).not.toContain("1234-5678");
+    expect(reservation.commit).not.toHaveBeenCalled();
+  });
+
+  it("restarts once after code pairing has produced a valid auth snapshot, without another code", async () => {
+    const first = new FakePairingSocket();
+    const second = new FakePairingSocket();
+    const requestPairingCode = vi.spyOn(first, "requestPairingCode");
+    const reservation = fakeReservation();
+    let socketCalls = 0;
+    const socketFactory = vi.fn(() => {
+      socketCalls += 1;
+      return socketCalls === 1 ? first : second;
+    });
+    const pairing = runWhatsAppPairingBootstrap({
+      config: { ...coreConfig(), pairingMode: "code", pairingPhoneE164: "5511999999999" },
+      providerIdentity: PATCHED_RC14,
+      reserveBootstrap: vi.fn(async () => reservation),
+      socketFactory,
+      qrSink: { render: vi.fn(async () => {}) },
+      codeSink: { render: vi.fn(async () => {}) },
+    });
+
+    await vi.waitFor(() => expect(requestPairingCode).toHaveBeenCalledTimes(1));
+    first.emit("creds.update", {
+      me: { id: "paired-user" },
+      account: { keyIndex: 1 },
+      signalIdentities: [{ identifier: { name: "paired-user", deviceId: 0 } }],
+    });
+    first.emit("connection.update", {
+      connection: "close",
+      lastDisconnect: { error: { output: { statusCode: 515 } } },
+    });
+    await vi.waitFor(() => expect(socketFactory).toHaveBeenCalledTimes(2));
+    expect(requestPairingCode).toHaveBeenCalledTimes(1);
+    second.emit("connection.update", { connection: "open" });
+    await pairing;
+    expect(reservation.commit).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed on provider close without persisting auth or leaking QR", async () => {

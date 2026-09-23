@@ -21,7 +21,14 @@ export type ControllerKind = z.infer<typeof ControllerKindSchema>;
 export const ParticipantKindSchema = z.enum(["PLAYER_POKEMON", "WILD_POKEMON", "NPC_POKEMON"]);
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
 
-export const MajorStatusKeySchema = z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]);
+export const MajorStatusKeySchema = z.enum([
+  "BURN",
+  "POISON",
+  "BAD_POISON",
+  "PARALYSIS",
+  "SLEEP",
+  "FREEZE",
+]);
 export type MajorStatusKey = z.infer<typeof MajorStatusKeySchema>;
 
 export const BattleStatKeySchema = z.enum([
@@ -123,7 +130,7 @@ export const BattleAbilitySchema = z
 export type BattleAbility = z.infer<typeof BattleAbilitySchema>;
 
 export const BattleMajorStatusSchema = z
-  .object({ key: MajorStatusKeySchema, counter: z.number().int().min(0).max(10).nullable() })
+  .object({ key: MajorStatusKeySchema, counter: z.number().int().min(0).max(15).nullable() })
   .strict();
 export type BattleMajorStatus = z.infer<typeof BattleMajorStatusSchema>;
 
@@ -180,6 +187,18 @@ export const BattleSideSchema = z
     playerId: uuid.nullable(),
     participantIds: z.array(uuid).min(1).max(64),
     activeParticipantId: uuid,
+    slots: z
+      .array(
+        z
+          .object({
+            activeParticipantId: uuid,
+            participantIds: z.array(uuid).min(1).max(64),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(16)
+      .optional(),
     result: z.enum(["WON", "LOST", "FLED", "DRAW", "CANCELLED"]).nullable(),
   })
   .strict();
@@ -220,12 +239,32 @@ export const BattleStateSchema = z
           message: "active participant must belong to side",
         });
       }
+      if (side.slots !== undefined) {
+        const roster = side.slots.flatMap((slot) => slot.participantIds);
+        if (
+          side.slots[0]?.activeParticipantId !== side.activeParticipantId ||
+          new Set(roster).size !== roster.length ||
+          roster.length !== side.participantIds.length ||
+          !side.participantIds.every((id) => roster.includes(id)) ||
+          side.slots.some((slot) => !slot.participantIds.includes(slot.activeParticipantId))
+        )
+          context.addIssue({
+            code: "custom",
+            path: ["sides", index, "slots"],
+            message:
+              "Slots must partition the side roster and preserve the primary active participant",
+          });
+      }
       for (const participantId of side.participantIds) {
-        if (!combatantIds.has(participantId)) {
+        if (
+          !combatantIds.has(participantId) ||
+          state.combatants.find((entry) => entry.participantId === participantId)?.sideNo !==
+            side.sideNo
+        ) {
           context.addIssue({
             code: "custom",
             path: ["sides", index, "participantIds"],
-            message: "side references missing combatant",
+            message: "side references missing or foreign combatant",
           });
         }
       }
@@ -256,6 +295,11 @@ export const BattleActionSchema = z.discriminatedUnion("type", [
     itemId: uuid,
     targetParticipantId: uuid.optional(),
   }).strict(),
+  ActionBaseSchema.extend({
+    type: z.literal("CAPTURE_ATTEMPT"),
+    ballItemId: uuid,
+    targetParticipantId: uuid,
+  }).strict(),
   ActionBaseSchema.extend({ type: z.literal("FLEE") }).strict(),
 ]);
 export type BattleAction = z.infer<typeof BattleActionSchema>;
@@ -265,6 +309,7 @@ export const BATTLE_EVENT_TYPES = [
   "MoveUsed",
   "MoveMissed",
   "DamageApplied",
+  "HpRestored",
   "StatusApplied",
   "StatusCleared",
   "StatStageChanged",

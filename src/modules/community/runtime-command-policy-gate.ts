@@ -45,17 +45,45 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
     context: MessageHandlerContext,
     requirement: CommandPolicyRequirement,
   ): Promise<Result<void>> {
-    const group = await this.dependencies.community.resolveChat({
-      provider: context.message.provider,
-      chatRef: context.message.chatRef,
-    });
-    if (!group.known) {
-      return err(appError("ACTION_INVALID", "This command is not enabled in an unknown group"));
-    }
+    const requiresGroupContext =
+      (requirement.requiredGroupCapabilities?.length ?? 0) > 0 ||
+      (requirement.requiredAnyGroupCapabilities?.length ?? 0) > 0;
 
-    for (const capability of requirement.requiredGroupCapabilities ?? []) {
-      if (!group.capabilities.includes(capability)) {
-        return err(appError("ACTION_INVALID", "This command is not enabled in this group"));
+    if (requiresGroupContext) {
+      const group = await this.dependencies.community.resolveChat({
+        provider: context.message.provider,
+        chatRef: context.message.chatRef,
+      });
+      if (!group.known) {
+        return err(
+          appError("FLOW_BLOCKED", "This command requires a configured RPG group", {
+            userMessage:
+              "Este grupo ainda não está habilitado para esse comando. Um administrador precisa configurá-lo com `/grupo recepcao Nome` ou `/grupo jogo Nome`.",
+          }),
+        );
+      }
+
+      for (const capability of requirement.requiredGroupCapabilities ?? []) {
+        if (!group.capabilities.includes(capability)) {
+          return err(
+            appError("FLOW_BLOCKED", "This command is not enabled in this group", {
+              userMessage: "Este comando não está habilitado neste tipo de grupo.",
+            }),
+          );
+        }
+      }
+
+      if (
+        requirement.requiredAnyGroupCapabilities !== undefined &&
+        !requirement.requiredAnyGroupCapabilities.some((capability) =>
+          group.capabilities.includes(capability),
+        )
+      ) {
+        return err(
+          appError("FLOW_BLOCKED", "This command is not enabled in this group", {
+            userMessage: "Este comando não está habilitado neste tipo de grupo.",
+          }),
+        );
       }
     }
 
@@ -65,7 +93,11 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
         externalId: context.message.senderRef,
       });
       if (!adminCapabilities.includes(requirement.requiredAdminCapability)) {
-        return err(appError("PLAYER_INELIGIBLE", "Administrative capability is required"));
+        return err(
+          appError("PLAYER_INELIGIBLE", "Administrative capability is required", {
+            userMessage: "Este comando exige uma permissão administrativa do RPG.",
+          }),
+        );
       }
     }
 
@@ -84,12 +116,17 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
         !requirement.allowedPlayerAccess.includes("PENDING")
       ) {
         return err(
-          appError("PLAYER_INELIGIBLE", "Player access state does not allow this command"),
+          appError("PLAYER_INELIGIBLE", "Player access state does not allow this command", {
+            userMessage: "Seu cadastro ainda não permite usar este comando.",
+          }),
         );
       }
       if (requirement.requiresMechanicalReady === true) {
         return err(
-          appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command"),
+          appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command", {
+            userMessage:
+              "Conclua o cadastro e a preparação do treinador antes de usar este comando.",
+          }),
         );
       }
       return ok(undefined);
@@ -100,10 +137,18 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
       requirement.allowedPlayerAccess !== undefined &&
       !requirement.allowedPlayerAccess.includes(access.status)
     ) {
-      return err(appError("PLAYER_INELIGIBLE", "Player access state does not allow this command"));
+      return err(
+        appError("PLAYER_INELIGIBLE", "Player access state does not allow this command", {
+          userMessage: "Seu cadastro não permite usar este comando neste momento.",
+        }),
+      );
     }
     if (requirement.requiresMechanicalReady === true && player.value.state !== "COMPLETE") {
-      return err(appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command"));
+      return err(
+        appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command", {
+          userMessage: "Conclua a preparação mecânica do treinador antes de usar este comando.",
+        }),
+      );
     }
 
     return ok(undefined);

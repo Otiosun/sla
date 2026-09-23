@@ -63,6 +63,7 @@ export const ADMIN_CAPABILITIES = [
   ["admin.role.manage", 4],
   ["admin.capability.manage", 4],
   ["admin.override.invariant", 4],
+  ["UAT_BOOTSTRAP", 4],
 ] as const;
 
 export type AdminCapabilityKey = (typeof ADMIN_CAPABILITIES)[number][0];

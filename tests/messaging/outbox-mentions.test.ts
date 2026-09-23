@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  BaileysWhatsAppAdapter,
   type BaileysEventSource,
   type BaileysSocketLike,
+  BaileysWhatsAppAdapter,
 } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import {
   type LogSink,
-  StructuredLogger,
   type StructuredLogEntry,
+  StructuredLogger,
 } from "../../src/platform/logging/index.js";
 import {
   loadWhatsAppRuntimeConfig,
@@ -98,6 +98,15 @@ describe("WhatsApp runtime supervisor", () => {
     expect(start).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1);
     expect(flushes).toBe(2);
+    expect(logs.sink.entries).toContainEqual(
+      expect.objectContaining({
+        event: "whatsapp.runtime.started",
+        context: { providerConnection: "PENDING" },
+      }),
+    );
+    expect(logs.sink.entries.map((entry) => entry.event)).not.toContain(
+      "whatsapp.provider.connected",
+    );
     expect(logs.sink.entries.map((entry) => entry.event)).toContain("whatsapp.runtime.stopped");
   });
 

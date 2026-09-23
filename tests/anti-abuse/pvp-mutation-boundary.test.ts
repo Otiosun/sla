@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type {
+  MutationAdmissionPort,
+  MutationAdmissionRequest,
+  MutationRatePolicy,
+} from "../../src/modules/anti-abuse/contracts.js";
 import {
   ExternalPvpMutationEndpoint,
   type PvpMutationOwner,
 } from "../../src/modules/anti-abuse/external-pvp-endpoint.js";
-import type {
-  MutationAdmissionRequest,
-  MutationAdmissionPort,
-  MutationRatePolicy,
-} from "../../src/modules/anti-abuse/contracts.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const proofPolicy: MutationRatePolicy = {

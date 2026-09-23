@@ -3,7 +3,7 @@ import { withOperationalWorldPolicy } from "../../src/modules/messaging/operatio
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 
 describe("operational world route policy", () => {
-  it("protects $ir with world capability, ACTIVE access and mechanical readiness", () => {
+  it("protects /ir with world capability, ACTIVE access and mechanical readiness", () => {
     const routes = withOperationalWorldPolicy(createOperationalUxRoutes({} as never));
     const travel = routes.find((route) => route.command === "ir");
 

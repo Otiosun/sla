@@ -1,10 +1,7 @@
 import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-package-version.js";
-import {
-  createInitialAuthCreds,
-  loggedOutStatusCode,
-} from "../adapters/whatsapp/baileys-runtime.js";
-import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { BaileysConnectionUpdateLike } from "../adapters/whatsapp/baileys-provider-contracts.js";
+import { createInitialAuthCreds, pairingBrowser } from "../adapters/whatsapp/baileys-runtime.js";
+import type { BaileysSocketFactory } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type {
   BaileysAuthSnapshot,
   PostgresBaileysAuthOptions,
@@ -21,6 +18,10 @@ export interface SensitivePairingQrSink {
   render(qr: string): Promise<void> | void;
 }
 
+export interface SensitivePairingCodeSink {
+  render(code: string): Promise<void> | void;
+}
+
 export type WhatsAppAuthBootstrapReservationFactory = (
   options: PostgresBaileysAuthOptions,
 ) => Promise<WhatsAppAuthBootstrapReservation>;
@@ -31,6 +32,7 @@ export interface WhatsAppPairingBootstrapDependencies {
   readonly reserveBootstrap: WhatsAppAuthBootstrapReservationFactory;
   readonly socketFactory: BaileysSocketFactory;
   readonly qrSink: SensitivePairingQrSink;
+  readonly codeSink?: SensitivePairingCodeSink;
 }
 
 export class WhatsAppPairingProviderVersionBlockedError extends Error {
@@ -51,6 +53,38 @@ export class WhatsAppPairingTimeoutError extends Error {
 
 export class WhatsAppPairingQrSinkError extends Error {
   override readonly name = "WhatsAppPairingQrSinkError";
+}
+
+export class WhatsAppPairingCodeRequestError extends Error {
+  override readonly name = "WhatsAppPairingCodeRequestError";
+  readonly providerErrorName: string;
+  readonly statusCode: number | null;
+
+  constructor(cause: unknown, phone: string) {
+    const providerErrorName = cause instanceof Error ? cause.name : "UnknownError";
+    const statusCode = statusCodeFromError(cause);
+    const providerMessage = safeProviderMessage(cause, phone);
+    super(
+      `WhatsApp pairing code request failed: ${providerErrorName}: ${providerMessage}${statusCode === null ? "" : ` (status ${statusCode})`}`,
+      { cause },
+    );
+    this.providerErrorName = providerErrorName;
+    this.statusCode = statusCode;
+  }
+}
+
+export class WhatsAppPairingCodeConnectionError extends Error {
+  override readonly name = "WhatsAppPairingCodeConnectionError";
+  readonly statusCode: number | null;
+
+  constructor(cause: unknown, phone: string) {
+    const statusCode = statusCodeFromError(cause);
+    super(
+      `WhatsApp pairing code connection closed: ${safeProviderMessage(cause, phone)}${statusCode === null ? "" : ` (status ${statusCode})`}`,
+      { cause },
+    );
+    this.statusCode = statusCode;
+  }
 }
 
 interface SilentLogger {
@@ -186,6 +220,9 @@ function assertCoreConfig(config: WhatsAppPairingBootstrapConfig): void {
   if (!Number.isSafeInteger(config.timeoutMs) || config.timeoutMs <= 0) {
     throw new Error("WhatsApp pairing timeout must be a positive safe integer");
   }
+  if (config.pairingMode === "code" && config.pairingPhoneE164 == null) {
+    throw new Error("WhatsApp pairing code mode requires an E.164 phone number");
+  }
 }
 
 export function assertWhatsAppPairingProviderIdentitySupported(
@@ -224,6 +261,15 @@ function statusCodeFromError(error: unknown): number | null {
   return null;
 }
 
+function safeProviderMessage(error: unknown, phone: string): string {
+  const message = error instanceof Error ? error.message : "Provider rejected pairing code request";
+  return message
+    .replaceAll(phone, "[redacted]")
+    .replace(/\b\d{6,15}\b/g, "[redacted]")
+    .replace(/\b[A-Z0-9]{4}-?[A-Z0-9]{4}\b/gi, "[redacted]")
+    .slice(0, 240);
+}
+
 function safeEnd(socket: { end(): void } | null): void {
   if (socket === null) return;
   try {
@@ -244,6 +290,7 @@ async function executePairing(
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
     let restartCount = 0;
+    let pairingCodeRequested = false;
 
     const clearDeadline = (): void => {
       if (timeout !== undefined) clearTimeout(timeout);
@@ -284,6 +331,7 @@ async function executePairing(
         markOnlineOnConnect: false,
         shouldSyncHistoryMessage: () => false,
         syncFullHistory: false,
+        browser: pairingBrowser,
       });
       socket = currentSocket;
 
@@ -296,7 +344,11 @@ async function executePairing(
         const update = asConnectionUpdate(value);
         if (update === null) return;
 
-        if (typeof update.qr === "string" && update.qr.length > 0) {
+        if (
+          dependencies.config.pairingMode === "qr" &&
+          typeof update.qr === "string" &&
+          update.qr.length > 0
+        ) {
           void Promise.resolve(dependencies.qrSink.render(update.qr)).catch(() => {
             fail(new WhatsAppPairingQrSinkError("Sensitive WhatsApp QR rendering failed"));
           });
@@ -308,11 +360,7 @@ async function executePairing(
         if (update.connection !== "close") return;
 
         const statusCode = statusCodeFromError(update.lastDisconnect?.error);
-        if (
-          auth.hasPairedIdentity() &&
-          statusCode !== loggedOutStatusCode &&
-          restartCount < MAX_PAIRING_RESTARTS
-        ) {
+        if (auth.hasPairedIdentity() && statusCode === 515 && restartCount < MAX_PAIRING_RESTARTS) {
           restartCount += 1;
           socket = null;
           safeEnd(currentSocket);
@@ -330,8 +378,29 @@ async function executePairing(
           return;
         }
 
+        if (dependencies.config.pairingMode === "code") {
+          fail(
+            new WhatsAppPairingCodeConnectionError(
+              update.lastDisconnect?.error,
+              dependencies.config.pairingPhoneE164 ?? "",
+            ),
+          );
+          return;
+        }
         fail(new WhatsAppPairingProviderClosedError("WhatsApp provider closed before pairing"));
       });
+      if (dependencies.config.pairingMode === "code" && !pairingCodeRequested) {
+        pairingCodeRequested = true;
+        const phone = dependencies.config.pairingPhoneE164;
+        if (phone == null || currentSocket.requestPairingCode === undefined) {
+          fail(new Error("WhatsApp pairing code mode requires an E.164 phone number"));
+          return;
+        }
+        const requestPairingCode = currentSocket.requestPairingCode.bind(currentSocket);
+        void requestPairingCode(phone)
+          .then((code) => dependencies.codeSink?.render(code))
+          .catch((error: unknown) => fail(new WhatsAppPairingCodeRequestError(error, phone)));
+      }
     };
 
     try {
@@ -354,6 +423,9 @@ export async function runWhatsAppPairingBootstrap(
   dependencies: WhatsAppPairingBootstrapDependencies,
 ): Promise<void> {
   assertCoreConfig(dependencies.config);
+  if (dependencies.config.pairingMode === "code" && dependencies.codeSink === undefined) {
+    throw new Error("WhatsApp pairing code mode requires an interactive code sink");
+  }
   assertWhatsAppPairingProviderIdentitySupported(dependencies.providerIdentity);
 
   const reservation = await dependencies.reserveBootstrap({

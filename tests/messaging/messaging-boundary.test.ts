@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
 import { WhatsAppMessagingRuntime } from "../../src/adapters/whatsapp/runtime.js";
 import {
+  type IncomingMessage,
   IncomingMessageSchema,
   incomingMessageFingerprint,
   incomingMessageIdempotencyKey,
-  type IncomingMessage,
   type PendingOutboxMessage,
 } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import type { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const message: IncomingMessage = IncomingMessageSchema.parse({
   provider: "baileys",
@@ -99,7 +99,7 @@ describe("messaging boundary", () => {
     await adapter.inject({
       ...message,
       externalMessageId: "msg-command",
-      text: "   $menu",
+      text: "   /menu",
     });
     await runtime.stop();
 
@@ -127,7 +127,7 @@ describe("messaging boundary", () => {
       },
     } as unknown as OutboxWorker;
     const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
-      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "$menu",
+      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "/menu",
     });
 
     await runtime.start();
@@ -139,11 +139,47 @@ describe("messaging boundary", () => {
     await adapter.inject({
       ...message,
       externalMessageId: "msg-known-command",
-      text: "$Menu",
+      text: "/Menu",
     });
     await runtime.stop();
 
     expect(received.map((incoming) => incoming.externalMessageId)).toEqual(["msg-known-command"]);
+  });
+
+  it("reports a terminal complete-incoming failure without exposing message content", async () => {
+    const adapter = new FakeWhatsAppAdapter();
+    const failures: unknown[] = [];
+    const messaging = {
+      async receive() {
+        return err(
+          appError("FINGERPRINT_MISMATCH", "completion failed", {
+            stage: "COMPLETE_INCOMING",
+            completionErrorCode: "FINGERPRINT_MISMATCH",
+            correlationId: "00000000-0000-4000-8000-000000000020",
+          }),
+        );
+      },
+    } as unknown as MessagingService;
+    const outboxWorker = {
+      async runOnce() {
+        return { claimed: 0, sent: 0, failed: 0 };
+      },
+    } as unknown as OutboxWorker;
+    const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
+      onIncomingProcessingFailure: (failure) => failures.push(failure),
+    });
+
+    await runtime.start();
+    await adapter.inject(message);
+    await runtime.stop();
+
+    expect(failures).toEqual([
+      {
+        stage: "COMPLETE_INCOMING",
+        errorCode: "FINGERPRINT_MISMATCH",
+        correlationId: "00000000-0000-4000-8000-000000000020",
+      },
+    ]);
   });
 
   it("admits only explicitly eligible freeform traffic for conversational flows", async () => {
@@ -187,7 +223,7 @@ describe("messaging boundary", () => {
       ...message,
       externalMessageId: "msg-command-2",
       chatRef: "world@g.us",
-      text: "$menu",
+      text: "/menu",
     });
     await runtime.stop();
 

@@ -8,17 +8,17 @@ import type {
   BattleAdminMutationResult,
   BattleAdminStateView,
 } from "../../modules/battle/admin-contracts.js";
+import { correctActiveBattleState } from "../../modules/battle/admin-policy.js";
 import type {
   BattleAdminCorrectionPersistenceResult,
   BattleAdminReplayResult,
   BattleAdminRepository,
 } from "../../modules/battle/admin-ports.js";
-import { correctActiveBattleState } from "../../modules/battle/admin-policy.js";
 import {
+  type BattleState,
   BattleStateSchema,
   BattleStatusSchema,
   BattleTypeSchema,
-  type BattleState,
 } from "../../modules/battle/contracts.js";
 import { withTransaction } from "../db/transaction.js";
 

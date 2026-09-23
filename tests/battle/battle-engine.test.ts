@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
+import { BattleActionSchema } from "../../src/modules/battle/contracts.js";
 import { computeDamage } from "../../src/modules/battle/damage.js";
 import { legalActionsForSide } from "../../src/modules/battle/legal.js";
 import { resolveTurn } from "../../src/modules/battle/resolver.js";
 import { calculateDerivedStats, effectiveAccuracyPercent } from "../../src/modules/battle/stats.js";
-import { BattleActionSchema } from "../../src/modules/battle/contracts.js";
-import { IDS, TEST_RULES, battleState, playerCombatant, wildCombatant } from "./fixtures.js";
+import { CounterRandomSource } from "../../src/platform/rng/counter-rng.js";
+import { battleState, IDS, playerCombatant, TEST_RULES, wildCombatant } from "./fixtures.js";
 
 const rng = (byte: number) => new CounterRandomSource(Buffer.alloc(32, byte));
 

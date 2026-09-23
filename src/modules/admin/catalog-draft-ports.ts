@@ -1,9 +1,9 @@
-import type { AdminOperationRecord } from "./contracts.js";
 import type {
   CatalogDraftCreateInput,
   CatalogDraftDeactivateInput,
   CatalogDraftReplaceInput,
 } from "../catalog/draft-contracts.js";
+import type { AdminOperationRecord } from "./contracts.js";
 
 export interface AdminCatalogDraftOperationPort {
   applyCatalogDraftCreate(

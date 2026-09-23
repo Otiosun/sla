@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { registerPhase12CEncounterAdminOperations } from "../../src/modules/admin/encounter-definitions.js";
 import { AdminEncounterOperationService } from "../../src/modules/admin/encounter-service.js";
-import { createPhase12AdminOperationRegistry } from "../../src/modules/admin/definitions.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../../src/modules/admin/errors.js";
 import { AdminService } from "../../src/modules/admin/service.js";
 import { EncounterAdminOwnerService } from "../../src/modules/encounter/admin-service.js";
-import { parseEncounterId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { PostgresAdminOperationCompletion } from "../../src/platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import { PostgresEncounterAdminRepository } from "../../src/platform/encounter/postgres-encounter-admin-repository.js";
+import { parseEncounterId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required");
@@ -161,6 +161,13 @@ try {
 
   await insertBattle(activeBattleId, activeBattleEncounterId, "ACTIVE");
   await insertBattle(unsettledBattleId, unsettledEncounterId, "WON");
+
+  await pool.query(
+    `INSERT INTO encounter_wild_snapshots(
+       encounter_id, wild_no, status, schema_version, pokemon_snapshot
+     ) VALUES ($1, 1, 'ACTIVE', 1, '{}'::jsonb)`,
+    [captureEncounterId],
+  );
 
   await pool.query(
     `INSERT INTO capture_attempts(

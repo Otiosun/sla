@@ -1,9 +1,14 @@
 import { spawn } from "node:child_process";
 import { Pool, type PoolClient } from "pg";
+import { gen123Id } from "../../db/imports/gen123/ids.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { loadMigrations, verifyAppliedMigrations } from "../../src/platform/db/migrations.js";
-import { gen123Id } from "../../db/imports/gen123/ids.js";
+import {
+  assertZhouliaExclusiveRelease,
+  reconcileZhouliaExclusiveRelease,
+  type ZhouliaStarterOptionInput,
+} from "../../src/platform/world/postgres-zhoulia-exclusive-release.js";
 
 export const STAGING_GEN123_RELEASE_ID = gen123Id("release:gen123-production-candidate-v1");
 
@@ -103,9 +108,9 @@ async function readState(client: PoolClient): Promise<StagingContentBootstrapSta
             ruleset.key AS ruleset_key,
             ruleset.version AS ruleset_version
        FROM content_releases release
-       JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
-      WHERE release.release_no = 1
-         OR (release.id = $1 AND release.release_no = 15001)
+       JOIN rulesets ruleset ON ruleset.id=release.default_ruleset_id
+      WHERE release.release_no=1
+         OR (release.id=$1 AND release.release_no=15001)
       ORDER BY release.release_no`,
     [STAGING_GEN123_RELEASE_ID],
   );
@@ -121,9 +126,9 @@ async function readState(client: PoolClient): Promise<StagingContentBootstrapSta
             ruleset.key AS ruleset_key,
             ruleset.version AS ruleset_version
        FROM content_release_pointers pointer
-       JOIN content_releases release ON release.id = pointer.content_release_id
-       JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
-      WHERE pointer.pointer_key = 'ACTIVE'`,
+       JOIN content_releases release ON release.id=pointer.content_release_id
+       JOIN rulesets ruleset ON ruleset.id=release.default_ruleset_id
+      WHERE pointer.pointer_key='ACTIVE'`,
   );
   if (active.rows.length > 1) {
     throw new Error("unexpected staging catalog state: multiple ACTIVE rows");
@@ -132,15 +137,15 @@ async function readState(client: PoolClient): Promise<StagingContentBootstrapSta
   const unexpectedReleases = await client.query<{ count: number }>(
     `SELECT count(*)::int AS count
        FROM content_releases
-      WHERE release_no <> 1
-        AND NOT (id = $1 AND release_no = 15001)`,
+      WHERE release_no<>1
+        AND NOT (id=$1 AND release_no=15001)`,
     [STAGING_GEN123_RELEASE_ID],
   );
   const unexpectedRulesets = await client.query<{ count: number }>(
     `SELECT count(*)::int AS count
        FROM rulesets
-      WHERE NOT (key = 'phase4-core-v1' AND version = 1)
-        AND NOT (key = 'gen123-core' AND version = 1)`,
+      WHERE NOT (key='phase4-core-v1' AND version=1)
+        AND NOT (key='gen123-core' AND version=1)`,
   );
 
   let rulesetMismatchCount = 0;
@@ -178,10 +183,17 @@ async function verifySchema(pool: Pool): Promise<void> {
 
 async function runPhase4Seed(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("pnpm", ["--silent", "run", "db:seed:phase4"], {
-      env: process.env,
-      stdio: "inherit",
-    });
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? (process.env.ComSpec ?? "cmd.exe") : "pnpm",
+      windows
+        ? ["/d", "/s", "/c", "pnpm --silent run db:seed:phase4"]
+        : ["--silent", "run", "db:seed:phase4"],
+      {
+        env: process.env,
+        stdio: "inherit",
+      },
+    );
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
@@ -217,13 +229,13 @@ function requireDeploymentEnvironment(): {
   return { databaseUrl, revision };
 }
 
-function assertFinalReport(report: {
+function assertGen123SourceReport(report: {
   readonly coverage: { readonly blocked: readonly string[] };
   readonly counts: Readonly<Record<string, number>>;
 }): void {
   if (report.coverage.blocked.length !== 0) {
     throw new Error(
-      `final Gen I-III validation still has blockers: ${report.coverage.blocked.join(",")}`,
+      `Gen I-III source validation still has blockers: ${report.coverage.blocked.join(",")}`,
     );
   }
   if (
@@ -232,9 +244,86 @@ function assertFinalReport(report: {
     report.counts.starters !== 9
   ) {
     throw new Error(
-      `final Gen I-III validation counts are unexpected: ${JSON.stringify(report.counts)}`,
+      `Gen I-III source validation counts are unexpected: ${JSON.stringify(report.counts)}`,
     );
   }
+}
+
+async function activeSpeciesCount(pool: Pool): Promise<number> {
+  const result = await pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM pokemon_species_revisions revision
+       JOIN content_release_pointers pointer
+         ON pointer.content_release_id=revision.content_release_id
+      WHERE pointer.pointer_key='ACTIVE'
+        AND revision.active=TRUE`,
+  );
+  return result.rows[0]?.count ?? 0;
+}
+
+async function publishCandidate(pool: Pool): Promise<void> {
+  const catalog = new CatalogService(new PostgresCatalogRepository(pool));
+  const state = await pool.query<{
+    release_status: ReleaseStatus;
+    ruleset_id: string;
+    ruleset_status: ReleaseStatus;
+  }>(
+    `SELECT release.status AS release_status,
+            release.default_ruleset_id AS ruleset_id,
+            ruleset.status AS ruleset_status
+       FROM content_releases release
+       JOIN rulesets ruleset ON ruleset.id=release.default_ruleset_id
+      WHERE release.id=$1`,
+    [STAGING_GEN123_RELEASE_ID],
+  );
+  const current = state.rows[0];
+  if (current === undefined) throw new Error("staging candidate disappeared before publication");
+
+  if (current.release_status === "DRAFT") {
+    const validated = await catalog.validateRelease(STAGING_GEN123_RELEASE_ID);
+    if (!validated.ok) {
+      throw new Error(
+        `Zhoulia candidate validation failed [${validated.error.code}]: ${validated.error.message}`,
+      );
+    }
+  } else if (!["VALIDATED", "PUBLISHED"].includes(current.release_status)) {
+    throw new Error(`unexpected candidate status ${current.release_status}`);
+  }
+
+  if (current.ruleset_status === "VALIDATED") {
+    const rulesetPublished = await catalog.publishRuleset(current.ruleset_id);
+    if (!rulesetPublished.ok) {
+      throw new Error(
+        `Gen I-III ruleset publication failed [${rulesetPublished.error.code}]: ` +
+          rulesetPublished.error.message,
+      );
+    }
+  } else if (current.ruleset_status !== "PUBLISHED") {
+    throw new Error(`unexpected Gen I-III ruleset status ${current.ruleset_status}`);
+  }
+
+  const afterValidation = await pool.query<{ status: ReleaseStatus }>(
+    "SELECT status FROM content_releases WHERE id=$1",
+    [STAGING_GEN123_RELEASE_ID],
+  );
+  if (afterValidation.rows[0]?.status === "VALIDATED") {
+    const published = await catalog.publishRelease(STAGING_GEN123_RELEASE_ID);
+    if (!published.ok) {
+      throw new Error(
+        `Zhoulia candidate publication failed [${published.error.code}]: ${published.error.message}`,
+      );
+    }
+  } else if (afterValidation.rows[0]?.status !== "PUBLISHED") {
+    throw new Error(
+      `unexpected release status before activation: ${afterValidation.rows[0]?.status}`,
+    );
+  }
+}
+
+function loadCanonicalZhouliaStarterOptions(): readonly ZhouliaStarterOptionInput[] {
+  throw new Error(
+    "Canonical Zhoulia starter set is not configured; refusing to infer it from Gen I-III source starters",
+  );
 }
 
 export async function bootstrapStagingContent(): Promise<{
@@ -260,11 +349,17 @@ export async function bootstrapStagingContent(): Promise<{
       }
     }
 
-    const { validateGen123Final } = await import("../../db/imports/gen123/final-validate.js");
+    // Product policy is deliberately fail-closed here. The Gen I-III importer
+    // currently yields nine source starters, but that cardinality is not a Bell
+    // Zhoulia product decision and must never be promoted implicitly.
+    const canonicalStarterOptions = loadCanonicalZhouliaStarterOptions();
 
     if (plan === "VERIFY_ACTIVE_CANDIDATE") {
-      const replayReport = await validateGen123Final(false);
-      assertFinalReport(replayReport);
+      await assertZhouliaExclusiveRelease(pool, { releaseId: STAGING_GEN123_RELEASE_ID });
+      const species = await activeSpeciesCount(pool);
+      if (species !== 386) {
+        throw new Error(`ACTIVE Zhoulia catalog expected 386 species, got ${species}`);
+      }
       const verified = await currentState(pool);
       if (planStagingContentBootstrap(verified) !== "VERIFY_ACTIVE_CANDIDATE") {
         throw new Error(
@@ -277,44 +372,57 @@ export async function bootstrapStagingContent(): Promise<{
           revision,
           releaseId: STAGING_GEN123_RELEASE_ID,
           replayed: true,
-          species: replayReport.counts.species,
+          species,
+          world: "zhoulia",
         }),
       );
       return {
         releaseId: STAGING_GEN123_RELEASE_ID,
         replayed: true,
-        species: replayReport.counts.species ?? 386,
+        species,
       };
     }
 
-    const [{ importGen123 }, { applyGen123World }, { publishGen123 }] = await Promise.all([
-      import("../../db/imports/gen123/import.js"),
-      import("../../db/imports/gen123/world.js"),
-      import("../../db/imports/gen123/publish.js"),
-    ]);
+    const candidateStatus = state.candidateRelease?.status ?? null;
 
-    await importGen123();
-    await applyGen123World();
-    const report = await validateGen123Final(true);
-    assertFinalReport(report);
+    if (candidateStatus === null || candidateStatus === "DRAFT") {
+      const [{ importGen123 }, { applyGen123World }, { validateGen123Final }] = await Promise.all([
+        import("../../db/imports/gen123/import.js"),
+        import("../../db/imports/gen123/world.js"),
+        import("../../db/imports/gen123/final-validate.js"),
+      ]);
 
-    const published = await publishGen123();
-    if (published.releaseStatus !== "PUBLISHED" || published.rulesetStatus !== "PUBLISHED") {
-      throw new Error(
-        `Gen I-III publication returned unexpected state: ${JSON.stringify(published)}`,
-      );
+      await importGen123();
+      await applyGen123World();
+
+      // Source geography is verified as import provenance only. It is never activated.
+      const sourceReport = await validateGen123Final(false);
+      assertGen123SourceReport(sourceReport);
+
+      // Bell's playable world is exclusively Zhoulia.
+      await reconcileZhouliaExclusiveRelease(pool, {
+        releaseId: STAGING_GEN123_RELEASE_ID,
+        starterOptions: canonicalStarterOptions,
+      });
+    } else {
+      // A crash after final validation/publication is resumable only if the candidate
+      // already satisfies the Zhoulia-only contract. Old validated Kanto candidates fail closed.
+      await assertZhouliaExclusiveRelease(pool, { releaseId: STAGING_GEN123_RELEASE_ID });
     }
-    if (published.activeReleaseId === STAGING_GEN123_RELEASE_ID) {
-      throw new Error(
-        "unexpected staging catalog state: candidate became ACTIVE before explicit activation",
-      );
+
+    await publishCandidate(pool);
+    await assertZhouliaExclusiveRelease(pool, { releaseId: STAGING_GEN123_RELEASE_ID });
+
+    const beforeActivation = await currentState(pool);
+    if (beforeActivation.activeRelease?.id === STAGING_GEN123_RELEASE_ID) {
+      throw new Error("candidate became ACTIVE before explicit activation");
     }
 
     const catalog = new CatalogService(new PostgresCatalogRepository(pool));
     const activated = await catalog.activateRelease(STAGING_GEN123_RELEASE_ID);
     if (!activated.ok) {
       throw new Error(
-        `Gen I-III activation failed [${activated.error.code}]: ${activated.error.message}`,
+        `Zhoulia activation failed [${activated.error.code}]: ${activated.error.message}`,
       );
     }
 
@@ -324,8 +432,12 @@ export async function bootstrapStagingContent(): Promise<{
         `unexpected staging catalog state after activation: ${JSON.stringify(finalState)}`,
       );
     }
-    const finalReport = await validateGen123Final(false);
-    assertFinalReport(finalReport);
+
+    await assertZhouliaExclusiveRelease(pool, { releaseId: STAGING_GEN123_RELEASE_ID });
+    const species = await activeSpeciesCount(pool);
+    if (species !== 386) {
+      throw new Error(`ACTIVE Zhoulia catalog expected 386 species, got ${species}`);
+    }
 
     console.log(
       JSON.stringify({
@@ -333,13 +445,14 @@ export async function bootstrapStagingContent(): Promise<{
         revision,
         releaseId: STAGING_GEN123_RELEASE_ID,
         replayed: false,
-        species: finalReport.counts.species,
+        species,
+        world: "zhoulia",
       }),
     );
     return {
       releaseId: STAGING_GEN123_RELEASE_ID,
       replayed: false,
-      species: finalReport.counts.species ?? 386,
+      species,
     };
   } finally {
     await pool.end();

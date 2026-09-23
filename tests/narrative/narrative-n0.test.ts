@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ManualClock } from "../../src/platform/clock/index.js";
-import type { NarrativeContextInput } from "../../src/modules/narrative/contracts.js";
 import { NarrativeContextBuilder } from "../../src/modules/narrative/context-builder.js";
+import type { NarrativeContextInput } from "../../src/modules/narrative/contracts.js";
 import { NARRATIVE_N1_SPECIFICATION } from "../../src/modules/narrative/n1-spec.js";
 import type {
   NarrativeInterpreter,
@@ -11,9 +10,10 @@ import type {
 } from "../../src/modules/narrative/ports.js";
 import {
   CanonicalNarrativeRenderer,
-  NarrativeN0Service,
   type NarrativeN0Policy,
+  NarrativeN0Service,
 } from "../../src/modules/narrative/service.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
 
 const baseInput: NarrativeContextInput = {
   sceneId: "scene-1",

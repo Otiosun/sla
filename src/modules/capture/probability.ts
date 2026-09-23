@@ -1,6 +1,6 @@
 import {
-  CaptureProbabilityInputSchema,
   type CaptureProbabilityInput,
+  CaptureProbabilityInputSchema,
   type CaptureProbabilityResult,
 } from "./contracts.js";
 

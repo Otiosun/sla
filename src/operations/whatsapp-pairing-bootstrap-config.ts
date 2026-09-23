@@ -7,6 +7,8 @@ import {
 
 const pairingEnvSchema = z.object({
   WHATSAPP_PAIRING_TIMEOUT_MS: z.coerce.number().int().positive().max(300_000).default(120_000),
+  WHATSAPP_PAIRING_MODE: z.enum(["qr", "code"]).default("qr"),
+  WHATSAPP_PAIRING_PHONE_E164: z.string().optional(),
 });
 
 export interface WhatsAppPairingBootstrapConfig {
@@ -16,10 +18,23 @@ export interface WhatsAppPairingBootstrapConfig {
   readonly authEncryptionKeyVersion: number;
   readonly deploymentRevision: string;
   readonly timeoutMs: number;
+  readonly pairingMode?: "qr" | "code";
+  readonly pairingPhoneE164?: string | null;
 }
 
 export class WhatsAppPairingBootstrapConfigError extends Error {
   override readonly name = "WhatsAppPairingBootstrapConfigError";
+}
+
+function normalizePairingPhone(value: string | undefined): string | null {
+  if (value === undefined || value.trim().length === 0) return null;
+  const compact = value.trim().replace(/[\s()-]/g, "");
+  if (!/^\+?[1-9]\d{5,14}$/.test(compact)) {
+    throw new WhatsAppPairingBootstrapConfigError(
+      "WHATSAPP_PAIRING_PHONE_E164 must be a valid E.164 phone number",
+    );
+  }
+  return compact.replace(/^\+/, "");
 }
 
 function assertReleaseEnvironment(
@@ -63,6 +78,12 @@ export function loadWhatsAppPairingBootstrapConfig(
   if (!parsed.success) {
     throw new WhatsAppPairingBootstrapConfigError("WHATSAPP_PAIRING_TIMEOUT_MS is invalid");
   }
+  const pairingPhoneE164 = normalizePairingPhone(parsed.data.WHATSAPP_PAIRING_PHONE_E164);
+  if (parsed.data.WHATSAPP_PAIRING_MODE === "code" && pairingPhoneE164 === null) {
+    throw new WhatsAppPairingBootstrapConfigError(
+      "WHATSAPP_PAIRING_PHONE_E164 is required when WHATSAPP_PAIRING_MODE=code",
+    );
+  }
 
   return {
     appEnv,
@@ -71,5 +92,7 @@ export function loadWhatsAppPairingBootstrapConfig(
     authEncryptionKeyVersion: runtimeConfig.authEncryptionKeyVersion,
     deploymentRevision: runtimeConfig.deploymentRevision,
     timeoutMs: parsed.data.WHATSAPP_PAIRING_TIMEOUT_MS,
+    pairingMode: parsed.data.WHATSAPP_PAIRING_MODE,
+    pairingPhoneE164,
   };
 }

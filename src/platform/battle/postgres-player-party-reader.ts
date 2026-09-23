@@ -62,6 +62,7 @@ function majorStatus(value: string | undefined): BattlePokemonBuild["majorStatus
   if (
     value === "BURN" ||
     value === "POISON" ||
+    value === "BAD_POISON" ||
     value === "PARALYSIS" ||
     value === "SLEEP" ||
     value === "FREEZE"
@@ -107,7 +108,7 @@ async function enrichPlayerPokemon(
     `SELECT condition_key
      FROM pokemon_persistent_conditions
      WHERE pokemon_instance_id = $1
-       AND condition_key IN ('BURN','POISON','PARALYSIS','SLEEP','FREEZE')
+       AND condition_key IN ('BURN','POISON','BAD_POISON','PARALYSIS','SLEEP','FREEZE')
      ORDER BY condition_key`,
     [row.pokemon_instance_id],
   );

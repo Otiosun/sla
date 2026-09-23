@@ -1,5 +1,5 @@
-import { copyFile, cp, mkdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { copyFile, cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

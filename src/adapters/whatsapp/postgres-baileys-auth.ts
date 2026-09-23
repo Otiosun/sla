@@ -7,8 +7,8 @@ import {
 import type { BaileysAuthBinding } from "./baileys-whatsapp-adapter.js";
 import {
   decryptWhatsAppAuthValue,
-  encryptWhatsAppAuthValue,
   type EncryptedWhatsAppAuthValue,
+  encryptWhatsAppAuthValue,
 } from "./whatsapp-auth-crypto.js";
 
 const SESSION_KEY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
