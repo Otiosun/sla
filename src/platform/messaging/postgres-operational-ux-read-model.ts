@@ -13,7 +13,7 @@ import type {
   OperationalTeamMemberView,
   OperationalUxReadModel,
 } from "../../modules/messaging/operational-ux-read-model.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
+import type { PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
 import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 
 function legacyLevelEvolutionConfig(config: unknown): {
@@ -645,7 +645,7 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
 
   public async listEvolutionOptions(
     playerId: PlayerId,
-    pokemonInstanceId: import("../../shared-kernel/ids.js").PokemonInstanceId,
+    pokemonInstanceId: PokemonInstanceId,
   ): Promise<readonly OperationalEvolutionOptionView[]> {
     const rules = await this.pool.query<{
       content_release_id: string;
