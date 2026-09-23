@@ -10,7 +10,7 @@ const baseMessage = IncomingMessageSchema.parse({
   senderRef: "sender-hardening",
   chatRef: "chat-hardening",
   occurredAt: "2026-08-28T00:00:00-03:00",
-  text: "$danger",
+  text: "/danger",
   mediaRefs: [],
   replyToExternalMessageId: null,
 });
@@ -32,7 +32,7 @@ describe("messaging operational hardening", () => {
       command: "danger",
       sensitiveActionKey: "command:danger",
     });
-    expect(router.classify({ ...baseMessage, text: "$profile" })).toEqual({
+    expect(router.classify({ ...baseMessage, text: "/profile" })).toEqual({
       command: "profile",
       sensitiveActionKey: null,
     });
@@ -42,7 +42,7 @@ describe("messaging operational hardening", () => {
     });
   });
 
-  it("presents typed errors without leaking internal message/details and keeps correlation id", () => {
+  it("presents typed flow errors without leaking internal message/details or correlation ids", () => {
     const context = {
       inboxMessageId: "00000000-0000-4000-8000-000000000001",
       correlationId: "00000000-0000-4000-8000-000000000002",
@@ -59,7 +59,8 @@ describe("messaging operational hardening", () => {
     const payload = presented.outgoing[0]?.payload;
     const text = typeof payload?.text === "string" ? payload.text : "";
 
-    expect(text).toContain("Código de suporte: 00000000-0000-4000-8000-000000000002");
+    expect(text).not.toContain("Código de suporte:");
+    expect(text).not.toContain(context.correlationId);
     expect(text).toContain("bloqueada pelo fluxo atual");
     expect(text).not.toContain("internal SQL-ish detail");
     expect(text).not.toContain("hidden");
