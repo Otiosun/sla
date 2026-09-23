@@ -195,7 +195,7 @@ describe("Pokemon PC organize conversation", () => {
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗡𝗢𝗩𝗢 𝗗𝗘𝗦𝗧𝗜𝗡𝗢");
     expect(result.value.outgoing[0]?.payload.text).toContain("Pidgey");
-    expect(result.value.outgoing[0]?.payload.text).toContain("2 / 5");
+    expect(result.value.outgoing[0]?.payload.text).toContain("`2/5`");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(
       `:center:pc:organize:destination:${STORED_POKEMON_ID}`,
     );
