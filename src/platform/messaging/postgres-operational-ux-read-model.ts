@@ -1,5 +1,8 @@
 import type { Pool } from "pg";
+import { EvolutionTriggerSchemas } from "../../modules/catalog/contracts.js";
 import type {
+  OperationalEvolutionOptionView,
+  OperationalEvolutionRelativeStats,
   OperationalInventoryItemView,
   OperationalOwnedPokemonDetailView,
   OperationalOwnedPokemonView,
@@ -12,6 +15,53 @@ import type {
 } from "../../modules/messaging/operational-ux-read-model.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
+
+function legacyLevelEvolutionConfig(config: unknown): {
+  readonly level: number;
+  readonly relativePhysicalStats: OperationalEvolutionRelativeStats | null;
+} | null {
+  if (typeof config !== "object" || config === null) return null;
+  const value = config as Record<string, unknown>;
+  const level = value.minimumLevel;
+  if (typeof level !== "number" || !Number.isInteger(level) || level < 2 || level > 100) {
+    return null;
+  }
+  const relative = value.relativePhysicalStats;
+  const relativePhysicalStats =
+    relative === "ATTACK_GT_DEFENSE" ||
+    relative === "ATTACK_LT_DEFENSE" ||
+    relative === "ATTACK_EQ_DEFENSE"
+      ? relative
+      : null;
+  return { level, relativePhysicalStats };
+}
+
+function evolutionLevelConfig(config: unknown): {
+  readonly level: number;
+  readonly relativePhysicalStats: OperationalEvolutionRelativeStats | null;
+} | null {
+  const canonical = EvolutionTriggerSchemas.LEVEL.safeParse(config);
+  if (canonical.success) {
+    return {
+      level: canonical.data.level,
+      relativePhysicalStats: canonical.data.relativePhysicalStats ?? null,
+    };
+  }
+  return legacyLevelEvolutionConfig(config);
+}
+
+function evolutionItemId(config: unknown): string | null {
+  const canonical = EvolutionTriggerSchemas.ITEM.safeParse(config);
+  if (canonical.success) return canonical.data.itemId;
+  if (typeof config !== "object" || config === null) return null;
+  const value = (config as Record<string, unknown>).sourceItemIdentityId;
+  return typeof value === "string" ? value : null;
+}
+
+function evolutionConditionKey(config: unknown): string | null {
+  const canonical = EvolutionTriggerSchemas.CONDITION.safeParse(config);
+  return canonical.success ? canonical.data.conditionKey : null;
+}
 
 export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
   public constructor(private readonly pool: Pool) {}
@@ -591,6 +641,117 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
       }
     }
     return [...grouped.values()];
+  }
+
+  public async listEvolutionOptions(
+    playerId: PlayerId,
+    pokemonInstanceId: import("../../shared-kernel/ids.js").PokemonInstanceId,
+  ): Promise<readonly OperationalEvolutionOptionView[]> {
+    const rules = await this.pool.query<{
+      content_release_id: string;
+      trigger_kind: "LEVEL" | "ITEM" | "CONDITION";
+      trigger_config: unknown;
+      target_display_name: string;
+    }>(
+      `SELECT context.content_release_id,
+              rule.trigger_kind,
+              rule.trigger_config,
+              target_species_revision.display_name AS target_display_name
+       FROM pokemon_instances pokemon
+       JOIN player_onboarding_context context
+         ON context.player_id = pokemon.owner_player_id
+       JOIN evolution_rules rule
+         ON rule.content_release_id = context.content_release_id
+        AND rule.from_form_id = pokemon.form_id
+        AND rule.active = TRUE
+       JOIN pokemon_forms target_form
+         ON target_form.id = rule.to_form_id
+       JOIN pokemon_species_revisions target_species_revision
+         ON target_species_revision.content_release_id = context.content_release_id
+        AND target_species_revision.species_id = target_form.species_id
+        AND target_species_revision.active = TRUE
+       WHERE pokemon.owner_player_id = $1
+         AND pokemon.id = $2
+         AND pokemon.status = 'ACTIVE'
+       ORDER BY CASE rule.trigger_kind WHEN 'LEVEL' THEN 1 WHEN 'ITEM' THEN 2 ELSE 3 END,
+                target_species_revision.display_name,
+                rule.id`,
+      [playerId, pokemonInstanceId],
+    );
+
+    const options: OperationalEvolutionOptionView[] = [];
+    for (const rule of rules.rows) {
+      if (rule.trigger_kind === "LEVEL") {
+        const parsed = evolutionLevelConfig(rule.trigger_config);
+        if (parsed === null) continue;
+        options.push({
+          targetDisplayName: rule.target_display_name,
+          triggerKind: "LEVEL",
+          requiredLevel: parsed.level,
+          relativePhysicalStats: parsed.relativePhysicalStats,
+          itemId: null,
+          itemDisplayName: null,
+          itemQuantity: null,
+          conditionActive: null,
+        });
+        continue;
+      }
+
+      if (rule.trigger_kind === "ITEM") {
+        const itemId = evolutionItemId(rule.trigger_config);
+        if (itemId === null) continue;
+        const item = await this.pool.query<{ display_name: string; quantity: string }>(
+          `SELECT revision.display_name,
+                  COALESCE(balance.quantity, 0)::text AS quantity
+           FROM item_revisions revision
+           LEFT JOIN inventory_balances balance
+             ON balance.player_id = $1
+            AND balance.item_id = revision.item_id
+           WHERE revision.content_release_id = $2
+             AND revision.item_id = $3
+             AND revision.active = TRUE
+           LIMIT 1`,
+          [playerId, rule.content_release_id, itemId],
+        );
+        const itemRow = item.rows[0];
+        if (itemRow === undefined) continue;
+        options.push({
+          targetDisplayName: rule.target_display_name,
+          triggerKind: "ITEM",
+          requiredLevel: null,
+          relativePhysicalStats: null,
+          itemId,
+          itemDisplayName: itemRow.display_name,
+          itemQuantity: BigInt(itemRow.quantity),
+          conditionActive: null,
+        });
+        continue;
+      }
+
+      const conditionKey = evolutionConditionKey(rule.trigger_config);
+      if (conditionKey === null) continue;
+      const active = await this.pool.query<{ active: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1
+           FROM pokemon_evolution_condition_flags flag
+           WHERE flag.pokemon_instance_id = $1
+             AND flag.condition_key = $2
+             AND flag.status = 'ACTIVE'
+         ) AS active`,
+        [pokemonInstanceId, conditionKey],
+      );
+      options.push({
+        targetDisplayName: rule.target_display_name,
+        triggerKind: "CONDITION",
+        requiredLevel: null,
+        relativePhysicalStats: null,
+        itemId: null,
+        itemDisplayName: null,
+        itemQuantity: null,
+        conditionActive: active.rows[0]?.active === true,
+      });
+    }
+    return options;
   }
 
   public async activeBattleId(playerId: PlayerId): Promise<string | null> {
