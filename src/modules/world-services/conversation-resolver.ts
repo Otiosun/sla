@@ -578,8 +578,8 @@ export class WorldServiceConversationResolver {
     }
 
     if (!isSceneProofCandidate(context.message)) return ok(null);
-    const text = context.message.text;
-    if (text === null) return ok(null);
+    const sceneText = context.message.text;
+    if (sceneText === null) return ok(null);
 
     const location = await this.dependencies.world.getLocation(player.value);
     if (!location.ok) return location;
@@ -587,7 +587,7 @@ export class WorldServiceConversationResolver {
       playerId: player.value,
       areaId: location.value.areaId,
       sourceInboxMessageId: context.inboxMessageId,
-      text,
+      text: sceneText,
     });
     if (!proof.ok) return proof;
 
