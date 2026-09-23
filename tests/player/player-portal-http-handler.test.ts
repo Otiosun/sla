@@ -212,33 +212,27 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     };
 
     const denied = await handler().instance.handle(
-      new Request(
-        `https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`,
-        {
-          method: "POST",
-          headers: {
-            cookie: "__Host-pokemon_hub_session=session-token",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(body),
+      new Request(`https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`, {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
         },
-      ),
+        body: JSON.stringify(body),
+      }),
     );
     expect(denied.status).toBe(403);
 
     const { instance, adminPrepareMutation, adminApplyMutation } = handler({ admin: true });
     const allowed = await instance.handle(
-      new Request(
-        `https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`,
-        {
-          method: "POST",
-          headers: {
-            cookie: "__Host-pokemon_hub_session=session-token",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(body),
+      new Request(`https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`, {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
         },
-      ),
+        body: JSON.stringify(body),
+      }),
     );
 
     expect(allowed.status).toBe(200);
@@ -266,20 +260,17 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     );
 
     const massAssignment = await instance.handle(
-      new Request(
-        `https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`,
-        {
-          method: "POST",
-          headers: {
-            cookie: "__Host-pokemon_hub_session=session-token",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            ...body,
-            playerId: "44444444-4444-4444-8444-444444444444",
-          }),
+      new Request(`https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`, {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
         },
-      ),
+        body: JSON.stringify({
+          ...body,
+          playerId: "44444444-4444-4444-8444-444444444444",
+        }),
+      }),
     );
     expect(massAssignment.status).toBe(400);
     expect(adminPrepareMutation).toHaveBeenCalledTimes(1);
