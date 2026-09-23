@@ -321,6 +321,39 @@ describe("BaileysWhatsAppAdapter", () => {
     await adapter.stop();
   });
 
+  it("quotes IMAGE output with the same inbound WhatsApp context", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    await adapter.send(
+      outbox({
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: "https://assets.example.com/world/pokemart.png",
+          caption: "Poké Mart",
+          replyToExternalMessageId: "wamid-player-image-command",
+          replyToSenderRef: "5511888888888@s.whatsapp.net",
+          replyToText: "/pokemart",
+        },
+      }),
+    );
+
+    expect(socket.sent[0]?.options?.quoted).toEqual({
+      key: {
+        remoteJid: "5511999999999@s.whatsapp.net",
+        id: "wamid-player-image-command",
+        participant: "5511888888888@s.whatsapp.net",
+        fromMe: false,
+      },
+      message: { conversation: "/pokemart" },
+    });
+    await adapter.stop();
+  });
+
   it("maps a validated HTTPS IMAGE outbox message with caption and rejects unsafe sources", async () => {
     const socket = new FakeBaileysSocket();
     const adapter = new BaileysWhatsAppAdapter({
