@@ -107,6 +107,53 @@ describe("MessagingService completion failures", () => {
     });
   });
 
+  it("preserves explicit reply targets and does not attach quote metadata to reactions", async () => {
+    const completeIncoming = vi.fn(async () => ok(undefined));
+    const store = repository(completeIncoming);
+    const replyRouter: MessageRouterPort = {
+      classify: () => ({ command: "teste", sensitiveActionKey: null }),
+      dispatch: async (context) =>
+        ok({
+          resultRefType: null,
+          resultRefId: null,
+          outgoing: [
+            {
+              channel: "whatsapp",
+              destinationRef: context.message.chatRef,
+              messageType: "TEXT",
+              payload: {
+                text: "Resposta",
+                replyToExternalMessageId: "explicit-target",
+                replyToSenderRef: "explicit-sender",
+                replyToText: "texto explícito",
+              },
+              idempotencyKey: "explicit-reply-context-test",
+            },
+            {
+              channel: "whatsapp",
+              destinationRef: context.message.chatRef,
+              messageType: "REACTION",
+              payload: { emoji: "✅", externalMessageId: "react-target" },
+              idempotencyKey: "reaction-no-reply-context-test",
+            },
+          ],
+        }),
+    };
+
+    const result = await new MessagingService(store, replyRouter).receive(message);
+
+    expect(result.ok).toBe(true);
+    const persisted = completeIncoming.mock.calls[0]?.[1];
+    expect(persisted?.outgoing[0]?.payload).toMatchObject({
+      replyToExternalMessageId: "explicit-target",
+      replyToSenderRef: "explicit-sender",
+      replyToText: "texto explícito",
+    });
+    expect(persisted?.outgoing[1]?.payload.replyToExternalMessageId).toBeUndefined();
+    expect(persisted?.outgoing[1]?.payload.replyToSenderRef).toBeUndefined();
+    expect(persisted?.outgoing[1]?.payload.replyToText).toBeUndefined();
+  });
+
   it("terminalizes the inbox when completeIncoming throws", async () => {
     const store = repository(async () => {
       throw new Error("database write failed");
