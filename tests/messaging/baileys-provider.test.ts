@@ -25,6 +25,7 @@ class FakeBaileysSocket implements BaileysSocketLike {
     options: { readonly messageId?: string } | undefined;
   }> = [];
   ended = false;
+  readonly presences: Array<{ type: "composing" | "paused"; jid: string }> = [];
 
   private readonly listeners = new Map<string, Array<(value: unknown) => void>>();
 
@@ -35,6 +36,10 @@ class FakeBaileysSocket implements BaileysSocketLike {
       this.listeners.set(event, listeners);
     },
   };
+
+  async sendPresenceUpdate(type: "composing" | "paused", jid: string): Promise<void> {
+    this.presences.push({ type, jid });
+  }
 
   async sendMessage(
     jid: string,
@@ -264,6 +269,45 @@ describe("BaileysWhatsAppAdapter", () => {
       "requires non-empty text",
     );
     await adapter.stop();
+  });
+
+
+  it("shows composing presence before delayed site text and pauses before send", async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeBaileysSocket();
+      const adapter = new BaileysWhatsAppAdapter({
+        auth: authBinding(),
+        socketFactory: () => socket,
+      });
+      await adapter.start(async () => {});
+
+      const pending = adapter.send(
+        outbox({
+          messageType: "TEXT_WITH_TYPING",
+          payload: { text: "Seu acesso está pronto.", typingMs: 5000 },
+        }),
+      );
+
+      await vi.waitFor(() =>
+        expect(socket.presences).toEqual([
+          { type: "composing", jid: "5511999999999@s.whatsapp.net" },
+        ]),
+      );
+      expect(socket.sent).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await pending;
+
+      expect(socket.presences).toEqual([
+        { type: "composing", jid: "5511999999999@s.whatsapp.net" },
+        { type: "paused", jid: "5511999999999@s.whatsapp.net" },
+      ]);
+      expect(socket.sent[0]?.content).toEqual({ text: "Seu acesso está pronto." });
+      await adapter.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("maps a validated HTTPS IMAGE outbox message with caption and rejects unsafe sources", async () => {
