@@ -9,10 +9,28 @@ export interface HubWhatsAppDependencies {
   readonly publicUrl: string | null;
 }
 
+const SITE_TYPING_MS = 5_000;
+
+function isGroupChat(chatRef: string): boolean {
+  return chatRef.endsWith("@g.us");
+}
+
 class HubLoginHandler implements MessageRouteHandler {
   public constructor(private readonly dependencies: HubWhatsAppDependencies) {}
 
   public async handle(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
+    if (isGroupChat(context.message.chatRef)) {
+      return textResult(
+        context,
+        [
+          "🔒 *ACESSO AO SITE É PESSOAL*",
+          "",
+          "Por segurança, o link não é enviado em grupos.",
+          "Me chame no privado e use */site*.",
+        ].join("\n"),
+      );
+    }
+
     if (this.dependencies.publicUrl === null) {
       return textResult(
         context,
@@ -27,10 +45,10 @@ class HubLoginHandler implements MessageRouteHandler {
     if (!issued.ok) return issued;
 
     const url = hubLoginUrl(this.dependencies.publicUrl, issued.value.ticket);
-    return textResult(
+    return typedTextResult(
       context,
       [
-        "📟 *ROTOM · HUB*",
+        "📟 *ROTOM · SITE*",
         "",
         "Seu acesso pessoal está pronto:",
         url,
@@ -66,12 +84,31 @@ function textResult(context: MessageHandlerContext, text: string): Result<Messag
   });
 }
 
+function typedTextResult(
+  context: MessageHandlerContext,
+  text: string,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: null,
+    resultRefId: null,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT_WITH_TYPING",
+        payload: { text, typingMs: SITE_TYPING_MS },
+        idempotencyKey: `${context.idempotencyKey}:reply`,
+      },
+    ],
+  });
+}
+
 export function createHubWhatsAppRoutes(
   dependencies: HubWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
   return [
     {
-      command: "hub",
+      command: "site",
       handler: new HubLoginHandler(dependencies),
       rateLimitClass: "SENSITIVE",
       policy: {
