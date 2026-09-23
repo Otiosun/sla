@@ -69,6 +69,22 @@ export interface OperationalInventoryItemView {
   readonly quantity: bigint;
 }
 
+export type OperationalEvolutionRelativeStats =
+  | "ATTACK_GT_DEFENSE"
+  | "ATTACK_LT_DEFENSE"
+  | "ATTACK_EQ_DEFENSE";
+
+export interface OperationalEvolutionOptionView {
+  readonly targetDisplayName: string;
+  readonly triggerKind: "LEVEL" | "ITEM" | "CONDITION";
+  readonly requiredLevel: number | null;
+  readonly relativePhysicalStats: OperationalEvolutionRelativeStats | null;
+  readonly itemId: string | null;
+  readonly itemDisplayName: string | null;
+  readonly itemQuantity: bigint | null;
+  readonly conditionActive: boolean | null;
+}
+
 export interface OperationalPokedexSpeciesView {
   readonly speciesId: string;
   readonly nationalDex: number;
@@ -111,6 +127,10 @@ export interface OperationalUxReadModel {
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
   listPendingMoveChoices(playerId: PlayerId): Promise<readonly OperationalPendingMoveChoiceView[]>;
+  listEvolutionOptions?(
+    playerId: PlayerId,
+    pokemonInstanceId: PokemonInstanceId,
+  ): Promise<readonly OperationalEvolutionOptionView[]>;
   activeBattleId(playerId: PlayerId): Promise<string | null>;
   speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
   moveDisplayNames(
