@@ -177,6 +177,7 @@ function onboardingMenu(state: string): string {
       "`/inventario` · itens",
       "`/pokedex` · registros",
       "`/golpes` · aprendizado de movimentos",
+      "`/evolucao <# ou nome>` · evolução e requisitos",
       "`/pescar` · quando houver ponto disponível",
       "`/combate` · regras de combate",
       "",
@@ -313,7 +314,8 @@ export function createOperationalUxRoutes(
         "`/onde` · área, serviços e rotas",
         "`/equipe` · formação atual",
         "`/colecao` · todos os Pokémon",
-        "`/pokemon <#>` · ficha individual",
+        "`/pokemon <# ou nome>` · ficha individual",
+        "`/evolucao <# ou nome>` · evolução e requisitos",
         "`/inventario` · mochila",
         "`/pokedex` · registros",
         ...(pending.length === 0
@@ -793,7 +795,7 @@ export function createOperationalUxRoutes(
         ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
         "",
         "`/golpes` · decisões de aprendizado",
-        ``/evolucao #${String(ref)}` · evolução e requisitos`,
+        `\`/evolucao #${String(ref)}\` · evolução e requisitos`,
         "`/equipe` · administrar formação",
       ].join("\n"),
     );
