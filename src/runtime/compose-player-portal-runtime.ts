@@ -12,6 +12,7 @@ import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { SystemClock } from "../platform/clock/index.js";
+import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
@@ -84,6 +85,7 @@ export function composePlayerPortalRuntime(
   });
   const tickets = new HubLoginTicketService(new PostgresHubLoginTicketStore(options.pool));
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
+  const admin = new PostgresAdminWhatsAppIdentityResolver(options.pool);
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -91,6 +93,7 @@ export function composePlayerPortalRuntime(
     roster,
     moveChoices,
     customization,
+    admin,
   });
 
   return {

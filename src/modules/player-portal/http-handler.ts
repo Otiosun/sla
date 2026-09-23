@@ -10,6 +10,11 @@ import type { HubSessionTokenService } from "./session-token-service.js";
 const SESSION_COOKIE_NAME = "__Host-pokemon_hub_session";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
 
+interface PlayerPortalAdminAccess {
+  resolvePrincipal(identity: ExternalIdentity): Promise<{ readonly principalId: string } | null>;
+  capabilitiesFor(identity: ExternalIdentity): Promise<readonly string[]>;
+}
+
 interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
@@ -20,6 +25,7 @@ interface PlayerPortalHttpDependencies {
   readonly roster: Pick<PlayerPortalRosterService, "move">;
   readonly moveChoices: Pick<PlayerPortalMoveChoiceService, "list" | "resolve">;
   readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
+  readonly admin: PlayerPortalAdminAccess;
 }
 
 export class PlayerPortalHttpHandler {
@@ -33,6 +39,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
+      return this.withSession(request, (identity) => this.getAdminSelf(identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon") {
       return this.withSession(request, (identity) => this.getPokemon(identity));
@@ -124,6 +133,21 @@ export class PlayerPortalHttpHandler {
     return result.ok
       ? jsonResponse(200, { profile: result.value })
       : errorResponse(result.error, "read");
+  }
+
+  private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) {
+      return jsonResponse(200, { admin: null });
+    }
+
+    const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
+    return jsonResponse(200, {
+      admin: {
+        principalId: principal.principalId,
+        capabilities: [...capabilities],
+      },
+    });
   }
 
   private async getPokemon(identity: ExternalIdentity): Promise<Response> {
