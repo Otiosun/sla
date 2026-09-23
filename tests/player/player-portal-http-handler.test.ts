@@ -26,6 +26,14 @@ const profile: PlayerPortalSelfView = {
   contentReleaseId: "22222222-2222-4222-8222-222222222222",
   rulesetId: "33333333-3333-4333-8333-333333333333",
   starterPokemonInstanceId: createPokemonInstanceId(),
+  profileCustomization: {
+    title: null,
+    bio: null,
+    appearance: null,
+    age: null,
+    height: null,
+    accent: "crimson",
+  },
   team: [],
 };
 
@@ -56,6 +64,7 @@ function handler() {
       replayed: false,
     }),
   );
+  const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
   const instance = new PlayerPortalHttpHandler({
     tickets: { redeem: async () => ok(identity) },
     sessions: {
@@ -79,8 +88,9 @@ function handler() {
       list: async () => ok({ blockedByBattle: false, choices: [] }),
       resolve: resolveMoveChoice,
     },
+    customization: { update: customizationUpdate },
   });
-  return { instance, rosterMove, resolveMoveChoice };
+  return { instance, rosterMove, resolveMoveChoice, customizationUpdate };
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
@@ -101,11 +111,12 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     expect(cookie).toContain("SameSite=Lax");
   });
 
-  it("exposes profile, inventory, location and read-only battle consultation", async () => {
+  it("exposes profile, inventory, both location routes and read-only battle consultation", async () => {
     for (const [path, key] of [
       ["/v1/hub/player/self", "profile"],
       ["/v1/hub/player/inventory", "inventory"],
       ["/v1/hub/world/location", "location"],
+      ["/v1/hub/player/location", "location"],
       ["/v1/hub/player/battle", "battle"],
     ] as const) {
       const response = await handler().instance.handle(
@@ -118,8 +129,9 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     }
   });
 
-  it("allows roster organization and move learning while blocking world gameplay mutations", async () => {
-    const { instance, rosterMove, resolveMoveChoice } = handler();
+  it("allows roster, move learning and cosmetic profile updates without gameplay mutations", async () => {
+    const { instance, rosterMove, resolveMoveChoice, customizationUpdate } = handler();
+
     const response = await instance.handle(
       new Request("https://api.example.test/v1/hub/player/roster", {
         method: "PUT",
@@ -160,6 +172,27 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     );
     expect(resolved.status).toBe(200);
     expect(resolveMoveChoice).toHaveBeenCalledOnce();
+
+    const profileResponse = await instance.handle(
+      new Request("https://api.example.test/v1/hub/player/profile-customization", {
+        method: "PUT",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "Explorador",
+          bio: "Sempre seguindo a próxima trilha.",
+          appearance: null,
+          age: 29,
+          height: "1,94 m",
+          accent: "gold",
+        }),
+      }),
+    );
+    expect(profileResponse.status).toBe(200);
+    expect(customizationUpdate).toHaveBeenCalledOnce();
+    expect(await profileResponse.json()).toHaveProperty("profile");
 
     for (const path of [
       "/v1/hub/world/travel",

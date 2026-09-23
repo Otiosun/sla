@@ -63,12 +63,24 @@ function service(activeBattle: PlayerPortalActiveBattleRecord | null = null) {
           ],
         }),
     },
+    customization: {
+      read: async () => ({
+        title: "Explorador",
+        bio: "Sempre seguindo a próxima trilha.",
+        appearance: null,
+        age: 29,
+        height: "1,94 m",
+        accent: "gold",
+      }),
+    },
     repository: {
       originRegionDisplayName: async () => "Zhoulia",
       listOwnedPokemon: async () => [
         {
           pokemonInstanceId,
           formId: "66666666-6666-4666-8666-666666666666",
+          formSlug: "chikorita",
+          speciesSlug: "chikorita",
           displayName: "Chikorita",
           nationalDex: 152,
           typeNames: ["Grass"],
@@ -112,9 +124,19 @@ describe("PlayerPortalReadService", () => {
       trainerName: "Natan",
       originRegionName: "Zhoulia",
       progressionPoints: "240",
+      profileCustomization: {
+        title: "Explorador",
+        bio: "Sempre seguindo a próxima trilha.",
+        appearance: null,
+        age: 29,
+        height: "1,94 m",
+        accent: "gold",
+      },
       team: [
         {
           pokemonInstanceId,
+          formSlug: "chikorita",
+          speciesSlug: "chikorita",
           displayName: "Chikorita",
           currentHp: 20,
           maxHp: 21,

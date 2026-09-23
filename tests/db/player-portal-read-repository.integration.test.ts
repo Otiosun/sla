@@ -60,10 +60,10 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
       "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 152, 'chikorita')",
       [speciesId],
     );
-    await pool.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
-      formId,
-      speciesId,
-    ]);
+    await pool.query(
+      "INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'chikorita')",
+      [formId, speciesId],
+    );
     await pool.query(
       `INSERT INTO pokemon_species_revisions(
          id, content_release_id, species_id, display_name, active
@@ -155,6 +155,8 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
     expect(pokemon).toEqual([
       expect.objectContaining({
         pokemonInstanceId,
+        formSlug: "chikorita",
+        speciesSlug: "chikorita",
         displayName: "Chikorita",
         nationalDex: 152,
         typeNames: ["Grass"],
@@ -197,6 +199,12 @@ describe.sequential("Player Portal read projection on disposable PostgreSQL", ()
         displayName: "Chikorita",
         seenCount: "2",
         caughtCount: "1",
+        shinySeenCount: "0",
+        shinyCaughtCount: "0",
+        firstShinySeenAt: null,
+        lastShinySeenAt: null,
+        firstShinyCaughtAt: null,
+        lastShinyCaughtAt: null,
       }),
     ]);
     expect(inventory).toEqual([

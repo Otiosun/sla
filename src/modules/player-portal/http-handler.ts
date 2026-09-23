@@ -2,6 +2,7 @@ import type { AppError } from "../../shared-kernel/result.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
 import type { PlayerPortalMoveChoiceService } from "./move-choice-service.js";
+import type { PlayerPortalProfileCustomizationService } from "./profile-customization-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
 import type { PlayerPortalRosterService } from "./roster-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
@@ -18,6 +19,7 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly roster: Pick<PlayerPortalRosterService, "move">;
   readonly moveChoices: Pick<PlayerPortalMoveChoiceService, "list" | "resolve">;
+  readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
 }
 
 export class PlayerPortalHttpHandler {
@@ -50,11 +52,19 @@ export class PlayerPortalHttpHandler {
     if (request.method === "POST" && url.pathname === "/v1/hub/player/move-choices/resolve") {
       return this.withSession(request, (identity) => this.resolveMoveChoice(request, identity));
     }
-    if (request.method === "GET" && url.pathname === "/v1/hub/world/location") {
+    if (
+      request.method === "GET" &&
+      (url.pathname === "/v1/hub/world/location" || url.pathname === "/v1/hub/player/location")
+    ) {
       return this.withSession(request, (identity) => this.getLocation(identity));
     }
     if (request.method === "PUT" && url.pathname === "/v1/hub/player/roster") {
       return this.withSession(request, (identity) => this.moveRoster(request, identity));
+    }
+    if (request.method === "PUT" && url.pathname === "/v1/hub/player/profile-customization") {
+      return this.withSession(request, (identity) =>
+        this.updateProfileCustomization(request, identity),
+      );
     }
 
     return jsonResponse(404, { error: "NOT_FOUND" });
@@ -202,6 +212,28 @@ export class PlayerPortalHttpHandler {
 
     return jsonResponse(200, { pokemon: pokemon.value });
   }
+
+  private async updateProfileCustomization(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const body = await readJsonBody(request);
+    if (body === null) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
+
+    const updated = await this.dependencies.customization.update(identity, body);
+    if (!updated.ok) {
+      return errorResponse(updated.error, "profile");
+    }
+
+    const profile = await this.dependencies.player.getSelf(identity);
+    if (!profile.ok) {
+      return errorResponse(profile.error, "read");
+    }
+
+    return jsonResponse(200, { profile: profile.value });
+  }
 }
 
 async function readJsonBody(request: Request): Promise<unknown | null> {
@@ -249,7 +281,7 @@ function serializeSessionCookie(token: string): string {
 
 function errorResponse(
   error: AppError,
-  context: "exchange" | "read" | "roster" | "moves",
+  context: "exchange" | "read" | "roster" | "moves" | "profile",
 ): Response {
   if (error.code === "PLAYER_INELIGIBLE") {
     return jsonResponse(403, { error: error.code });
@@ -267,6 +299,9 @@ function errorResponse(
     return jsonResponse(401, { error: "UNAUTHENTICATED" });
   }
   if (context === "roster" && error.code === "NOT_FOUND") {
+    return jsonResponse(404, { error: error.code });
+  }
+  if (context === "profile" && error.code === "NOT_FOUND") {
     return jsonResponse(404, { error: error.code });
   }
   if (context === "roster" && error.code === "ACTION_INVALID") {
