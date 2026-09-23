@@ -1,7 +1,10 @@
 import type { Pool } from "pg";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
+import { registerPhase12CDomainAdminOperations } from "../modules/admin/domain-definitions.js";
+import { AdminDomainOperationService } from "../modules/admin/domain-service.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { EconomyService } from "../modules/economy/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
@@ -15,9 +18,11 @@ import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { SystemClock } from "../platform/clock/index.js";
+import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
+import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
@@ -77,11 +82,12 @@ export function composePlayerPortalRuntime(
     profiles,
     storage: pcStorage,
   });
+  const progression = new ProgressionService(new PostgresProgressionRepository(options.pool));
   const moveChoices = new PlayerPortalMoveChoiceService({
     players,
     profiles,
     reads: presentation,
-    progression: new ProgressionService(new PostgresProgressionRepository(options.pool)),
+    progression,
   });
   const customization = new PlayerPortalProfileCustomizationService({
     players,
@@ -92,10 +98,16 @@ export function composePlayerPortalRuntime(
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
   const admin = new PostgresAdminWhatsAppIdentityResolver(options.pool);
   const adminRepository = new PostgresAdminRepository(options.pool);
-  const adminService = new AdminService(
-    createPhase12AdminOperationRegistry(adminRepository),
-    adminRepository,
+  const adminDomain = new AdminDomainOperationService(
+    new EconomyService(new PostgresEconomyRepository(options.pool)),
+    progression,
+    new PostgresAdminOperationCompletion(options.pool),
   );
+  const adminRegistry = registerPhase12CDomainAdminOperations(
+    createPhase12AdminOperationRegistry(adminRepository),
+    adminDomain,
+  );
+  const adminService = new AdminService(adminRegistry, adminRepository);
   const adminPlayers = new Player360Service(
     adminService,
     new PostgresPlayer360Repository(options.pool),
@@ -109,6 +121,7 @@ export function composePlayerPortalRuntime(
     customization,
     admin,
     adminPlayers,
+    adminMutations: adminService,
   });
 
   return {
