@@ -14,7 +14,6 @@ import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js
 import { normalizeHumanText, parseCollectionNumber, parseMenuNumber } from "./human-input.js";
 import type {
   OperationalOwnedPokemonDetailView,
-  OperationalOwnedPokemonView,
   OperationalPokemonDetailView,
   OperationalUxReadModel,
 } from "./operational-ux-read-model.js";
