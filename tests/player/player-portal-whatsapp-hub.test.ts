@@ -8,7 +8,7 @@ import { ok } from "../../src/shared-kernel/result.js";
 const TICKET = "A".repeat(43);
 const SENDER = "5511999999999@s.whatsapp.net";
 
-function context(text = "/hub"): MessageHandlerContext {
+function context(text = "/site", chatRef = SENDER): MessageHandlerContext {
   return {
     inboxMessageId: "inbox-hub-1",
     correlationId: "00000000-0000-4000-8000-000000000031",
@@ -18,7 +18,7 @@ function context(text = "/hub"): MessageHandlerContext {
       provider: "baileys",
       externalMessageId: "message-hub-1",
       senderRef: SENDER,
-      chatRef: SENDER,
+      chatRef,
       occurredAt: "2026-09-18T17:00:00-03:00",
       text,
       mediaRefs: [],
@@ -33,7 +33,7 @@ function routerFor(routes: ReturnType<typeof createHubWhatsAppRoutes>): MessageR
   });
 }
 
-describe("WhatsApp /hub command", () => {
+describe("WhatsApp /site command", () => {
   it("issues a one-shot ticket only in the URL fragment", async () => {
     const issue = vi.fn(async (_identity: ExternalIdentity) =>
       ok({ ticket: TICKET, expiresAt: new Date("2026-09-18T20:05:00.000Z") }),
@@ -47,7 +47,22 @@ describe("WhatsApp /hub command", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const text = result.value?.outgoing[0]?.payload.text;
+    expect(result.value?.outgoing).toHaveLength(2);
+    const [presence, link] = result.value?.outgoing ?? [];
+    expect(presence).toMatchObject({
+      destinationRef: SENDER,
+      messageType: "PRESENCE",
+      payload: { state: "composing" },
+      idempotencyKey: "inbox:test:hub-1:typing",
+    });
+    expect(link).toMatchObject({
+      destinationRef: SENDER,
+      messageType: "TEXT",
+      payload: { clearTyping: true },
+      delayMs: 5_000,
+      idempotencyKey: "inbox:test:hub-1:reply",
+    });
+    const text = link?.payload.text;
     expect(text).toContain(`https://hub.example.test/#hub_ticket=${TICKET}`);
     expect(text).not.toContain("playerId");
     expect(text).not.toContain(SENDER);
@@ -61,13 +76,35 @@ describe("WhatsApp /hub command", () => {
     });
 
     expect(route).toMatchObject({
-      command: "hub",
+      command: "site",
       rateLimitClass: "SENSITIVE",
       policy: {
         allowedPlayerAccess: ["ACTIVE"],
         requiresMechanicalReady: true,
       },
     });
+  });
+
+  it("never issues or leaks a ticket when /site is requested in a group", async () => {
+    const issue = vi.fn(async () => ok({ ticket: TICKET, expiresAt: new Date() }));
+    const result = await routerFor(
+      createHubWhatsAppRoutes({
+        tickets: { issue },
+        publicUrl: "https://hub.example.test/",
+      }),
+    ).dispatch(context("/site", "120363000000000001@g.us"));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(issue).not.toHaveBeenCalled();
+    expect(result.value?.outgoing).toHaveLength(1);
+    expect(result.value?.outgoing[0]).toMatchObject({
+      destinationRef: "120363000000000001@g.us",
+      messageType: "TEXT",
+    });
+    expect(result.value?.outgoing[0]?.payload.text).toContain("PV");
+    expect(result.value?.outgoing[0]?.payload.text).toContain("/site");
+    expect(result.value?.outgoing[0]?.payload.text).not.toContain("hub_ticket");
   });
 
   it("fails closed without a public Hub URL", async () => {

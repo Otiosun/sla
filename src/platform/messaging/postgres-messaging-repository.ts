@@ -390,7 +390,10 @@ export class PostgresMessagingRepository implements MessagingRepository {
           `INSERT INTO outbox_messages (
              id, channel, destination_ref, message_type, payload, idempotency_key,
              status, attempts, next_attempt_at, correlation_id, causation_id
-           ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, 'PENDING', 0, now(), $7, $8)
+           ) VALUES (
+             $1, $2, $3, $4, $5::jsonb, $6, 'PENDING', 0,
+             now() + ($7::bigint * interval '1 millisecond'), $8, $9
+           )
            ON CONFLICT (idempotency_key) DO NOTHING
            RETURNING id`,
           [
@@ -400,6 +403,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
             outgoing.messageType,
             JSON.stringify(outgoing.payload),
             outgoing.idempotencyKey,
+            outgoing.delayMs ?? 0,
             row.correlation_id,
             inboxMessageId,
           ],

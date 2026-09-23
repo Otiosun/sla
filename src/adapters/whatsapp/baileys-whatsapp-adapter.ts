@@ -340,6 +340,19 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       if (socket === null || this.stopped) {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
+      if (message.messageType === "PRESENCE") {
+        const state = message.payload.state;
+        if (state !== "composing" && state !== "paused") {
+          throw new Error("Baileys PRESENCE requires composing or paused state");
+        }
+        if (socket.sendPresenceUpdate === undefined) {
+          throw new Error("Baileys socket does not support presence updates");
+        }
+        await socket.sendPresenceUpdate(state, message.destinationRef);
+        this.metrics.increment("whatsapp.outgoing.total");
+        return { providerExternalMessageId: null };
+      }
+
       const messageId = baileysOutboundMessageId(message);
       const sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
         messageId,
@@ -347,6 +360,13 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       const returnedMessageId = providerExternalMessageId(sent);
       if (returnedMessageId !== messageId) {
         throw new Error("Baileys provider did not preserve the deterministic outbound message id");
+      }
+      if (message.messageType === "TEXT" && message.payload.clearTyping === true) {
+        try {
+          await socket.sendPresenceUpdate?.("paused", message.destinationRef);
+        } catch (error) {
+          this.onProviderError(error);
+        }
       }
       this.metrics.increment("whatsapp.outgoing.total");
       return { providerExternalMessageId: messageId };

@@ -24,6 +24,7 @@ class FakeBaileysSocket implements BaileysSocketLike {
     content: unknown;
     options: { readonly messageId?: string } | undefined;
   }> = [];
+  readonly presence: Array<{ type: "composing" | "paused"; jid: string }> = [];
   ended = false;
 
   private readonly listeners = new Map<string, Array<(value: unknown) => void>>();
@@ -35,6 +36,10 @@ class FakeBaileysSocket implements BaileysSocketLike {
       this.listeners.set(event, listeners);
     },
   };
+
+  async sendPresenceUpdate(type: "composing" | "paused", jid: string): Promise<void> {
+    this.presence.push({ type, jid });
+  }
 
   async sendMessage(
     jid: string,
@@ -263,6 +268,48 @@ describe("BaileysWhatsAppAdapter", () => {
     await expect(adapter.send(outbox({ payload: { text: 123 } }))).rejects.toThrow(
       "requires non-empty text",
     );
+    await adapter.stop();
+  });
+
+  it("maps durable composing presence separately from the delayed text", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    const presence = await adapter.send(
+      outbox({
+        messageType: "PRESENCE",
+        payload: { state: "composing" },
+      }),
+    );
+    expect(presence).toEqual({ providerExternalMessageId: null });
+    expect(socket.presence).toEqual([{ type: "composing", jid: "5511999999999@s.whatsapp.net" }]);
+    expect(socket.sent).toHaveLength(0);
+
+    await adapter.send(
+      outbox({
+        messageType: "TEXT",
+        payload: { text: "Seu acesso está pronto.", clearTyping: true },
+      }),
+    );
+    expect(socket.sent[0]?.content).toEqual({ text: "Seu acesso está pronto." });
+    expect(socket.presence).toEqual([
+      { type: "composing", jid: "5511999999999@s.whatsapp.net" },
+      { type: "paused", jid: "5511999999999@s.whatsapp.net" },
+    ]);
+
+    await expect(
+      adapter.send(
+        outbox({
+          messageType: "PRESENCE",
+          payload: { state: "online" },
+        }),
+      ),
+    ).rejects.toThrow("requires composing or paused state");
+
     await adapter.stop();
   });
 
