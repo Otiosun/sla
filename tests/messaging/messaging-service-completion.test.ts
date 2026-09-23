@@ -74,7 +74,9 @@ describe("MessagingService completion failures", () => {
   });
 
   it("attaches the inbound WhatsApp message as reply context before persistence", async () => {
-    const completeIncoming = vi.fn<MessagingRepository["completeIncoming"]>(async () => ok(undefined));
+    const completeIncoming = vi.fn<MessagingRepository["completeIncoming"]>(async () =>
+      ok(undefined),
+    );
     const store = repository(completeIncoming);
     const replyRouter: MessageRouterPort = {
       classify: () => ({ command: "teste", sensitiveActionKey: null }),
@@ -108,7 +110,9 @@ describe("MessagingService completion failures", () => {
   });
 
   it("preserves explicit reply targets and does not attach quote metadata to reactions", async () => {
-    const completeIncoming = vi.fn<MessagingRepository["completeIncoming"]>(async () => ok(undefined));
+    const completeIncoming = vi.fn<MessagingRepository["completeIncoming"]>(async () =>
+      ok(undefined),
+    );
     const store = repository(completeIncoming);
     const replyRouter: MessageRouterPort = {
       classify: () => ({ command: "teste", sensitiveActionKey: null }),

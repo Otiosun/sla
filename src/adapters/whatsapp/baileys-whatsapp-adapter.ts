@@ -252,10 +252,7 @@ function quotedReply(message: PendingOutboxMessage): BaileysQuotedMessageLike | 
   ) {
     return undefined;
   }
-  if (
-    senderRef !== undefined &&
-    (typeof senderRef !== "string" || senderRef.trim().length === 0)
-  ) {
+  if (senderRef !== undefined && (typeof senderRef !== "string" || senderRef.trim().length === 0)) {
     throw new Error("Baileys replyToSenderRef must be a non-empty JID when provided");
   }
   return {

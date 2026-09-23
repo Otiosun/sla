@@ -721,10 +721,7 @@ export function createOperationalUxRoutes(
       const numericFallback = parseCollectionNumber(rawReference);
       if (numericFallback === null) {
         return err(
-          appError(
-            "VALIDATION_FAILED",
-            "Informe o Pokémon pelo número. Ex.: `/pokemon #1`.",
-          ),
+          appError("VALIDATION_FAILED", "Informe o Pokémon pelo número. Ex.: `/pokemon #1`."),
         );
       }
       ref = numericFallback;

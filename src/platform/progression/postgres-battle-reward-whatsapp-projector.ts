@@ -167,11 +167,7 @@ export class PostgresBattleRewardWhatsAppProjector {
 
         const evolutionFormNames = await resolveEvolutionFormNames(client, reward);
         const payload = {
-          text: renderBattleRewardWhatsAppText(
-            reward,
-            destination.external_id,
-            evolutionFormNames,
-          ),
+          text: renderBattleRewardWhatsAppText(reward, destination.external_id, evolutionFormNames),
           mentions: [destination.external_id],
           battleReward: {
             battleId: reward.battleId,

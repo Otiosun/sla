@@ -49,8 +49,7 @@ export function parseBinaryConfirmation(value: string): boolean | null {
 
 export function parseBoxSlot(value: string): { boxNo: number; slotNo: number } | null {
   const normalized = normalizeHumanText(value);
-  const match =
-    /^(?:caixa\s*)?([0-9]+)\s*(?:\/|,|\s+slot\s+|\s+)\s*([0-9]+)$/u.exec(normalized);
+  const match = /^(?:caixa\s*)?([0-9]+)\s*(?:\/|,|\s+slot\s+|\s+)\s*([0-9]+)$/u.exec(normalized);
   if (match === null) return null;
   const boxNo = Number(match[1]);
   const slotNo = Number(match[2]);

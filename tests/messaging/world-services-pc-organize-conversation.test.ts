@@ -249,9 +249,7 @@ describe("Pokemon PC organize conversation", () => {
   it("accepts a loose human box destination without requiring WhatsApp reply", async () => {
     const current = resolverFixture(DESTINATION_PROMPT_KEY, DESTINATION_PROMPT_ID);
 
-    const result = await current.resolver.resolve(
-      context("caixa 2 slot 5", null, "06"),
-    );
+    const result = await current.resolver.resolve(context("caixa 2 slot 5", null, "06"));
 
     expect(current.organize).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
@@ -281,5 +279,4 @@ describe("Pokemon PC organize conversation", () => {
     expect(invalid.value.outgoing[0]?.payload.text).toContain("caixa 1 slot 3");
     expect(invalid.value.outgoing[0]?.payload.worldServicePrompt).toBeUndefined();
   });
-
 });

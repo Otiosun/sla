@@ -1,6 +1,6 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { parseMenuNumber, parsePositiveQuantity } from "../messaging/human-input.js";
 import type { Result } from "../../shared-kernel/result.js";
+import { parseMenuNumber, parsePositiveQuantity } from "../messaging/human-input.js";
 
 export interface MartSellableInventoryItem {
   readonly offerKey: string;

@@ -258,5 +258,4 @@ describe("Pokemon PC deposit conversation", () => {
     expect(current.getStorage).not.toHaveBeenCalled();
     expect(current.deposit).not.toHaveBeenCalled();
   });
-
 });

@@ -105,10 +105,7 @@ function routeByCommand(
   return route;
 }
 
-function resolverFor(
-  promptId: string,
-  promptKey = "inbox:x:world-service:center:conversation",
-) {
+function resolverFor(promptId: string, promptKey = "inbox:x:world-service:center:conversation") {
   const current = centerSession(promptKey, promptId, 5n);
   return new WorldServiceConversationResolver({
     community: {
@@ -213,21 +210,14 @@ describe("Pokémon Center conversation", () => {
 
   it("keeps Hana conversation alive for freeform player text without WhatsApp reply", async () => {
     const promptId = "WA-CENTER-CONVERSATION-HANA-CONTINUE";
-    const resolver = resolverFor(
-      promptId,
-      "inbox:x:world-service:center:conversation:hana",
-    );
+    const resolver = resolverFor(promptId, "inbox:x:world-service:center:conversation:hana");
 
-    const result = await resolver.resolve(
-      context("*começo a dançar na frente dela*", null, "05"),
-    );
+    const result = await resolver.resolve(context("*começo a dançar na frente dela*", null, "05"));
 
     expect(result.ok).toBe(true);
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("Conversa em andamento");
     expect(result.value.outgoing[0]?.payload.text).toContain("quer me perguntar");
-    expect(result.value.outgoing[0]?.idempotencyKey).toContain(
-      ":center:conversation:hana",
-    );
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:conversation:hana");
   });
 });

@@ -52,10 +52,10 @@ import {
 } from "./pc-renderer.js";
 import type { PokemonPcStorageService } from "./pc-storage-service.js";
 import {
-  renderCenterEmployeeConversation,
   renderCenterEmployeeContinuation,
-  renderCenterHanaConversation,
+  renderCenterEmployeeConversation,
   renderCenterHanaContinuation,
+  renderCenterHanaConversation,
   renderMartInsufficientFunds,
   renderMartItemSelection,
   renderMartPurchaseSuccess,
@@ -322,7 +322,8 @@ export class WorldServiceConversationResolver {
         if (saleOfferKey !== null) {
           const listReader = this.dependencies.economy?.listSellableInventory;
           const saleWriter = this.dependencies.economy?.sellQuantity;
-          if (listReader === undefined || saleWriter === undefined) return emptyReply(context, session);
+          if (listReader === undefined || saleWriter === undefined)
+            return emptyReply(context, session);
 
           const sellable = await listReader.call(this.dependencies.economy, session.playerId);
           if (!sellable.ok) return sellable;
@@ -552,7 +553,11 @@ export class WorldServiceConversationResolver {
               ":center:conversation:employee",
             );
           }
-          return feedbackResult(context, session, "Escolha `1` para Enfermeira Hana ou `2` para o funcionário do Centro.");
+          return feedbackResult(
+            context,
+            session,
+            "Escolha `1` para Enfermeira Hana ou `2` para o funcionário do Centro.",
+          );
         }
 
         if (promptKey.endsWith(":center:conversation:hana")) {

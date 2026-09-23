@@ -423,9 +423,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
       ownedPokemonDetail: detail,
     });
 
-    const result = await router(deps).dispatch(
-      context("/pokemon Charmander", "pokemon-ambiguous"),
-    );
+    const result = await router(deps).dispatch(context("/pokemon Charmander", "pokemon-ambiguous"));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -544,9 +542,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
       },
     });
 
-    const result = await router(deps).dispatch(
-      context("/equipe guardar #13", "team-human-hash"),
-    );
+    const result = await router(deps).dispatch(context("/equipe guardar #13", "team-human-hash"));
 
     expect(result.ok).toBe(true);
     expect(move).toHaveBeenCalledWith({

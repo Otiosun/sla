@@ -1,4 +1,4 @@
-import { parseCorrelationId, type PlayerId } from "../../shared-kernel/ids.js";
+import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -349,7 +349,10 @@ export function createProgressionWhatsAppRoutes(
       lines.push(...evolutionOptionLine(option, index, pokemon.value.collectionNo));
       if (index < options.length - 1) lines.push("");
     });
-    lines.push("", "_Evoluções por nível acontecem automaticamente quando o requisito é atingido._");
+    lines.push(
+      "",
+      "_Evoluções por nível acontecem automaticamente quando o requisito é atingido._",
+    );
     return textResult(context, lines.join("\n"));
   };
 

@@ -206,9 +206,7 @@ describe("Poké Mart purchase conversation", () => {
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("₽550");
     expect(result.value.outgoing[0]?.payload.text).toContain("Quantas unidades deseja levar?");
-    expect(result.value.outgoing[0]?.idempotencyKey).toContain(
-      ":mart:quantity:shop.escape-rope",
-    );
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":mart:quantity:shop.escape-rope");
   });
 
   it("executes loose quantity 5 as one atomic purchase and renders the receipt", async () => {
