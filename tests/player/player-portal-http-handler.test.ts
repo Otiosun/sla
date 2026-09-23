@@ -69,6 +69,15 @@ function handler(options: { admin?: boolean } = {}) {
   const adminPlayerGet = vi.fn(async () => {
     throw new Error("admin player get not used in this harness");
   });
+  const adminPrepareMutation = vi.fn(async () => ({
+    operation: { id: "88888888-8888-4888-8888-888888888888" },
+    replayed: false,
+  }));
+  const adminApplyMutation = vi.fn(async () => ({
+    id: "88888888-8888-4888-8888-888888888888",
+    status: "APPLIED",
+    result: { balanceAfter: "15" },
+  }));
   const instance = new PlayerPortalHttpHandler({
     tickets: { redeem: async () => ok(identity) },
     sessions: {
@@ -102,6 +111,10 @@ function handler(options: { admin?: boolean } = {}) {
       search: adminPlayerSearch,
       get: adminPlayerGet,
     },
+    adminMutations: {
+      prepareMutation: adminPrepareMutation,
+      apply: adminApplyMutation,
+    },
   });
   return {
     instance,
@@ -110,6 +123,8 @@ function handler(options: { admin?: boolean } = {}) {
     customizationUpdate,
     adminPlayerSearch,
     adminPlayerGet,
+    adminPrepareMutation,
+    adminApplyMutation,
   };
 }
 
@@ -183,6 +198,91 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       trainerNamePrefix: "Nat",
       limit: 10,
     });
+  });
+
+  it("keeps audited player adjustments admin-only and binds the target player to the route", async () => {
+    const targetPlayerId = "22222222-2222-4222-8222-222222222222";
+    const requestId = "99999999-9999-4999-8999-999999999999";
+    const body = {
+      requestId,
+      kind: "INVENTORY",
+      itemId: "33333333-3333-4333-8333-333333333333",
+      delta: "5",
+      reason: "Restore event reward",
+    };
+
+    const denied = await handler().instance.handle(
+      new Request(
+        `https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`,
+        {
+          method: "POST",
+          headers: {
+            cookie: "__Host-pokemon_hub_session=session-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      ),
+    );
+    expect(denied.status).toBe(403);
+
+    const { instance, adminPrepareMutation, adminApplyMutation } = handler({ admin: true });
+    const allowed = await instance.handle(
+      new Request(
+        `https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`,
+        {
+          method: "POST",
+          headers: {
+            cookie: "__Host-pokemon_hub_session=session-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      ),
+    );
+
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({
+      operationId: "88888888-8888-4888-8888-888888888888",
+      status: "APPLIED",
+      replayed: false,
+      result: { balanceAfter: "15" },
+    });
+    expect(adminPrepareMutation).toHaveBeenCalledWith({
+      principalId: "77777777-7777-4777-8777-777777777777",
+      operationType: "inventory.adjust",
+      input: {
+        playerId: targetPlayerId,
+        itemId: "33333333-3333-4333-8333-333333333333",
+        delta: "5",
+      },
+      reason: "Restore event reward",
+      idempotencyKey: `hub-player-adjust:${requestId}`,
+      correlationId: requestId,
+    });
+    expect(adminApplyMutation).toHaveBeenCalledWith(
+      "88888888-8888-4888-8888-888888888888",
+      "77777777-7777-4777-8777-777777777777",
+    );
+
+    const massAssignment = await instance.handle(
+      new Request(
+        `https://api.example.test/v1/hub/admin/players/${targetPlayerId}/adjustments`,
+        {
+          method: "POST",
+          headers: {
+            cookie: "__Host-pokemon_hub_session=session-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            ...body,
+            playerId: "44444444-4444-4444-8444-444444444444",
+          }),
+        },
+      ),
+    );
+    expect(massAssignment.status).toBe(400);
+    expect(adminPrepareMutation).toHaveBeenCalledTimes(1);
   });
 
   it("allows roster, move learning and cosmetic profile updates without gameplay mutations", async () => {
