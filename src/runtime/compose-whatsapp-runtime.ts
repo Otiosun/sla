@@ -432,6 +432,8 @@ export function createOperationalMessagingComposition(
     players: playerRegistration,
     reads,
     progression,
+    encounter,
+    world,
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutesV2({
