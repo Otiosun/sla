@@ -269,7 +269,7 @@ describe("World Services WhatsApp", () => {
     });
   });
 
-  it("keeps non-replies, human replies and stale prompt replies silent", async () => {
+  it("admits loose active-prompt input and returns deterministic stale or invalid feedback", async () => {
     const session = activeSession("POKEMART", {
       expectedReplyOutboxIdempotencyKey: EXPECTED_OUTBOX_KEY,
       expectedReplyExternalMessageId: CURRENT_PROMPT,
@@ -282,24 +282,36 @@ describe("World Services WhatsApp", () => {
       message("1", "human-message", "human-reply"),
       message("1", "WA-WORLD-SERVICE-STALE", "stale-reply"),
     ]) {
-      expect(await fixture.resolver.admits(incoming)).toBe(false);
+      expect(await fixture.resolver.admits(incoming)).toBe(true);
     }
 
-    expect(await fixture.resolver.resolve(context("1", null, "41"))).toEqual({
+    const loose = await fixture.resolver.resolve(context("1", null, "41"));
+    expect(loose).toMatchObject({
       ok: true,
-      value: null,
+      value: {
+        resultRefType: "WORLD_SERVICE_REPLY",
+        resultRefId: session.sessionId,
+        outgoing: [{ payload: { text: expect.stringContaining("Não entendi essa resposta") } }],
+      },
     });
-    expect(await fixture.resolver.resolve(context("1", "human-message", "42"))).toEqual({
-      ok: true,
-      value: null,
-    });
-    expect(await fixture.resolver.resolve(context("1", "WA-WORLD-SERVICE-STALE", "43"))).toEqual({
-      ok: true,
-      value: null,
-    });
+
+    for (const [replyId, suffix] of [
+      ["human-message", "42"],
+      ["WA-WORLD-SERVICE-STALE", "43"],
+    ] as const) {
+      const stale = await fixture.resolver.resolve(context("1", replyId, suffix));
+      expect(stale).toMatchObject({
+        ok: true,
+        value: {
+          resultRefType: "WORLD_SERVICE_REPLY",
+          resultRefId: session.sessionId,
+          outgoing: [{ payload: { text: expect.stringContaining("cita uma etapa anterior") } }],
+        },
+      });
+    }
   });
 
-  it("consumes only a reply bound to the exact active service prompt", async () => {
+  it("recognizes an exact active service reply and gives feedback for an unsupported prompt step", async () => {
     const session = activeSession("POKEMART", {
       expectedReplyOutboxIdempotencyKey: EXPECTED_OUTBOX_KEY,
       expectedReplyExternalMessageId: CURRENT_PROMPT,
@@ -316,7 +328,7 @@ describe("World Services WhatsApp", () => {
       value: {
         resultRefType: "WORLD_SERVICE_REPLY",
         resultRefId: session.sessionId,
-        outgoing: [],
+        outgoing: [{ payload: { text: expect.stringContaining("Não entendi essa resposta") } }],
       },
     });
     expect(fixture.replyIntent.isExpectedReply).toHaveBeenCalledWith({
