@@ -18,7 +18,7 @@ const message: IncomingMessage = IncomingMessageSchema.parse({
   senderRef: "sender-1",
   chatRef: "chat-1",
   occurredAt: "2026-08-27T22:00:00-03:00",
-  text: "$ping hello",
+  text: "/ping hello",
   mediaRefs: [],
   replyToExternalMessageId: null,
 });
@@ -38,7 +38,7 @@ describe("messaging boundary", () => {
     let calls = 0;
     const router = new MessageRouter([
       {
-        command: "$ping",
+        command: "ping",
         handler: {
           async handle(context) {
             calls += 1;
