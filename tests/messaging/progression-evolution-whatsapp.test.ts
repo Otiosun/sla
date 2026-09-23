@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import type { OperationalEvolutionOptionView } from "../../src/modules/messaging/operational-ux-read-model.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import {
   createProgressionWhatsAppRoutes,
@@ -68,7 +69,7 @@ function deps(options?: {
   readonly battle?: boolean;
   readonly encounter?: boolean;
   readonly travel?: boolean;
-  readonly evolutionOptions?: ReturnType<typeof itemEvolution>;
+  readonly evolutionOptions?: readonly OperationalEvolutionOptionView[];
   readonly pokemonName?: string;
 }): ProgressionWhatsAppDependencies {
   const evolvePokemon = vi.fn(async () =>
@@ -178,7 +179,7 @@ describe("progression WhatsApp evolution UX", () => {
         conditionActive: null,
       },
     ];
-    const d = deps({ evolutionOptions: levelOption as ReturnType<typeof itemEvolution>, pokemonName: "Charmander" });
+    const d = deps({ evolutionOptions: levelOption, pokemonName: "Charmander" });
     const router = new MessageRouter(createProgressionWhatsAppRoutes(d));
 
     const info = textOf(await router.dispatch(context("/evolucao Charmander", "level-info")));
