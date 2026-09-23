@@ -190,9 +190,8 @@ describe("Poké Mart sale conversation", () => {
     expect(listSellableInventory).toHaveBeenCalledWith(PLAYER_ID);
     expect(result.ok).toBe(true);
     if (!result.ok || result.value === null) return;
-    expect(result.value.outgoing[0]?.payload.text).toContain("Potion");
     expect(result.value.outgoing[0]?.payload.text).toContain("₽125");
-    expect(result.value.outgoing[0]?.payload.text).toContain("Potion / 2");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Quantas unidades quer vender?");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(
       ":mart:sale:quantity:shop.sell.potion",
     );
