@@ -53,11 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: {
-    admin?: boolean;
-    capabilities?: readonly string[];
-    principalId?: string;
-  } = {},
+  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -312,8 +308,13 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
   it("drives audited admin operations through prepare, confirm, approve and apply without accepting actor mass-assignment", async () => {
     const requestId = "99999999-9999-4999-8999-999999999999";
     const operationId = "88888888-8888-4888-8888-888888888888";
-    const { instance, adminPrepareMutation, adminConfirmMutation, adminApproveMutation, adminApplyMutation } =
-      handler({ admin: true, capabilities: ["pokemon.create"] });
+    const {
+      instance,
+      adminPrepareMutation,
+      adminConfirmMutation,
+      adminApproveMutation,
+      adminApplyMutation,
+    } = handler({ admin: true, capabilities: ["pokemon.create"] });
 
     const prepared = await instance.handle(
       new Request("https://api.example.test/v1/hub/admin/operations", {
@@ -365,14 +366,12 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       "77777777-7777-4777-8777-777777777777",
     );
 
-    const {
-      instance: approverInstance,
-      adminApproveMutation: secondAdminApproveMutation,
-    } = handler({
-      admin: true,
-      capabilities: ["pokemon.create"],
-      principalId: "66666666-6666-4666-8666-666666666666",
-    });
+    const { instance: approverInstance, adminApproveMutation: secondAdminApproveMutation } =
+      handler({
+        admin: true,
+        capabilities: ["pokemon.create"],
+        principalId: "66666666-6666-4666-8666-666666666666",
+      });
     const approved = await approverInstance.handle(
       new Request(`https://api.example.test/v1/hub/admin/operations/${operationId}/approve`, {
         method: "POST",
