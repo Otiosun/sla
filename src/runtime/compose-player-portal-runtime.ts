@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
+import { PlayerPortalAdminAccessService } from "../modules/player-portal/admin-access-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
@@ -11,6 +12,8 @@ import { HubSessionTokenService } from "../modules/player-portal/session-token-s
 import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
+import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
+import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
@@ -84,9 +87,14 @@ export function composePlayerPortalRuntime(
   });
   const tickets = new HubLoginTicketService(new PostgresHubLoginTicketStore(options.pool));
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
+  const adminAccess = new PlayerPortalAdminAccessService(
+    new PostgresAdminWhatsAppIdentityResolver(options.pool),
+    new PostgresAdminRepository(options.pool),
+  );
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
+    adminAccess,
     player,
     roster,
     moveChoices,
