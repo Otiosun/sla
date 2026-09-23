@@ -286,9 +286,7 @@ describe("BaileysWhatsAppAdapter", () => {
       }),
     );
     expect(presence).toEqual({ providerExternalMessageId: null });
-    expect(socket.presence).toEqual([
-      { type: "composing", jid: "5511999999999@s.whatsapp.net" },
-    ]);
+    expect(socket.presence).toEqual([{ type: "composing", jid: "5511999999999@s.whatsapp.net" }]);
     expect(socket.sent).toHaveLength(0);
 
     await adapter.send(
