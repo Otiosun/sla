@@ -77,7 +77,9 @@ const staticTestUrl = requiredEnv("STATIC_TEST_DATABASE_URL");
 const pokeapiDataDir = requiredEnv("POKEAPI_DATA_DIR");
 if (sourceUrl === simulatorUrl) throw new Error("SIMULATOR_DATABASE_MUST_DIFFER_FROM_SOURCE");
 if (sourceUrl === staticTestUrl) throw new Error("STATIC_TEST_DATABASE_MUST_DIFFER_FROM_SOURCE");
-if (simulatorUrl === staticTestUrl) throw new Error("STATIC_TEST_DATABASE_MUST_DIFFER_FROM_SIMULATOR");
+if (simulatorUrl === staticTestUrl) {
+  throw new Error("STATIC_TEST_DATABASE_MUST_DIFFER_FROM_SIMULATOR");
+}
 const sourceName = databaseName(sourceUrl);
 const simulatorName = databaseName(simulatorUrl);
 const staticTestName = databaseName(staticTestUrl);
