@@ -148,6 +148,10 @@ export interface BaileysSocketLike {
   readonly ev: BaileysEventSourceLike;
   requestPairingCode?(phoneNumber: string, customPairingCode?: string): Promise<string>;
   waitForSocketOpen?(): Promise<void>;
+  sendPresenceUpdate?(
+    type: "composing" | "paused",
+    jid: string,
+  ): Promise<void>;
   sendMessage(
     jid: string,
     content: BaileysOutboundContentLike,
