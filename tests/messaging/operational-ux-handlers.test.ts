@@ -269,6 +269,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const output = textOf(await router(deps).dispatch(context("/menu")));
     expect(output).toContain("ROTOM · MENU");
     expect(output).toContain("/onde");
+    expect(output).toContain("/evolucao <# ou nome>");
     expect(output).toContain("Explorações são conduzidas em cena pelo narrador");
     expect(output).not.toContain("/explorar");
     expect(output).not.toContain("revision");
