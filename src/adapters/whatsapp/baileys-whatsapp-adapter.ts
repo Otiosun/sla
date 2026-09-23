@@ -47,6 +47,7 @@ export interface BaileysWhatsAppAdapterOptions {
   readonly auth: BaileysAuthBinding;
   readonly socketFactory?: BaileysSocketFactory;
   readonly reconnectDelayMs?: number;
+  readonly sleep?: (durationMs: number) => Promise<void>;
   readonly logger?: BaileysLoggerLike;
   readonly metrics?: MetricSink;
   readonly onQr?: (qr: string) => Promise<void> | void;
@@ -229,6 +230,7 @@ function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentL
   }
   switch (message.messageType) {
     case "TEXT":
+    case "TEXT_WITH_TYPING":
       return textOutboundContent(message);
     case "IMAGE":
       return imageOutboundContent(message);
@@ -263,6 +265,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private readonly auth: BaileysAuthBinding;
   private readonly socketFactory: BaileysSocketFactory;
   private readonly reconnectDelayMs: number;
+  private readonly sleep: (durationMs: number) => Promise<void>;
   private readonly logger: BaileysLoggerLike;
   private readonly metrics: MetricSink;
   private readonly onQr: ((qr: string) => Promise<void> | void) | undefined;
@@ -288,6 +291,9 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     this.auth = options.auth;
     this.socketFactory = options.socketFactory ?? productionSocketFactory;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_500;
+    this.sleep =
+      options.sleep ??
+      ((durationMs) => new Promise<void>((resolve) => setTimeout(resolve, durationMs)));
     this.logger = options.logger ?? silentLogger;
     this.metrics = options.metrics ?? NOOP_METRICS;
     this.onQr = options.onQr;
@@ -341,9 +347,36 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
       const messageId = baileysOutboundMessageId(message);
-      const sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
-        messageId,
-      });
+      if (message.messageType === "TEXT_WITH_TYPING") {
+        const typingMs = message.payload.typingMs;
+        if (
+          typeof typingMs !== "number" ||
+          !Number.isInteger(typingMs) ||
+          typingMs < 500 ||
+          typingMs > 10_000
+        ) {
+          throw new Error("Baileys TEXT_WITH_TYPING requires typingMs from 500 to 10000");
+        }
+        if (socket.sendPresenceUpdate === undefined) {
+          throw new Error("Baileys socket does not support typing presence");
+        }
+        await socket.sendPresenceUpdate("composing", message.destinationRef);
+        await this.sleep(typingMs);
+      }
+      let sent: unknown;
+      try {
+        sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
+          messageId,
+        });
+      } finally {
+        if (message.messageType === "TEXT_WITH_TYPING" && socket.sendPresenceUpdate !== undefined) {
+          try {
+            await socket.sendPresenceUpdate("paused", message.destinationRef);
+          } catch (error) {
+            this.onProviderError(error);
+          }
+        }
+      }
       const returnedMessageId = providerExternalMessageId(sent);
       if (returnedMessageId !== messageId) {
         throw new Error("Baileys provider did not preserve the deterministic outbound message id");
