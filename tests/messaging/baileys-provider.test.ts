@@ -271,40 +271,46 @@ describe("BaileysWhatsAppAdapter", () => {
     await adapter.stop();
   });
 
-  it("shows composing presence before delayed private text and pauses after send", async () => {
+  it("maps durable composing presence separately from the delayed text", async () => {
     const socket = new FakeBaileysSocket();
-    const slept: number[] = [];
     const adapter = new BaileysWhatsAppAdapter({
       auth: authBinding(),
       socketFactory: () => socket,
-      sleep: async (durationMs) => {
-        slept.push(durationMs);
-      },
     });
     await adapter.start(async () => {});
 
-    await adapter.send(
+    const presence = await adapter.send(
       outbox({
-        messageType: "TEXT_WITH_TYPING",
-        payload: { text: "Seu acesso está pronto.", typingMs: 5_000 },
+        messageType: "PRESENCE",
+        payload: { state: "composing" },
       }),
     );
+    expect(presence).toEqual({ providerExternalMessageId: null });
+    expect(socket.presence).toEqual([
+      { type: "composing", jid: "5511999999999@s.whatsapp.net" },
+    ]);
+    expect(socket.sent).toHaveLength(0);
 
-    expect(slept).toEqual([5_000]);
+    await adapter.send(
+      outbox({
+        messageType: "TEXT",
+        payload: { text: "Seu acesso está pronto.", clearTyping: true },
+      }),
+    );
+    expect(socket.sent[0]?.content).toEqual({ text: "Seu acesso está pronto." });
     expect(socket.presence).toEqual([
       { type: "composing", jid: "5511999999999@s.whatsapp.net" },
       { type: "paused", jid: "5511999999999@s.whatsapp.net" },
     ]);
-    expect(socket.sent[0]?.content).toEqual({ text: "Seu acesso está pronto." });
 
     await expect(
       adapter.send(
         outbox({
-          messageType: "TEXT_WITH_TYPING",
-          payload: { text: "Inválido", typingMs: 20_000 },
+          messageType: "PRESENCE",
+          payload: { state: "online" },
         }),
       ),
-    ).rejects.toThrow("typingMs from 500 to 10000");
+    ).rejects.toThrow("requires composing or paused state");
 
     await adapter.stop();
   });
