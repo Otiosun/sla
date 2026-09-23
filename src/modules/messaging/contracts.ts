@@ -36,6 +36,7 @@ export const OutgoingMessageDraftSchema = z
     messageType: z.string().trim().min(1).max(128),
     payload: z.record(z.string(), z.unknown()),
     idempotencyKey: z.string().trim().min(1).max(512),
+    delayMs: z.number().int().min(0).max(60_000).optional(),
   })
   .strict();
 
