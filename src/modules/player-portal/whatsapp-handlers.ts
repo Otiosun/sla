@@ -13,6 +13,17 @@ class HubLoginHandler implements MessageRouteHandler {
   public constructor(private readonly dependencies: HubWhatsAppDependencies) {}
 
   public async handle(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
+    if (isGroupChat(context.message.chatRef)) {
+      return textResult(
+        context,
+        [
+          "🔒 *Seu acesso ao site é privado.*",
+          "",
+          "Me chama no PV e use */site* por lá.",
+        ].join("\n"),
+      );
+    }
+
     if (this.dependencies.publicUrl === null) {
       return textResult(
         context,
@@ -27,16 +38,17 @@ class HubLoginHandler implements MessageRouteHandler {
     if (!issued.ok) return issued;
 
     const url = hubLoginUrl(this.dependencies.publicUrl, issued.value.ticket);
-    return textResult(
+    return typingTextResult(
       context,
       [
-        "📟 *ROTOM · HUB*",
+        "📟 *ROTOM · SITE*",
         "",
         "Seu acesso pessoal está pronto:",
         url,
         "",
         "_Este link expira em 5 minutos e só pode ser usado uma vez._",
       ].join("\n"),
+      5_000,
     );
   }
 }
@@ -48,6 +60,10 @@ function hubLoginUrl(publicUrl: string, ticket: string): string {
   fragment.set("hub_ticket", ticket);
   url.hash = fragment.toString();
   return url.toString();
+}
+
+function isGroupChat(chatRef: string): boolean {
+  return chatRef.endsWith("@g.us");
 }
 
 function textResult(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -66,12 +82,32 @@ function textResult(context: MessageHandlerContext, text: string): Result<Messag
   });
 }
 
+function typingTextResult(
+  context: MessageHandlerContext,
+  text: string,
+  typingMs: number,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: null,
+    resultRefId: null,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.senderRef,
+        messageType: "TEXT_WITH_TYPING",
+        payload: { text, typingMs },
+        idempotencyKey: `${context.idempotencyKey}:reply`,
+      },
+    ],
+  });
+}
+
 export function createHubWhatsAppRoutes(
   dependencies: HubWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
   return [
     {
-      command: "hub",
+      command: "site",
       handler: new HubLoginHandler(dependencies),
       rateLimitClass: "SENSITIVE",
       policy: {
