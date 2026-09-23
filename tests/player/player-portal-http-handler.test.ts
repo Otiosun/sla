@@ -52,7 +52,7 @@ const location: PlayerPortalWorldLocationView = {
   connections: [],
 };
 
-function handler() {
+function handler(options: { admin?: boolean } = {}) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
     ok({
@@ -65,6 +65,10 @@ function handler() {
     }),
   );
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
+  const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
+  const adminPlayerGet = vi.fn(async () => {
+    throw new Error("admin player get not used in this harness");
+  });
   const instance = new PlayerPortalHttpHandler({
     tickets: { redeem: async () => ok(identity) },
     sessions: {
@@ -90,11 +94,23 @@ function handler() {
     },
     customization: { update: customizationUpdate },
     admin: {
-      resolvePrincipal: async () => null,
-      capabilitiesFor: async () => [],
+      resolvePrincipal: async () =>
+        options.admin ? { principalId: "77777777-7777-4777-8777-777777777777" } : null,
+      capabilitiesFor: async () => (options.admin ? ["player.read"] : []),
+    },
+    adminPlayers: {
+      search: adminPlayerSearch,
+      get: adminPlayerGet,
     },
   });
-  return { instance, rosterMove, resolveMoveChoice, customizationUpdate };
+  return {
+    instance,
+    rosterMove,
+    resolveMoveChoice,
+    customizationUpdate,
+    adminPlayerSearch,
+    adminPlayerGet,
+  };
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
@@ -142,6 +158,31 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ admin: null });
+  });
+
+  it("keeps Player 360 hidden from normal sessions and exposes search to authorized admins", async () => {
+    const denied = await handler().instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/players?q=Nat&limit=10", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(denied.status).toBe(403);
+
+    const { instance, adminPlayerSearch } = handler({ admin: true });
+    const allowed = await instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/players?q=Nat&limit=10", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({ players: [], nextCursor: null });
+    expect(adminPlayerSearch).toHaveBeenCalledWith({
+      principalId: "77777777-7777-4777-8777-777777777777",
+      includeSensitive: false,
+      trainerNamePrefix: "Nat",
+      limit: 10,
+    });
   });
 
   it("allows roster, move learning and cosmetic profile updates without gameplay mutations", async () => {

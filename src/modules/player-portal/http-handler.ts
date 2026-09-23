@@ -1,3 +1,5 @@
+import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
+import type { Player360Service } from "../admin/player360-service.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
@@ -26,6 +28,7 @@ interface PlayerPortalHttpDependencies {
   readonly moveChoices: Pick<PlayerPortalMoveChoiceService, "list" | "resolve">;
   readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
   readonly admin: PlayerPortalAdminAccess;
+  readonly adminPlayers: Pick<Player360Service, "search" | "get">;
 }
 
 export class PlayerPortalHttpHandler {
@@ -42,6 +45,13 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
       return this.withSession(request, (identity) => this.getAdminSelf(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/players") {
+      return this.withSession(request, (identity) => this.searchAdminPlayers(url, identity));
+    }
+    const adminPlayerId = adminPlayerIdFromPath(url.pathname);
+    if (request.method === "GET" && adminPlayerId !== null) {
+      return this.withSession(request, (identity) => this.getAdminPlayer(adminPlayerId, identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon") {
       return this.withSession(request, (identity) => this.getPokemon(identity));
@@ -148,6 +158,52 @@ export class PlayerPortalHttpHandler {
         capabilities: [...capabilities],
       },
     });
+  }
+
+  private async searchAdminPlayers(url: URL, identity: ExternalIdentity): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const limitRaw = url.searchParams.get("limit");
+    const limit =
+      limitRaw === null || limitRaw.trim() === "" ? undefined : Number.parseInt(limitRaw, 10);
+    const request = {
+      principalId: principal.principalId,
+      includeSensitive: false,
+      ...(url.searchParams.get("q")?.trim()
+        ? { trainerNamePrefix: url.searchParams.get("q")?.trim() }
+        : {}),
+      ...(url.searchParams.get("status")?.trim()
+        ? { status: url.searchParams.get("status")?.trim() }
+        : {}),
+      ...(url.searchParams.get("cursor")?.trim()
+        ? { cursor: url.searchParams.get("cursor")?.trim() }
+        : {}),
+      ...(limit === undefined ? {} : { limit }),
+    };
+
+    try {
+      const result = await this.dependencies.adminPlayers.search(request);
+      return jsonResponse(200, { players: result.items, nextCursor: result.nextCursor });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async getAdminPlayer(playerId: string, identity: ExternalIdentity): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    try {
+      const player = await this.dependencies.adminPlayers.get({
+        principalId: principal.principalId,
+        playerId,
+        includeSensitive: false,
+      });
+      return jsonResponse(200, { player });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
   }
 
   private async getPokemon(identity: ExternalIdentity): Promise<Response> {
@@ -258,6 +314,35 @@ export class PlayerPortalHttpHandler {
 
     return jsonResponse(200, { profile: profile.value });
   }
+}
+
+function adminPlayerIdFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+  );
+  return match?.[1] ?? null;
+}
+
+function adminErrorResponse(error: unknown): Response {
+  if (!(error instanceof AdminError)) {
+    return jsonResponse(500, { error: "INTERNAL_ERROR" });
+  }
+
+  if (error.code === ADMIN_ERROR_CODES.INVALID_INPUT) {
+    return jsonResponse(400, { error: error.code });
+  }
+  if (
+    error.code === ADMIN_ERROR_CODES.PRINCIPAL_NOT_FOUND ||
+    error.code === ADMIN_ERROR_CODES.PRINCIPAL_DISABLED ||
+    error.code === ADMIN_ERROR_CODES.AUTHORIZATION_DENIED
+  ) {
+    return jsonResponse(403, { error: "FORBIDDEN" });
+  }
+  if (error.code === ADMIN_ERROR_CODES.TARGET_NOT_FOUND) {
+    return jsonResponse(404, { error: error.code });
+  }
+
+  return jsonResponse(409, { error: error.code });
 }
 
 async function readJsonBody(request: Request): Promise<unknown | null> {

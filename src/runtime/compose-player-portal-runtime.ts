@@ -1,4 +1,7 @@
 import type { Pool } from "pg";
+import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
+import { Player360Service } from "../modules/admin/player360-service.js";
+import { AdminService } from "../modules/admin/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
@@ -12,7 +15,9 @@ import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { SystemClock } from "../platform/clock/index.js";
+import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
+import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
@@ -86,6 +91,15 @@ export function composePlayerPortalRuntime(
   const tickets = new HubLoginTicketService(new PostgresHubLoginTicketStore(options.pool));
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
   const admin = new PostgresAdminWhatsAppIdentityResolver(options.pool);
+  const adminRepository = new PostgresAdminRepository(options.pool);
+  const adminService = new AdminService(
+    createPhase12AdminOperationRegistry(adminRepository),
+    adminRepository,
+  );
+  const adminPlayers = new Player360Service(
+    adminService,
+    new PostgresPlayer360Repository(options.pool),
+  );
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -94,6 +108,7 @@ export function composePlayerPortalRuntime(
     moveChoices,
     customization,
     admin,
+    adminPlayers,
   });
 
   return {
