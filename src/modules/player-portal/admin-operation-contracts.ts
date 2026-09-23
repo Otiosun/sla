@@ -13,7 +13,10 @@ export const AdminOperationPrepareRequestSchema = z
     operationType: operationTypeSchema,
     input: z.record(z.string(), z.unknown()),
     reason: z.string().trim().min(1).max(2000).optional(),
-    expectedRevision: z.string().regex(/^(0|[1-9][0-9]*)$/).optional(),
+    expectedRevision: z
+      .string()
+      .regex(/^(0|[1-9][0-9]*)$/)
+      .optional(),
   })
   .strict();
 
