@@ -169,7 +169,8 @@ describe("Poké Mart purchase conversation", () => {
     expect(result.ok).toBe(true);
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗧𝗜𝗢𝗡");
-    expect(result.value.outgoing[0]?.payload.text).toContain("Potion / 5");
+    expect(result.value.outgoing[0]?.payload.text).toContain("₽300");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Quantas unidades deseja levar?");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(":mart:quantity:shop.potion");
     expect(result.value.outgoing[0]?.payload.worldServicePrompt).toEqual({
       playerId: PLAYER_ID,
@@ -203,7 +204,8 @@ describe("Poké Mart purchase conversation", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok || result.value === null) return;
-    expect(result.value.outgoing[0]?.payload.text).toContain("ESCAPE ROPE");
+    expect(result.value.outgoing[0]?.payload.text).toContain("₽550");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Quantas unidades deseja levar?");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(
       ":mart:quantity:shop.escape-rope",
     );
