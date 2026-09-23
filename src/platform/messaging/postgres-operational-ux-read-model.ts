@@ -55,7 +55,8 @@ function evolutionItemId(config: unknown): string | null {
   if (canonical.success) return canonical.data.itemId;
   if (typeof config !== "object" || config === null) return null;
   const value = (config as Record<string, unknown>).sourceItemIdentityId;
-  return typeof value === "string" ? value : null;
+  const legacy = EvolutionTriggerSchemas.ITEM.safeParse({ itemId: value });
+  return legacy.success ? legacy.data.itemId : null;
 }
 
 function evolutionConditionKey(config: unknown): string | null {
