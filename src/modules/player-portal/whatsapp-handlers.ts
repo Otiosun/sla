@@ -16,11 +16,9 @@ class HubLoginHandler implements MessageRouteHandler {
     if (isGroupChat(context.message.chatRef)) {
       return textResult(
         context,
-        [
-          "🔒 *Seu acesso ao site é privado.*",
-          "",
-          "Me chama no PV e use */site* por lá.",
-        ].join("\n"),
+        ["🔒 *Seu acesso ao site é privado.*", "", "Me chama no PV e use */site* por lá."].join(
+          "\n",
+        ),
       );
     }
 
