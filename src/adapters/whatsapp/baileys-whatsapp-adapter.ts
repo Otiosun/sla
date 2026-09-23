@@ -223,12 +223,30 @@ function reactionOutboundContent(message: PendingOutboxMessage): BaileysOutbound
     },
   };
 }
+function typingDelayMs(message: PendingOutboxMessage): number {
+  const value = message.payload.typingMs;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 1_000 ||
+    value > 10_000
+  ) {
+    throw new Error("Baileys TEXT_WITH_TYPING requires typingMs from 1000 to 10000");
+  }
+  return value;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
   if (message.channel !== "whatsapp") {
     throw new Error(`Baileys adapter cannot send channel ${message.channel}`);
   }
   switch (message.messageType) {
     case "TEXT":
+    case "TEXT_WITH_TYPING":
       return textOutboundContent(message);
     case "IMAGE":
       return imageOutboundContent(message);
@@ -341,6 +359,18 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
       const messageId = baileysOutboundMessageId(message);
+      if (message.messageType === "TEXT_WITH_TYPING") {
+        if (socket.sendPresenceUpdate === undefined) {
+          throw new Error("Baileys provider does not support typing presence");
+        }
+        const delayMs = typingDelayMs(message);
+        await socket.sendPresenceUpdate("composing", message.destinationRef);
+        try {
+          await wait(delayMs);
+        } finally {
+          await socket.sendPresenceUpdate("paused", message.destinationRef);
+        }
+      }
       const sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
         messageId,
       });
