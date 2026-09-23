@@ -31,7 +31,10 @@ function trainerLine(result: BattleRewardResult): string {
   return `🏅 Treinador: +${result.trainer.pointsGained} XP${level}`;
 }
 
-function pokemonLines(result: BattleRewardResult): readonly string[] {
+function pokemonLines(
+  result: BattleRewardResult,
+  evolutionFormNames: ReadonlyMap<string, string>,
+): readonly string[] {
   return result.pokemon.flatMap((pokemon, index) => {
     const level =
       pokemon.afterLevel > pokemon.beforeLevel
@@ -43,14 +46,24 @@ function pokemonLines(result: BattleRewardResult): readonly string[] {
         `⚠️ ${pokemon.pendingMoveChoiceIds.length} novo golpe aguarda escolha antes de substituir um slot.`,
       );
     }
-    if (pokemon.evolutions.length > 0) {
-      lines.push(`✨ Evoluções aplicadas: ${pokemon.evolutions.length}.`);
+    for (const evolution of pokemon.evolutions) {
+      const fromName = evolutionFormNames.get(evolution.fromFormId);
+      const toName = evolutionFormNames.get(evolution.toFormId);
+      lines.push(
+        fromName !== undefined && toName !== undefined
+          ? `✨ Evolução: *${fromName}* → *${toName}*.`
+          : "✨ Uma evolução foi concluída.",
+      );
     }
     return lines;
   });
 }
 
-function rewardText(result: BattleRewardResult, senderRef: string): string {
+export function renderBattleRewardWhatsAppText(
+  result: BattleRewardResult,
+  senderRef: string,
+  evolutionFormNames: ReadonlyMap<string, string> = new Map(),
+): string {
   const handle = senderRef.endsWith("@s.whatsapp.net") ? senderRef.split("@")[0] : senderRef;
   return [
     "✨ *RECOMPENSA DE BATALHA*",
@@ -58,11 +71,40 @@ function rewardText(result: BattleRewardResult, senderRef: string): string {
     `@${handle}, a vitória foi registrada.`,
     "",
     trainerLine(result),
-    ...pokemonLines(result),
+    ...pokemonLines(result, evolutionFormNames),
     ...(result.trainer.unlockKeys.length === 0
       ? []
       : [`🔓 Desbloqueios: ${result.trainer.unlockKeys.join(", ")}`]),
   ].join("\n");
+}
+
+async function resolveEvolutionFormNames(
+  client: PoolClient,
+  reward: BattleRewardResult,
+): Promise<ReadonlyMap<string, string>> {
+  const formIds = [
+    ...new Set(
+      reward.pokemon.flatMap((pokemon) =>
+        pokemon.evolutions.flatMap((evolution) => [evolution.fromFormId, evolution.toFormId]),
+      ),
+    ),
+  ];
+  if (formIds.length === 0) return new Map();
+
+  const result = await client.query<{ form_id: string; display_name: string }>(
+    `SELECT form.id AS form_id,
+            species_revision.display_name
+     FROM player_onboarding_context context
+     JOIN pokemon_forms form
+       ON form.id = ANY($2::uuid[])
+     JOIN pokemon_species_revisions species_revision
+       ON species_revision.content_release_id = context.content_release_id
+      AND species_revision.species_id = form.species_id
+      AND species_revision.active = TRUE
+     WHERE context.player_id = $1`,
+    [reward.playerId, formIds],
+  );
+  return new Map(result.rows.map((row) => [row.form_id, row.display_name] as const));
 }
 
 async function resolveDestination(
@@ -123,8 +165,13 @@ export class PostgresBattleRewardWhatsAppProjector {
           continue;
         }
 
+        const evolutionFormNames = await resolveEvolutionFormNames(client, reward);
         const payload = {
-          text: rewardText(reward, destination.external_id),
+          text: renderBattleRewardWhatsAppText(
+            reward,
+            destination.external_id,
+            evolutionFormNames,
+          ),
           mentions: [destination.external_id],
           battleReward: {
             battleId: reward.battleId,
