@@ -73,15 +73,22 @@ if (process.env.LOCAL_SIMULATOR_RESET !== "1") {
 
 const sourceUrl = requiredEnv("DATABASE_URL");
 const simulatorUrl = requiredEnv("SIMULATOR_DATABASE_URL");
+const staticTestUrl = requiredEnv("STATIC_TEST_DATABASE_URL");
 const pokeapiDataDir = requiredEnv("POKEAPI_DATA_DIR");
 if (sourceUrl === simulatorUrl) throw new Error("SIMULATOR_DATABASE_MUST_DIFFER_FROM_SOURCE");
+if (sourceUrl === staticTestUrl) throw new Error("STATIC_TEST_DATABASE_MUST_DIFFER_FROM_SOURCE");
+if (simulatorUrl === staticTestUrl) throw new Error("STATIC_TEST_DATABASE_MUST_DIFFER_FROM_SIMULATOR");
 const sourceName = databaseName(sourceUrl);
 const simulatorName = databaseName(simulatorUrl);
+const staticTestName = databaseName(staticTestUrl);
 if (!/simulator/iu.test(simulatorName)) {
   throw new Error(`SIMULATOR_DATABASE_NAME_NOT_EXPLICITLY_DISPOSABLE ${simulatorName}`);
 }
 if (/simulator/iu.test(sourceName)) {
   throw new Error(`SOURCE_DATABASE_LOOKS_DISPOSABLE_OR_WRONG ${sourceName}`);
+}
+if (!/(?:test|tmp|gate)/iu.test(staticTestName)) {
+  throw new Error(`STATIC_TEST_DATABASE_NAME_NOT_EXPLICITLY_DISPOSABLE ${staticTestName}`);
 }
 
 const gitStatus = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
@@ -118,6 +125,13 @@ const sourceAndTargetEnv = {
   SIMULATOR_DATABASE_URL: simulatorUrl,
   POKEAPI_DATA_DIR: pokeapiDataDir,
   SIMULATOR_RESET: "1",
+};
+const staticTestEnv = {
+  ...process.env,
+  DATABASE_URL: staticTestUrl,
+  MIGRATOR_DATABASE_URL: staticTestUrl,
+  SIMULATOR_DATABASE_URL: simulatorUrl,
+  POKEAPI_DATA_DIR: pokeapiDataDir,
 };
 
 function rebuildPristine(labelPrefix: string): void {
@@ -171,7 +185,7 @@ for (const [label, args] of [
   ["static-tests", ["test"]],
 ] as const) {
   const pnpm = pnpmInvocation(args);
-  run(label, pnpm.command, pnpm.args, process.env);
+  run(label, pnpm.command, pnpm.args, label === "static-tests" ? staticTestEnv : process.env);
 }
 rebuildPristine("proof");
 
@@ -192,6 +206,7 @@ console.log(
     event: "local.stability.complete",
     sourceDatabase: sourceName,
     simulatorDatabase: simulatorName,
+    staticTestDatabase: staticTestName,
     pokeapiRevision,
     state: "PRISTINE_HIGH_FIDELITY_READY",
   }),
