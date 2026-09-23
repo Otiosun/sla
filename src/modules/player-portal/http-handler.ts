@@ -52,7 +52,10 @@ interface PlayerPortalAdminMutationAccess {
     readonly operation: PlayerPortalAdminOperationResult;
     readonly replayed: boolean;
   }>;
-  simulate(operationId: string, actorPrincipalId: string): Promise<PlayerPortalAdminOperationResult>;
+  simulate(
+    operationId: string,
+    actorPrincipalId: string,
+  ): Promise<PlayerPortalAdminOperationResult>;
   confirm(operationId: string, actorPrincipalId: string): Promise<PlayerPortalAdminOperationResult>;
   approve(
     operationId: string,
@@ -262,9 +265,7 @@ export class PlayerPortalHttpHandler {
         operationType: data.operationType,
         input: data.input,
         ...(data.reason === undefined ? {} : { reason: data.reason }),
-        ...(data.expectedRevision === undefined
-          ? {}
-          : { expectedRevision: data.expectedRevision }),
+        ...(data.expectedRevision === undefined ? {} : { expectedRevision: data.expectedRevision }),
         idempotencyKey: `hub-admin-operation:${data.requestId}`,
         correlationId: data.requestId,
       });
@@ -281,7 +282,10 @@ export class PlayerPortalHttpHandler {
 
   private async advanceAdminOperation(
     request: Request,
-    action: { readonly operationId: string; readonly action: "simulate" | "confirm" | "approve" | "apply" },
+    action: {
+      readonly operationId: string;
+      readonly action: "simulate" | "confirm" | "approve" | "apply";
+    },
     identity: ExternalIdentity,
   ): Promise<Response> {
     const principal = await this.dependencies.admin.resolvePrincipal(identity);
@@ -540,9 +544,7 @@ export class PlayerPortalHttpHandler {
   }
 }
 
-function adminOperationActionFromPath(
-  pathname: string,
-): {
+function adminOperationActionFromPath(pathname: string): {
   readonly operationId: string;
   readonly action: "simulate" | "confirm" | "approve" | "apply";
 } | null {
