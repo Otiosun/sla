@@ -51,9 +51,7 @@ export class PlayerPortalHttpHandler {
     }
     const adminPlayerId = adminPlayerIdFromPath(url.pathname);
     if (request.method === "GET" && adminPlayerId !== null) {
-      return this.withSession(request, (identity) =>
-        this.getAdminPlayer(adminPlayerId, identity),
-      );
+      return this.withSession(request, (identity) => this.getAdminPlayer(adminPlayerId, identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon") {
       return this.withSession(request, (identity) => this.getPokemon(identity));
@@ -162,18 +160,13 @@ export class PlayerPortalHttpHandler {
     });
   }
 
-  private async searchAdminPlayers(
-    url: URL,
-    identity: ExternalIdentity,
-  ): Promise<Response> {
+  private async searchAdminPlayers(url: URL, identity: ExternalIdentity): Promise<Response> {
     const principal = await this.dependencies.admin.resolvePrincipal(identity);
     if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const limitRaw = url.searchParams.get("limit");
     const limit =
-      limitRaw === null || limitRaw.trim() === ""
-        ? undefined
-        : Number.parseInt(limitRaw, 10);
+      limitRaw === null || limitRaw.trim() === "" ? undefined : Number.parseInt(limitRaw, 10);
     const request = {
       principalId: principal.principalId,
       includeSensitive: false,
@@ -197,10 +190,7 @@ export class PlayerPortalHttpHandler {
     }
   }
 
-  private async getAdminPlayer(
-    playerId: string,
-    identity: ExternalIdentity,
-  ): Promise<Response> {
+  private async getAdminPlayer(playerId: string, identity: ExternalIdentity): Promise<Response> {
     const principal = await this.dependencies.admin.resolvePrincipal(identity);
     if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
