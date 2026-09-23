@@ -1,5 +1,6 @@
 import type { AppError } from "../../shared-kernel/result.js";
 import type { ExternalIdentity } from "../player/contracts.js";
+import type { PlayerPortalAdminAccessService } from "./admin-access-service.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
 import type { PlayerPortalMoveChoiceService } from "./move-choice-service.js";
 import type { PlayerPortalProfileCustomizationService } from "./profile-customization-service.js";
@@ -12,6 +13,7 @@ const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
 
 interface PlayerPortalHttpDependencies {
   readonly tickets: Pick<HubLoginTicketService, "redeem">;
+  readonly adminAccess: Pick<PlayerPortalAdminAccessService, "get">;
   readonly sessions: Pick<HubSessionTokenService, "issue" | "verify">;
   readonly player: Pick<
     PlayerPortalReadService,
@@ -33,6 +35,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
+      return this.withSession(request, (identity) => this.getAdminSelf(identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon") {
       return this.withSession(request, (identity) => this.getPokemon(identity));
@@ -124,6 +129,11 @@ export class PlayerPortalHttpHandler {
     return result.ok
       ? jsonResponse(200, { profile: result.value })
       : errorResponse(result.error, "read");
+  }
+
+  private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
+    const admin = await this.dependencies.adminAccess.get(identity);
+    return jsonResponse(200, { admin });
   }
 
   private async getPokemon(identity: ExternalIdentity): Promise<Response> {
