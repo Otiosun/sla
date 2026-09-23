@@ -59,7 +59,6 @@ describe("WhatsApp /site command", () => {
     expect(issue).toHaveBeenCalledWith({ provider: "baileys", externalId: SENDER });
   });
 
-
   it("never issues or exposes a login ticket in groups", async () => {
     const issue = vi.fn(async (_identity: ExternalIdentity) =>
       ok({ ticket: TICKET, expiresAt: new Date("2026-09-18T20:05:00.000Z") }),
