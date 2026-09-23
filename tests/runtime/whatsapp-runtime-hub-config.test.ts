@@ -23,7 +23,7 @@ describe("WhatsApp Hub runtime config", () => {
     expect(config?.hubPublicUrl).toBe("https://hub.example.test/");
   });
 
-  it("keeps /hub disabled when no public URL is configured", () => {
+  it("keeps /site disabled when no public URL is configured", () => {
     expect(loadWhatsAppRuntimeConfig({ appEnv: "development" }, env())?.hubPublicUrl).toBeNull();
   });
 
