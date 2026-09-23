@@ -52,7 +52,13 @@ const location: PlayerPortalWorldLocationView = {
   connections: [],
 };
 
-function handler(options: { admin?: boolean; capabilities?: readonly string[] } = {}) {
+function handler(
+  options: {
+    admin?: boolean;
+    capabilities?: readonly string[];
+    principalId?: string;
+  } = {},
+) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
     ok({
@@ -155,7 +161,9 @@ function handler(options: { admin?: boolean; capabilities?: readonly string[] } 
     customization: { update: customizationUpdate },
     admin: {
       resolvePrincipal: async () =>
-        options.admin ? { principalId: "77777777-7777-4777-8777-777777777777" } : null,
+        options.admin
+          ? { principalId: options.principalId ?? "77777777-7777-4777-8777-777777777777" }
+          : null,
       capabilitiesFor: async () =>
         options.admin ? [...(options.capabilities ?? ["player.read"])] : [],
     },
@@ -357,7 +365,15 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       "77777777-7777-4777-8777-777777777777",
     );
 
-    const approved = await instance.handle(
+    const {
+      instance: approverInstance,
+      adminApproveMutation: secondAdminApproveMutation,
+    } = handler({
+      admin: true,
+      capabilities: ["pokemon.create"],
+      principalId: "66666666-6666-4666-8666-666666666666",
+    });
+    const approved = await approverInstance.handle(
       new Request(`https://api.example.test/v1/hub/admin/operations/${operationId}/approve`, {
         method: "POST",
         headers: {
@@ -368,11 +384,12 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       }),
     );
     expect(approved.status).toBe(200);
-    expect(adminApproveMutation).toHaveBeenCalledWith(
+    expect(secondAdminApproveMutation).toHaveBeenCalledWith(
       operationId,
-      "77777777-7777-4777-8777-777777777777",
+      "66666666-6666-4666-8666-666666666666",
       "Second-admin review",
     );
+    expect(adminApproveMutation).not.toHaveBeenCalled();
 
     const applied = await instance.handle(
       new Request(`https://api.example.test/v1/hub/admin/operations/${operationId}/apply`, {
