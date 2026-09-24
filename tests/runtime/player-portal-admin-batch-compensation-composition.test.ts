@@ -21,13 +21,17 @@ describe("Player Portal advanced admin composition", () => {
     expect(source).not.toContain('"batch.execute.high_risk"');
   });
 
-  it("shares the same economy/progression owners with domain and compensation services", () => {
+  it("shares the same economy/progression owners and composes the full Pokemon admin owner", () => {
     expect(source).toContain(
       "const economy = new EconomyService(new PostgresEconomyRepository(options.pool))",
     );
     expect(source).toContain("const progression = new ProgressionService(");
+    expect(source).toContain("const pokemonAdmin = new PokemonAdminService(");
+    expect(source).toContain("new PostgresPokemonAdminRepository(options.pool)");
+    expect(source).toContain("new PostgresPokemonEffectAdminRepository(options.pool)");
+    expect(source).toContain("new PostgresPokemonLifecycleAdminRepository(options.pool)");
     expect(source).toMatch(
-      /new AdminDomainOperationService\(\s*economy,\s*progression,\s*adminCompletion,/,
+      /new AdminDomainOperationService\(\s*economy,\s*progression,\s*adminCompletion,\s*pokemonAdmin,\s*\)/,
     );
     expect(source).toMatch(
       /new AdminCompensationService\(\s*adminRepository,\s*economy,\s*progression,/,
