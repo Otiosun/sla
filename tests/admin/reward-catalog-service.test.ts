@@ -23,14 +23,9 @@ describe("AdminRewardCatalogService", () => {
       ],
     }));
 
-    const service = new AdminRewardCatalogService(
-      { authorizeRead },
-      { getActiveRewardCatalog },
-    );
+    const service = new AdminRewardCatalogService({ authorizeRead }, { getActiveRewardCatalog });
 
-    await expect(
-      service.get("33333333-3333-4333-8333-333333333333"),
-    ).resolves.toEqual({
+    await expect(service.get("33333333-3333-4333-8333-333333333333")).resolves.toEqual({
       items: [expect.objectContaining({ slug: "great-ball" })],
       currencies: [expect.objectContaining({ slug: "poke-dollar" })],
     });
@@ -60,9 +55,7 @@ describe("AdminRewardCatalogService", () => {
       { getActiveRewardCatalog },
     );
 
-    await expect(
-      service.get("33333333-3333-4333-8333-333333333333"),
-    ).rejects.toThrow("denied");
+    await expect(service.get("33333333-3333-4333-8333-333333333333")).rejects.toThrow("denied");
     expect(getActiveRewardCatalog).not.toHaveBeenCalled();
   });
 });
