@@ -323,9 +323,7 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
         },
       ],
     });
-    expect(adminRewardCatalogGet).toHaveBeenCalledWith(
-      "77777777-7777-4777-8777-777777777777",
-    );
+    expect(adminRewardCatalogGet).toHaveBeenCalledWith("77777777-7777-4777-8777-777777777777");
   });
 
   it("lists only registered admin operations granted to the current principal", async () => {
