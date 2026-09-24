@@ -11,6 +11,7 @@ import { AdminDomainOperationService } from "../modules/admin/domain-service.js"
 import { registerPhase12CEncounterAdminOperations } from "../modules/admin/encounter-definitions.js";
 import { AdminEncounterOperationService } from "../modules/admin/encounter-service.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
+import { AdminRewardCatalogService } from "../modules/admin/reward-catalog-service.js";
 import { AdminService } from "../modules/admin/service.js";
 import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
@@ -33,6 +34,7 @@ import { PostgresAdminBatchRepository } from "../platform/admin/postgres-admin-b
 import { PostgresAdminCompensationCompletion } from "../platform/admin/postgres-admin-compensation-completion.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
+import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres-admin-reward-catalog-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleAdminRepository } from "../platform/battle/postgres-battle-admin-repository.js";
 import { PostgresBattleCancellation } from "../platform/battle/postgres-battle-cancellation.js";
@@ -174,6 +176,10 @@ export function composePlayerPortalRuntime(
     adminService,
     new PostgresPlayer360Repository(options.pool),
   );
+  const adminRewardCatalog = new AdminRewardCatalogService(
+    adminService,
+    new PostgresAdminRewardCatalogRepository(options.pool),
+  );
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -183,6 +189,7 @@ export function composePlayerPortalRuntime(
     customization,
     admin,
     adminPlayers,
+    adminRewardCatalog,
     adminMutations: adminService,
   });
 
