@@ -50,10 +50,7 @@ describe("AdminRewardCatalogService", () => {
       .mockRejectedValueOnce(new Error("denied"));
     const getActiveRewardCatalog = vi.fn();
 
-    const service = new AdminRewardCatalogService(
-      { authorizeRead },
-      { getActiveRewardCatalog },
-    );
+    const service = new AdminRewardCatalogService({ authorizeRead }, { getActiveRewardCatalog });
 
     await expect(service.get("33333333-3333-4333-8333-333333333333")).rejects.toThrow("denied");
     expect(getActiveRewardCatalog).not.toHaveBeenCalled();
