@@ -1,10 +1,16 @@
 import type { Pool } from "pg";
+import { registerPhase12CBattleAdminOperations } from "../modules/admin/battle-definitions.js";
+import { AdminBattleOperationService } from "../modules/admin/battle-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../modules/admin/domain-service.js";
+import { registerPhase12CEncounterAdminOperations } from "../modules/admin/encounter-definitions.js";
+import { AdminEncounterOperationService } from "../modules/admin/encounter-service.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
+import { EncounterAdminOwnerService } from "../modules/encounter/admin-service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
@@ -21,8 +27,11 @@ import { SystemClock } from "../platform/clock/index.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
+import { PostgresBattleAdminRepository } from "../platform/battle/postgres-battle-admin-repository.js";
+import { PostgresBattleCancellation } from "../platform/battle/postgres-battle-cancellation.js";
 import { PostgresPlayer360Repository } from "../platform/admin/postgres-player360-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
+import { PostgresEncounterAdminRepository } from "../platform/encounter/postgres-encounter-admin-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
@@ -98,16 +107,34 @@ export function composePlayerPortalRuntime(
   const sessions = new HubSessionTokenService({ signingKey: options.sessionSigningKey });
   const admin = new PostgresAdminWhatsAppIdentityResolver(options.pool);
   const adminRepository = new PostgresAdminRepository(options.pool);
+  const adminCompletion = new PostgresAdminOperationCompletion(options.pool);
   const adminDomain = new AdminDomainOperationService(
     new EconomyService(new PostgresEconomyRepository(options.pool)),
     progression,
-    new PostgresAdminOperationCompletion(options.pool),
+    adminCompletion,
   );
   const adminRegistry = registerPhase12CDomainAdminOperations(
     createPhase12AdminOperationRegistry(adminRepository),
     adminDomain,
   );
   const adminService = new AdminService(adminRegistry, adminRepository);
+
+  const battleAdmin = new AdminBattleOperationService(
+    adminService,
+    new BattleAdminOwnerService(
+      new PostgresBattleAdminRepository(options.pool),
+      new PostgresBattleCancellation(options.pool),
+    ),
+    adminCompletion,
+  );
+  registerPhase12CBattleAdminOperations(adminRegistry, battleAdmin);
+
+  const encounterAdmin = new AdminEncounterOperationService(
+    adminService,
+    new EncounterAdminOwnerService(new PostgresEncounterAdminRepository(options.pool)),
+    adminCompletion,
+  );
+  registerPhase12CEncounterAdminOperations(adminRegistry, encounterAdmin);
   const adminPlayers = new Player360Service(
     adminService,
     new PostgresPlayer360Repository(options.pool),
