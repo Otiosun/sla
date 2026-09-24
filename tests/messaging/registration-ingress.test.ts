@@ -85,7 +85,7 @@ describe("registration freeform ingress", () => {
     ).toBe(false);
     expect(
       await registration.admits(
-        message({ text: "$ficha", replyToExternalMessageId: "bot-registration-prompt" }),
+        message({ text: "/ficha", replyToExternalMessageId: "bot-registration-prompt" }),
       ),
     ).toBe(false);
   });

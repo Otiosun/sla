@@ -118,7 +118,7 @@ describe("registration conversation renderer", () => {
     expect(edit.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
 
     expect(renderPause()).toContain("💾 Seu progresso está salvo.");
-    expect(renderPause()).toContain("$registrar");
+    expect(renderPause()).toContain("/registrar");
 
     const resume = renderResumeMenu();
     expect(resume).toContain("1 — Continuar de onde parei");

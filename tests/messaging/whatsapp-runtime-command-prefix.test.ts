@@ -86,7 +86,7 @@ describe("WhatsApp runtime command prefixes", () => {
 
   it("preserves dollar-prefixed command admission", async () => {
     const fixture = runtimeFixture();
-    const message = incoming("$pokemart");
+    const message = incoming("/pokemart");
     await fixture.runtime.start();
 
     await fixture.adapter.emit(message);

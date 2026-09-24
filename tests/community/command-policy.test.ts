@@ -86,7 +86,7 @@ describe("community command policy", () => {
 
     expect(evaluateCommandPolicy(context({ group: worldGroup }), registerPolicy)).toMatchObject({
       ok: false,
-      error: { code: "ACTION_INVALID" },
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
@@ -108,7 +108,7 @@ describe("community command policy", () => {
         context({ group: worldGroup, adminCapabilities: ["player.registration.approve"] }),
         approvePolicy,
       ),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
   it("denies world travel in Reception even for an active, mechanically ready player", () => {
@@ -117,7 +117,7 @@ describe("community command policy", () => {
         context({ playerAccess: access("ACTIVE"), mechanicalReady: true }),
         travelPolicy,
       ),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
   it("allows world travel only when group, access and mechanical readiness all agree", () => {
@@ -165,7 +165,7 @@ describe("community command policy", () => {
         context({ playerAccess: access("ACTIVE"), mechanicalReady: true }),
         scenePolicy,
       ),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
   it("fails closed for unknown groups before any scoped command reaches a handler", () => {
@@ -179,6 +179,17 @@ describe("community command policy", () => {
         }),
         travelPolicy,
       ),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+  it("does not reject an unknown chat when the policy has no group capability requirement", () => {
+    expect(
+      evaluateCommandPolicy(
+        context({
+          group: unknown,
+          adminCapabilities: ["UAT_BOOTSTRAP"],
+        }),
+        { requiredAdminCapability: "UAT_BOOTSTRAP" },
+      ),
+    ).toEqual({ ok: true, value: undefined });
   });
 });

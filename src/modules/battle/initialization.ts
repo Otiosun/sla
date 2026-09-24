@@ -96,7 +96,10 @@ function buildCombatant(
     })),
     maxHp: build.maxHp,
     currentHp: Math.max(0, Math.min(build.currentHp, build.maxHp)),
-    majorStatus: build.majorStatus === null ? null : { key: build.majorStatus, counter: null },
+    majorStatus:
+      build.majorStatus === null
+        ? null
+        : { key: build.majorStatus, counter: build.majorStatus === "BAD_POISON" ? 1 : null },
     stages: { ...EMPTY_BATTLE_STAGES },
     volatile: { flinch: false, confusionTurns: 0 },
   };
@@ -183,6 +186,23 @@ export function initializeBattleState(
       )
         return failure("Allied initialization requires distinct player rosters on a PVE side");
     }
+    const battleReadyRosters =
+      groups === undefined
+        ? [{ playerId: side.playerId, party: side.party }]
+        : groups.map((group) => ({ playerId: group.playerId, party: group.party }));
+    const exhaustedRoster = battleReadyRosters.find((group) =>
+      group.party.every((build) => build.currentHp <= 0),
+    );
+    if (exhaustedRoster !== undefined) {
+      return failure(
+        "Battle initialization requires at least one battle-ready Pokemon per roster",
+        {
+          sideNo: side.sideNo,
+          playerId: exhaustedRoster.playerId,
+        },
+      );
+    }
+
     const builds = groups === undefined ? side.party : groups.flatMap((group) => group.party);
     if (
       new Set(

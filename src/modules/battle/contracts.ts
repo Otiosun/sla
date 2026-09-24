@@ -21,7 +21,14 @@ export type ControllerKind = z.infer<typeof ControllerKindSchema>;
 export const ParticipantKindSchema = z.enum(["PLAYER_POKEMON", "WILD_POKEMON", "NPC_POKEMON"]);
 export type ParticipantKind = z.infer<typeof ParticipantKindSchema>;
 
-export const MajorStatusKeySchema = z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]);
+export const MajorStatusKeySchema = z.enum([
+  "BURN",
+  "POISON",
+  "BAD_POISON",
+  "PARALYSIS",
+  "SLEEP",
+  "FREEZE",
+]);
 export type MajorStatusKey = z.infer<typeof MajorStatusKeySchema>;
 
 export const BattleStatKeySchema = z.enum([
@@ -123,7 +130,7 @@ export const BattleAbilitySchema = z
 export type BattleAbility = z.infer<typeof BattleAbilitySchema>;
 
 export const BattleMajorStatusSchema = z
-  .object({ key: MajorStatusKeySchema, counter: z.number().int().min(0).max(10).nullable() })
+  .object({ key: MajorStatusKeySchema, counter: z.number().int().min(0).max(15).nullable() })
   .strict();
 export type BattleMajorStatus = z.infer<typeof BattleMajorStatusSchema>;
 
@@ -302,6 +309,7 @@ export const BATTLE_EVENT_TYPES = [
   "MoveUsed",
   "MoveMissed",
   "DamageApplied",
+  "HpRestored",
   "StatusApplied",
   "StatusCleared",
   "StatStageChanged",

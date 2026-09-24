@@ -76,6 +76,32 @@ export function createPhase12AdminOperationRegistry(
   registry.register(
     defineAdminOperation({
       kind: "READ",
+      operationType: "inventory.catalog.read",
+      capabilityKey: "inventory.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "ITEM_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "economy.currency_catalog.read",
+      capabilityKey: "economy.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "CURRENCY_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
       operationType: "admin.operation.audit",
       capabilityKey: "audit.read",
       riskTier: 0,

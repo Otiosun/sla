@@ -106,7 +106,7 @@ function persistedReply(
 }
 
 function noOpenRegistration() {
-  return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
+  return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."));
 }
 
 function parseMode(value: string | undefined): RegistrationConversationEditingMode | null {
@@ -271,7 +271,7 @@ async function resumeDraft(
   if (!draft.ok) {
     return err(
       draft.error.code === "NOT_FOUND"
-        ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `$registrar` para começar.")
+        ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `/registrar` para começar.")
         : draft.error,
     );
   }
@@ -447,7 +447,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const selected = parseMode(args(context).join(" "));
     if (selected === null) {
-      return err(appError("VALIDATION_FAILED", "Use `$modo guiado` ou `$modo completo`."));
+      return err(appError("VALIDATION_FAILED", "Use `/modo guiado` ou `/modo completo`."));
     }
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -591,7 +591,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const editArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (editArg !== undefined && editArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$editar` ou `$editar sim`."));
+      return err(appError("VALIDATION_FAILED", "Use `/editar` ou `/editar sim`."));
     }
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -626,7 +626,7 @@ export function createRegistrationWhatsAppRoutesV2(
         return err(
           appError(
             "INVALID_STATE_TRANSITION",
-            "A revisão em análise mudou. Use `$editar` novamente antes de retirar.",
+            "A revisão em análise mudou. Use `/editar` novamente antes de retirar.",
           ),
         );
       }
@@ -689,7 +689,7 @@ export function createRegistrationWhatsAppRoutesV2(
       return persistedReply(
         context,
         player.value,
-        "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `$editar sim`.",
+        "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `/editar sim`.",
       );
     }
 
@@ -723,7 +723,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (confirmationArg !== undefined && confirmationArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$confirmar` ou `$confirmar sim`."));
+      return err(appError("VALIDATION_FAILED", "Use `/confirmar` ou `/confirmar sim`."));
     }
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -757,7 +757,7 @@ export function createRegistrationWhatsAppRoutesV2(
       return err(
         appError(
           "INVALID_STATE_TRANSITION",
-          "A ficha atual mudou ou ainda não foi revisada. Use `$confirmar` novamente antes de enviar.",
+          "A ficha atual mudou ou ainda não foi revisada. Use `/confirmar` novamente antes de enviar.",
         ),
       );
     }

@@ -98,8 +98,8 @@ describe("registration review notification", () => {
     const confirm = routes.find((candidate) => candidate.command === "confirmar");
     if (confirm === undefined) throw new Error("Missing confirmar route");
 
-    expect(await confirm.handler.handle(context("$confirmar"))).toMatchObject({ ok: true });
-    const submitted = await confirm.handler.handle(context("$confirmar sim"));
+    expect(await confirm.handler.handle(context("/confirmar"))).toMatchObject({ ok: true });
+    const submitted = await confirm.handler.handle(context("/confirmar sim"));
 
     expect(submitted).toMatchObject({
       ok: true,

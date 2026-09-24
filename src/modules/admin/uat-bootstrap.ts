@@ -126,7 +126,9 @@ export class UatBootstrapService {
       }
     } else if (current.rows.length !== 2 || current.rows[0]?.party_id !== current.rows[1]?.party_id)
       return err(
-        appError("ACTION_INVALID", "Test actors already belong to incompatible active parties"),
+        appError("FLOW_BLOCKED", "Test actors already belong to incompatible active parties", {
+          userMessage: "Os jogadores de teste já pertencem a parties ativas incompatíveis.",
+        }),
       );
     return ok([first.value, second.value]);
   }

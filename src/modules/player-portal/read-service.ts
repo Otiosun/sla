@@ -7,6 +7,10 @@ import type { PlayerRegistrationService } from "../player/registration-service.j
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldLocationView } from "../world/contracts.js";
 import type { WorldService } from "../world/service.js";
+import type {
+  PlayerPortalProfileCustomization,
+  PlayerPortalProfileCustomizationRepository,
+} from "./profile-customization-service.js";
 
 export interface PlayerPortalMoveView {
   readonly slotNo: number;
@@ -20,16 +24,32 @@ export interface PlayerPortalMoveView {
   readonly maxPp: number | null;
 }
 
+export interface PlayerPortalPokemonIvView {
+  readonly hp: number | null;
+  readonly attack: number | null;
+  readonly defense: number | null;
+  readonly spAttack: number | null;
+  readonly spDefense: number | null;
+  readonly speed: number | null;
+}
+
 export interface PlayerPortalPokemonView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
+  readonly formSlug: string;
+  readonly speciesSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
   readonly nickname: string | null;
   readonly level: number;
+  readonly xp: string;
+  readonly xpToNextLevel: number;
   readonly currentHp: number;
   readonly maxHp: number | null;
+  readonly natureDisplayName: string | null;
+  readonly abilityDisplayName: string | null;
+  readonly ivs: PlayerPortalPokemonIvView;
   readonly gender: string | null;
   readonly shiny: boolean;
   readonly placementKind: "TEAM" | "BOX";
@@ -46,10 +66,16 @@ export interface PlayerPortalPokedexSpeciesView {
   readonly displayName: string;
   readonly seenCount: string;
   readonly caughtCount: string;
+  readonly shinySeenCount: string;
+  readonly shinyCaughtCount: string;
   readonly firstSeenAt: string | null;
   readonly lastSeenAt: string | null;
   readonly firstCaughtAt: string | null;
   readonly lastCaughtAt: string | null;
+  readonly firstShinySeenAt: string | null;
+  readonly lastShinySeenAt: string | null;
+  readonly firstShinyCaughtAt: string | null;
+  readonly lastShinyCaughtAt: string | null;
 }
 
 export interface PlayerPortalInventoryItemView {
@@ -62,12 +88,15 @@ export interface PlayerPortalInventoryItemView {
 export interface PlayerPortalTeamView {
   readonly pokemonInstanceId: PokemonInstanceId;
   readonly formId: string;
+  readonly formSlug: string;
+  readonly speciesSlug: string;
   readonly displayName: string | null;
   readonly nationalDex: number | null;
   readonly typeNames: readonly string[];
   readonly level: number;
   readonly currentHp: number;
   readonly maxHp: number | null;
+  readonly shiny: boolean;
   readonly slotNo: number;
   readonly conditions: readonly string[];
   readonly moves: readonly PlayerPortalMoveView[];
@@ -76,6 +105,7 @@ export interface PlayerPortalTeamView {
 export type PlayerPortalSelfView = Omit<PlayerProfileView, "progressionPoints" | "team"> & {
   readonly progressionPoints: string;
   readonly originRegionName: string | null;
+  readonly profileCustomization: PlayerPortalProfileCustomization;
   readonly team: readonly PlayerPortalTeamView[];
 };
 
@@ -86,7 +116,6 @@ export interface PlayerPortalWorldConnectionView {
   readonly destinationSlug: string;
   readonly destinationDisplayName: string;
   readonly available: boolean;
-  readonly missingUnlockKeys: readonly string[];
 }
 
 export interface PlayerPortalWorldLocationView {
@@ -169,6 +198,7 @@ interface PlayerPortalReadDependencies {
   readonly profiles: Pick<PlayerStarterService, "getProfile">;
   readonly world: Pick<WorldService, "getLocation">;
   readonly repository: PlayerPortalReadRepository;
+  readonly customization: Pick<PlayerPortalProfileCustomizationRepository, "read">;
   readonly presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">;
 }
 
@@ -184,31 +214,38 @@ export class PlayerPortalReadService {
     const eligible = await this.resolveEligible(identity);
     if (!eligible.ok) return eligible;
 
-    const pokemon = await this.dependencies.repository.listOwnedPokemon(
-      eligible.value.playerId,
-      eligible.value.profile.contentReleaseId,
-    );
-    const originRegionName = await this.dependencies.repository.originRegionDisplayName(
-      eligible.value.profile.contentReleaseId,
-      eligible.value.profile.originRegionId,
-    );
+    const [pokemon, originRegionName, profileCustomization] = await Promise.all([
+      this.dependencies.repository.listOwnedPokemon(
+        eligible.value.playerId,
+        eligible.value.profile.contentReleaseId,
+      ),
+      this.dependencies.repository.originRegionDisplayName(
+        eligible.value.profile.contentReleaseId,
+        eligible.value.profile.originRegionId,
+      ),
+      this.dependencies.customization.read(eligible.value.playerId),
+    ]);
 
     return ok({
       ...eligible.value.profile,
       progressionPoints: eligible.value.profile.progressionPoints.toString(),
       originRegionName,
+      profileCustomization,
       team: pokemon
         .filter((entry) => entry.placementKind === "TEAM")
         .sort((left, right) => left.slotNo - right.slotNo)
         .map((entry) => ({
           pokemonInstanceId: entry.pokemonInstanceId,
           formId: entry.formId,
+          formSlug: entry.formSlug,
+          speciesSlug: entry.speciesSlug,
           displayName: entry.displayName,
           nationalDex: entry.nationalDex,
           typeNames: entry.typeNames,
           level: entry.level,
           currentHp: entry.currentHp,
           maxHp: entry.maxHp,
+          shiny: entry.shiny,
           slotNo: entry.slotNo,
           conditions: entry.conditions,
           moves: entry.moves,
@@ -366,7 +403,6 @@ function worldLocationView(location: WorldLocationView): PlayerPortalWorldLocati
       destinationSlug: connection.destinationSlug,
       destinationDisplayName: connection.destinationDisplayName,
       available: connection.available,
-      missingUnlockKeys: connection.missingUnlockKeys,
     })),
   };
 }

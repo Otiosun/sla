@@ -33,7 +33,7 @@ class FakeWorldServiceSessionRepository implements WorldServiceSessionRepository
           playerId: input.playerId,
           areaId: input.areaId,
           sourceInboxMessageId: input.sourceInboxMessageId,
-          lineCount: input.lineCount,
+          wordCount: input.wordCount,
           createdAt: input.createdAt,
           consumedAt: null,
         };
@@ -123,6 +123,8 @@ function player(): PlayerId {
 
 const AREA_A = "00000000-0000-4000-8000-000000000101";
 const AREA_B = "00000000-0000-4000-8000-000000000102";
+const VALID_SCENE = Array.from({ length: 50 }, (_, index) => `palavra${index + 1}`).join(" ");
+const SHORT_SCENE = Array.from({ length: 49 }, (_, index) => `palavra${index + 1}`).join(" ");
 
 function fixture() {
   const repository = new FakeWorldServiceSessionRepository();
@@ -131,7 +133,7 @@ function fixture() {
 }
 
 describe("WorldServiceSessionService", () => {
-  it("rejects scene proof with fewer than four non-empty lines and persists no prose", async () => {
+  it("requires 50 narrative words regardless of line layout and persists no prose", async () => {
     const { repository, service } = fixture();
     const playerId = player();
 
@@ -139,7 +141,7 @@ describe("WorldServiceSessionService", () => {
       playerId,
       areaId: AREA_A,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000201",
-      text: "linha 1\n\nlinha 2\nlinha 3",
+      text: SHORT_SCENE,
     });
     expect(rejected.ok).toBe(false);
     if (!rejected.ok) expect(rejected.error.code).toBe("VALIDATION_FAILED");
@@ -149,11 +151,11 @@ describe("WorldServiceSessionService", () => {
       playerId,
       areaId: AREA_A,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000202",
-      text: "linha 1\nlinha 2\n\nlinha 3\n linha 4 ",
+      text: VALID_SCENE,
     });
     expect(accepted.ok).toBe(true);
     expect(repository.proofs).toHaveLength(1);
-    expect(repository.proofs[0]?.lineCount).toBe(4);
+    expect(repository.proofs[0]?.wordCount).toBe(50);
     expect(repository.proofs[0]).not.toHaveProperty("text");
   });
 
@@ -165,7 +167,7 @@ describe("WorldServiceSessionService", () => {
       playerId,
       areaId: AREA_A,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000203",
-      text: "1\n2\n3\n4",
+      text: VALID_SCENE,
     });
 
     const wrongArea = await service.openVisit({
@@ -232,7 +234,7 @@ describe("WorldServiceSessionService", () => {
         playerId,
         areaId: AREA_A,
         sourceInboxMessageId,
-        text: "1\n2\n3\n4",
+        text: VALID_SCENE,
       });
     }
 
@@ -260,7 +262,7 @@ describe("WorldServiceSessionService", () => {
       playerId,
       areaId: AREA_A,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000206",
-      text: "1\n2\n3\n4",
+      text: VALID_SCENE,
     });
     const opened = await service.openVisit({
       playerId,
@@ -298,7 +300,7 @@ describe("WorldServiceSessionService", () => {
       playerId,
       areaId: AREA_A,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000207",
-      text: "1\n2\n3\n4",
+      text: VALID_SCENE,
     });
     const opened = await service.openVisit({
       playerId,

@@ -183,7 +183,7 @@ describe("registration WhatsApp commands", () => {
     const sessions = new RegistrationConversationSessions();
     const { found } = route("registrar", sessions);
 
-    const result = await found.handler.handle(context("$registrar Nome Que Deve Ser Ignorado"));
+    const result = await found.handler.handle(context("/registrar Nome Que Deve Ser Ignorado"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -214,7 +214,7 @@ describe("registration WhatsApp commands", () => {
     sessions.applyGuidedAnswer(PLAYER_ID, "Liora Vale");
     const { found } = route("modo", sessions);
 
-    const result = await found.handler.handle(context("$modo completo"));
+    const result = await found.handler.handle(context("/modo completo"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -234,7 +234,7 @@ describe("registration WhatsApp commands", () => {
     sessions.applyGuidedAnswer(PLAYER_ID, "17");
     const { found } = route("ficha", sessions);
 
-    const result = await found.handler.handle(context("$ficha"));
+    const result = await found.handler.handle(context("/ficha"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -262,7 +262,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (salvar === undefined) throw new Error("Missing registration route salvar");
 
-    const result = await salvar.handler.handle(context("$salvar"));
+    const result = await salvar.handler.handle(context("/salvar"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -293,7 +293,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (continuar === undefined) throw new Error("Missing registration route continuar");
 
-    const result = await continuar.handler.handle(context("$continuar"));
+    const result = await continuar.handler.handle(context("/continuar"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -320,7 +320,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (editar === undefined) throw new Error("Missing registration route editar");
 
-    expect(await editar.handler.handle(context("$editar"))).toMatchObject({
+    expect(await editar.handler.handle(context("/editar"))).toMatchObject({
       ok: false,
       error: { code: "INVALID_STATE_TRANSITION" },
     });
@@ -340,7 +340,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (editar === undefined) throw new Error("Missing registration route editar");
 
-    expect(await editar.handler.handle(context("$editar sim"))).toMatchObject({
+    expect(await editar.handler.handle(context("/editar sim"))).toMatchObject({
       ok: false,
       error: { code: "INVALID_STATE_TRANSITION" },
     });
@@ -360,7 +360,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (editar === undefined) throw new Error("Missing registration route editar");
 
-    const result = await editar.handler.handle(context("$editar"));
+    const result = await editar.handler.handle(context("/editar"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -387,7 +387,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (editar === undefined) throw new Error("Missing registration route editar");
 
-    expect(await editar.handler.handle(context("$editar"))).toMatchObject({
+    expect(await editar.handler.handle(context("/editar"))).toMatchObject({
       ok: false,
       error: { code: "INVALID_STATE_TRANSITION" },
     });
@@ -409,7 +409,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (confirmar === undefined) throw new Error("Missing registration route confirmar");
 
-    const result = await confirmar.handler.handle(context("$confirmar"));
+    const result = await confirmar.handler.handle(context("/confirmar"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -418,7 +418,7 @@ describe("registration WhatsApp commands", () => {
           {
             payload: {
               text: expect.stringMatching(
-                /CONFIRMAÇÃO[\s\S]*Liora Vale[\s\S]*Charmander[\s\S]*Zhoulia[\s\S]*\$confirmar sim/i,
+                /CONFIRMAÇÃO[\s\S]*Liora Vale[\s\S]*Charmander[\s\S]*Zhoulia[\s\S]*\/confirmar sim/i,
               ),
             },
           },
@@ -443,7 +443,7 @@ describe("registration WhatsApp commands", () => {
     );
     if (confirmar === undefined) throw new Error("Missing registration route confirmar");
 
-    const result = await confirmar.handler.handle(context("$confirmar sim"));
+    const result = await confirmar.handler.handle(context("/confirmar sim"));
 
     expect(result).toMatchObject({
       ok: false,
@@ -466,10 +466,10 @@ describe("registration WhatsApp commands", () => {
     );
     if (confirmar === undefined) throw new Error("Missing registration route confirmar");
 
-    expect(await confirmar.handler.handle(context("$confirmar"))).toMatchObject({ ok: true });
+    expect(await confirmar.handler.handle(context("/confirmar"))).toMatchObject({ ok: true });
     sessions.setField(PLAYER_ID, "personality", "Agora mudou depois do preview.");
 
-    expect(await confirmar.handler.handle(context("$confirmar sim"))).toMatchObject({
+    expect(await confirmar.handler.handle(context("/confirmar sim"))).toMatchObject({
       ok: false,
       error: { code: "INVALID_STATE_TRANSITION" },
     });
@@ -491,8 +491,8 @@ describe("registration WhatsApp commands", () => {
     );
     if (confirmar === undefined) throw new Error("Missing registration route confirmar");
 
-    expect(await confirmar.handler.handle(context("$confirmar"))).toMatchObject({ ok: true });
-    const result = await confirmar.handler.handle(context("$confirmar sim"));
+    expect(await confirmar.handler.handle(context("/confirmar"))).toMatchObject({ ok: true });
+    const result = await confirmar.handler.handle(context("/confirmar sim"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -511,7 +511,7 @@ describe("registration WhatsApp commands", () => {
           personality: "Curiosa, competitiva e paciente.",
         },
         expectedDraftRevision: 4,
-        idempotencyKey: "inbox:whatsapp:$confirmar sim:registration-submit",
+        idempotencyKey: "inbox:whatsapp:/confirmar sim:registration-submit",
       },
     ]);
     expect(sessions.get(PLAYER_ID)).toBeNull();

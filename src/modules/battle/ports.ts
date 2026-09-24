@@ -1,5 +1,11 @@
 import type { RulesetSnapshot } from "../catalog/contracts.js";
-import type { BattleAction, BattleEvent, BattleState, BattleStatus } from "./contracts.js";
+import type {
+  BattleAction,
+  BattleEvent,
+  BattleState,
+  BattleStatus,
+  MajorStatusKey,
+} from "./contracts.js";
 import type { PvpTurnResolutionTransaction } from "./pvp-turn-resolution.js";
 import type {
   SubmitTurnActionInput,
@@ -85,7 +91,7 @@ export interface BattlePokemonBuild {
   readonly moves: readonly BattleMoveBuild[];
   readonly maxHp: number;
   readonly currentHp: number;
-  readonly majorStatus: "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | null;
+  readonly majorStatus: MajorStatusKey | null;
 }
 
 export interface BattleInitializationData {

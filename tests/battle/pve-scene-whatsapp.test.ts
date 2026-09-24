@@ -426,15 +426,18 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(result.ok && result.value?.outgoing[1]?.payload.text).toContain("desistiu");
   });
 
-  it("renders a compact battle HUD without listing move options", async () => {
+  it("renders a battle HUD with usable move options", async () => {
     const setup = dependencies(false);
     const routes = createPveSceneRoutes(setup.dependencies);
     const hud = await routeFor(routes, "batalha").handler.handle(context("/batalha"));
     const text = String(hud.ok ? hud.value.outgoing[0]?.payload.text : "");
-    expect(text).toContain("Turno 3");
-    expect(text).toContain("HP 12/20");
-    expect(text).not.toContain("Quick Attack");
-    expect(text).not.toContain("Movimentos:");
+    expect(text).toContain("*BATALHA · Turno 3*");
+    expect(text).toContain("◇ *SEU POKÉMON*");
+    expect(text).toContain("HP `12/20`");
+    expect(text).toContain("◇ *OPONENTE*");
+    expect(text).toContain("`/combate` · comandos e regras");
+    expect(text).toContain("Quick Attack");
+    expect(text).toContain("`/movimento 1`");
   });
 
   it("lets an authorized narrator submit, assume, and restore automatic control", async () => {
@@ -591,5 +594,10 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(String(result.value.outgoing[1]?.payload.text)).toContain("A Poké Ball foi lançada.");
     expect(String(result.value.outgoing[1]?.payload.text)).toContain("O Pokémon escapou.");
     expect(String(result.value.outgoing[1]?.payload.text)).toContain("12 → 10 HP.");
+  });
+  it("does not expose the unsupported /item battle command", () => {
+    const setup = dependencies(false);
+    const routes = createPveSceneRoutes(setup.dependencies);
+    expect(routes.some((route) => route.command === "item")).toBe(false);
   });
 });

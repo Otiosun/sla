@@ -11,3 +11,4 @@ coverage/
 .tmp/
 tmp/
 /.local-uat/
+/.sim-pokeapi/

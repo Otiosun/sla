@@ -51,6 +51,8 @@ import { PlayerRegistrationService } from "../modules/player/registration-servic
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
 import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
+import { ProgressionService } from "../modules/progression/service.js";
+import { createProgressionWhatsAppRoutes } from "../modules/progression/whatsapp-handlers.js";
 import { PvpService } from "../modules/pvp/service.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
@@ -94,9 +96,12 @@ import { PostgresMessagingRepository } from "../platform/messaging/postgres-mess
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
+import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
+import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../platform/pvp/postgres-pvp-start-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
+import { PostgresPlayerActivationKit } from "../platform/registration/postgres-player-activation-kit.js";
 import { PostgresProvisioningCandidateSource } from "../platform/registration/postgres-provisioning-candidate-source.js";
 import { PostgresReceptionActivationAnnouncement } from "../platform/registration/postgres-reception-activation-announcement.js";
 import { PostgresRegistrationMessageRefRepository } from "../platform/registration/postgres-registration-message-ref-repository.js";
@@ -157,6 +162,8 @@ export function createOperationalMessagingComposition(
   hubPublicUrl: string | null = null,
 ): OperationalMessagingComposition {
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
+  const battleRewardNotifications =
+    pveBattleConfig === null ? null : new PostgresBattleRewardWhatsAppProjector(pool);
   const pvp = (() => {
     if (pveBattleConfig === null) return null;
     const keyEntries = [...pveBattleConfig.encryptionKeys.entries()];
@@ -183,6 +190,11 @@ export function createOperationalMessagingComposition(
       openChallengeIdForTarget: async (playerId: string) =>
         challenges.read(
           async (transaction) => (await transaction.openChallengeForTarget(playerId))?.id ?? null,
+        ),
+      openChallengeIdForChallenger: async (playerId: string) =>
+        challenges.read(
+          async (transaction) =>
+            (await transaction.openChallengeForChallenger(playerId))?.id ?? null,
         ),
     };
   })();
@@ -229,6 +241,7 @@ export function createOperationalMessagingComposition(
         );
   const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
   const reads = new PostgresOperationalUxReadModel(pool);
+  const progression = new ProgressionService(new PostgresProgressionRepository(pool));
   const externalRefForPlayer = async (playerId: string): Promise<string | null> => {
     const result = await pool.query<{ external_id: string }>(
       `SELECT external_id
@@ -280,6 +293,7 @@ export function createOperationalMessagingComposition(
     starter,
     world,
     new PostgresReceptionActivationAnnouncement(pool),
+    new PostgresPlayerActivationKit(pool),
   );
   const provisioningWorker = new PlayerProvisioningWorker(
     new PostgresProvisioningCandidateSource(pool),
@@ -387,6 +401,7 @@ export function createOperationalMessagingComposition(
         encounter,
         battle,
         reads,
+        pcStorage: pokemonPcStorage,
         sessions: worldServiceSessions,
         ...(worldServiceMedia === null ? {} : { worldMedia: worldServiceMedia }),
       }).filter(
@@ -412,6 +427,11 @@ export function createOperationalMessagingComposition(
       speciesDisplayName: reads.speciesDisplayName.bind(reads),
     },
     ...(worldServiceMedia === null ? {} : { media: worldServiceMedia }),
+  });
+  const progressionRoutes = createProgressionWhatsAppRoutes({
+    players: playerRegistration,
+    reads,
+    progression,
   });
   const registrationRoutes = withRegistrationReviewMentions(
     createRegistrationWhatsAppRoutesV2({
@@ -443,6 +463,7 @@ export function createOperationalMessagingComposition(
     [
       ...legacyRoutes,
       ...worldServiceRoutes,
+      ...progressionRoutes,
       ...registrationRoutes,
       ...registrationAdminRoutes,
       ...(pveBattle === null
@@ -466,6 +487,7 @@ export function createOperationalMessagingComposition(
             players: playerRegistration,
             pvp: pvp.service,
             openChallengeIdForTarget: pvp.openChallengeIdForTarget,
+            openChallengeIdForChallenger: pvp.openChallengeIdForChallenger,
             externalRefForPlayer,
           })),
       ...(pveBattleStart === null
@@ -511,6 +533,7 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
+      await battleRewardNotifications?.runOnce(pveBattleConfig?.maintenanceBatchSize ?? 25);
     },
   };
 }

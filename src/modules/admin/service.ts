@@ -94,6 +94,17 @@ export class AdminService {
     private readonly repository: AdminOperationRepository,
   ) {}
 
+  public listOperationDefinitions() {
+    return this.registry.list().map((definition) => ({
+      kind: definition.kind,
+      operationType: definition.operationType,
+      capabilityKey: definition.capabilityKey,
+      riskTier: definition.riskTier,
+      authorizationMode: definition.authorizationMode,
+      policy: { ...definition.policy },
+    }));
+  }
+
   private async requireAuthorized(
     principalId: string,
     definition: AdminOperationDefinition,

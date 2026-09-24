@@ -149,8 +149,12 @@ async function resolveReplyRef(
   if (replyToExternalMessageId === null) {
     return err(
       appError(
-        "ACTION_INVALID",
+        "VALIDATION_FAILED",
         "Administrative registration review command must reply to a review notification",
+        {
+          userMessage:
+            "Responda diretamente à notificação da ficha ao usar este comando administrativo.",
+        },
       ),
     );
   }

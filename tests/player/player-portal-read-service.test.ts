@@ -50,8 +50,28 @@ function service(activeBattle: PlayerPortalActiveBattleRecord | null = null) {
           enteredAt: new Date("2026-09-18T20:00:00.000Z"),
           requiresRelocation: false,
           relocationAreaId: null,
-          connections: [],
+          connections: [
+            {
+              connectionId: "20202020-2020-4020-8020-202020202020",
+              connectionKey: "vila-campos",
+              destinationAreaId: "21212121-2121-4121-8121-212121212121",
+              destinationSlug: "campos-de-yun",
+              destinationDisplayName: "Campos de Yun",
+              available: false,
+              missingUnlockKeys: ["story.secret-route-key"],
+            },
+          ],
         }),
+    },
+    customization: {
+      read: async () => ({
+        title: "Explorador",
+        bio: "Sempre seguindo a próxima trilha.",
+        appearance: null,
+        age: 29,
+        height: "1,94 m",
+        accent: "gold",
+      }),
     },
     repository: {
       originRegionDisplayName: async () => "Zhoulia",
@@ -59,13 +79,20 @@ function service(activeBattle: PlayerPortalActiveBattleRecord | null = null) {
         {
           pokemonInstanceId,
           formId: "66666666-6666-4666-8666-666666666666",
+          formSlug: "chikorita",
+          speciesSlug: "chikorita",
           displayName: "Chikorita",
           nationalDex: 152,
           typeNames: ["Grass"],
           nickname: null,
           level: 5,
+          xp: "12",
+          xpToNextLevel: 91,
           currentHp: 20,
           maxHp: 21,
+          natureDisplayName: "Calm",
+          abilityDisplayName: "Overgrow",
+          ivs: { hp: 31, attack: 12, defense: 27, spAttack: 18, spDefense: 29, speed: 20 },
           gender: "F",
           shiny: false,
           placementKind: "TEAM",
@@ -97,9 +124,19 @@ describe("PlayerPortalReadService", () => {
       trainerName: "Natan",
       originRegionName: "Zhoulia",
       progressionPoints: "240",
+      profileCustomization: {
+        title: "Explorador",
+        bio: "Sempre seguindo a próxima trilha.",
+        appearance: null,
+        age: 29,
+        height: "1,94 m",
+        accent: "gold",
+      },
       team: [
         {
           pokemonInstanceId,
+          formSlug: "chikorita",
+          speciesSlug: "chikorita",
           displayName: "Chikorita",
           currentHp: 20,
           maxHp: 21,
@@ -120,8 +157,20 @@ describe("PlayerPortalReadService", () => {
         regionDisplayName: "Zhoulia",
         revision: "7",
         enteredAt: "2026-09-18T20:00:00.000Z",
+        connections: [
+          {
+            connectionId: "20202020-2020-4020-8020-202020202020",
+            connectionKey: "vila-campos",
+            destinationAreaId: "21212121-2121-4121-8121-212121212121",
+            destinationSlug: "campos-de-yun",
+            destinationDisplayName: "Campos de Yun",
+            available: false,
+          },
+        ],
       }),
     );
+    expect(JSON.stringify(result.value)).not.toContain("story.secret-route-key");
+    expect(JSON.stringify(result.value)).not.toContain("missingUnlockKeys");
   });
 
   it("reports no active battle without inventing one", async () => {

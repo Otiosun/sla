@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const maintenance = vi.hoisted(() => ({
   provisioning: vi.fn(async () => undefined),
   battle: vi.fn(async () => ({ turns: [], defeats: [] })),
+  rewardProjection: vi.fn(async () => ({ claimed: 0, projected: 0, deferred: 0 })),
   compose: vi.fn(),
 }));
 
@@ -14,6 +15,11 @@ vi.mock("../../src/modules/registration/provisioning-worker.js", () => ({
 }));
 vi.mock("../../src/runtime/compose-pve-battle-runtime.js", () => ({
   createPveBattleRuntime: maintenance.compose,
+}));
+vi.mock("../../src/platform/progression/postgres-battle-reward-whatsapp-projector.js", () => ({
+  PostgresBattleRewardWhatsAppProjector: class {
+    runOnce = maintenance.rewardProjection;
+  },
 }));
 
 import { createPveBattleRuntime } from "../../src/runtime/compose-pve-battle-runtime.js";
@@ -41,6 +47,7 @@ describe("PVE WhatsApp maintenance composition", () => {
     await composition.runMaintenance();
     expect(maintenance.battle).toHaveBeenCalledTimes(2);
     expect(maintenance.provisioning).toHaveBeenCalledTimes(2);
+    expect(maintenance.rewardProjection).toHaveBeenCalledTimes(2);
   });
 
   it("preserves the unconfigured runtime without choosing a TTL or migrating battles", async () => {

@@ -19,14 +19,11 @@ import {
   worldServiceVisitNotFound,
 } from "./errors.js";
 import type { WorldServiceSessionRepository } from "./ports.js";
+import { MIN_SCENE_PROOF_WORDS, sceneProofWordCount } from "./scene-proof.js";
 
 const uuidSchema = z.string().uuid();
 const boundedToken = z.string().trim().min(1).max(512);
 const MAX_SCENE_TEXT_LENGTH = 32_768;
-
-function nonEmptyLineCount(text: string): number {
-  return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
-}
 
 function validUuid(label: string, value: string): Result<string> {
   const parsed = uuidSchema.safeParse(value);
@@ -53,9 +50,13 @@ export class WorldServiceSessionService {
     if (input.text.length > MAX_SCENE_TEXT_LENGTH) {
       return err(sceneProofInvalid("Scene text exceeds the messaging boundary"));
     }
-    const lineCount = nonEmptyLineCount(input.text);
-    if (lineCount < 4) {
-      return err(sceneProofInvalid("Scene proof requires at least four non-empty lines"));
+    const wordCount = sceneProofWordCount(input.text);
+    if (wordCount < MIN_SCENE_PROOF_WORDS) {
+      return err(
+        sceneProofInvalid(
+          `Scene proof requires at least ${String(MIN_SCENE_PROOF_WORDS)} narrative words`,
+        ),
+      );
     }
 
     const createdAt = this.clock.now();
@@ -65,7 +66,7 @@ export class WorldServiceSessionService {
           playerId: input.playerId,
           areaId: areaId.value,
           sourceInboxMessageId: sourceInboxMessageId.value,
-          lineCount,
+          wordCount,
           createdAt,
         }),
       ),

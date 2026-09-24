@@ -99,7 +99,7 @@ describe("messaging boundary", () => {
     await adapter.inject({
       ...message,
       externalMessageId: "msg-command",
-      text: "   $menu",
+      text: "   /menu",
     });
     await runtime.stop();
 
@@ -127,7 +127,7 @@ describe("messaging boundary", () => {
       },
     } as unknown as OutboxWorker;
     const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
-      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "$menu",
+      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "/menu",
     });
 
     await runtime.start();
@@ -139,7 +139,7 @@ describe("messaging boundary", () => {
     await adapter.inject({
       ...message,
       externalMessageId: "msg-known-command",
-      text: "$Menu",
+      text: "/Menu",
     });
     await runtime.stop();
 
@@ -223,7 +223,7 @@ describe("messaging boundary", () => {
       ...message,
       externalMessageId: "msg-command-2",
       chatRef: "world@g.us",
-      text: "$menu",
+      text: "/menu",
     });
     await runtime.stop();
 

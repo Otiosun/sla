@@ -34,7 +34,11 @@ class OrganizeHandler implements MessageRouteHandler {
     const active = await this.dependencies.sessions.loadActiveSession(playerId);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de organizar o PC.",
+        }),
+      );
     }
     if (this.dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));

@@ -71,7 +71,7 @@ export function createWorldGroupSetupRoute(dependencies: {
           .trim()
           .normalize("NFD")
           .replace(/\p{M}+/gu, "");
-        const match = /^[$/]grupo\s+(jogo|recepcao)\s+([^\r\n]+)$/iu.exec(command);
+        const match = /^\/grupo\s+(jogo|recepcao)\s+([^\r\n]+)$/iu.exec(command);
         const input = WorldGroupSetupInputSchema.safeParse({
           provider: context.message.provider,
           chatRef: context.message.chatRef,

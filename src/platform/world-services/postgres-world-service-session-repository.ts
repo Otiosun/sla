@@ -15,6 +15,10 @@ import type {
   WorldServiceSessionRepository,
   WorldServiceSessionTransaction,
 } from "../../modules/world-services/ports.js";
+import {
+  MIN_SCENE_PROOF_WORDS,
+  SCENE_PROOF_MAX_AGE_MS,
+} from "../../modules/world-services/scene-proof.js";
 import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
@@ -55,7 +59,8 @@ function sceneProofRecord(row: SceneProofRow): SceneProofRecord {
     playerId: asPlayerId(row.player_id),
     areaId: row.area_id,
     sourceInboxMessageId: row.source_inbox_message_id,
-    lineCount: row.line_count,
+    // Legacy DB column name: line_count stores the validated word count.
+    wordCount: row.line_count,
     createdAt: row.created_at,
     consumedAt: row.consumed_at,
   };
@@ -117,7 +122,7 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
         input.playerId,
         input.areaId,
         input.sourceInboxMessageId,
-        input.lineCount,
+        input.wordCount,
         input.createdAt,
       ],
     );
@@ -134,6 +139,8 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
          WHERE player_id = $1
            AND area_id = $2
            AND consumed_at IS NULL
+           AND line_count >= $4
+           AND created_at >= $5
          ORDER BY created_at DESC, id DESC
          LIMIT 1
          FOR UPDATE
@@ -149,7 +156,13 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
                  proof.line_count,
                  proof.created_at,
                  proof.consumed_at`,
-      [input.playerId, input.areaId, input.consumedAt],
+      [
+        input.playerId,
+        input.areaId,
+        input.consumedAt,
+        MIN_SCENE_PROOF_WORDS,
+        new Date(input.consumedAt.getTime() - SCENE_PROOF_MAX_AGE_MS),
+      ],
     );
     const row = result.rows[0];
     return row === undefined ? null : sceneProofRecord(row);
