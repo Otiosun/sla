@@ -115,11 +115,7 @@ export function composePlayerPortalRuntime(
   const adminRepository = new PostgresAdminRepository(options.pool);
   const adminCompletion = new PostgresAdminOperationCompletion(options.pool);
   const economy = new EconomyService(new PostgresEconomyRepository(options.pool));
-  const adminDomain = new AdminDomainOperationService(
-    economy,
-    progression,
-    adminCompletion,
-  );
+  const adminDomain = new AdminDomainOperationService(economy, progression, adminCompletion);
   const adminRegistry = registerPhase12CDomainAdminOperations(
     createPhase12AdminOperationRegistry(adminRepository),
     adminDomain,
