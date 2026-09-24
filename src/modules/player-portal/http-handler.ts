@@ -1,5 +1,6 @@
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
+import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
 import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
 import {
   AdminOperationApprovalRequestSchema,
@@ -77,6 +78,7 @@ interface PlayerPortalHttpDependencies {
   readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
+  readonly adminRewardCatalog: Pick<AdminRewardCatalogService, "get">;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
 }
 
@@ -100,6 +102,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/operations") {
       return this.withSession(request, (identity) => this.listAdminOperations(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/reward-catalog") {
+      return this.withSession(request, (identity) => this.getAdminRewardCatalog(identity));
     }
     if (request.method === "POST" && url.pathname === "/v1/hub/admin/operations") {
       return this.withSession(request, (identity) => this.prepareAdminOperation(request, identity));
@@ -225,6 +230,21 @@ export class PlayerPortalHttpHandler {
         capabilities: [...capabilities],
       },
     });
+  }
+
+  private async getAdminRewardCatalog(identity: ExternalIdentity): Promise<Response> {
+    const principal = await this.dependencies.admin.resolvePrincipal(identity);
+    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(principal.principalId);
+      return jsonResponse(200, {
+        items: [...catalog.items],
+        currencies: [...catalog.currencies],
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
   }
 
   private async listAdminOperations(identity: ExternalIdentity): Promise<Response> {
