@@ -1,6 +1,10 @@
 import type { Pool } from "pg";
+import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
+import { AdminBatchService } from "../modules/admin/batch-service.js";
 import { registerPhase12CBattleAdminOperations } from "../modules/admin/battle-definitions.js";
 import { AdminBattleOperationService } from "../modules/admin/battle-service.js";
+import { registerPhase12CompensationOperation } from "../modules/admin/compensation-definitions.js";
+import { AdminCompensationService } from "../modules/admin/compensation-service.js";
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../modules/admin/domain-service.js";
@@ -24,6 +28,8 @@ import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { SystemClock } from "../platform/clock/index.js";
+import { PostgresAdminBatchRepository } from "../platform/admin/postgres-admin-batch-repository.js";
+import { PostgresAdminCompensationCompletion } from "../platform/admin/postgres-admin-compensation-completion.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
@@ -108,8 +114,9 @@ export function composePlayerPortalRuntime(
   const admin = new PostgresAdminWhatsAppIdentityResolver(options.pool);
   const adminRepository = new PostgresAdminRepository(options.pool);
   const adminCompletion = new PostgresAdminOperationCompletion(options.pool);
+  const economy = new EconomyService(new PostgresEconomyRepository(options.pool));
   const adminDomain = new AdminDomainOperationService(
-    new EconomyService(new PostgresEconomyRepository(options.pool)),
+    economy,
     progression,
     adminCompletion,
   );
@@ -135,6 +142,24 @@ export function composePlayerPortalRuntime(
     adminCompletion,
   );
   registerPhase12CEncounterAdminOperations(adminRegistry, encounterAdmin);
+
+  const compensation = new AdminCompensationService(
+    adminRepository,
+    economy,
+    progression,
+    new PostgresAdminCompensationCompletion(options.pool),
+  );
+  registerPhase12CompensationOperation(adminRegistry, compensation);
+
+  const batch = new AdminBatchService(
+    adminService,
+    adminRegistry,
+    adminRepository,
+    new PostgresAdminBatchRepository(options.pool),
+    adminCompletion,
+  );
+  registerPhase12DBatchAdminOperations(adminRegistry, batch);
+
   const adminPlayers = new Player360Service(
     adminService,
     new PostgresPlayer360Repository(options.pool),
