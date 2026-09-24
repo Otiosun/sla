@@ -71,6 +71,24 @@ function handler(
   const adminPlayerGet = vi.fn(async () => {
     throw new Error("admin player get not used in this harness");
   });
+  const adminRewardCatalogGet = vi.fn(async () => ({
+    items: [
+      {
+        itemId: "12121212-1212-4212-8212-121212121212",
+        slug: "great-ball",
+        displayName: "Great Ball",
+        itemKind: "BALL",
+      },
+    ],
+    currencies: [
+      {
+        currencyId: "13131313-1313-4313-8313-131313131313",
+        slug: "poke-dollar",
+        displayName: "Poké Dollar",
+        allowsNegative: false,
+      },
+    ],
+  }));
   const adminListOperationDefinitions = vi.fn(() => [
     {
       kind: "MUTATION" as const,
@@ -167,6 +185,9 @@ function handler(
       search: adminPlayerSearch,
       get: adminPlayerGet,
     },
+    adminRewardCatalog: {
+      get: adminRewardCatalogGet,
+    },
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -183,6 +204,7 @@ function handler(
     customizationUpdate,
     adminPlayerSearch,
     adminPlayerGet,
+    adminRewardCatalogGet,
     adminListOperationDefinitions,
     adminPrepareMutation,
     adminSimulateMutation,
@@ -262,6 +284,48 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       trainerNamePrefix: "Nat",
       limit: 10,
     });
+  });
+
+  it("keeps the reward catalog admin-only and returns only the service-approved view", async () => {
+    const denied = await handler().instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/reward-catalog", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(denied.status).toBe(403);
+
+    const { instance, adminRewardCatalogGet } = handler({
+      admin: true,
+      capabilities: ["inventory.read", "economy.read"],
+    });
+    const allowed = await instance.handle(
+      new Request("https://api.example.test/v1/hub/admin/reward-catalog", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({
+      items: [
+        {
+          itemId: "12121212-1212-4212-8212-121212121212",
+          slug: "great-ball",
+          displayName: "Great Ball",
+          itemKind: "BALL",
+        },
+      ],
+      currencies: [
+        {
+          currencyId: "13131313-1313-4313-8313-131313131313",
+          slug: "poke-dollar",
+          displayName: "Poké Dollar",
+          allowsNegative: false,
+        },
+      ],
+    });
+    expect(adminRewardCatalogGet).toHaveBeenCalledWith(
+      "77777777-7777-4777-8777-777777777777",
+    );
   });
 
   it("lists only registered admin operations granted to the current principal", async () => {
