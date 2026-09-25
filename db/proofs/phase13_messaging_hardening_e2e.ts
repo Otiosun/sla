@@ -338,9 +338,10 @@ async function main(): Promise<void> {
     const friendly = errorOutbox.rows[0];
     if (
       friendly === undefined ||
-      !friendly.text.includes(`Código de suporte: ${blocked.value.correlationId}`) ||
+      friendly.text !== "Essa ação está bloqueada pelo fluxo atual." ||
       friendly.text.includes("internal detail") ||
       friendly.text.includes("secret-state") ||
+      friendly.text.includes(blocked.value.correlationId) ||
       friendly.correlation_id !== blocked.value.correlationId
     ) {
       throw new Error(
