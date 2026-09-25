@@ -142,10 +142,11 @@ async function main(): Promise<void> {
     const completeMenuText = await outgoingText(pool, "ux-menu-complete");
     if (
       !completeMenuText.includes("ROTOM · MENU") ||
-      !completeMenuText.includes("/perfil") ||
       !completeMenuText.includes("/onde") ||
+      !completeMenuText.includes("/colecao") ||
+      !completeMenuText.includes("/pokemon <# ou nome>") ||
       completeMenuText.includes("/explorar") ||
-      completeMenuText.includes("/golpe")
+      completeMenuText.includes("`/golpe`")
     ) {
       throw new Error(`COMPLETE menu violates canonical UX: ${completeMenuText}`);
     }
