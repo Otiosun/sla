@@ -79,10 +79,14 @@ async function main(): Promise<void> {
     console.log(`centralViewCapabilityExists=${centralView.rows[0]?.capability_exists ?? false}`);
     console.log(`centralViewEffectiveAdminCount=${centralView.rows[0]?.effective_admins ?? 0}`);
     console.log(`capabilityOverridesTableExists=${overrides.rows[0]?.table_exists ?? false}`);
-    console.log(`adminBatchWhatsAppPreviewRefsTableExists=${previewRefs.rows[0]?.table_exists ?? false}`);
+    console.log(
+      `adminBatchWhatsAppPreviewRefsTableExists=${previewRefs.rows[0]?.table_exists ?? false}`,
+    );
     console.log(`activeReceptionGroupCount=${reception.rows[0]?.reception_groups ?? 0}`);
     console.log(`activeReceptionStaffAssignmentCount=${reception.rows[0]?.assigned_staff ?? 0}`);
-    console.log(`mentionEligibleReceptionStaffCount=${reception.rows[0]?.mention_eligible_staff ?? 0}`);
+    console.log(
+      `mentionEligibleReceptionStaffCount=${reception.rows[0]?.mention_eligible_staff ?? 0}`,
+    );
 
     const ownersReady = (ownerCounts.rows[0]?.protected_owners ?? 0) === 2;
     const permissionsReady =
