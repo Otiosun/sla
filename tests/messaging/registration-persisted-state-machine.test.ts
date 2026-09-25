@@ -318,7 +318,9 @@ describe("persisted Registration conversation state machine", () => {
     });
     expect(state.checkpoints[0]).not.toHaveProperty("draft");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("⚠️");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("〔▣〕 *FICHA COMPLETA*");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
+      "〔▣〕 *FICHA COMPLETA*",
+    );
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).not.toContain("correlation");
   });
 });
