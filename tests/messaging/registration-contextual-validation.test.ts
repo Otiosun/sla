@@ -233,10 +233,10 @@ describe("persisted Registration contextual validation", () => {
       currentField: "genderPronouns",
     });
     expect(state.getDraft()).toMatchObject({ age: 19 });
-    expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain("✓ *Idade registrada:* 19");
     expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain(
-      "03 / 07",
+      "✓ *Idade registrada:* 19",
     );
+    expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain("03 / 07");
   });
 
   it("keeps an invalid starter in the same guided field with canonical options", async () => {
