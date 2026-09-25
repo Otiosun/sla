@@ -1,5 +1,4 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { AdminRewardCatalogService } from "./reward-catalog-service.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 import type { AdminService } from "./service.js";
@@ -40,7 +39,6 @@ interface PreviewRefReader {
 
 export interface AdminWhatsAppBatchDependencies {
   readonly admins: AdminIdentityResolver;
-  readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly targets: PlayerTargetResolver;
   readonly catalog: Pick<AdminRewardCatalogService, "get">;
   readonly admin: Pick<AdminService, "prepareMutation" | "apply" | "confirm">;
