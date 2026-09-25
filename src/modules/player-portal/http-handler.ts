@@ -80,7 +80,7 @@ interface PlayerPortalHttpDependencies {
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
   readonly adminRewardCatalog: Pick<AdminRewardCatalogService, "get">;
-  readonly adminTeam: Pick<AdminTeamService, "list" | "replaceCapabilities">;
+  readonly adminTeam: Pick<AdminTeamService, "isOwner" | "list" | "replaceCapabilities">;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
 }
 
@@ -244,9 +244,11 @@ export class PlayerPortalHttpHandler {
     if (admin === null) {
       return jsonResponse(200, { admin: null });
     }
+    const owner = await this.dependencies.adminTeam.isOwner(admin.principalId);
     return jsonResponse(200, {
       admin: {
         principalId: admin.principalId,
+        owner,
         capabilities: [...admin.capabilities],
       },
     });
