@@ -159,7 +159,7 @@ describe("v2 compatibility aliases while a registration review is submitted", ()
         },
       });
       expect(result.ok && result.value.outgoing[0]?.payload.text).not.toMatch(
-        /FICHA COMPLETA|FICHA PRONTA PARA REVISÃO|Escolha como prefere|O que deseja corrigir/i,
+        /𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔|𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢|𝗖𝗢𝗠𝗢 𝗣𝗥𝗘𝗙𝗘𝗥𝗘 𝗖𝗥𝗜𝗔𝗥|𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔/i,
       );
       expect(state.checkpoints).toEqual([]);
       expect(state.submitCalls()).toBe(0);
