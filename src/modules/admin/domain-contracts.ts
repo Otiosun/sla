@@ -54,6 +54,15 @@ export const AdminTrainerProgressAdjustInputSchema = z
   .strict();
 export type AdminTrainerProgressAdjustInput = z.infer<typeof AdminTrainerProgressAdjustInputSchema>;
 
+export const AdminPokedexSeenGrantInputSchema = z
+  .object({
+    playerId: uuidSchema,
+    speciesId: uuidSchema,
+    shiny: z.boolean().default(false),
+  })
+  .strict();
+export type AdminPokedexSeenGrantInput = z.infer<typeof AdminPokedexSeenGrantInputSchema>;
+
 const pokemonTargetFields = {
   playerId: uuidSchema,
   pokemonInstanceId: uuidSchema,
