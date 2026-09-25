@@ -104,7 +104,7 @@ async function resolveAdmin(
   const principal = await dependencies.admins.resolvePrincipal(identity);
   if (principal === null) {
     return err(
-      appError("FORBIDDEN", "Administrative WhatsApp identity was not found", {
+      appError("ACTION_INVALID", "Administrative WhatsApp identity was not found", {
         userMessage: "Este comando é restrito à equipe administrativa.",
       }),
     );
@@ -112,7 +112,7 @@ async function resolveAdmin(
   const capabilities = await dependencies.admins.capabilitiesFor(identity);
   if (!capabilities.includes("central.view")) {
     return err(
-      appError("FORBIDDEN", "Administrative Central access capability is denied", {
+      appError("ACTION_INVALID", "Administrative Central access capability is denied", {
         userMessage: "Seu acesso administrativo não inclui a Central ADM.",
       }),
     );
@@ -348,7 +348,7 @@ function ensurePowers(admin: ResolvedAdmin, action: ParsedAdminAction): Result<v
   return missing.length === 0
     ? ok(undefined)
     : err(
-        appError("FORBIDDEN", "Administrative capability denied", {
+        appError("ACTION_INVALID", "Administrative capability denied", {
           userMessage: "Seu perfil administrativo não possui todos os poderes necessários para esta ação.",
         }),
       );
@@ -413,7 +413,7 @@ function adminFailure(error: unknown): Result<never> {
       error.code === ADMIN_ERROR_CODES.PRINCIPAL_DISABLED ||
       error.code === ADMIN_ERROR_CODES.PRINCIPAL_NOT_FOUND;
     return err(
-      appError(forbidden ? "FORBIDDEN" : "ACTION_INVALID", "Administrative action rejected", {
+      appError("ACTION_INVALID", "Administrative action rejected", {
         adminCode: error.code,
         userMessage: forbidden
           ? "Seu perfil administrativo não possui permissão para esta ação."
