@@ -37,9 +37,7 @@ describe("AdminTeamService", () => {
     const service = new AdminTeamService(repo);
 
     await expect(service.list("00000000-0000-4000-8000-000000000001")).resolves.toEqual({
-      principals: [
-        expect.objectContaining({ displayName: "Dono", owner: true }),
-      ],
+      principals: [expect.objectContaining({ displayName: "Dono", owner: true })],
       capabilityCatalog: [{ key: "central.view", riskTier: 0 }],
     });
   });
