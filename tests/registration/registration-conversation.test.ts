@@ -167,6 +167,29 @@ describe("RegistrationConversationSessions", () => {
     expect(looksLikeFullRegistrationTemplate("Nome: Liora\nIdade: 17")).toBe(false);
   });
 
+  it("ignores WhatsApp bold decoration around full-form labels", () => {
+    const parsed = parseFullRegistrationTemplate(
+      [
+        "*Nome:* Liora Vale",
+        "*Idade:* 17",
+        "*Gênero / pronomes:* ela/dela",
+        "*Aparência:* Cabelos negros.",
+        "*Personalidade:* Curiosa.",
+        "*História:* Saiu de casa para explorar Zhoulia.",
+        "*Pokémon inicial:* 02",
+      ].join("\n"),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        trainerName: "Liora Vale",
+        age: 17,
+        genderPronouns: "ela/dela",
+        starterFormId: "02",
+      },
+    });
+  });
   it("parses a full template despite harmless spacing, casing and line-break variation", () => {
     const parsed = parseFullRegistrationTemplate(
       [
