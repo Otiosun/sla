@@ -236,7 +236,7 @@ export class PlayerPortalHttpHandler {
     if (principal === null) return null;
     const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
     if (!capabilities.includes("central.view")) return null;
-    return { principalId: principal.principalId, capabilities };
+    return { principalId: admin.principalId, capabilities };
   }
 
   private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
@@ -328,8 +328,8 @@ export class PlayerPortalHttpHandler {
     request: Request,
     identity: ExternalIdentity,
   ): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const body = await readJsonBody(request);
     const parsed = AdminOperationPrepareRequestSchema.safeParse(body);
@@ -338,7 +338,7 @@ export class PlayerPortalHttpHandler {
     const data = parsed.data;
     try {
       const prepared = await this.dependencies.adminMutations.prepareMutation({
-        principalId: principal.principalId,
+        principalId: admin.principalId,
         operationType: data.operationType,
         input: data.input,
         ...(data.reason === undefined ? {} : { reason: data.reason }),
@@ -365,26 +365,26 @@ export class PlayerPortalHttpHandler {
     },
     identity: ExternalIdentity,
   ): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     try {
       const operation =
         action.action === "simulate"
           ? await this.dependencies.adminMutations.simulate(
               action.operationId,
-              principal.principalId,
+              admin.principalId,
             )
           : action.action === "confirm"
             ? await this.dependencies.adminMutations.confirm(
                 action.operationId,
-                principal.principalId,
+                admin.principalId,
               )
             : action.action === "approve"
               ? await this.approveAdminOperation(request, action.operationId, principal.principalId)
               : await this.dependencies.adminMutations.apply(
                   action.operationId,
-                  principal.principalId,
+                  admin.principalId,
                 );
 
       return jsonResponse(200, {
@@ -411,14 +411,14 @@ export class PlayerPortalHttpHandler {
   }
 
   private async searchAdminPlayers(url: URL, identity: ExternalIdentity): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const limitRaw = url.searchParams.get("limit");
     const limit =
       limitRaw === null || limitRaw.trim() === "" ? undefined : Number.parseInt(limitRaw, 10);
     const request = {
-      principalId: principal.principalId,
+      principalId: admin.principalId,
       includeSensitive: false,
       ...(url.searchParams.get("q")?.trim()
         ? { trainerNamePrefix: url.searchParams.get("q")?.trim() }
@@ -441,12 +441,12 @@ export class PlayerPortalHttpHandler {
   }
 
   private async getAdminPlayer(playerId: string, identity: ExternalIdentity): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     try {
       const player = await this.dependencies.adminPlayers.get({
-        principalId: principal.principalId,
+        principalId: admin.principalId,
         playerId,
         includeSensitive: false,
       });
@@ -461,8 +461,8 @@ export class PlayerPortalHttpHandler {
     playerId: string,
     identity: ExternalIdentity,
   ): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const body = await readJsonBody(request);
     const parsed = AdminPlayerAdjustmentRequestSchema.safeParse(body);
@@ -489,7 +489,7 @@ export class PlayerPortalHttpHandler {
 
     try {
       const prepared = await this.dependencies.adminMutations.prepareMutation({
-        principalId: principal.principalId,
+        principalId: admin.principalId,
         operationType: operation.operationType,
         input: operation.input,
         reason: data.reason,
@@ -498,7 +498,7 @@ export class PlayerPortalHttpHandler {
       });
       const applied = await this.dependencies.adminMutations.apply(
         prepared.operation.id,
-        principal.principalId,
+        admin.principalId,
       );
       return jsonResponse(200, {
         operationId: applied.id,
@@ -770,4 +770,12 @@ function jsonResponse(
       ...extraHeaders,
     },
   });
+}
+
+
+function adminTeamCapabilityTargetFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/team\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/capabilities$/i,
+  );
+  return match?.[1] ?? null;
 }
