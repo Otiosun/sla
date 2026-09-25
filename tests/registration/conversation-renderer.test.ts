@@ -128,9 +128,9 @@ describe("registration conversation renderer", () => {
     expect(renderPause()).toContain("/registrar");
 
     const resume = renderResumeMenu();
-    expect(resume).toContain("1 — Continuar de onde parei");
-    expect(resume).toContain("2 — Ver ficha atual");
-    expect(resume).toContain("3 — Recomeçar");
+    expect(resume).toContain("`01` Continuar de onde parei");
+    expect(resume).toContain("`02` Ver ficha atual");
+    expect(resume).toContain("`03` Recomeçar");
     expect(resume.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
 
     const restart = renderRestartConfirm();
