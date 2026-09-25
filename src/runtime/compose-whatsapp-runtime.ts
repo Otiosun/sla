@@ -6,10 +6,18 @@ import {
   baileysOutboundMessageId,
 } from "../adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { WhatsAppMessagingRuntime } from "../adapters/whatsapp/runtime.js";
+import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
+import { AdminBatchService } from "../modules/admin/batch-service.js";
 import { CommunityGroupAdminService } from "../modules/admin/community-group-service.js";
+import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
+import { registerPhase12CDomainAdminOperations } from "../modules/admin/domain-definitions.js";
+import { AdminDomainOperationService } from "../modules/admin/domain-service.js";
 import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
+import { AdminRewardCatalogService } from "../modules/admin/reward-catalog-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { createAdminBatchWhatsAppRoutes } from "../modules/admin/whatsapp-batch-handlers.js";
+import { AdminBatchWhatsAppPreviewDeliveryPreparation } from "../modules/admin/whatsapp-batch-preview-delivery.js";
 import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import {
@@ -77,9 +85,13 @@ import {
   createWorldServiceWhatsAppRoutes,
   type WorldServiceMediaCatalog,
 } from "../modules/world-services/whatsapp-handlers.js";
+import { PostgresAdminBatchRepository } from "../platform/admin/postgres-admin-batch-repository.js";
+import { PostgresAdminBatchWhatsAppPreviewRefRepository } from "../platform/admin/postgres-admin-batch-whatsapp-preview-ref-repository.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
+import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres-admin-reward-catalog-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
+import { PostgresAdminWhatsAppPlayerTargetResolver } from "../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
@@ -95,6 +107,7 @@ import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-pokedex-admin-seen-owner.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
 import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
@@ -272,15 +285,47 @@ export function createOperationalMessagingComposition(
   const receptionPresence = new PostgresReceptionPresenceRepository(pool);
   const messageRefs = new PostgresRegistrationMessageRefRepository(pool);
   const adminIdentity = new PostgresAdminWhatsAppIdentityResolver(pool);
+  const adminRepository = new PostgresAdminRepository(pool);
+  const adminCompletion = new PostgresAdminOperationCompletion(pool);
   const communityGroupAdmin = new CommunityGroupAdminService({
     community,
-    completion: new PostgresAdminOperationCompletion(pool),
+    completion: adminCompletion,
   });
-  const adminRegistry = registerReceptionAdminOperations(new AdminOperationRegistry(), {
+  const adminDomain = new AdminDomainOperationService(
+    economy,
+    progression,
+    adminCompletion,
+    undefined,
+    new PostgresPokedexAdminSeenOwner(pool),
+  );
+  const adminRegistry = registerPhase12CDomainAdminOperations(
+    createPhase12AdminOperationRegistry(adminRepository),
+    adminDomain,
+  );
+  registerReceptionAdminOperations(adminRegistry, {
     communityGroup: communityGroupAdmin,
   });
   registerWorldGroupSetupOperation(adminRegistry);
-  const adminService = new AdminService(adminRegistry, new PostgresAdminRepository(pool));
+  const adminService = new AdminService(adminRegistry, adminRepository);
+  const adminBatch = new AdminBatchService(
+    adminService,
+    adminRegistry,
+    adminRepository,
+    new PostgresAdminBatchRepository(pool),
+    adminCompletion,
+  );
+  registerPhase12DBatchAdminOperations(adminRegistry, adminBatch);
+  const adminRewardCatalog = new AdminRewardCatalogService(
+    adminService,
+    new PostgresAdminRewardCatalogRepository(pool),
+  );
+  const adminBatchWhatsAppRoutes = createAdminBatchWhatsAppRoutes({
+    admins: adminIdentity,
+    targets: new PostgresAdminWhatsAppPlayerTargetResolver(pool),
+    catalog: adminRewardCatalog,
+    admin: adminService,
+    previewRefs: new PostgresAdminBatchWhatsAppPreviewRefRepository(pool),
+  });
   const auditedRegistrationReview = new AuditedRegistrationReviewService({
     admin: adminService,
     registration,
@@ -468,6 +513,7 @@ export function createOperationalMessagingComposition(
       ...progressionRoutes,
       ...registrationRoutes,
       ...registrationAdminRoutes,
+      ...adminBatchWhatsAppRoutes,
       ...(pveBattle === null
         ? []
         : createPveSceneRoutes({
@@ -557,10 +603,16 @@ export function createOperationalOutboxWorker(
     ),
     providerMessageIdFor: baileysOutboundMessageId,
   });
+  const adminBatchPreviewPreparation = new AdminBatchWhatsAppPreviewDeliveryPreparation({
+    provider: "baileys",
+    refs: new PostgresAdminBatchWhatsAppPreviewRefRepository(pool),
+    providerMessageIdFor: baileysOutboundMessageId,
+  });
   const deliveryPreparation: OutboxDeliveryPreparation = {
     prepare: async (message) => {
       await registrationReviewPreparation.prepare(message);
       await worldServicePromptPreparation.prepare(message);
+      await adminBatchPreviewPreparation.prepare(message);
     },
   };
 
