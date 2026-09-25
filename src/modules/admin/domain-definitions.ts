@@ -1,6 +1,8 @@
 import {
   type AdminInventoryAdjustInput,
   AdminInventoryAdjustInputSchema,
+  type AdminPokedexSeenGrantInput,
+  AdminPokedexSeenGrantInputSchema,
   type AdminPokemonArchiveInput,
   AdminPokemonArchiveInputSchema,
   type AdminPokemonCreateInput,
@@ -92,6 +94,21 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyTrainerProgressAdjustment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokedexSeenGrantInput>({
+      kind: "MUTATION",
+      operationType: "pokedex.seen.grant",
+      capabilityKey: "pokedex.seen.grant",
+      riskTier: 2,
+      authorizationMode: "SUBJECT",
+      policy: deltaPolicy,
+      inputSchema: AdminPokedexSeenGrantInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokedexSeenGrant(context.operation, context.actorPrincipalId, input),
     }),
   );
 
