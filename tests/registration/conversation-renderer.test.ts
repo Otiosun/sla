@@ -9,6 +9,7 @@ import {
   renderRestartConfirm,
   renderResumeMenu,
   renderReview,
+  renderStarterOptions,
   renderValidationRetry,
 } from "../../src/modules/registration/conversation-renderer.js";
 
@@ -67,6 +68,15 @@ describe("registration conversation renderer", () => {
     expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe("✓ *História registrada.*");
   });
 
+  it("renders canonical starters as their own reusable message", () => {
+    const text = renderStarterOptions(starterOptions);
+
+    expect(text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗜𝗦");
+    expect(text).toContain("`01` Charmander");
+    expect(text).toContain("`02` Squirtle");
+    expect(text).toContain("`03` Bulbasaur");
+    expect(text).toContain("/iniciais");
+  });
   it("confirms full-form mode and includes current starter options plus the complete template", () => {
     const text = renderFullForm({ regionDisplayName: "Zhoulia", starterOptions });
 
