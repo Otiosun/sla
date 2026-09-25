@@ -1,6 +1,18 @@
 import type { AdminService } from "./service.js";
-import type { AdminRewardCatalogRepository } from "./reward-catalog-ports.js";
 import type { AdminRewardCatalogView } from "./reward-catalog-contracts.js";
+import type { AdminRewardCatalogRepository } from "./reward-catalog-ports.js";
+
+export interface AdminRewardCatalogSections {
+  readonly items: boolean;
+  readonly currencies: boolean;
+  readonly species: boolean;
+}
+
+const ALL_REWARD_CATALOG_SECTIONS: AdminRewardCatalogSections = {
+  items: true,
+  currencies: true,
+  species: true,
+};
 
 export class AdminRewardCatalogService {
   public constructor(
@@ -8,22 +20,37 @@ export class AdminRewardCatalogService {
     private readonly repository: AdminRewardCatalogRepository,
   ) {}
 
-  public async get(principalId: string): Promise<AdminRewardCatalogView> {
-    await this.authorizer.authorizeRead({
-      principalId,
-      operationType: "inventory.catalog.read",
-      input: {},
-    });
-    await this.authorizer.authorizeRead({
-      principalId,
-      operationType: "economy.currency_catalog.read",
-      input: {},
-    });
-    await this.authorizer.authorizeRead({
-      principalId,
-      operationType: "pokedex.catalog.read",
-      input: {},
-    });
-    return this.repository.getActiveRewardCatalog();
+  public async get(
+    principalId: string,
+    sections: AdminRewardCatalogSections = ALL_REWARD_CATALOG_SECTIONS,
+  ): Promise<AdminRewardCatalogView> {
+    if (sections.items) {
+      await this.authorizer.authorizeRead({
+        principalId,
+        operationType: "inventory.catalog.read",
+        input: {},
+      });
+    }
+    if (sections.currencies) {
+      await this.authorizer.authorizeRead({
+        principalId,
+        operationType: "economy.currency_catalog.read",
+        input: {},
+      });
+    }
+    if (sections.species) {
+      await this.authorizer.authorizeRead({
+        principalId,
+        operationType: "pokedex.catalog.read",
+        input: {},
+      });
+    }
+
+    const catalog = await this.repository.getActiveRewardCatalog();
+    return {
+      items: sections.items ? catalog.items : [],
+      currencies: sections.currencies ? catalog.currencies : [],
+      species: sections.species ? (catalog.species ?? []) : [],
+    };
   }
 }
