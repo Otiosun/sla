@@ -8,7 +8,13 @@ export interface AdminBatchWhatsAppPreviewRef {
   readonly chatRef: string;
   readonly batchId: string;
   readonly batchRevision: string;
+  readonly reason: string;
 }
+
+export type RecordAdminBatchWhatsAppPreviewRef = Omit<
+  AdminBatchWhatsAppPreviewRef,
+  "reason"
+>;
 
 interface RefRow {
   readonly provider: string;
@@ -18,6 +24,7 @@ interface RefRow {
   readonly chat_ref: string;
   readonly batch_id: string;
   readonly batch_revision: string;
+  readonly reason: string;
 }
 
 function record(row: RefRow): AdminBatchWhatsAppPreviewRef {
@@ -29,10 +36,14 @@ function record(row: RefRow): AdminBatchWhatsAppPreviewRef {
     chatRef: row.chat_ref,
     batchId: row.batch_id,
     batchRevision: row.batch_revision,
+    reason: row.reason,
   };
 }
 
-function same(left: AdminBatchWhatsAppPreviewRef, right: AdminBatchWhatsAppPreviewRef): boolean {
+function same(
+  left: AdminBatchWhatsAppPreviewRef,
+  right: RecordAdminBatchWhatsAppPreviewRef,
+): boolean {
   return (
     left.provider === right.provider &&
     left.providerExternalMessageId === right.providerExternalMessageId &&
@@ -47,7 +58,7 @@ function same(left: AdminBatchWhatsAppPreviewRef, right: AdminBatchWhatsAppPrevi
 export class PostgresAdminBatchWhatsAppPreviewRefRepository {
   public constructor(private readonly pool: Pool) {}
 
-  public async record(input: AdminBatchWhatsAppPreviewRef): Promise<void> {
+  public async record(input: RecordAdminBatchWhatsAppPreviewRef): Promise<void> {
     await this.pool.query(
       `INSERT INTO admin_batch_whatsapp_preview_refs(
          provider, provider_external_message_id, outbox_message_id, admin_principal_id,
@@ -78,10 +89,12 @@ export class PostgresAdminBatchWhatsAppPreviewRefRepository {
     readonly providerExternalMessageId: string;
   }): Promise<AdminBatchWhatsAppPreviewRef | null> {
     const result = await this.pool.query<RefRow>(
-      `SELECT provider, provider_external_message_id, outbox_message_id,
-              admin_principal_id, chat_ref, batch_id, batch_revision::text
-       FROM admin_batch_whatsapp_preview_refs
-       WHERE provider = $1 AND provider_external_message_id = $2`,
+      `SELECT ref.provider, ref.provider_external_message_id, ref.outbox_message_id,
+              ref.admin_principal_id, ref.chat_ref, ref.batch_id, ref.batch_revision::text,
+              batch.reason
+       FROM admin_batch_whatsapp_preview_refs ref
+       JOIN admin_batches batch ON batch.id = ref.batch_id
+       WHERE ref.provider = $1 AND ref.provider_external_message_id = $2`,
       [input.provider, input.providerExternalMessageId],
     );
     const row = result.rows[0];
