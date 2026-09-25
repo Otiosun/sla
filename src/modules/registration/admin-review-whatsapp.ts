@@ -124,23 +124,37 @@ function reviewText(
   setup: RegistrationReviewDisplaySetup | undefined,
 ): string {
   return [
-    "〔▣〕 *REVISÃO DE TREINADOR*",
-    `\`${statusDisplayName(review.status).toLocaleUpperCase("pt-BR")}\``,
+    "▣ *𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗘 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*",
+    `　${review.snapshot.trainerName} · \`${statusDisplayName(review.status).toLocaleUpperCase("pt-BR")}\``,
     "",
-    `*Nome* › ${review.snapshot.trainerName}`,
-    `*Idade* › ${review.snapshot.age}`,
-    `*Gênero / pronomes* › ${review.snapshot.genderPronouns}`,
-    `*Aparência* › ${review.snapshot.appearance}`,
-    `*Personalidade* › ${review.snapshot.personality}`,
-    `*História / resumo* › ${review.snapshot.backstory}`,
-    `*Pokémon inicial* › ${starterDisplayName(review, setup)}`,
-    `*Região* › ${regionDisplayName(review, setup)}`,
+    "◇ *𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*",
     "",
-    "> Responda diretamente a esta ficha:",
-    "> `/aprovar` · `/ajustes` · `/rejeitar`",
+    `*Nome:* ${review.snapshot.trainerName}`,
+    `*Idade:* ${review.snapshot.age}`,
+    `*Gênero / pronomes:* ${review.snapshot.genderPronouns}`,
+    "",
+    "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*",
+    "",
+    `*Aparência:* ${review.snapshot.appearance}`,
+    "",
+    `*Personalidade:* ${review.snapshot.personality}`,
+    "",
+    `*História:* ${review.snapshot.backstory}`,
+    "",
+    "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
+    "",
+    `*Pokémon inicial:* ${starterDisplayName(review, setup)}`,
+    `*Região:* ${regionDisplayName(review, setup)}`,
+    "",
+    "┄┄ ◇ *𝗥𝗘𝗩𝗜𝗦Ã𝗢* ┄┄",
+    "",
+    "✓ `/aprovar`",
+    "✎ `/ajustes`",
+    "× `/rejeitar`",
+    "",
+    "› _Responda diretamente a esta ficha._",
   ].join("\n");
 }
-
 async function resolveReplyRef(
   dependencies: RegistrationAdminWhatsAppDependencies,
   context: MessageHandlerContext,
@@ -220,10 +234,25 @@ async function decide(
 
   const text =
     decision === "APPROVE"
-      ? "〔✓〕 *APROVAÇÃO REGISTRADA*\n\nFicha aprovada. A liberação do treinador foi iniciada."
+      ? [
+          "✓ *𝗙𝗜𝗖𝗛𝗔 𝗔𝗣𝗥𝗢𝗩𝗔𝗗𝗔*",
+          "　Recepção · Provisionamento",
+          "",
+          "> _A ficha foi aprovada. A liberação do treinador foi iniciada._",
+        ].join("\n")
       : decision === "REQUEST_CHANGES"
-        ? "〔!〕 *AJUSTES SOLICITADOS*\n\nA ficha foi devolvida para edição. Os dados enviados continuam preservados."
-        : "〔×〕 *REJEIÇÃO REGISTRADA*\n\nFicha rejeitada.";
+        ? [
+            "✎ *𝗔𝗝𝗨𝗦𝗧𝗘𝗦 𝗦𝗢𝗟𝗜𝗖𝗜𝗧𝗔𝗗𝗢𝗦*",
+            "　Recepção · Registro devolvido",
+            "",
+            "> _A ficha foi devolvida para edição. Os dados enviados continuam preservados._",
+          ].join("\n")
+        : [
+            "× *𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗥𝗘𝗝𝗘𝗜𝗧𝗔𝗗𝗢*",
+            "　Recepção · Revisão encerrada",
+            "",
+            "> _A ficha foi rejeitada._",
+          ].join("\n");
   return reviewReply(context, result.value.id, text);
 }
 
