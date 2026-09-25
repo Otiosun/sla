@@ -8,6 +8,10 @@ import type { AdminTeamRepository } from "./team-ports.js";
 export class AdminTeamService {
   public constructor(private readonly repository: AdminTeamRepository) {}
 
+  public async isOwner(principalId: string): Promise<boolean> {
+    return this.repository.isOwner(principalId);
+  }
+
   private async requireOwner(principalId: string): Promise<void> {
     if (!(await this.repository.isOwner(principalId))) {
       throw new AdminError(
