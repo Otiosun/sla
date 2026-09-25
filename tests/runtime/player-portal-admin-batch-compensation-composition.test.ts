@@ -31,7 +31,7 @@ describe("Player Portal advanced admin composition", () => {
     expect(source).toContain("new PostgresPokemonEffectAdminRepository(options.pool)");
     expect(source).toContain("new PostgresPokemonLifecycleAdminRepository(options.pool)");
     expect(source).toMatch(
-      /new AdminDomainOperationService\(\s*economy,\s*progression,\s*adminCompletion,\s*pokemonAdmin,\s*\)/,
+      /new AdminDomainOperationService\(\s*economy,\s*progression,\s*adminCompletion,\s*pokemonAdmin,\s*new PostgresPokedexAdminSeenOwner\(options\.pool\),\s*\)/,
     );
     expect(source).toMatch(
       /new AdminCompensationService\(\s*adminRepository,\s*economy,\s*progression,/,
