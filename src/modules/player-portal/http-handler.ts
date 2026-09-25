@@ -80,7 +80,7 @@ interface PlayerPortalHttpDependencies {
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
   readonly adminRewardCatalog: Pick<AdminRewardCatalogService, "get">;
-  readonly adminTeam: Pick<AdminTeamService, "isOwner" | "list" | "replaceCapabilities">;
+  readonly adminTeam?: Pick<AdminTeamService, "isOwner" | "list" | "replaceCapabilities">;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
 }
 
@@ -244,7 +244,10 @@ export class PlayerPortalHttpHandler {
     if (admin === null) {
       return jsonResponse(200, { admin: null });
     }
-    const owner = await this.dependencies.adminTeam.isOwner(admin.principalId);
+    const owner =
+      this.dependencies.adminTeam === undefined
+        ? false
+        : await this.dependencies.adminTeam.isOwner(admin.principalId);
     return jsonResponse(200, {
       admin: {
         principalId: admin.principalId,
@@ -273,8 +276,10 @@ export class PlayerPortalHttpHandler {
   private async getAdminTeam(identity: ExternalIdentity): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
     if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
     try {
-      const team = await this.dependencies.adminTeam.list(admin.principalId);
+      const team = await adminTeam.list(admin.principalId);
       return jsonResponse(200, {
         principals: [...team.principals],
         capabilityCatalog: [...team.capabilityCatalog],
@@ -291,10 +296,12 @@ export class PlayerPortalHttpHandler {
   ): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
     if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
     const body = await readJsonBody(request);
     if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
     try {
-      const principal = await this.dependencies.adminTeam.replaceCapabilities(
+      const principal = await adminTeam.replaceCapabilities(
         admin.principalId,
         targetPrincipalId,
         body,
