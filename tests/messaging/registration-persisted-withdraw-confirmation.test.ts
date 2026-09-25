@@ -230,9 +230,7 @@ describe("persisted post-submit edit confirmation", () => {
       pendingReviewId: null,
       pendingReviewRevision: null,
     });
-    expect(second.ok && second.value.outgoing[0]?.payload.text).toContain(
-      "𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔",
-    );
+    expect(second.ok && second.value.outgoing[0]?.payload.text).toContain("𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔");
   });
 
   it("invalidates confirmation when the submitted review revision changes after /editar", async () => {
