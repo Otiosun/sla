@@ -184,7 +184,7 @@ function expectContextualRetry(
     ok: true,
     value: {
       resultRefType: "REGISTRATION_SESSION",
-      outgoing: [{ payload: { text: expect.stringContaining("⚠️") } }],
+      outgoing: [{ payload: { text: expect.stringContaining("△") } }],
     },
   });
   expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(expectedText);
