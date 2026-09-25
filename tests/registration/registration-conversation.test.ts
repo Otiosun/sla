@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  looksLikeFullRegistrationTemplate,
   parseFullRegistrationTemplate,
   RegistrationConversationSessions,
 } from "../../src/modules/registration/conversation-session.js";
@@ -146,6 +147,24 @@ describe("RegistrationConversationSessions", () => {
       ok: true,
       value: { persistedRevision: 3, dirty: true, currentField: "genderPronouns" },
     });
+  });
+
+  it("recognizes a filled full-form shape without treating ordinary chat as registration", () => {
+    expect(
+      looksLikeFullRegistrationTemplate(
+        [
+          "Nome: Liora Vale",
+          "Idade: 17",
+          "Pronomes: ela/dela",
+          "Aparência: Casaco escuro.",
+          "Personalidade: Curiosa.",
+          "História: Uma história curta.",
+          "Inicial: 1",
+        ].join("\n"),
+      ),
+    ).toBe(true);
+    expect(looksLikeFullRegistrationTemplate("Tá, ótimo sinal")).toBe(false);
+    expect(looksLikeFullRegistrationTemplate("Nome: Liora\nIdade: 17")).toBe(false);
   });
 
   it("parses a full template despite harmless spacing, casing and line-break variation", () => {
