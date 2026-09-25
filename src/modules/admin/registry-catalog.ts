@@ -1,6 +1,7 @@
 export const OWNER_SECURITY_ADMIN_ROLE = "OWNER_SECURITY_ADMIN" as const;
 
 export const ADMIN_CAPABILITIES = [
+  ["central.view", 0],
   ["player.read", 0],
   ["player.read_sensitive", 0],
   ["player.registration.read", 0],
@@ -84,6 +85,7 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
   ADMIN: SENIOR_CAPABILITIES,
   MASTER_ADMIN: OWNER_CAPABILITIES,
   SUPPORT: [
+    "central.view",
     "player.read",
     "pokemon.read",
     "inventory.read",
@@ -101,6 +103,7 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
     "battle.support",
   ],
   GAME_MASTER: [
+    "central.view",
     "player.read",
     "pokemon.read",
     "inventory.read",
@@ -116,6 +119,7 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
     "effect.remove",
   ],
   ECONOMY_ADMIN: [
+    "central.view",
     "player.read",
     "inventory.read",
     "economy.read",
@@ -128,6 +132,7 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
     "batch.execute.low_risk",
   ],
   POKEMON_ADMIN: [
+    "central.view",
     "player.read",
     "pokemon.read",
     "pokemon.create",
@@ -143,8 +148,8 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
     "pokedex.seen.grant",
     "pokedex.correct",
   ],
-  CONTENT_EDITOR: ["content.draft.create", "content.draft.edit", "content.validate"],
-  CONTENT_PUBLISHER: ["content.validate", "content.publish", "content.archive"],
+  CONTENT_EDITOR: ["central.view", "content.draft.create", "content.draft.edit", "content.validate"],
+  CONTENT_PUBLISHER: ["central.view", "content.validate", "content.publish", "content.archive"],
   SENIOR_ADMIN: SENIOR_CAPABILITIES,
   OWNER_SECURITY_ADMIN: OWNER_CAPABILITIES,
 };
