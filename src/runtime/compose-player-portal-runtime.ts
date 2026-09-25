@@ -46,6 +46,7 @@ import { PostgresPokemonLifecycleAdminRepository } from "../platform/pokemon/pos
 import { PostgresEncounterAdminRepository } from "../platform/encounter/postgres-encounter-admin-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-pokedex-admin-seen-owner.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresPlayerPortalProfileCustomizationRepository } from "../platform/player-portal/postgres-player-portal-profile-customization-repository.js";
 import { PostgresPlayerPortalReadRepository } from "../platform/player-portal/postgres-player-portal-read-repository.js";
@@ -131,6 +132,7 @@ export function composePlayerPortalRuntime(
     progression,
     adminCompletion,
     pokemonAdmin,
+    new PostgresPokedexAdminSeenOwner(options.pool),
   );
   const adminRegistry = registerPhase12CDomainAdminOperations(
     createPhase12AdminOperationRegistry(adminRepository),
