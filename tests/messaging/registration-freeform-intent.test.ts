@@ -9,6 +9,7 @@ import { ok } from "../../src/shared-kernel/result.js";
 const ZHOULIA_ID = "11111111-1111-4111-8111-111111111111";
 const CURRENT_PROMPT_ID = "bot-current-registration-prompt";
 const EXPECTED_OUTBOX_KEY = "registration:expected-outbox";
+const CHARMANDER_ID = "22222222-2222-4222-8222-222222222222";
 
 function context(
   text: string,
@@ -54,7 +55,7 @@ function resolverFor(
         ok({
           regionId: ZHOULIA_ID,
           regionDisplayName: "Zhoulia",
-          starterOptions: [],
+          starterOptions: [{ formId: CHARMANDER_ID, displayName: "Charmander" }],
         }),
     },
     replyIntent: {
@@ -127,6 +128,42 @@ describe("registration freeform intent", () => {
 
     expect(routed).toEqual({ ok: true, value: null });
     expect(sessions.get(playerId)).toMatchObject({ mode: "FULL", dirty: false });
+  });
+
+  it("accepts an unmistakable full form even when the user forgets to quote the prompt", async () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    sessions.start(playerId, { mode: "FULL", regionId: ZHOULIA_ID });
+    expectCurrentPrompt(sessions, playerId);
+    const router = new MessageRouter([], undefined, resolverFor(sessions, playerId));
+
+    const routed = await router.dispatch(
+      context(
+        [
+          "Nome: Liora Vale",
+          "Idade: 17",
+          "Pronomes: ela/dela",
+          "Aparência: Casaco de viagem.",
+          "Personalidade: Curiosa.",
+          "História: Saiu para conhecer Zhoulia.",
+          "Pokémon inicial: Charmander",
+        ].join("\n"),
+      ),
+    );
+
+    expect(routed).toMatchObject({
+      ok: true,
+      value: { resultRefType: "REGISTRATION_SESSION", resultRefId: playerId },
+    });
+    expect(sessions.get(playerId)).toMatchObject({
+      mode: "FULL",
+      dirty: true,
+      working: {
+        trainerName: "Liora Vale",
+        age: 17,
+        starterFormId: CHARMANDER_ID,
+      },
+    });
   });
 
   it("ignores unrelated normal text while a guided registration session is awaiting a field", async () => {
