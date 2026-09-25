@@ -58,7 +58,7 @@ describe("AdminTeamService", () => {
           expectedRevision: "0",
         },
       ),
-    ).rejects.toMatchObject({ code: "AUTHORIZATION_DENIED" });
+    ).rejects.toMatchObject({ code: "ADMIN_AUTHORIZATION_DENIED" });
     expect(repo.replaceCapabilities).not.toHaveBeenCalled();
   });
 
