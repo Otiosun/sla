@@ -102,6 +102,19 @@ export function createPhase12AdminOperationRegistry(
   registry.register(
     defineAdminOperation({
       kind: "READ",
+      operationType: "pokedex.catalog.read",
+      capabilityKey: "pokedex.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "POKEDEX_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
       operationType: "admin.operation.audit",
       capabilityKey: "audit.read",
       riskTier: 0,
