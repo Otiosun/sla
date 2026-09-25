@@ -170,7 +170,7 @@ export function renderGuidedField(
   const copy = FIELD_COPY[field];
   const lines = [
     fieldHeading(field),
-    `　Registro · \`${copy.progress.padStart(6, "0").replace("0", "")}\``,
+    `　Registro · \`${copy.progress.split("/")[0]?.padStart(2, "0")} / ${copy.progress.split("/")[1]?.padStart(2, "0")}\``,
     "",
   ];
 
