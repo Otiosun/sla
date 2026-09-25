@@ -305,6 +305,7 @@ function looksLikeGuidedUnquotedAnswer(
     case "starterFormId":
       return /^(?:#?0*\d+|[\p{L}][\p{L}\p{M}' .-]*)$/u.test(text);
   }
+  return false;
 }
 
 function looksLikePersistedUnquotedIntent(
@@ -315,7 +316,10 @@ function looksLikePersistedUnquotedIntent(
     case "MODE_SELECT":
       return parsePersistedModeChoice(text) !== null;
     case "GUIDED_FIELD":
-      return conversation.currentField !== null && looksLikeGuidedUnquotedAnswer(conversation.currentField, text);
+      return (
+        conversation.currentField !== null &&
+        looksLikeGuidedUnquotedAnswer(conversation.currentField, text)
+      );
     case "FULL_FORM":
       return looksLikeFullRegistrationTemplate(text);
     case "REVIEW":
@@ -323,7 +327,10 @@ function looksLikePersistedUnquotedIntent(
     case "EDIT_SELECT":
       return parseEditFieldChoice(text) !== null;
     case "EDIT_FIELD":
-      return conversation.editField !== null && looksLikeGuidedUnquotedAnswer(conversation.editField, text);
+      return (
+        conversation.editField !== null &&
+        looksLikeGuidedUnquotedAnswer(conversation.editField, text)
+      );
     case "RESUME_MENU":
       return ["1", "2", "3"].includes(normalizedChoice(text));
     case "RESTART_CONFIRM":
@@ -332,10 +339,14 @@ function looksLikePersistedUnquotedIntent(
     case "SUBMITTED":
       return false;
   }
+  return false;
 }
 
-function looksLikeSessionUnquotedIntent(session: RegistrationConversationSession, text: string): boolean {
-  if (session.mode === "CHOOSING") return parseModeChoice(text) !== null;
+function looksLikeSessionUnquotedIntent(
+  session: RegistrationConversationSession,
+  text: string,
+): boolean {
+  if (session.mode === "CHOOSING") return parsePersistedModeChoice(text) !== null;
   if (session.mode === "FULL") return looksLikeFullRegistrationTemplate(text);
   return session.currentField !== null && looksLikeGuidedUnquotedAnswer(session.currentField, text);
 }
