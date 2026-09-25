@@ -113,12 +113,10 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
     const row = principal.rows[0];
     if (row === undefined) return null;
     const grants = await this.pool.query<{ key: string; risk_tier: number }>(
-      `SELECT DISTINCT capability.key, capability.risk_tier
-       FROM admin_principal_roles principal_role
-       JOIN admin_role_capabilities role_capability ON role_capability.role_id = principal_role.role_id
-       JOIN capabilities capability ON capability.id = role_capability.capability_id
-       WHERE principal_role.principal_id = $1
-       ORDER BY capability.key`,
+      `SELECT key, risk_tier
+       FROM admin_effective_capabilities
+       WHERE principal_id = $1
+       ORDER BY key`,
       [principalId],
     );
     const scopes = await this.pool.query<{ scope_type: string; scope_id: string | null }>(
