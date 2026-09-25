@@ -52,7 +52,9 @@ describe("registration conversation renderer", () => {
   });
 
   it("echoes short answers but does not repeat long narrative fields", () => {
-    expect(renderGuidedAcknowledgement("trainerName", "Killian")).toBe("✓ *Nome registrado:* Killian");
+    expect(renderGuidedAcknowledgement("trainerName", "Killian")).toBe(
+      "✓ *Nome registrado:* Killian",
+    );
     expect(renderGuidedAcknowledgement("age", 19)).toBe("✓ *Idade registrada:* 19");
     expect(renderGuidedAcknowledgement("starterFormId", "Charmander")).toBe(
       "✓ *Pokémon inicial registrado:* Charmander",
@@ -65,7 +67,9 @@ describe("registration conversation renderer", () => {
     expect(renderGuidedAcknowledgement("personality", "Texto longo")).toBe(
       "✓ *Personalidade registrada.*",
     );
-    expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe("✓ *História registrada.*");
+    expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe(
+      "✓ *História registrada.*",
+    );
   });
 
   it("renders canonical starters as their own reusable message", () => {
@@ -111,9 +115,7 @@ describe("registration conversation renderer", () => {
     expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
     expect(
-      text.includes(
-        "`01` Enviar para análise\n`02` Corrigir informações\n`03` Continuar depois",
-      ),
+      text.includes("`01` Enviar para análise\n`02` Corrigir informações\n`03` Continuar depois"),
     ).toBe(true);
   });
 
