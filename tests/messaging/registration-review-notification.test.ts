@@ -112,7 +112,7 @@ describe("registration review notification", () => {
             messageType: "TEXT",
             payload: {
               text: expect.stringMatching(
-                /Nova ficha de Liora Vale aguardando revisão[\s\S]*Responsáveis:[\s\S]*@5511888888888.*@5511999999999/i,
+                /Liora Vale[\s\S]*concluiu sua ficha[\s\S]*Responsáveis:[\s\S]*@5511888888888.*@5511999999999/i,
               ),
               mentions: STAFF_JIDS,
               registrationReview: { reviewId: REVIEW_ID, reviewRevision: 0 },
