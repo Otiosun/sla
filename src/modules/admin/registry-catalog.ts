@@ -148,7 +148,12 @@ export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapa
     "pokedex.seen.grant",
     "pokedex.correct",
   ],
-  CONTENT_EDITOR: ["central.view", "content.draft.create", "content.draft.edit", "content.validate"],
+  CONTENT_EDITOR: [
+    "central.view",
+    "content.draft.create",
+    "content.draft.edit",
+    "content.validate",
+  ],
   CONTENT_PUBLISHER: ["central.view", "content.validate", "content.publish", "content.archive"],
   SENIOR_ADMIN: SENIOR_CAPABILITIES,
   OWNER_SECURITY_ADMIN: OWNER_CAPABILITIES,
