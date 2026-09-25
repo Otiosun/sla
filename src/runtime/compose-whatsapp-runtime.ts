@@ -12,7 +12,6 @@ import { CommunityGroupAdminService } from "../modules/admin/community-group-ser
 import { createPhase12AdminOperationRegistry } from "../modules/admin/definitions.js";
 import { registerPhase12CDomainAdminOperations } from "../modules/admin/domain-definitions.js";
 import { AdminDomainOperationService } from "../modules/admin/domain-service.js";
-import { AdminOperationRegistry } from "../modules/admin/operation-registry.js";
 import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
 import { AdminRewardCatalogService } from "../modules/admin/reward-catalog-service.js";
 import { AdminService } from "../modules/admin/service.js";
