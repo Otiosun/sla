@@ -84,7 +84,9 @@ const FIELD_COPY: Readonly<
 };
 
 function numberedOptions(options: readonly string[]): string {
-  return options.map((option, index) => `${index + 1}. ${option}`).join("\n");
+  return options
+    .map((option, index) => `\`${String(index + 1).padStart(2, "0")}\` ${option}`)
+    .join("\n");
 }
 
 function draftValue(value: string | number | undefined): string {
@@ -92,18 +94,72 @@ function draftValue(value: string | number | undefined): string {
   return String(value).trim();
 }
 
+function fieldHeading(field: RegistrationConversationField): string {
+  switch (field) {
+    case "trainerName":
+      return "◇ *𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*";
+    case "age":
+      return "◇ *𝗜𝗗𝗔𝗗𝗘*";
+    case "genderPronouns":
+      return "◇ *𝗚Ê𝗡𝗘𝗥𝗢 & 𝗣𝗥𝗢𝗡𝗢𝗠𝗘𝗦*";
+    case "appearance":
+      return "◇ *𝗔𝗣𝗔𝗥Ê𝗡𝗖𝗜𝗔*";
+    case "personality":
+      return "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗟𝗜𝗗𝗔𝗗𝗘*";
+    case "backstory":
+      return "◇ *𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗔*";
+    case "starterFormId":
+      return "✦ *𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟*";
+  }
+}
+
+function fieldInstruction(field: RegistrationConversationField): string {
+  switch (field) {
+    case "trainerName":
+      return "› _Responda normalmente._";
+    case "age":
+      return "› _Responda apenas com a idade._";
+    case "genderPronouns":
+      return "› _Ex.: feminino · ela/dela_";
+    case "appearance":
+      return "> _Pode escrever livremente. Não precisa resumir em uma linha._";
+    case "personality":
+      return "> _Escreva do seu jeito._";
+    case "backstory":
+      return "> _Uma apresentação curta funciona. Se quiser desenvolver mais, também funciona._";
+    case "starterFormId":
+      return "› _Responda com o número ou o nome do Pokémon._";
+  }
+}
+
 export function renderModeSelect(): string {
   return [
-    "〔◆〕 *CRIAÇÃO DE TREINADOR*",
-    "`INÍCIO · ESCOLHA O FORMATO`",
+    "⚡ *𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗗𝗘 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*",
+    "　Recepção · Novo treinador",
     "",
-    "Como prefere montar sua ficha?",
+    "> _Antes de começar sua jornada por Zhoulia, precisamos registrar quem você será por aqui._",
     "",
-    "1 — *Guiado* · campo por campo",
-    "2 — *Ficha completa* · tudo de uma vez",
+    "◇ *𝗖𝗢𝗠𝗢 𝗣𝗥𝗘𝗙𝗘𝗥𝗘 𝗖𝗥𝗜𝗔𝗥?*",
     "",
-    "> Responda a esta mensagem com *1* ou *2*.",
-    "> Nada será enviado para aprovação sem você revisar antes.",
+    "\`01\` Passo a passo",
+    "　Uma informação por vez.",
+    "",
+    "\`02\` Ficha completa",
+    "　Preencha tudo de uma só vez.",
+    "",
+    "› _Responda com \`01\` ou \`02\`._",
+  ].join("\n");
+}
+
+export function renderStarterOptions(starterOptions: readonly string[]): string {
+  return [
+    "✦ *𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗜𝗦*",
+    "　Zhoulia · Disponíveis",
+    "",
+    numberedOptions(starterOptions),
+    "",
+    "› _Durante o registro, você pode escolher pelo número ou pelo nome._",
+    "› _Se precisar rever esta lista, use \`/iniciais\`._",
   ].join("\n");
 }
 
@@ -112,34 +168,32 @@ export function renderGuidedField(
   options: RegistrationGuidedRenderOptions = {},
 ): string {
   const copy = FIELD_COPY[field];
-  const prompt =
-    field === "starterFormId"
-      ? [
-          `📝 ${copy.progress} — ${copy.label}`,
-          "",
-          numberedOptions(options.starterOptions ?? []),
-          "",
-          copy.question,
-          "",
-          "Responda a esta mensagem.",
-        ]
-          .filter((line, index, lines) => line.length > 0 || lines[index - 1]?.length !== 0)
-          .join("\n")
-          .trim()
-      : [
-          `📝 ${copy.progress} — ${copy.label}`,
-          copy.question,
-          "",
-          "Responda a esta mensagem.",
-        ].join("\n");
+  const lines = [
+    fieldHeading(field),
+    `　Registro · \`${copy.progress.padStart(6, "0").replace("0", "")}\``,
+    "",
+  ];
 
-  if (!options.modeSelected) return prompt;
+  if (field === "starterFormId") {
+    lines.push(
+      "Escolha um dos Pokémon disponíveis:",
+      "",
+      numberedOptions(options.starterOptions ?? []),
+      "",
+      fieldInstruction(field),
+      "",
+      "› _Esqueceu as opções? Use \`/iniciais\`._",
+    );
+  } else {
+    lines.push(copy.question, "", fieldInstruction(field));
+  }
+
+  if (!options.modeSelected) return lines.join("\n");
 
   return [
-    "✅ Modo guiado escolhido.",
-    "Vamos fazer em 7 etapas. Nada será enviado sem sua confirmação.",
+    "✓ *Modo passo a passo escolhido.*",
     "",
-    prompt,
+    ...lines,
   ].join("\n");
 }
 
@@ -149,19 +203,19 @@ export function renderGuidedAcknowledgement(
 ): string {
   switch (field) {
     case "trainerName":
-      return `✅ 1/7 — Nome: ${String(value).trim()}`;
+      return `✓ *Nome registrado:* ${String(value).trim()}`;
     case "age":
-      return `✅ 2/7 — Idade: ${String(value).trim()}`;
+      return `✓ *Idade registrada:* ${String(value).trim()}`;
     case "genderPronouns":
-      return `✅ 3/7 — Gênero / pronomes: ${String(value).trim()}`;
+      return `✓ *Gênero / pronomes registrados:* ${String(value).trim()}`;
     case "appearance":
-      return "✅ Aparência recebida.";
+      return "✓ *Aparência registrada.*";
     case "personality":
-      return "✅ Personalidade recebida.";
+      return "✓ *Personalidade registrada.*";
     case "backstory":
-      return "✅ História recebida.";
+      return "✓ *História registrada.*";
     case "starterFormId":
-      return `✅ 7/7 — Pokémon inicial: ${String(value).trim()}`;
+      return `✓ *Pokémon inicial registrado:* ${String(value).trim()}`;
   }
 }
 
@@ -170,27 +224,17 @@ export function renderEditField(
   options: RegistrationEditFieldRenderOptions = {},
 ): string {
   const copy = FIELD_COPY[field];
-  if (field === "starterFormId") {
-    return [
-      `✏️ Corrigindo — ${copy.label}`,
-      "",
-      numberedOptions(options.starterOptions ?? []),
-      "",
-      copy.question,
-      "",
-      "Envie o novo valor respondendo a esta mensagem.",
-    ]
-      .filter((line, index, lines) => line.length > 0 || lines[index - 1]?.length !== 0)
-      .join("\n")
-      .trim();
-  }
-
-  return [
-    `✏️ Corrigindo — ${copy.label}`,
-    copy.question,
+  const lines = [
+    "✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*",
+    `　${copy.label}`,
     "",
-    "Envie o novo valor respondendo a esta mensagem.",
-  ].join("\n");
+  ];
+  if (field === "starterFormId") {
+    lines.push(numberedOptions(options.starterOptions ?? []), "", "› _Número ou nome do Pokémon._");
+  } else {
+    lines.push(copy.question, "", "› _Envie o novo valor respondendo a esta mensagem._");
+  }
+  return lines.join("\n");
 }
 
 export function renderEditAcknowledgement(
@@ -199,133 +243,158 @@ export function renderEditAcknowledgement(
 ): string {
   switch (field) {
     case "trainerName":
-      return `✅ Nome atualizado: ${String(value).trim()}`;
+      return `✓ *Nome atualizado:* ${String(value).trim()}`;
     case "age":
-      return `✅ Idade atualizada: ${String(value).trim()}`;
+      return `✓ *Idade atualizada:* ${String(value).trim()}`;
     case "genderPronouns":
-      return `✅ Gênero / pronomes atualizados: ${String(value).trim()}`;
+      return `✓ *Gênero / pronomes atualizados:* ${String(value).trim()}`;
     case "appearance":
-      return "✅ Aparência atualizada.";
+      return "✓ *Aparência atualizada.*";
     case "personality":
-      return "✅ Personalidade atualizada.";
+      return "✓ *Personalidade atualizada.*";
     case "backstory":
-      return "✅ História atualizada.";
+      return "✓ *História atualizada.*";
     case "starterFormId":
-      return `✅ Pokémon inicial atualizado: ${String(value).trim()}`;
+      return `✓ *Pokémon inicial atualizado:* ${String(value).trim()}`;
   }
 }
 
 export function renderFullForm(options: RegistrationFullFormRenderOptions): string {
-  const starterLines = options.starterOptions.map((option, index) => `${index + 1} — ${option}`);
-
   return [
-    "〔▣〕 *FICHA COMPLETA*",
-    "`MODO RÁPIDO · 7 CAMPOS`",
+    "▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*",
+    "　Recepção · Cadastro rápido",
     "",
-    "*Pokémon iniciais*",
-    ...starterLines,
+    "> _Preencha os campos abaixo. Você pode escrever várias linhas onde precisar._",
     "",
-    "Copie, preencha e envie a ficha abaixo:",
+    "◇ *𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*",
     "",
-    "┌─ *TREINADOR*",
-    "│ Nome:",
-    "│ Idade:",
-    "│ Gênero / pronomes:",
-    "│",
-    "│ Aparência:",
-    "│",
-    "│ Personalidade:",
-    "│",
-    "│ História / resumo:",
-    "│",
-    "│ Pokémon inicial:",
-    `└─ Região: ${options.regionDisplayName} · automática`,
+    "*Nome:*",
+    "*Idade:*",
+    "*Gênero / pronomes:*",
     "",
-    "> Pode escrever várias linhas nos campos narrativos.",
-    "> De preferência responda a esta mensagem; uma ficha claramente preenchida também será reconhecida sem o quote.",
-    "> Depois você verá a ficha pronta antes de enviar para análise.",
+    "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*",
+    "",
+    "*Aparência:*",
+    "*Personalidade:*",
+    "*História:*",
+    "",
+    "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
+    "",
+    "*Pokémon inicial:*",
+    "",
+    `⌖ Região · *${options.regionDisplayName}*`,
+    "",
+    "› _Envie a ficha preenchida. A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._",
+    "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use \`/iniciais\`._",
   ].join("\n");
 }
+
 export function renderReview(input: RegistrationReviewRenderInput): string {
   return [
-    "📋 FICHA PRONTA PARA REVISÃO",
+    "▣ *𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*",
+    `　${input.trainerName} · ${input.regionDisplayName}`,
     "",
-    `Nome: ${input.trainerName}`,
-    `Idade: ${input.age}`,
-    `Gênero / pronomes: ${input.genderPronouns}`,
-    `Aparência: ${input.appearance}`,
-    `Personalidade: ${input.personality}`,
-    `História / resumo: ${input.backstory}`,
-    `Pokémon inicial: ${input.starterDisplayName}`,
-    `Região: ${input.regionDisplayName}`,
+    "◇ *𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*",
     "",
-    "Responda a esta mensagem com o número da opção:",
+    `*Nome:* ${input.trainerName}`,
+    `*Idade:* ${input.age}`,
+    `*Gênero / pronomes:* ${input.genderPronouns}`,
     "",
-    "1 — Enviar para análise",
-    "2 — Corrigir alguma informação",
-    "3 — Continuar depois",
+    "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*",
+    "",
+    `*Aparência:* ${input.appearance}`,
+    "",
+    `*Personalidade:* ${input.personality}`,
+    "",
+    `*História:* ${input.backstory}`,
+    "",
+    "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
+    "",
+    `*Pokémon inicial:* ${input.starterDisplayName}`,
+    `*Região:* ${input.regionDisplayName}`,
+    "",
+    "┄┄ ◇ *𝗢 𝗤𝗨𝗘 𝗙𝗔𝗭𝗘𝗥?* ┄┄",
+    "",
+    "\`01\` Enviar para análise",
+    "\`02\` Corrigir informações",
+    "\`03\` Continuar depois",
+    "",
+    "› _Responda com o número da opção._",
   ].join("\n");
 }
 
 export function renderDraftProgress(input: RegistrationDraftProgressRenderInput): string {
   return [
-    "📋 FICHA EM ANDAMENTO",
+    "▣ *𝗙𝗜𝗖𝗛𝗔 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢*",
+    "　Recepção · Rascunho",
     "",
-    `Nome: ${draftValue(input.trainerName)}`,
-    `Idade: ${draftValue(input.age)}`,
-    `Gênero / pronomes: ${draftValue(input.genderPronouns)}`,
-    `Aparência: ${draftValue(input.appearance)}`,
-    `Personalidade: ${draftValue(input.personality)}`,
-    `História / resumo: ${draftValue(input.backstory)}`,
-    `Pokémon inicial: ${draftValue(input.starterDisplayName)}`,
-    `Região: ${input.regionDisplayName}`,
+    `*Nome:* ${draftValue(input.trainerName)}`,
+    `*Idade:* ${draftValue(input.age)}`,
+    `*Gênero / pronomes:* ${draftValue(input.genderPronouns)}`,
+    `*Aparência:* ${draftValue(input.appearance)}`,
+    `*Personalidade:* ${draftValue(input.personality)}`,
+    `*História:* ${draftValue(input.backstory)}`,
+    `*Pokémon inicial:* ${draftValue(input.starterDisplayName)}`,
+    `*Região:* ${input.regionDisplayName}`,
   ].join("\n");
 }
 
 export function renderEditSelect(): string {
   return [
-    "✏️ O que deseja corrigir?",
+    "✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*",
+    "　Recepção · Registro",
     "",
-    "Responda a esta mensagem com o número da opção:",
+    "\`01\` Nome",
+    "\`02\` Idade",
+    "\`03\` Gênero / pronomes",
+    "\`04\` Aparência",
+    "\`05\` Personalidade",
+    "\`06\` História",
+    "\`07\` Pokémon inicial",
     "",
-    "1 — Nome",
-    "2 — Idade",
-    "3 — Gênero / pronomes",
-    "4 — Aparência",
-    "5 — Personalidade",
-    "6 — História / resumo",
-    "7 — Pokémon inicial",
-    "8 — Voltar",
+    "‹ \`08\` Voltar",
+    "",
+    "› _Responda com o número do campo._",
   ].join("\n");
 }
 
 export function renderPause(): string {
-  return ["💾 Seu progresso está salvo.", "Quando quiser continuar, use `/registrar`."].join("\n");
+  return [
+    "💾 *𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗦𝗔𝗟𝗩𝗢*",
+    "　Recepção · Rascunho",
+    "",
+    "> _Seu progresso foi salvo._",
+    "",
+    "› _Quando quiser continuar, use \`/registrar\`._",
+  ].join("\n");
 }
 
 export function renderResumeMenu(): string {
   return [
-    "🎒 Você já tem uma ficha em andamento.",
+    "▣ *𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢*",
+    "　Recepção · Rascunho encontrado",
     "",
-    "Responda a esta mensagem com o número da opção:",
+    "\`01\` Continuar de onde parei",
+    "\`02\` Ver ficha atual",
+    "\`03\` Recomeçar",
     "",
-    "1 — Continuar de onde parei",
-    "2 — Ver ficha atual",
-    "3 — Recomeçar",
+    "› _Responda com o número da opção._",
   ].join("\n");
 }
 
 export function renderRestartConfirm(): string {
   return [
-    "⚠️ Recomeçar apaga o rascunho atual.",
+    "△ *𝗥𝗘𝗖𝗢𝗠𝗘Ç𝗔𝗥 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢?*",
     "",
-    "Responda a esta mensagem com 1 ou 2:",
+    "> _Isso apaga o rascunho atual._",
     "",
-    "1 — Sim, recomeçar",
-    "2 — Cancelar",
+    "\`01\` Sim, recomeçar",
+    "\`02\` Cancelar",
+    "",
+    "› _Responda com o número da opção._",
   ].join("\n");
 }
 
 export function renderValidationRetry(message: string, prompt: string): string {
-  return [`⚠️ ${message.trim()}`, "", prompt.trim()].join("\n");
+  return [`△ *${message.trim()}*`, "", prompt.trim()].join("\n");
 }
