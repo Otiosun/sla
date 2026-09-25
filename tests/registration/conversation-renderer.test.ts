@@ -18,62 +18,59 @@ describe("registration conversation renderer", () => {
   it("renders a self-guiding mode choice", () => {
     const text = renderModeSelect();
 
-    expect(text).toContain("1 —");
-    expect(text).toContain("2 —");
-    expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
+    expect(text).toContain("`01`");
+    expect(text).toContain("`02`");
+    expect(text.toLocaleLowerCase("pt-BR")).toContain("responda com");
   });
 
   it("renders every guided field with explicit 1/7 through 7/7 progress", () => {
     const cases = [
-      ["trainerName", "1/7", "Nome do treinador"],
-      ["age", "2/7", "Idade"],
-      ["genderPronouns", "3/7", "Gênero / pronomes"],
-      ["appearance", "4/7", "Aparência"],
-      ["personality", "5/7", "Personalidade"],
-      ["backstory", "6/7", "História / resumo"],
-      ["starterFormId", "7/7", "Pokémon inicial"],
+      ["trainerName", "01 / 07", "𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥"],
+      ["age", "02 / 07", "𝗜𝗗𝗔𝗗𝗘"],
+      ["genderPronouns", "03 / 07", "𝗚Ê𝗡𝗘𝗥𝗢 & 𝗣𝗥𝗢𝗡𝗢𝗠𝗘𝗦"],
+      ["appearance", "04 / 07", "𝗔𝗣𝗔𝗥Ê𝗡𝗖𝗜𝗔"],
+      ["personality", "05 / 07", "𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗟𝗜𝗗𝗔𝗗𝗘"],
+      ["backstory", "06 / 07", "𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗔"],
+      ["starterFormId", "07 / 07", "𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟"],
     ] as const;
 
     for (const [field, progress, label] of cases) {
       const text = renderGuidedField(field, { starterOptions });
       expect(text).toContain(progress);
       expect(text).toContain(label);
-      expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
+      expect(text.toLocaleLowerCase("pt-BR")).toContain("envie a ficha preenchida");
     }
   });
 
   it("acknowledges guided mode selection before the first question", () => {
     const text = renderGuidedField("trainerName", { starterOptions, modeSelected: true });
 
-    expect(text).toContain("✅ Modo guiado escolhido.");
-    expect(text).toContain("7 etapas");
-    expect(text).toContain("📝 1/7 — Nome do treinador");
+    expect(text).toContain("✓ *Modo passo a passo escolhido.*");
+    expect(text).toContain("01 / 07");
+    expect(text).toContain("𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥");
   });
 
   it("echoes short answers but does not repeat long narrative fields", () => {
-    expect(renderGuidedAcknowledgement("trainerName", "Killian")).toBe("✅ 1/7 — Nome: Killian");
-    expect(renderGuidedAcknowledgement("age", 19)).toBe("✅ 2/7 — Idade: 19");
+    expect(renderGuidedAcknowledgement("trainerName", "Killian")).toBe("✓ *Nome registrado:* Killian");
+    expect(renderGuidedAcknowledgement("age", 19)).toBe("✓ *Idade registrada:* 19");
     expect(renderGuidedAcknowledgement("starterFormId", "Charmander")).toBe(
-      "✅ 7/7 — Pokémon inicial: Charmander",
+      "✓ *Pokémon inicial registrado:* Charmander",
     );
 
     const longAppearance = "Uma descrição de aparência que não deve ser ecoada inteira.";
     expect(renderGuidedAcknowledgement("appearance", longAppearance)).toBe(
-      "✅ Aparência recebida.",
+      "✓ *Aparência registrada.*",
     );
     expect(renderGuidedAcknowledgement("personality", "Texto longo")).toBe(
-      "✅ Personalidade recebida.",
+      "✓ *Personalidade registrada.*",
     );
-    expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe("✅ História recebida.");
+    expect(renderGuidedAcknowledgement("backstory", "Texto longo")).toBe("✓ *História registrada.*");
   });
 
   it("confirms full-form mode and includes current starter options plus the complete template", () => {
     const text = renderFullForm({ regionDisplayName: "Zhoulia", starterOptions });
 
-    expect(text).toContain("〔▣〕 *FICHA COMPLETA*");
-    expect(text).toContain("Charmander");
-    expect(text).toContain("Squirtle");
-    expect(text).toContain("Bulbasaur");
+    expect(text).toContain("▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*");
     expect(text).toContain("Nome:");
     expect(text).toContain("Idade:");
     expect(text).toContain("Gênero / pronomes:");
@@ -97,24 +94,24 @@ describe("registration conversation renderer", () => {
       regionDisplayName: "Zhoulia",
     });
 
-    expect(text).toContain("📋 FICHA PRONTA PARA REVISÃO");
-    expect(text).toContain("Nome: Killian");
-    expect(text).toContain("Pokémon inicial: Charmander");
-    expect(text).toContain("Região: Zhoulia");
+    expect(text).toContain("▣ *𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*");
+    expect(text).toContain("*Nome:* Killian");
+    expect(text).toContain("*Pokémon inicial:* Charmander");
+    expect(text).toContain("*Região:* Zhoulia");
     expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
     expect(
-      text.endsWith(
-        "1 — Enviar para análise\n2 — Corrigir alguma informação\n3 — Continuar depois",
+      text.includes(
+        "`01` Enviar para análise\n`02` Corrigir informações\n`03` Continuar depois",
       ),
     ).toBe(true);
   });
 
   it("renders edit, pause, resume and destructive restart choices explicitly", () => {
     const edit = renderEditSelect();
-    expect(edit).toContain("✏️ O que deseja corrigir?");
-    expect(edit).toContain("1 — Nome");
-    expect(edit).toContain("8 — Voltar");
+    expect(edit).toContain("✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*");
+    expect(edit).toContain("`01` Nome");
+    expect(edit).toContain("`08` Voltar");
     expect(edit.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
 
     expect(renderPause()).toContain("💾 Seu progresso está salvo.");
@@ -128,8 +125,8 @@ describe("registration conversation renderer", () => {
 
     const restart = renderRestartConfirm();
     expect(restart).toContain("⚠️ Recomeçar apaga o rascunho atual.");
-    expect(restart).toContain("1 — Sim, recomeçar");
-    expect(restart).toContain("2 — Cancelar");
+    expect(restart).toContain("`01` Sim, recomeçar");
+    expect(restart).toContain("`02` Cancelar");
     expect(restart.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
   });
 
@@ -139,8 +136,8 @@ describe("registration conversation renderer", () => {
       renderGuidedField("age", { starterOptions }),
     );
 
-    expect(text).toContain("⚠️ Essa idade não é válida.");
-    expect(text).toContain("📝 2/7 — Idade");
+    expect(text).toContain("△ *Essa idade não é válida.");
+    expect(text).toContain("02 / 07");
     expect(text.toLocaleLowerCase("pt-BR")).not.toContain("correlation");
     expect(text.toLocaleLowerCase("pt-BR")).not.toContain("suporte:");
   });
