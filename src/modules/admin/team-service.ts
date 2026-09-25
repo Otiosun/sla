@@ -1,8 +1,5 @@
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
-import {
-  AdminTeamCapabilityReplaceSchema,
-  type AdminTeamView,
-} from "./team-contracts.js";
+import { AdminTeamCapabilityReplaceSchema, type AdminTeamView } from "./team-contracts.js";
 import type { AdminTeamRepository } from "./team-ports.js";
 
 export class AdminTeamService {
