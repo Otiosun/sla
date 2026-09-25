@@ -83,9 +83,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
     return result.rows.map(principalView);
   }
 
-  public async listCapabilityCatalog(): Promise<
-    readonly { key: string; riskTier: number }[]
-  > {
+  public async listCapabilityCatalog(): Promise<readonly { key: string; riskTier: number }[]> {
     const result = await this.pool.query<{ key: string; risk_tier: number }>(
       `SELECT key, risk_tier
        FROM capabilities
@@ -150,7 +148,10 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
         );
       }
       if (BigInt(targetRow.revision) !== input.expectedRevision) {
-        throw new AdminError(ADMIN_ERROR_CODES.REVISION_CONFLICT, "Admin principal revision changed");
+        throw new AdminError(
+          ADMIN_ERROR_CODES.REVISION_CONFLICT,
+          "Admin principal revision changed",
+        );
       }
 
       const requested = [...new Set(input.capabilities)].sort();
@@ -207,13 +208,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
           `INSERT INTO admin_principal_capability_overrides(
              principal_id, capability_id, decision, reason, assigned_by_admin_principal_id
            ) VALUES ($1, $2, $3, $4, $5)`,
-          [
-            input.targetPrincipalId,
-            capability.id,
-            decision,
-            input.reason,
-            input.actorPrincipalId,
-          ],
+          [input.targetPrincipalId, capability.id, decision, input.reason, input.actorPrincipalId],
         );
       }
 
