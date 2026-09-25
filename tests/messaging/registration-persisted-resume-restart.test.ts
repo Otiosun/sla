@@ -200,8 +200,6 @@ describe("persisted Registration resume and restart flow", () => {
       expectedDraftRevision: null,
     });
     expect(state.getConversation()?.state).toBe("MODE_SELECT");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "CRIAÇÃO DE TREINADOR",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("CRIAÇÃO DE TREINADOR");
   });
 });
