@@ -70,7 +70,7 @@ describe("registration conversation renderer", () => {
   it("confirms full-form mode and includes current starter options plus the complete template", () => {
     const text = renderFullForm({ regionDisplayName: "Zhoulia", starterOptions });
 
-    expect(text).toContain("✅ Modo ficha completa escolhido.");
+    expect(text).toContain("〔▣〕 *FICHA COMPLETA*");
     expect(text).toContain("Charmander");
     expect(text).toContain("Squirtle");
     expect(text).toContain("Bulbasaur");
@@ -82,7 +82,7 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("História / resumo:");
     expect(text).toContain("Pokémon inicial:");
     expect(text).toContain("Zhoulia");
-    expect(text.toLocaleLowerCase("pt-BR")).toContain("respondendo a esta mensagem");
+    expect(text.toLocaleLowerCase("pt-BR")).toContain("responda a esta mensagem");
   });
 
   it("renders review without internal ids and ends with the three canonical actions", () => {
