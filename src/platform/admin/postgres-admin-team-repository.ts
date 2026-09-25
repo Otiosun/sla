@@ -42,6 +42,7 @@ const PRINCIPAL_SELECT = `
              SELECT array_agg(effective.key ORDER BY effective.key)
              FROM admin_effective_capabilities effective
              WHERE effective.principal_id = principal.id
+               AND effective.key <> 'UAT_BOOTSTRAP'
            ),
            ARRAY[]::text[]
          ) AS capabilities
