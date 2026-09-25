@@ -206,7 +206,7 @@ describe("persisted Registration conversation state machine", () => {
         outgoing: [
           {
             payload: {
-              text: expect.stringContaining("✅ Modo guiado escolhido."),
+              text: expect.stringContaining("✓ *Modo passo a passo escolhido.*"),
               replyTo: {
                 externalMessageId: context.message.externalMessageId,
                 senderRef: PLAYER_REF,
@@ -218,7 +218,7 @@ describe("persisted Registration conversation state machine", () => {
       },
     });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "📝 1/7 — Nome do treinador",
+      "01 / 07",
     );
     expect(state.checkpoints).toHaveLength(1);
     expect(state.checkpoints[0]).toMatchObject({
@@ -259,9 +259,9 @@ describe("persisted Registration conversation state machine", () => {
     });
     expect(state.getDraft()).toMatchObject({ trainerName: "Liora Vale" });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "✅ 1/7 — Nome: Liora Vale",
+      "✓ *Nome registrado:* Liora Vale",
     );
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("📝 2/7 — Idade");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
   });
 
   it("moves the final guided starter directly to REVIEW with the canonical starter", async () => {
@@ -289,10 +289,10 @@ describe("persisted Registration conversation state machine", () => {
       draft: { starterFormId: CHARMANDER_ID },
     });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "✅ 7/7 — Pokémon inicial: Charmander",
+      "✓ *Pokémon inicial registrado:* Charmander",
     );
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "📋 FICHA PRONTA PARA REVISÃO",
+      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
     );
   });
 
@@ -319,7 +319,7 @@ describe("persisted Registration conversation state machine", () => {
     expect(state.checkpoints[0]).not.toHaveProperty("draft");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("⚠️");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "〔▣〕 *FICHA COMPLETA*",
+      "▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*",
     );
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).not.toContain("correlation");
   });
