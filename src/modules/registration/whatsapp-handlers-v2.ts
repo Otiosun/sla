@@ -123,8 +123,7 @@ function persistedReplies(
       destinationRef: context.message.chatRef,
       messageType: "TEXT" as const,
       payload: { text, replyTo: replyContext(context) },
-      idempotencyKey:
-        index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
+      idempotencyKey: index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
     })),
   });
 }
@@ -144,9 +143,7 @@ function parseMode(value: string | undefined): RegistrationConversationEditingMo
   ) {
     return "GUIDED";
   }
-  if (
-    ["2", "02", "completo", "completa", "ficha", "ficha completa"].includes(normalized)
-  ) {
+  if (["2", "02", "completo", "completa", "ficha", "ficha completa"].includes(normalized)) {
     return "FULL";
   }
   return null;
