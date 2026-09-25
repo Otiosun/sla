@@ -175,9 +175,9 @@ describe("Reception UX polish", () => {
       ),
     );
     expect(text).toMatch(/Pokémon inicial/i);
-    expect(text).toMatch(/1\. Bulbasaur/);
-    expect(text).toMatch(/2\. Charmander/);
-    expect(text).toMatch(/3\. Squirtle/);
+    expect(text).toContain("`01` Bulbasaur");
+    expect(text).toContain("`02` Charmander");
+    expect(text).toContain("`03` Squirtle");
     expect(text).toMatch(/número|nome/i);
   });
 
