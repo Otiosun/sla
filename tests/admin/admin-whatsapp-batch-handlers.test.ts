@@ -39,7 +39,8 @@ function context(
 function dependencies(): AdminWhatsAppBatchDependencies {
   const prepareMutation = vi.fn(async (input: Readonly<Record<string, unknown>>) => ({
     operation: {
-      id: input.operationType === "batch.preview" ? BATCH_ID : "00000000-0000-4000-8000-000000000005",
+      id:
+        input.operationType === "batch.preview" ? BATCH_ID : "00000000-0000-4000-8000-000000000005",
       status: input.operationType === "batch.preview" ? "READY" : "PENDING_CONFIRMATION",
     },
     replayed: false,
@@ -80,9 +81,7 @@ function dependencies(): AdminWhatsAppBatchDependencies {
       ]),
     },
     targets: {
-      resolveExternalRefs: vi.fn(async () => [
-        { playerId: PLAYER_ID, trainerName: "Ana" },
-      ]),
+      resolveExternalRefs: vi.fn(async () => [{ playerId: PLAYER_ID, trainerName: "Ana" }]),
       resolveTrainerName: vi.fn(async () => ({ status: "MISSING" as const })),
     },
     catalog: {
