@@ -174,11 +174,11 @@ function harness(input: {
 }
 
 describe("persisted Registration conversation state machine", () => {
-  it("admits only a reply to the exact persisted active prompt", async () => {
+  it("accepts an unquoted active answer but still rejects an explicitly stale quoted prompt", async () => {
     const playerId = createPlayerId();
     const { resolver } = harness({ initialConversation: conversation(playerId) });
 
-    await expect(resolver.admits(messageContext("1").message)).resolves.toBe(false);
+    await expect(resolver.admits(messageContext("1").message)).resolves.toBe(true);
     await expect(
       resolver.admits(messageContext("1", HUMAN_MESSAGE_ID, "02").message),
     ).resolves.toBe(false);
