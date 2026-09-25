@@ -34,6 +34,7 @@
     "ops:docs:verify": "node --import tsx scripts/operations/verify-operator-docs.ts",
     "ops:smoke:application": "node --import tsx scripts/operations/post-deploy-application-smoke.ts",
     "ops:diagnose:registration-mentions": "node --env-file-if-exists=.env --import tsx scripts/operations/diagnose-registration-review-mentions.ts",
+    "ops:diagnose:admin-opening": "node --env-file-if-exists=.env --import tsx scripts/operations/diagnose-admin-opening-readiness.ts",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
