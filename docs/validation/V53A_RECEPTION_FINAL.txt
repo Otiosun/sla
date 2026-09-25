@@ -1,0 +1,4 @@
+V53A Reception final validation marker
+candidate_head=b2e568e1eae31c048c206a5016523eaec8e0b309
+scope=build-safe intelligent unquoted reception input, starter intelligence, formatted full-form parser
+do_not_merge=true
