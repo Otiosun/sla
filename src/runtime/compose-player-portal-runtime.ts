@@ -12,6 +12,7 @@ import { registerPhase12CEncounterAdminOperations } from "../modules/admin/encou
 import { AdminEncounterOperationService } from "../modules/admin/encounter-service.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminRewardCatalogService } from "../modules/admin/reward-catalog-service.js";
+import { AdminTeamService } from "../modules/admin/team-service.js";
 import { AdminService } from "../modules/admin/service.js";
 import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
@@ -35,6 +36,7 @@ import { PostgresAdminCompensationCompletion } from "../platform/admin/postgres-
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres-admin-reward-catalog-repository.js";
+import { PostgresAdminTeamRepository } from "../platform/admin/postgres-admin-team-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleAdminRepository } from "../platform/battle/postgres-battle-admin-repository.js";
 import { PostgresBattleCancellation } from "../platform/battle/postgres-battle-cancellation.js";
@@ -182,6 +184,7 @@ export function composePlayerPortalRuntime(
     adminService,
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
+  const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -192,6 +195,7 @@ export function composePlayerPortalRuntime(
     admin,
     adminPlayers,
     adminRewardCatalog,
+    adminTeam,
     adminMutations: adminService,
   });
 
