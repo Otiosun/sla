@@ -1,11 +1,13 @@
 import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import type { EconomyService } from "../economy/service.js";
+import type { PokedexAdminSeenOwner } from "../pokedex/admin-seen-owner.js";
 import type { PokemonAdminService } from "../pokemon/admin-service.js";
 import type { ProgressionService } from "../progression/service.js";
 import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminInventoryAdjustInput,
+  AdminPokedexSeenGrantInput,
   AdminPokemonArchiveInput,
   AdminPokemonCreateInput,
   AdminPokemonEffectApplyInput,
@@ -83,6 +85,7 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     private readonly progression: ProgressionService,
     private readonly completion: AdminOperationCompletionPort,
     private readonly pokemon?: PokemonAdminService,
+    private readonly pokedexSeen?: PokedexAdminSeenOwner,
   ) {}
 
   private pokemonOwner(): PokemonAdminService {
@@ -249,6 +252,51 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     });
   }
 
+
+  public async applyPokedexSeenGrant(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokedexSeenGrantInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    if (this.pokedexSeen === undefined) {
+      throw new AdminError(
+        ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+        "Pokédex administrative owner is unavailable",
+      );
+    }
+
+    const result = await this.pokedexSeen.grantSeen(input);
+    if (result === null) {
+      throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, "Player or species not found");
+    }
+
+    return this.completion.completeAppliedOperation({
+      operation,
+      actorPrincipalId,
+      resourceType: "PLAYER_POKEDEX_SPECIES",
+      resourceId: input.speciesId,
+      beforeData: {
+        playerId: input.playerId,
+        speciesId: input.speciesId,
+        seenCount: result.beforeSeenCount,
+        shinySeenCount: result.beforeShinySeenCount,
+        revision: result.beforeRevision,
+      },
+      afterData: {
+        playerId: input.playerId,
+        speciesId: input.speciesId,
+        seenCount: result.afterSeenCount,
+        shinySeenCount: result.afterShinySeenCount,
+        revision: result.afterRevision,
+      },
+      result: {
+        operationKind: "POKEDEX_SEEN_GRANT",
+        shiny: input.shiny,
+        changed: result.changed,
+      },
+    });
+  }
   public async applyWalletAdjustment(
     operation: AdminOperationRecord,
     actorPrincipalId: string,
