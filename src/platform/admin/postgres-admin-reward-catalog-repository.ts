@@ -6,7 +6,7 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
   public constructor(private readonly pool: Pool) {}
 
   public async getActiveRewardCatalog(): Promise<AdminRewardCatalogView> {
-    const [items, currencies] = await Promise.all([
+    const [items, currencies, species] = await Promise.all([
       this.pool.query<{
         item_id: string;
         slug: string;
@@ -35,6 +35,24 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
          FROM currency_definitions
          ORDER BY lower(display_name), slug`,
       ),
+      this.pool.query<{
+        species_id: string;
+        national_dex: number;
+        slug: string;
+        display_name: string;
+      }>(
+        `SELECT species.id AS species_id,
+                species.national_dex,
+                species.slug,
+                revision.display_name
+         FROM content_release_pointers pointer
+         JOIN pokemon_species_revisions revision
+           ON revision.content_release_id = pointer.content_release_id
+          AND revision.active = TRUE
+         JOIN pokemon_species species ON species.id = revision.species_id
+         WHERE pointer.pointer_key = 'ACTIVE'
+         ORDER BY species.national_dex, species.slug`,
+      ),
     ]);
 
     return {
@@ -49,6 +67,12 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
         slug: row.slug,
         displayName: row.display_name,
         allowsNegative: row.allows_negative,
+      })),
+      species: species.rows.map((row) => ({
+        speciesId: row.species_id,
+        nationalDex: row.national_dex,
+        slug: row.slug,
+        displayName: row.display_name,
       })),
     };
   }
