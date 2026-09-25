@@ -132,6 +132,20 @@ function route(routes: ReturnType<typeof createRegistrationWhatsAppRoutesV2>, co
   return found;
 }
 
+describe("v2 starter discovery command", () => {
+  it("exposes /iniciais with the canonical configured starter names", async () => {
+    const state = harness();
+    const initials = route(state.routes, "iniciais");
+
+    expect(initials.policy).toEqual({
+      requiredGroupCapabilities: ["onboarding"],
+      allowedPlayerAccess: ["PENDING"],
+    });
+    const result = await initials.handler.handle(context("/iniciais", "iniciais"));
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗜𝗦");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("`01` Charmander");
+  });
+});
 describe("v2 compatibility aliases while a registration review is submitted", () => {
   for (const [command, text] of [
     ["modo", "/modo completo"],
