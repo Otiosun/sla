@@ -110,13 +110,6 @@ async function resolveAdmin(
     );
   }
   const capabilities = await dependencies.admins.capabilitiesFor(identity);
-  if (!capabilities.includes("central.view")) {
-    return err(
-      appError("ACTION_INVALID", "Administrative Central access capability is denied", {
-        userMessage: "Seu acesso administrativo não inclui a Central ADM.",
-      }),
-    );
-  }
   return ok({ principalId: principal.principalId, capabilities });
 }
 
