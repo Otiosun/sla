@@ -523,7 +523,7 @@ export class RegistrationConversationResolver {
     if (verifier === undefined) return true;
 
     const expectedOutboxIdempotencyKey = session.expectedReplyOutboxIdempotencyKey;
-    if (expectedOutboxIdempotencyKey === null) return true;
+    if (expectedOutboxIdempotencyKey === null) return false;
     return verifier.isExpectedReply({
       provider: message.provider,
       chatRef: message.chatRef,
@@ -551,7 +551,8 @@ export class RegistrationConversationResolver {
     if (replyToExternalMessageId === null) {
       return message.text !== null && looksLikePersistedUnquotedIntent(conversation, message.text);
     }
-    if (expectedOutboxIdempotencyKey === null || verifier === undefined) return true;
+    if (expectedOutboxIdempotencyKey === null) return false;
+    if (verifier === undefined) return true;
 
     return verifier.isExpectedReply({
       provider: message.provider,
