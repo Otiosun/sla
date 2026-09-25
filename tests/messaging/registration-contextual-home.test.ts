@@ -160,7 +160,7 @@ describe("contextual /registrar home", () => {
 
     const result = await state.registrar.handler.handle(context("01"));
 
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("ficha em andamento");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢");
     expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("`01` Continuar");
     expect(state.checkpoints[0]).toMatchObject({ state: "RESUME_MENU" });
   });
