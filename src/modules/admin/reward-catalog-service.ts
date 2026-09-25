@@ -19,6 +19,11 @@ export class AdminRewardCatalogService {
       operationType: "economy.currency_catalog.read",
       input: {},
     });
+    await this.authorizer.authorizeRead({
+      principalId,
+      operationType: "pokedex.read",
+      input: {},
+    });
     return this.repository.getActiveRewardCatalog();
   }
 }
