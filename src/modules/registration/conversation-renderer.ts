@@ -141,13 +141,13 @@ export function renderModeSelect(): string {
     "",
     "◇ *𝗖𝗢𝗠𝗢 𝗣𝗥𝗘𝗙𝗘𝗥𝗘 𝗖𝗥𝗜𝗔𝗥?*",
     "",
-    "\`01\` Passo a passo",
+    "`01` Passo a passo",
     "　Uma informação por vez.",
     "",
-    "\`02\` Ficha completa",
+    "`02` Ficha completa",
     "　Preencha tudo de uma só vez.",
     "",
-    "› _Responda com \`01\` ou \`02\`._",
+    "› _Responda com `01` ou `02`._",
   ].join("\n");
 }
 
@@ -159,7 +159,7 @@ export function renderStarterOptions(starterOptions: readonly string[]): string 
     numberedOptions(starterOptions),
     "",
     "› _Durante o registro, você pode escolher pelo número ou pelo nome._",
-    "› _Se precisar rever esta lista, use \`/iniciais\`._",
+    "› _Se precisar rever esta lista, use `/iniciais`._",
   ].join("\n");
 }
 
@@ -182,7 +182,7 @@ export function renderGuidedField(
       "",
       fieldInstruction(field),
       "",
-      "› _Esqueceu as opções? Use \`/iniciais\`._",
+      "› _Esqueceu as opções? Use `/iniciais`._",
     );
   } else {
     lines.push(copy.question, "", fieldInstruction(field));
@@ -190,11 +190,7 @@ export function renderGuidedField(
 
   if (!options.modeSelected) return lines.join("\n");
 
-  return [
-    "✓ *Modo passo a passo escolhido.*",
-    "",
-    ...lines,
-  ].join("\n");
+  return ["✓ *Modo passo a passo escolhido.*", "", ...lines].join("\n");
 }
 
 export function renderGuidedAcknowledgement(
@@ -224,11 +220,7 @@ export function renderEditField(
   options: RegistrationEditFieldRenderOptions = {},
 ): string {
   const copy = FIELD_COPY[field];
-  const lines = [
-    "✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*",
-    `　${copy.label}`,
-    "",
-  ];
+  const lines = ["✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*", `　${copy.label}`, ""];
   if (field === "starterFormId") {
     lines.push(numberedOptions(options.starterOptions ?? []), "", "› _Número ou nome do Pokémon._");
   } else {
@@ -285,7 +277,7 @@ export function renderFullForm(options: RegistrationFullFormRenderOptions): stri
     `⌖ Região · *${options.regionDisplayName}*`,
     "",
     "› _Envie a ficha preenchida. A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._",
-    "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use \`/iniciais\`._",
+    "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._",
   ].join("\n");
 }
 
@@ -315,9 +307,9 @@ export function renderReview(input: RegistrationReviewRenderInput): string {
     "",
     "┄┄ ◇ *𝗢 𝗤𝗨𝗘 𝗙𝗔𝗭𝗘𝗥?* ┄┄",
     "",
-    "\`01\` Enviar para análise",
-    "\`02\` Corrigir informações",
-    "\`03\` Continuar depois",
+    "`01` Enviar para análise",
+    "`02` Corrigir informações",
+    "`03` Continuar depois",
     "",
     "› _Responda com o número da opção._",
   ].join("\n");
@@ -344,15 +336,15 @@ export function renderEditSelect(): string {
     "✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*",
     "　Recepção · Registro",
     "",
-    "\`01\` Nome",
-    "\`02\` Idade",
-    "\`03\` Gênero / pronomes",
-    "\`04\` Aparência",
-    "\`05\` Personalidade",
-    "\`06\` História",
-    "\`07\` Pokémon inicial",
+    "`01` Nome",
+    "`02` Idade",
+    "`03` Gênero / pronomes",
+    "`04` Aparência",
+    "`05` Personalidade",
+    "`06` História",
+    "`07` Pokémon inicial",
     "",
-    "‹ \`08\` Voltar",
+    "‹ `08` Voltar",
     "",
     "› _Responda com o número do campo._",
   ].join("\n");
@@ -365,7 +357,7 @@ export function renderPause(): string {
     "",
     "> _Seu progresso foi salvo._",
     "",
-    "› _Quando quiser continuar, use \`/registrar\`._",
+    "› _Quando quiser continuar, use `/registrar`._",
   ].join("\n");
 }
 
@@ -374,9 +366,9 @@ export function renderResumeMenu(): string {
     "▣ *𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢*",
     "　Recepção · Rascunho encontrado",
     "",
-    "\`01\` Continuar de onde parei",
-    "\`02\` Ver ficha atual",
-    "\`03\` Recomeçar",
+    "`01` Continuar de onde parei",
+    "`02` Ver ficha atual",
+    "`03` Recomeçar",
     "",
     "› _Responda com o número da opção._",
   ].join("\n");
@@ -388,8 +380,8 @@ export function renderRestartConfirm(): string {
     "",
     "> _Isso apaga o rascunho atual._",
     "",
-    "\`01\` Sim, recomeçar",
-    "\`02\` Cancelar",
+    "`01` Sim, recomeçar",
+    "`02` Cancelar",
     "",
     "› _Responda com o número da opção._",
   ].join("\n");
