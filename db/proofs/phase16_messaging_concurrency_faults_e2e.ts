@@ -150,7 +150,7 @@ async function main(): Promise<void> {
       id: "duplicate-storm-1",
       sender: "storm-player",
       chat: "storm-chat",
-      text: "$storm",
+      text: "/storm",
     });
     const stormResults = await Promise.all(
       Array.from({ length: 48 }, () => stormService.receive(stormMessage)),
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
         id: `simultaneous-${index + 1}`,
         sender: "simultaneous-player",
         chat: "simultaneous-chat",
-        text: "$simultaneous",
+        text: "/simultaneous",
       }),
     );
     const simultaneousResults = await Promise.all(
@@ -299,7 +299,7 @@ async function main(): Promise<void> {
       id: "precommit-crash-1",
       sender: "precommit-player",
       chat: "precommit-chat",
-      text: "$precommit",
+      text: "/precommit",
     });
     const preCommitService = new MessagingService(
       repository,
