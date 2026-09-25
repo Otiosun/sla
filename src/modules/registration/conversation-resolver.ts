@@ -14,6 +14,7 @@ import {
   renderEditSelect,
   renderFullForm,
   renderGuidedAcknowledgement,
+  renderStarterOptions,
   renderGuidedField,
   renderModeSelect,
   renderPause,
@@ -126,6 +127,28 @@ function persistedTextResult(
   });
 }
 
+function persistedTextSequenceResult(
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+  texts: readonly string[],
+): Result<MessageHandlerResult> {
+  if (texts.length === 0) {
+    return err(appError("VALIDATION_FAILED", "Registration text sequence cannot be empty"));
+  }
+  const baseKey = conversationOutboxKey(context);
+  return ok({
+    resultRefType: "REGISTRATION_SESSION",
+    resultRefId: playerId,
+    outgoing: texts.map((text, index) => ({
+      channel: "whatsapp" as const,
+      destinationRef: context.message.chatRef,
+      messageType: "TEXT" as const,
+      payload: { text, replyTo: replyContext(context) },
+      idempotencyKey:
+        index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
+    })),
+  });
+}
 function persistedSubmissionResult(
   context: MessageHandlerContext,
   playerId: PlayerId,
@@ -324,36 +347,41 @@ function parseGuidedValue(
 
 function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetup): Result<string> {
   const value = rawValue.trim();
-  if (/^[1-9]\d*$/.test(value)) {
-    const index = Number(value);
-    if (Number.isSafeInteger(index)) {
-      const option = setup.starterOptions[index - 1];
-      if (option !== undefined) return ok(option.formId);
-    }
+  const normalized = normalizedChoice(value);
+
+  const numericTokens = [...normalized.matchAll(/(?:^|\s)#?0*(\d+)(?=\s|$)/g)]
+    .map((match) => Number(match[1]))
+    .filter((candidate) => Number.isSafeInteger(candidate) && candidate > 0);
+  const uniqueNumericTokens = [...new Set(numericTokens)];
+  if (uniqueNumericTokens.length === 1) {
+    const option = setup.starterOptions[uniqueNumericTokens[0] - 1];
+    if (option !== undefined) return ok(option.formId);
   }
 
-  const normalized = normalizedChoice(value);
-  const matches = setup.starterOptions.filter(
-    (option) => option.formId === value || normalizedChoice(option.displayName) === normalized,
-  );
+  const phraseHaystack = ` ${normalized.replace(/[,.!?;:]+/g, " ")} `;
+  const matches = setup.starterOptions.filter((option) => {
+    const displayName = normalizedChoice(option.displayName);
+    return (
+      option.formId === value ||
+      normalized === displayName ||
+      phraseHaystack.includes(` ${displayName} `)
+    );
+  });
+
   if (matches.length !== 1) {
     return err(
-      appError("VALIDATION_FAILED", "Pokémon inicial inválido ou ambíguo", {
+      appError("VALIDATION_FAILED", "Não consegui identificar esse Pokémon inicial.", {
         fields: ["starterFormId"],
       }),
     );
   }
+
   const match = matches[0];
   if (match === undefined) {
-    return err(
-      appError("VALIDATION_FAILED", "Pokémon inicial inválido ou ambíguo", {
-        fields: ["starterFormId"],
-      }),
-    );
+    return err(appError("VALIDATION_FAILED", "Não consegui identificar esse Pokémon inicial."));
   }
   return ok(match.formId);
 }
-
 function reviewText(snapshot: RegistrationSnapshot, setup: RegistrationSetup): string {
   return renderReview({
     trainerName: snapshot.trainerName,
@@ -590,14 +618,13 @@ export class RegistrationConversationResolver {
         inboxMessageId: context.inboxMessageId,
       });
       if (!saved.ok) return saved;
-      return persistedTextResult(
-        context,
-        playerId,
+      return persistedTextSequenceResult(context, playerId, [
+        renderStarterOptions(starterDisplayNames(setup.value)),
         renderFullForm({
           regionDisplayName: setup.value.regionDisplayName,
           starterOptions: starterDisplayNames(setup.value),
         }),
-      );
+      ]);
     }
 
     if (conversation.state === "GUIDED_FIELD") {
@@ -791,14 +818,13 @@ export class RegistrationConversationResolver {
             inboxMessageId: context.inboxMessageId,
           });
           if (!saved.ok) return saved;
-          return persistedTextResult(
-            context,
-            playerId,
+          return persistedTextSequenceResult(context, playerId, [
+            renderStarterOptions(starterDisplayNames(setup.value)),
             renderFullForm({
               regionDisplayName: setup.value.regionDisplayName,
               starterOptions: starterDisplayNames(setup.value),
             }),
-          );
+          ]);
         }
 
         if (conversation.editingMode !== "GUIDED") {
