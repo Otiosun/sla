@@ -44,6 +44,7 @@ SELECT format(
 FROM (VALUES
   ('admin_role_capabilities'),
   ('admin_principal_roles'),
+  ('admin_principal_capability_overrides'),
   ('pokemon_move_slots'),
   ('pokemon_roster_slots'),
   ('pokemon_persistent_conditions'),
@@ -127,6 +128,7 @@ SELECT format(
         AND c.relname <> ALL (ARRAY[
           'admin_role_capabilities',
           'admin_principal_roles',
+          'admin_principal_capability_overrides',
           'pokemon_move_slots',
           'pokemon_roster_slots',
           'pokemon_persistent_conditions',
@@ -143,6 +145,7 @@ SELECT format(
       FROM unnest(ARRAY[
         'admin_role_capabilities',
         'admin_principal_roles',
+        'admin_principal_capability_overrides',
         'pokemon_move_slots',
         'pokemon_roster_slots',
         'pokemon_persistent_conditions',
