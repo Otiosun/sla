@@ -172,12 +172,17 @@ function splitReason(body: string): { readonly command: string; readonly reason:
   const pipe = body.lastIndexOf("|");
   if (pipe < 0) return null;
   const command = body.slice(0, pipe).trim();
-  const reason = body.slice(pipe + 1).trim().replace(/^motivo\s*:\s*/i, "");
+  const reason = body
+    .slice(pipe + 1)
+    .trim()
+    .replace(/^motivo\s*:\s*/i, "");
   if (command.length === 0 || reason.length === 0) return null;
   return { command, reason };
 }
 
-function splitTargets(command: string): { readonly action: string; readonly targetText: string } | null {
+function splitTargets(
+  command: string,
+): { readonly action: string; readonly targetText: string } | null {
   const match = /\s+para\s+/i.exec(command);
   if (match === null || match.index <= 0) return null;
   const action = command.slice(0, match.index).trim();
@@ -229,7 +234,10 @@ function parseAction(body: string): ParsedAdminAction | null {
     if (deltaIndex < 0) return null;
     const rawDelta = remaining[deltaIndex];
     const delta = rawDelta === undefined ? null : signedDelta(rawDelta);
-    const itemQuery = remaining.filter((_, index) => index !== deltaIndex).join(" ").trim();
+    const itemQuery = remaining
+      .filter((_, index) => index !== deltaIndex)
+      .join(" ")
+      .trim();
     if (delta === null || itemQuery.length === 0) return null;
     return {
       kind: "ITEM",
@@ -342,7 +350,8 @@ function ensurePowers(admin: ResolvedAdmin, action: ParsedAdminAction): Result<v
     ? ok(undefined)
     : err(
         appError("ACTION_INVALID", "Administrative capability denied", {
-          userMessage: "Seu perfil administrativo não possui todos os poderes necessários para esta ação.",
+          userMessage:
+            "Seu perfil administrativo não possui todos os poderes necessários para esta ação.",
         }),
       );
 }
@@ -357,12 +366,15 @@ function chooseCatalogEntry<T extends { readonly slug: string; readonly displayN
   );
   if (exact.length === 1) return exact[0] ?? null;
   const prefix = entries.filter(
-    (entry) => normalize(entry.slug).startsWith(key) || normalize(entry.displayName).startsWith(key),
+    (entry) =>
+      normalize(entry.slug).startsWith(key) || normalize(entry.displayName).startsWith(key),
   );
   return prefix.length === 1 ? (prefix[0] ?? null) : null;
 }
 
-function parsePreviewResult(result: Readonly<Record<string, unknown>> | null): PreviewResult | null {
+function parsePreviewResult(
+  result: Readonly<Record<string, unknown>> | null,
+): PreviewResult | null {
   if (
     result === null ||
     typeof result.batchId !== "string" ||
@@ -444,7 +456,8 @@ export function createAdminBatchWhatsAppRoutes(
       if (replied === null) {
         return err(
           appError("VALIDATION_FAILED", "Admin confirmation must reply to its preview", {
-            userMessage: "Responda diretamente ao preview que deseja executar com `/adm confirmar`.",
+            userMessage:
+              "Responda diretamente ao preview que deseja executar com `/adm confirmar`.",
           }),
         );
       }
@@ -473,7 +486,10 @@ export function createAdminBatchWhatsAppRoutes(
           idempotencyKey: `whatsapp-admin-batch-execute:${ref.batchId}`,
           correlationId: context.correlationId,
         });
-        const confirmed = await dependencies.admin.confirm(prepared.operation.id, admin.principalId);
+        const confirmed = await dependencies.admin.confirm(
+          prepared.operation.id,
+          admin.principalId,
+        );
         const operation =
           confirmed.status === "READY"
             ? await dependencies.admin.apply(confirmed.id, admin.principalId)
@@ -482,7 +498,8 @@ export function createAdminBatchWhatsAppRoutes(
         if (operation.status !== "APPLIED" || result === null) {
           return err(
             appError("ACTION_INVALID", "Admin batch execution did not reach APPLIED", {
-              userMessage: "O lote não chegou ao estado aplicado. Nada será presumido como concluído.",
+              userMessage:
+                "O lote não chegou ao estado aplicado. Nada será presumido como concluído.",
             }),
           );
         }
@@ -534,7 +551,10 @@ export function createAdminBatchWhatsAppRoutes(
           currencies: true,
           species: false,
         });
-        const currency = chooseCatalogEntry(catalog.currencies, parsed.catalogQuery ?? "pokedollar");
+        const currency = chooseCatalogEntry(
+          catalog.currencies,
+          parsed.catalogQuery ?? "pokedollar",
+        );
         if (currency === null) {
           return err(
             appError("NOT_FOUND", "Canonical admin currency was not found", {
@@ -571,7 +591,7 @@ export function createAdminBatchWhatsAppRoutes(
         const species =
           nationalDex === null
             ? chooseCatalogEntry(catalog.species ?? [], query)
-            : (catalog.species ?? []).find((entry) => entry.nationalDex === nationalDex) ?? null;
+            : ((catalog.species ?? []).find((entry) => entry.nationalDex === nationalDex) ?? null);
         if (species === null) {
           return err(
             appError("NOT_FOUND", "Admin Pokedex species query was ambiguous or missing", {
@@ -608,9 +628,7 @@ export function createAdminBatchWhatsAppRoutes(
         );
       }
 
-      const targetLines = targets.value
-        .slice(0, 20)
-        .map((target) => `• ${target.trainerName}`);
+      const targetLines = targets.value.slice(0, 20).map((target) => `• ${target.trainerName}`);
       if (targets.value.length > 20) {
         targetLines.push(`• … +${targets.value.length - 20} jogador(es)`);
       }
