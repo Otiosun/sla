@@ -216,9 +216,7 @@ export function renderEditAcknowledgement(
 }
 
 export function renderFullForm(options: RegistrationFullFormRenderOptions): string {
-  const starterLines = options.starterOptions.map(
-    (option, index) => `${index + 1} — ${option}`,
-  );
+  const starterLines = options.starterOptions.map((option, index) => `${index + 1} — ${option}`);
 
   return [
     "〔▣〕 *FICHA COMPLETA*",
