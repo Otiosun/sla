@@ -217,9 +217,7 @@ describe("persisted Registration conversation state machine", () => {
         ],
       },
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "01 / 07",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("01 / 07");
     expect(state.checkpoints).toHaveLength(1);
     expect(state.checkpoints[0]).toMatchObject({
       state: "GUIDED_FIELD",
@@ -309,9 +307,7 @@ describe("persisted Registration conversation state machine", () => {
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
       "✓ *Pokémon inicial registrado:* Charmander",
     );
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
   });
 
   it("keeps an invalid full form in FULL_FORM and makes the retry the new active prompt", async () => {
@@ -336,9 +332,7 @@ describe("persisted Registration conversation state machine", () => {
     });
     expect(state.checkpoints[0]).not.toHaveProperty("draft");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("△");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).not.toContain("correlation");
   });
 });
