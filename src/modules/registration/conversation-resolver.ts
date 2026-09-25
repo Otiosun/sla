@@ -161,7 +161,18 @@ function persistedSubmissionResult(
   const playerReply = persistedTextResult(
     context,
     playerId,
-    "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+    [
+      "✦ *𝗙𝗜𝗖𝗛𝗔 𝗘𝗡𝗩𝗜𝗔𝗗𝗔*",
+      "　Recepção · Aguardando análise",
+      "",
+      "> _Seu registro foi entregue à equipe responsável._",
+      "",
+      "A versão enviada ficou preservada enquanto estiver em análise.",
+      "",
+      "◇ Estado · `EM ANÁLISE`",
+      "",
+      "_Você será avisado aqui quando houver uma resposta._",
+    ].join("\n"),
   );
   if (!playerReply.ok) return playerReply;
 
@@ -174,7 +185,14 @@ function persistedSubmissionResult(
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: {
-          text: `📋 Nova ficha de ${review.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+          text: [
+            "▣ *𝗡𝗢𝗩𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*",
+            "　Recepção · Revisão administrativa",
+            "",
+            `✦ *${review.snapshot.trainerName}* concluiu sua ficha.`,
+            "",
+            "› _Responda a esta mensagem com `/verficha` para abrir o registro._",
+          ].join("\n"),
           registrationReview: {
             reviewId: review.id,
             reviewRevision: review.revision,
@@ -268,12 +286,13 @@ function isPersistedStateAwaitingReply(conversation: RegistrationConversationRec
 }
 
 function normalizedChoice(value: string): string {
-  return value
+  const normalized = value
     .trim()
     .normalize("NFD")
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
     .replace(/\s+/g, " ");
+  return /^0+\d+$/.test(normalized) ? String(Number(normalized)) : normalized;
 }
 
 function parsePersistedModeChoice(value: string): "GUIDED" | "FULL" | null {
