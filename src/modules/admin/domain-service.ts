@@ -252,7 +252,6 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
     });
   }
 
-
   public async applyPokedexSeenGrant(
     operation: AdminOperationRecord,
     actorPrincipalId: string,
