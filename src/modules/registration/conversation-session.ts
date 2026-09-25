@@ -148,7 +148,11 @@ function normalizedLabel(value: string): string {
     .normalize("NFD")
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
-    .replace(/\s+/g, " ");
+    .replace(/[*_`~]/g, "")
+    .replace(/^[^a-z0-9]+/g, "")
+    .replace(/[^a-z0-9/ ]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parseModeChoice(rawValue: string): RegistrationEditingMode | null {
