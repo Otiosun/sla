@@ -201,7 +201,7 @@ describe("persisted Registration resume and restart flow", () => {
     });
     expect(state.getConversation()?.state).toBe("MODE_SELECT");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "Escolha como prefere preencher",
+      "CRIAÇÃO DE TREINADOR",
     );
   });
 });
