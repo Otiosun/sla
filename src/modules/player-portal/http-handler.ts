@@ -381,7 +381,7 @@ export class PlayerPortalHttpHandler {
                 admin.principalId,
               )
             : action.action === "approve"
-              ? await this.approveAdminOperation(request, action.operationId, principal.principalId)
+              ? await this.approveAdminOperation(request, action.operationId, admin.principalId)
               : await this.dependencies.adminMutations.apply(
                   action.operationId,
                   admin.principalId,
