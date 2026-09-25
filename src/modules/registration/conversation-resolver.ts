@@ -23,6 +23,7 @@ import {
   renderValidationRetry,
 } from "./conversation-renderer.js";
 import {
+  looksLikeFullRegistrationTemplate,
   parseFullRegistrationTemplate,
   type RegistrationConversationField,
   type RegistrationConversationSession,
@@ -389,6 +390,13 @@ export class RegistrationConversationResolver {
     session: RegistrationConversationSession,
   ): Promise<boolean> {
     if (!isLogicallyAwaitingReply(session)) return false;
+    if (
+      session.mode === "FULL" &&
+      message.text !== null &&
+      looksLikeFullRegistrationTemplate(message.text)
+    ) {
+      return true;
+    }
     const replyToExternalMessageId = message.replyToExternalMessageId;
     if (replyToExternalMessageId === null) return false;
 
@@ -411,6 +419,13 @@ export class RegistrationConversationResolver {
   ): Promise<boolean> {
     if (!isPersistedStateAwaitingReply(conversation)) return false;
     if (conversation.chatRef !== message.chatRef) return false;
+    if (
+      conversation.state === "FULL_FORM" &&
+      message.text !== null &&
+      looksLikeFullRegistrationTemplate(message.text)
+    ) {
+      return true;
+    }
     const replyToExternalMessageId = message.replyToExternalMessageId;
     const expectedOutboxIdempotencyKey = conversation.activePromptOutboxIdempotencyKey;
     const verifier = this.dependencies.replyIntent;
