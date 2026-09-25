@@ -75,7 +75,7 @@ function expectCurrentPrompt(
 }
 
 describe("registration freeform intent", () => {
-  it("ignores a compact mode choice when it is not a reply", async () => {
+  it("accepts a compact mode choice without requiring a reply", async () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
     sessions.begin(playerId, { regionId: ZHOULIA_ID });
@@ -84,8 +84,11 @@ describe("registration freeform intent", () => {
 
     const routed = await router.dispatch(context("2"));
 
-    expect(routed).toEqual({ ok: true, value: null });
-    expect(sessions.get(playerId)).toMatchObject({ mode: "CHOOSING", dirty: false });
+    expect(routed).toMatchObject({
+      ok: true,
+      value: { resultRefType: "REGISTRATION_SESSION", resultRefId: playerId },
+    });
+    expect(sessions.get(playerId)).toMatchObject({ mode: "FULL", dirty: false });
   });
 
   it("ignores a compact mode choice replying to an unrelated message", async () => {
