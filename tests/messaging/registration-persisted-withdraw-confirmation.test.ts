@@ -231,7 +231,7 @@ describe("persisted post-submit edit confirmation", () => {
       pendingReviewRevision: null,
     });
     expect(second.ok && second.value.outgoing[0]?.payload.text).toContain(
-      "✏️ O que deseja corrigir?",
+      "𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔",
     );
   });
 
