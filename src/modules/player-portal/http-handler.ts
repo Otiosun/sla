@@ -236,7 +236,7 @@ export class PlayerPortalHttpHandler {
     if (principal === null) return null;
     const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
     if (!capabilities.includes("central.view")) return null;
-    return { principalId: admin.principalId, capabilities };
+    return { principalId: principal.principalId, capabilities };
   }
 
   private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
@@ -263,13 +263,12 @@ export class PlayerPortalHttpHandler {
       return jsonResponse(200, {
         items: [...catalog.items],
         currencies: [...catalog.currencies],
-        species: [...catalog.species],
+        species: [...(catalog.species ?? [])],
       });
     } catch (error) {
       return adminErrorResponse(error);
     }
   }
-
 
   private async getAdminTeam(identity: ExternalIdentity): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
@@ -373,21 +372,12 @@ export class PlayerPortalHttpHandler {
     try {
       const operation =
         action.action === "simulate"
-          ? await this.dependencies.adminMutations.simulate(
-              action.operationId,
-              admin.principalId,
-            )
+          ? await this.dependencies.adminMutations.simulate(action.operationId, admin.principalId)
           : action.action === "confirm"
-            ? await this.dependencies.adminMutations.confirm(
-                action.operationId,
-                admin.principalId,
-              )
+            ? await this.dependencies.adminMutations.confirm(action.operationId, admin.principalId)
             : action.action === "approve"
               ? await this.approveAdminOperation(request, action.operationId, admin.principalId)
-              : await this.dependencies.adminMutations.apply(
-                  action.operationId,
-                  admin.principalId,
-                );
+              : await this.dependencies.adminMutations.apply(action.operationId, admin.principalId);
 
       return jsonResponse(200, {
         operationId: operation.id,
