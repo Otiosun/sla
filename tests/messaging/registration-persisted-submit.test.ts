@@ -218,7 +218,7 @@ describe("persisted Registration review submission", () => {
     });
     expect(result.ok && result.value?.outgoing[0]?.payload.text).toMatch(/mudou.*rev/i);
     expect(result.ok && result.value?.outgoing[0]?.payload.text).toContain(
-      "📋 FICHA PRONTA PARA REVISÃO",
+      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
     );
   });
 });
