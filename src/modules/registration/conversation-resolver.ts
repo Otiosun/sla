@@ -144,8 +144,7 @@ function persistedTextSequenceResult(
       destinationRef: context.message.chatRef,
       messageType: "TEXT" as const,
       payload: { text, replyTo: replyContext(context) },
-      idempotencyKey:
-        index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
+      idempotencyKey: index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
     })),
   });
 }
