@@ -447,13 +447,13 @@ export class RegistrationConversationResolver {
       return true;
     }
     const replyToExternalMessageId = message.replyToExternalMessageId;
-    if (replyToExternalMessageId === null) return false;
+    if (replyToExternalMessageId === null) return true;
 
     const verifier = this.dependencies.replyIntent;
     if (verifier === undefined) return true;
 
     const expectedOutboxIdempotencyKey = session.expectedReplyOutboxIdempotencyKey;
-    if (expectedOutboxIdempotencyKey === null) return false;
+    if (expectedOutboxIdempotencyKey === null) return true;
     return verifier.isExpectedReply({
       provider: message.provider,
       chatRef: message.chatRef,
@@ -478,13 +478,8 @@ export class RegistrationConversationResolver {
     const replyToExternalMessageId = message.replyToExternalMessageId;
     const expectedOutboxIdempotencyKey = conversation.activePromptOutboxIdempotencyKey;
     const verifier = this.dependencies.replyIntent;
-    if (
-      replyToExternalMessageId === null ||
-      expectedOutboxIdempotencyKey === null ||
-      verifier === undefined
-    ) {
-      return false;
-    }
+    if (replyToExternalMessageId === null) return true;
+    if (expectedOutboxIdempotencyKey === null || verifier === undefined) return true;
 
     return verifier.isExpectedReply({
       provider: message.provider,
