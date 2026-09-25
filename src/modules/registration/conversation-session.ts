@@ -196,6 +196,18 @@ function fieldForLabel(label: string): RegistrationConversationField | null {
   }
 }
 
+export function looksLikeFullRegistrationTemplate(text: string): boolean {
+  const fields = new Set<RegistrationConversationField>();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const colonIndex = line.indexOf(":");
+    if (colonIndex < 0) continue;
+    const field = fieldForLabel(line.slice(0, colonIndex));
+    if (field !== null) fields.add(field);
+  }
+  return fields.has("trainerName") && fields.has("age") && fields.size >= 4;
+}
+
 export function parseFullRegistrationTemplate(
   text: string,
 ): Result<ParsedFullRegistrationTemplate> {
