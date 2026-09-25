@@ -775,7 +775,6 @@ function jsonResponse(
   });
 }
 
-
 function adminTeamCapabilityTargetFromPath(pathname: string): string | null {
   const match = pathname.match(
     /^\/v1\/hub\/admin\/team\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/capabilities$/i,
