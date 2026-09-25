@@ -164,9 +164,7 @@ describe("persisted Registration review and edit flow", () => {
 
     const routed = await state.router.dispatch(context);
 
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔");
     expect(state.checkpoints[0]).toMatchObject({
       state: "EDIT_SELECT",
       editField: null,
@@ -206,9 +204,7 @@ describe("persisted Registration review and edit flow", () => {
       editField: null,
       draft: { trainerName: "Liora Nova" },
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*Nome:* Liora Nova");
   });
 
