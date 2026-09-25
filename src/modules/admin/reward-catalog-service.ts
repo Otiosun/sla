@@ -21,7 +21,7 @@ export class AdminRewardCatalogService {
     });
     await this.authorizer.authorizeRead({
       principalId,
-      operationType: "pokedex.read",
+      operationType: "pokedex.catalog.read",
       input: {},
     });
     return this.repository.getActiveRewardCatalog();
