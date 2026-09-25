@@ -134,6 +134,30 @@ describe("admin WhatsApp batch routes", () => {
     expect(text).not.toContain("/adm visto");
   });
 
+  it("keeps WhatsApp admin powers independent from Central visibility", async () => {
+    const deps = dependencies();
+    deps.admins.capabilitiesFor = vi.fn(async () => [
+      "player.read",
+      "batch.preview",
+      "batch.execute.low_risk",
+      "wallet.adjust",
+      "economy.read",
+    ]);
+    const [route] = createAdminBatchWhatsAppRoutes(deps);
+    if (route === undefined) throw new Error("ADM route missing");
+
+    const result = await route.handler.handle(
+      context("/adm dinheiro +500 para @Ana | recompensa do evento", {
+        mentions: ["ana@s.whatsapp.net"],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(deps.admin.prepareMutation).toHaveBeenCalledWith(
+      expect.objectContaining({ operationType: "batch.preview" }),
+    );
+  });
+
   it("creates a frozen preview without executing the child reward", async () => {
     const deps = dependencies();
     const [route] = createAdminBatchWhatsAppRoutes(deps);
