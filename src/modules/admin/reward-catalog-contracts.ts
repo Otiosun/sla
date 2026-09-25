@@ -22,5 +22,5 @@ export interface AdminRewardCatalogCurrency {
 export interface AdminRewardCatalogView {
   readonly items: readonly AdminRewardCatalogItem[];
   readonly currencies: readonly AdminRewardCatalogCurrency[];
-  readonly species: readonly AdminRewardCatalogSpecies[];
+  readonly species?: readonly AdminRewardCatalogSpecies[];
 }
