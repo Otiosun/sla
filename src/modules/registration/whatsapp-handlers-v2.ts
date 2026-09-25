@@ -139,10 +139,14 @@ function parseMode(value: string | undefined): RegistrationConversationEditingMo
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR");
 
-  if (["1", "01", "guiado", "passo-a-passo", "passo_a_passo", "passo a passo"].includes(normalized)) {
+  if (
+    ["1", "01", "guiado", "passo-a-passo", "passo_a_passo", "passo a passo"].includes(normalized)
+  ) {
     return "GUIDED";
   }
-  if (["2", "02", "completo", "completa", "ficha", "ficha completa"].includes(normalized)) {
+  if (
+    ["2", "02", "completo", "completa", "ficha", "ficha completa"].includes(normalized)
+  ) {
     return "FULL";
   }
   return null;
