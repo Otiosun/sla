@@ -262,7 +262,11 @@ export class PlayerPortalHttpHandler {
     if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     try {
-      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId);
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: admin.capabilities.includes("inventory.read"),
+        currencies: admin.capabilities.includes("economy.read"),
+        species: admin.capabilities.includes("pokedex.read"),
+      });
       return jsonResponse(200, {
         items: [...catalog.items],
         currencies: [...catalog.currencies],
