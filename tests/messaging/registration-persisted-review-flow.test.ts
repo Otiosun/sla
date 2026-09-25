@@ -220,6 +220,8 @@ describe("persisted Registration review and edit flow", () => {
       activePromptOutboxIdempotencyKey: null,
     });
     expect(state.getConversation().activePromptOutboxIdempotencyKey).toBeNull();
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("Seu progresso foi salvo.");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
+      "Seu progresso foi salvo.",
+    );
   });
 });
