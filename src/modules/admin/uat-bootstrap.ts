@@ -529,5 +529,5 @@ export function createUatBootstrapRoutes(deps: {
     handler,
   });
 
-  return [protectedRoute("teste"), protectedRoute("adm")];
+  return [protectedRoute("teste")];
 }
