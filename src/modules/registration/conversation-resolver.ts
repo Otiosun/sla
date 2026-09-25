@@ -373,8 +373,11 @@ function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetu
     .filter((candidate) => Number.isSafeInteger(candidate) && candidate > 0);
   const uniqueNumericTokens = [...new Set(numericTokens)];
   if (uniqueNumericTokens.length === 1) {
-    const option = setup.starterOptions[uniqueNumericTokens[0] - 1];
-    if (option !== undefined) return ok(option.formId);
+    const numericChoice = uniqueNumericTokens[0];
+    if (numericChoice !== undefined) {
+      const option = setup.starterOptions[numericChoice - 1];
+      if (option !== undefined) return ok(option.formId);
+    }
   }
 
   const phraseHaystack = ` ${normalized.replace(/[,.!?;:]+/g, " ")} `;
