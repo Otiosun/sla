@@ -11,10 +11,7 @@ export interface AdminBatchWhatsAppPreviewRef {
   readonly reason: string;
 }
 
-export type RecordAdminBatchWhatsAppPreviewRef = Omit<
-  AdminBatchWhatsAppPreviewRef,
-  "reason"
->;
+export type RecordAdminBatchWhatsAppPreviewRef = Omit<AdminBatchWhatsAppPreviewRef, "reason">;
 
 interface RefRow {
   readonly provider: string;
