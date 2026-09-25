@@ -158,7 +158,7 @@ describe("persisted Registration resume and restart flow", () => {
       state: "GUIDED_FIELD",
       currentField: "age",
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("📝 2/7 — Idade");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
   });
 
   it("requires a second explicit choice before destructive restart", async () => {
