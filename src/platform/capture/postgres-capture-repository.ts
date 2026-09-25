@@ -819,7 +819,7 @@ class PostgresCaptureTransaction implements CaptureTransaction {
         ],
       );
     }
-    await recordPokedexCaught(this.client, input.playerId, snapshot.speciesId);
+    await recordPokedexCaught(this.client, input.playerId, snapshot.speciesId, snapshot.shiny);
     await this.client.query(
       `INSERT INTO pokemon_history_events(
          id, pokemon_instance_id, event_type, payload, actor_type, correlation_id
