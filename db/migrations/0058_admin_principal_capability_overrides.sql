@@ -1,6 +1,29 @@
 -- 0058_admin_principal_capability_overrides.sql
 -- Individual administrative capability overrides with owner protection.
 
+-- Extend low-risk admin batch snapshots to the new Pokédex seen grant.
+ALTER TABLE admin_batches
+  DROP CONSTRAINT admin_batches_child_operation_type_check,
+  DROP CONSTRAINT admin_batches_child_capability_key_check;
+
+ALTER TABLE admin_batches
+  ADD CONSTRAINT admin_batches_child_operation_type_check CHECK (
+    child_operation_type IN (
+      'inventory.adjust',
+      'wallet.adjust',
+      'progression.trainer.adjust',
+      'pokedex.seen.grant'
+    )
+  ),
+  ADD CONSTRAINT admin_batches_child_capability_key_check CHECK (
+    child_capability_key IN (
+      'inventory.adjust',
+      'wallet.adjust',
+      'progression.adjust',
+      'pokedex.seen.grant'
+    )
+  );
+
 CREATE TABLE admin_principal_capability_overrides (
   principal_id UUID NOT NULL REFERENCES admin_principals(id) ON DELETE CASCADE,
   capability_id UUID NOT NULL REFERENCES capabilities(id) ON DELETE CASCADE,
