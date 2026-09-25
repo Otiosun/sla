@@ -232,6 +232,24 @@ describe("persisted Registration conversation state machine", () => {
     });
   });
 
+  it("accepts 02 and sends starter options separately before the full form", async () => {
+    const playerId = createPlayerId();
+    const state = harness({ initialConversation: conversation(playerId) });
+    const router = new MessageRouter([], undefined, state.resolver);
+    const context = messageContext("02", CURRENT_PROMPT_ID, "09");
+
+    const routed = await router.dispatch(context);
+
+    expect(routed.ok).toBe(true);
+    expect(routed.ok && routed.value?.outgoing).toHaveLength(2);
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗜𝗦");
+    expect(routed.ok && routed.value?.outgoing[1]?.payload.text).toContain("𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔");
+    expect(state.checkpoints[0]).toMatchObject({
+      state: "FULL_FORM",
+      editingMode: "FULL",
+      activePromptOutboxIdempotencyKey: `${context.idempotencyKey}:registration-conversation`,
+    });
+  });
   it("autosaves a guided answer and advances the persisted field before responding", async () => {
     const playerId = createPlayerId();
     const state = harness({
@@ -317,7 +335,7 @@ describe("persisted Registration conversation state machine", () => {
       activePromptOutboxIdempotencyKey: `${context.idempotencyKey}:registration-conversation`,
     });
     expect(state.checkpoints[0]).not.toHaveProperty("draft");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("⚠️");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("△");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
       "▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*",
     );
