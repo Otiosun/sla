@@ -271,6 +271,74 @@ function isLogicallyAwaitingReply(session: RegistrationConversationSession): boo
   return true;
 }
 
+function normalizedFreeform(value: string): string {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, " ");
+}
+
+function looksLikeCasualNoise(value: string): boolean {
+  const normalized = normalizedFreeform(value).replace(/[^a-z0-9]+/g, "");
+  return /^(?:k{2,}|ha(?:ha)+|rs+|ok|blz|beleza|sla|sim|nao)$/.test(normalized);
+}
+
+function looksLikeGuidedUnquotedAnswer(
+  field: PersistedRegistrationConversationField,
+  value: string,
+): boolean {
+  const text = value.trim();
+  if (text.length === 0 || looksLikeCasualNoise(text)) return false;
+  switch (field) {
+    case "age":
+      return /^\d{1,3}(?:\s*anos?)?$/iu.test(text);
+    case "trainerName":
+      return text.length <= 80 && /\p{L}/u.test(text);
+    case "genderPronouns":
+      return text.length <= 120 && /\p{L}/u.test(text);
+    case "appearance":
+    case "personality":
+    case "backstory":
+      return text.length >= 4 && /\p{L}/u.test(text);
+    case "starterFormId":
+      return /^(?:#?0*\d+|[\p{L}][\p{L}\p{M}' .-]*)$/u.test(text);
+  }
+}
+
+function looksLikePersistedUnquotedIntent(
+  conversation: RegistrationConversationRecord,
+  text: string,
+): boolean {
+  switch (conversation.state) {
+    case "MODE_SELECT":
+      return parsePersistedModeChoice(text) !== null;
+    case "GUIDED_FIELD":
+      return conversation.currentField !== null && looksLikeGuidedUnquotedAnswer(conversation.currentField, text);
+    case "FULL_FORM":
+      return looksLikeFullRegistrationTemplate(text);
+    case "REVIEW":
+      return ["1", "2", "3"].includes(normalizedChoice(text));
+    case "EDIT_SELECT":
+      return parseEditFieldChoice(text) !== null;
+    case "EDIT_FIELD":
+      return conversation.editField !== null && looksLikeGuidedUnquotedAnswer(conversation.editField, text);
+    case "RESUME_MENU":
+      return ["1", "2", "3"].includes(normalizedChoice(text));
+    case "RESTART_CONFIRM":
+      return ["1", "2"].includes(normalizedChoice(text));
+    case "PAUSED":
+    case "SUBMITTED":
+      return false;
+  }
+}
+
+function looksLikeSessionUnquotedIntent(session: RegistrationConversationSession, text: string): boolean {
+  if (session.mode === "CHOOSING") return parseModeChoice(text) !== null;
+  if (session.mode === "FULL") return looksLikeFullRegistrationTemplate(text);
+  return session.currentField !== null && looksLikeGuidedUnquotedAnswer(session.currentField, text);
+}
 function isPersistedStateAwaitingReply(conversation: RegistrationConversationRecord): boolean {
   return (
     conversation.state === "MODE_SELECT" ||
@@ -447,7 +515,9 @@ export class RegistrationConversationResolver {
       return true;
     }
     const replyToExternalMessageId = message.replyToExternalMessageId;
-    if (replyToExternalMessageId === null) return true;
+    if (replyToExternalMessageId === null) {
+      return message.text !== null && looksLikeSessionUnquotedIntent(session, message.text);
+    }
 
     const verifier = this.dependencies.replyIntent;
     if (verifier === undefined) return true;
@@ -478,7 +548,9 @@ export class RegistrationConversationResolver {
     const replyToExternalMessageId = message.replyToExternalMessageId;
     const expectedOutboxIdempotencyKey = conversation.activePromptOutboxIdempotencyKey;
     const verifier = this.dependencies.replyIntent;
-    if (replyToExternalMessageId === null) return true;
+    if (replyToExternalMessageId === null) {
+      return message.text !== null && looksLikePersistedUnquotedIntent(conversation, message.text);
+    }
     if (expectedOutboxIdempotencyKey === null || verifier === undefined) return true;
 
     return verifier.isExpectedReply({
