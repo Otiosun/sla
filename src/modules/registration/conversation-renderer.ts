@@ -94,14 +94,16 @@ function draftValue(value: string | number | undefined): string {
 
 export function renderModeSelect(): string {
   return [
-    "🎒 Vamos montar sua ficha.",
+    "〔◆〕 *CRIAÇÃO DE TREINADOR*",
+    "`INÍCIO · ESCOLHA O FORMATO`",
     "",
-    "Escolha como prefere preencher:",
+    "Como prefere montar sua ficha?",
     "",
-    "1 — Modo guiado, passo a passo",
-    "2 — Ficha completa de uma vez",
+    "1 — *Guiado* · campo por campo",
+    "2 — *Ficha completa* · tudo de uma vez",
     "",
-    "Responda a esta mensagem com 1 ou 2.",
+    "> Responda a esta mensagem com *1* ou *2*.",
+    "> Nada será enviado para aprovação sem você revisar antes.",
   ].join("\n");
 }
 
@@ -214,29 +216,38 @@ export function renderEditAcknowledgement(
 }
 
 export function renderFullForm(options: RegistrationFullFormRenderOptions): string {
+  const starterLines = options.starterOptions.map(
+    (option, index) => `${index + 1} — ${option}`,
+  );
+
   return [
-    "✅ Modo ficha completa escolhido.",
+    "〔▣〕 *FICHA COMPLETA*",
+    "`MODO RÁPIDO · 7 CAMPOS`",
     "",
-    "📋 FICHA COMPLETA",
+    "*Pokémon iniciais*",
+    ...starterLines,
     "",
-    "Pokémon iniciais disponíveis:",
-    numberedOptions(options.starterOptions),
+    "Copie, preencha e envie a ficha abaixo:",
     "",
-    "Preencha o modelo abaixo e envie respondendo a esta mensagem:",
+    "┌─ *TREINADOR*",
+    "│ Nome:",
+    "│ Idade:",
+    "│ Gênero / pronomes:",
+    "│",
+    "│ Aparência:",
+    "│",
+    "│ Personalidade:",
+    "│",
+    "│ História / resumo:",
+    "│",
+    "│ Pokémon inicial:",
+    `└─ Região: ${options.regionDisplayName} · automática`,
     "",
-    "Nome:",
-    "Idade:",
-    "Gênero / pronomes:",
-    "Aparência:",
-    "Personalidade:",
-    "História / resumo:",
-    "Pokémon inicial:",
-    "",
-    `Região: ${options.regionDisplayName} — preenchida automaticamente.`,
-    "Nada será enviado para análise sem sua confirmação.",
+    "> Pode escrever várias linhas nos campos narrativos.",
+    "> De preferência responda a esta mensagem; uma ficha claramente preenchida também será reconhecida sem o quote.",
+    "> Depois você verá a ficha pronta antes de enviar para análise.",
   ].join("\n");
 }
-
 export function renderReview(input: RegistrationReviewRenderInput): string {
   return [
     "📋 FICHA PRONTA PARA REVISÃO",
