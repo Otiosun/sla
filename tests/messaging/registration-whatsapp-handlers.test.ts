@@ -193,7 +193,7 @@ describe("registration WhatsApp commands", () => {
         outgoing: [
           {
             payload: {
-              text: expect.stringMatching(/1.*guiado[\s\S]*2.*ficha completa/i),
+              text: expect.stringMatching(/01[\s\S]*Passo a passo[\s\S]*02[\s\S]*Ficha completa/i),
             },
           },
         ],
@@ -218,7 +218,7 @@ describe("registration WhatsApp commands", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      value: { outgoing: [{ payload: { text: expect.stringContaining("FICHA COMPLETA") } }] },
+      value: { outgoing: [{ payload: { text: expect.stringContaining("𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔") } }] },
     });
     expect(sessions.get(PLAYER_ID)).toMatchObject({
       mode: "FULL",
