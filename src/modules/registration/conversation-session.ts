@@ -155,6 +155,14 @@ function normalizedLabel(value: string): string {
     .trim();
 }
 
+function cleanInlineValue(value: string): string {
+  return value
+    .trim()
+    .replace(/^[*_`~]+\s*/u, "")
+    .replace(/\s*[*_`~]+$/u, "")
+    .trim();
+}
+
 function parseModeChoice(rawValue: string): RegistrationEditingMode | null {
   switch (normalizedLabel(rawValue)) {
     case "1":
@@ -233,7 +241,7 @@ export function parseFullRegistrationTemplate(
       const field = fieldForLabel(line.slice(0, colonIndex));
       if (field !== null) {
         if (values.has(field)) duplicates.add(field);
-        const inlineValue = line.slice(colonIndex + 1).trim();
+        const inlineValue = cleanInlineValue(line.slice(colonIndex + 1));
         if (inlineValue.length > 0) values.set(field, inlineValue);
         currentField = field;
         pendingBlankLine = false;
