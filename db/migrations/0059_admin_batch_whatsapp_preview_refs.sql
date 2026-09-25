@@ -18,3 +18,17 @@ CREATE INDEX idx_admin_batch_whatsapp_preview_refs_batch
 
 CREATE INDEX idx_admin_batch_whatsapp_preview_refs_principal
   ON admin_batch_whatsapp_preview_refs(admin_principal_id, created_at DESC);
+
+
+CREATE OR REPLACE FUNCTION guard_admin_batch_whatsapp_preview_ref_immutable()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'admin batch WhatsApp preview refs are immutable' USING ERRCODE = '55000';
+END;
+$$;
+
+CREATE TRIGGER trg_admin_batch_whatsapp_preview_ref_immutable
+BEFORE UPDATE OR DELETE ON admin_batch_whatsapp_preview_refs
+FOR EACH ROW EXECUTE FUNCTION guard_admin_batch_whatsapp_preview_ref_immutable();
