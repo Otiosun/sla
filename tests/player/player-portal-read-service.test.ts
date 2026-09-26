@@ -17,6 +17,7 @@ const profile: PlayerProfileView = {
   trainerName: "Natan",
   originRegionId: "11111111-1111-4111-8111-111111111111",
   locale: "pt-BR",
+  profession: "EXPLORADOR",
   trainerLevel: 3,
   progressionPoints: 240n,
   onboardingState: "COMPLETE",
@@ -122,6 +123,7 @@ describe("PlayerPortalReadService", () => {
 
     expect(result.value).toMatchObject({
       trainerName: "Natan",
+      profession: "EXPLORADOR",
       originRegionName: "Zhoulia",
       progressionPoints: "240",
       profileCustomization: {
