@@ -1,6 +1,9 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import { normalizeTrainerProfession, type TrainerProfessionSelection } from "../player/professions.js";
+import {
+  normalizeTrainerProfession,
+  type TrainerProfessionSelection,
+} from "../player/professions.js";
 import type { RegistrationDraftInput } from "./contracts.js";
 
 export type RegistrationEditingMode = "GUIDED" | "FULL";
