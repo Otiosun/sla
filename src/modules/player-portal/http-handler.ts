@@ -61,10 +61,7 @@ interface PlayerPortalAdminAuditEntry {
 }
 
 interface PlayerPortalAdminAuditAccess {
-  list(
-    principalId: string,
-    limit: number,
-  ): Promise<readonly PlayerPortalAdminAuditEntry[]>;
+  list(principalId: string, limit: number): Promise<readonly PlayerPortalAdminAuditEntry[]>;
 }
 
 interface PlayerPortalAdminMutationAccess {
