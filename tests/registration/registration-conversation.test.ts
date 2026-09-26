@@ -20,6 +20,7 @@ function completedDraft() {
     appearance: "Cabelos negros e casaco de viagem.",
     personality: "Curiosa e competitiva.",
     backstory: "Saiu de casa para pesquisar Pokémon raros.",
+    profession: "PESQUISADOR",
     starterFormId: CHARMANDER_ID,
     regionId: ZHOULIA_ID,
     schemaVersion: 1,
@@ -196,6 +197,29 @@ describe("RegistrationConversationSessions", () => {
         backstory: "—",
         starterFormId: "02",
       },
+    });
+  });
+
+  it("parses an optional profession without making it required", () => {
+    const withProfession = parseFullRegistrationTemplate(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+        "Profissão: Artesão",
+        "Pokémon inicial: 02",
+      ].join("\n"),
+    );
+    expect(withProfession).toMatchObject({
+      ok: true,
+      value: { profession: "ARTESAO", starterFormId: "02" },
+    });
+
+    const invalid = parsePartialRegistrationTemplate("Profissão: astronauta");
+    expect(invalid).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
     });
   });
 
