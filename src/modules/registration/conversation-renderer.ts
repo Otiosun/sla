@@ -266,9 +266,9 @@ export function renderFullForm(options: RegistrationFullFormRenderOptions): stri
     "",
     "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*",
     "",
-    "*Aparência:*",
+    "*Aparência (opcional):*",
     "*Personalidade:*",
-    "*História:*",
+    "*História (opcional):*",
     "",
     "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
     "",
@@ -276,9 +276,55 @@ export function renderFullForm(options: RegistrationFullFormRenderOptions): stri
     "",
     `⌖ Região · *${options.regionDisplayName}*`,
     "",
-    "› _Envie a ficha preenchida. A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._",
+    "› _Envie a ficha preenchida. Aparência e História podem ficar em branco._",
+    "› _A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._",
     "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._",
   ].join("\n");
+}
+
+export function renderMissingFullFormFields(
+  fields: readonly RegistrationConversationField[],
+  starterOptions: readonly string[],
+): string {
+  const label = (field: RegistrationConversationField): string => {
+    switch (field) {
+      case "trainerName":
+        return "Nome";
+      case "age":
+        return "Idade";
+      case "genderPronouns":
+        return "Gênero / pronomes";
+      case "appearance":
+        return "Aparência";
+      case "personality":
+        return "Personalidade";
+      case "backstory":
+        return "História";
+      case "starterFormId":
+        return "Pokémon inicial";
+    }
+  };
+
+  const lines = [
+    "△ *𝗙𝗔𝗟𝗧𝗔 𝗣𝗢𝗨𝗖𝗢*",
+    "　Recepção · Complete só o necessário",
+    "",
+    ...fields.map((field) => `◇ *${label(field)}*`),
+    "",
+    "› _Pode enviar somente os campos acima; não precisa repetir a ficha inteira._",
+  ];
+
+  if (fields.includes("starterFormId")) {
+    lines.push(
+      "",
+      "✦ *𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟*",
+      "",
+      numberedOptions(starterOptions),
+      "",
+      "› _Se faltar apenas o inicial, pode responder só com o número ou nome._",
+    );
+  }
+  return lines.join("\n");
 }
 
 export function renderReview(input: RegistrationReviewRenderInput): string {
