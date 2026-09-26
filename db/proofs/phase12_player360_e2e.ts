@@ -342,10 +342,7 @@ try {
   }
 
   const suspendedReviewId = randomUUID();
-  await pool.query(
-    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`,
-    [suspendedPlayerId],
-  );
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [suspendedPlayerId]);
   await pool.query(
     `INSERT INTO player_profiles(
        player_id, trainer_name, origin_region_id, locale, metadata
@@ -387,10 +384,9 @@ try {
      VALUES ($1, 1, 0)`,
     [pendingPlayerId],
   );
-  await pool.query(
-    `INSERT INTO onboarding_states(player_id, state) VALUES ($1, 'NEW')`,
-    [pendingPlayerId],
-  );
+  await pool.query(`INSERT INTO onboarding_states(player_id, state) VALUES ($1, 'NEW')`, [
+    pendingPlayerId,
+  ]);
   await pool.query(
     `INSERT INTO player_identities(id, player_id, provider, external_id, status)
      VALUES ($1, $2, 'WHATSAPP', $3, 'ACTIVE')`,
@@ -403,10 +399,7 @@ try {
   );
 
   const provisioningReviewId = randomUUID();
-  await pool.query(
-    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`,
-    [provisioningPlayerId],
-  );
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [provisioningPlayerId]);
   await pool.query(
     `INSERT INTO player_profiles(
        player_id, trainer_name, origin_region_id, locale, metadata
