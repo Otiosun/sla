@@ -259,6 +259,7 @@ function fullFicha(starter: string, personality: string, backstory: string): str
     "Aparência: Cabelos negros e casaco de viagem.",
     `Personalidade: ${personality}`,
     `História / resumo: ${backstory}`,
+    "Profissão: Pesquisador",
     `Pokémon inicial: ${starter}`,
   ].join("\n");
 }
