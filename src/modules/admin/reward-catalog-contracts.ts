@@ -24,6 +24,8 @@ export interface AdminRewardCatalogView {
   readonly currencies: readonly AdminRewardCatalogCurrency[];
   readonly species?: readonly AdminRewardCatalogSpecies[];
   readonly forms?: readonly AdminRewardCatalogForm[];
+  readonly abilities?: readonly AdminRewardCatalogAbility[];
+  readonly natures?: readonly AdminRewardCatalogNature[];
   readonly effects?: readonly AdminRewardCatalogEffect[];
   readonly releases?: readonly AdminRewardCatalogRelease[];
 }
@@ -35,6 +37,17 @@ export interface AdminRewardCatalogForm {
   readonly speciesSlug: string;
   readonly formSlug: string;
   readonly displayName: string;
+  readonly abilityIds: readonly string[];
+}
+
+export interface AdminRewardCatalogAbility {
+  readonly abilityId: string;
+  readonly slug: string;
+}
+
+export interface AdminRewardCatalogNature {
+  readonly natureId: string;
+  readonly slug: string;
 }
 
 export interface AdminRewardCatalogEffect {
