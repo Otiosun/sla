@@ -147,8 +147,8 @@ describe("ReceptionService state-aware first interaction", () => {
     const result = await active.service.firstInteraction(INPUT);
     if (!result.ok) throw result.error;
 
-    expect(result.value?.text).toMatch(/jornada continua|treinador reconhecido/i);
-    expect(result.value?.text).toContain("/menu");
+    expect(result.value?.text).toMatch(/registro já está ativo|treinador reconhecido/i);
+    expect(result.value?.text).not.toContain("/menu");
     expect(result.value?.text).not.toMatch(/\/registrar|\/continuar|\/editar|passo a passo/i);
     expect(active.registrationReads()).toBe(0);
   });
