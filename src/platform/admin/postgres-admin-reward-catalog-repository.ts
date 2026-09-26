@@ -6,7 +6,7 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
   public constructor(private readonly pool: Pool) {}
 
   public async getActiveRewardCatalog(): Promise<AdminRewardCatalogView> {
-    const [items, currencies, species, forms, effects] = await Promise.all([
+    const [items, currencies, species, forms, effects, releases] = await Promise.all([
       this.pool.query<{
         item_id: string;
         slug: string;
@@ -98,6 +98,36 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
          WHERE pointer.pointer_key = 'ACTIVE'
          ORDER BY effect.slug`,
       ),
+      this.pool.query<{
+        release_id: string;
+        release_no: string;
+        name: string;
+        status: "DRAFT" | "VALIDATED" | "PUBLISHED" | "ARCHIVED";
+        revision: string;
+        parent_release_id: string | null;
+        default_ruleset_id: string;
+        active: boolean;
+        created_at: Date;
+        published_at: Date | null;
+      }>(
+        `SELECT release.id AS release_id,
+                release.release_no::text,
+                release.name,
+                release.status,
+                release.revision::text,
+                release.parent_release_id,
+                release.default_ruleset_id,
+                EXISTS (
+                  SELECT 1
+                  FROM content_release_pointers pointer
+                  WHERE pointer.pointer_key = 'ACTIVE'
+                    AND pointer.content_release_id = release.id
+                ) AS active,
+                release.created_at,
+                release.published_at
+         FROM content_releases release
+         ORDER BY release.release_no DESC, release.id`,
+      ),
     ]);
 
     return {
@@ -131,6 +161,18 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
         effectId: row.effect_id,
         slug: row.slug,
         scope: row.scope,
+      })),
+      releases: releases.rows.map((row) => ({
+        releaseId: row.release_id,
+        releaseNo: row.release_no,
+        name: row.name,
+        status: row.status,
+        revision: row.revision,
+        parentReleaseId: row.parent_release_id,
+        defaultRulesetId: row.default_ruleset_id,
+        active: row.active,
+        createdAt: row.created_at.toISOString(),
+        publishedAt: row.published_at?.toISOString() ?? null,
       })),
     };
   }
