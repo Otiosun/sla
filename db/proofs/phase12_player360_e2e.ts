@@ -339,10 +339,7 @@ try {
   }
 
   const pendingPlayerId = randomUUID();
-  await pool.query(
-    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`,
-    [pendingPlayerId],
-  );
+  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [pendingPlayerId]);
   await pool.query(
     `INSERT INTO trainer_progression(player_id, level, progression_points)
      VALUES ($1, 1, 0)`,
@@ -351,7 +348,7 @@ try {
   await pool.query(
     `INSERT INTO player_identities(id, player_id, provider, external_id, status)
      VALUES ($1, $2, 'WHATSAPP', $3, 'ACTIVE')`,
-    [randomUUID(), pendingPlayerId, 'proof:pending'],
+    [randomUUID(), pendingPlayerId, "proof:pending"],
   );
   for (const id of [globalSupportId, ownerId]) {
     await pool.query(
