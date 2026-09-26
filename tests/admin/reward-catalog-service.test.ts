@@ -29,6 +29,9 @@ describe("AdminRewardCatalogService", () => {
       items: [expect.objectContaining({ slug: "great-ball" })],
       currencies: [expect.objectContaining({ slug: "poke-dollar" })],
       species: [],
+      forms: [],
+      effects: [],
+      releases: [],
     });
 
     expect(authorizeRead).toHaveBeenNthCalledWith(1, {
