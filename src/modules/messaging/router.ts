@@ -240,7 +240,10 @@ export class MessageRouter implements MessageRouterPort {
       );
     }
 
-    if (this.scopeGate !== undefined && !(await this.scopeGate.admits(context, route.canonicalCommand))) {
+    if (
+      this.scopeGate !== undefined &&
+      !(await this.scopeGate.admits(context, route.canonicalCommand))
+    ) {
       return ok(null);
     }
 
