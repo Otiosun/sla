@@ -350,6 +350,7 @@ describe("persisted Registration conversation state machine", () => {
         "Idade: 17",
         "Gênero / pronomes: ela/dela",
         "Personalidade: curiosa",
+        "Profissão: Pesquisador",
         "Pokémon inicial: 2",
       ].join("\n"),
       null,
@@ -368,6 +369,7 @@ describe("persisted Registration conversation state machine", () => {
       age: 17,
       genderPronouns: "ela/dela",
       personality: "curiosa",
+      profession: "PESQUISADOR",
       starterFormId: SQUIRTLE_ID,
     });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
@@ -387,9 +389,13 @@ describe("persisted Registration conversation state machine", () => {
 
     const partial = await router.dispatch(
       messageContext(
-        ["Nome: Emi", "Idade: 17", "Gênero / pronomes: ela/dela", "Personalidade: curiosa"].join(
-          "\n",
-        ),
+        [
+          "Nome: Emi",
+          "Idade: 17",
+          "Gênero / pronomes: ela/dela",
+          "Personalidade: curiosa",
+          "Profissão: Pesquisador",
+        ].join("\n"),
         null,
         "11",
       ),
@@ -402,6 +408,7 @@ describe("persisted Registration conversation state machine", () => {
       age: 17,
       genderPronouns: "ela/dela",
       personality: "curiosa",
+      profession: "PESQUISADOR",
     });
     expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("𝗙𝗔𝗟𝗧𝗔 𝗣𝗢𝗨𝗖𝗢");
     expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("Pokémon inicial");
