@@ -190,10 +190,10 @@ describe("ReceptionService state-aware first interaction", () => {
     expect(repeated.registrationReads()).toBe(0);
   });
 
-  it("admits an unknown identity in Reception without creating persistent identity during admission", async () => {
+  it("does not treat an unknown identity message as a Reception join", async () => {
     const unknown = harness({ playerKnown: false });
 
-    expect(await unknown.service.admitsFirstInteraction(INPUT)).toBe(true);
+    expect(await unknown.service.admitsFirstInteraction(INPUT)).toBe(false);
     expect(unknown.identityReads()).toBe(1);
     expect(unknown.identityCreates()).toBe(0);
     expect(unknown.welcomeAdmissionReads()).toBe(0);
