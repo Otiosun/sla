@@ -800,18 +800,19 @@ export class RegistrationConversationResolver {
     const nextPromptKey = conversationOutboxKey(context);
 
     if (conversation.state === "MODE_SELECT") {
+      if (looksLikeFullRegistrationTemplate(text)) {
+        return this.resolvePersistedFullFormInput(
+          context,
+          playerId,
+          conversation,
+          persistedDraft.value,
+          setup.value,
+          text,
+        );
+      }
+
       const selected = parseRegistrationModeChoice(text);
       if (selected === null) {
-        if (looksLikeFullRegistrationTemplate(text)) {
-          return this.resolvePersistedFullFormInput(
-            context,
-            playerId,
-            conversation,
-            persistedDraft.value,
-            setup.value,
-            text,
-          );
-        }
         return this.contextualRetry(
           context,
           playerId,
