@@ -424,6 +424,27 @@ function looksLikeStandaloneStarter(value: string): boolean {
   return looksLikeGuidedUnquotedAnswer("starterFormId", value);
 }
 
+function isFlexibleFieldSkip(
+  field: PersistedRegistrationConversationField,
+  value: string,
+): boolean {
+  if (field !== "appearance" && field !== "backstory") return false;
+  const normalized = normalizedFreeform(value);
+  return [
+    "-",
+    "—",
+    "pular",
+    "pula",
+    "depois",
+    "sem",
+    "nenhuma",
+    "nenhum",
+    "sem historia",
+    "sem aparência",
+    "sem aparencia",
+  ].includes(normalized);
+}
+
 function firstMissingField(
   draft: RegistrationDraftInput,
 ): PersistedRegistrationConversationField | null {
@@ -891,7 +912,7 @@ export class RegistrationConversationResolver {
         return err(appError("INVALID_STATE_TRANSITION", "Guided registration has no active field"));
       }
 
-      let parsedValue = parseGuidedValue(field, text);
+      let parsedValue = isFlexibleFieldSkip(field, text) ? ok("—") : parseGuidedValue(field, text);
       if (!parsedValue.ok) {
         return this.contextualRetry(
           context,
