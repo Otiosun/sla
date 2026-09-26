@@ -327,8 +327,7 @@ function looksLikePersistedUnquotedIntent(
       );
     case "FULL_FORM":
       return (
-        looksLikeRegistrationTemplate(text) ||
-        looksLikeGuidedUnquotedAnswer("starterFormId", text)
+        looksLikeRegistrationTemplate(text) || looksLikeGuidedUnquotedAnswer("starterFormId", text)
       );
     case "REVIEW":
       return ["1", "2", "3"].includes(normalizedChoice(text));
@@ -358,8 +357,7 @@ function looksLikeSessionUnquotedIntent(
     return parseRegistrationModeChoice(text) !== null || looksLikeFullRegistrationTemplate(text);
   if (session.mode === "FULL")
     return (
-      looksLikeRegistrationTemplate(text) ||
-      looksLikeGuidedUnquotedAnswer("starterFormId", text)
+      looksLikeRegistrationTemplate(text) || looksLikeGuidedUnquotedAnswer("starterFormId", text)
     );
   return session.currentField !== null && looksLikeGuidedUnquotedAnswer(session.currentField, text);
 }
@@ -685,17 +683,13 @@ export class RegistrationConversationResolver {
       starterRaw = parsedValue.starterFormId;
       draft = {
         ...draft,
-        ...(parsedValue.trainerName === undefined
-          ? {}
-          : { trainerName: parsedValue.trainerName }),
+        ...(parsedValue.trainerName === undefined ? {} : { trainerName: parsedValue.trainerName }),
         ...(parsedValue.age === undefined ? {} : { age: parsedValue.age }),
         ...(parsedValue.genderPronouns === undefined
           ? {}
           : { genderPronouns: parsedValue.genderPronouns }),
         ...(parsedValue.appearance === undefined ? {} : { appearance: parsedValue.appearance }),
-        ...(parsedValue.personality === undefined
-          ? {}
-          : { personality: parsedValue.personality }),
+        ...(parsedValue.personality === undefined ? {} : { personality: parsedValue.personality }),
         ...(parsedValue.backstory === undefined ? {} : { backstory: parsedValue.backstory }),
       };
     } else if (looksLikeStandaloneStarter(text)) {
