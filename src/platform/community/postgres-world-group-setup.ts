@@ -94,7 +94,10 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
         group.role === "RECEPTION"
           ? (["admin.review", "onboarding"] as const)
           : [...new Set([...beforeCapabilities, "player.basic" as const, "world" as const])].sort();
-      if (capabilities.some((capability) => !beforeCapabilities.includes(capability))) {
+      const capabilitiesChanged =
+        capabilities.length !== beforeCapabilities.length ||
+        capabilities.some((capability) => !beforeCapabilities.includes(capability));
+      if (capabilitiesChanged) {
         const updated = await tx.replaceCapabilities(group.id, capabilities, group.revision);
         if (updated === null)
           throw new AdminError(
