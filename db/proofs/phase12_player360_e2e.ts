@@ -506,35 +506,41 @@ try {
     expectAdminCode(error, ADMIN_ERROR_CODES.AUTHORIZATION_DENIED);
   }
 
-  const firstPage = await service.search({
-    principalId: globalSupportId,
-    trainerNamePrefix: "Player360",
-    limit: 2,
-  });
-  if (firstPage.items.length !== 2 || firstPage.nextCursor === null) {
-    throw new Error("Player 360 first cursor page is invalid");
+  const pagedPlayers = [];
+  let pageCursor: string | undefined;
+  for (let pageNo = 0; pageNo < 10; pageNo += 1) {
+    const page = await service.search({
+      principalId: globalSupportId,
+      trainerNamePrefix: "Player360",
+      limit: 2,
+      ...(pageCursor === undefined ? {} : { cursor: pageCursor }),
+    });
+    if (
+      page.items.some((item) => item.identities.some((identity) => identity.externalId !== null))
+    ) {
+      throw new Error("Player 360 search leaked external identities without sensitive capability");
+    }
+    pagedPlayers.push(...page.items);
+    if (page.nextCursor === null) break;
+    pageCursor = page.nextCursor;
+    if (pageNo === 9) {
+      throw new Error("Player 360 cursor pagination did not terminate");
+    }
   }
+
+  const allPageIds = pagedPlayers.map((item) => item.playerId);
+  const expectedVisibleIds = new Set([
+    targetPlayerId,
+    secondPlayerId,
+    thirdPlayerId,
+    suspendedPlayerId,
+  ]);
   if (
-    firstPage.items.some((item) => item.identities.some((identity) => identity.externalId !== null))
+    allPageIds.length !== expectedVisibleIds.size ||
+    new Set(allPageIds).size !== allPageIds.length ||
+    allPageIds.some((playerId) => !expectedVisibleIds.has(playerId))
   ) {
-    throw new Error("Player 360 search leaked external identities without sensitive capability");
-  }
-  const secondPage = await service.search({
-    principalId: globalSupportId,
-    trainerNamePrefix: "Player360",
-    limit: 2,
-    cursor: firstPage.nextCursor,
-  });
-  if (secondPage.items.length !== 2 || secondPage.nextCursor !== null) {
-    throw new Error("Player 360 second cursor page is invalid");
-  }
-  const allPageIds = [...firstPage.items, ...secondPage.items].map((item) => item.playerId);
-  if (
-    new Set(allPageIds).size !== 4 ||
-    allPageIds[0] !== targetPlayerId ||
-    allPageIds.at(-1) !== suspendedPlayerId
-  ) {
-    throw new Error("Player 360 cursor pagination repeated, skipped or reordered players");
+    throw new Error("Player 360 cursor pagination repeated, skipped or exposed unexpected players");
   }
   if (allPageIds.includes(pendingPlayerId) || allPageIds.includes(provisioningPlayerId)) {
     throw new Error("Player 360 search leaked a non-playable registration/provisioning record");
