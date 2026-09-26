@@ -50,42 +50,42 @@ const FIELD_COPY: Readonly<
   >
 > = {
   trainerName: {
-    progress: "1/8",
+    progress: "1/7",
     label: "Nome do treinador",
     question: "Qual será o nome do personagem?",
   },
   age: {
-    progress: "2/8",
+    progress: "2/7",
     label: "Idade",
     question: "Qual é a idade do personagem?",
   },
   genderPronouns: {
-    progress: "3/8",
+    progress: "3/7",
     label: "Gênero / pronomes",
     question: "Como quer registrar esse campo?",
   },
   appearance: {
-    progress: "4/8",
+    progress: "4/7",
     label: "Aparência",
     question: "Descreva a aparência do personagem, se quiser.",
   },
   personality: {
-    progress: "5/8",
+    progress: "5/7",
     label: "Personalidade",
     question: "Descreva a personalidade do personagem.",
   },
   backstory: {
-    progress: "6/8",
+    progress: "6/7",
     label: "História / resumo",
     question: "Conte a história ou um resumo do personagem, se quiser.",
   },
   profession: {
-    progress: "7/8",
+    progress: "—",
     label: "Profissão",
     question: "Escolha uma profissão para o personagem, se quiser.",
   },
   starterFormId: {
-    progress: "8/8",
+    progress: "7/7",
     label: "Pokémon inicial",
     question: "Escolha pelo número ou pelo nome.",
   },
