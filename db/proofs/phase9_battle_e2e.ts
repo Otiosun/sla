@@ -1,17 +1,17 @@
 import { Pool } from "pg";
-import { BattleService } from "../../src/modules/battle/service.js";
 import type { BattleAction, BattleState } from "../../src/modules/battle/contracts.js";
+import { BattleService } from "../../src/modules/battle/service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
 import { WorldService } from "../../src/modules/world/service.js";
-import { ManualClock } from "../../src/platform/clock/index.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
 import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
-import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
 import { createCorrelationId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
@@ -71,9 +71,11 @@ function playerMove(state: BattleState): BattleAction {
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl, max: 16 });
   try {
-    const region = await pool.query<{ id: string }>("SELECT id FROM regions WHERE slug = 'kanto'");
+    const region = await pool.query<{ id: string }>(
+      "SELECT id FROM regions WHERE slug = 'zhoulia'",
+    );
     const regionId = region.rows[0]?.id;
-    if (regionId === undefined) throw new Error("Kanto is missing from the active catalog");
+    if (regionId === undefined) throw new Error("Zhoulia is missing from the active catalog");
 
     const onboardingRepository = new PostgresPlayerOnboardingRepository(pool);
     const registration = new PlayerRegistrationService(onboardingRepository);
@@ -96,7 +98,7 @@ async function main(): Promise<void> {
         locale: "pt-BR",
       }),
     );
-    unwrap("select Kanto", await registration.selectRegion(identity.playerId, { regionId }));
+    unwrap("select Zhoulia", await registration.selectRegion(identity.playerId, { regionId }));
     const selection = unwrap(
       "prepare starter",
       await starter.prepareStarterSelection(identity.playerId),
@@ -121,19 +123,26 @@ async function main(): Promise<void> {
       "initialize world location",
       await world.ensureInitialLocation({ playerId: identity.playerId }),
     );
+    if (initial.regionSlug !== "zhoulia" || initial.areaSlug !== "vila-dos-arrozais") {
+      throw new Error(
+        `Battle proof expected Zhoulia/Vila dos Arrozais, got ${initial.regionSlug}/${initial.areaSlug}`,
+      );
+    }
     const route = initial.connections.find(
-      (connection) => connection.destinationSlug === "route-1" && connection.available,
+      (connection) => connection.destinationSlug === "campos-de-yun" && connection.available,
     );
-    if (route === undefined) throw new Error("Pallet Town has no available Route 1 connection");
+    if (route === undefined)
+      throw new Error("Vila dos Arrozais has no available Campos de Yun connection");
     const traveled = unwrap(
-      "travel to Route 1",
+      "travel to Campos de Yun",
       await world.travel({
         playerId: identity.playerId,
         destinationAreaId: route.destinationAreaId,
         expectedRevision: initial.revision,
       }),
     );
-    if (traveled.to.areaSlug !== "route-1") throw new Error("World proof did not reach Route 1");
+    if (traveled.to.regionSlug !== "zhoulia" || traveled.to.areaSlug !== "campos-de-yun")
+      throw new Error("Battle proof did not reach Zhoulia/Campos de Yun");
 
     const seedProvider = new AesEncounterSeedProvider(BATTLE_KEY, 1, () => Buffer.alloc(32, 0x4c));
     const encounter = new EncounterService(
@@ -147,7 +156,8 @@ async function main(): Promise<void> {
       await encounter.createOrReplay({
         playerId: identity.playerId,
         idempotencyKey: "phase9-encounter",
-        encounterTableSlug: "grass-day",
+        encounterTableSlug: "day-land",
+        environment: { timeOfDay: "DAY", surface: "LAND" },
       }),
     );
     const presented = unwrap(

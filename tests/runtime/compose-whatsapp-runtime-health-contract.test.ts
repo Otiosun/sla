@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
-import type { BaileysAuthBinding } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { WhatsAppProviderConnectionState } from "../../src/adapters/whatsapp/adapter.js";
+import type { BaileysAuthBinding } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import type { StructuredLogger } from "../../src/platform/logging/index.js";
 import type { OperationalWhatsAppRuntimeOptions } from "../../src/runtime/compose-whatsapp-runtime.js";
 

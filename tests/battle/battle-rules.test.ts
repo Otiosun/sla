@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RulesetSnapshot } from "../../src/modules/catalog/contracts.js";
 import { normalizeBattleRules } from "../../src/modules/battle/rules.js";
+import type { RulesetSnapshot } from "../../src/modules/catalog/contracts.js";
 import { IDS } from "./fixtures.js";
 
 function snapshot(overrides: Record<string, unknown> = {}): RulesetSnapshot {

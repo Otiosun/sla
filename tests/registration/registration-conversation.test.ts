@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  RegistrationConversationSessions,
+  looksLikeFullRegistrationTemplate,
   parseFullRegistrationTemplate,
+  parsePartialRegistrationTemplate,
+  parseRegistrationModeChoice,
+  RegistrationConversationSessions,
 } from "../../src/modules/registration/conversation-session.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
@@ -148,6 +151,95 @@ describe("RegistrationConversationSessions", () => {
     });
   });
 
+  it("accepts human mode variants used in the real Reception", () => {
+    expect(parseRegistrationModeChoice("01")).toBe("GUIDED");
+    expect(parseRegistrationModeChoice("/02")).toBe("FULL");
+    expect(parseRegistrationModeChoice("#2")).toBe("FULL");
+    expect(parseRegistrationModeChoice("quero o 2")).toBe("FULL");
+    expect(parseRegistrationModeChoice("vou de modo guiado")).toBeNull();
+  });
+
+  it("parses partial full forms without inventing omitted flexible fields", () => {
+    const parsed = parsePartialRegistrationTemplate(
+      ["Nome: Emi", "Idade: 17", "Gênero / pronomes: ela/dela", "Personalidade: curiosa"].join(
+        "\n",
+      ),
+    );
+
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        trainerName: "Emi",
+        age: 17,
+        genderPronouns: "ela/dela",
+        personality: "curiosa",
+      },
+    });
+  });
+
+  it("treats Appearance and História as optional in a complete form", () => {
+    const parsed = parseFullRegistrationTemplate(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+        "Pokémon inicial: 02",
+      ].join("\n"),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        trainerName: "Emi",
+        appearance: "—",
+        backstory: "—",
+        starterFormId: "02",
+      },
+    });
+  });
+
+  it("recognizes a filled full-form shape without treating ordinary chat as registration", () => {
+    expect(
+      looksLikeFullRegistrationTemplate(
+        [
+          "Nome: Liora Vale",
+          "Idade: 17",
+          "Pronomes: ela/dela",
+          "Aparência: Casaco escuro.",
+          "Personalidade: Curiosa.",
+          "História: Uma história curta.",
+          "Inicial: 1",
+        ].join("\n"),
+      ),
+    ).toBe(true);
+    expect(looksLikeFullRegistrationTemplate("Tá, ótimo sinal")).toBe(false);
+    expect(looksLikeFullRegistrationTemplate("Nome: Liora\nIdade: 17")).toBe(false);
+  });
+
+  it("ignores WhatsApp bold decoration around full-form labels", () => {
+    const parsed = parseFullRegistrationTemplate(
+      [
+        "*Nome:* Liora Vale",
+        "*Idade:* 17",
+        "*Gênero / pronomes:* ela/dela",
+        "*Aparência:* Cabelos negros.",
+        "*Personalidade:* Curiosa.",
+        "*História:* Saiu de casa para explorar Zhoulia.",
+        "*Pokémon inicial:* 02",
+      ].join("\n"),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        trainerName: "Liora Vale",
+        age: 17,
+        genderPronouns: "ela/dela",
+        starterFormId: "02",
+      },
+    });
+  });
   it("parses a full template despite harmless spacing, casing and line-break variation", () => {
     const parsed = parseFullRegistrationTemplate(
       [
@@ -171,6 +263,45 @@ describe("RegistrationConversationSessions", () => {
         appearance: "Cabelos negros e casaco de viagem.",
         personality: "Curiosa e competitiva.",
         backstory: "Saiu de casa para pesquisar Pokémon raros.",
+        starterFormId: SQUIRTLE_ID,
+      },
+    });
+  });
+
+  it("accumulates multiline full-form content until the next recognized field header", () => {
+    const parsed = parseFullRegistrationTemplate(
+      [
+        "Nome: Liora Vale",
+        "Idade: 17",
+        "Pronomes: ela/dela",
+        "Aparência: Cabelos negros.",
+        "Usa um casaco de viagem.",
+        "Carrega uma mochila pequena.",
+        "Personalidade:",
+        "Curiosa e competitiva.",
+        "Cautelosa quando não conhece o lugar.",
+        "História: Saiu de casa para pesquisar Pokémon raros.",
+        "Passou um ano ajudando no laboratório da cidade.",
+        `Inicial: ${SQUIRTLE_ID}`,
+      ].join("\n"),
+    );
+
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        trainerName: "Liora Vale",
+        age: 17,
+        genderPronouns: "ela/dela",
+        appearance: [
+          "Cabelos negros.",
+          "Usa um casaco de viagem.",
+          "Carrega uma mochila pequena.",
+        ].join("\n"),
+        personality: ["Curiosa e competitiva.", "Cautelosa quando não conhece o lugar."].join("\n"),
+        backstory: [
+          "Saiu de casa para pesquisar Pokémon raros.",
+          "Passou um ano ajudando no laboratório da cidade.",
+        ].join("\n"),
         starterFormId: SQUIRTLE_ID,
       },
     });

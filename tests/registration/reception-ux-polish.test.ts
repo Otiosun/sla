@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { ReceptionService } from "../../src/modules/community/reception-service.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { presentMessagingError } from "../../src/modules/messaging/errors.js";
+import { createRegistrationAdminWhatsAppRoutes } from "../../src/modules/registration/admin-review-whatsapp.js";
 import { RegistrationConversationResolver } from "../../src/modules/registration/conversation-resolver.js";
 import { RegistrationConversationSessions } from "../../src/modules/registration/conversation-session.js";
-import { createRegistrationAdminWhatsAppRoutes } from "../../src/modules/registration/admin-review-whatsapp.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -58,7 +59,17 @@ function outgoingText(
 }
 
 describe("Reception UX polish", () => {
-  it("welcomes a new player as an arrival in Zhoulia instead of a bare registration instruction", async () => {
+  it("keeps support-code rendering for unexpected technical failures", () => {
+    const rendered = presentMessagingError(
+      context("mensagem"),
+      appError("FEATURE_UNAVAILABLE", "Unexpected provider failure"),
+    );
+    expect(rendered.outgoing[0]?.payload.text).toBe(
+      "Esse recurso está indisponível agora.\n\nCódigo de suporte: 77777777-7777-4777-8777-777777777777",
+    );
+  });
+
+  it("welcomes a new player with the requested Rotom message", async () => {
     const service = new ReceptionService({
       community: {
         resolveChat: async () => ({
@@ -98,10 +109,10 @@ describe("Reception UX polish", () => {
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok || result.value === null) throw new Error("Expected reception welcome");
-    expect(result.value.text).toMatch(/Zhoulia/i);
+    expect(result.value.text).toMatch(/Eu sou Rotom!/);
     expect(result.value.text).toMatch(/jornada|treinador/i);
     expect(result.value.text).not.toBe(
-      "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `$registrar` para começar.",
+      "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `/registrar` para começar.",
     );
   });
 
@@ -128,9 +139,9 @@ describe("Reception UX polish", () => {
     const text = outgoingText(
       await resolver.resolve(context("Liora Vale", "bot-registration-prompt")),
     );
-    expect(text).toMatch(/Idade/i);
+    expect(text).toContain("𝗜𝗗𝗔𝗗𝗘");
     expect(text).not.toMatch(/Nada será salvo definitivamente/i);
-    expect(text.length).toBeLessThan(90);
+    expect(text.length).toBeLessThan(220);
   });
 
   it("shows the canonical starter choices when guided registration reaches Pokémon inicial", async () => {
@@ -163,10 +174,10 @@ describe("Reception UX polish", () => {
         context("Saiu de casa para pesquisar Pokémon raros.", "bot-registration-prompt"),
       ),
     );
-    expect(text).toMatch(/Pokémon inicial/i);
-    expect(text).toMatch(/1\. Bulbasaur/);
-    expect(text).toMatch(/2\. Charmander/);
-    expect(text).toMatch(/3\. Squirtle/);
+    expect(text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟");
+    expect(text).toContain("`01` Bulbasaur");
+    expect(text).toContain("`02` Charmander");
+    expect(text).toContain("`03` Squirtle");
     expect(text).toMatch(/número|nome/i);
   });
 
@@ -215,7 +226,7 @@ describe("Reception UX polish", () => {
     );
     if (route === undefined) throw new Error("Missing verficha route");
 
-    const result = await route.handler.handle(context("$verficha", "review-message"));
+    const result = await route.handler.handle(context("/verficha", "review-message"));
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error("Expected admin ficha");
     const text = result.value.outgoing[0]?.payload.text;

@@ -1,10 +1,10 @@
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   EncounterAdminCloseInput,
   EncounterAdminCloseResult,
   EncounterAdminState,
 } from "./admin-contracts.js";
 import type { EncounterAdminRepository } from "./admin-ports.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 export class EncounterAdminOwnerService {
   public constructor(private readonly repository: EncounterAdminRepository) {}

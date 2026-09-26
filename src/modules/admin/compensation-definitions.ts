@@ -1,6 +1,6 @@
 import {
-  AdminCompensationInputSchema,
   type AdminCompensationInput,
+  AdminCompensationInputSchema,
 } from "./compensation-contracts.js";
 import type { AdminCompensationOperationPort } from "./compensation-ports.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";

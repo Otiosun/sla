@@ -1,8 +1,8 @@
-import type { AdminOperationRecord } from "./contracts.js";
 import type {
   AdminBattleCorrectStateInput,
   AdminBattleForceCancelInput,
 } from "./battle-contracts.js";
+import type { AdminOperationRecord } from "./contracts.js";
 
 export interface AdminBattleOperationPort {
   applyBattleForceCancel(

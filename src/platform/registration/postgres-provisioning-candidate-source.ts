@@ -28,9 +28,14 @@ export class PostgresProvisioningCandidateSource implements PlayerProvisioningCa
              AND access.status = 'ACTIVE'
              AND EXISTS (
                SELECT 1
-               FROM community_groups reception
-               WHERE reception.role = 'RECEPTION'
-                 AND reception.status = 'ACTIVE'
+               FROM outbox_messages review_notification
+               JOIN community_groups reception
+                 ON reception.chat_ref = review_notification.destination_ref
+                AND reception.role = 'RECEPTION'
+                AND reception.status = 'ACTIVE'
+               WHERE review_notification.channel = 'whatsapp'
+                 AND review_notification.payload #>> '{registrationReview,reviewId}' =
+                   revision.id::text
                  AND NOT EXISTS (
                    SELECT 1
                    FROM outbox_messages announcement

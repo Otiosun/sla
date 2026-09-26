@@ -1,19 +1,19 @@
-import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
+import { type AppError, appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
+  type IncomingMessage,
   IncomingMessageSchema,
   incomingMessageIdempotencyKey,
   MediaProcessingRequestSchema,
-  OutgoingMessageDraftSchema,
-  type IncomingMessage,
   type MessageHandlerContext,
   type MessageHandlerResult,
   type MessagingRateLimitRule,
+  OutgoingMessageDraftSchema,
 } from "./contracts.js";
 import { presentMessagingError } from "./errors.js";
 import type {
   MediaProcessorAdapter,
-  MessagingRepository,
   MessageRouterPort,
+  MessagingRepository,
   OutboundMessageAdapter,
   OutboxDeliveryPreparation,
 } from "./ports.js";
@@ -80,6 +80,36 @@ function rateLimitRules(
   return rules;
 }
 
+function attachInboundReplyContext(
+  context: MessageHandlerContext,
+  result: MessageHandlerResult,
+): MessageHandlerResult {
+  const replyText = context.originalMessageText ?? context.message.text;
+  if (replyText === null || replyText.trim().length === 0) return result;
+
+  return {
+    ...result,
+    outgoing: result.outgoing.map((outgoing) => {
+      if (
+        outgoing.channel !== "whatsapp" ||
+        (outgoing.messageType !== "TEXT" && outgoing.messageType !== "IMAGE") ||
+        outgoing.payload.replyToExternalMessageId !== undefined
+      ) {
+        return outgoing;
+      }
+      return {
+        ...outgoing,
+        payload: {
+          ...outgoing.payload,
+          replyToExternalMessageId: context.message.externalMessageId,
+          replyToSenderRef: context.message.senderRef,
+          replyToText: replyText,
+        },
+      };
+    }),
+  };
+}
+
 function validateHandlerResult(
   context: MessageHandlerContext,
   result: MessageHandlerResult,
@@ -134,16 +164,41 @@ export class MessagingService {
     context: MessageHandlerContext,
     result: MessageHandlerResult,
   ): Promise<Result<ReceiveMessageResult>> {
-    const validated = validateHandlerResult(context, result);
+    const validated = validateHandlerResult(context, attachInboundReplyContext(context, result));
     if (!validated.ok) {
       await this.repository.failIncoming(context.inboxMessageId, "INVALID_HANDLER_RESULT");
       return validated;
     }
-    const completed = await this.repository.completeIncoming(
-      context.inboxMessageId,
-      validated.value,
-    );
-    if (!completed.ok) return completed;
+    try {
+      const completed = await this.repository.completeIncoming(
+        context.inboxMessageId,
+        validated.value,
+      );
+      if (!completed.ok) {
+        await this.failCompletion(context.inboxMessageId, completed.error.code);
+        return err(
+          appError(completed.error.code, completed.error.message, {
+            ...completed.error.details,
+            completionErrorCode: completed.error.code,
+            correlationId: context.correlationId,
+            stage: "COMPLETE_INCOMING",
+          }),
+        );
+      }
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error ? error.code : null;
+      const completionErrorCode =
+        typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? `SQLSTATE_${code}` : "EXCEPTION";
+      await this.failCompletion(context.inboxMessageId, completionErrorCode);
+      return err(
+        appError("ACTION_INVALID", "Message completion failed", {
+          completionErrorCode,
+          correlationId: context.correlationId,
+          stage: "COMPLETE_INCOMING",
+        }),
+      );
+    }
     return ok({
       status: "PROCESSED",
       inboxMessageId: context.inboxMessageId,
@@ -151,6 +206,15 @@ export class MessagingService {
       resultRefType: validated.value.resultRefType,
       resultRefId: validated.value.resultRefId,
     });
+  }
+
+  private async failCompletion(inboxMessageId: string, reason: string): Promise<void> {
+    try {
+      await this.repository.failIncoming(inboxMessageId, `COMPLETE_INCOMING_${reason}`);
+    } catch {
+      // The completion failure still reaches the runtime logger below. A database
+      // outage can prevent terminalization, but must not replace its original cause.
+    }
   }
 
   private async completeFriendlyError(
@@ -287,6 +351,7 @@ export class OutboxWorker {
       limit: this.options.batchSize,
       staleAfterMs: this.options.staleAfterMs,
       maxAttempts: this.options.maxAttempts,
+      channels: [...this.adapters.keys()],
     });
     let sent = 0;
     let failed = 0;

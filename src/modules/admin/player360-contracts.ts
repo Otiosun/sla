@@ -199,6 +199,7 @@ export interface Player360EncounterView {
   readonly areaId: string;
   readonly contentReleaseId: string;
   readonly rulesetId: string;
+  readonly revision: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -215,6 +216,22 @@ export interface Player360BattleView {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly endedAt: string | null;
+  readonly participants: readonly {
+    readonly participantId: string;
+    readonly pokemonInstanceId: string | null;
+    readonly level: number;
+    readonly currentHp: number;
+    readonly maxHp: number;
+    readonly majorStatus: {
+      readonly key: "BURN" | "POISON" | "BAD_POISON" | "PARALYSIS" | "SLEEP" | "FREEZE";
+      readonly counter: number | null;
+    } | null;
+    readonly moves: readonly {
+      readonly slotNo: number;
+      readonly ppCurrent: number | null;
+      readonly maxPp: number | null;
+    }[];
+  }[];
 }
 
 export interface Player360ActivityView {

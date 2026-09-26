@@ -1,5 +1,5 @@
-import type { Clock } from "../clock/index.js";
 import type { CausalityContext } from "../../shared-kernel/causality.js";
+import type { Clock } from "../clock/index.js";
 
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 

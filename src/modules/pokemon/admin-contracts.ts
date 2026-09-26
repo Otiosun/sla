@@ -72,6 +72,12 @@ export const CreatePokemonInputSchema = z
     ...createMutationFields,
     formId: uuid,
     level: z.number().int().min(1).max(100),
+    nickname: z.string().trim().min(1).max(64).nullable().optional(),
+    shiny: z.boolean().optional(),
+    gender: z.enum(["M", "F", "GENDERLESS"]).nullable().optional(),
+    natureId: uuid.nullable().optional(),
+    abilityId: uuid.nullable().optional(),
+    target: PokemonRosterPlacementSchema.nullable().optional(),
   })
   .strict();
 export type CreatePokemonInput = z.infer<typeof CreatePokemonInputSchema>;
@@ -164,6 +170,11 @@ export const PokemonCreateResultSchema = z
     rulesetId: uuid,
     formId: uuid,
     level: z.number().int().min(1).max(100),
+    nickname: z.string().nullable().optional(),
+    shiny: z.boolean().optional(),
+    gender: z.enum(["M", "F", "GENDERLESS"]).nullable().optional(),
+    abilityId: uuid.optional(),
+    natureId: uuid.optional(),
     placement: PokemonRosterPlacementSchema,
     replayed: z.boolean(),
   })

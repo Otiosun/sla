@@ -1,6 +1,6 @@
-import { createDatabasePool, closeDatabasePool } from "../../src/platform/db/database.js";
-import { loadConfig } from "../../src/platform/config/env.js";
 import { runPostDeployApplicationSmoke } from "../../src/operations/post-deploy-application-smoke.js";
+import { loadConfig } from "../../src/platform/config/env.js";
+import { closeDatabasePool, createDatabasePool } from "../../src/platform/db/database.js";
 
 const config = loadConfig();
 if (config.appEnv !== "staging" && config.appEnv !== "production") {

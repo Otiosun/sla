@@ -3,8 +3,8 @@ import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-a
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import type { MessageRouterPort } from "../../src/modules/messaging/ports.js";
@@ -128,28 +128,42 @@ async function main(): Promise<void> {
     const messagingRepository = new PostgresMessagingRepository(pool);
     const service = new MessagingService(messagingRepository, createRouter(), 30_000);
 
-    const menu = await service.receive(message("f17-menu", "$menu"));
+    const menu = await service.receive(message("f17-menu", "/menu"));
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId === null) {
       throw new Error(`Could not bootstrap proof player: ${JSON.stringify(menu)}`);
     }
     const playerId = menu.value.resultRefId;
 
-    await receiveProcessed(service, message("f17-register", "$registrar FailureProof"));
-    await receiveProcessed(service, message("f17-regions", "$regioes"));
-    await receiveProcessed(service, message("f17-region", "$regiao 1"));
-    await receiveProcessed(service, message("f17-starters", "$starters"));
-    await receiveProcessed(service, message("f17-starter", "$starter 1"));
-    await receiveProcessed(service, message("f17-where", "$onde"));
+    await receiveProcessed(service, message("f17-register", "/registrar FailureProof"));
+    await receiveProcessed(service, message("f17-regions", "/regioes"));
+    await receiveProcessed(service, message("f17-region", "/regiao 1"));
+    await receiveProcessed(service, message("f17-starters", "/starters"));
+    await receiveProcessed(service, message("f17-starter", "/starter 1"));
+    await receiveProcessed(service, message("f17-where", "/onde"));
 
     const whereText = await outgoingText(pool, "f17-where");
-    const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
-    if (travelMatch === null) {
-      throw new Error(`$onde did not emit a revision-bound travel action: ${whereText}`);
+    if (!whereText.includes("*Vila dos Arrozais*") || !whereText.includes("_Zhoulia_")) {
+      throw new Error(`/onde did not expose the canonical Zhoulia start: ${whereText}`);
     }
-    const destinationSlug = travelMatch[1];
-    const emittedRevision = travelMatch[2];
-    if (destinationSlug === undefined || emittedRevision === undefined) {
-      throw new Error(`Could not parse revision-bound travel action: ${whereText}`);
+    const travelMatch = whereText.match(/(\d+)\.\s+\*Campos de Yun\*[\s\S]*?`\/ir\s+(\d+)`/i);
+    const listedRouteNumber = travelMatch?.[1];
+    const routeNumber = travelMatch?.[2];
+    if (
+      listedRouteNumber === undefined ||
+      routeNumber === undefined ||
+      listedRouteNumber !== routeNumber
+    ) {
+      throw new Error(
+        `/onde did not emit the canonical numbered Campos de Yun route: ${whereText}`,
+      );
+    }
+    const beforeTravel = await pool.query<{ revision: string }>(
+      "SELECT revision::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    const emittedRevision = beforeTravel.rows[0]?.revision;
+    if (emittedRevision === undefined) {
+      throw new Error("Player location revision is missing before travel");
     }
 
     // Remove setup replies from the delivery queue so the send-failure assertion targets
@@ -190,11 +204,7 @@ async function main(): Promise<void> {
       crashAfterOwnerRouter,
       30_000,
     );
-    const travelMessage = message(
-      "f17-travel",
-      `$ir ${destinationSlug} v${emittedRevision}`,
-      "2026-08-29T19:03:00-03:00",
-    );
+    const travelMessage = message("f17-travel", `/ir ${routeNumber}`, "2026-08-29T19:03:00-03:00");
     const crashed = await crashingService.receive(travelMessage);
     if (crashed.ok || crashed.error.code !== "ACTION_INVALID") {
       throw new Error(`Restart crash window was not exercised: ${JSON.stringify(crashed)}`);
@@ -315,11 +325,11 @@ async function main(): Promise<void> {
       throw new Error(`Outbox retry changed mechanics: ${JSON.stringify(afterDelivery)}`);
     }
 
-    // STALE ACTION: an old revision-bound action may arrive later, but must become a friendly
-    // stale-state reply and must not execute current mechanics.
+    // STALE ACTION: an older numbered travel action may arrive later, but the active travel
+    // lock must turn it into a friendly reply without executing current mechanics.
     const staleMessage = message(
       "f17-stale-action",
-      `$ir ${destinationSlug} v${emittedRevision}`,
+      `/ir ${routeNumber}`,
       "2026-08-29T19:02:00-03:00",
     );
     const stale = await restartedService.receive(staleMessage);
@@ -327,11 +337,10 @@ async function main(): Promise<void> {
       throw new Error(`Stale action did not fail safely: ${JSON.stringify(stale)}`);
     }
     const staleText = await outgoingText(pool, staleMessage.externalMessageId);
-    if (
-      !staleText.includes("Esse estado mudou antes da sua ação") ||
-      !staleText.includes("Atualize e tente novamente")
-    ) {
-      throw new Error(`Stale action did not return the canonical recovery message: ${staleText}`);
+    if (!staleText.includes("ROTOM · VIAGEM") || !staleText.includes("Deslocamento em andamento")) {
+      throw new Error(
+        `Reordered numbered travel was not blocked by the active travel lock: ${staleText}`,
+      );
     }
     const finalState = await locationState(pool, playerId);
     if (

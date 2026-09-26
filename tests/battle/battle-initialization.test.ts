@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { initializeBattleState } from "../../src/modules/battle/initialization.js";
 import type { BattleCombatant } from "../../src/modules/battle/contracts.js";
+import { initializeBattleState } from "../../src/modules/battle/initialization.js";
 import type { BattlePokemonBuild, BattleRootRecord } from "../../src/modules/battle/ports.js";
-import { IDS, battleState, playerCombatant, reserveCombatant, wildCombatant } from "./fixtures.js";
+import { battleState, IDS, playerCombatant, reserveCombatant, wildCombatant } from "./fixtures.js";
 
 const secondPlayerId = "00000000-0000-4000-8000-000000000006";
 
@@ -98,6 +98,60 @@ describe("shared Battle initialization", () => {
     expect(initialized.ok).toBe(true);
     if (!initialized.ok) return;
     expect(initialized.value).toEqual(battleState(false));
+  });
+
+  it("rejects a side whose entire roster is fainted before battle starts", () => {
+    const fainted = { ...buildFromCombatant(playerCombatant()), currentHp: 0 };
+    const initialized = initializeBattleState({
+      root: root("WILD"),
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId: IDS.player,
+          party: [fainted],
+        },
+        {
+          sideNo: 2,
+          controllerKind: "WILD",
+          playerId: null,
+          party: [buildFromCombatant(wildCombatant())],
+        },
+      ],
+      idFactory: idFactory([IDS.p1, IDS.p2]),
+    });
+
+    expect(initialized.ok).toBe(false);
+    if (initialized.ok) return;
+    expect(initialized.error.code).toBe("BATTLE_INITIALIZATION_INVALID");
+    expect(initialized.error.message).toContain("battle-ready");
+  });
+
+  it("still starts with the first living reserve when slot 1 is fainted", () => {
+    const fainted = { ...buildFromCombatant(playerCombatant()), currentHp: 0 };
+    const reserve = buildFromCombatant(reserveCombatant());
+    const initialized = initializeBattleState({
+      root: root("WILD"),
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId: IDS.player,
+          party: [fainted, reserve],
+        },
+        {
+          sideNo: 2,
+          controllerKind: "WILD",
+          playerId: null,
+          party: [buildFromCombatant(wildCombatant())],
+        },
+      ],
+      idFactory: idFactory([IDS.p1, IDS.p1Reserve, IDS.p2]),
+    });
+
+    expect(initialized.ok).toBe(true);
+    if (!initialized.ok) return;
+    expect(initialized.value.sides[0]?.activeParticipantId).toBe(IDS.p1Reserve);
   });
 
   it("builds a PLAYER-vs-PLAYER version-0 state without a second engine", () => {

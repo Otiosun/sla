@@ -2,6 +2,7 @@ import type { InstalledBaileysIdentity } from "../adapters/whatsapp/baileys-pack
 import { loadConfig } from "../platform/config/env.js";
 import {
   assertWhatsAppPairingProviderIdentitySupported,
+  type SensitivePairingCodeSink,
   type SensitivePairingQrSink,
 } from "./whatsapp-pairing-bootstrap.js";
 import {
@@ -21,6 +22,7 @@ export type PairingCliExecutor = (
   config: WhatsAppPairingBootstrapConfig,
   providerIdentity: InstalledBaileysIdentity,
   qrSink: SensitivePairingQrSink,
+  codeSink: SensitivePairingCodeSink,
 ) => Promise<void>;
 
 export interface WhatsAppPairingBootstrapCliOptions {
@@ -70,6 +72,12 @@ export function createTerminalPairingQrSink(
   };
 }
 
+export function createTerminalPairingCodeSink(
+  writeStdout: (chunk: string) => void,
+): SensitivePairingCodeSink {
+  return { render: (code) => writeStdout(`Código de pareamento: ${code}\n`) };
+}
+
 function assertInteractiveTerminal(options: WhatsAppPairingBootstrapCliOptions): void {
   if (!options.stdinIsTTY || !options.stdoutIsTTY || options.isCI) {
     throw new WhatsAppPairingInteractiveTerminalRequiredError(
@@ -92,5 +100,6 @@ export async function runWhatsAppPairingBootstrapCli(
     config,
     providerIdentity,
     createTerminalPairingQrSink(options.renderQr, options.writeStdout),
+    createTerminalPairingCodeSink(options.writeStdout),
   );
 }

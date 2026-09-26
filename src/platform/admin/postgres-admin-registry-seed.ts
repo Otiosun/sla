@@ -86,7 +86,7 @@ export async function reconcileCanonicalAdminRegistry(
       [roleId],
     );
     const expected = [...capabilityKeys].sort();
-    const actualKeys = actual.rows.map((row) => row.key);
+    const actualKeys = actual.rows.map((row) => row.key).sort();
     if (JSON.stringify(actualKeys) !== JSON.stringify(expected)) {
       throw new Error(
         `Canonical admin role capability drift remains after reconciliation: ${slug}`,

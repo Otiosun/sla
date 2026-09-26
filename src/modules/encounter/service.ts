@@ -5,13 +5,13 @@ import {
   type FeatureAvailability,
   type PlayerEligibility,
 } from "../../shared-kernel/gates.js";
+import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import {
   createBattleId,
   createEncounterId,
   type EncounterId,
   type PlayerId,
 } from "../../shared-kernel/ids.js";
-import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
 import { err, ok, type Result } from "../../shared-kernel/result.js";
 import { encounterConditionsAllow } from "../catalog/encounter-contracts.js";
 import type {
@@ -22,6 +22,7 @@ import type {
   EncounterStatus,
   EncounterView,
   ExpireResult,
+  SpawnEncounterInput,
   StartBattleResult,
 } from "./contracts.js";
 import {
@@ -44,6 +45,7 @@ if (!encounterCreateScopeResult.ok)
   throw new Error("Canonical encounter idempotency scope is invalid");
 const ENCOUNTER_CREATE_SCOPE = encounterCreateScopeResult.value;
 const TABLE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_NARRATOR_SPAWN_QUANTITY = 6;
 
 function playerGate(context: EncounterPlayerContext): PlayerEligibility {
   if (!context.playerActive) return { eligible: false, reason: "player-not-active" };
@@ -65,12 +67,26 @@ export class EncounterService {
     private readonly feature: FeatureAvailability,
   ) {}
 
-  public async createOrReplay(input: CreateEncounterInput): Promise<Result<EncounterView>> {
+  public async createOrReplay(
+    input: CreateEncounterInput | SpawnEncounterInput,
+  ): Promise<Result<EncounterView>> {
     if (
       input.encounterTableSlug !== undefined &&
       !TABLE_SLUG_PATTERN.test(input.encounterTableSlug)
     ) {
       return err(encounterValidationError("encounterTableSlug has an invalid format"));
+    }
+    const spawnQuantity = input.spawnQuantity ?? 1;
+    if (
+      !Number.isSafeInteger(spawnQuantity) ||
+      spawnQuantity < 1 ||
+      spawnQuantity > MAX_NARRATOR_SPAWN_QUANTITY
+    ) {
+      return err(
+        encounterValidationError(
+          `spawnQuantity must be an integer in 1..${MAX_NARRATOR_SPAWN_QUANTITY}`,
+        ),
+      );
     }
     const idempotency = createIdempotencyKey(ENCOUNTER_CREATE_SCOPE, input.idempotencyKey);
     if (!idempotency.ok) return idempotency;
@@ -85,6 +101,39 @@ export class EncounterService {
         true,
       );
       if (replay !== null) return this.buildView(transaction, replay);
+
+      const requestedParticipants =
+        "participantPlayerIds" in input ? input.participantPlayerIds : [input.playerId];
+      const party = await transaction.partyMembers(input.playerId, true);
+      const participants = party ?? [input.playerId];
+      const expectedParticipants =
+        requestedParticipants.length === 0 ? participants : requestedParticipants;
+      if (
+        !expectedParticipants.includes(input.playerId) ||
+        new Set(expectedParticipants).size !== expectedParticipants.length
+      ) {
+        return err(encounterValidationError("Spawn participants are invalid"));
+      }
+      if (
+        participants.length !== expectedParticipants.length ||
+        participants.some((playerId, index) => playerId !== [...expectedParticipants].sort()[index])
+      ) {
+        return err(encounterNotReady("Party membership changed; spawn was rejected"));
+      }
+      for (const participantPlayerId of participants) {
+        const participant = await transaction.playerContext(participantPlayerId, true);
+        if (
+          participant === null ||
+          !participant.playerActive ||
+          !participant.onboardingComplete ||
+          participant.activeBattle ||
+          participant.areaId === null ||
+          participant.areaId !== context.areaId ||
+          (await transaction.activeForPlayer(participantPlayerId, true)) !== null
+        ) {
+          return err(encounterNotReady("Party is not eligible and co-located for this spawn"));
+        }
+      }
 
       const activeEncounter = await transaction.activeForPlayer(input.playerId, true);
       if (activeEncounter !== null) {
@@ -114,7 +163,7 @@ export class EncounterService {
       const eligibleTables = allTables.filter(
         (table) =>
           table.active &&
-          encounterConditionsAllow(table.conditions, unlocks) &&
+          encounterConditionsAllow(table.conditions, unlocks, input.environment ?? {}) &&
           (input.encounterTableSlug === undefined || table.slug === input.encounterTableSlug),
       );
       if (eligibleTables.length === 0) {
@@ -131,7 +180,9 @@ export class EncounterService {
       if (table === undefined)
         return err(encounterNotReady("Encounter table could not be resolved"));
       const entries = table.entries.filter(
-        (entry) => entry.active && encounterConditionsAllow(entry.conditions, unlocks),
+        (entry) =>
+          entry.active &&
+          encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
       );
       if (entries.length === 0) {
         return err(encounterNotReady("Encounter table has no eligible active entries"));
@@ -140,19 +191,34 @@ export class EncounterService {
       const encounterId = createEncounterId();
       const seedMaterial = this.seedProvider.create(`encounter:${encounterId}`);
       const rng = new CounterRandomSource(seedMaterial.seed);
-      const entry = chooseWeightedEncounterEntry(entries, rng);
-      const level = chooseEncounterLevel(entry, rng);
-      const build = await transaction.wildBuild(content.contentReleaseId, entry.formId);
-      if (build === null) {
-        return err(encounterNotReady("Encounter entry references unavailable Pokemon content"));
+      const wildSnapshots = [];
+
+      for (let wildNo = 1; wildNo <= spawnQuantity; wildNo += 1) {
+        const entry = chooseWeightedEncounterEntry(entries, rng);
+        const level = chooseEncounterLevel(entry, rng);
+        const build = await transaction.wildBuild(content.contentReleaseId, entry.formId);
+        if (build === null) {
+          return err(encounterNotReady("Encounter entry references unavailable Pokemon content"));
+        }
+        wildSnapshots.push({
+          wildNo,
+          status: "ACTIVE" as const,
+          snapshot: generateWildPokemon(build, level, rng),
+        });
       }
-      const snapshot = generateWildPokemon(build, level, rng);
+
+      const primary = wildSnapshots[0];
+      if (primary === undefined) {
+        return err(encounterNotReady("Encounter wild roster generation failed"));
+      }
+
       const policy = resolveEncounterRulesetPolicy(content.rulesetConfig);
       const createdAt = this.clock.now();
       const expiresAt = new Date(createdAt.getTime() + policy.expirationSeconds * 1_000);
       const record = await transaction.insertEncounter({
         encounterId,
         playerId: input.playerId,
+        participantPlayerIds: participants,
         areaId: context.areaId,
         contentReleaseId: content.contentReleaseId,
         rulesetId: content.rulesetId,
@@ -161,7 +227,8 @@ export class EncounterService {
         rngCounter: rng.counter,
         createdAt,
         expiresAt,
-        snapshot,
+        snapshot: primary.snapshot,
+        wildSnapshots,
       });
       return this.buildView(transaction, record);
     });
@@ -402,9 +469,17 @@ export class EncounterService {
   ): Promise<Result<EncounterView>> {
     const snapshot = await transaction.snapshot(record.encounterId);
     if (snapshot === null) return err(encounterNotReady("Encounter snapshot is missing"));
+    const wilds =
+      transaction.wildSnapshots === undefined
+        ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot }]
+        : await transaction.wildSnapshots(record.encounterId);
+    if (wilds.length === 0) {
+      return err(encounterNotReady("Encounter wild roster is missing"));
+    }
     return ok({
       ...record,
       snapshot,
+      wilds,
       battleId: await transaction.battleId(record.encounterId),
     });
   }

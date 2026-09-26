@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { RegistrationService } from "../../src/modules/registration/service.js";
 import type {
   RegistrationRepository,
   RegistrationRevisionRecord,
   RegistrationTransaction,
 } from "../../src/modules/registration/ports.js";
+import { RegistrationService } from "../../src/modules/registration/service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 
 const REVIEW_ID = "33333333-3333-4333-8333-333333333333";
 
 function repositoryWith(review: RegistrationRevisionRecord): RegistrationRepository {
   const tx: RegistrationTransaction = {
+    lockPlayer: async () => undefined,
     loadDraft: async () => null,
     saveDraft: async () => null,
+    deleteDraft: async () => undefined,
+    loadConversation: async () => null,
+    saveConversation: async () => null,
+    deleteConversation: async () => undefined,
     loadCurrentRevision: async () => review,
     loadRevisionById: async (revisionId) => (revisionId === review.id ? review : null),
     loadIdempotencyReceipt: async () => null,

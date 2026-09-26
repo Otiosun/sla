@@ -1,8 +1,8 @@
 import {
-  AdminEncounterCloseInputSchema,
-  AdminEncounterInspectInputSchema,
   type AdminEncounterCloseInput,
+  AdminEncounterCloseInputSchema,
   type AdminEncounterInspectInput,
+  AdminEncounterInspectInputSchema,
 } from "./domain-contracts.js";
 import type { AdminEncounterOperationPort } from "./encounter-ports.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";

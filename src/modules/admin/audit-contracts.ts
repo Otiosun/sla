@@ -126,3 +126,14 @@ export interface AdminOperationAuditBundle {
   readonly ownerEvidence: readonly AdminOperationOwnerEvidence[];
   readonly batchEvidence: readonly AdminOperationBatchEvidence[];
 }
+export interface AdminAuditEntry {
+  readonly operationId: string;
+  readonly operationType: string;
+  readonly actorDisplayName: string;
+  readonly targetType: string;
+  readonly riskTier: AdminRiskTier;
+  readonly status: AdminOperationStatus;
+  readonly reason: string | null;
+  readonly createdAt: string;
+  readonly appliedAt: string | null;
+}

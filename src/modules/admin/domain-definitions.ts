@@ -1,26 +1,28 @@
 import {
-  AdminInventoryAdjustInputSchema,
-  AdminPokemonArchiveInputSchema,
-  AdminPokemonCreateInputSchema,
-  AdminPokemonEffectApplyInputSchema,
-  AdminPokemonEffectRemoveInputSchema,
-  AdminPokemonHpCorrectInputSchema,
-  AdminPokemonProgressCorrectInputSchema,
-  AdminPokemonRosterMoveInputSchema,
-  AdminPokemonStatusCorrectInputSchema,
-  AdminTrainerProgressAdjustInputSchema,
   type AdminInventoryAdjustInput,
+  AdminInventoryAdjustInputSchema,
+  type AdminPokedexSeenGrantInput,
+  AdminPokedexSeenGrantInputSchema,
   type AdminPokemonArchiveInput,
+  AdminPokemonArchiveInputSchema,
   type AdminPokemonCreateInput,
+  AdminPokemonCreateInputSchema,
   type AdminPokemonEffectApplyInput,
+  AdminPokemonEffectApplyInputSchema,
   type AdminPokemonEffectRemoveInput,
+  AdminPokemonEffectRemoveInputSchema,
   type AdminPokemonHpCorrectInput,
+  AdminPokemonHpCorrectInputSchema,
   type AdminPokemonProgressCorrectInput,
+  AdminPokemonProgressCorrectInputSchema,
   type AdminPokemonRosterMoveInput,
+  AdminPokemonRosterMoveInputSchema,
   type AdminPokemonStatusCorrectInput,
+  AdminPokemonStatusCorrectInputSchema,
   type AdminTrainerProgressAdjustInput,
-  AdminWalletAdjustInputSchema,
+  AdminTrainerProgressAdjustInputSchema,
   type AdminWalletAdjustInput,
+  AdminWalletAdjustInputSchema,
 } from "./domain-contracts.js";
 import type { AdminDomainOperationPort } from "./domain-ports.js";
 import { type AdminOperationRegistry, defineAdminOperation } from "./operation-registry.js";
@@ -92,6 +94,21 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyTrainerProgressAdjustment(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokedexSeenGrantInput>({
+      kind: "MUTATION",
+      operationType: "pokedex.seen.grant",
+      capabilityKey: "pokedex.seen.grant",
+      riskTier: 2,
+      authorizationMode: "SUBJECT",
+      policy: deltaPolicy,
+      inputSchema: AdminPokedexSeenGrantInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokedexSeenGrant(context.operation, context.actorPrincipalId, input),
     }),
   );
 

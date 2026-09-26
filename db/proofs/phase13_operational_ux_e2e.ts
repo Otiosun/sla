@@ -2,8 +2,8 @@ import { Pool } from "pg";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import type { MessageRouterPort } from "../../src/modules/messaging/ports.js";
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     const messagingRepository = new PostgresMessagingRepository(pool);
     const service = new MessagingService(messagingRepository, canonicalRouter, 30_000);
 
-    const menu = message("ux-menu-new", "$menu");
+    const menu = message("ux-menu-new", "/menu");
     const menuResult = await service.receive(menu);
     if (
       !menuResult.ok ||
@@ -110,23 +110,23 @@ async function main(): Promise<void> {
     }
     const playerId = menuResult.value.resultRefId;
     const newMenuText = await outgoingText(pool, menu.externalMessageId);
-    if (!newMenuText.includes("Bem-vindo ao RPG Pokémon") || !newMenuText.includes("$registrar")) {
+    if (!newMenuText.includes("RECEPÇÃO") || !newMenuText.includes("/registrar")) {
       throw new Error(`NEW onboarding menu is not actionable: ${newMenuText}`);
     }
 
-    await receiveProcessed(service, message("ux-register", "$registrar Red"));
-    await receiveProcessed(service, message("ux-regions", "$regioes"));
+    await receiveProcessed(service, message("ux-register", "/registrar Red"));
+    await receiveProcessed(service, message("ux-regions", "/regioes"));
     const regionsText = await outgoingText(pool, "ux-regions");
-    if (!regionsText.includes("REGIÕES") || !regionsText.includes("$regiao <número>")) {
+    if (!regionsText.includes("REGIÕES") || !regionsText.includes("/regiao <número>")) {
       throw new Error(`Region menu is not actionable: ${regionsText}`);
     }
-    await receiveProcessed(service, message("ux-region", "$regiao 1"));
-    await receiveProcessed(service, message("ux-starters", "$starters"));
+    await receiveProcessed(service, message("ux-region", "/regiao 1"));
+    await receiveProcessed(service, message("ux-starters", "/starters"));
     const startersText = await outgoingText(pool, "ux-starters");
-    if (!startersText.includes("POKÉMON INICIAIS") || !startersText.includes("$starter <número>")) {
+    if (!startersText.includes("POKÉMON INICIAIS") || !startersText.includes("/starter <número>")) {
       throw new Error(`Starter menu is not actionable: ${startersText}`);
     }
-    await receiveProcessed(service, message("ux-starter", "$starter 1"));
+    await receiveProcessed(service, message("ux-starter", "/starter 1"));
 
     const onboarding = await pool.query<{ state: string }>(
       "SELECT state FROM onboarding_states WHERE player_id = $1",
@@ -138,38 +138,54 @@ async function main(): Promise<void> {
       );
     }
 
-    await receiveProcessed(service, message("ux-menu-complete", "$menu"));
+    await receiveProcessed(service, message("ux-menu-complete", "/menu"));
     const completeMenuText = await outgoingText(pool, "ux-menu-complete");
     if (
-      !completeMenuText.includes("CENTRAL DO TREINADOR") ||
-      !completeMenuText.includes("$perfil") ||
-      !completeMenuText.includes("$onde") ||
-      completeMenuText.includes("$explorar") ||
-      completeMenuText.includes("$golpe")
+      !completeMenuText.includes("ROTOM · MENU") ||
+      !completeMenuText.includes("/onde") ||
+      !completeMenuText.includes("/colecao") ||
+      !completeMenuText.includes("/pokemon <# ou nome>") ||
+      completeMenuText.includes("/explorar") ||
+      completeMenuText.includes("`/golpe`")
     ) {
       throw new Error(`COMPLETE menu violates canonical UX: ${completeMenuText}`);
     }
 
     for (const [id, command, expected] of [
-      ["ux-profile", "$perfil", "PERFIL"],
-      ["ux-team", "$equipe", "EQUIPE"],
-      ["ux-inventory", "$inventario", "INVENTÁRIO"],
-      ["ux-pokedex", "$pokedex", "POKÉDEX"],
+      ["ux-profile", "/perfil", "PERFIL"],
+      ["ux-team", "/equipe", "EQUIPE"],
+      ["ux-inventory", "/inventario", "INVENTÁRIO"],
+      ["ux-pokedex", "/pokedex", "POKÉDEX"],
     ] as const) {
       await receiveProcessed(service, message(id, command));
       const text = await outgoingText(pool, id);
       if (!text.includes(expected)) throw new Error(`${command} is not mobile-readable: ${text}`);
     }
 
-    await receiveProcessed(service, message("ux-where", "$onde"));
+    await receiveProcessed(service, message("ux-where", "/onde"));
     const whereText = await outgoingText(pool, "ux-where");
-    const travelMatch = whereText.match(/\$ir\s+([a-z0-9-]+)\s+v(\d+)/i);
-    if (travelMatch === null)
-      throw new Error(`$onde did not emit a revision-bound route: ${whereText}`);
-    const destinationSlug = travelMatch[1];
-    const emittedRevision = travelMatch[2];
-    if (destinationSlug === undefined || emittedRevision === undefined) {
-      throw new Error(`Could not parse revision-bound travel command: ${whereText}`);
+    if (!whereText.includes("*Vila dos Arrozais*") || !whereText.includes("_Zhoulia_")) {
+      throw new Error(`/onde did not expose the canonical Zhoulia start: ${whereText}`);
+    }
+    const travelMatch = whereText.match(/(\d+)\.\s+\*Campos de Yun\*[\s\S]*?`\/ir\s+(\d+)`/i);
+    const listedRouteNumber = travelMatch?.[1];
+    const routeNumber = travelMatch?.[2];
+    if (
+      listedRouteNumber === undefined ||
+      routeNumber === undefined ||
+      listedRouteNumber !== routeNumber
+    ) {
+      throw new Error(
+        `/onde did not emit the canonical numbered Campos de Yun route: ${whereText}`,
+      );
+    }
+    const beforeTravel = await pool.query<{ revision: string }>(
+      "SELECT revision::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    const emittedRevision = beforeTravel.rows[0]?.revision;
+    if (emittedRevision === undefined) {
+      throw new Error("Player location revision is missing before travel");
     }
 
     let crashInjected = false;
@@ -197,7 +213,7 @@ async function main(): Promise<void> {
     );
     const travelMessage = message(
       "ux-travel-crash",
-      `$ir ${destinationSlug} v${emittedRevision}`,
+      `/ir ${routeNumber}`,
       "2026-08-28T03:03:00-03:00",
     );
     const crashed = await crashService.receive(travelMessage);
@@ -265,7 +281,7 @@ async function main(): Promise<void> {
 
     const staleOldText = message(
       "ux-travel-stale-reordered",
-      `$ir ${destinationSlug} v${emittedRevision}`,
+      `/ir ${routeNumber}`,
       "2026-08-28T03:02:00-03:00",
     );
     const stale = await restartedService.receive(staleOldText);
@@ -276,10 +292,12 @@ async function main(): Promise<void> {
     }
     const staleReply = await outgoingText(pool, staleOldText.externalMessageId);
     if (
-      !staleReply.includes("Esse estado mudou antes da sua ação") ||
-      !staleReply.includes("Atualize e tente novamente")
+      !staleReply.includes("ROTOM · VIAGEM") ||
+      !staleReply.includes("Deslocamento em andamento")
     ) {
-      throw new Error(`Stale action did not explain recovery: ${staleReply}`);
+      throw new Error(
+        `Reordered numbered travel was not blocked by the active travel lock: ${staleReply}`,
+      );
     }
     const finalState = await pool.query<{ area_id: string; revision: string; receipts: string }>(
       `SELECT location.area_id, location.revision::text,

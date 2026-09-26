@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { Pool, type PoolClient } from "pg";
+import { Pool } from "pg";
 import { baileysOutboundMessageId } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
 import { CatalogService } from "../../src/modules/catalog/service.js";
@@ -10,8 +10,7 @@ import { PlayerRegistrationService } from "../../src/modules/player/registration
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
 import { PlayerProvisioningService } from "../../src/modules/registration/provisioning-service.js";
 import { PlayerProvisioningWorker } from "../../src/modules/registration/provisioning-worker.js";
-import { appError, err } from "../../src/shared-kernel/result.js";
-import { PostgresAdminRegistrySeed } from "../../src/platform/admin/postgres-admin-registry-seed.js";
+import { WorldService } from "../../src/modules/world/service.js";
 import { reconcileCanonicalAdminRegistry } from "../../src/platform/admin/postgres-admin-registry-seed.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
 import { SystemClock } from "../../src/platform/clock/index.js";
@@ -25,11 +24,11 @@ import { PostgresRegistrationRepository } from "../../src/platform/registration/
 import { PostgresRegistrationSetupLoader } from "../../src/platform/registration/postgres-registration-setup-loader.js";
 import { CryptoRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
-import { WorldService } from "../../src/modules/world/service.js";
 import {
   createOperationalMessagingComposition,
   createOperationalOutboxWorker,
 } from "../../src/runtime/compose-whatsapp-runtime.js";
+import { appError, err } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error("DATABASE_URL is required for reception registration E2E");
@@ -76,76 +75,31 @@ async function prepareZhouliaRelease(pool: Pool): Promise<{
     }),
   );
 
-  const regionId = await withTransaction(pool, async (client) => {
-    await client.query(
-      `INSERT INTO regions(id, slug)
-       VALUES ($1, 'zhoulia')
-       ON CONFLICT (slug) DO NOTHING`,
-      [randomUUID()],
-    );
-    const region = await client.query<{ id: string }>("SELECT id FROM regions WHERE slug = 'zhoulia'");
-    const resolvedRegionId = region.rows[0]?.id;
-    if (resolvedRegionId === undefined) throw new Error("Could not resolve Zhoulia region identity");
+  const region = await pool.query<{ id: string }>(
+    `SELECT region.id
+     FROM region_revisions revision
+     JOIN regions region ON region.id = revision.region_id
+     WHERE revision.content_release_id = $1
+       AND revision.active = TRUE
+       AND region.slug = 'zhoulia'`,
+    [releaseId],
+  );
+  const regionId = region.rows[0]?.id;
+  if (regionId === undefined) {
+    throw new Error("Cloned reception proof release is missing active Zhoulia");
+  }
 
-    await client.query(
-      `INSERT INTO region_revisions(id, content_release_id, region_id, display_name, active)
-       VALUES ($1, $2, $3, 'Zhoulia', TRUE)`,
-      [randomUUID(), releaseId, resolvedRegionId],
-    );
-
-    const existingStarters = await client.query<{ form_id: string; starter_level: number }>(
-      `SELECT form_id, starter_level
-       FROM starter_options
-       WHERE content_release_id = $1 AND active = TRUE
-       ORDER BY sort_order, form_id
-       LIMIT 2`,
-      [releaseId],
-    );
-    if (existingStarters.rows.length < 2) {
-      throw new Error("Reception E2E requires at least two canonical starter builds");
-    }
-    for (const [index, starter] of existingStarters.rows.entries()) {
-      await client.query(
-        `INSERT INTO starter_options(
-           id, content_release_id, region_id, form_id, starter_level, sort_order, active
-         ) VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-        [randomUUID(), releaseId, resolvedRegionId, starter.form_id, starter.starter_level, index + 1],
-      );
-    }
-
-    const gateId = await ensureArea(client, resolvedRegionId, "zhoulia-gate");
-    const roadId = await ensureArea(client, resolvedRegionId, "zhoulia-road");
-    await client.query(
-      `INSERT INTO area_revisions(id, content_release_id, area_id, display_name, active, data)
-       VALUES
-         ($1, $2, $3, 'Portão de Zhoulia', TRUE, $4::jsonb),
-         ($5, $2, $6, 'Estrada de Zhoulia', TRUE, $7::jsonb)`,
-      [
-        randomUUID(),
-        releaseId,
-        gateId,
-        JSON.stringify({
-          schemaVersion: 1,
-          kind: "TOWN",
-          safePoint: true,
-          startingArea: true,
-          relocationPriority: 0,
-        }),
-        randomUUID(),
-        roadId,
-        JSON.stringify({
-          schemaVersion: 1,
-          kind: "ROUTE",
-          safePoint: false,
-          startingArea: false,
-          relocationPriority: 100,
-        }),
-      ],
-    );
-    await ensureConnection(client, releaseId, gateId, roadId, "outbound");
-    await ensureConnection(client, releaseId, roadId, gateId, "return");
-    return resolvedRegionId;
-  });
+  const fixtureStarters = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM starter_options
+     WHERE content_release_id = $1
+       AND region_id = $2
+       AND active = TRUE`,
+    [releaseId, regionId],
+  );
+  if (Number(fixtureStarters.rows[0]?.count ?? "0") < 2) {
+    throw new Error("Reception E2E requires at least two Zhoulia test-fixture starter options");
+  }
 
   unwrap("validate reception proof release", await catalog.validateRelease(releaseId));
   unwrap("publish reception proof release", await catalog.publishRelease(releaseId));
@@ -163,48 +117,6 @@ async function prepareZhouliaRelease(pool: Pool): Promise<{
     throw new Error("Starter display names are unavailable");
   }
   return { regionId, starterNames: [first, second] };
-}
-
-async function ensureArea(client: PoolClient, regionId: string, slug: string): Promise<string> {
-  await client.query(
-    `INSERT INTO areas(id, region_id, slug)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (region_id, slug) DO NOTHING`,
-    [randomUUID(), regionId, slug],
-  );
-  const result = await client.query<{ id: string }>(
-    "SELECT id FROM areas WHERE region_id = $1 AND slug = $2",
-    [regionId, slug],
-  );
-  const id = result.rows[0]?.id;
-  if (id === undefined) throw new Error(`Could not resolve area ${slug}`);
-  return id;
-}
-
-async function ensureConnection(
-  client: PoolClient,
-  releaseId: string,
-  fromAreaId: string,
-  toAreaId: string,
-  connectionKey: string,
-): Promise<void> {
-  const connectionId = randomUUID();
-  await client.query(
-    `INSERT INTO area_connections(id, from_area_id, to_area_id, connection_key)
-     VALUES ($1, $2, $3, $4)`,
-    [connectionId, fromAreaId, toAreaId, connectionKey],
-  );
-  await client.query(
-    `INSERT INTO area_connection_revisions(
-       id, content_release_id, connection_id, access_rule, active
-     ) VALUES ($1, $2, $3, $4::jsonb, TRUE)`,
-    [
-      randomUUID(),
-      releaseId,
-      connectionId,
-      JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] }),
-    ],
-  );
 }
 
 async function configureReception(pool: Pool): Promise<{ adminPrincipalId: string }> {
@@ -324,7 +236,7 @@ async function receive(service: MessagingService, message: IncomingMessage): Pro
   if (harness === undefined) throw new Error("Reception E2E messaging harness is missing");
 
   const text = message.text?.trim() ?? "";
-  const freeform = text.length > 0 && !text.startsWith("$");
+  const freeform = text.length > 0 && !/^[$/]/.test(text);
   const prepared =
     freeform && harness.lastRegistrationPromptId !== null
       ? { ...message, replyToExternalMessageId: harness.lastRegistrationPromptId }
@@ -358,7 +270,16 @@ async function main(): Promise<void> {
     const { adminPrincipalId } = await configureReception(pool);
     let runtime = messaging(pool);
 
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "oi"));
+    const membership = {provider: "baileys", chatRef: RECEPTION_CHAT, externalId: PLAYER_JID, action: "add"} as const;
+    await runtime.composition.onMembership(membership);
+    await messaging(pool).composition.onMembership(membership);
+    const welcome = await pool.query<{message_type: string; payload: {caption: string; mentions: string[]}}>(
+      "SELECT message_type,payload FROM outbox_messages WHERE destination_ref=$1 AND idempotency_key LIKE 'reception:join:%'", [RECEPTION_CHAT]);
+    assert.equal(welcome.rows.length, 1);
+    assert.equal(welcome.rows[0]?.message_type, "IMAGE");
+    assert.match(welcome.rows[0]?.payload.caption ?? "", /BZZZT[\s\S]*\/registrar/);
+    assert.deepEqual(welcome.rows[0]?.payload.mentions, [PLAYER_JID]);
+    await harnessByService.get(runtime.service)?.outboxWorker.runOnce();
     const identity = await pool.query<{ player_id: string }>(
       `SELECT player_id FROM player_identities
        WHERE provider = 'baileys' AND external_id = $1 AND status = 'ACTIVE'`,
@@ -367,12 +288,12 @@ async function main(): Promise<void> {
     const playerId = identity.rows[0]?.player_id;
     if (playerId === undefined) throw new Error("Reception welcome did not create a player identity");
 
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$registrar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/registrar"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "1"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "Liora Vale"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "17"));
     await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "ela/dela"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$salvar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/salvar"));
 
     const partial = await pool.query<{
       trainer_name: string | null;
@@ -389,8 +310,8 @@ async function main(): Promise<void> {
     assert.deepEqual(partial.rows[0], { trainer_name: "Liora Vale", age: 17, appearance: null });
 
     runtime = messaging(pool);
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$continuar"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/continuar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -399,7 +320,7 @@ async function main(): Promise<void> {
         fullFicha(starterNames[0], "Curiosa e competitiva.", "Saiu de casa para pesquisar Pokémon raros."),
       ),
     );
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -408,8 +329,8 @@ async function main(): Promise<void> {
         fullFicha(starterNames[1], "Curiosa e competitiva.", "Saiu de casa para pesquisar Pokémon raros."),
       ),
     );
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar"));
-    const submitMessage = incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar sim");
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar"));
+    const submitMessage = incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar sim");
     await receive(runtime.service, submitMessage);
     const replay = unwrap("replay exact submit", await runtime.service.receive(submitMessage));
     assert.equal(replay.status, "REPLAYED");
@@ -467,7 +388,7 @@ async function main(): Promise<void> {
 
     await receive(
       runtime.service,
-      incoming(ADMIN_JID, RECEPTION_CHAT, "$ajustes", firstReplyId),
+      incoming(ADMIN_JID, RECEPTION_CHAT, "/ajustes", firstReplyId),
     );
     const changed = await pool.query<{ status: string }>(
       "SELECT status FROM registration_revisions WHERE id = $1",
@@ -485,8 +406,8 @@ async function main(): Promise<void> {
     assert.equal(firstDraft.rows[0]?.trainer_name, "Liora Vale");
     assert.equal(firstDraft.rows[0]?.starter_form_id, expectedStarter.formId);
 
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$editar"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$modo completo"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/editar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/modo completo"));
     await receive(
       runtime.service,
       incoming(
@@ -499,8 +420,8 @@ async function main(): Promise<void> {
         ),
       ),
     );
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar"));
-    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "$confirmar sim"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar"));
+    await receive(runtime.service, incoming(PLAYER_JID, RECEPTION_CHAT, "/confirmar sim"));
 
     const reviews = await pool.query<{
       id: string;
@@ -534,7 +455,7 @@ async function main(): Promise<void> {
 
     await receive(
       runtime.service,
-      incoming(ADMIN_JID, RECEPTION_CHAT, "$aprovar", secondReplyId),
+      incoming(ADMIN_JID, RECEPTION_CHAT, "/aprovar", secondReplyId),
     );
     const approved = await pool.query<{
       status: string;
@@ -658,17 +579,29 @@ async function main(): Promise<void> {
     assert.equal(announcement.rows[0]?.status, "PENDING");
     assert.equal(announcement.rows[0]?.destination_ref, RECEPTION_CHAT);
     assert.match(announcement.rows[0]?.payload.text ?? "", /Liora Vale/);
+    assert.doesNotMatch(announcement.rows[0]?.payload.text ?? "", /\/menu/i);
 
-    const location = unwrap("load active location", await realWorld.getLocation(playerId as never));
-    const route = location.connections.find(
-      (candidate) => candidate.destinationSlug === "zhoulia-road",
+    const location = unwrap(
+      "load active location",
+      await realWorld.getLocation(playerId as never),
     );
-    if (route === undefined) throw new Error("Zhoulia world route is missing after provisioning");
-    const commandText = `$ir ${route.destinationSlug} v${location.revision}`;
+    if (location.areaSlug !== "vila-dos-arrozais" || location.regionSlug !== "zhoulia") {
+      throw new Error(
+        `Provisioned player did not start in canonical Zhoulia/Vila dos Arrozais: ${location.regionSlug}/${location.areaSlug}`,
+      );
+    }
+    const routeIndex = location.connections.findIndex(
+      (candidate) => candidate.destinationSlug === "campos-de-yun" && candidate.available,
+    );
+    if (routeIndex < 0) {
+      throw new Error("Canonical Campos de Yun route is missing after provisioning");
+    }
+    const commandText = `/ir ${routeIndex + 1}`;
     const receptionContext = directContext(PLAYER_JID, RECEPTION_CHAT, commandText);
     const denied = await runtime.composition.router.dispatch(receptionContext);
-    assert.equal(denied.ok, false);
-    if (denied.ok) throw new Error("World travel unexpectedly passed in Reception");
+    assert.equal(denied.ok, true);
+    if (!denied.ok) throw new Error(`Reception silence gate failed: ${denied.error.code}`);
+    assert.equal(denied.value, null);
 
     const worldContext = directContext(PLAYER_JID, WORLD_CHAT, commandText);
     const allowed = await runtime.composition.router.dispatch(worldContext);
@@ -676,7 +609,7 @@ async function main(): Promise<void> {
     if (!allowed.ok) {
       throw new Error(`World travel was denied in world-capable group: ${allowed.error.code}`);
     }
-    assert.match(String(allowed.value?.outgoing[0]?.payload.text ?? ""), /Estrada de Zhoulia/);
+    assert.match(String(allowed.value?.outgoing[0]?.payload.text ?? ""), /Campos de Yun/);
 
     console.log("Reception registration E2E proof passed");
   } finally {

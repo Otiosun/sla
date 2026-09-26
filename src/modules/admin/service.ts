@@ -1,20 +1,20 @@
 import { randomUUID } from "node:crypto";
 import {
-  AdminMutationRequestSchema,
-  AdminReadAuthorizationRequestSchema,
   type AdminAuthorizationSnapshot,
+  AdminMutationRequestSchema,
   type AdminOperationPolicy,
   type AdminOperationRecord,
   type AdminOperationStatus,
   type AdminPreparedOperation,
+  AdminReadAuthorizationRequestSchema,
   type AdminScope,
   type AdminTarget,
 } from "./contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 import {
-  adminRequestFingerprint,
   type AdminOperationDefinition,
   type AdminOperationRegistry,
+  adminRequestFingerprint,
 } from "./operation-registry.js";
 import type { AdminOperationRepository } from "./ports.js";
 
@@ -93,6 +93,17 @@ export class AdminService {
     private readonly registry: AdminOperationRegistry,
     private readonly repository: AdminOperationRepository,
   ) {}
+
+  public listOperationDefinitions() {
+    return this.registry.list().map((definition) => ({
+      kind: definition.kind,
+      operationType: definition.operationType,
+      capabilityKey: definition.capabilityKey,
+      riskTier: definition.riskTier,
+      authorizationMode: definition.authorizationMode,
+      policy: { ...definition.policy },
+    }));
+  }
 
   private async requireAuthorized(
     principalId: string,

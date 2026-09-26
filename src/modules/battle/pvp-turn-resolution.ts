@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { CounterRandomSource } from "../../platform/rng/counter-rng.js";
 import type { RulesetSnapshot } from "../catalog/contracts.js";
-import type { BattleEvent, BattleState } from "./contracts.js";
+import { chooseHeuristicAction } from "./ai.js";
+import type { BattleAction, BattleCombatant, BattleEvent, BattleState } from "./contracts.js";
+import { validateBattleAction } from "./legal.js";
+import type { BattleParticipantController } from "./participant-controller.js";
 import type { BattleRootRecord, BattleSeedReader } from "./ports.js";
-import { resolveTurn } from "./resolver.js";
+import { requiredActionParticipants, resolveTurn } from "./resolver.js";
 import { normalizeBattleRules } from "./rules.js";
 import {
-  commitTurnWindow,
   type BattleTurnSubmission,
+  commitTurnWindow,
   type TurnWindowAggregate,
   type TurnWindowErrorCode,
 } from "./turn-window.js";
@@ -29,6 +32,7 @@ export type PersistPvpTurnResolutionResult =
   | { readonly kind: "VERSION_CONFLICT"; readonly currentState: BattleState };
 
 export interface PvpTurnResolutionTransaction {
+  loadParticipantControllers(battleId: string): Promise<readonly BattleParticipantController[]>;
   loadTurnWindow(turnWindowId: string, lock?: boolean): Promise<TurnWindowAggregate | null>;
   loadBattleRoot(battleId: string, lock?: boolean): Promise<BattleRootRecord | null>;
   loadRuleset(rulesetId: string): Promise<RulesetSnapshot | null>;
@@ -167,6 +171,76 @@ function validateSubmissionOwnership(
   return { ok: true, value: actions };
 }
 
+function validateControllerSubmissions(
+  state: BattleState,
+  aggregate: TurnWindowAggregate,
+  controllers: readonly BattleParticipantController[],
+):
+  | {
+      readonly ok: true;
+      readonly actions: readonly BattleAction[];
+      readonly autoActors: readonly BattleCombatant[];
+    }
+  | PvpTurnResolutionFailure {
+  const requirements = aggregate.window.requiredControllers ?? [];
+  const actions: BattleAction[] = [];
+  const autoActors: BattleCombatant[] = [];
+  let humanCount = 0;
+  for (const actor of requiredActionParticipants(state)) {
+    const sideNo = actor.sideNo;
+    const side = state.sides.find((s) => s.sideNo === sideNo);
+    const controller = controllers.find((c) => c.participantId === actor.participantId);
+    if (side === undefined || controller === undefined || controller.battleId !== state.battleId) {
+      return failure("BATTLE_STATE_INVALID", "Required actor has no persisted controller");
+    }
+    if (controller.kind === "AUTO") {
+      autoActors.push(actor);
+      continue;
+    }
+    humanCount += 1;
+    const required = requirements.find((r) => r.participantId === controller.participantId);
+    if (
+      required === undefined ||
+      required.kind !== controller.kind ||
+      required.sideNo !== sideNo ||
+      required.revision !== controller.revision ||
+      required.playerId !== controller.playerId ||
+      required.adminPrincipalId !== controller.adminPrincipalId
+    ) {
+      return failure("BATTLE_ACTION_INVALID", "Human controller snapshot is stale or incomplete");
+    }
+    const active = aggregate.submissions.filter(
+      (s) => s.status === "ACTIVE" && s.action.actorParticipantId === controller.participantId,
+    );
+    const submission = active[0];
+    if (
+      active.length !== 1 ||
+      submission === undefined ||
+      submission.sideNo !== sideNo ||
+      submission.expectedBattleVersion !== state.version ||
+      submission.playerId !== controller.playerId ||
+      (submission.adminPrincipalId ?? null) !== controller.adminPrincipalId ||
+      submission.controllerRevision !== controller.revision
+    ) {
+      return failure(
+        "TURN_WINDOW_INCOMPLETE",
+        "Required human action does not match its controller",
+      );
+    }
+    actions.push(submission.action);
+  }
+  if (
+    requirements.length !== humanCount ||
+    aggregate.submissions.filter((s) => s.status === "ACTIVE").length !== actions.length
+  ) {
+    return failure(
+      "TURN_WINDOW_INCOMPLETE",
+      "Turn window contains unexpected requirements or actions",
+    );
+  }
+  return { ok: true, actions, autoActors };
+}
+
 export class PvpTurnResolutionService {
   public constructor(
     private readonly repository: PvpTurnResolutionRepository,
@@ -212,7 +286,7 @@ export class PvpTurnResolutionService {
       if (aggregate.window.status !== "LOCKED") {
         return failure("TURN_WINDOW_NOT_LOCKED", "Only a locked turn window can be resolved");
       }
-      if (root.battleType !== "PVP") {
+      if (root.battleType !== "PVP" && aggregate.window.requiredControllers === undefined) {
         return failure("BATTLE_STATE_INVALID", "Turn window does not belong to a PVP battle");
       }
       if (root.status !== "ACTIVE") {
@@ -239,15 +313,29 @@ export class PvpTurnResolutionService {
       const state = await transaction.loadBattleState(root.battleId, root.version);
       if (state === null) return failure("BATTLE_STATE_INVALID", "Battle has no current snapshot");
       if (
-        state.battleType !== "PVP" ||
+        state.battleType !== root.battleType ||
         state.version !== root.version ||
         state.turnNumber !== root.turnNumber
       ) {
         return failure("BATTLE_STATE_INVALID", "Battle root and PVP snapshot are inconsistent");
       }
 
-      const submissions = validateSubmissionOwnership(state, aggregate);
-      if (!submissions.ok) return submissions;
+      let actions: BattleAction[];
+      let autoActors: readonly BattleCombatant[] = [];
+      if (aggregate.window.requiredControllers !== undefined) {
+        const validated = validateControllerSubmissions(
+          state,
+          aggregate,
+          await transaction.loadParticipantControllers(root.battleId),
+        );
+        if (!validated.ok) return validated;
+        actions = [...validated.actions];
+        autoActors = validated.autoActors;
+      } else {
+        const submissions = validateSubmissionOwnership(state, aggregate);
+        if (!submissions.ok) return submissions;
+        actions = submissions.value.map((entry) => entry.action);
+      }
 
       const ruleset = await transaction.loadRuleset(root.rulesetId);
       if (ruleset === null)
@@ -255,6 +343,10 @@ export class PvpTurnResolutionService {
       const normalized = normalizeBattleRules(ruleset);
       if (!normalized.ok) {
         return failure(normalized.error.code, normalized.error.message, normalized.error.details);
+      }
+      for (const action of actions) {
+        const invalid = validateBattleAction(state, action, normalized.value);
+        if (invalid !== null) return failure(invalid.code, invalid.message, invalid.details);
       }
 
       let seed: Uint8Array;
@@ -267,12 +359,27 @@ export class PvpTurnResolutionService {
         });
       }
       const rng = new CounterRandomSource(seed, root.rngCounter);
-      const resolved = resolveTurn(
-        state,
-        submissions.value.map((entry) => entry.action),
-        normalized.value,
-        rng,
-      );
+      for (const actor of autoActors) {
+        const action = chooseHeuristicAction(
+          state,
+          actor.sideNo,
+          normalized.value,
+          rng,
+          actor.participantId,
+        );
+        if (action === null)
+          return failure("BATTLE_ACTION_INVALID", "AUTO controller has no legal action");
+        actions.push(action);
+      }
+      // Canonical ordering makes tie RNG independent of human arrival and controller kind.
+      actions.sort((a, b) => {
+        const sideA =
+          state.combatants.find((c) => c.participantId === a.actorParticipantId)?.sideNo ?? 0;
+        const sideB =
+          state.combatants.find((c) => c.participantId === b.actorParticipantId)?.sideNo ?? 0;
+        return sideA - sideB || a.actorParticipantId.localeCompare(b.actorParticipantId);
+      });
+      const resolved = resolveTurn(state, actions, normalized.value, rng);
       if (!resolved.ok) {
         return failure(resolved.error.code, resolved.error.message, resolved.error.details);
       }

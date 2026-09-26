@@ -1,14 +1,14 @@
 import {
   AdjustTrainerProgressInputSchema,
   ApplyBattleRewardInputSchema,
-  EvolvePokemonInputSchema,
-  ResolveMoveChoiceInputSchema,
   type BattleRewardResult,
   type EvolutionResult,
+  EvolvePokemonInputSchema,
   type MoveChoiceResult,
+  ResolveMoveChoiceInputSchema,
   type TrainerProgressAdjustmentResult,
 } from "./contracts.js";
-import { progressionFailure, type ProgressionResult } from "./errors.js";
+import { type ProgressionResult, progressionFailure } from "./errors.js";
 import type { ProgressionRepository } from "./ports.js";
 
 export class ProgressionService {

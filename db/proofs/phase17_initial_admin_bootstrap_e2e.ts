@@ -1,16 +1,16 @@
-import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
   ADMIN_CAPABILITIES,
   OWNER_SECURITY_ADMIN_ROLE,
 } from "../../src/modules/admin/registry-catalog.js";
 import { loadInitialAdminBootstrapConfig } from "../../src/operations/initial-admin-bootstrap-config.js";
+import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 import {
   bootstrapInitialAdmin,
   InitialAdminBootstrapExistingPrincipalError,
 } from "../../src/platform/admin/postgres-initial-admin-bootstrap.js";
-import { PostgresAdminRepository } from "../../src/platform/admin/postgres-admin-repository.js";
 
 const config = loadInitialAdminBootstrapConfig();
 

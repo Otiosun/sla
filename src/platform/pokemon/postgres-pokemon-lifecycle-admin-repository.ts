@@ -4,10 +4,10 @@ import { RulesetConfigSchema } from "../../modules/catalog/contracts.js";
 import {
   type CorrectPokemonProgressInput,
   type CreatePokemonInput,
-  PokemonCreateResultSchema,
-  PokemonOwnerMutationResultSchema,
   type PokemonCreateResult,
+  PokemonCreateResultSchema,
   type PokemonOwnerMutationResult,
+  PokemonOwnerMutationResultSchema,
   type PokemonRosterPlacement,
 } from "../../modules/pokemon/admin-contracts.js";
 import type { PokemonAdminPersistenceResult } from "../../modules/pokemon/admin-ports.js";
@@ -343,6 +343,12 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
       playerId: input.playerId,
       formId: input.formId,
       level: input.level,
+      nickname: input.nickname ?? null,
+      shiny: input.shiny ?? false,
+      gender: input.gender ?? null,
+      natureId: input.natureId ?? null,
+      abilityId: input.abilityId ?? null,
+      target: input.target ?? null,
       correlationId: input.correlationId,
       metadata: input.metadata,
     });
@@ -425,9 +431,20 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         },
         rng,
       );
-      const nature = build.natures.find((entry) => entry.nature_id === generated.natureId);
+      const selectedAbilityId = input.abilityId ?? generated.abilityId;
+      if (!build.abilities.includes(selectedAbilityId)) {
+        return {
+          kind: "INVALID_STATE",
+          reason: "Selected Ability is not available for this Pokemon form",
+        };
+      }
+      const selectedNatureId = input.natureId ?? generated.natureId;
+      const nature = build.natures.find((entry) => entry.nature_id === selectedNatureId);
       if (nature === undefined) {
-        return { kind: "INVALID_STATE", reason: "Generated Nature is missing from active content" };
+        return {
+          kind: "INVALID_STATE",
+          reason: "Selected Nature is not available in active content",
+        };
       }
       const derived = calculatePokemonStats({
         baseStats: baseStats(build.form),
@@ -440,21 +457,44 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         ivEnabled: battleRules.ivEnabled,
         natureEnabled: battleRules.natureEnabled,
       });
-      const placement = await nextRosterPlacement(client, input.playerId);
+      const placement = input.target ?? (await nextRosterPlacement(client, input.playerId));
+      await acquireLocks(client, [
+        `pokemon-roster:${input.playerId}:${placement.placementKind}:${placement.boxNo ?? "team"}:${placement.slotNo}`,
+      ]);
+      const occupied =
+        placement.placementKind === "TEAM"
+          ? await client.query(
+              `SELECT 1 FROM pokemon_roster_slots
+               WHERE player_id = $1 AND placement_kind = 'TEAM' AND slot_no = $2
+               LIMIT 1 FOR UPDATE`,
+              [input.playerId, placement.slotNo],
+            )
+          : await client.query(
+              `SELECT 1 FROM pokemon_roster_slots
+               WHERE player_id = $1 AND placement_kind = 'BOX' AND box_no = $2 AND slot_no = $3
+               LIMIT 1 FOR UPDATE`,
+              [input.playerId, placement.boxNo, placement.slotNo],
+            );
+      if (occupied.rowCount === 1) {
+        return { kind: "INVALID_STATE", reason: "Requested roster slot is already occupied" };
+      }
       const pokemonInstanceId = randomUUID();
 
       await client.query(
         `INSERT INTO pokemon_instances(
-           id, owner_player_id, form_id, level, xp, current_hp, ability_id,
-           origin_type, origin_id, metadata
-         ) VALUES ($1, $2, $3, $4, 0, $5, $6, 'ADMIN', $7, $8::jsonb)`,
+           id, owner_player_id, form_id, nickname, level, xp, current_hp, gender, shiny,
+           ability_id, origin_type, origin_id, metadata
+         ) VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, 'ADMIN', $10, $11::jsonb)`,
         [
           pokemonInstanceId,
           input.playerId,
           input.formId,
+          input.nickname ?? null,
           input.level,
           derived.hp,
-          generated.abilityId,
+          input.gender ?? null,
+          input.shiny ?? false,
+          selectedAbilityId,
           input.metadata.actorId,
           JSON.stringify({ adminOperationId: input.metadata.sourceId }),
         ],
@@ -466,7 +506,7 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           pokemonInstanceId,
-          generated.natureId,
+          selectedNatureId,
           generated.ivs.hp,
           generated.ivs.attack,
           generated.ivs.defense,
@@ -501,6 +541,11 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         payload: {
           formId: input.formId,
           level: input.level,
+          nickname: input.nickname ?? null,
+          shiny: input.shiny ?? false,
+          gender: input.gender ?? null,
+          abilityId: selectedAbilityId,
+          natureId: selectedNatureId,
           contentReleaseId: content.releaseId,
           rulesetId: content.rulesetId,
           placement,
@@ -517,6 +562,11 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         rulesetId: content.rulesetId,
         formId: input.formId,
         level: input.level,
+        nickname: input.nickname ?? null,
+        shiny: input.shiny ?? false,
+        gender: input.gender ?? null,
+        abilityId: selectedAbilityId,
+        natureId: selectedNatureId,
         placement,
         replayed: false,
       });
@@ -530,6 +580,11 @@ export class PostgresPokemonLifecycleAdminRepository implements PokemonLifecycle
         afterData: {
           formId: input.formId,
           level: input.level,
+          nickname: input.nickname ?? null,
+          shiny: input.shiny ?? false,
+          gender: input.gender ?? null,
+          abilityId: selectedAbilityId,
+          natureId: selectedNatureId,
           contentReleaseId: content.releaseId,
           rulesetId: content.rulesetId,
           placement,

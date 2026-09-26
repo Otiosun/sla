@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@whiskeysockets/baileys@7.0.0-rc14': d4d420a02204fa891ad04c0f25ccd785c1e7300d611a1296bac83dd518c68968
+  '@whiskeysockets/baileys@7.0.0-rc14': da754e73ef6ed57c6a4e2a634ad1d097125a3d3bee15d2ac9ae84ae9d2498790
   libsignal@6.0.0: d5cbbcedc1776d7508b56adb345ef5eee797dda42fff00809d00b5c6b2d5b6de
 
 importers:
@@ -14,7 +14,7 @@ importers:
     dependencies:
       '@whiskeysockets/baileys':
         specifier: 7.0.0-rc14
-        version: 7.0.0-rc14(patch_hash=d4d420a02204fa891ad04c0f25ccd785c1e7300d611a1296bac83dd518c68968)(sharp@0.35.4(@types/node@24.13.3))
+        version: 7.0.0-rc14(patch_hash=da754e73ef6ed57c6a4e2a634ad1d097125a3d3bee15d2ac9ae84ae9d2498790)(sharp@0.35.4(@types/node@24.13.3))
       pg:
         specifier: 8.23.0
         version: 8.23.0
@@ -1752,7 +1752,7 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
 
-  '@whiskeysockets/baileys@7.0.0-rc14(patch_hash=d4d420a02204fa891ad04c0f25ccd785c1e7300d611a1296bac83dd518c68968)(sharp@0.35.4(@types/node@24.13.3))':
+  '@whiskeysockets/baileys@7.0.0-rc14(patch_hash=da754e73ef6ed57c6a4e2a634ad1d097125a3d3bee15d2ac9ae84ae9d2498790)(sharp@0.35.4(@types/node@24.13.3))':
     dependencies:
       '@cacheable/node-cache': 1.7.6
       '@hapi/boom': 9.1.4

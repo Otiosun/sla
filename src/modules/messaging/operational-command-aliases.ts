@@ -10,7 +10,6 @@ const OPERATIONAL_COMMAND_ALIASES: Readonly<Record<string, readonly string[]>> =
   inventario: ["inv", "mochila"],
   pokedex: ["dex"],
   onde: ["local"],
-  ir: ["viajar"],
 };
 
 export function withOperationalCommandAliases(

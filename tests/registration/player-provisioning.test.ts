@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
-  RegistrationRepository,
-  RegistrationRevisionRecord,
-  RegistrationTransaction,
-} from "../../src/modules/registration/ports.js";
-import type {
   PlayerAccessRecord,
   PlayerAccessRepository,
   PlayerAccessTransaction,
 } from "../../src/modules/registration/player-access-ports.js";
+import type {
+  RegistrationRepository,
+  RegistrationRevisionRecord,
+  RegistrationTransaction,
+} from "../../src/modules/registration/ports.js";
 import { PlayerProvisioningService } from "../../src/modules/registration/provisioning-service.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
@@ -44,8 +44,13 @@ class ReviewRepository implements RegistrationRepository {
 
   private tx(): RegistrationTransaction {
     return {
+      lockPlayer: async () => undefined,
       loadDraft: async () => null,
       saveDraft: async () => null,
+      deleteDraft: async () => undefined,
+      loadConversation: async () => null,
+      saveConversation: async () => null,
+      deleteConversation: async () => undefined,
       loadCurrentRevision: async () => this.review,
       loadRevisionById: async (id) => (id === this.review.id ? this.review : null),
       loadIdempotencyReceipt: async () => null,

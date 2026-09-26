@@ -1,7 +1,7 @@
 import { z } from "zod";
+import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
 import { BattleStatusSchema, BattleTypeSchema } from "../battle/contracts.js";
 import { EncounterStatusSchema } from "./contracts.js";
-import type { EncounterId, PlayerId } from "../../shared-kernel/ids.js";
 
 const uuidSchema = z.string().uuid();
 const revisionSchema = z.string().regex(/^[0-9]+$/);

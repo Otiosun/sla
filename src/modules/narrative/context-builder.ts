@@ -1,9 +1,9 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
-  NarrativeContextInputSchema,
-  NarrativeProviderContextSchema,
   type NarrativeContextInput,
+  NarrativeContextInputSchema,
   type NarrativeProviderContext,
+  NarrativeProviderContextSchema,
 } from "./contracts.js";
 
 export class NarrativeContextBuilder {

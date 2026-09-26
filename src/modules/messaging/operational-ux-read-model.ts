@@ -13,11 +13,76 @@ export interface OperationalTeamMemberView {
   readonly slotNo: number;
 }
 
+export interface OperationalPokemonDetailView {
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly slotNo: number;
+  readonly displayName: string;
+  readonly nickname: string | null;
+  readonly level: number;
+  readonly currentHp: number;
+  readonly maxHp: number;
+  readonly gender: "MALE" | "FEMALE" | null;
+  readonly shiny: boolean;
+  readonly natureDisplayName: string;
+  readonly abilityDisplayName: string;
+  readonly ivs: Readonly<{
+    hp: number;
+    attack: number;
+    defense: number;
+    spAttack: number;
+    spDefense: number;
+    speed: number;
+  }>;
+  readonly statuses: readonly string[];
+  readonly moves: readonly {
+    readonly slotNo: number;
+    readonly displayName: string;
+    readonly ppCurrent: number | null;
+    readonly maxPp: number | null;
+  }[];
+}
+
+export interface OperationalOwnedPokemonView {
+  readonly collectionNo: number;
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly displayName: string;
+  readonly nickname: string | null;
+  readonly level: number;
+  readonly xp: bigint;
+  readonly currentHp: number;
+  readonly placementKind: "TEAM" | "BOX";
+  readonly boxNo: number | null;
+  readonly slotNo: number;
+}
+
+export interface OperationalOwnedPokemonDetailView extends OperationalPokemonDetailView {
+  readonly collectionNo: number;
+  readonly xp: bigint;
+  readonly placementKind: "TEAM" | "BOX";
+  readonly boxNo: number | null;
+}
+
 export interface OperationalInventoryItemView {
   readonly itemId: string;
   readonly itemSlug: string;
   readonly displayName: string;
   readonly quantity: bigint;
+}
+
+export type OperationalEvolutionRelativeStats =
+  | "ATTACK_GT_DEFENSE"
+  | "ATTACK_LT_DEFENSE"
+  | "ATTACK_EQ_DEFENSE";
+
+export interface OperationalEvolutionOptionView {
+  readonly targetDisplayName: string;
+  readonly triggerKind: "LEVEL" | "ITEM" | "CONDITION";
+  readonly requiredLevel: number | null;
+  readonly relativePhysicalStats: OperationalEvolutionRelativeStats | null;
+  readonly itemId: string | null;
+  readonly itemDisplayName: string | null;
+  readonly itemQuantity: bigint | null;
+  readonly conditionActive: boolean | null;
 }
 
 export interface OperationalPokedexSpeciesView {
@@ -29,6 +94,20 @@ export interface OperationalPokedexSpeciesView {
   readonly caughtCount: bigint;
 }
 
+export interface OperationalPendingMoveChoiceView {
+  readonly choiceId: string;
+  readonly pokemonInstanceId: PokemonInstanceId;
+  readonly pokemonDisplayName: string;
+  readonly learnLevel: number;
+  readonly moveId: string;
+  readonly moveDisplayName: string;
+  readonly currentMoves: readonly {
+    readonly slotNo: number;
+    readonly moveId: string;
+    readonly displayName: string;
+  }[];
+}
+
 /**
  * Read-only projection used by messaging presentation. It may join display metadata, but it must
  * never decide or mutate gameplay mechanics; mutations remain owned by the domain services.
@@ -36,8 +115,22 @@ export interface OperationalPokedexSpeciesView {
 export interface OperationalUxReadModel {
   listRegionOptions(playerId: PlayerId): Promise<readonly OperationalRegionOption[]>;
   listTeam(playerId: PlayerId): Promise<readonly OperationalTeamMemberView[]>;
+  listOwnedPokemon?(playerId: PlayerId): Promise<readonly OperationalOwnedPokemonView[]>;
+  ownedPokemonDetail?(
+    playerId: PlayerId,
+    collectionNo: number,
+  ): Promise<OperationalOwnedPokemonDetailView | null>;
+  teamPokemonDetail(
+    playerId: PlayerId,
+    slotNo: number,
+  ): Promise<OperationalPokemonDetailView | null>;
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
+  listPendingMoveChoices(playerId: PlayerId): Promise<readonly OperationalPendingMoveChoiceView[]>;
+  listEvolutionOptions?(
+    playerId: PlayerId,
+    pokemonInstanceId: PokemonInstanceId,
+  ): Promise<readonly OperationalEvolutionOptionView[]>;
   activeBattleId(playerId: PlayerId): Promise<string | null>;
   speciesDisplayName(contentReleaseId: string, speciesId: string): Promise<string | null>;
   moveDisplayNames(

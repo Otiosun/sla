@@ -2,19 +2,19 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import {
-  IncomingMessageSchema,
   type IncomingMessage,
+  IncomingMessageSchema,
 } from "../../src/modules/messaging/contracts.js";
 import type { MessageRouteHandler } from "../../src/modules/messaging/ports.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import {
-  MessagingService,
   type MessagingRateLimitPolicySet,
+  MessagingService,
 } from "../../src/modules/messaging/service.js";
 import { withTransaction } from "../../src/platform/db/transaction.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
-import { parsePlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { type PlayerId, parsePlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
       id: "duplicate-storm-1",
       sender: "storm-player",
       chat: "storm-chat",
-      text: "$storm",
+      text: "/storm",
     });
     const stormResults = await Promise.all(
       Array.from({ length: 48 }, () => stormService.receive(stormMessage)),
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
         id: `simultaneous-${index + 1}`,
         sender: "simultaneous-player",
         chat: "simultaneous-chat",
-        text: "$simultaneous",
+        text: "/simultaneous",
       }),
     );
     const simultaneousResults = await Promise.all(
@@ -299,7 +299,7 @@ async function main(): Promise<void> {
       id: "precommit-crash-1",
       sender: "precommit-player",
       chat: "precommit-chat",
-      text: "$precommit",
+      text: "/precommit",
     });
     const preCommitService = new MessagingService(
       repository,

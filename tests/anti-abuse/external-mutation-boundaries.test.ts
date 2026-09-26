@@ -1,37 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  ExternalAdminMutationEndpoint,
-  type AdminMutationOwner,
-} from "../../src/modules/anti-abuse/external-admin-endpoint.js";
-import {
-  ExternalCaptureMutationEndpoint,
-  type CaptureMutationOwner,
-} from "../../src/modules/anti-abuse/external-capture-endpoint.js";
-import {
-  ExternalEconomyMutationEndpoint,
-  type EconomyPurchaseOwner,
-} from "../../src/modules/anti-abuse/external-economy-endpoint.js";
-import {
-  ProtectedBattleGateway,
-  type BattleActionOwner,
-} from "../../src/modules/anti-abuse/protected-battle-gateway.js";
-import type {
-  MutationAdmissionPort,
-  MutationRatePolicy,
-} from "../../src/modules/anti-abuse/contracts.js";
 import type {
   AdminOperationRecord,
   AdminPreparedOperation,
 } from "../../src/modules/admin/contracts.js";
+import type {
+  MutationAdmissionPort,
+  MutationRatePolicy,
+} from "../../src/modules/anti-abuse/contracts.js";
+import {
+  type AdminMutationOwner,
+  ExternalAdminMutationEndpoint,
+} from "../../src/modules/anti-abuse/external-admin-endpoint.js";
+import {
+  type CaptureMutationOwner,
+  ExternalCaptureMutationEndpoint,
+} from "../../src/modules/anti-abuse/external-capture-endpoint.js";
+import {
+  type EconomyPurchaseOwner,
+  ExternalEconomyMutationEndpoint,
+} from "../../src/modules/anti-abuse/external-economy-endpoint.js";
+import {
+  type BattleActionOwner,
+  ProtectedBattleGateway,
+} from "../../src/modules/anti-abuse/protected-battle-gateway.js";
 import type { CaptureAttemptInput } from "../../src/modules/capture/contracts.js";
 import type { PurchaseInput } from "../../src/modules/economy/service.js";
-import { appError, err, ok } from "../../src/shared-kernel/result.js";
 import {
   parseCorrelationId,
   parseEncounterId,
   parsePlayerId,
 } from "../../src/shared-kernel/ids.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const proofPolicy: MutationRatePolicy = {
   policyKey: "test.block.v1",

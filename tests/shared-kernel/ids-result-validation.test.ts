@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
+  type BattleId,
   createBattleId,
   createPlayerId,
-  type BattleId,
   type PlayerId,
   parsePlayerId,
 } from "../../src/shared-kernel/ids.js";

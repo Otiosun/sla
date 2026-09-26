@@ -13,7 +13,7 @@ import type {
   CatalogReleaseOwnerMutationContext,
   CatalogReleasePublishPreview,
 } from "./release-admin-contracts.js";
-import { validateCatalogSnapshot, type CatalogSnapshotWithEffects } from "./validation.js";
+import { type CatalogSnapshotWithEffects, validateCatalogSnapshot } from "./validation.js";
 
 export interface CatalogReleaseAdminRecord {
   readonly id: string;

@@ -1,10 +1,10 @@
 import {
-  BattleStateSchema,
-  EMPTY_BATTLE_STAGES,
   type BattleCombatant,
   type BattleSide,
   type BattleState,
+  BattleStateSchema,
   type ControllerKind,
+  EMPTY_BATTLE_STAGES,
   type ParticipantKind,
 } from "./contracts.js";
 import type { BattlePokemonBuild, BattleRootRecord } from "./ports.js";
@@ -24,6 +24,10 @@ export interface BattleInitializationSide {
   readonly controllerKind: ControllerKind;
   readonly playerId: string | null;
   readonly party: readonly BattlePokemonBuild[];
+  readonly playerParties?: readonly {
+    readonly playerId: string;
+    readonly party: readonly BattlePokemonBuild[];
+  }[];
 }
 
 export interface InitializeBattleStateInput {
@@ -92,7 +96,10 @@ function buildCombatant(
     })),
     maxHp: build.maxHp,
     currentHp: Math.max(0, Math.min(build.currentHp, build.maxHp)),
-    majorStatus: build.majorStatus === null ? null : { key: build.majorStatus, counter: null },
+    majorStatus:
+      build.majorStatus === null
+        ? null
+        : { key: build.majorStatus, counter: build.majorStatus === "BAD_POISON" ? 1 : null },
     stages: { ...EMPTY_BATTLE_STAGES },
     volatile: { flinch: false, confusionTurns: 0 },
   };
@@ -163,10 +170,71 @@ export function initializeBattleState(
       });
     }
 
-    const sideCombatants = side.party.map((build) =>
-      buildCombatant(build, input.idFactory(), side.sideNo),
+    const groups = side.playerParties;
+    if (groups !== undefined) {
+      if (
+        input.root.battleType === "PVP" ||
+        side.controllerKind !== "PLAYER" ||
+        groups.length === 0 ||
+        groups[0]?.playerId !== side.playerId ||
+        new Set(groups.map((group) => group.playerId)).size !== groups.length ||
+        groups.some(
+          (group) =>
+            group.party.length === 0 ||
+            group.party.some((build) => build.participantKind !== "PLAYER_POKEMON"),
+        )
+      )
+        return failure("Allied initialization requires distinct player rosters on a PVE side");
+    }
+    const battleReadyRosters =
+      groups === undefined
+        ? [{ playerId: side.playerId, party: side.party }]
+        : groups.map((group) => ({ playerId: group.playerId, party: group.party }));
+    const exhaustedRoster = battleReadyRosters.find((group) =>
+      group.party.every((build) => build.currentHp <= 0),
     );
+    if (exhaustedRoster !== undefined) {
+      return failure(
+        "Battle initialization requires at least one battle-ready Pokemon per roster",
+        {
+          sideNo: side.sideNo,
+          playerId: exhaustedRoster.playerId,
+        },
+      );
+    }
+
+    const builds = groups === undefined ? side.party : groups.flatMap((group) => group.party);
+    if (
+      new Set(
+        builds
+          .filter((build) => build.pokemonInstanceId !== null)
+          .map((build) => build.pokemonInstanceId),
+      ).size !== builds.filter((build) => build.pokemonInstanceId !== null).length
+    ) {
+      return failure("A Pokemon cannot occupy multiple allied rosters");
+    }
+    const sideCombatants = builds.map((build, index) =>
+      buildCombatant(
+        groups === undefined ? build : { ...build, rosterPosition: index + 1 },
+        input.idFactory(),
+        side.sideNo,
+      ),
+    );
+    let offset = 0;
+    const slots = groups?.map((group) => {
+      const roster = sideCombatants.slice(offset, offset + group.party.length);
+      offset += group.party.length;
+      const active = roster.find((entry) => entry.currentHp > 0) ?? roster[0];
+      if (active === undefined) {
+        throw new Error("Allied battle roster unexpectedly resolved empty");
+      }
+      return {
+        participantIds: roster.map((entry) => entry.participantId),
+        activeParticipantId: active.participantId,
+      };
+    });
     const activeParticipantId =
+      slots?.[0]?.activeParticipantId ??
       sideCombatants.find((entry) => entry.currentHp > 0)?.participantId ??
       sideCombatants[0]?.participantId;
     if (activeParticipantId === undefined) {
@@ -180,6 +248,7 @@ export function initializeBattleState(
       playerId: side.playerId,
       participantIds: sideCombatants.map((entry) => entry.participantId),
       activeParticipantId,
+      ...(slots === undefined ? {} : { slots }),
       result: null,
     });
   }

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import type { BaileysMessageLike } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
 import {
-  BaileysWhatsAppAdapter,
   type BaileysAuthBinding,
   type BaileysEventSource,
   type BaileysSocketLike,
+  BaileysWhatsAppAdapter,
 } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
-import type { BaileysMessageLike } from "../../src/adapters/whatsapp/baileys-provider-contracts.js";
 import type { IncomingMessage } from "../../src/modules/messaging/contracts.js";
 
 class FakeBaileysSocket implements BaileysSocketLike {
