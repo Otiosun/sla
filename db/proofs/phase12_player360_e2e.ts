@@ -342,7 +342,11 @@ try {
   }
 
   const suspendedReviewId = randomUUID();
-  await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [suspendedPlayerId]);
+  await pool.query(
+    `INSERT INTO players(id, status, created_at, updated_at)
+     VALUES ($1, 'ACTIVE', '2025-12-31T00:00:00.000Z'::timestamptz, '2025-12-31T00:00:00.000Z'::timestamptz)`,
+    [suspendedPlayerId],
+  );
   await pool.query(
     `INSERT INTO player_profiles(
        player_id, trainer_name, origin_region_id, locale, metadata
@@ -521,11 +525,15 @@ try {
     limit: 2,
     cursor: firstPage.nextCursor,
   });
-  if (secondPage.items.length !== 1 || secondPage.nextCursor !== null) {
+  if (secondPage.items.length !== 2 || secondPage.nextCursor !== null) {
     throw new Error("Player 360 second cursor page is invalid");
   }
   const allPageIds = [...firstPage.items, ...secondPage.items].map((item) => item.playerId);
-  if (new Set(allPageIds).size !== 3 || allPageIds[0] !== targetPlayerId) {
+  if (
+    new Set(allPageIds).size !== 4 ||
+    allPageIds[0] !== targetPlayerId ||
+    allPageIds.at(-1) !== suspendedPlayerId
+  ) {
     throw new Error("Player 360 cursor pagination repeated, skipped or reordered players");
   }
   if (allPageIds.includes(pendingPlayerId) || allPageIds.includes(provisioningPlayerId)) {
