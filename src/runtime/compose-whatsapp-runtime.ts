@@ -30,6 +30,10 @@ import {
 import { CaptureService } from "../modules/capture/service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
+  ReceptionCommandScopeGate,
+  ReceptionScopedConversationResolver,
+} from "../modules/community/reception-message-scope.js";
+import {
   type ReceptionMembershipEvent,
   ReceptionMembershipService,
 } from "../modules/community/reception-membership.js";
@@ -395,7 +399,7 @@ export function createOperationalMessagingComposition(
     economy: martEconomy,
     pcStorage: pokemonPcStorage,
   });
-  const conversationResolver = {
+  const nonReceptionConversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
       if (pveScene !== null) {
         const sceneResult = await pveScene.resolve(context);
@@ -406,6 +410,11 @@ export function createOperationalMessagingComposition(
       return receptionConversationResolver.resolve(context);
     },
   };
+  const conversationResolver = new ReceptionScopedConversationResolver(
+    community,
+    receptionConversationResolver,
+    nonReceptionConversationResolver,
+  );
   const pveScene =
     pveBattle === null
       ? null
@@ -505,6 +514,7 @@ export function createOperationalMessagingComposition(
     tickets: new HubLoginTicketService(new PostgresHubLoginTicketStore(pool)),
     publicUrl: hubPublicUrl,
   });
+  const receptionCommandScope = new ReceptionCommandScopeGate(community);
   const router = new MessageRouter(
     [
       ...legacyRoutes,
@@ -567,6 +577,7 @@ export function createOperationalMessagingComposition(
     ],
     policyGate,
     conversationResolver,
+    receptionCommandScope,
   );
 
   return {
