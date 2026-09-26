@@ -217,7 +217,7 @@ describe("persisted Registration conversation state machine", () => {
         ],
       },
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("01 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("01 / 08");
     expect(state.checkpoints).toHaveLength(1);
     expect(state.checkpoints[0]).toMatchObject({
       state: "GUIDED_FIELD",
@@ -277,7 +277,7 @@ describe("persisted Registration conversation state machine", () => {
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
       "✓ *Nome registrado:* Liora Vale",
     );
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 08");
   });
 
   it("lets the guided flow skip flexible Appearance without blocking progression", async () => {
@@ -307,7 +307,7 @@ describe("persisted Registration conversation state machine", () => {
       state: "GUIDED_FIELD",
       currentField: "personality",
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("05 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("05 / 08");
   });
 
   it("moves the final guided starter directly to REVIEW with the canonical starter", async () => {
