@@ -38,7 +38,13 @@ export class AdminTeamService {
     if (!parsed.success) {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid admin creation request");
     }
-    const capabilities = [...new Set(["central.view", ...parsed.data.capabilities])].sort();
+    const capabilities = [
+      ...new Set([
+        "central.view",
+        ...(parsed.data.receptionStaff ? ["player.registration.read"] : []),
+        ...parsed.data.capabilities,
+      ]),
+    ].sort();
     return this.repository.addPrincipal({
       actorPrincipalId,
       playerId: parsed.data.playerId,
