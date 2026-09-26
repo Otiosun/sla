@@ -239,7 +239,7 @@ function fieldForLabel(label: string): RegistrationConversationField | null {
   }
 }
 
-export function looksLikeFullRegistrationTemplate(text: string): boolean {
+function registrationTemplateFields(text: string): Set<RegistrationConversationField> {
   const fields = new Set<RegistrationConversationField>();
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -248,6 +248,15 @@ export function looksLikeFullRegistrationTemplate(text: string): boolean {
     const field = fieldForLabel(line.slice(0, colonIndex));
     if (field !== null) fields.add(field);
   }
+  return fields;
+}
+
+export function looksLikeRegistrationTemplate(text: string): boolean {
+  return registrationTemplateFields(text).size > 0;
+}
+
+export function looksLikeFullRegistrationTemplate(text: string): boolean {
+  const fields = registrationTemplateFields(text);
   return fields.has("trainerName") && fields.has("age") && fields.size >= 4;
 }
 
