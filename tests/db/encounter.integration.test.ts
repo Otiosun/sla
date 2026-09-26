@@ -289,7 +289,28 @@ describe("encounter PostgreSQL integration", () => {
 
   afterAll(async () => {
     await pool.end();
-    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+
+    // pool.end() resolves after clients begin closing, but PostgreSQL can still
+    // report a just-released backend for a few milliseconds. Dropping WITH
+    // (FORCE) in that window kills the pg client and surfaces an unhandled
+    // 57P01 in Vitest. Wait for the disposable database to become idle and
+    // then drop it normally so real connection leaks still fail loudly.
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      const activeConnections = await adminPool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [dbName],
+      );
+      if (activeConnections.rows[0]?.count === "0") break;
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for PostgreSQL connections to close for ${dbName}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }, 30_000);
 
