@@ -87,7 +87,7 @@ describe("Reception membership behavior", () => {
 
   it.each([
     { draft: true, command: "/continuar" },
-    { active: true, command: "continua ativo" },
+    { active: true, command: "já está ativo" },
   ])("preserves returning player state: %o", async (options) => {
     const h = harness(options);
     await h.service.handle(event);
