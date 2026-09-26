@@ -746,8 +746,7 @@ export class RegistrationConversationResolver {
         ...(parsedValue.profession === undefined ? {} : { profession: parsedValue.profession }),
       };
     } else {
-      const profession =
-        draft.profession === undefined ? normalizeTrainerProfession(text) : null;
+      const profession = draft.profession === undefined ? normalizeTrainerProfession(text) : null;
       if (profession !== null) {
         draft = { ...draft, profession };
       } else if (looksLikeStandaloneStarter(text)) {
