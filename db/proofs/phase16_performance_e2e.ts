@@ -65,6 +65,13 @@ async function seedPlayers(pool: Pool, count: number): Promise<readonly string[]
     [ids],
   );
   await pool.query(
+    `INSERT INTO player_access(player_id, status)
+     SELECT id, 'ACTIVE'
+     FROM unnest($1::uuid[]) AS seeded(id)`,
+    [ids],
+  );
+
+  await pool.query(
     `INSERT INTO player_profiles(player_id, trainer_name, locale, metadata)
      SELECT id, 'Perf-' || lpad(ordinality::text, 5, '0'), 'pt-BR', '{}'::jsonb
      FROM unnest($1::uuid[]) WITH ORDINALITY AS seeded(id, ordinality)`,
