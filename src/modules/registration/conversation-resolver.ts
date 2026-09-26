@@ -28,6 +28,7 @@ import {
   looksLikeFullRegistrationTemplate,
   looksLikeRegistrationTemplate,
   normalizeRegistrationChoice,
+  parseFullRegistrationTemplate,
   parsePartialRegistrationTemplate,
   parseRegistrationModeChoice,
   type RegistrationConversationField,
