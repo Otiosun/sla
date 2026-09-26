@@ -280,6 +280,10 @@ export class PlayerPortalHttpHandler {
         species: admin.capabilities.includes("pokedex.read"),
         forms: admin.capabilities.includes("pokemon.create"),
         effects: admin.capabilities.includes("pokemon.edit.mechanics"),
+        releases:
+          admin.capabilities.includes("content.draft.edit") ||
+          admin.capabilities.includes("content.validate") ||
+          admin.capabilities.includes("content.publish"),
       });
       return jsonResponse(200, {
         items: [...catalog.items],
@@ -287,6 +291,7 @@ export class PlayerPortalHttpHandler {
         species: [...(catalog.species ?? [])],
         forms: [...(catalog.forms ?? [])],
         effects: [...(catalog.effects ?? [])],
+        releases: [...(catalog.releases ?? [])],
       });
     } catch (error) {
       return adminErrorResponse(error);
