@@ -48,6 +48,25 @@ interface PlayerPortalAdminOperationResult {
   readonly result: Readonly<Record<string, unknown>> | null;
 }
 
+interface PlayerPortalAdminAuditEntry {
+  readonly operationId: string;
+  readonly operationType: string;
+  readonly actorDisplayName: string;
+  readonly targetType: string;
+  readonly riskTier: number;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly createdAt: string;
+  readonly appliedAt: string | null;
+}
+
+interface PlayerPortalAdminAuditAccess {
+  list(
+    principalId: string,
+    limit: number,
+  ): Promise<readonly PlayerPortalAdminAuditEntry[]>;
+}
+
 interface PlayerPortalAdminMutationAccess {
   listOperationDefinitions(): readonly PlayerPortalAdminOperationDefinition[];
   prepareMutation(request: unknown): Promise<{
@@ -80,6 +99,7 @@ interface PlayerPortalHttpDependencies {
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
   readonly adminRewardCatalog: Pick<AdminRewardCatalogService, "get">;
+  readonly adminAudit?: PlayerPortalAdminAuditAccess;
   readonly adminTeam?: Pick<
     AdminTeamService,
     "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
@@ -104,6 +124,9 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/players") {
       return this.withSession(request, (identity) => this.searchAdminPlayers(url, identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/audit") {
+      return this.withSession(request, (identity) => this.listAdminAudit(url, identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/operations") {
       return this.withSession(request, (identity) => this.listAdminOperations(identity));
@@ -373,6 +396,22 @@ export class PlayerPortalHttpHandler {
         body,
       );
       return jsonResponse(200, { principal });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async listAdminAudit(url: URL, identity: ExternalIdentity): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const audit = this.dependencies.adminAudit;
+    if (audit === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
+    const limit = Number.isFinite(rawLimit) ? rawLimit : 100;
+    try {
+      const entries = await audit.list(admin.principalId, limit);
+      return jsonResponse(200, { entries });
     } catch (error) {
       return adminErrorResponse(error);
     }
