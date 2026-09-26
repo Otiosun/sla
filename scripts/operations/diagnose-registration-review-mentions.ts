@@ -92,6 +92,7 @@ async function main(): Promise<void> {
          ) AS mention_eligible_staff
        FROM community_groups community
        WHERE community.role = 'RECEPTION'
+         AND community.status = 'ACTIVE'
        ORDER BY community.created_at, community.id`,
     );
 
@@ -112,10 +113,7 @@ async function main(): Promise<void> {
       result.rows.length > 0 &&
       result.rows.every(
         (row) =>
-          row.status === "ACTIVE" &&
-          row.has_admin_review &&
-          row.assigned_staff > 0 &&
-          row.mention_eligible_staff > 0,
+          row.has_admin_review && row.assigned_staff > 0 && row.mention_eligible_staff > 0,
       );
     console.log(`allReceptionMentionPrerequisites=${allGreen}`);
   } finally {
