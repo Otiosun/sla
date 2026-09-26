@@ -1,4 +1,5 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { isTrainerProfessionId, type TrainerProfessionId } from "../player/professions.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PlayerAccessRecord, PlayerAccessRepository } from "./player-access-ports.js";
 import type { RegistrationRepository, RegistrationRevisionRecord } from "./ports.js";
@@ -7,7 +8,10 @@ import type { PlayerActivationAnnouncementPort } from "./provisioning-announceme
 interface MechanicalRegistrationPort {
   createProfile(
     playerId: PlayerId,
-    input: { readonly trainerName: string },
+    input: {
+      readonly trainerName: string;
+      readonly metadata?: { readonly profession?: TrainerProfessionId };
+    },
   ): Promise<Result<unknown>>;
   selectRegion(playerId: PlayerId, input: { readonly regionId: string }): Promise<Result<unknown>>;
 }
@@ -61,8 +65,11 @@ export class PlayerProvisioningService {
     if (!access.ok) return access;
     if (access.value.status === "ACTIVE") return this.finishActivation(review, access.value);
 
+    const profession = review.snapshot.profession;
     const profile = await this.playerRegistration.createProfile(review.playerId, {
       trainerName: review.snapshot.trainerName,
+      metadata:
+        profession !== undefined && isTrainerProfessionId(profession) ? { profession } : {},
     });
     if (!profile.ok) return profile;
 
