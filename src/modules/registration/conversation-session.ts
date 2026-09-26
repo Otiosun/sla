@@ -194,6 +194,27 @@ function cleanInlineValue(value: string): string {
     .trim();
 }
 
+function isRenderedFullFormDecoration(line: string): boolean {
+  if (
+    line === "▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*" ||
+    line === "　Recepção · Cadastro rápido" ||
+    line === "> _Preencha os campos abaixo. Você pode escrever várias linhas onde precisar._" ||
+    line === "◇ *𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*" ||
+    line === "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*" ||
+    line === "◇ *𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢*" ||
+    line === "› _Obrigatória. Veja as opções e detalhes no site:_" ||
+    line === "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes" ||
+    line === "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*" ||
+    line === "› _Envie a ficha preenchida. Aparência e História podem ficar em branco._" ||
+    line === "› _A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._" ||
+    line === "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._"
+  ) {
+    return true;
+  }
+
+  return /^⌖ Região · \*.+\*$/u.test(line);
+}
+
 export function normalizeRegistrationChoice(rawValue: string): string {
   const normalized = normalizedLabel(rawValue);
   const numeric = normalized.match(/^#?0*(\d+)$/);
@@ -308,6 +329,11 @@ export function parsePartialRegistrationTemplate(
         pendingBlankLine = false;
         continue;
       }
+    }
+
+    if (isRenderedFullFormDecoration(line)) {
+      pendingBlankLine = false;
+      continue;
     }
 
     if (currentField !== null) {
