@@ -384,13 +384,13 @@ export class PostgresMessagingRepository implements MessagingRepository {
         return err(appError("INVALID_STATE_TRANSITION", "Inbox message is not PROCESSING"));
       }
 
-      for (const outgoing of result.outgoing) {
+      for (const [sequenceNo, outgoing] of result.outgoing.entries()) {
         const outboxId = randomUUID();
         const insert = await client.query(
           `INSERT INTO outbox_messages (
              id, channel, destination_ref, message_type, payload, idempotency_key,
-             status, attempts, next_attempt_at, correlation_id, causation_id
-           ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, 'PENDING', 0, now(), $7, $8)
+             status, attempts, next_attempt_at, correlation_id, causation_id, sequence_no
+           ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, 'PENDING', 0, now(), $7, $8, $9)
            ON CONFLICT (idempotency_key) DO NOTHING
            RETURNING id`,
           [
@@ -402,6 +402,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
             outgoing.idempotencyKey,
             row.correlation_id,
             inboxMessageId,
+            sequenceNo,
           ],
         );
         if (insert.rowCount === 0) {
@@ -540,7 +541,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
              AND attempts < $1
              AND (next_attempt_at IS NULL OR next_attempt_at <= now())
              AND ($3::text[] IS NULL OR channel = ANY($3::text[]))
-           ORDER BY created_at, id
+           ORDER BY created_at, causation_id NULLS FIRST, sequence_no, id
            FOR UPDATE SKIP LOCKED
            LIMIT $2
          )
