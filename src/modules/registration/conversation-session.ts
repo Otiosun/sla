@@ -98,7 +98,6 @@ const GUIDED_FIELDS: readonly RegistrationConversationField[] = [
   "appearance",
   "personality",
   "backstory",
-  "profession",
   "starterFormId",
 ];
 
