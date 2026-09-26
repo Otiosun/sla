@@ -68,5 +68,7 @@ export function trainerProfessionDisplayName(
 }
 
 export function isTrainerProfessionId(value: unknown): value is TrainerProfessionId {
-  return typeof value === "string" && TRAINER_PROFESSIONS.some((profession) => profession.id === value);
+  return (
+    typeof value === "string" && TRAINER_PROFESSIONS.some((profession) => profession.id === value)
+  );
 }
