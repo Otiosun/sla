@@ -1,9 +1,6 @@
 import type { MessageHandlerContext } from "../messaging/contracts.js";
 import type { CommunityChatContext } from "./contracts.js";
-import type {
-  MessageConversationResolver,
-  MessageRouteScopeGate,
-} from "../messaging/router.js";
+import type { MessageConversationResolver, MessageRouteScopeGate } from "../messaging/router.js";
 import { isReception } from "./reception-service.js";
 
 const RECEPTION_PLAYER_COMMANDS = new Set([
