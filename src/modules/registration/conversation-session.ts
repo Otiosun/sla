@@ -336,7 +336,7 @@ export function parsePartialRegistrationTemplate(
   const professionRaw = values.get("profession");
   const profession =
     professionRaw === undefined ? undefined : normalizeTrainerProfession(professionRaw);
-  if (professionRaw !== undefined && profession === null) {
+  if (profession === null) {
     return err(appError("VALIDATION_FAILED", "Profissão inválida", { fields: ["profession"] }));
   }
   const starterFormId = values.get("starterFormId");
