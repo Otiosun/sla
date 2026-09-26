@@ -23,6 +23,7 @@ describe("full registration multiline paragraphs", () => {
         "",
         "Segundo parágrafo.",
         "",
+        "Profissão: Pesquisador",
         `Inicial: ${SQUIRTLE_ID}`,
       ].join("\n"),
     );
@@ -46,6 +47,7 @@ describe("full registration multiline paragraphs", () => {
         "Detalhes: usa um casaco de viagem.",
         "Personalidade: Curiosa.",
         "História: Saiu de casa para pesquisar Pokémon raros.",
+        "Profissão: Pesquisador",
         `Inicial: ${SQUIRTLE_ID}`,
       ].join("\n"),
     );
