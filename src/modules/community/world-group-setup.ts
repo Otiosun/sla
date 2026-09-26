@@ -118,7 +118,7 @@ export function createWorldGroupSetupRoute(dependencies: {
                 destinationRef: context.message.chatRef,
                 messageType: "TEXT",
                 payload: {
-                  text: `*Bot habilitado neste grupo*\n${result.displayName}\n\n${input.data.role === "RECEPTION" ? "Recepção e cadastro habilitados. Os demais comandos também estão disponíveis.\n" : ""}Exploração e serviços do mundo estão disponíveis para treinadores aprovados.`,
+                  text: `*Bot habilitado neste grupo*\n${result.displayName}\n\n${input.data.role === "RECEPTION" ? "Recepção e cadastro habilitados. Este grupo fica restrito ao fluxo de registro e revisão." : "Exploração e serviços do mundo estão disponíveis para treinadores aprovados."}`,
                 },
                 idempotencyKey: `${context.idempotencyKey}:world-group`,
               },
