@@ -96,6 +96,10 @@ describe("registration conversation renderer", () => {
     const text = renderFullForm({ regionDisplayName: "Zhoulia", starterOptions });
 
     expect(text).toContain("▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*");
+    expect(text).toContain("◇ *𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*");
+    expect(text).toContain("◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*");
+    expect(text).toContain("◇ *𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢*");
+    expect(text).toContain("✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*");
     expect(text).toContain("Nome:");
     expect(text).toContain("Idade:");
     expect(text).toContain("Gênero / pronomes:");
@@ -104,6 +108,7 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("História (opcional):");
     expect(text).toContain("Profissão:");
     expect(text).toContain("https://pokemon-hub-web-self.vercel.app/sistemas/profissoes");
+    expect(text).toContain("Obrigatória. Veja as opções e detalhes no site");
     expect(text).not.toContain("Criador · Pesquisador");
     expect(text).toContain("Pokémon inicial:");
     expect(text).toContain("Zhoulia");
