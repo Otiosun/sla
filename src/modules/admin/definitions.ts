@@ -141,6 +141,19 @@ export function createPhase12AdminOperationRegistry(
   registry.register(
     defineAdminOperation({
       kind: "READ",
+      operationType: "content.release.catalog.read",
+      capabilityKey: "content.draft.edit",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "CONTENT_RELEASE_COLLECTION", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
       operationType: "admin.operation.audit",
       capabilityKey: "audit.read",
       riskTier: 0,
