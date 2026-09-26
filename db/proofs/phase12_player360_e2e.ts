@@ -117,6 +117,9 @@ try {
   const targetPlayerId = randomUUID();
   const secondPlayerId = randomUUID();
   const thirdPlayerId = randomUUID();
+  const suspendedPlayerId = randomUUID();
+  const pendingPlayerId = randomUUID();
+  const provisioningPlayerId = randomUUID();
   const playerRows = [
     [targetPlayerId, "Player360 Alpha", "proof:target", "2026-01-03T00:00:00.000Z"],
     [secondPlayerId, "Player360 Beta", "proof:second", "2026-01-02T00:00:00.000Z"],
@@ -338,7 +341,46 @@ try {
     );
   }
 
-  const pendingPlayerId = randomUUID();
+  const suspendedReviewId = randomUUID();
+  await pool.query(
+    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`,
+    [suspendedPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO player_profiles(
+       player_id, trainer_name, origin_region_id, locale, metadata
+     ) VALUES ($1, 'Player360 Suspended', $2, 'pt-BR', '{}'::jsonb)`,
+    [suspendedPlayerId, regionId],
+  );
+  await pool.query(
+    `INSERT INTO trainer_progression(player_id, level, progression_points)
+     VALUES ($1, 2, 50)`,
+    [suspendedPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO player_identities(id, player_id, provider, external_id, status)
+     VALUES ($1, $2, 'WHATSAPP', 'proof:suspended', 'ACTIVE')`,
+    [randomUUID(), suspendedPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO registration_revisions(
+       id, player_id, sequence_no, status, schema_version, snapshot_json,
+       decided_by_admin_principal_id, decided_at
+     ) VALUES ($1, $2, 1, 'APPROVED', 1, $3::jsonb, $4, now())`,
+    [
+      suspendedReviewId,
+      suspendedPlayerId,
+      JSON.stringify({ trainerName: "Player360 Suspended" }),
+      ownerId,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO player_access(
+       player_id, status, approved_review_id, revision, suspended_reason, suspended_by
+     ) VALUES ($1, 'SUSPENDED', $2, 1, 'Player 360 proof', $3)`,
+    [suspendedPlayerId, suspendedReviewId, ownerId],
+  );
+
   await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [pendingPlayerId]);
   await pool.query(
     `INSERT INTO trainer_progression(player_id, level, progression_points)
@@ -346,9 +388,61 @@ try {
     [pendingPlayerId],
   );
   await pool.query(
+    `INSERT INTO onboarding_states(player_id, state) VALUES ($1, 'NEW')`,
+    [pendingPlayerId],
+  );
+  await pool.query(
     `INSERT INTO player_identities(id, player_id, provider, external_id, status)
      VALUES ($1, $2, 'WHATSAPP', $3, 'ACTIVE')`,
     [randomUUID(), pendingPlayerId, "proof:pending"],
+  );
+  await pool.query(
+    `INSERT INTO player_access(player_id, status, revision)
+     VALUES ($1, 'PENDING', 0)`,
+    [pendingPlayerId],
+  );
+
+  const provisioningReviewId = randomUUID();
+  await pool.query(
+    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`,
+    [provisioningPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO player_profiles(
+       player_id, trainer_name, origin_region_id, locale, metadata
+     ) VALUES ($1, 'Player360 Provisioning', $2, 'pt-BR', '{}'::jsonb)`,
+    [provisioningPlayerId, regionId],
+  );
+  await pool.query(
+    `INSERT INTO trainer_progression(player_id, level, progression_points)
+     VALUES ($1, 1, 0)`,
+    [provisioningPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO onboarding_states(player_id, state) VALUES ($1, 'PROFILE_CREATED')`,
+    [provisioningPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO player_identities(id, player_id, provider, external_id, status)
+     VALUES ($1, $2, 'WHATSAPP', 'proof:provisioning', 'ACTIVE')`,
+    [randomUUID(), provisioningPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO registration_revisions(
+       id, player_id, sequence_no, status, schema_version, snapshot_json,
+       decided_by_admin_principal_id, decided_at
+     ) VALUES ($1, $2, 1, 'APPROVED', 1, $3::jsonb, $4, now())`,
+    [
+      provisioningReviewId,
+      provisioningPlayerId,
+      JSON.stringify({ trainerName: "Player360 Provisioning" }),
+      ownerId,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO player_access(player_id, status, approved_review_id, revision)
+     VALUES ($1, 'PROVISIONING', $2, 1)`,
+    [provisioningPlayerId, provisioningReviewId],
   );
   for (const id of [globalSupportId, ownerId]) {
     await pool.query(
@@ -441,8 +535,63 @@ try {
   if (new Set(allPageIds).size !== 3 || allPageIds[0] !== targetPlayerId) {
     throw new Error("Player 360 cursor pagination repeated, skipped or reordered players");
   }
-  if (allPageIds.includes(pendingPlayerId)) {
-    throw new Error("Player 360 search leaked an unapproved registration foundation");
+  if (allPageIds.includes(pendingPlayerId) || allPageIds.includes(provisioningPlayerId)) {
+    throw new Error("Player 360 search leaked a non-playable registration/provisioning record");
+  }
+
+  const gameplayVisible = await service.search({
+    principalId: globalSupportId,
+    originRegionId: regionId,
+    limit: 10,
+  });
+  const gameplayVisibleIds = gameplayVisible.items.map((item) => item.playerId);
+  for (const playerId of [targetPlayerId, secondPlayerId, thirdPlayerId, suspendedPlayerId]) {
+    if (!gameplayVisibleIds.includes(playerId)) {
+      throw new Error(`Player 360 search hid a gameplay-visible player: ${playerId}`);
+    }
+  }
+  if (
+    gameplayVisibleIds.includes(pendingPlayerId) ||
+    gameplayVisibleIds.includes(provisioningPlayerId)
+  ) {
+    throw new Error("Player 360 search exposed PENDING/PROVISIONING access as normal players");
+  }
+  if (gameplayVisible.items.some((item) => item.trainerName === null)) {
+    throw new Error("Normal Player 360 search still needs a 'trainer without name' fallback");
+  }
+
+  const suspendedSearch = await service.search({
+    principalId: globalSupportId,
+    status: "SUSPENDED",
+    trainerNamePrefix: "Player360 Suspended",
+    limit: 10,
+  });
+  if (
+    suspendedSearch.items.length !== 1 ||
+    suspendedSearch.items[0]?.playerId !== suspendedPlayerId ||
+    suspendedSearch.items[0]?.status !== "SUSPENDED"
+  ) {
+    throw new Error("SUSPENDED gameplay access was not projected correctly in Player 360");
+  }
+
+  const suspendedView = await service.get({
+    principalId: globalSupportId,
+    playerId: suspendedPlayerId,
+  });
+  if (suspendedView.status !== "SUSPENDED") {
+    throw new Error("Player 360 detail did not project SUSPENDED gameplay access");
+  }
+
+  for (const hiddenPlayerId of [pendingPlayerId, provisioningPlayerId]) {
+    try {
+      await service.get({
+        principalId: globalSupportId,
+        playerId: hiddenPlayerId,
+      });
+      throw new Error("Non-playable registration state unexpectedly opened in Player 360");
+    } catch (error) {
+      expectAdminCode(error, ADMIN_ERROR_CODES.TARGET_NOT_FOUND);
+    }
   }
 
   try {
@@ -468,6 +617,26 @@ try {
   ) {
     throw new Error("Sensitive Player 360 capability did not reveal authorized fields");
   }
+  const hiddenPendingIdentitySearch = await service.search({
+    principalId: ownerId,
+    identityProvider: "WHATSAPP",
+    externalId: "proof:pending",
+    includeSensitive: true,
+  });
+  if (hiddenPendingIdentitySearch.items.length !== 0) {
+    throw new Error("Sensitive identity lookup leaked a PENDING registration shell");
+  }
+
+  const hiddenProvisioningIdentitySearch = await service.search({
+    principalId: ownerId,
+    identityProvider: "WHATSAPP",
+    externalId: "proof:provisioning",
+    includeSensitive: true,
+  });
+  if (hiddenProvisioningIdentitySearch.items.length !== 0) {
+    throw new Error("Sensitive identity lookup leaked a PROVISIONING player into normal search");
+  }
+
   const identitySearch = await service.search({
     principalId: ownerId,
     identityProvider: "WHATSAPP",
@@ -519,7 +688,7 @@ try {
   }
 
   console.log(
-    "Phase 12B Player 360 proof complete: scoped read, sensitive redaction, aggregate projection, global search, stable cursor pagination, identity lookup and read-only state verified",
+    "Phase 12B Player 360 proof complete: scoped read, sensitive redaction, gameplay-access filtering (ACTIVE/SUSPENDED visible; PENDING/PROVISIONING hidden), aggregate projection, stable cursor pagination, identity lookup and read-only state verified",
   );
 } finally {
   await pool.end();
