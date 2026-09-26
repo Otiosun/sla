@@ -70,6 +70,7 @@ const LABELS: Readonly<Record<RegistrationConversationField, string>> = {
   appearance: "Aparência",
   personality: "Personalidade",
   backstory: "História / resumo",
+  profession: "Profissão",
   starterFormId: "Pokémon inicial",
 };
 
