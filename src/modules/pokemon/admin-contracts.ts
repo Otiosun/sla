@@ -170,6 +170,11 @@ export const PokemonCreateResultSchema = z
     rulesetId: uuid,
     formId: uuid,
     level: z.number().int().min(1).max(100),
+    nickname: z.string().nullable(),
+    shiny: z.boolean(),
+    gender: z.enum(["M", "F", "GENDERLESS"]).nullable(),
+    abilityId: uuid,
+    natureId: uuid,
     placement: PokemonRosterPlacementSchema,
     replayed: z.boolean(),
   })
