@@ -136,6 +136,16 @@ export type BaileysOutboundContentLike =
   | BaileysImageOutboundContentLike
   | BaileysReactionOutboundContentLike;
 
+export interface BaileysQuotedMessageLike {
+  readonly key: {
+    readonly remoteJid: string;
+    readonly id: string;
+    readonly participant?: string;
+    readonly fromMe?: boolean;
+  };
+  readonly message: BaileysMessageContentLike;
+}
+
 export interface BaileysSocketLike {
   readonly user?: { readonly id: string; readonly lid?: string };
   groupMetadata?(jid: string): Promise<{
@@ -151,7 +161,10 @@ export interface BaileysSocketLike {
   sendMessage(
     jid: string,
     content: BaileysOutboundContentLike,
-    options?: { readonly messageId?: string },
+    options?: {
+      readonly messageId?: string;
+      readonly quoted?: BaileysQuotedMessageLike;
+    },
   ): Promise<unknown>;
   end(error?: Error): void;
 }

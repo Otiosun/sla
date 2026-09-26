@@ -75,6 +75,7 @@ try {
   const targetAdminId = randomUUID();
   const staleTargetId = randomUUID();
   const driftTargetId = randomUUID();
+  const futureOwnerId = randomUUID();
   const allowedPlayerId = randomUUID();
   const otherPlayerId = randomUUID();
 
@@ -85,6 +86,7 @@ try {
     [targetAdminId, "proof:target"],
     [staleTargetId, "proof:stale-target"],
     [driftTargetId, "proof:drift-target"],
+    [futureOwnerId, "proof:future-owner"],
   ]) {
     await pool.query(
       `INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')`,
@@ -398,6 +400,60 @@ try {
     throw new Error(`Admin evidence incomplete: ${JSON.stringify(evidenceRow)}`);
   }
 
+  await pool.query(
+    `INSERT INTO admin_principal_capability_overrides(
+       principal_id, capability_id, decision, reason, assigned_by_admin_principal_id
+     ) VALUES ($1, $2, 'DENY', 'pre-owner deny proof', $3)`,
+    [futureOwnerId, roleAssignCapabilityId, proposerId],
+  );
+  const futureOwnerPrepared = await service.prepareMutation({
+    principalId: proposerId,
+    operationType: "admin.role.assign",
+    input: { principalId: futureOwnerId, roleId: ownerRoleId },
+    reason: "promote protected owner without contradictory overrides",
+    expectedRevision: 0,
+    idempotencyKey: "phase12-proof-owner-promotion-override-001",
+    correlationId: randomUUID(),
+  });
+  await service.simulate(futureOwnerPrepared.operation.id, proposerId);
+  await service.confirm(futureOwnerPrepared.operation.id, proposerId);
+  await service.approve(
+    futureOwnerPrepared.operation.id,
+    approverId,
+    "independent approval for protected owner promotion",
+  );
+  const futureOwnerApplied = await service.apply(futureOwnerPrepared.operation.id, proposerId);
+  if (futureOwnerApplied.status !== "APPLIED") {
+    throw new Error("Protected owner promotion did not apply");
+  }
+  const futureOwnerState = await pool.query<{
+    owner_count: string;
+    override_count: string;
+    role_assign_effective: string;
+  }>(
+    `SELECT
+       (SELECT count(*)::text
+        FROM admin_principal_roles relation
+        WHERE relation.principal_id = $1 AND relation.role_id = $2) AS owner_count,
+       (SELECT count(*)::text
+        FROM admin_principal_capability_overrides override
+        WHERE override.principal_id = $1) AS override_count,
+       (SELECT count(*)::text
+        FROM admin_effective_capabilities effective
+        WHERE effective.principal_id = $1 AND effective.key = 'admin.role.assign') AS role_assign_effective`,
+    [futureOwnerId, ownerRoleId],
+  );
+  const futureOwnerRow = futureOwnerState.rows[0];
+  if (
+    futureOwnerRow?.owner_count !== "1" ||
+    futureOwnerRow.override_count !== "0" ||
+    futureOwnerRow.role_assign_effective !== "1"
+  ) {
+    throw new Error(
+      `Protected owner promotion retained contradictory capability overrides: ${JSON.stringify(futureOwnerRow)}`,
+    );
+  }
+
   const stalePrepared = await service.prepareMutation({
     principalId: proposerId,
     operationType: "admin.role.assign",
@@ -431,7 +487,7 @@ try {
     throw new Error("Stale operation mutated target despite CAS conflict");
 
   console.log(
-    "Phase 12A admin registry proof complete: capability + object/property auth, full policy snapshot drift lock, convergent RBAC bundles, DB snapshot constraints, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",
+    "Phase 12A admin registry proof complete: capability + object/property auth, full policy snapshot drift lock, convergent RBAC bundles, owner override normalization, DB snapshot constraints, R4 simulation/confirmation/dual approval, CAS, idempotency and append-only evidence verified",
   );
 } finally {
   await pool.end();

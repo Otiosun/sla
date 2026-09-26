@@ -15,6 +15,7 @@ import type {
   BaileysLoggerLike,
   BaileysMessagesUpsertLike,
   BaileysOutboundContentLike,
+  BaileysQuotedMessageLike,
   BaileysSocketConfigLike,
   BaileysSocketLike,
 } from "./baileys-provider-contracts.js";
@@ -239,6 +240,32 @@ function outboundContent(message: PendingOutboxMessage): BaileysOutboundContentL
   }
 }
 
+function quotedReply(message: PendingOutboxMessage): BaileysQuotedMessageLike | undefined {
+  const externalMessageId = message.payload.replyToExternalMessageId;
+  const senderRef = message.payload.replyToSenderRef;
+  const replyText = message.payload.replyToText;
+  if (
+    typeof externalMessageId !== "string" ||
+    externalMessageId.trim().length === 0 ||
+    typeof replyText !== "string" ||
+    replyText.trim().length === 0
+  ) {
+    return undefined;
+  }
+  if (senderRef !== undefined && (typeof senderRef !== "string" || senderRef.trim().length === 0)) {
+    throw new Error("Baileys replyToSenderRef must be a non-empty JID when provided");
+  }
+  return {
+    key: {
+      remoteJid: message.destinationRef,
+      id: externalMessageId.trim(),
+      ...(typeof senderRef === "string" ? { participant: senderRef.trim() } : {}),
+      fromMe: false,
+    },
+    message: { conversation: replyText },
+  };
+}
+
 function providerExternalMessageId(result: unknown): string | null {
   if (typeof result !== "object" || result === null || !("key" in result)) return null;
   const key = result.key;
@@ -341,8 +368,10 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
         throw new Error("Baileys WhatsApp adapter is not connected");
       }
       const messageId = baileysOutboundMessageId(message);
+      const quoted = quotedReply(message);
       const sent = await socket.sendMessage(message.destinationRef, outboundContent(message), {
         messageId,
+        ...(quoted === undefined ? {} : { quoted }),
       });
       const returnedMessageId = providerExternalMessageId(sent);
       if (returnedMessageId !== messageId) {

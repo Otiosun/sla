@@ -5,7 +5,7 @@ export interface InsertSceneProofWrite {
   readonly playerId: PlayerId;
   readonly areaId: string;
   readonly sourceInboxMessageId: string;
-  readonly lineCount: number;
+  readonly wordCount: number;
   readonly createdAt: Date;
 }
 

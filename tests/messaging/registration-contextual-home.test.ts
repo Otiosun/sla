@@ -28,7 +28,7 @@ function context(suffix: string): MessageHandlerContext {
       senderRef: "5511999999999@s.whatsapp.net",
       chatRef: CHAT_REF,
       occurredAt: "2026-09-06T04:00:00.000-03:00",
-      text: "$registrar",
+      text: "/registrar",
       mediaRefs: [],
       replyToExternalMessageId: null,
     },
@@ -151,7 +151,7 @@ function harness(input: {
   return { registrar, checkpoints };
 }
 
-describe("contextual $registrar home", () => {
+describe("contextual /registrar home", () => {
   it("offers resume actions for an incomplete persisted draft", async () => {
     const state = harness({
       conversation: conversation(PLAYER_ID, "PAUSED"),
@@ -160,8 +160,8 @@ describe("contextual $registrar home", () => {
 
     const result = await state.registrar.handler.handle(context("01"));
 
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("ficha em andamento");
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("1 — Continuar");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("`01` Continuar");
     expect(state.checkpoints[0]).toMatchObject({ state: "RESUME_MENU" });
   });
 
@@ -173,9 +173,7 @@ describe("contextual $registrar home", () => {
 
     const result = await state.registrar.handler.handle(context("02"));
 
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain(
-      "📋 FICHA PRONTA PARA REVISÃO",
-    );
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
     expect(state.checkpoints[0]).toMatchObject({ state: "REVIEW" });
   });
 

@@ -29,6 +29,10 @@ export interface MessageConversationResolver {
   resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>>;
 }
 
+export interface MessageRouteScopeGate {
+  admits(context: MessageHandlerContext, canonicalCommand: string): Promise<boolean>;
+}
+
 interface RegisteredRoute {
   readonly canonicalCommand: string;
   readonly handler: MessageRouteHandler;
@@ -60,7 +64,7 @@ function normalizeCommand(value: string): string {
 }
 
 function normalizeRouteToken(value: string): string {
-  return normalizeCommand(value.replace(/^[$/]/, ""));
+  return normalizeCommand(value.replace(/^\//, ""));
 }
 
 function commandCandidateAtStart(text: string | null): CommandCandidate | null {
@@ -68,7 +72,7 @@ function commandCandidateAtStart(text: string | null): CommandCandidate | null {
   const first = text.search(/\S/);
   if (first < 0) return null;
   const prefix = text[first];
-  if (prefix !== "$" && prefix !== "/") return null;
+  if (prefix !== "/") return null;
 
   const lineEnd = text.indexOf("\n", first);
   const commandText = text.slice(first, lineEnd < 0 ? text.length : lineEnd).trim();
@@ -86,22 +90,24 @@ function commandCandidateAtStart(text: string | null): CommandCandidate | null {
 function embeddedCommandCandidates(text: string | null): readonly CommandCandidate[] {
   if (text === null || text.length === 0) return [];
 
-  const firstNonWhitespace = text.search(/\S/);
+  const firstNonWhitespace = text.search(/\S/u);
   const candidates: CommandCandidate[] = [];
-  const pattern = /(^|\s)([$/])([^\s]+)/g;
+  const pattern = /(^|[\s([{'"“”‘’—–,:;!?])\/([\p{L}\p{N}_-]+)/gu;
 
   for (const match of text.matchAll(pattern)) {
-    const whitespacePrefix = match[1] ?? "";
-    const start = (match.index ?? 0) + whitespacePrefix.length;
-    if (start === firstNonWhitespace) continue;
+    const boundary = match[1] ?? "";
+    const rawToken = match[2] ?? "";
+    const start = (match.index ?? 0) + boundary.length;
+    if (start === firstNonWhitespace || rawToken.length === 0) continue;
 
     const lineEnd = text.indexOf("\n", start);
-    const commandText = text.slice(start, lineEnd < 0 ? text.length : lineEnd).trim();
-    const token = commandText.slice(1).split(/\s+/, 1)[0]?.trim();
-    if (token === undefined || token.length === 0) continue;
+    const line = text.slice(start, lineEnd < 0 ? text.length : lineEnd).trim();
+    const tokenText = `/${rawToken}`;
+    const afterToken = line.slice(tokenText.length);
+    const commandText = /^[,.;!?)}\]]/u.test(afterToken) ? tokenText : line;
 
     candidates.push({
-      command: normalizeCommand(token),
+      command: normalizeCommand(rawToken),
       commandText,
       start,
       embedded: true,
@@ -118,6 +124,7 @@ export class MessageRouter implements MessageRouterPort {
     definitions: readonly CommandRouteDefinition[] = [],
     private readonly policyGate?: CommandRoutePolicyGate,
     private readonly conversationResolver?: MessageConversationResolver,
+    private readonly scopeGate?: MessageRouteScopeGate,
   ) {
     for (const definition of definitions) {
       this.register(definition);
@@ -158,10 +165,13 @@ export class MessageRouter implements MessageRouterPort {
   private matchCommand(text: string | null): CommandMatch | null {
     const leading = commandCandidateAtStart(text);
     if (leading !== null) {
+      const additionalMechanicalCommands = embeddedCommandCandidates(text)
+        .map((candidate) => ({ candidate, route: this.routes.get(candidate.command) }))
+        .filter((value) => value.route?.allowEmbedded === true);
       return {
         candidate: leading,
         route: this.routes.get(leading.command),
-        ambiguous: false,
+        ambiguous: additionalMechanicalCommands.length > 0,
       };
     }
 
@@ -222,15 +232,24 @@ export class MessageRouter implements MessageRouterPort {
     const route = match.route;
     if (route === undefined) {
       return err(
-        appError("ACTION_INVALID", "Unknown command", {
+        appError("VALIDATION_FAILED", "Unknown command", {
           command: match.candidate.command,
           correlationId: context.correlationId,
+          userMessage: "Comando desconhecido. Use `/menu` para ver os comandos disponíveis.",
         }),
       );
     }
 
+    if (
+      this.scopeGate !== undefined &&
+      !(await this.scopeGate.admits(context, route.canonicalCommand))
+    ) {
+      return ok(null);
+    }
+
     const routedContext: MessageHandlerContext = {
       ...context,
+      originalMessageText: context.originalMessageText ?? context.message.text,
       message: {
         ...context.message,
         text: match.candidate.commandText,

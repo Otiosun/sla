@@ -63,8 +63,8 @@ export interface WildPokemonSnapshot {
   readonly moves: readonly WildMoveSnapshot[];
   readonly maxHp: number;
   readonly currentHp: number;
-  readonly shiny: false;
-  readonly gender: null;
+  readonly shiny: boolean;
+  readonly gender: "MALE" | "FEMALE" | null;
 }
 
 export interface EncounterRecord {
@@ -133,6 +133,8 @@ export interface WildBuildMove {
 export interface WildPokemonBuild {
   readonly formId: string;
   readonly speciesId: string;
+  /** PokeAPI species gender_rate: -1 genderless, otherwise female chance in eighths. */
+  readonly genderRate?: number | null;
   readonly type1Id: string;
   readonly type2Id: string | null;
   readonly baseStats: EncounterBaseStats;

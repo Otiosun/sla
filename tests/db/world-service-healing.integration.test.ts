@@ -230,7 +230,7 @@ async function seedPlayer(pool: Pool, content: ContentFixture): Promise<PlayerFi
       playerId,
       areaId: content.areaId,
       sourceInboxMessageId: sceneInboxMessageId,
-      text: "cheguei ao centro\natravessei a porta\nfui até o balcão\nfalei com Hana",
+      text: "cheguei ao centro depois de atravessar a praça da vila com calma. observei o movimento dos treinadores perto da entrada, guardei minhas coisas e atravessei a porta principal. fui até o balcão onde Hana atendia outros viajantes, esperei minha vez, expliquei que minha equipe estava cansada após a jornada e pedi ajuda para cuidar dos meus Pokémon antes de continuar o caminho pela região, porque ainda pretendia explorar os arredores antes do anoitecer.",
     });
     if (!proof.ok) throw new Error(`${proof.error.code}: ${proof.error.message}`);
     const opened = await sessions.openVisit({

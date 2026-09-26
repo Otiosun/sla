@@ -38,6 +38,10 @@ export interface PvpChallengeTransaction {
   pinnedContentAvailable(contentReleaseId: string, rulesetId: string): Promise<boolean>;
   challengeById(challengeId: string, lock?: boolean): Promise<PvpChallenge | null>;
   openChallengeForTarget(targetPlayerId: string, lock?: boolean): Promise<PvpChallenge | null>;
+  openChallengeForChallenger(
+    challengerPlayerId: string,
+    lock?: boolean,
+  ): Promise<PvpChallenge | null>;
   challengeByCreationKey(
     challengerPlayerId: string,
     creationIdempotencyKey: string,

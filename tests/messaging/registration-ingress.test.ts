@@ -73,7 +73,7 @@ describe("registration freeform ingress", () => {
         message({ text: "Liora Vale", replyToExternalMessageId: "bot-registration-prompt" }),
       ),
     ).toBe(true);
-    expect(await registration.admits(message({ text: "Liora Vale" }))).toBe(false);
+    expect(await registration.admits(message({ text: "Liora Vale" }))).toBe(true);
     expect(
       await registration.admits(
         message({
@@ -85,7 +85,7 @@ describe("registration freeform ingress", () => {
     ).toBe(false);
     expect(
       await registration.admits(
-        message({ text: "$ficha", replyToExternalMessageId: "bot-registration-prompt" }),
+        message({ text: "/ficha", replyToExternalMessageId: "bot-registration-prompt" }),
       ),
     ).toBe(false);
   });

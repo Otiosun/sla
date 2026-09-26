@@ -128,22 +128,22 @@ async function main(): Promise<void> {
     const messagingRepository = new PostgresMessagingRepository(pool);
     const service = new MessagingService(messagingRepository, createRouter(), 30_000);
 
-    const menu = await service.receive(message("f17-menu", "$menu"));
+    const menu = await service.receive(message("f17-menu", "/menu"));
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId === null) {
       throw new Error(`Could not bootstrap proof player: ${JSON.stringify(menu)}`);
     }
     const playerId = menu.value.resultRefId;
 
-    await receiveProcessed(service, message("f17-register", "$registrar FailureProof"));
-    await receiveProcessed(service, message("f17-regions", "$regioes"));
-    await receiveProcessed(service, message("f17-region", "$regiao 1"));
-    await receiveProcessed(service, message("f17-starters", "$starters"));
-    await receiveProcessed(service, message("f17-starter", "$starter 1"));
-    await receiveProcessed(service, message("f17-where", "$onde"));
+    await receiveProcessed(service, message("f17-register", "/registrar FailureProof"));
+    await receiveProcessed(service, message("f17-regions", "/regioes"));
+    await receiveProcessed(service, message("f17-region", "/regiao 1"));
+    await receiveProcessed(service, message("f17-starters", "/starters"));
+    await receiveProcessed(service, message("f17-starter", "/starter 1"));
+    await receiveProcessed(service, message("f17-where", "/onde"));
 
     const whereText = await outgoingText(pool, "f17-where");
     if (!whereText.includes("*Vila dos Arrozais*") || !whereText.includes("_Zhoulia_")) {
-      throw new Error(`$onde did not expose the canonical Zhoulia start: ${whereText}`);
+      throw new Error(`/onde did not expose the canonical Zhoulia start: ${whereText}`);
     }
     const travelMatch = whereText.match(/(\d+)\.\s+\*Campos de Yun\*[\s\S]*?`\/ir\s+(\d+)`/i);
     const listedRouteNumber = travelMatch?.[1];
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
       listedRouteNumber !== routeNumber
     ) {
       throw new Error(
-        `$onde did not emit the canonical numbered Campos de Yun route: ${whereText}`,
+        `/onde did not emit the canonical numbered Campos de Yun route: ${whereText}`,
       );
     }
     const beforeTravel = await pool.query<{ revision: string }>(

@@ -207,6 +207,26 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
           slotNo: 1,
         },
       ]),
+      teamPokemonDetail: vi.fn(async () => ({
+        pokemonInstanceId: POKEMON_ID,
+        slotNo: 1,
+        displayName: "Charmander",
+        nickname: null,
+        level: 5,
+        currentHp: 0,
+        maxHp: 20,
+        gender: "MALE",
+        shiny: false,
+        natureDisplayName: "Adamant",
+        abilityDisplayName: "Blaze",
+        ivs: { hp: 31, attack: 30, defense: 29, spAttack: 12, spDefense: 18, speed: 27 },
+        statuses: [],
+        moves: [
+          { slotNo: 1, displayName: "Scratch", ppCurrent: 35, maxPp: 35 },
+          { slotNo: 2, displayName: "Growl", ppCurrent: 40, maxPp: 40 },
+        ],
+      })),
+      listPendingMoveChoices: vi.fn(async () => []),
       listInventory: vi.fn(async () => [
         { itemId: "item-potion", itemSlug: "potion", displayName: "Potion", quantity: 3n },
       ]),
@@ -246,9 +266,10 @@ describe("Phase 13 operational WhatsApp UX", () => {
       err(appError("NOT_FOUND", "No active encounter")),
     );
 
-    const output = textOf(await router(deps).dispatch(context("$menu")));
+    const output = textOf(await router(deps).dispatch(context("/menu")));
     expect(output).toContain("ROTOM · MENU");
     expect(output).toContain("/onde");
+    expect(output).toContain("/evolucao <# ou nome>");
     expect(output).toContain("Explorações são conduzidas em cena pelo narrador");
     expect(output).not.toContain("/explorar");
     expect(output).not.toContain("revision");
@@ -256,14 +277,14 @@ describe("Phase 13 operational WhatsApp UX", () => {
 
   it("prioritizes BATTLE then ENCOUNTER then FACILITY before WORLD", async () => {
     const battleDeps = dependencies();
-    expect(textOf(await router(battleDeps).dispatch(context("$menu", "menu-battle")))).toContain(
+    expect(textOf(await router(battleDeps).dispatch(context("/menu", "menu-battle")))).toContain(
       "ROTOM · BATALHA",
     );
 
     const encounterDeps = dependencies();
     (encounterDeps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     expect(
-      textOf(await router(encounterDeps).dispatch(context("$menu", "menu-encounter"))),
+      textOf(await router(encounterDeps).dispatch(context("/menu", "menu-encounter"))),
     ).toContain("ROTOM · ENCONTRO");
 
     const facilityDeps = dependencies({
@@ -280,33 +301,269 @@ describe("Phase 13 operational WhatsApp UX", () => {
       err(appError("NOT_FOUND", "No active encounter")),
     );
     expect(
-      textOf(await router(facilityDeps).dispatch(context("$menu", "menu-facility"))),
+      textOf(await router(facilityDeps).dispatch(context("/menu", "menu-facility"))),
     ).toContain("ROTOM · POKÉ MART");
   });
 
   it("renders profile, team, inventory and Pokedex as readable mobile text", async () => {
     const app = router(dependencies());
-    expect(textOf(await app.dispatch(context("$perfil", "profile")))).toContain("Treinador: *Red*");
-    expect(textOf(await app.dispatch(context("$equipe", "team")))).toContain(
+    expect(textOf(await app.dispatch(context("/perfil", "profile")))).toContain("Treinador: *Red*");
+    expect(textOf(await app.dispatch(context("/equipe", "team")))).toContain(
       "*Charmander* · Nv. 5 · HP 19",
     );
-    expect(textOf(await app.dispatch(context("$inventario", "inventory")))).toContain("Potion ×3");
-    expect(textOf(await app.dispatch(context("$pokedex", "pokedex")))).toContain(
+    expect(textOf(await app.dispatch(context("/inventario", "inventory")))).toContain("Potion ×3");
+    expect(textOf(await app.dispatch(context("/pokedex", "pokedex")))).toContain(
       "#0004 Charmander · vistos 2 · capturados 1",
     );
+  });
+
+  it("shows persisted Pokemon mechanics without exposing internal ids", async () => {
+    const output = textOf(await router(dependencies()).dispatch(context("/pokemon 1", "pokemon")));
+    expect(output).toContain("*POKÉMON*");
+    expect(output).toContain("_Charmander_");
+    expect(output).toContain("HP　`0/20`");
+    expect(output).toContain("`CAÍDO`");
+    expect(output).toContain("*NATURE*　Adamant");
+    expect(output).toContain("*ABILITY*　Blaze");
+    expect(output).toContain("HP `31` · Atk `30` · Def `29`");
+    expect(output).toContain("`1`　*Scratch* · PP 35/35");
+    expect(output).not.toContain(POKEMON_ID);
+  });
+
+  it("accepts collection hash and unique Pokemon name references", async () => {
+    const deps = dependencies();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+      ]),
+      ownedPokemonDetail: vi.fn(async (_playerId: string, collectionNo: number) =>
+        collectionNo === 13
+          ? {
+              collectionNo: 13,
+              pokemonInstanceId: POKEMON_ID,
+              slotNo: 7,
+              displayName: "Charmander",
+              nickname: null,
+              level: 5,
+              xp: 0n,
+              currentHp: 19,
+              maxHp: 20,
+              gender: "MALE" as const,
+              shiny: false,
+              natureDisplayName: "Adamant",
+              abilityDisplayName: "Blaze",
+              ivs: {
+                hp: 31,
+                attack: 30,
+                defense: 29,
+                spAttack: 12,
+                spDefense: 18,
+                speed: 27,
+              },
+              statuses: [],
+              moves: [{ slotNo: 1, displayName: "Scratch", ppCurrent: 35, maxPp: 35 }],
+              placementKind: "BOX" as const,
+              boxNo: 1,
+            }
+          : null,
+      ),
+    });
+    const app = router(deps);
+
+    const byHash = textOf(await app.dispatch(context("/pokemon #13", "pokemon-hash")));
+    const byName = textOf(await app.dispatch(context("/pokemon Charmander", "pokemon-name")));
+
+    expect(byHash).toContain("#13");
+    expect(byHash).toContain("_Charmander_");
+    expect(byName).toContain("#13");
+    expect(byName).toContain("_Charmander_");
+  });
+
+  it("rejects ambiguous Pokemon names and asks for collection numbers", async () => {
+    const deps = dependencies();
+    const detail = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+        {
+          collectionNo: 14,
+          pokemonInstanceId: "00000000-0000-4000-8000-000000000026",
+          displayName: "Charmander",
+          nickname: null,
+          level: 6,
+          xp: 0n,
+          currentHp: 20,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 8,
+        },
+      ]),
+      ownedPokemonDetail: detail,
+    });
+
+    const result = await router(deps).dispatch(context("/pokemon Charmander", "pokemon-ambiguous"));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("VALIDATION_FAILED");
+    expect(result.error.message).toContain("#13");
+    expect(result.error.message).toContain("#14");
+    expect(detail).not.toHaveBeenCalled();
+  });
+
+  it("moves a boxed Pokemon into the team by human name reference", async () => {
+    const deps = dependencies();
+    (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (deps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+      ]),
+    });
+    const move = vi.fn(async () => ok({}));
+    Object.assign(deps, {
+      pcStorage: {
+        getStorage: vi.fn(async () =>
+          ok({
+            playerId: PLAYER_ID,
+            team: [],
+            boxes: [
+              {
+                boxNo: 1,
+                occupied: 1,
+                capacity: 30,
+                pokemon: [
+                  {
+                    pokemonInstanceId: POKEMON_ID,
+                    displayName: "Charmander",
+                    level: 5,
+                    placementKind: "BOX" as const,
+                    boxNo: 1,
+                    slotNo: 7,
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+        move,
+      },
+    });
+
+    const result = await router(deps).dispatch(
+      context("/equipe colocar Charmander 2", "team-human-name"),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(move).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: POKEMON_ID,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: 2 },
+    });
+  });
+
+  it("stores a team Pokemon by collection hash without exposing its internal id", async () => {
+    const deps = dependencies();
+    (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (deps.encounter.activeForPlayer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      err(appError("NOT_FOUND", "No active encounter")),
+    );
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 1,
+        },
+      ]),
+    });
+    const move = vi.fn(async () => ok({}));
+    Object.assign(deps, {
+      pcStorage: {
+        getStorage: vi.fn(async () =>
+          ok({
+            playerId: PLAYER_ID,
+            team: [
+              {
+                pokemonInstanceId: POKEMON_ID,
+                displayName: "Charmander",
+                level: 5,
+                placementKind: "TEAM" as const,
+                boxNo: null,
+                slotNo: 1,
+              },
+            ],
+            boxes: [],
+          }),
+        ),
+        move,
+      },
+    });
+
+    const result = await router(deps).dispatch(context("/equipe guardar #13", "team-human-hash"));
+
+    expect(result.ok).toBe(true);
+    expect(move).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: POKEMON_ID,
+      target: { placementKind: "BOX", boxNo: 1, slotNo: 1 },
+    });
+    expect(textOf(result)).not.toContain(POKEMON_ID);
   });
 
   it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
     const deps = dependencies();
     const app = router(deps);
 
-    const whereText = textOf(await app.dispatch(context("$onde", "where")));
+    const whereText = textOf(await app.dispatch(context("/onde", "where")));
     expect(whereText).toContain("`/ir 1`");
     expect(whereText).toContain("*Route 1*");
     expect(whereText).not.toContain("route-1");
     expect(whereText).not.toContain("v7");
 
-    const valid = await app.dispatch(context("$ir 1", "travel"));
+    const valid = await app.dispatch(context("/ir 1", "travel"));
     expect(valid.ok).toBe(true);
     expect(deps.world.replayTravelByIdempotency).toHaveBeenCalledWith({
       playerId: PLAYER_ID,
@@ -323,7 +580,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
   });
 
   it("renders compact battle state without dumping moves or legal actions", async () => {
-    const output = textOf(await router(dependencies()).dispatch(context("$batalha")));
+    const output = textOf(await router(dependencies()).dispatch(context("/batalha")));
     expect(output).toContain("Turno 3");
     expect(output).not.toContain("v9");
     expect(output).toContain("HP 21/30");

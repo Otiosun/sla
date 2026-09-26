@@ -37,14 +37,12 @@ export class PostgresAdminWhatsAppIdentityResolver {
     if (identity === null) return [];
 
     const result = await this.pool.query<{ key: string }>(
-      `SELECT DISTINCT capability.key
+      `SELECT effective.key
        FROM admin_principals principal
-       JOIN admin_principal_roles principal_role ON principal_role.principal_id = principal.id
-       JOIN admin_role_capabilities role_capability ON role_capability.role_id = principal_role.role_id
-       JOIN capabilities capability ON capability.id = role_capability.capability_id
+       JOIN admin_effective_capabilities effective ON effective.principal_id = principal.id
        WHERE principal.identity_ref = $1
          AND principal.status = 'ACTIVE'
-       ORDER BY capability.key`,
+       ORDER BY effective.key`,
       [identity],
     );
     return result.rows.map((row) => row.key);
@@ -63,14 +61,12 @@ export class PostgresAdminWhatsAppIdentityResolver {
     const result = await this.pool.query<{ jid: string }>(
       `SELECT DISTINCT substring(principal.identity_ref FROM 10) AS jid
        FROM admin_principals principal
-       JOIN admin_principal_roles principal_role ON principal_role.principal_id = principal.id
-       JOIN admin_role_capabilities role_capability ON role_capability.role_id = principal_role.role_id
-       JOIN capabilities capability ON capability.id = role_capability.capability_id
+       JOIN admin_effective_capabilities effective ON effective.principal_id = principal.id
        WHERE principal.id::text = ANY($1::text[])
          AND principal.status = 'ACTIVE'
          AND principal.identity_ref LIKE 'whatsapp:%'
          AND length(principal.identity_ref) > 9
-         AND capability.key = $2
+         AND effective.key = $2
        ORDER BY jid`,
       [principalIds, requiredCapability],
     );

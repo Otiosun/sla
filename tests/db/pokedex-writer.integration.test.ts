@@ -63,39 +63,110 @@ describe.sequential("Pokédex PostgreSQL writer semantics", () => {
       const beforeOwned = await pool.query<{
         seen_count: string;
         caught_count: string;
+        shiny_seen_count: string;
+        shiny_caught_count: string;
         first_seen_at: Date | null;
         last_seen_at: Date | null;
         first_caught_at: Date | null;
         last_caught_at: Date | null;
+        first_shiny_seen_at: Date | null;
+        last_shiny_seen_at: Date | null;
+        first_shiny_caught_at: Date | null;
+        last_shiny_caught_at: Date | null;
       }>(
         `SELECT seen_count::text, caught_count::text,
-                first_seen_at, last_seen_at, first_caught_at, last_caught_at
+                shiny_seen_count::text, shiny_caught_count::text,
+                first_seen_at, last_seen_at, first_caught_at, last_caught_at,
+                first_shiny_seen_at, last_shiny_seen_at,
+                first_shiny_caught_at, last_shiny_caught_at
          FROM player_pokedex_species
          WHERE player_id = $1 AND species_id = $2`,
         [playerId, speciesId],
       );
-      expect(beforeOwned.rows[0]).toMatchObject({ seen_count: "4", caught_count: "2" });
+      expect(beforeOwned.rows[0]).toMatchObject({
+        seen_count: "4",
+        caught_count: "2",
+        shiny_seen_count: "0",
+        shiny_caught_count: "0",
+      });
 
       await recordPokedexOwned(client, playerId, speciesId);
       const afterOwned = await pool.query<{
         seen_count: string;
         caught_count: string;
+        shiny_seen_count: string;
+        shiny_caught_count: string;
         first_seen_at: Date | null;
         last_seen_at: Date | null;
         first_caught_at: Date | null;
         last_caught_at: Date | null;
+        first_shiny_seen_at: Date | null;
+        last_shiny_seen_at: Date | null;
+        first_shiny_caught_at: Date | null;
+        last_shiny_caught_at: Date | null;
       }>(
         `SELECT seen_count::text, caught_count::text,
-                first_seen_at, last_seen_at, first_caught_at, last_caught_at
+                shiny_seen_count::text, shiny_caught_count::text,
+                first_seen_at, last_seen_at, first_caught_at, last_caught_at,
+                first_shiny_seen_at, last_shiny_seen_at,
+                first_shiny_caught_at, last_shiny_caught_at
          FROM player_pokedex_species
          WHERE player_id = $1 AND species_id = $2`,
         [playerId, speciesId],
       );
       expect(afterOwned.rows[0]).toEqual(beforeOwned.rows[0]);
-      expect(afterOwned.rows[0]?.first_seen_at).toBeInstanceOf(Date);
-      expect(afterOwned.rows[0]?.last_seen_at).toBeInstanceOf(Date);
-      expect(afterOwned.rows[0]?.first_caught_at).toBeInstanceOf(Date);
-      expect(afterOwned.rows[0]?.last_caught_at).toBeInstanceOf(Date);
+
+      await recordPokedexSeen(client, playerId, speciesId, true);
+      await recordPokedexCaught(client, playerId, speciesId, true);
+
+      const afterShiny = await pool.query<{
+        seen_count: string;
+        caught_count: string;
+        shiny_seen_count: string;
+        shiny_caught_count: string;
+        first_shiny_seen_at: Date | null;
+        last_shiny_seen_at: Date | null;
+        first_shiny_caught_at: Date | null;
+        last_shiny_caught_at: Date | null;
+      }>(
+        `SELECT seen_count::text, caught_count::text,
+                shiny_seen_count::text, shiny_caught_count::text,
+                first_shiny_seen_at, last_shiny_seen_at,
+                first_shiny_caught_at, last_shiny_caught_at
+         FROM player_pokedex_species
+         WHERE player_id = $1 AND species_id = $2`,
+        [playerId, speciesId],
+      );
+      expect(afterShiny.rows[0]).toMatchObject({
+        seen_count: "6",
+        caught_count: "3",
+        shiny_seen_count: "2",
+        shiny_caught_count: "1",
+      });
+      expect(afterShiny.rows[0]?.first_shiny_seen_at).toBeInstanceOf(Date);
+      expect(afterShiny.rows[0]?.last_shiny_seen_at).toBeInstanceOf(Date);
+      expect(afterShiny.rows[0]?.first_shiny_caught_at).toBeInstanceOf(Date);
+      expect(afterShiny.rows[0]?.last_shiny_caught_at).toBeInstanceOf(Date);
+
+      await recordPokedexOwned(client, playerId, speciesId, true);
+      const afterShinyOwned = await pool.query<{
+        seen_count: string;
+        caught_count: string;
+        shiny_seen_count: string;
+        shiny_caught_count: string;
+      }>(
+        `SELECT seen_count::text, caught_count::text,
+                shiny_seen_count::text, shiny_caught_count::text
+         FROM player_pokedex_species
+         WHERE player_id = $1 AND species_id = $2`,
+        [playerId, speciesId],
+      );
+      expect(afterShinyOwned.rows[0]).toEqual({
+        seen_count: "6",
+        caught_count: "3",
+        shiny_seen_count: "2",
+        shiny_caught_count: "1",
+      });
     } finally {
       client.release();
     }

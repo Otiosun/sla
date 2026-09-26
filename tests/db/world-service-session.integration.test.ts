@@ -7,6 +7,9 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresWorldServiceSessionRepository } from "../../src/platform/world-services/postgres-world-service-session-repository.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
+const scene = (prefix: string) =>
+  Array.from({ length: 50 }, (_, index) => `${prefix}${String(index + 1)}`).join(" ");
+
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
   if (value === undefined) {
@@ -127,7 +130,7 @@ describe.sequential("world service session persistence", () => {
       playerId,
       areaId,
       sourceInboxMessageId: olderInbox,
-      text: "um\ndois\ntres\nquatro",
+      text: scene("antiga"),
     });
     expect(older.ok).toBe(true);
     clock.advanceMs(1_000);
@@ -135,7 +138,7 @@ describe.sequential("world service session persistence", () => {
       playerId,
       areaId,
       sourceInboxMessageId: newerInbox,
-      text: "cinco\nseis\nsete\noito",
+      text: scene("nova"),
     });
     expect(newer.ok).toBe(true);
 
@@ -159,7 +162,7 @@ describe.sequential("world service session persistence", () => {
     expect(proofs.rows).toHaveLength(2);
     expect(proofs.rows.find((row) => row.source_inbox_message_id === newerInbox)).toMatchObject({
       id: newer.value.proofId,
-      line_count: 4,
+      line_count: 50,
     });
     expect(
       proofs.rows.find((row) => row.source_inbox_message_id === newerInbox)?.consumed_at,
@@ -181,6 +184,48 @@ describe.sequential("world service session persistence", () => {
     });
   });
 
+  it("does not claim legacy short proofs or proofs older than 15 minutes", async () => {
+    const playerId = createPlayerId();
+    const areaId = randomUUID();
+    const legacyInbox = randomUUID();
+    const staleInbox = randomUUID();
+    await seedPlayerAreaInbox(pool, {
+      playerId,
+      areaId,
+      inboxMessageId: legacyInbox,
+      suffix: randomUUID(),
+    });
+    await pool.query(
+      `INSERT INTO inbox_messages(
+         id, provider, external_message_id, player_id, payload_hash, status, correlation_id
+       ) VALUES ($1, 'baileys', $2, $3, $4, 'PROCESSED', $5)`,
+      [staleInbox, `world-service-message-${randomUUID()}`, playerId, "c".repeat(64), randomUUID()],
+    );
+    await pool.query(
+      `INSERT INTO world_service_scene_proofs(
+         id, player_id, area_id, source_inbox_message_id, line_count, created_at
+       ) VALUES
+         ($1,$3,$4,$5,4,$6),
+         ($2,$3,$4,$7,50,$8)`,
+      [
+        randomUUID(),
+        randomUUID(),
+        playerId,
+        areaId,
+        legacyInbox,
+        new Date(clock.now().getTime() - 60_000),
+        staleInbox,
+        new Date(clock.now().getTime() - 16 * 60_000),
+      ],
+    );
+
+    const opened = await service.openVisit({ playerId, areaId, serviceKind: "POKEMART" });
+
+    expect(opened.ok).toBe(false);
+    if (opened.ok) return;
+    expect(opened.error.code).toBe("ACTION_INVALID");
+  });
+
   it("enforces one active session per player and paired active-prompt identity", async () => {
     const playerId = createPlayerId();
     const areaId = randomUUID();
@@ -195,7 +240,7 @@ describe.sequential("world service session persistence", () => {
       playerId,
       areaId,
       sourceInboxMessageId: inboxMessageId,
-      text: "1\n2\n3\n4",
+      text: scene("centro"),
     });
     const opened = await service.openVisit({
       playerId,
@@ -254,7 +299,7 @@ describe.sequential("world service session persistence", () => {
       playerId,
       areaId,
       sourceInboxMessageId: inboxMessageId,
-      text: "1\n2\n3\n4",
+      text: scene("duplicada"),
     });
     expect(first.ok).toBe(true);
 

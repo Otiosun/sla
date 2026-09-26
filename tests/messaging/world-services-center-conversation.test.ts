@@ -105,8 +105,8 @@ function routeByCommand(
   return route;
 }
 
-function resolverFor(promptId: string) {
-  const current = centerSession("inbox:x:world-service:center:conversation", promptId, 5n);
+function resolverFor(promptId: string, promptKey = "inbox:x:world-service:center:conversation") {
+  const current = centerSession(promptKey, promptId, 5n);
   return new WorldServiceConversationResolver({
     community: {
       resolveChat: async () => ({
@@ -194,11 +194,11 @@ describe("Pokémon Center conversation", () => {
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:conversation:hana");
   });
 
-  it("routes exact reply 2 to the employee explanation of six-Pokémon teams and boxes", async () => {
+  it("routes loose reply 2 to the employee explanation of six-Pokémon teams and boxes", async () => {
     const promptId = "WA-CENTER-CONVERSATION-EMPLOYEE";
     const resolver = resolverFor(promptId);
 
-    const result = await resolver.resolve(context("2", promptId, "04"));
+    const result = await resolver.resolve(context("2", null, "04"));
 
     expect(result.ok).toBe(true);
     if (!result.ok || result.value === null) return;
@@ -206,5 +206,18 @@ describe("Pokémon Center conversation", () => {
     expect(result.value.outgoing[0]?.payload.text).toContain("seis Pokémon");
     expect(result.value.outgoing[0]?.payload.text).toContain("caixas do PC");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:conversation:employee");
+  });
+
+  it("keeps Hana conversation alive for freeform player text without WhatsApp reply", async () => {
+    const promptId = "WA-CENTER-CONVERSATION-HANA-CONTINUE";
+    const resolver = resolverFor(promptId, "inbox:x:world-service:center:conversation:hana");
+
+    const result = await resolver.resolve(context("*começo a dançar na frente dela*", null, "05"));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("Conversa em andamento");
+    expect(result.value.outgoing[0]?.payload.text).toContain("quer me perguntar");
+    expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:conversation:hana");
   });
 });

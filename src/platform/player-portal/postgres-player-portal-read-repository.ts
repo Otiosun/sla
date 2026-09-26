@@ -8,19 +8,25 @@ import type {
   PlayerPortalPokemonView,
   PlayerPortalReadRepository,
 } from "../../modules/player-portal/read-service.js";
+import { pokemonXpRequiredForNextLevel } from "../../modules/progression/rules.js";
 import type { PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
 import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 
 interface OwnedPokemonRow {
   readonly pokemon_instance_id: string;
   readonly form_id: string;
+  readonly form_slug: string;
+  readonly species_slug: string;
   readonly display_name: string | null;
   readonly national_dex: number | null;
   readonly type1_name: string | null;
   readonly type2_name: string | null;
   readonly nickname: string | null;
   readonly level: number;
+  readonly xp: string;
   readonly current_hp: number;
+  readonly nature_display_name: string | null;
+  readonly ability_display_name: string | null;
   readonly gender: string | null;
   readonly shiny: boolean;
   readonly placement_kind: "TEAM" | "BOX";
@@ -28,7 +34,14 @@ interface OwnedPokemonRow {
   readonly slot_no: number;
   readonly base_hp: number | null;
   readonly iv_hp: number | null;
+  readonly iv_attack: number | null;
+  readonly iv_defense: number | null;
+  readonly iv_sp_attack: number | null;
+  readonly iv_sp_defense: number | null;
+  readonly iv_speed: number | null;
   readonly ev_hp: number | null;
+  readonly iv_enabled: boolean;
+  readonly ev_enabled: boolean;
 }
 
 interface MoveRow {
@@ -51,12 +64,11 @@ function pokemonId(value: string): PokemonInstanceId {
 }
 
 function maxHp(row: OwnedPokemonRow): number | null {
-  if (row.base_hp === null || row.iv_hp === null) return null;
-  const ev = row.ev_hp ?? 0;
+  if (row.base_hp === null) return null;
+  const iv = row.iv_enabled ? (row.iv_hp ?? 0) : 0;
+  const ev = row.ev_enabled ? (row.ev_hp ?? 0) : 0;
   return (
-    Math.floor(((2 * row.base_hp + row.iv_hp + Math.floor(ev / 4)) * row.level) / 100) +
-    row.level +
-    10
+    Math.floor(((2 * row.base_hp + iv + Math.floor(ev / 4)) * row.level) / 100) + row.level + 10
   );
 }
 
@@ -88,13 +100,18 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
       `SELECT
          instance.id::text AS pokemon_instance_id,
          instance.form_id::text AS form_id,
+         form_identity.slug AS form_slug,
+         species.slug AS species_slug,
          form_revision.display_name,
          species.national_dex,
          type1_revision.display_name AS type1_name,
          type2_revision.display_name AS type2_name,
          instance.nickname,
          instance.level,
+         instance.xp::text AS xp,
          instance.current_hp,
+         nature_revision.display_name AS nature_display_name,
+         ability_revision.display_name AS ability_display_name,
          instance.gender,
          instance.shiny,
          roster.placement_kind,
@@ -102,8 +119,19 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          roster.slot_no,
          form_revision.base_hp,
          training.iv_hp,
-         training.ev_hp
+         training.iv_attack,
+         training.iv_defense,
+         training.iv_sp_attack,
+         training.iv_sp_defense,
+         training.iv_speed,
+         training.ev_hp,
+         COALESCE((ruleset.config->'battle'->>'ivEnabled')::boolean, TRUE) AS iv_enabled,
+         COALESCE((ruleset.config->'battle'->>'evEnabled')::boolean, FALSE) AS ev_enabled
        FROM pokemon_instances instance
+       JOIN content_releases release
+         ON release.id = $2
+       JOIN rulesets ruleset
+         ON ruleset.id = release.default_ruleset_id
        JOIN pokemon_roster_slots roster
          ON roster.pokemon_instance_id = instance.id
         AND roster.player_id = instance.owner_player_id
@@ -123,6 +151,14 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
         AND type2_revision.active = TRUE
        LEFT JOIN pokemon_training_values training
          ON training.pokemon_instance_id = instance.id
+       LEFT JOIN nature_revisions nature_revision
+         ON nature_revision.content_release_id = $2
+        AND nature_revision.nature_id = training.nature_id
+        AND nature_revision.active = TRUE
+       LEFT JOIN ability_revisions ability_revision
+         ON ability_revision.content_release_id = $2
+        AND ability_revision.ability_id = instance.ability_id
+        AND ability_revision.active = TRUE
        WHERE instance.owner_player_id = $1
          AND instance.status = 'ACTIVE'
        ORDER BY CASE roster.placement_kind WHEN 'TEAM' THEN 0 ELSE 1 END,
@@ -198,6 +234,8 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
     return pokemon.rows.map((row) => ({
       pokemonInstanceId: pokemonId(row.pokemon_instance_id),
       formId: row.form_id,
+      formSlug: row.form_slug,
+      speciesSlug: row.species_slug,
       displayName: row.display_name,
       nationalDex: row.national_dex,
       typeNames:
@@ -208,8 +246,20 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
             : [row.type1_name, row.type2_name],
       nickname: row.nickname,
       level: row.level,
+      xp: row.xp,
+      xpToNextLevel: pokemonXpRequiredForNextLevel(row.level),
       currentHp: row.current_hp,
       maxHp: maxHp(row),
+      natureDisplayName: row.nature_display_name,
+      abilityDisplayName: row.ability_display_name,
+      ivs: {
+        hp: row.iv_hp,
+        attack: row.iv_attack,
+        defense: row.iv_defense,
+        spAttack: row.iv_sp_attack,
+        spDefense: row.iv_sp_defense,
+        speed: row.iv_speed,
+      },
       gender: row.gender,
       shiny: row.shiny,
       placementKind: row.placement_kind,
@@ -231,10 +281,16 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
       display_name: string;
       seen_count: string;
       caught_count: string;
+      shiny_seen_count: string;
+      shiny_caught_count: string;
       first_seen_at: Date | null;
       last_seen_at: Date | null;
       first_caught_at: Date | null;
       last_caught_at: Date | null;
+      first_shiny_seen_at: Date | null;
+      last_shiny_seen_at: Date | null;
+      first_shiny_caught_at: Date | null;
+      last_shiny_caught_at: Date | null;
     }>(
       `SELECT
          dex.species_id::text,
@@ -243,10 +299,16 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
          revision.display_name,
          dex.seen_count::text,
          dex.caught_count::text,
+         dex.shiny_seen_count::text,
+         dex.shiny_caught_count::text,
          dex.first_seen_at,
          dex.last_seen_at,
          dex.first_caught_at,
-         dex.last_caught_at
+         dex.last_caught_at,
+         dex.first_shiny_seen_at,
+         dex.last_shiny_seen_at,
+         dex.first_shiny_caught_at,
+         dex.last_shiny_caught_at
        FROM player_pokedex_species dex
        JOIN pokemon_species identity ON identity.id = dex.species_id
        JOIN pokemon_species_revisions revision
@@ -266,10 +328,16 @@ export class PostgresPlayerPortalReadRepository implements PlayerPortalReadRepos
       displayName: row.display_name,
       seenCount: row.seen_count,
       caughtCount: row.caught_count,
+      shinySeenCount: row.shiny_seen_count,
+      shinyCaughtCount: row.shiny_caught_count,
       firstSeenAt: row.first_seen_at?.toISOString() ?? null,
       lastSeenAt: row.last_seen_at?.toISOString() ?? null,
       firstCaughtAt: row.first_caught_at?.toISOString() ?? null,
       lastCaughtAt: row.last_caught_at?.toISOString() ?? null,
+      firstShinySeenAt: row.first_shiny_seen_at?.toISOString() ?? null,
+      lastShinySeenAt: row.last_shiny_seen_at?.toISOString() ?? null,
+      firstShinyCaughtAt: row.first_shiny_caught_at?.toISOString() ?? null,
+      lastShinyCaughtAt: row.last_shiny_caught_at?.toISOString() ?? null,
     }));
   }
 

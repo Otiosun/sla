@@ -119,7 +119,7 @@ describe.sequential("PostgresReceptionPresenceRepository", () => {
     expect((await messages()).rows).toHaveLength(3);
   });
 
-  it("atomically claims the first welcome exactly once for one group/player presence generation", async () => {
+  it("does not infer a join from missing presence and claims an explicit welcome exactly once", async () => {
     const groupId = randomUUID();
     const rawPlayerId = randomUUID();
     const playerId = parsePlayerId(rawPlayerId);
@@ -133,7 +133,7 @@ describe.sequential("PostgresReceptionPresenceRepository", () => {
     );
 
     const repository = new PostgresReceptionPresenceRepository(pool);
-    expect(await repository.needsFirstWelcome({ groupId, playerId: playerId.value })).toBe(true);
+    expect(await repository.needsFirstWelcome({ groupId, playerId: playerId.value })).toBe(false);
 
     const attempts = await Promise.all(
       Array.from({ length: 12 }, () =>

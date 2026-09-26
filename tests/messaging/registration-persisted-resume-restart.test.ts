@@ -158,7 +158,7 @@ describe("persisted Registration resume and restart flow", () => {
       state: "GUIDED_FIELD",
       currentField: "age",
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("📝 2/7 — Idade");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
   });
 
   it("requires a second explicit choice before destructive restart", async () => {
@@ -170,7 +170,7 @@ describe("persisted Registration resume and restart flow", () => {
     expect(state.resets).toHaveLength(0);
     expect(state.checkpoints[0]).toMatchObject({ state: "RESTART_CONFIRM" });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "⚠️ Recomeçar apaga o rascunho atual.",
+      "Isso apaga o rascunho atual.",
     );
   });
 
@@ -183,7 +183,7 @@ describe("persisted Registration resume and restart flow", () => {
     expect(state.resets).toHaveLength(0);
     expect(state.getDraft()).toBeDefined();
     expect(state.checkpoints[0]).toMatchObject({ state: "RESUME_MENU" });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("ficha em andamento");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢");
   });
 
   it("clears only mutable progress after confirmed restart and opens a fresh mode prompt", async () => {
@@ -200,8 +200,6 @@ describe("persisted Registration resume and restart flow", () => {
       expectedDraftRevision: null,
     });
     expect(state.getConversation()?.state).toBe("MODE_SELECT");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "Escolha como prefere preencher",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗗𝗘 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥");
   });
 });

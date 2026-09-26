@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     const router = new MessageRouter([{ command: "credit", handler: creditHandler }]);
     const service = new MessagingService(messagingRepository, router, 30_000);
 
-    const firstMessage = message({ id: "msg-1", text: "$credit" });
+    const firstMessage = message({ id: "msg-1", text: "/credit" });
     const first = await service.receive(firstMessage);
     if (!first.ok || first.value.status !== "PROCESSED") {
       throw new Error(`Initial message did not process: ${JSON.stringify(first)}`);
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     if (!duplicate.ok || duplicate.value.status !== "REPLAYED") {
       throw new Error(`Duplicate message did not replay: ${JSON.stringify(duplicate)}`);
     }
-    const drift = await service.receive({ ...firstMessage, text: "$credit changed" });
+    const drift = await service.receive({ ...firstMessage, text: "/credit changed" });
     if (drift.ok || drift.error.code !== "FINGERPRINT_MISMATCH") {
       throw new Error(`Message-id semantic drift was not rejected: ${JSON.stringify(drift)}`);
     }
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
       );
     }
 
-    const crashMessage = message({ id: "msg-crash", text: "$credit" });
+    const crashMessage = message({ id: "msg-crash", text: "/credit" });
     const crashed = await service.receive(crashMessage);
     if (crashed.ok || crashed.error.code !== "ACTION_INVALID") {
       throw new Error(
@@ -137,7 +137,7 @@ async function main(): Promise<void> {
       throw new Error(`Owner-commit restart did not converge: ${JSON.stringify(recovered)}`);
     }
 
-    const staleMessage = message({ id: "msg-stale", text: "$credit" });
+    const staleMessage = message({ id: "msg-stale", text: "/credit" });
     const abandoned = await messagingRepository.claimIncoming(staleMessage, 30_000);
     if (!abandoned.ok || abandoned.value.status !== "CLAIMED") {
       throw new Error(`Could not create abandoned Inbox claim: ${JSON.stringify(abandoned)}`);
@@ -153,12 +153,12 @@ async function main(): Promise<void> {
 
     const later = message({
       id: "msg-later",
-      text: "$credit",
+      text: "/credit",
       occurredAt: "2026-08-27T22:02:00-03:00",
     });
     const earlier = message({
       id: "msg-earlier",
-      text: "$credit",
+      text: "/credit",
       occurredAt: "2026-08-27T22:01:00-03:00",
     });
     const deliveredOutOfOrder = [

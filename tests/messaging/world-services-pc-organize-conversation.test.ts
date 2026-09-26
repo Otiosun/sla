@@ -195,7 +195,7 @@ describe("Pokemon PC organize conversation", () => {
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗡𝗢𝗩𝗢 𝗗𝗘𝗦𝗧𝗜𝗡𝗢");
     expect(result.value.outgoing[0]?.payload.text).toContain("Pidgey");
-    expect(result.value.outgoing[0]?.payload.text).toContain("2 / 5");
+    expect(result.value.outgoing[0]?.payload.text).toContain("`2/5`");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(
       `:center:pc:organize:destination:${STORED_POKEMON_ID}`,
     );
@@ -244,5 +244,39 @@ describe("Pokemon PC organize conversation", () => {
     expect(result.ok).toBe(true);
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔ÇÃ𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗔");
+  });
+
+  it("accepts a loose human box destination without requiring WhatsApp reply", async () => {
+    const current = resolverFixture(DESTINATION_PROMPT_KEY, DESTINATION_PROMPT_ID);
+
+    const result = await current.resolver.resolve(context("caixa 2 slot 5", null, "06"));
+
+    expect(current.organize).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔ÇÃ𝗢");
+    expect(result.value.outgoing[0]?.payload.text).toContain("Caixa 02 · Vaga 05");
+  });
+
+  it("accepts loose sim confirmation and keeps invalid destination input on the same step", async () => {
+    const confirmation = resolverFixture(CONFIRM_PROMPT_KEY, CONFIRM_PROMPT_ID);
+    const confirmed = await confirmation.resolver.resolve(context("sim", null, "07"));
+
+    expect(confirmation.organize).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: STORED_POKEMON_ID,
+      boxNo: 2,
+      slotNo: 5,
+    });
+    expect(confirmed.ok).toBe(true);
+
+    const destination = resolverFixture(DESTINATION_PROMPT_KEY, DESTINATION_PROMPT_ID);
+    const invalid = await destination.resolver.resolve(context("banana", null, "08"));
+
+    expect(destination.organize).not.toHaveBeenCalled();
+    expect(invalid.ok).toBe(true);
+    if (!invalid.ok || invalid.value === null) return;
+    expect(invalid.value.outgoing[0]?.payload.text).toContain("caixa 1 slot 3");
+    expect(invalid.value.outgoing[0]?.payload.worldServicePrompt).toBeUndefined();
   });
 });

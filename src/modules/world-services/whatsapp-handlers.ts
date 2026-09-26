@@ -33,6 +33,7 @@ import {
   renderWorldServiceEntry,
   renderWorldServiceExit,
 } from "./renderer.js";
+import { qualifiesAsSceneProof } from "./scene-proof.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 const WORLD_SERVICE_POLICY = {
@@ -63,7 +64,8 @@ export interface WorldServiceWhatsAppDependencies {
   readonly sessions: Pick<
     WorldServiceSessionService,
     "openVisit" | "loadActiveSession" | "closeVisit"
-  >;
+  > &
+    Partial<Pick<WorldServiceSessionService, "recordSceneProof">>;
   readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
   readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
@@ -260,11 +262,27 @@ function openHandler(
     if (!location.ok) return location;
     if (!location.value.facilities?.includes(serviceKind)) {
       return err(
-        appError("ACTION_INVALID", "World service is not available in the current area", {
+        appError("FLOW_BLOCKED", "World service is not available in the current area", {
           serviceKind,
           areaId: location.value.areaId,
+          userMessage: "Esse serviço não está disponível na área em que você está agora.",
         }),
       );
+    }
+
+    const fullInboundText = context.originalMessageText ?? context.message.text;
+    if (
+      dependencies.sessions.recordSceneProof !== undefined &&
+      fullInboundText !== null &&
+      qualifiesAsSceneProof(fullInboundText)
+    ) {
+      const recorded = await dependencies.sessions.recordSceneProof({
+        playerId: player.value,
+        areaId: location.value.areaId,
+        sourceInboxMessageId: context.inboxMessageId,
+        text: fullInboundText,
+      });
+      if (!recorded.ok) return recorded;
     }
 
     const opened = await dependencies.sessions.openVisit({
@@ -302,6 +320,7 @@ export function createWorldServiceWhatsAppRoutes(
   const organizeRoute = createPokemonPcOrganizeRoute(dependencies);
   const guardedOrganizeRoute: CommandRouteDefinition = {
     ...organizeRoute,
+    allowEmbedded: true,
     handler: guardWorldServiceHandler(dependencies, organizeRoute.handler),
   };
 
@@ -351,7 +370,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMART") {
-      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Poké Mart visit is not active", {
+          userMessage: "Entre no Poké Mart com `/pokemart` antes de usar esse comando.",
+        }),
+      );
     }
 
     return textResult(
@@ -373,7 +396,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMART") {
-      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Poké Mart visit is not active", {
+          userMessage: "Entre no Poké Mart com `/pokemart` antes de usar esse comando.",
+        }),
+      );
     }
 
     return textResult(context, renderMartCatalog(), active.value.sessionId, null, ":mart:items");
@@ -386,7 +413,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMART") {
-      return err(appError("ACTION_INVALID", "Poké Mart visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Poké Mart visit is not active", {
+          userMessage: "Entre no Poké Mart com `/pokemart` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.economy === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Poké Mart sale service is unavailable"));
@@ -418,7 +449,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.healing === undefined) {
       return err(
@@ -450,7 +485,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
 
     let rendered = renderWorldServiceEntry("PC");
@@ -479,7 +518,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
@@ -504,7 +547,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
@@ -532,7 +579,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
     if (dependencies.pcStorage === undefined) {
       return err(appError("INVALID_STATE_TRANSITION", "Pokémon PC storage service is unavailable"));
@@ -563,7 +614,11 @@ export function createWorldServiceWhatsAppRoutes(
     const active = await dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     if (active.value === null || active.value.serviceKind !== "POKEMON_CENTER") {
-      return err(appError("ACTION_INVALID", "Pokémon Center visit is not active"));
+      return err(
+        appError("FLOW_BLOCKED", "Pokémon Center visit is not active", {
+          userMessage: "Entre no Centro Pokémon com `/centropokemon` antes de usar esse comando.",
+        }),
+      );
     }
 
     return textResult(
@@ -657,67 +712,80 @@ export function createWorldServiceWhatsAppRoutes(
   return [
     {
       command: "pokemart",
+      allowEmbedded: true,
       handler: guarded(openHandler(dependencies, "POKEMART")),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "comprar",
+      allowEmbedded: true,
       handler: guarded(buy),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "itens",
+      allowEmbedded: true,
       handler: guarded(items),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "vender",
+      allowEmbedded: true,
       handler: guarded(sell),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "centropokemon",
+      allowEmbedded: true,
       handler: guarded(openHandler(dependencies, "POKEMON_CENTER")),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "curar",
+      allowEmbedded: true,
       handler: guarded(heal),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "pc",
+      allowEmbedded: true,
       handler: guarded(pc),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "caixas",
+      allowEmbedded: true,
       handler: guarded(boxes),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "depositar",
+      allowEmbedded: true,
       handler: guarded(deposit),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "retirar",
+      allowEmbedded: true,
       handler: guarded(withdraw),
       policy: WORLD_SERVICE_POLICY,
     },
     guardedOrganizeRoute,
     {
       command: "conversar",
+      allowEmbedded: true,
       handler: guarded(converse),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "pescar",
+      allowEmbedded: true,
       handler: guarded(fish, { requiresFreeWorld: true }),
       policy: WORLD_SERVICE_POLICY,
     },
     {
       command: "sair",
+      allowEmbedded: true,
       handler: new FunctionalHandler(close),
       policy: WORLD_SERVICE_POLICY,
     },

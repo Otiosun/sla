@@ -1,5 +1,6 @@
 import { ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import { parseBinaryConfirmation } from "../messaging/human-input.js";
 import type { WorldServiceSessionRecord } from "./contracts.js";
 import {
   isPcOrganizeListPromptKey,
@@ -50,12 +51,35 @@ function replyResult(
   });
 }
 
-function emptyReply(session: WorldServiceSessionRecord): Result<MessageHandlerResult> {
+function feedbackReply(
+  context: MessageHandlerContext,
+  session: WorldServiceSessionRecord,
+  text: string,
+): Result<MessageHandlerResult> {
   return ok({
     resultRefType: "WORLD_SERVICE_REPLY",
     resultRefId: session.sessionId,
-    outgoing: [],
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text },
+        idempotencyKey: `${context.idempotencyKey}:world-service:pc-organize-feedback`,
+      },
+    ],
   });
+}
+
+function emptyReply(
+  context: MessageHandlerContext,
+  session: WorldServiceSessionRecord,
+): Result<MessageHandlerResult> {
+  return feedbackReply(
+    context,
+    session,
+    "Não entendi essa resposta do PC. Confira a etapa anterior e tente novamente.",
+  );
 }
 
 export async function resolvePokemonPcOrganizeReply(input: {
@@ -67,8 +91,8 @@ export async function resolvePokemonPcOrganizeReply(input: {
 }): Promise<Result<MessageHandlerResult> | null> {
   const confirmation = pcOrganizeConfirmationFromPromptKey(input.promptKey);
   if (confirmation !== null) {
-    const choice = input.text.trim();
-    if (choice === "2" || choice === "02") {
+    const choice = parseBinaryConfirmation(input.text);
+    if (choice === false) {
       return replyResult(
         input.context,
         input.session,
@@ -76,9 +100,15 @@ export async function resolvePokemonPcOrganizeReply(input: {
         ":center:pc:organize:cancelled",
       );
     }
-    if (choice !== "1" && choice !== "01") return emptyReply(input.session);
+    if (choice !== true) {
+      return feedbackReply(
+        input.context,
+        input.session,
+        "Confirme com `1`/sim ou cancele com `2`/não.",
+      );
+    }
     const organize = input.pcStorage?.organize;
-    if (organize === undefined) return emptyReply(input.session);
+    if (organize === undefined) return emptyReply(input.context, input.session);
     const organized = await organize.call(input.pcStorage, {
       playerId: input.session.playerId,
       pokemonInstanceId: confirmation.pokemonInstanceId,
@@ -97,13 +127,19 @@ export async function resolvePokemonPcOrganizeReply(input: {
   const destinationPokemonId = pcOrganizePokemonFromDestinationPromptKey(input.promptKey);
   if (destinationPokemonId !== null) {
     const destination = parsePcOrganizeDestinationReply(input.text);
-    if (destination === null) return emptyReply(input.session);
+    if (destination === null) {
+      return feedbackReply(
+        input.context,
+        input.session,
+        "Informe o destino como `caixa 1 slot 3`, `1 3` ou `1/3`.",
+      );
+    }
     const getStorage = input.pcStorage?.getStorage;
-    if (getStorage === undefined) return emptyReply(input.session);
+    if (getStorage === undefined) return emptyReply(input.context, input.session);
     const storage = await getStorage.call(input.pcStorage, input.session.playerId);
     if (!storage.ok) return storage;
     const pokemon = pcOrganizeStoredPokemonById(storage.value, destinationPokemonId);
-    if (pokemon === null) return emptyReply(input.session);
+    if (pokemon === null) return emptyReply(input.context, input.session);
     return replyResult(
       input.context,
       input.session,
@@ -114,11 +150,11 @@ export async function resolvePokemonPcOrganizeReply(input: {
 
   if (!isPcOrganizeListPromptKey(input.promptKey)) return null;
   const getStorage = input.pcStorage?.getStorage;
-  if (getStorage === undefined) return emptyReply(input.session);
+  if (getStorage === undefined) return emptyReply(input.context, input.session);
   const storage = await getStorage.call(input.pcStorage, input.session.playerId);
   if (!storage.ok) return storage;
   const pokemon = pcOrganizeStoredPokemonByCode(storage.value, input.text);
-  if (pokemon === null) return emptyReply(input.session);
+  if (pokemon === null) return emptyReply(input.context, input.session);
   return replyResult(
     input.context,
     input.session,

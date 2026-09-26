@@ -388,6 +388,215 @@ function category(damageClassId: number): "STATUS" | "PHYSICAL" | "SPECIAL" {
   return "SPECIAL";
 }
 
+function battleStat(
+  statId: number,
+): "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | "ACCURACY" | "EVASION" {
+  const value = new Map<
+    number,
+    "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | "ACCURACY" | "EVASION"
+  >([
+    [2, "ATTACK"],
+    [3, "DEFENSE"],
+    [4, "SP_ATTACK"],
+    [5, "SP_DEFENSE"],
+    [6, "SPEED"],
+    [7, "ACCURACY"],
+    [8, "EVASION"],
+  ]).get(statId);
+  if (value === undefined) throw new Error(`Unsupported battle stat id ${statId}`);
+  return value;
+}
+
+function moveAilment(
+  ailmentId: number,
+): "PARALYSIS" | "SLEEP" | "FREEZE" | "BURN" | "POISON" | "CONFUSION" | null {
+  return (
+    new Map<number, "PARALYSIS" | "SLEEP" | "FREEZE" | "BURN" | "POISON" | "CONFUSION">([
+      [1, "PARALYSIS"],
+      [2, "SLEEP"],
+      [3, "FREEZE"],
+      [4, "BURN"],
+      [5, "POISON"],
+      [6, "CONFUSION"],
+    ]).get(ailmentId) ?? null
+  );
+}
+
+function moveEngineEffect(move: Gen123Model["moves"][number]): {
+  readonly effectKey: string | null;
+  readonly effectConfig: Readonly<Record<string, unknown>>;
+} {
+  const badlyPoisons = move.effectId === 34 || move.effectId === 203;
+  const ailmentKind = [1, 4, 5].includes(move.metaCategoryId)
+    ? badlyPoisons
+      ? "BAD_POISON"
+      : moveAilment(move.metaAilmentId)
+    : null;
+  const ailment =
+    ailmentKind === null
+      ? null
+      : {
+          kind: ailmentKind,
+          chanceBasisPoints: (move.ailmentChance > 0 ? move.ailmentChance : 100) * 100,
+          minTurns: ailmentKind === "CONFUSION" ? move.minTurns : null,
+          maxTurns: ailmentKind === "CONFUSION" ? move.maxTurns : null,
+        };
+  const supportsStats = [2, 5, 6, 7].includes(move.metaCategoryId);
+  const statTarget =
+    move.metaCategoryId === 7
+      ? "SELF"
+      : move.metaCategoryId === 5 || move.metaCategoryId === 6
+        ? "TARGET"
+        : move.targetId === 7
+          ? "SELF"
+          : "TARGET";
+  const statChanges = supportsStats
+    ? move.statChanges.map((change) => ({
+        stat: battleStat(change.statId),
+        stages: change.change,
+        target: statTarget,
+      }))
+    : [];
+  const statChanceBasisPoints =
+    statChanges.length === 0 ? 0 : (move.statChance > 0 ? move.statChance : 100) * 100;
+  const supported =
+    ailment !== null ||
+    statChanges.length > 0 ||
+    move.flinchChance > 0 ||
+    move.drainPercent !== 0 ||
+    (move.metaCategoryId === 3 && move.healingPercent > 0);
+  if (!supported) return { effectKey: null, effectConfig: {} };
+  return {
+    effectKey: "move-meta-v1",
+    effectConfig: {
+      sourceEffectId: move.effectId,
+      sourceMetaCategoryId: move.metaCategoryId,
+      ailment,
+      statChanges,
+      statChanceBasisPoints,
+      flinchChanceBasisPoints: move.flinchChance * 100,
+      drainPercent: move.drainPercent,
+      healingPercent: move.metaCategoryId === 3 ? move.healingPercent : 0,
+    },
+  };
+}
+
+function abilityEngineEffect(row: CsvRow): {
+  readonly effectKey: string | null;
+  readonly effectConfig: Readonly<Record<string, unknown>>;
+} {
+  const slug = requiredText(row, "identifier");
+  const lowHpType = new Map<string, string>([
+    ["overgrow", "grass"],
+    ["blaze", "fire"],
+    ["torrent", "water"],
+    ["swarm", "bug"],
+  ]).get(slug);
+  if (lowHpType !== undefined) {
+    return {
+      effectKey: "low-hp-type-boost",
+      effectConfig: { typeSlug: lowHpType, multiplierBasisPoints: 15_000 },
+    };
+  }
+
+  const contactStatus = new Map<string, "PARALYSIS" | "POISON" | "BURN">([
+    ["static", "PARALYSIS"],
+    ["poison-point", "POISON"],
+    ["flame-body", "BURN"],
+  ]).get(slug);
+  if (contactStatus !== undefined) {
+    return {
+      effectKey: "apply-status-on-contact-received",
+      effectConfig: { status: contactStatus, chanceBasisPoints: 3_000 },
+    };
+  }
+
+  const preventedStatus = new Map<
+    string,
+    "BURN" | "POISON" | "PARALYSIS" | "SLEEP" | "FREEZE" | "CONFUSION"
+  >([
+    ["limber", "PARALYSIS"],
+    ["insomnia", "SLEEP"],
+    ["own-tempo", "CONFUSION"],
+    ["magma-armor", "FREEZE"],
+    ["water-veil", "BURN"],
+    ["vital-spirit", "SLEEP"],
+  ]).get(slug);
+  if (preventedStatus !== undefined) {
+    return { effectKey: "prevent-status", effectConfig: { statuses: [preventedStatus] } };
+  }
+  if (slug === "immunity") {
+    return {
+      effectKey: "prevent-status",
+      effectConfig: { statuses: ["POISON", "BAD_POISON"] },
+    };
+  }
+
+  if (slug === "clear-body" || slug === "white-smoke") {
+    return {
+      effectKey: "prevent-stat-drop",
+      effectConfig: {
+        stats: ["ATTACK", "DEFENSE", "SP_ATTACK", "SP_DEFENSE", "SPEED", "ACCURACY", "EVASION"],
+      },
+    };
+  }
+  if (slug === "hyper-cutter") {
+    return { effectKey: "prevent-stat-drop", effectConfig: { stats: ["ATTACK"] } };
+  }
+  if (slug === "inner-focus") return { effectKey: "prevent-flinch", effectConfig: {} };
+  if (slug === "battle-armor" || slug === "shell-armor") {
+    return { effectKey: "prevent-critical", effectConfig: {} };
+  }
+  if (slug === "keen-eye") return { effectKey: "prevent-accuracy-drop", effectConfig: {} };
+  if (slug === "run-away") return { effectKey: "run-away", effectConfig: {} };
+  if (slug === "levitate") {
+    return { effectKey: "type-immunity", effectConfig: { typeSlug: "ground" } };
+  }
+  if (slug === "thick-fat") {
+    return {
+      effectKey: "incoming-type-damage-multiplier",
+      effectConfig: { typeSlugs: ["fire", "ice"], multiplierBasisPoints: 5_000 },
+    };
+  }
+  if (slug === "huge-power" || slug === "pure-power") {
+    return {
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 20_000,
+        condition: "ALWAYS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+  }
+  if (slug === "guts") {
+    return {
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "ATTACK",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: true,
+      },
+    };
+  }
+  if (slug === "marvel-scale") {
+    return {
+      effectKey: "battle-stat-multiplier",
+      effectConfig: {
+        stat: "DEFENSE",
+        multiplierBasisPoints: 15_000,
+        condition: "MAJOR_STATUS",
+        ignoreBurnAttackPenalty: false,
+      },
+    };
+  }
+  return {
+    effectKey: null,
+    effectConfig: sourceMetadata({ mechanicsSupport: "UNSUPPORTED_IN_V1" }),
+  };
+}
+
 function natureStat(id: number): "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" {
   const map = new Map<number, "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED">([
     [2, "ATTACK"],
@@ -543,30 +752,29 @@ async function importReleaseChildren(
       "max_pp",
       "effect_key",
       "effect_config",
+      "flags",
       "active",
     ],
-    model.moves.map((move) => [
-      gen123Id(`rev:${releaseId}:move:${move.sourceId}`),
-      releaseId,
-      ids.move.get(move.sourceId),
-      titleize(move.slug),
-      ids.type.get(move.typeId),
-      category(move.damageClassId),
-      move.power,
-      move.accuracy,
-      move.priority,
-      move.pp,
-      null,
-      JSON.stringify(
-        sourceMetadata({
-          sourceEffectId: move.effectId,
-          effectChance: move.effectChance,
-          mechanicsSupport: "DATA_IMPORTED_EFFECT_UNIMPLEMENTED_UNLESS_ENGINE_KEYED",
-        }),
-      ),
-      true,
-    ]),
-    "ON CONFLICT (content_release_id, move_id) DO UPDATE SET display_name=EXCLUDED.display_name,type_id=EXCLUDED.type_id,category=EXCLUDED.category,power=EXCLUDED.power,accuracy=EXCLUDED.accuracy,priority=EXCLUDED.priority,max_pp=EXCLUDED.max_pp,effect_key=EXCLUDED.effect_key,effect_config=EXCLUDED.effect_config,active=EXCLUDED.active",
+    model.moves.map((move) => {
+      const effect = moveEngineEffect(move);
+      return [
+        gen123Id(`rev:${releaseId}:move:${move.sourceId}`),
+        releaseId,
+        ids.move.get(move.sourceId),
+        titleize(move.slug),
+        ids.type.get(move.typeId),
+        category(move.damageClassId),
+        move.power,
+        move.accuracy,
+        move.priority,
+        move.pp,
+        effect.effectKey,
+        JSON.stringify(effect.effectConfig),
+        JSON.stringify({ schemaVersion: 1, makesContact: move.makesContact }),
+        true,
+      ];
+    }),
+    "ON CONFLICT (content_release_id, move_id) DO UPDATE SET display_name=EXCLUDED.display_name,type_id=EXCLUDED.type_id,category=EXCLUDED.category,power=EXCLUDED.power,accuracy=EXCLUDED.accuracy,priority=EXCLUDED.priority,max_pp=EXCLUDED.max_pp,effect_key=EXCLUDED.effect_key,effect_config=EXCLUDED.effect_config,flags=EXCLUDED.flags,active=EXCLUDED.active",
   );
 
   await insertRows(
@@ -581,15 +789,18 @@ async function importReleaseChildren(
       "effect_config",
       "active",
     ],
-    model.abilityRows.map((row) => [
-      gen123Id(`rev:${releaseId}:ability:${requiredInt(row, "id")}`),
-      releaseId,
-      ids.ability.get(requiredInt(row, "id")),
-      titleize(requiredText(row, "identifier")),
-      null,
-      JSON.stringify(sourceMetadata({ mechanicsSupport: "UNSUPPORTED_IN_V1" })),
-      true,
-    ]),
+    model.abilityRows.map((row) => {
+      const effect = abilityEngineEffect(row);
+      return [
+        gen123Id(`rev:${releaseId}:ability:${requiredInt(row, "id")}`),
+        releaseId,
+        ids.ability.get(requiredInt(row, "id")),
+        titleize(requiredText(row, "identifier")),
+        effect.effectKey,
+        JSON.stringify(effect.effectConfig),
+        true,
+      ];
+    }),
     "ON CONFLICT (content_release_id, ability_id) DO UPDATE SET display_name=EXCLUDED.display_name,effect_key=EXCLUDED.effect_key,effect_config=EXCLUDED.effect_config,active=EXCLUDED.active",
   );
 

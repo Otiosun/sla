@@ -20,7 +20,7 @@ function context(
       senderRef: input.senderRef ?? "5511999999999@s.whatsapp.net",
       chatRef: input.chatRef ?? "reception@g.us",
       occurredAt: "2026-09-02T04:30:00.000Z",
-      text: "$registrar",
+      text: "/registrar",
       mediaRefs: [],
       replyToExternalMessageId: null,
     },
@@ -117,7 +117,7 @@ describe("RuntimeCommandPolicyGate", () => {
         requiredGroupCapabilities: ["onboarding"],
         allowedPlayerAccess: ["PENDING"],
       }),
-    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
   it("allows world commands only for ACTIVE mechanically complete players in a world-capable group", async () => {
@@ -160,6 +160,17 @@ describe("RuntimeCommandPolicyGate", () => {
       await allowed.authorize(context(), {
         requiredGroupCapabilities: ["onboarding"],
         requiredAdminCapability: "player.registration.approve",
+      }),
+    ).toEqual(ok(undefined));
+  });
+  it("does not require a configured group for a policy with no group capability requirement", async () => {
+    const gate = new RuntimeCommandPolicyGate(
+      dependencies({ group: "UNKNOWN", adminCapabilities: ["UAT_BOOTSTRAP"] }),
+    );
+
+    expect(
+      await gate.authorize(context({ chatRef: "5511999999999@s.whatsapp.net" }), {
+        requiredAdminCapability: "UAT_BOOTSTRAP",
       }),
     ).toEqual(ok(undefined));
   });

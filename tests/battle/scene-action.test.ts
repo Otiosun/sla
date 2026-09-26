@@ -7,7 +7,6 @@ describe("scene action contract", () => {
     ["_Cena /movimento 2_", { type: "USE_MOVE", moveRef: "2" }],
     ["Cena /movimento Quick Attack", { type: "USE_MOVE", moveRef: "Quick Attack" }],
     ["/trocar 2", { type: "SWITCH", switchSlot: 2 }],
-    ["/item pocao", { type: "USE_ITEM", itemRef: "pocao" }],
     ["/capturar 1", { type: "CAPTURE", captureRef: "1" }],
     ["/capturar", { type: "CAPTURE", captureRef: "" }],
     ["Tento recuar. /fugir", { type: "FLEE" }],
@@ -15,6 +14,9 @@ describe("scene action contract", () => {
   ])("parses %s", (text, intent) =>
     expect(parseSceneAction(text)).toEqual({ kind: "ACTION", intent }),
   );
+
+  it("does not recognize the removed /item directive", () =>
+    expect(parseSceneAction("/item pocao")).toEqual({ kind: "NONE" }));
 
   it("does not infer a mechanical action from narrative", () =>
     expect(parseSceneAction("uso ember agora")).toEqual({ kind: "NONE" }));

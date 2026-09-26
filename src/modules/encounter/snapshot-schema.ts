@@ -47,8 +47,8 @@ export const WildPokemonSnapshotSchema = z
       .max(4),
     maxHp: positiveStat,
     currentHp: z.number().int().nonnegative(),
-    shiny: z.literal(false),
-    gender: z.null(),
+    shiny: z.boolean(),
+    gender: z.enum(["MALE", "FEMALE"]).nullable(),
   })
   .strict()
   .refine((value) => value.currentHp <= value.maxHp, {

@@ -112,7 +112,7 @@ describe("Reception UX polish", () => {
     expect(result.value.text).toMatch(/Eu sou Rotom!/);
     expect(result.value.text).toMatch(/jornada|treinador/i);
     expect(result.value.text).not.toBe(
-      "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `$registrar` para começar.",
+      "🎒 Bem-vindo à Recepção. Você ainda não possui ficha. Use `/registrar` para começar.",
     );
   });
 
@@ -139,9 +139,9 @@ describe("Reception UX polish", () => {
     const text = outgoingText(
       await resolver.resolve(context("Liora Vale", "bot-registration-prompt")),
     );
-    expect(text).toMatch(/Idade/i);
+    expect(text).toContain("𝗜𝗗𝗔𝗗𝗘");
     expect(text).not.toMatch(/Nada será salvo definitivamente/i);
-    expect(text.length).toBeLessThan(90);
+    expect(text.length).toBeLessThan(220);
   });
 
   it("shows the canonical starter choices when guided registration reaches Pokémon inicial", async () => {
@@ -174,10 +174,10 @@ describe("Reception UX polish", () => {
         context("Saiu de casa para pesquisar Pokémon raros.", "bot-registration-prompt"),
       ),
     );
-    expect(text).toMatch(/Pokémon inicial/i);
-    expect(text).toMatch(/1\. Bulbasaur/);
-    expect(text).toMatch(/2\. Charmander/);
-    expect(text).toMatch(/3\. Squirtle/);
+    expect(text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟");
+    expect(text).toContain("`01` Bulbasaur");
+    expect(text).toContain("`02` Charmander");
+    expect(text).toContain("`03` Squirtle");
     expect(text).toMatch(/número|nome/i);
   });
 
@@ -226,7 +226,7 @@ describe("Reception UX polish", () => {
     );
     if (route === undefined) throw new Error("Missing verficha route");
 
-    const result = await route.handler.handle(context("$verficha", "review-message"));
+    const result = await route.handler.handle(context("/verficha", "review-message"));
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error("Expected admin ficha");
     const text = result.value.outgoing[0]?.payload.text;

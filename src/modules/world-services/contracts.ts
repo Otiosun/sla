@@ -8,7 +8,7 @@ export interface SceneProofRecord {
   readonly playerId: PlayerId;
   readonly areaId: string;
   readonly sourceInboxMessageId: string;
-  readonly lineCount: number;
+  readonly wordCount: number;
   readonly createdAt: Date;
   readonly consumedAt: Date | null;
 }

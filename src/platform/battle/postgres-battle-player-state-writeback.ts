@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import type { BattleState } from "../../modules/battle/contracts.js";
 
-const MAJOR_STATUS_KEYS = ["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
+const MAJOR_STATUS_KEYS = ["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
 
 interface PersistedPlayerParticipantRow {
   readonly pokemon_instance_id: string;

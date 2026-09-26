@@ -80,6 +80,36 @@ function rateLimitRules(
   return rules;
 }
 
+function attachInboundReplyContext(
+  context: MessageHandlerContext,
+  result: MessageHandlerResult,
+): MessageHandlerResult {
+  const replyText = context.originalMessageText ?? context.message.text;
+  if (replyText === null || replyText.trim().length === 0) return result;
+
+  return {
+    ...result,
+    outgoing: result.outgoing.map((outgoing) => {
+      if (
+        outgoing.channel !== "whatsapp" ||
+        (outgoing.messageType !== "TEXT" && outgoing.messageType !== "IMAGE") ||
+        outgoing.payload.replyToExternalMessageId !== undefined
+      ) {
+        return outgoing;
+      }
+      return {
+        ...outgoing,
+        payload: {
+          ...outgoing.payload,
+          replyToExternalMessageId: context.message.externalMessageId,
+          replyToSenderRef: context.message.senderRef,
+          replyToText: replyText,
+        },
+      };
+    }),
+  };
+}
+
 function validateHandlerResult(
   context: MessageHandlerContext,
   result: MessageHandlerResult,
@@ -134,7 +164,7 @@ export class MessagingService {
     context: MessageHandlerContext,
     result: MessageHandlerResult,
   ): Promise<Result<ReceiveMessageResult>> {
-    const validated = validateHandlerResult(context, result);
+    const validated = validateHandlerResult(context, attachInboundReplyContext(context, result));
     if (!validated.ok) {
       await this.repository.failIncoming(context.inboxMessageId, "INVALID_HANDLER_RESULT");
       return validated;

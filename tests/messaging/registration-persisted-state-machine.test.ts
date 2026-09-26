@@ -174,11 +174,11 @@ function harness(input: {
 }
 
 describe("persisted Registration conversation state machine", () => {
-  it("admits only a reply to the exact persisted active prompt", async () => {
+  it("accepts an unquoted active answer but still rejects an explicitly stale quoted prompt", async () => {
     const playerId = createPlayerId();
     const { resolver } = harness({ initialConversation: conversation(playerId) });
 
-    await expect(resolver.admits(messageContext("1").message)).resolves.toBe(false);
+    await expect(resolver.admits(messageContext("1").message)).resolves.toBe(true);
     await expect(
       resolver.admits(messageContext("1", HUMAN_MESSAGE_ID, "02").message),
     ).resolves.toBe(false);
@@ -206,7 +206,7 @@ describe("persisted Registration conversation state machine", () => {
         outgoing: [
           {
             payload: {
-              text: expect.stringContaining("✅ Modo guiado escolhido."),
+              text: expect.stringContaining("✓ *Modo passo a passo escolhido.*"),
               replyTo: {
                 externalMessageId: context.message.externalMessageId,
                 senderRef: PLAYER_REF,
@@ -217,9 +217,7 @@ describe("persisted Registration conversation state machine", () => {
         ],
       },
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "📝 1/7 — Nome do treinador",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("01 / 07");
     expect(state.checkpoints).toHaveLength(1);
     expect(state.checkpoints[0]).toMatchObject({
       state: "GUIDED_FIELD",
@@ -232,6 +230,24 @@ describe("persisted Registration conversation state machine", () => {
     });
   });
 
+  it("accepts 02 and sends starter options separately before the full form", async () => {
+    const playerId = createPlayerId();
+    const state = harness({ initialConversation: conversation(playerId) });
+    const router = new MessageRouter([], undefined, state.resolver);
+    const context = messageContext("02", CURRENT_PROMPT_ID, "09");
+
+    const routed = await router.dispatch(context);
+
+    expect(routed.ok).toBe(true);
+    expect(routed.ok && routed.value?.outgoing).toHaveLength(2);
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗜𝗦");
+    expect(routed.ok && routed.value?.outgoing[1]?.payload.text).toContain("𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔");
+    expect(state.checkpoints[0]).toMatchObject({
+      state: "FULL_FORM",
+      editingMode: "FULL",
+      activePromptOutboxIdempotencyKey: `${context.idempotencyKey}:registration-conversation`,
+    });
+  });
   it("autosaves a guided answer and advances the persisted field before responding", async () => {
     const playerId = createPlayerId();
     const state = harness({
@@ -259,9 +275,39 @@ describe("persisted Registration conversation state machine", () => {
     });
     expect(state.getDraft()).toMatchObject({ trainerName: "Liora Vale" });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "✅ 1/7 — Nome: Liora Vale",
+      "✓ *Nome registrado:* Liora Vale",
     );
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("📝 2/7 — Idade");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
+  });
+
+  it("lets the guided flow skip flexible Appearance without blocking progression", async () => {
+    const playerId = createPlayerId();
+    const state = harness({
+      initialConversation: conversation(playerId, {
+        state: "GUIDED_FIELD",
+        editingMode: "GUIDED",
+        currentField: "appearance",
+        draftRevision: 2,
+      }),
+      initialDraft: {
+        trainerName: "Emi",
+        age: 17,
+        genderPronouns: "ela/dela",
+        regionId: ZHOULIA_ID,
+        schemaVersion: 1,
+      },
+    });
+    const router = new MessageRouter([], undefined, state.resolver);
+
+    const routed = await router.dispatch(messageContext("pular", null, "13"));
+
+    expect(routed.ok).toBe(true);
+    expect(state.getDraft()).toMatchObject({ appearance: "—" });
+    expect(state.getConversation()).toMatchObject({
+      state: "GUIDED_FIELD",
+      currentField: "personality",
+    });
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("05 / 07");
   });
 
   it("moves the final guided starter directly to REVIEW with the canonical starter", async () => {
@@ -289,11 +335,83 @@ describe("persisted Registration conversation state machine", () => {
       draft: { starterFormId: CHARMANDER_ID },
     });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "✅ 7/7 — Pokémon inicial: Charmander",
+      "✓ *Pokémon inicial registrado:* Charmander",
     );
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "📋 FICHA PRONTA PARA REVISÃO",
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
+  });
+
+  it("infers full mode when the player sends a filled form directly from MODE_SELECT", async () => {
+    const playerId = createPlayerId();
+    const state = harness({ initialConversation: conversation(playerId) });
+    const router = new MessageRouter([], undefined, state.resolver);
+    const context = messageContext(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+        "Pokémon inicial: 2",
+      ].join("\n"),
+      null,
+      "10",
     );
+
+    const routed = await router.dispatch(context);
+
+    expect(routed.ok).toBe(true);
+    expect(state.getConversation()).toMatchObject({
+      state: "REVIEW",
+      editingMode: "FULL",
+    });
+    expect(state.getDraft()).toMatchObject({
+      trainerName: "Emi",
+      age: 17,
+      genderPronouns: "ela/dela",
+      personality: "curiosa",
+      starterFormId: SQUIRTLE_ID,
+    });
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*Aparência:* —");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*História:* —");
+  });
+
+  it("merges a partial full form and accepts the starter as a later isolated reply", async () => {
+    const playerId = createPlayerId();
+    const state = harness({
+      initialConversation: conversation(playerId, {
+        state: "FULL_FORM",
+        editingMode: "FULL",
+      }),
+    });
+    const router = new MessageRouter([], undefined, state.resolver);
+
+    const partial = await router.dispatch(
+      messageContext(
+        ["Nome: Emi", "Idade: 17", "Gênero / pronomes: ela/dela", "Personalidade: curiosa"].join(
+          "\n",
+        ),
+        null,
+        "11",
+      ),
+    );
+
+    expect(partial.ok).toBe(true);
+    expect(state.getConversation()).toMatchObject({ state: "FULL_FORM", editingMode: "FULL" });
+    expect(state.getDraft()).toMatchObject({
+      trainerName: "Emi",
+      age: 17,
+      genderPronouns: "ela/dela",
+      personality: "curiosa",
+    });
+    expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("𝗙𝗔𝗟𝗧𝗔 𝗣𝗢𝗨𝗖𝗢");
+    expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("Pokémon inicial");
+
+    const starter = await router.dispatch(messageContext("2", null, "12"));
+
+    expect(starter.ok).toBe(true);
+    expect(state.getConversation()).toMatchObject({ state: "REVIEW", editingMode: "FULL" });
+    expect(state.getDraft()).toMatchObject({ starterFormId: SQUIRTLE_ID });
+    expect(starter.ok && starter.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
   });
 
   it("keeps an invalid full form in FULL_FORM and makes the retry the new active prompt", async () => {
@@ -317,8 +435,8 @@ describe("persisted Registration conversation state machine", () => {
       activePromptOutboxIdempotencyKey: `${context.idempotencyKey}:registration-conversation`,
     });
     expect(state.checkpoints[0]).not.toHaveProperty("draft");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("⚠️");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("📋 FICHA COMPLETA");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("△");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("▣ *𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔*");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).not.toContain("correlation");
   });
 });

@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     const messagingRepository = new PostgresMessagingRepository(pool);
     const service = new MessagingService(messagingRepository, canonicalRouter, 30_000);
 
-    const menu = message("ux-menu-new", "$menu");
+    const menu = message("ux-menu-new", "/menu");
     const menuResult = await service.receive(menu);
     if (
       !menuResult.ok ||
@@ -114,19 +114,19 @@ async function main(): Promise<void> {
       throw new Error(`NEW onboarding menu is not actionable: ${newMenuText}`);
     }
 
-    await receiveProcessed(service, message("ux-register", "$registrar Red"));
-    await receiveProcessed(service, message("ux-regions", "$regioes"));
+    await receiveProcessed(service, message("ux-register", "/registrar Red"));
+    await receiveProcessed(service, message("ux-regions", "/regioes"));
     const regionsText = await outgoingText(pool, "ux-regions");
     if (!regionsText.includes("REGIÕES") || !regionsText.includes("/regiao <número>")) {
       throw new Error(`Region menu is not actionable: ${regionsText}`);
     }
-    await receiveProcessed(service, message("ux-region", "$regiao 1"));
-    await receiveProcessed(service, message("ux-starters", "$starters"));
+    await receiveProcessed(service, message("ux-region", "/regiao 1"));
+    await receiveProcessed(service, message("ux-starters", "/starters"));
     const startersText = await outgoingText(pool, "ux-starters");
     if (!startersText.includes("POKÉMON INICIAIS") || !startersText.includes("/starter <número>")) {
       throw new Error(`Starter menu is not actionable: ${startersText}`);
     }
-    await receiveProcessed(service, message("ux-starter", "$starter 1"));
+    await receiveProcessed(service, message("ux-starter", "/starter 1"));
 
     const onboarding = await pool.query<{ state: string }>(
       "SELECT state FROM onboarding_states WHERE player_id = $1",
@@ -138,33 +138,34 @@ async function main(): Promise<void> {
       );
     }
 
-    await receiveProcessed(service, message("ux-menu-complete", "$menu"));
+    await receiveProcessed(service, message("ux-menu-complete", "/menu"));
     const completeMenuText = await outgoingText(pool, "ux-menu-complete");
     if (
       !completeMenuText.includes("ROTOM · MENU") ||
-      !completeMenuText.includes("/perfil") ||
       !completeMenuText.includes("/onde") ||
+      !completeMenuText.includes("/colecao") ||
+      !completeMenuText.includes("/pokemon <# ou nome>") ||
       completeMenuText.includes("/explorar") ||
-      completeMenuText.includes("/golpe")
+      completeMenuText.includes("`/golpe`")
     ) {
       throw new Error(`COMPLETE menu violates canonical UX: ${completeMenuText}`);
     }
 
     for (const [id, command, expected] of [
-      ["ux-profile", "$perfil", "PERFIL"],
-      ["ux-team", "$equipe", "EQUIPE"],
-      ["ux-inventory", "$inventario", "INVENTÁRIO"],
-      ["ux-pokedex", "$pokedex", "POKÉDEX"],
+      ["ux-profile", "/perfil", "PERFIL"],
+      ["ux-team", "/equipe", "EQUIPE"],
+      ["ux-inventory", "/inventario", "INVENTÁRIO"],
+      ["ux-pokedex", "/pokedex", "POKÉDEX"],
     ] as const) {
       await receiveProcessed(service, message(id, command));
       const text = await outgoingText(pool, id);
       if (!text.includes(expected)) throw new Error(`${command} is not mobile-readable: ${text}`);
     }
 
-    await receiveProcessed(service, message("ux-where", "$onde"));
+    await receiveProcessed(service, message("ux-where", "/onde"));
     const whereText = await outgoingText(pool, "ux-where");
     if (!whereText.includes("*Vila dos Arrozais*") || !whereText.includes("_Zhoulia_")) {
-      throw new Error(`$onde did not expose the canonical Zhoulia start: ${whereText}`);
+      throw new Error(`/onde did not expose the canonical Zhoulia start: ${whereText}`);
     }
     const travelMatch = whereText.match(/(\d+)\.\s+\*Campos de Yun\*[\s\S]*?`\/ir\s+(\d+)`/i);
     const listedRouteNumber = travelMatch?.[1];
@@ -175,7 +176,7 @@ async function main(): Promise<void> {
       listedRouteNumber !== routeNumber
     ) {
       throw new Error(
-        `$onde did not emit the canonical numbered Campos de Yun route: ${whereText}`,
+        `/onde did not emit the canonical numbered Campos de Yun route: ${whereText}`,
       );
     }
     const beforeTravel = await pool.query<{ revision: string }>(

@@ -16,14 +16,21 @@ import {
   renderGuidedAcknowledgement,
   renderGuidedField,
   renderModeSelect,
+  renderMissingFullFormFields,
   renderPause,
   renderRestartConfirm,
   renderResumeMenu,
   renderReview,
+  renderStarterOptions,
   renderValidationRetry,
 } from "./conversation-renderer.js";
 import {
+  looksLikeFullRegistrationTemplate,
+  looksLikeRegistrationTemplate,
+  normalizeRegistrationChoice,
   parseFullRegistrationTemplate,
+  parsePartialRegistrationTemplate,
+  parseRegistrationModeChoice,
   type RegistrationConversationField,
   type RegistrationConversationSession,
   type RegistrationConversationSessions,
@@ -125,6 +132,27 @@ function persistedTextResult(
   });
 }
 
+function persistedTextSequenceResult(
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+  texts: readonly string[],
+): Result<MessageHandlerResult> {
+  if (texts.length === 0) {
+    return err(appError("VALIDATION_FAILED", "Registration text sequence cannot be empty"));
+  }
+  const baseKey = conversationOutboxKey(context);
+  return ok({
+    resultRefType: "REGISTRATION_SESSION",
+    resultRefId: playerId,
+    outgoing: texts.map((text, index) => ({
+      channel: "whatsapp" as const,
+      destinationRef: context.message.chatRef,
+      messageType: "TEXT" as const,
+      payload: { text, replyTo: replyContext(context) },
+      idempotencyKey: index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
+    })),
+  });
+}
 function persistedSubmissionResult(
   context: MessageHandlerContext,
   playerId: PlayerId,
@@ -137,7 +165,18 @@ function persistedSubmissionResult(
   const playerReply = persistedTextResult(
     context,
     playerId,
-    "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+    [
+      "✦ *𝗙𝗜𝗖𝗛𝗔 𝗘𝗡𝗩𝗜𝗔𝗗𝗔*",
+      "　Recepção · Aguardando análise",
+      "",
+      "> _Seu registro foi entregue à equipe responsável._",
+      "",
+      "A versão enviada ficou preservada enquanto estiver em análise.",
+      "",
+      "◇ Estado · `EM ANÁLISE`",
+      "",
+      "_Você será avisado aqui quando houver uma resposta._",
+    ].join("\n"),
   );
   if (!playerReply.ok) return playerReply;
 
@@ -150,7 +189,14 @@ function persistedSubmissionResult(
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
         payload: {
-          text: `📋 Nova ficha de ${review.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+          text: [
+            "▣ *𝗡𝗢𝗩𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*",
+            "　Recepção · Revisão administrativa",
+            "",
+            `✦ *${review.snapshot.trainerName}* concluiu sua ficha.`,
+            "",
+            "› _Responda a esta mensagem com `/verficha` para abrir o registro._",
+          ].join("\n"),
           registrationReview: {
             reviewId: review.id,
             reviewRevision: review.revision,
@@ -207,7 +253,7 @@ function renderGuidedSessionPrompt(
   modeSelected = false,
 ): string {
   if (session.currentField === null) {
-    return "✅ Ficha preenchida. Use `$ficha` para revisar ou `$confirmar` para conferir o envio. Se quiser continuar depois, use `$salvar`.";
+    return "✅ Ficha preenchida. Use `/ficha` para revisar ou `/confirmar` para conferir o envio. Se quiser continuar depois, use `/salvar`.";
   }
 
   if (session.currentField === "starterFormId" && setup !== undefined) {
@@ -230,6 +276,91 @@ function isLogicallyAwaitingReply(session: RegistrationConversationSession): boo
   return true;
 }
 
+function normalizedFreeform(value: string): string {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, " ");
+}
+
+function looksLikeCasualNoise(value: string): boolean {
+  const normalized = normalizedFreeform(value).replace(/[^a-z0-9]+/g, "");
+  return /^(?:k{2,}|ha(?:ha)+|rs+|ok|blz|beleza|sla|sim|nao)$/.test(normalized);
+}
+
+function looksLikeGuidedUnquotedAnswer(
+  field: PersistedRegistrationConversationField,
+  value: string,
+): boolean {
+  const text = value.trim();
+  if (text.length === 0 || looksLikeCasualNoise(text)) return false;
+  switch (field) {
+    case "age":
+      return /^\d{1,3}(?:\s*anos?)?$/iu.test(text);
+    case "trainerName":
+      return text.length <= 80 && /\p{L}/u.test(text);
+    case "genderPronouns":
+      return text.length <= 120 && /\p{L}/u.test(text);
+    case "appearance":
+    case "personality":
+    case "backstory":
+      return text.length >= 4 && /\p{L}/u.test(text);
+    case "starterFormId":
+      return /^(?:#?0*\d+|[\p{L}][\p{L}\p{M}' .-]*)$/u.test(text);
+  }
+  return false;
+}
+
+function looksLikePersistedUnquotedIntent(
+  conversation: RegistrationConversationRecord,
+  text: string,
+): boolean {
+  switch (conversation.state) {
+    case "MODE_SELECT":
+      return parseRegistrationModeChoice(text) !== null || looksLikeFullRegistrationTemplate(text);
+    case "GUIDED_FIELD":
+      return (
+        conversation.currentField !== null &&
+        looksLikeGuidedUnquotedAnswer(conversation.currentField, text)
+      );
+    case "FULL_FORM":
+      return (
+        looksLikeRegistrationTemplate(text) || looksLikeGuidedUnquotedAnswer("starterFormId", text)
+      );
+    case "REVIEW":
+      return ["1", "2", "3"].includes(normalizedChoice(text));
+    case "EDIT_SELECT":
+      return parseEditFieldChoice(text) !== null;
+    case "EDIT_FIELD":
+      return (
+        conversation.editField !== null &&
+        looksLikeGuidedUnquotedAnswer(conversation.editField, text)
+      );
+    case "RESUME_MENU":
+      return ["1", "2", "3"].includes(normalizedChoice(text));
+    case "RESTART_CONFIRM":
+      return ["1", "2"].includes(normalizedChoice(text));
+    case "PAUSED":
+    case "SUBMITTED":
+      return false;
+  }
+  return false;
+}
+
+function looksLikeSessionUnquotedIntent(
+  session: RegistrationConversationSession,
+  text: string,
+): boolean {
+  if (session.mode === "CHOOSING")
+    return parseRegistrationModeChoice(text) !== null || looksLikeFullRegistrationTemplate(text);
+  if (session.mode === "FULL")
+    return (
+      looksLikeRegistrationTemplate(text) || looksLikeGuidedUnquotedAnswer("starterFormId", text)
+    );
+  return session.currentField !== null && looksLikeGuidedUnquotedAnswer(session.currentField, text);
+}
 function isPersistedStateAwaitingReply(conversation: RegistrationConversationRecord): boolean {
   return (
     conversation.state === "MODE_SELECT" ||
@@ -244,28 +375,7 @@ function isPersistedStateAwaitingReply(conversation: RegistrationConversationRec
 }
 
 function normalizedChoice(value: string): string {
-  return value
-    .trim()
-    .normalize("NFD")
-    .replace(/\p{M}+/gu, "")
-    .toLocaleLowerCase("pt-BR")
-    .replace(/\s+/g, " ");
-}
-
-function parsePersistedModeChoice(value: string): "GUIDED" | "FULL" | null {
-  switch (normalizedChoice(value)) {
-    case "1":
-    case "guiado":
-    case "passo a passo":
-      return "GUIDED";
-    case "2":
-    case "completo":
-    case "ficha":
-    case "ficha completa":
-      return "FULL";
-    default:
-      return null;
-  }
+  return normalizeRegistrationChoice(value);
 }
 
 function parseEditFieldChoice(
@@ -291,6 +401,48 @@ function parseEditFieldChoice(
     default:
       return null;
   }
+}
+
+const REQUIRED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationField[] = [
+  "trainerName",
+  "age",
+  "genderPronouns",
+  "personality",
+  "starterFormId",
+];
+
+function missingRequiredFields(
+  draft: RegistrationDraftInput,
+): PersistedRegistrationConversationField[] {
+  return REQUIRED_REGISTRATION_FIELDS.filter((field) => {
+    const value = draft[field];
+    return value === undefined || (typeof value === "string" && value.trim().length === 0);
+  });
+}
+
+function looksLikeStandaloneStarter(value: string): boolean {
+  return looksLikeGuidedUnquotedAnswer("starterFormId", value);
+}
+
+function isFlexibleFieldSkip(
+  field: PersistedRegistrationConversationField,
+  value: string,
+): boolean {
+  if (field !== "appearance" && field !== "backstory") return false;
+  const normalized = normalizedFreeform(value);
+  return [
+    "-",
+    "—",
+    "pular",
+    "pula",
+    "depois",
+    "sem",
+    "nenhuma",
+    "nenhum",
+    "sem historia",
+    "sem aparência",
+    "sem aparencia",
+  ].includes(normalized);
 }
 
 function firstMissingField(
@@ -323,36 +475,44 @@ function parseGuidedValue(
 
 function resolveCanonicalStarterFormId(rawValue: string, setup: RegistrationSetup): Result<string> {
   const value = rawValue.trim();
-  if (/^[1-9]\d*$/.test(value)) {
-    const index = Number(value);
-    if (Number.isSafeInteger(index)) {
-      const option = setup.starterOptions[index - 1];
+  const normalized = normalizedChoice(value);
+
+  const numericTokens = [...normalized.matchAll(/(?:^|\s)#?0*(\d+)(?=\s|$)/g)]
+    .map((match) => Number(match[1]))
+    .filter((candidate) => Number.isSafeInteger(candidate) && candidate > 0);
+  const uniqueNumericTokens = [...new Set(numericTokens)];
+  if (uniqueNumericTokens.length === 1) {
+    const numericChoice = uniqueNumericTokens[0];
+    if (numericChoice !== undefined) {
+      const option = setup.starterOptions[numericChoice - 1];
       if (option !== undefined) return ok(option.formId);
     }
   }
 
-  const normalized = normalizedChoice(value);
-  const matches = setup.starterOptions.filter(
-    (option) => option.formId === value || normalizedChoice(option.displayName) === normalized,
-  );
+  const phraseHaystack = ` ${normalized.replace(/[,.!?;:]+/g, " ")} `;
+  const matches = setup.starterOptions.filter((option) => {
+    const displayName = normalizedChoice(option.displayName);
+    return (
+      option.formId === value ||
+      normalized === displayName ||
+      phraseHaystack.includes(` ${displayName} `)
+    );
+  });
+
   if (matches.length !== 1) {
     return err(
-      appError("VALIDATION_FAILED", "Pokémon inicial inválido ou ambíguo", {
+      appError("VALIDATION_FAILED", "Não consegui identificar esse Pokémon inicial.", {
         fields: ["starterFormId"],
       }),
     );
   }
+
   const match = matches[0];
   if (match === undefined) {
-    return err(
-      appError("VALIDATION_FAILED", "Pokémon inicial inválido ou ambíguo", {
-        fields: ["starterFormId"],
-      }),
-    );
+    return err(appError("VALIDATION_FAILED", "Não consegui identificar esse Pokémon inicial."));
   }
   return ok(match.formId);
 }
-
 function reviewText(snapshot: RegistrationSnapshot, setup: RegistrationSetup): string {
   return renderReview({
     trainerName: snapshot.trainerName,
@@ -389,8 +549,17 @@ export class RegistrationConversationResolver {
     session: RegistrationConversationSession,
   ): Promise<boolean> {
     if (!isLogicallyAwaitingReply(session)) return false;
+    if (
+      session.mode === "FULL" &&
+      message.text !== null &&
+      looksLikeFullRegistrationTemplate(message.text)
+    ) {
+      return true;
+    }
     const replyToExternalMessageId = message.replyToExternalMessageId;
-    if (replyToExternalMessageId === null) return false;
+    if (replyToExternalMessageId === null) {
+      return message.text !== null && looksLikeSessionUnquotedIntent(session, message.text);
+    }
 
     const verifier = this.dependencies.replyIntent;
     if (verifier === undefined) return true;
@@ -411,16 +580,21 @@ export class RegistrationConversationResolver {
   ): Promise<boolean> {
     if (!isPersistedStateAwaitingReply(conversation)) return false;
     if (conversation.chatRef !== message.chatRef) return false;
+    if (
+      conversation.state === "FULL_FORM" &&
+      message.text !== null &&
+      looksLikeFullRegistrationTemplate(message.text)
+    ) {
+      return true;
+    }
     const replyToExternalMessageId = message.replyToExternalMessageId;
     const expectedOutboxIdempotencyKey = conversation.activePromptOutboxIdempotencyKey;
     const verifier = this.dependencies.replyIntent;
-    if (
-      replyToExternalMessageId === null ||
-      expectedOutboxIdempotencyKey === null ||
-      verifier === undefined
-    ) {
-      return false;
+    if (replyToExternalMessageId === null) {
+      return message.text !== null && looksLikePersistedUnquotedIntent(conversation, message.text);
     }
+    if (expectedOutboxIdempotencyKey === null) return false;
+    if (verifier === undefined) return true;
 
     return verifier.isExpectedReply({
       provider: message.provider,
@@ -477,6 +651,143 @@ export class RegistrationConversationResolver {
     return persistedTextResult(context, playerId, renderValidationRetry(message, prompt));
   }
 
+  private async resolvePersistedFullFormInput(
+    context: MessageHandlerContext,
+    playerId: PlayerId,
+    conversation: RegistrationConversationRecord,
+    persistedDraft: PersistedDraftState,
+    setup: RegistrationSetup,
+    text: string,
+  ): Promise<Result<MessageHandlerResult>> {
+    const registration = this.dependencies.registration;
+    if (registration === undefined) {
+      return err(appError("ACTION_INVALID", "Persisted Registration service is unavailable"));
+    }
+
+    let draft: RegistrationDraftInput = {
+      ...persistedDraft.draft,
+      regionId: setup.regionId,
+      schemaVersion: 1,
+    };
+    let starterRaw: string | undefined;
+
+    if (looksLikeRegistrationTemplate(text)) {
+      const parsed = parsePartialRegistrationTemplate(text);
+      if (!parsed.ok) {
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "FULL_FORM",
+          editingMode: "FULL",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: conversationOutboxKey(context),
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.revision,
+          inboxMessageId: context.inboxMessageId,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          renderValidationRetry(
+            parsed.error.message,
+            renderFullForm({
+              regionDisplayName: setup.regionDisplayName,
+              starterOptions: starterDisplayNames(setup),
+            }),
+          ),
+        );
+      }
+
+      const parsedValue = parsed.value;
+      starterRaw = parsedValue.starterFormId;
+      draft = {
+        ...draft,
+        ...(parsedValue.trainerName === undefined ? {} : { trainerName: parsedValue.trainerName }),
+        ...(parsedValue.age === undefined ? {} : { age: parsedValue.age }),
+        ...(parsedValue.genderPronouns === undefined
+          ? {}
+          : { genderPronouns: parsedValue.genderPronouns }),
+        ...(parsedValue.appearance === undefined ? {} : { appearance: parsedValue.appearance }),
+        ...(parsedValue.personality === undefined ? {} : { personality: parsedValue.personality }),
+        ...(parsedValue.backstory === undefined ? {} : { backstory: parsedValue.backstory }),
+      };
+    } else if (looksLikeStandaloneStarter(text)) {
+      starterRaw = text;
+    }
+
+    if (starterRaw !== undefined) {
+      const starter = resolveCanonicalStarterFormId(starterRaw, setup);
+      if (!starter.ok) {
+        const saved = await registration.saveConversationCheckpoint({
+          playerId,
+          chatRef: context.message.chatRef,
+          state: "FULL_FORM",
+          editingMode: "FULL",
+          currentField: null,
+          editField: null,
+          activePromptOutboxIdempotencyKey: conversationOutboxKey(context),
+          expectedConversationRevision: conversation.revision,
+          expectedDraftRevision: persistedDraft.revision,
+          inboxMessageId: context.inboxMessageId,
+          draft,
+        });
+        if (!saved.ok) return saved;
+        return persistedTextResult(
+          context,
+          playerId,
+          renderValidationRetry(
+            "Não consegui identificar esse Pokémon inicial.",
+            renderMissingFullFormFields(["starterFormId"], starterDisplayNames(setup)),
+          ),
+        );
+      }
+      draft = { ...draft, starterFormId: starter.value };
+    }
+
+    const missing = missingRequiredFields(draft);
+    if (missing.length > 0) {
+      const saved = await registration.saveConversationCheckpoint({
+        playerId,
+        chatRef: context.message.chatRef,
+        state: "FULL_FORM",
+        editingMode: "FULL",
+        currentField: null,
+        editField: null,
+        activePromptOutboxIdempotencyKey: conversationOutboxKey(context),
+        expectedConversationRevision: conversation.revision,
+        expectedDraftRevision: persistedDraft.revision,
+        inboxMessageId: context.inboxMessageId,
+        draft,
+      });
+      if (!saved.ok) return saved;
+      return persistedTextResult(
+        context,
+        playerId,
+        renderMissingFullFormFields(missing, starterDisplayNames(setup)),
+      );
+    }
+
+    const complete = validateRegistrationDraft(draft);
+    if (!complete.ok) return complete;
+    const saved = await registration.saveConversationCheckpoint({
+      playerId,
+      chatRef: context.message.chatRef,
+      state: "REVIEW",
+      editingMode: "FULL",
+      currentField: null,
+      editField: null,
+      activePromptOutboxIdempotencyKey: conversationOutboxKey(context),
+      expectedConversationRevision: conversation.revision,
+      expectedDraftRevision: persistedDraft.revision,
+      inboxMessageId: context.inboxMessageId,
+      draft,
+    });
+    if (!saved.ok) return saved;
+    return persistedTextResult(context, playerId, reviewText(complete.value, setup));
+  }
+
   private async resolvePersisted(
     context: MessageHandlerContext,
     playerId: PlayerId,
@@ -504,7 +815,18 @@ export class RegistrationConversationResolver {
     const nextPromptKey = conversationOutboxKey(context);
 
     if (conversation.state === "MODE_SELECT") {
-      const selected = parsePersistedModeChoice(text);
+      if (looksLikeFullRegistrationTemplate(text)) {
+        return this.resolvePersistedFullFormInput(
+          context,
+          playerId,
+          conversation,
+          persistedDraft.value,
+          setup.value,
+          text,
+        );
+      }
+
+      const selected = parseRegistrationModeChoice(text);
       if (selected === null) {
         return this.contextualRetry(
           context,
@@ -575,14 +897,13 @@ export class RegistrationConversationResolver {
         inboxMessageId: context.inboxMessageId,
       });
       if (!saved.ok) return saved;
-      return persistedTextResult(
-        context,
-        playerId,
+      return persistedTextSequenceResult(context, playerId, [
+        renderStarterOptions(starterDisplayNames(setup.value)),
         renderFullForm({
           regionDisplayName: setup.value.regionDisplayName,
           starterOptions: starterDisplayNames(setup.value),
         }),
-      );
+      ]);
     }
 
     if (conversation.state === "GUIDED_FIELD") {
@@ -591,7 +912,7 @@ export class RegistrationConversationResolver {
         return err(appError("INVALID_STATE_TRANSITION", "Guided registration has no active field"));
       }
 
-      let parsedValue = parseGuidedValue(field, text);
+      let parsedValue = isFlexibleFieldSkip(field, text) ? ok("—") : parseGuidedValue(field, text);
       if (!parsedValue.ok) {
         return this.contextualRetry(
           context,
@@ -680,82 +1001,14 @@ export class RegistrationConversationResolver {
     }
 
     if (conversation.state === "FULL_FORM") {
-      const fullPrompt = renderFullForm({
-        regionDisplayName: setup.value.regionDisplayName,
-        starterOptions: starterDisplayNames(setup.value),
-      });
-      const parsed = parseFullRegistrationTemplate(text);
-      if (!parsed.ok) {
-        const saved = await registration.saveConversationCheckpoint({
-          playerId,
-          chatRef: context.message.chatRef,
-          state: "FULL_FORM",
-          editingMode: "FULL",
-          currentField: null,
-          editField: null,
-          activePromptOutboxIdempotencyKey: nextPromptKey,
-          expectedConversationRevision: conversation.revision,
-          expectedDraftRevision: persistedDraft.value.revision,
-          inboxMessageId: context.inboxMessageId,
-        });
-        if (!saved.ok) return saved;
-        return persistedTextResult(
-          context,
-          playerId,
-          renderValidationRetry("Confira os campos da ficha e tente novamente.", fullPrompt),
-        );
-      }
-
-      const starter = resolveCanonicalStarterFormId(parsed.value.starterFormId, setup.value);
-      if (!starter.ok) {
-        const saved = await registration.saveConversationCheckpoint({
-          playerId,
-          chatRef: context.message.chatRef,
-          state: "FULL_FORM",
-          editingMode: "FULL",
-          currentField: null,
-          editField: null,
-          activePromptOutboxIdempotencyKey: nextPromptKey,
-          expectedConversationRevision: conversation.revision,
-          expectedDraftRevision: persistedDraft.value.revision,
-          inboxMessageId: context.inboxMessageId,
-        });
-        if (!saved.ok) return saved;
-        return persistedTextResult(
-          context,
-          playerId,
-          renderValidationRetry("Escolha um Pokémon inicial válido.", fullPrompt),
-        );
-      }
-
-      const draft: RegistrationDraftInput = {
-        trainerName: parsed.value.trainerName,
-        age: parsed.value.age,
-        genderPronouns: parsed.value.genderPronouns,
-        appearance: parsed.value.appearance,
-        personality: parsed.value.personality,
-        backstory: parsed.value.backstory,
-        starterFormId: starter.value,
-        regionId: setup.value.regionId,
-        schemaVersion: 1,
-      };
-      const complete = validateRegistrationDraft(draft);
-      if (!complete.ok) return complete;
-      const saved = await registration.saveConversationCheckpoint({
+      return this.resolvePersistedFullFormInput(
+        context,
         playerId,
-        chatRef: context.message.chatRef,
-        state: "REVIEW",
-        editingMode: "FULL",
-        currentField: null,
-        editField: null,
-        activePromptOutboxIdempotencyKey: nextPromptKey,
-        expectedConversationRevision: conversation.revision,
-        expectedDraftRevision: persistedDraft.value.revision,
-        inboxMessageId: context.inboxMessageId,
-        draft,
-      });
-      if (!saved.ok) return saved;
-      return persistedTextResult(context, playerId, reviewText(complete.value, setup.value));
+        conversation,
+        persistedDraft.value,
+        setup.value,
+        text,
+      );
     }
 
     if (conversation.state === "RESUME_MENU") {
@@ -776,14 +1029,13 @@ export class RegistrationConversationResolver {
             inboxMessageId: context.inboxMessageId,
           });
           if (!saved.ok) return saved;
-          return persistedTextResult(
-            context,
-            playerId,
+          return persistedTextSequenceResult(context, playerId, [
+            renderStarterOptions(starterDisplayNames(setup.value)),
             renderFullForm({
               regionDisplayName: setup.value.regionDisplayName,
               starterOptions: starterDisplayNames(setup.value),
             }),
-          );
+          ]);
         }
 
         if (conversation.editingMode !== "GUIDED") {
@@ -1185,7 +1437,13 @@ export class RegistrationConversationResolver {
 
   public async admits(message: IncomingMessage): Promise<boolean> {
     const text = message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return false;
+    if (
+      text === null ||
+      text.trim().length === 0 ||
+      text.trim().startsWith("/") ||
+      text.trim().startsWith("$")
+    )
+      return false;
 
     const community = await this.dependencies.community.resolveChat({
       provider: message.provider,
@@ -1219,7 +1477,13 @@ export class RegistrationConversationResolver {
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
     const text = context.message.text;
-    if (text === null || text.trim().length === 0 || text.trim().startsWith("$")) return ok(null);
+    if (
+      text === null ||
+      text.trim().length === 0 ||
+      text.trim().startsWith("/") ||
+      text.trim().startsWith("$")
+    )
+      return ok(null);
 
     const community = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
@@ -1330,7 +1594,7 @@ export class RegistrationConversationResolver {
     return textResult(
       context,
       player.value.playerId,
-      "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `$ficha` para revisar, `$salvar` para guardar o rascunho ou `$confirmar` quando quiser conferir o envio.",
+      "✅ Ficha lida para a sessão atual. Ela ainda não foi enviada nem persistida. Use `/ficha` para revisar, `/salvar` para guardar o rascunho ou `/confirmar` quando quiser conferir o envio.",
       sessions,
       false,
     );

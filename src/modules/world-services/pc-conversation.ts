@@ -1,4 +1,5 @@
 import { type PokemonInstanceId, parsePokemonInstanceId } from "../../shared-kernel/ids.js";
+import { parseMenuNumber } from "../messaging/human-input.js";
 import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
 const BOX_CAPACITY = 30;
@@ -32,10 +33,8 @@ export function pcTeamPokemonBySlot(
   snapshot: PokemonPcStorageSnapshot,
   reply: string,
 ): PokemonPcPokemonView | null {
-  const normalized = reply.trim();
-  if (!/^[0-9]{1,2}$/.test(normalized)) return null;
-  const slotNo = Number(normalized);
-  if (!Number.isInteger(slotNo) || slotNo < 1 || slotNo > 6) return null;
+  const slotNo = parseMenuNumber(reply);
+  if (slotNo === null || slotNo > 6) return null;
   return snapshot.team.find((pokemon) => pokemon.slotNo === slotNo) ?? null;
 }
 
@@ -81,10 +80,9 @@ export function pcStoredPokemonByCode(
   snapshot: PokemonPcStorageSnapshot,
   reply: string,
 ): PokemonPcPokemonView | null {
-  const normalized = reply.trim();
-  if (!/^[0-9]{1,2}$/.test(normalized)) return null;
-  const selectedIndex = Number(normalized) - 1;
-  if (!Number.isInteger(selectedIndex) || selectedIndex < 0) return null;
+  const choice = parseMenuNumber(reply);
+  if (choice === null) return null;
+  const selectedIndex = choice - 1;
 
   const stored = snapshot.boxes
     .flatMap((box) => box.pokemon)

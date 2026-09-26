@@ -76,6 +76,84 @@ export function createPhase12AdminOperationRegistry(
   registry.register(
     defineAdminOperation({
       kind: "READ",
+      operationType: "inventory.catalog.read",
+      capabilityKey: "inventory.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "ITEM_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "economy.currency_catalog.read",
+      capabilityKey: "economy.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "CURRENCY_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "pokedex.catalog.read",
+      capabilityKey: "pokedex.read",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "POKEDEX_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "pokemon.form_catalog.read",
+      capabilityKey: "pokemon.create",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "POKEMON_FORM_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "pokemon.effect_catalog.read",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "POKEMON_EFFECT_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "content.release.catalog.read",
+      capabilityKey: "content.draft.edit",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "CONTENT_RELEASE_COLLECTION", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
       operationType: "admin.operation.audit",
       capabilityKey: "audit.read",
       riskTier: 0,

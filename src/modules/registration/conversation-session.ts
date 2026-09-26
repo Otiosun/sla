@@ -45,6 +45,16 @@ export interface StartRegistrationConversationInput extends BeginRegistrationCon
   readonly mode: RegistrationEditingMode;
 }
 
+export interface ParsedRegistrationTemplateDraft {
+  readonly trainerName?: string;
+  readonly age?: number;
+  readonly genderPronouns?: string;
+  readonly appearance?: string;
+  readonly personality?: string;
+  readonly backstory?: string;
+  readonly starterFormId?: string;
+}
+
 export interface ParsedFullRegistrationTemplate {
   readonly trainerName: string;
   readonly age: number;
@@ -148,19 +158,48 @@ function normalizedLabel(value: string): string {
     .normalize("NFD")
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
-    .replace(/\s+/g, " ");
+    .replace(/[*_`~]/g, "")
+    .replace(/[()]+/g, " ")
+    .replace(/^[^a-z0-9]+/g, "")
+    .replace(/[^a-z0-9/ ]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function parseModeChoice(rawValue: string): RegistrationEditingMode | null {
-  switch (normalizedLabel(rawValue)) {
-    case "1":
+function cleanInlineValue(value: string): string {
+  return value
+    .trim()
+    .replace(/^[*_`~]+\s*/u, "")
+    .replace(/\s*[*_`~]+$/u, "")
+    .trim();
+}
+
+export function normalizeRegistrationChoice(rawValue: string): string {
+  const normalized = normalizedLabel(rawValue);
+  const numeric = normalized.match(/^#?0*(\d+)$/);
+  return numeric?.[1] === undefined ? normalized : String(Number(numeric[1]));
+}
+
+export function parseRegistrationModeChoice(rawValue: string): RegistrationEditingMode | null {
+  const normalized = normalizedLabel(rawValue);
+  const numericTokens = [...normalized.matchAll(/(?:^|\s)#?0*([12])(?=\s|$)/g)].map(
+    (match) => match[1],
+  );
+  const uniqueNumericTokens = [...new Set(numericTokens)];
+  if (uniqueNumericTokens.length === 1) {
+    return uniqueNumericTokens[0] === "1" ? "GUIDED" : "FULL";
+  }
+
+  switch (normalized) {
     case "guiado":
     case "passo a passo":
+    case "modo guiado":
       return "GUIDED";
-    case "2":
     case "completo":
+    case "completa":
     case "ficha":
     case "ficha completa":
+    case "modo completo":
       return "FULL";
     default:
       return null;
@@ -180,10 +219,12 @@ function fieldForLabel(label: string): RegistrationConversationField | null {
     case "genero/pronomes":
       return "genderPronouns";
     case "aparencia":
+    case "aparencia opcional":
       return "appearance";
     case "personalidade":
       return "personality";
     case "historia":
+    case "historia opcional":
     case "historia / resumo":
     case "historia/resumo":
     case "resumo":
@@ -196,9 +237,30 @@ function fieldForLabel(label: string): RegistrationConversationField | null {
   }
 }
 
-export function parseFullRegistrationTemplate(
+function registrationTemplateFields(text: string): Set<RegistrationConversationField> {
+  const fields = new Set<RegistrationConversationField>();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const colonIndex = line.indexOf(":");
+    if (colonIndex < 0) continue;
+    const field = fieldForLabel(line.slice(0, colonIndex));
+    if (field !== null) fields.add(field);
+  }
+  return fields;
+}
+
+export function looksLikeRegistrationTemplate(text: string): boolean {
+  return registrationTemplateFields(text).size > 0;
+}
+
+export function looksLikeFullRegistrationTemplate(text: string): boolean {
+  const fields = registrationTemplateFields(text);
+  return fields.has("trainerName") && fields.has("age") && fields.size >= 4;
+}
+
+export function parsePartialRegistrationTemplate(
   text: string,
-): Result<ParsedFullRegistrationTemplate> {
+): Result<ParsedRegistrationTemplateDraft> {
   const values = new Map<RegistrationConversationField, string>();
   const duplicates = new Set<RegistrationConversationField>();
   let currentField: RegistrationConversationField | null = null;
@@ -217,7 +279,7 @@ export function parseFullRegistrationTemplate(
       const field = fieldForLabel(line.slice(0, colonIndex));
       if (field !== null) {
         if (values.has(field)) duplicates.add(field);
-        const inlineValue = line.slice(colonIndex + 1).trim();
+        const inlineValue = cleanInlineValue(line.slice(colonIndex + 1));
         if (inlineValue.length > 0) values.set(field, inlineValue);
         currentField = field;
         pendingBlankLine = false;
@@ -244,13 +306,10 @@ export function parseFullRegistrationTemplate(
     );
   }
 
-  const missing = GUIDED_FIELDS.filter((field) => !values.has(field));
-  const age = Number(values.get("age"));
-  if (!Number.isSafeInteger(age) || age <= 0) {
-    if (!missing.includes("age")) missing.push("age");
-  }
-  if (missing.length > 0) {
-    return err(appError("VALIDATION_FAILED", "Ficha incompleta ou inválida", { fields: missing }));
+  const ageRaw = values.get("age");
+  const age = ageRaw === undefined ? undefined : Number(ageRaw);
+  if (age !== undefined && (!Number.isSafeInteger(age) || age <= 0)) {
+    return err(appError("VALIDATION_FAILED", "Idade inválida", { fields: ["age"] }));
   }
 
   const trainerName = values.get("trainerName");
@@ -259,12 +318,47 @@ export function parseFullRegistrationTemplate(
   const personality = values.get("personality");
   const backstory = values.get("backstory");
   const starterFormId = values.get("starterFormId");
+  const parsed: ParsedRegistrationTemplateDraft = {
+    ...(trainerName === undefined ? {} : { trainerName }),
+    ...(age === undefined ? {} : { age }),
+    ...(genderPronouns === undefined ? {} : { genderPronouns }),
+    ...(appearance === undefined ? {} : { appearance }),
+    ...(personality === undefined ? {} : { personality }),
+    ...(backstory === undefined ? {} : { backstory }),
+    ...(starterFormId === undefined ? {} : { starterFormId }),
+  };
+  if (Object.keys(parsed).length === 0) {
+    return err(appError("VALIDATION_FAILED", "Nenhum campo da ficha foi reconhecido"));
+  }
+  return ok(parsed);
+}
+
+export function parseFullRegistrationTemplate(
+  text: string,
+): Result<ParsedFullRegistrationTemplate> {
+  const parsed = parsePartialRegistrationTemplate(text);
+  if (!parsed.ok) return parsed;
+  const value = parsed.value;
+  const missing: string[] = [];
+  if (value.trainerName === undefined) missing.push("trainerName");
+  if (value.age === undefined) missing.push("age");
+  if (value.genderPronouns === undefined) missing.push("genderPronouns");
+  if (value.personality === undefined) missing.push("personality");
+  if (value.starterFormId === undefined) missing.push("starterFormId");
+  if (missing.length > 0) {
+    return err(appError("VALIDATION_FAILED", "Ficha incompleta ou inválida", { fields: missing }));
+  }
+
+  const trainerName = value.trainerName;
+  const age = value.age;
+  const genderPronouns = value.genderPronouns;
+  const personality = value.personality;
+  const starterFormId = value.starterFormId;
   if (
     trainerName === undefined ||
+    age === undefined ||
     genderPronouns === undefined ||
-    appearance === undefined ||
     personality === undefined ||
-    backstory === undefined ||
     starterFormId === undefined
   ) {
     return err(appError("VALIDATION_FAILED", "Ficha incompleta ou inválida"));
@@ -274,9 +368,9 @@ export function parseFullRegistrationTemplate(
     trainerName,
     age,
     genderPronouns,
-    appearance,
+    appearance: value.appearance ?? "—",
     personality,
-    backstory,
+    backstory: value.backstory ?? "—",
     starterFormId,
   });
 }
@@ -359,7 +453,7 @@ export class RegistrationConversationSessions {
         appError("INVALID_STATE_TRANSITION", "Registration mode has already been selected"),
       );
     }
-    const mode = parseModeChoice(rawValue);
+    const mode = parseRegistrationModeChoice(rawValue);
     if (mode === null) {
       return err(
         appError("VALIDATION_FAILED", "Escolha 1 para modo guiado ou 2 para ficha completa"),

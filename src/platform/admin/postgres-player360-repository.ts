@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { BattleStateSchema } from "../../modules/battle/contracts.js";
 import {
   type Player360ActivityView,
   type Player360BattleView,
@@ -144,7 +145,13 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
       this.pool,
       async (client) => {
         const core = await client.query<CoreRow>(
-          `SELECT player.id, player.status, player.created_at, player.updated_at,
+          `SELECT player.id,
+                  CASE
+                    WHEN player.status = 'ARCHIVED' THEN 'ARCHIVED'
+                    WHEN access.status = 'SUSPENDED' THEN 'SUSPENDED'
+                    ELSE 'ACTIVE'
+                  END AS status,
+                  player.created_at, player.updated_at,
                   player.revision::text AS player_revision,
                   profile.trainer_name, profile.origin_region_id, profile.locale,
                   profile.metadata AS profile_metadata,
@@ -159,7 +166,10 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                   location.area_id, location.entered_at,
                   location.revision::text AS location_revision
            FROM players player
-           LEFT JOIN player_profiles profile ON profile.player_id = player.id
+           JOIN player_access access
+             ON access.player_id = player.id
+            AND access.status IN ('ACTIVE', 'SUSPENDED')
+           JOIN player_profiles profile ON profile.player_id = player.id
            LEFT JOIN onboarding_states onboarding ON onboarding.player_id = player.id
            LEFT JOIN player_onboarding_context context ON context.player_id = player.id
            LEFT JOIN trainer_progression progression ON progression.player_id = player.id
@@ -347,10 +357,12 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
             area_id: string;
             content_release_id: string;
             ruleset_id: string;
+            revision: string;
             created_at: Date;
             updated_at: Date;
           }>(
-            `SELECT id, status, area_id, content_release_id, ruleset_id, created_at, updated_at
+            `SELECT id, status, area_id, content_release_id, ruleset_id,
+                    revision::text, created_at, updated_at
              FROM encounters
              WHERE player_id = $1
                AND status IN ('CREATED', 'PRESENTED', 'ENGAGED', 'CAPTURE_RESOLVING', 'IN_BATTLE')
@@ -370,12 +382,17 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
             created_at: Date;
             updated_at: Date;
             ended_at: Date | null;
+            battle_state: unknown | null;
           }>(
             `SELECT DISTINCT battle.id, battle.status, battle.battle_type, battle.encounter_id,
                     battle.content_release_id, battle.ruleset_id, battle.turn_number,
-                    battle.version::text, battle.created_at, battle.updated_at, battle.ended_at
+                    battle.version::text, battle.created_at, battle.updated_at, battle.ended_at,
+                    snapshot.state AS battle_state
              FROM battles battle
              JOIN battle_sides side ON side.battle_id = battle.id
+             LEFT JOIN battle_state_snapshots snapshot
+               ON snapshot.battle_id = battle.id
+              AND snapshot.version = battle.version
              WHERE side.player_id = $1
                AND battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
              ORDER BY battle.created_at DESC, battle.id DESC
@@ -570,11 +587,19 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                 areaId: encounterRow.area_id,
                 contentReleaseId: encounterRow.content_release_id,
                 rulesetId: encounterRow.ruleset_id,
+                revision: encounterRow.revision,
                 createdAt: iso(encounterRow.created_at),
                 updatedAt: iso(encounterRow.updated_at),
               };
 
         const battleRow = battleRows.rows[0];
+        const battleState =
+          battleRow?.battle_state === null || battleRow?.battle_state === undefined
+            ? null
+            : BattleStateSchema.parse(battleRow.battle_state);
+        const playerBattleSide =
+          battleState?.sides.find((side) => side.playerId === playerId) ?? null;
+        const playerParticipantIds = new Set(playerBattleSide?.participantIds ?? []);
         const activeBattle: Player360BattleView | null =
           battleRow === undefined
             ? null
@@ -590,6 +615,28 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                 createdAt: iso(battleRow.created_at),
                 updatedAt: iso(battleRow.updated_at),
                 endedAt: isoNullable(battleRow.ended_at),
+                participants:
+                  battleState?.combatants
+                    .filter((combatant) => playerParticipantIds.has(combatant.participantId))
+                    .map((combatant) => ({
+                      participantId: combatant.participantId,
+                      pokemonInstanceId: combatant.pokemonInstanceId,
+                      level: combatant.level,
+                      currentHp: combatant.currentHp,
+                      maxHp: combatant.maxHp,
+                      majorStatus:
+                        combatant.majorStatus === null
+                          ? null
+                          : {
+                              key: combatant.majorStatus.key,
+                              counter: combatant.majorStatus.counter,
+                            },
+                      moves: combatant.moves.map((move) => ({
+                        slotNo: move.slotNo,
+                        ppCurrent: move.ppCurrent,
+                        maxPp: move.maxPp,
+                      })),
+                    })) ?? [],
               };
 
         const effects: Player360EffectView[] = effectRows.rows.map((entry) => ({
@@ -695,7 +742,12 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
         };
 
         if (query.status !== null) {
-          conditions.push(`player.status = ${bind(query.status)}`);
+          const visibleStatus = `CASE
+            WHEN player.status = 'ARCHIVED' THEN 'ARCHIVED'
+            WHEN access.status = 'SUSPENDED' THEN 'SUSPENDED'
+            ELSE 'ACTIVE'
+          END`;
+          conditions.push(`${visibleStatus} = ${bind(query.status)}`);
         }
         if (query.trainerNamePrefix !== null) {
           conditions.push(
@@ -729,7 +781,12 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
         const limit = bind(query.limit + 1);
         const where = conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")}`;
         const result = await client.query<SearchRow>(
-          `SELECT player.id AS player_id, player.status,
+          `SELECT player.id AS player_id,
+                  CASE
+                    WHEN player.status = 'ARCHIVED' THEN 'ARCHIVED'
+                    WHEN access.status = 'SUSPENDED' THEN 'SUSPENDED'
+                    ELSE 'ACTIVE'
+                  END AS status,
                   profile.trainer_name, profile.origin_region_id,
                   progression.level AS trainer_level,
                   progression.progression_points::text,
@@ -740,8 +797,11 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                   battle.status AS active_battle_status,
                   player.created_at
            FROM players player
+           JOIN player_access access
+             ON access.player_id = player.id
+            AND access.status IN ('ACTIVE', 'SUSPENDED')
            JOIN trainer_progression progression ON progression.player_id = player.id
-           LEFT JOIN player_profiles profile ON profile.player_id = player.id
+           JOIN player_profiles profile ON profile.player_id = player.id
            LEFT JOIN player_locations location ON location.player_id = player.id
            LEFT JOIN encounters encounter
              ON encounter.player_id = player.id

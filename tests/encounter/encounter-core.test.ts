@@ -55,6 +55,7 @@ const entries: readonly EncounterTableEntryRecord[] = [
 const wildBuild: WildPokemonBuild = {
   formId: "pidgey-form",
   speciesId: "pidgey-species",
+  genderRate: 4,
   type1Id: "normal",
   type2Id: "flying",
   baseStats: {
@@ -144,8 +145,34 @@ describe("encounter core", () => {
     expect(first.level).toBeLessThanOrEqual(4);
     expect(Object.values(first.ivs).every((value) => value >= 0 && value <= 31)).toBe(true);
     expect(first.currentHp).toBe(first.maxHp);
+    expect(["MALE", "FEMALE"]).toContain(first.gender);
+    expect(first.shiny).toBe(false);
     expect(first.moves).toHaveLength(1);
     expect(first.moves[0]?.moveId).toBe("tackle");
+  });
+
+  it("honors official PokeAPI gender-rate edge cases", () => {
+    expect(
+      generateWildPokemon(
+        { ...wildBuild, genderRate: -1 },
+        3,
+        new CounterRandomSource(Buffer.alloc(32, 0x11)),
+      ).gender,
+    ).toBeNull();
+    expect(
+      generateWildPokemon(
+        { ...wildBuild, genderRate: 0 },
+        3,
+        new CounterRandomSource(Buffer.alloc(32, 0x12)),
+      ).gender,
+    ).toBe("MALE");
+    expect(
+      generateWildPokemon(
+        { ...wildBuild, genderRate: 8 },
+        3,
+        new CounterRandomSource(Buffer.alloc(32, 0x13)),
+      ).gender,
+    ).toBe("FEMALE");
   });
 
   it("keeps legacy rulesets valid while honoring explicit encounter policy", () => {

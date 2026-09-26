@@ -9,6 +9,9 @@ import type { WhatsAppAdapter } from "./adapter.js";
 export interface WhatsAppMessagingRuntimeOptions {
   readonly admitCommand?: (message: IncomingMessage) => Promise<boolean> | boolean;
   readonly admitFreeform?: (message: IncomingMessage) => Promise<boolean> | boolean;
+  readonly normalizeCommandLikeFreeform?: (
+    message: IncomingMessage,
+  ) => Promise<IncomingMessage | null> | IncomingMessage | null;
   readonly beforeOutboxFlush?: () => Promise<void>;
   readonly onIncomingProcessingFailure?: (input: {
     readonly stage: "COMPLETE_INCOMING";
@@ -30,14 +33,20 @@ export class WhatsAppMessagingRuntime {
       const text = message.text?.trimStart();
       const prefix = text?.[0];
       const commandCandidate = prefix === "$" || prefix === "/";
+      let admittedMessage = message;
       if (commandCandidate) {
         const admitCommand = this.options.admitCommand;
-        if (admitCommand !== undefined && !(await admitCommand(message))) return;
+        if (admitCommand !== undefined && !(await admitCommand(message))) {
+          const normalize = this.options.normalizeCommandLikeFreeform;
+          const normalized = normalize === undefined ? null : await normalize(message);
+          if (normalized === null) return;
+          admittedMessage = normalized;
+        }
       } else {
         const admitFreeform = this.options.admitFreeform;
         if (admitFreeform === undefined || !(await admitFreeform(message))) return;
       }
-      const received = await this.messaging.receive(message);
+      const received = await this.messaging.receive(admittedMessage);
       if (!received.ok && received.error.details?.stage === "COMPLETE_INCOMING") {
         const correlationId = received.error.details.correlationId;
         const completionErrorCode = received.error.details.completionErrorCode;

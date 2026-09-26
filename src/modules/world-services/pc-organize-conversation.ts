@@ -1,7 +1,7 @@
 import { type PokemonInstanceId, parsePokemonInstanceId } from "../../shared-kernel/ids.js";
+import { parseBoxSlot, parseMenuNumber } from "../messaging/human-input.js";
 import type { PokemonPcPokemonView, PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
-const BOX_CAPACITY = 30;
 const LIST_SUFFIX = ":center:pc:organize:list";
 const DESTINATION_PREFIX = ":center:pc:organize:destination:";
 const CONFIRM_PREFIX = ":center:pc:organize:confirm:";
@@ -32,10 +32,9 @@ export function pcOrganizeStoredPokemonByCode(
   snapshot: PokemonPcStorageSnapshot,
   reply: string,
 ): PokemonPcPokemonView | null {
-  const normalized = reply.trim();
-  if (!/^[0-9]{1,2}$/.test(normalized)) return null;
-  const index = Number(normalized) - 1;
-  if (!Number.isInteger(index) || index < 0) return null;
+  const choice = parseMenuNumber(reply);
+  if (choice === null) return null;
+  const index = choice - 1;
   return sortedStoredPokemon(snapshot)[index] ?? null;
 }
 
@@ -64,13 +63,7 @@ export function pcOrganizePokemonFromDestinationPromptKey(value: string): Pokemo
 export function parsePcOrganizeDestinationReply(
   value: string,
 ): PokemonPcOrganizeDestination | null {
-  const match = /^\s*([0-9]+)\s*\/\s*([0-9]+)\s*$/.exec(value);
-  if (match === null) return null;
-  const boxNo = Number(match[1]);
-  const slotNo = Number(match[2]);
-  if (!Number.isSafeInteger(boxNo) || boxNo < 1) return null;
-  if (!Number.isSafeInteger(slotNo) || slotNo < 1 || slotNo > BOX_CAPACITY) return null;
-  return { boxNo, slotNo };
+  return parseBoxSlot(value);
 }
 
 export function pcOrganizeConfirmPromptSuffix(

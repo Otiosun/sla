@@ -18,7 +18,7 @@ const message: IncomingMessage = IncomingMessageSchema.parse({
   senderRef: "sender-1",
   chatRef: "chat-1",
   occurredAt: "2026-08-27T22:00:00-03:00",
-  text: "$ping hello",
+  text: "/ping hello",
   mediaRefs: [],
   replyToExternalMessageId: null,
 });
@@ -38,7 +38,7 @@ describe("messaging boundary", () => {
     let calls = 0;
     const router = new MessageRouter([
       {
-        command: "$ping",
+        command: "ping",
         handler: {
           async handle(context) {
             calls += 1;
@@ -99,7 +99,7 @@ describe("messaging boundary", () => {
     await adapter.inject({
       ...message,
       externalMessageId: "msg-command",
-      text: "   $menu",
+      text: "   /menu",
     });
     await runtime.stop();
 
@@ -127,7 +127,7 @@ describe("messaging boundary", () => {
       },
     } as unknown as OutboxWorker;
     const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
-      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "$menu",
+      admitCommand: (incoming) => incoming.text?.trim().toLocaleLowerCase("pt-BR") === "/menu",
     });
 
     await runtime.start();
@@ -139,7 +139,7 @@ describe("messaging boundary", () => {
     await adapter.inject({
       ...message,
       externalMessageId: "msg-known-command",
-      text: "$Menu",
+      text: "/Menu",
     });
     await runtime.stop();
 
@@ -223,7 +223,7 @@ describe("messaging boundary", () => {
       ...message,
       externalMessageId: "msg-command-2",
       chatRef: "world@g.us",
-      text: "$menu",
+      text: "/menu",
     });
     await runtime.stop();
 

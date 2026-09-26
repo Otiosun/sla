@@ -22,7 +22,20 @@ class FakeBaileysSocket implements BaileysSocketLike {
   readonly sent: Array<{
     jid: string;
     content: unknown;
-    options: { readonly messageId?: string } | undefined;
+    options:
+      | {
+          readonly messageId?: string;
+          readonly quoted?: {
+            readonly key: {
+              readonly remoteJid: string;
+              readonly id: string;
+              readonly participant?: string;
+              readonly fromMe?: boolean;
+            };
+            readonly message: { readonly conversation?: string };
+          };
+        }
+      | undefined;
   }> = [];
   ended = false;
 
@@ -39,7 +52,18 @@ class FakeBaileysSocket implements BaileysSocketLike {
   async sendMessage(
     jid: string,
     content: { readonly text: string },
-    options?: { readonly messageId?: string },
+    options?: {
+      readonly messageId?: string;
+      readonly quoted?: {
+        readonly key: {
+          readonly remoteJid: string;
+          readonly id: string;
+          readonly participant?: string;
+          readonly fromMe?: boolean;
+        };
+        readonly message: { readonly conversation?: string };
+      };
+    },
   ): Promise<unknown> {
     this.sent.push({ jid, content, options });
     return { key: { id: options?.messageId ?? null } };
@@ -72,7 +96,7 @@ function providerMessage(
       fromMe: false,
     },
     messageTimestamp: 1_700_000_000,
-    message: { conversation: "$perfil" },
+    message: { conversation: "/perfil" },
   };
   return { ...base, ...overrides } as Parameters<typeof normalizeBaileysMessage>[0];
 }
@@ -112,7 +136,7 @@ describe("Baileys provider boundary", () => {
       senderRef: "5511999999999@s.whatsapp.net",
       chatRef: "120363000000000000@g.us",
       occurredAt: "2023-11-14T22:13:20.000Z",
-      text: "$perfil",
+      text: "/perfil",
       mediaRefs: [],
       mentions: [],
       replyToExternalMessageId: null,
@@ -263,6 +287,70 @@ describe("BaileysWhatsAppAdapter", () => {
     await expect(adapter.send(outbox({ payload: { text: 123 } }))).rejects.toThrow(
       "requires non-empty text",
     );
+    await adapter.stop();
+  });
+
+  it("quotes the inbound player message when reply metadata is present", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    await adapter.send(
+      outbox({
+        payload: {
+          text: "ROTOM · MENU",
+          replyToExternalMessageId: "wamid-player-command",
+          replyToSenderRef: "5511888888888@s.whatsapp.net",
+          replyToText: "/menu",
+        },
+      }),
+    );
+
+    expect(socket.sent[0]?.options?.quoted).toEqual({
+      key: {
+        remoteJid: "5511999999999@s.whatsapp.net",
+        id: "wamid-player-command",
+        participant: "5511888888888@s.whatsapp.net",
+        fromMe: false,
+      },
+      message: { conversation: "/menu" },
+    });
+    await adapter.stop();
+  });
+
+  it("quotes IMAGE output with the same inbound WhatsApp context", async () => {
+    const socket = new FakeBaileysSocket();
+    const adapter = new BaileysWhatsAppAdapter({
+      auth: authBinding(),
+      socketFactory: () => socket,
+    });
+    await adapter.start(async () => {});
+
+    await adapter.send(
+      outbox({
+        messageType: "IMAGE",
+        payload: {
+          imageUrl: "https://assets.example.com/world/pokemart.png",
+          caption: "Poké Mart",
+          replyToExternalMessageId: "wamid-player-image-command",
+          replyToSenderRef: "5511888888888@s.whatsapp.net",
+          replyToText: "/pokemart",
+        },
+      }),
+    );
+
+    expect(socket.sent[0]?.options?.quoted).toEqual({
+      key: {
+        remoteJid: "5511999999999@s.whatsapp.net",
+        id: "wamid-player-image-command",
+        participant: "5511888888888@s.whatsapp.net",
+        fromMe: false,
+      },
+      message: { conversation: "/pokemart" },
+    });
     await adapter.stop();
   });
 

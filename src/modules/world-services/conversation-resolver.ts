@@ -7,6 +7,11 @@ import type {
   MessageHandlerContext,
   MessageHandlerResult,
 } from "../messaging/contracts.js";
+import {
+  isLikelyMechanicalCommand,
+  parseBinaryConfirmation,
+  parseMenuNumber,
+} from "../messaging/human-input.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
 import type { WorldServiceSessionRecord } from "./contracts.js";
@@ -47,7 +52,9 @@ import {
 } from "./pc-renderer.js";
 import type { PokemonPcStorageService } from "./pc-storage-service.js";
 import {
+  renderCenterEmployeeContinuation,
   renderCenterEmployeeConversation,
+  renderCenterHanaContinuation,
   renderCenterHanaConversation,
   renderMartInsufficientFunds,
   renderMartItemSelection,
@@ -56,6 +63,7 @@ import {
   renderMartSaleSuccess,
   renderMartSaleUnavailable,
 } from "./renderer.js";
+import { qualifiesAsSceneProof } from "./scene-proof.js";
 import type { WorldServiceSessionService } from "./session-service.js";
 
 interface CommunityContextResolver {
@@ -100,15 +108,13 @@ function hasWorldCapability(context: CommunityChatContext): boolean {
   return context.known && context.capabilities.includes("world");
 }
 
-function nonEmptyLineCount(text: string): number {
-  return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
-}
-
 function isSceneProofCandidate(message: IncomingMessage): boolean {
   return (
     message.replyToExternalMessageId === null &&
     message.text !== null &&
-    nonEmptyLineCount(message.text) >= 4
+    !message.text.trim().startsWith("/") &&
+    !message.text.trim().startsWith("$") &&
+    qualifiesAsSceneProof(message.text)
   );
 }
 
@@ -175,12 +181,31 @@ function replyResult(
   });
 }
 
-function emptyReply(session: WorldServiceSessionRecord): Result<MessageHandlerResult> {
+function feedbackResult(
+  context: MessageHandlerContext,
+  session: WorldServiceSessionRecord,
+  text = "Não entendi essa resposta nesta etapa. Confira as opções da mensagem anterior e tente novamente.",
+): Result<MessageHandlerResult> {
   return ok({
     resultRefType: "WORLD_SERVICE_REPLY",
     resultRefId: session.sessionId,
-    outgoing: [],
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.chatRef,
+        messageType: "TEXT",
+        payload: { text },
+        idempotencyKey: `${context.idempotencyKey}:world-service:feedback`,
+      },
+    ],
   });
+}
+
+function emptyReply(
+  context: MessageHandlerContext,
+  session: WorldServiceSessionRecord,
+): Result<MessageHandlerResult> {
+  return feedbackResult(context, session);
 }
 
 export class WorldServiceConversationResolver {
@@ -229,6 +254,14 @@ export class WorldServiceConversationResolver {
     const active = await this.dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return false;
     if (await this.isExactActivePromptReply(message, active.value)) return true;
+    if (
+      active.value !== null &&
+      active.value.expectedReplyOutboxIdempotencyKey !== null &&
+      message.text !== null &&
+      !isLikelyMechanicalCommand(message.text)
+    ) {
+      return true;
+    }
 
     if (!isSceneProofCandidate(message)) return false;
     const location = await this.dependencies.world.getLocation(player.value);
@@ -249,20 +282,34 @@ export class WorldServiceConversationResolver {
 
     const active = await this.dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
-    if (await this.isExactActivePromptReply(context.message, active.value)) {
-      const session = active.value;
-      if (session === null) return ok(null);
+    const session = active.value;
+    const text = context.message.text;
+    const exactPromptReply = await this.isExactActivePromptReply(context.message, session);
+    const hasActivePromptInput =
+      session !== null &&
+      session.expectedReplyOutboxIdempotencyKey !== null &&
+      text !== null &&
+      !isLikelyMechanicalCommand(text);
+
+    if (hasActivePromptInput) {
+      if (session === null || text === null) return ok(null);
+      if (context.message.replyToExternalMessageId !== null && !exactPromptReply) {
+        return feedbackResult(
+          context,
+          session,
+          "Essa resposta cita uma etapa anterior. Responda à mensagem mais recente do bot ou envie sua escolha sem usar reply.",
+        );
+      }
 
       const promptKey = session.expectedReplyOutboxIdempotencyKey;
-      const text = context.message.text;
       if (session.serviceKind === "POKEMART" && promptKey !== null && text !== null) {
         if (isMartSaleListPromptKey(promptKey)) {
           const listReader = this.dependencies.economy?.listSellableInventory;
-          if (listReader === undefined) return emptyReply(session);
+          if (listReader === undefined) return emptyReply(context, session);
           const sellable = await listReader.call(this.dependencies.economy, session.playerId);
           if (!sellable.ok) return sellable;
           const selected = martSaleItemByCode(sellable.value, text);
-          if (selected === null) return emptyReply(session);
+          if (selected === null) return emptyReply(context, session);
           return replyResult(
             context,
             session,
@@ -275,14 +322,15 @@ export class WorldServiceConversationResolver {
         if (saleOfferKey !== null) {
           const listReader = this.dependencies.economy?.listSellableInventory;
           const saleWriter = this.dependencies.economy?.sellQuantity;
-          if (listReader === undefined || saleWriter === undefined) return emptyReply(session);
+          if (listReader === undefined || saleWriter === undefined)
+            return emptyReply(context, session);
 
           const sellable = await listReader.call(this.dependencies.economy, session.playerId);
           if (!sellable.ok) return sellable;
           const selected = martSaleItemByOfferKey(sellable.value, saleOfferKey);
-          if (selected === null) return emptyReply(session);
+          if (selected === null) return emptyReply(context, session);
           const quantity = parseMartSaleQuantityReply(text, selected);
-          if (quantity === null) return emptyReply(session);
+          if (quantity === null) return emptyReply(context, session);
 
           const sold = await saleWriter.call(this.dependencies.economy, {
             playerId: session.playerId,
@@ -319,7 +367,7 @@ export class WorldServiceConversationResolver {
 
         if (isMartCatalogPromptKey(promptKey)) {
           const selected = martItemByCode(text);
-          if (selected === null) return emptyReply(session);
+          if (selected === null) return emptyReply(context, session);
           return replyResult(
             context,
             session,
@@ -331,10 +379,10 @@ export class WorldServiceConversationResolver {
         const offerKey = martQuantityOfferFromPromptKey(promptKey);
         if (offerKey !== null) {
           const selected = martItemByOfferKey(offerKey);
-          if (selected === null) return emptyReply(session);
+          if (selected === null) return emptyReply(context, session);
           const quantity = parseMartQuantityReply(text, selected);
           if (quantity === null || this.dependencies.economy === undefined) {
-            return emptyReply(session);
+            return emptyReply(context, session);
           }
 
           const purchased = await this.dependencies.economy.purchaseQuantity({
@@ -396,8 +444,8 @@ export class WorldServiceConversationResolver {
 
         const withdrawPokemonId = pcWithdrawPokemonFromConfirmPromptKey(promptKey);
         if (withdrawPokemonId !== null) {
-          const choice = text.trim();
-          if (choice === "2" || choice === "02") {
+          const choice = parseBinaryConfirmation(text);
+          if (choice === false) {
             return replyResult(
               context,
               session,
@@ -405,10 +453,12 @@ export class WorldServiceConversationResolver {
               ":center:pc:withdraw:cancelled",
             );
           }
-          if (choice !== "1" && choice !== "01") return emptyReply(session);
+          if (choice !== true) {
+            return feedbackResult(context, session, "Confirme com `1`/sim ou cancele com `2`/não.");
+          }
 
           const withdrawWriter = this.dependencies.pcStorage?.withdraw;
-          if (withdrawWriter === undefined) return emptyReply(session);
+          if (withdrawWriter === undefined) return emptyReply(context, session);
           const withdrawn = await withdrawWriter.call(this.dependencies.pcStorage, {
             playerId: session.playerId,
             pokemonInstanceId: withdrawPokemonId,
@@ -425,11 +475,11 @@ export class WorldServiceConversationResolver {
 
         if (isPcWithdrawListPromptKey(promptKey)) {
           const storageReader = this.dependencies.pcStorage?.getStorage;
-          if (storageReader === undefined) return emptyReply(session);
+          if (storageReader === undefined) return emptyReply(context, session);
           const storage = await storageReader.call(this.dependencies.pcStorage, session.playerId);
           if (!storage.ok) return storage;
           const selected = pcStoredPokemonByCode(storage.value, text);
-          if (selected === null) return emptyReply(session);
+          if (selected === null) return emptyReply(context, session);
           return replyResult(
             context,
             session,
@@ -440,8 +490,8 @@ export class WorldServiceConversationResolver {
 
         const depositPokemonId = pcDepositPokemonFromConfirmPromptKey(promptKey);
         if (depositPokemonId !== null) {
-          const choice = text.trim();
-          if (choice === "2" || choice === "02") {
+          const choice = parseBinaryConfirmation(text);
+          if (choice === false) {
             return replyResult(
               context,
               session,
@@ -449,10 +499,12 @@ export class WorldServiceConversationResolver {
               ":center:pc:deposit:cancelled",
             );
           }
-          if (choice !== "1" && choice !== "01") return emptyReply(session);
+          if (choice !== true) {
+            return feedbackResult(context, session, "Confirme com `1`/sim ou cancele com `2`/não.");
+          }
 
           const depositWriter = this.dependencies.pcStorage?.deposit;
-          if (depositWriter === undefined) return emptyReply(session);
+          if (depositWriter === undefined) return emptyReply(context, session);
           const deposited = await depositWriter.call(this.dependencies.pcStorage, {
             playerId: session.playerId,
             pokemonInstanceId: depositPokemonId,
@@ -469,11 +521,11 @@ export class WorldServiceConversationResolver {
 
         if (isPcDepositListPromptKey(promptKey)) {
           const storageReader = this.dependencies.pcStorage?.getStorage;
-          if (storageReader === undefined) return emptyReply(session);
+          if (storageReader === undefined) return emptyReply(context, session);
           const storage = await storageReader.call(this.dependencies.pcStorage, session.playerId);
           if (!storage.ok) return storage;
           const selected = pcTeamPokemonBySlot(storage.value, text);
-          if (selected === null) return emptyReply(session);
+          if (selected === null) return emptyReply(context, session);
           const destination = previewPcDepositDestination(storage.value);
           return replyResult(
             context,
@@ -484,8 +536,8 @@ export class WorldServiceConversationResolver {
         }
 
         if (promptKey.endsWith(":center:conversation")) {
-          const choice = text.trim();
-          if (choice === "1" || choice === "01") {
+          const choice = parseMenuNumber(text);
+          if (choice === 1) {
             return replyResult(
               context,
               session,
@@ -493,7 +545,7 @@ export class WorldServiceConversationResolver {
               ":center:conversation:hana",
             );
           }
-          if (choice === "2" || choice === "02") {
+          if (choice === 2) {
             return replyResult(
               context,
               session,
@@ -501,16 +553,38 @@ export class WorldServiceConversationResolver {
               ":center:conversation:employee",
             );
           }
-          return emptyReply(session);
+          return feedbackResult(
+            context,
+            session,
+            "Escolha `1` para Enfermeira Hana ou `2` para o funcionário do Centro.",
+          );
+        }
+
+        if (promptKey.endsWith(":center:conversation:hana")) {
+          return replyResult(
+            context,
+            session,
+            renderCenterHanaContinuation(text),
+            ":center:conversation:hana",
+          );
+        }
+
+        if (promptKey.endsWith(":center:conversation:employee")) {
+          return replyResult(
+            context,
+            session,
+            renderCenterEmployeeContinuation(text),
+            ":center:conversation:employee",
+          );
         }
       }
 
-      return emptyReply(session);
+      return emptyReply(context, session);
     }
 
     if (!isSceneProofCandidate(context.message)) return ok(null);
-    const text = context.message.text;
-    if (text === null) return ok(null);
+    const sceneText = context.message.text;
+    if (sceneText === null) return ok(null);
 
     const location = await this.dependencies.world.getLocation(player.value);
     if (!location.ok) return location;
@@ -518,7 +592,7 @@ export class WorldServiceConversationResolver {
       playerId: player.value,
       areaId: location.value.areaId,
       sourceInboxMessageId: context.inboxMessageId,
-      text,
+      text: sceneText,
     });
     if (!proof.ok) return proof;
 

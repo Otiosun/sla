@@ -340,7 +340,7 @@ async function main(): Promise<void> {
     );
 
     // cadastro → starter
-    const menu = await messaging.receive(message("f17-happy-menu", "$menu"));
+    const menu = await messaging.receive(message("f17-happy-menu", "/menu"));
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId === null) {
       throw new Error(`Happy-path initial menu failed: ${JSON.stringify(menu)}`);
     }
@@ -348,11 +348,11 @@ async function main(): Promise<void> {
     if (!parsedPlayerId.ok) throw new Error("Happy-path menu returned invalid PlayerId");
     const playerId = parsedPlayerId.value;
 
-    await receiveProcessed(messaging, "f17-happy-register", "$registrar HappyPath", 1);
-    await receiveProcessed(messaging, "f17-happy-regions", "$regioes", 2);
-    await receiveProcessed(messaging, "f17-happy-region", "$regiao 1", 3);
-    await receiveProcessed(messaging, "f17-happy-starters", "$starters", 4);
-    await receiveProcessed(messaging, "f17-happy-starter", "$starter 1", 5);
+    await receiveProcessed(messaging, "f17-happy-register", "/registrar HappyPath", 1);
+    await receiveProcessed(messaging, "f17-happy-regions", "/regioes", 2);
+    await receiveProcessed(messaging, "f17-happy-region", "/regiao 1", 3);
+    await receiveProcessed(messaging, "f17-happy-starters", "/starters", 4);
+    await receiveProcessed(messaging, "f17-happy-starter", "/starter 1", 5);
 
     const onboarding = await pool.query<{ state: string }>(
       "SELECT state FROM onboarding_states WHERE player_id = $1",
@@ -365,7 +365,7 @@ async function main(): Promise<void> {
     }
 
     // perfil: prove the post-starter user-facing projection, not a second profile mutation.
-    await receiveProcessed(messaging, "f17-happy-profile", "$perfil", 6);
+    await receiveProcessed(messaging, "f17-happy-profile", "/perfil", 6);
     const profileText = await outgoingText(pool, "f17-happy-profile");
     if (!profileText.includes("PERFIL") || !profileText.includes("HappyPath")) {
       throw new Error(`Post-starter profile is not readable: ${profileText}`);
@@ -375,7 +375,7 @@ async function main(): Promise<void> {
       throw new Error(`Starter team projection expected 1 member, got ${team.length}`);
 
     // viajar
-    await receiveProcessed(messaging, "f17-happy-where", "$onde", 7);
+    await receiveProcessed(messaging, "f17-happy-where", "/onde", 7);
     const whereText = await outgoingText(pool, "f17-happy-where");
     const travelMatch = whereText.match(
       /(\d+)\.\s+\*Campos de Yun\*\s*[\r\n]+\s*→\s*`\/ir\s+(\d+)`/i,
@@ -462,7 +462,7 @@ async function main(): Promise<void> {
     const ballView = inventory.find((entry) => entry.itemId === ballItemId);
     if (ballView?.quantity !== 1n)
       throw new Error("Poké Ball is not visible in operational inventory");
-    await receiveProcessed(messaging, "f17-happy-inventory", "$inventario", 9);
+    await receiveProcessed(messaging, "f17-happy-inventory", "/inventario", 9);
     const inventoryText = await outgoingText(pool, "f17-happy-inventory");
     if (!inventoryText.includes("INVENTÁRIO") || !inventoryText.includes(ballView.displayName)) {
       throw new Error(`Granted item is not visible through inventory UX: ${inventoryText}`);
@@ -513,7 +513,7 @@ async function main(): Promise<void> {
     const caughtSpecies = pokedex.find((entry) => entry.caughtCount > 0n);
     if (caughtSpecies === undefined)
       throw new Error("Capture did not establish a caught Pokédex entry");
-    await receiveProcessed(messaging, "f17-happy-pokedex", "$pokedex", 10);
+    await receiveProcessed(messaging, "f17-happy-pokedex", "/pokedex", 10);
     const pokedexText = await outgoingText(pool, "f17-happy-pokedex");
     if (!pokedexText.includes("POKÉDEX") || !pokedexText.includes(caughtSpecies.displayName)) {
       throw new Error(`Caught species is not visible through Pokédex UX: ${pokedexText}`);

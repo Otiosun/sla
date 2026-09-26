@@ -14,6 +14,7 @@ import {
   renderPause,
   renderResumeMenu,
   renderReview,
+  renderStarterOptions,
 } from "./conversation-renderer.js";
 import {
   REGISTRATION_CONVERSATION_FIELDS,
@@ -105,8 +106,29 @@ function persistedReply(
   });
 }
 
+function persistedReplies(
+  context: MessageHandlerContext,
+  playerId: PlayerId,
+  texts: readonly string[],
+): Result<MessageHandlerResult> {
+  if (texts.length === 0) {
+    return err(appError("VALIDATION_FAILED", "Registration reply sequence cannot be empty"));
+  }
+  const baseKey = commandOutboxKey(context);
+  return ok({
+    resultRefType: "REGISTRATION_SESSION",
+    resultRefId: playerId,
+    outgoing: texts.map((text, index) => ({
+      channel: "whatsapp" as const,
+      destinationRef: context.message.chatRef,
+      messageType: "TEXT" as const,
+      payload: { text, replyTo: replyContext(context) },
+      idempotencyKey: index === texts.length - 1 ? baseKey : `${baseKey}:lead:${String(index + 1)}`,
+    })),
+  });
+}
 function noOpenRegistration() {
-  return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `$registrar` para começar."));
+  return err(appError("NOT_FOUND", "Nenhuma ficha está aberta. Use `/registrar` para começar."));
 }
 
 function parseMode(value: string | undefined): RegistrationConversationEditingMode | null {
@@ -116,10 +138,12 @@ function parseMode(value: string | undefined): RegistrationConversationEditingMo
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR");
 
-  if (["1", "guiado", "passo-a-passo", "passo_a_passo", "passo a passo"].includes(normalized)) {
+  if (
+    ["1", "01", "guiado", "passo-a-passo", "passo_a_passo", "passo a passo"].includes(normalized)
+  ) {
     return "GUIDED";
   }
-  if (["2", "completo", "completa", "ficha", "ficha completa"].includes(normalized)) {
+  if (["2", "02", "completo", "completa", "ficha", "ficha completa"].includes(normalized)) {
     return "FULL";
   }
   return null;
@@ -271,7 +295,7 @@ async function resumeDraft(
   if (!draft.ok) {
     return err(
       draft.error.code === "NOT_FOUND"
-        ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `$registrar` para começar.")
+        ? appError("NOT_FOUND", "Nenhum rascunho salvo. Use `/registrar` para começar.")
         : draft.error,
     );
   }
@@ -447,7 +471,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const selected = parseMode(args(context).join(" "));
     if (selected === null) {
-      return err(appError("VALIDATION_FAILED", "Use `$modo guiado` ou `$modo completo`."));
+      return err(appError("VALIDATION_FAILED", "Use `/modo guiado` ou `/modo completo`."));
     }
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -473,14 +497,13 @@ export function createRegistrationWhatsAppRoutesV2(
         expectsReply: true,
       });
       if (!saved.ok) return saved;
-      return persistedReply(
-        context,
-        player.value,
+      return persistedReplies(context, player.value, [
+        renderStarterOptions(starterNames(setup.value)),
         renderFullForm({
           regionDisplayName: setup.value.regionDisplayName,
           starterOptions: starterNames(setup.value),
         }),
-      );
+      ]);
     }
 
     const currentField = firstMissingField(snapshot);
@@ -516,6 +539,13 @@ export function createRegistrationWhatsAppRoutesV2(
     );
   };
 
+  const initials: Handler = async (context) => {
+    const player = await existingPlayer(dependencies, context);
+    if (!player.ok) return player;
+    const setup = await dependencies.setup.load();
+    if (!setup.ok) return setup;
+    return persistedReply(context, player.value, renderStarterOptions(starterNames(setup.value)));
+  };
   const ficha: Handler = async (context) => {
     const player = await existingPlayer(dependencies, context);
     if (!player.ok) return player;
@@ -591,7 +621,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const editArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (editArg !== undefined && editArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$editar` ou `$editar sim`."));
+      return err(appError("VALIDATION_FAILED", "Use `/editar` ou `/editar sim`."));
     }
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -626,7 +656,7 @@ export function createRegistrationWhatsAppRoutesV2(
         return err(
           appError(
             "INVALID_STATE_TRANSITION",
-            "A revisão em análise mudou. Use `$editar` novamente antes de retirar.",
+            "A revisão em análise mudou. Use `/editar` novamente antes de retirar.",
           ),
         );
       }
@@ -689,7 +719,7 @@ export function createRegistrationWhatsAppRoutesV2(
       return persistedReply(
         context,
         player.value,
-        "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `$editar sim`.",
+        "⚠️ Sua ficha está em análise. Para retirar a revisão atual e abrir a edição, use `/editar sim`.",
       );
     }
 
@@ -723,7 +753,7 @@ export function createRegistrationWhatsAppRoutesV2(
 
     const confirmationArg = args(context)[0]?.toLocaleLowerCase("pt-BR");
     if (confirmationArg !== undefined && confirmationArg !== "sim") {
-      return err(appError("VALIDATION_FAILED", "Use `$confirmar` ou `$confirmar sim`."));
+      return err(appError("VALIDATION_FAILED", "Use `/confirmar` ou `/confirmar sim`."));
     }
 
     const conversation = await loadConversation(dependencies, player.value);
@@ -757,7 +787,7 @@ export function createRegistrationWhatsAppRoutesV2(
       return err(
         appError(
           "INVALID_STATE_TRANSITION",
-          "A ficha atual mudou ou ainda não foi revisada. Use `$confirmar` novamente antes de enviar.",
+          "A ficha atual mudou ou ainda não foi revisada. Use `/confirmar` novamente antes de enviar.",
         ),
       );
     }
@@ -781,7 +811,18 @@ export function createRegistrationWhatsAppRoutesV2(
     const playerReply = persistedReply(
       context,
       player.value,
-      "📨 Ficha enviada para análise da equipe. Ela ficou congelada nesta revisão.",
+      [
+        "✦ *𝗙𝗜𝗖𝗛𝗔 𝗘𝗡𝗩𝗜𝗔𝗗𝗔*",
+        "　Recepção · Aguardando análise",
+        "",
+        "> _Seu registro foi entregue à equipe responsável._",
+        "",
+        "A versão enviada ficou preservada enquanto estiver em análise.",
+        "",
+        "◇ Estado · `EM ANÁLISE`",
+        "",
+        "_Você será avisado aqui quando houver uma resposta._",
+      ].join("\n"),
     );
     if (!playerReply.ok) return playerReply;
 
@@ -794,7 +835,14 @@ export function createRegistrationWhatsAppRoutesV2(
           destinationRef: context.message.chatRef,
           messageType: "TEXT",
           payload: {
-            text: `📋 Nova ficha de ${submitted.value.snapshot.trainerName} aguardando revisão. Responda a esta mensagem para revisar a ficha.`,
+            text: [
+              "▣ *𝗡𝗢𝗩𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*",
+              "　Recepção · Revisão administrativa",
+              "",
+              `✦ *${submitted.value.snapshot.trainerName}* concluiu sua ficha.`,
+              "",
+              "› _Responda a esta mensagem com `/verficha` para abrir o registro._",
+            ].join("\n"),
             registrationReview: {
               reviewId: submitted.value.id,
               reviewRevision: submitted.value.revision,
@@ -809,6 +857,7 @@ export function createRegistrationWhatsAppRoutesV2(
   return [
     { command: "registrar", handler: new FunctionalHandler(register), policy: POLICY },
     { command: "modo", handler: new FunctionalHandler(mode), policy: POLICY },
+    { command: "iniciais", handler: new FunctionalHandler(initials), policy: POLICY },
     { command: "ficha", handler: new FunctionalHandler(ficha), policy: POLICY },
     { command: "salvar", handler: new FunctionalHandler(save), policy: POLICY },
     { command: "continuar", handler: new FunctionalHandler(continueDraft), policy: POLICY },

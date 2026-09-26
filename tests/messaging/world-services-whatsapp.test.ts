@@ -14,6 +14,7 @@ import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = createPlayerId();
+const VALID_SCENE = Array.from({ length: 50 }, (_, index) => `palavra${index + 1}`).join(" ");
 const AREA_ID = "00000000-0000-4000-8000-000000000501";
 const CHAT_REF = "120363000000000501@g.us";
 const CURRENT_PROMPT = "WA-WORLD-SERVICE-CURRENT";
@@ -157,7 +158,7 @@ function resolverFixture(session: WorldServiceSessionRecord | null) {
     playerId: PLAYER_ID,
     areaId: AREA_ID,
     sourceInboxMessageId: "00000000-0000-4000-8000-000000000601",
-    lineCount: 4,
+    wordCount: 50,
     createdAt: new Date("2026-09-07T05:40:00.000Z"),
     consumedAt: null,
   };
@@ -246,14 +247,12 @@ describe("World Services WhatsApp", () => {
     });
   });
 
-  it("records a standalone four-line scene proof in the player's current area without speaking", async () => {
+  it("records a standalone 50-word scene proof in the player's current area without speaking", async () => {
     const fixture = resolverFixture(null);
-    const incoming = message("linha 1\nlinha 2\nlinha 3\nlinha 4", null, "scene-proof");
+    const incoming = message(VALID_SCENE, null, "scene-proof");
     expect(await fixture.resolver.admits(incoming)).toBe(true);
 
-    const resolved = await fixture.resolver.resolve(
-      context("linha 1\nlinha 2\nlinha 3\nlinha 4", null, "31"),
-    );
+    const resolved = await fixture.resolver.resolve(context(VALID_SCENE, null, "31"));
 
     expect(resolved).toMatchObject({
       ok: true,
@@ -266,11 +265,11 @@ describe("World Services WhatsApp", () => {
       playerId: PLAYER_ID,
       areaId: AREA_ID,
       sourceInboxMessageId: "00000000-0000-4000-8000-000000000631",
-      text: "linha 1\nlinha 2\nlinha 3\nlinha 4",
+      text: VALID_SCENE,
     });
   });
 
-  it("keeps non-replies, human replies and stale prompt replies silent", async () => {
+  it("admits loose active-prompt input and returns deterministic stale or invalid feedback", async () => {
     const session = activeSession("POKEMART", {
       expectedReplyOutboxIdempotencyKey: EXPECTED_OUTBOX_KEY,
       expectedReplyExternalMessageId: CURRENT_PROMPT,
@@ -283,24 +282,36 @@ describe("World Services WhatsApp", () => {
       message("1", "human-message", "human-reply"),
       message("1", "WA-WORLD-SERVICE-STALE", "stale-reply"),
     ]) {
-      expect(await fixture.resolver.admits(incoming)).toBe(false);
+      expect(await fixture.resolver.admits(incoming)).toBe(true);
     }
 
-    expect(await fixture.resolver.resolve(context("1", null, "41"))).toEqual({
+    const loose = await fixture.resolver.resolve(context("1", null, "41"));
+    expect(loose).toMatchObject({
       ok: true,
-      value: null,
+      value: {
+        resultRefType: "WORLD_SERVICE_REPLY",
+        resultRefId: session.sessionId,
+        outgoing: [{ payload: { text: expect.stringContaining("Não entendi essa resposta") } }],
+      },
     });
-    expect(await fixture.resolver.resolve(context("1", "human-message", "42"))).toEqual({
-      ok: true,
-      value: null,
-    });
-    expect(await fixture.resolver.resolve(context("1", "WA-WORLD-SERVICE-STALE", "43"))).toEqual({
-      ok: true,
-      value: null,
-    });
+
+    for (const [replyId, suffix] of [
+      ["human-message", "42"],
+      ["WA-WORLD-SERVICE-STALE", "43"],
+    ] as const) {
+      const stale = await fixture.resolver.resolve(context("1", replyId, suffix));
+      expect(stale).toMatchObject({
+        ok: true,
+        value: {
+          resultRefType: "WORLD_SERVICE_REPLY",
+          resultRefId: session.sessionId,
+          outgoing: [{ payload: { text: expect.stringContaining("cita uma etapa anterior") } }],
+        },
+      });
+    }
   });
 
-  it("consumes only a reply bound to the exact active service prompt", async () => {
+  it("recognizes an exact active service reply and gives feedback for an unsupported prompt step", async () => {
     const session = activeSession("POKEMART", {
       expectedReplyOutboxIdempotencyKey: EXPECTED_OUTBOX_KEY,
       expectedReplyExternalMessageId: CURRENT_PROMPT,
@@ -317,7 +328,7 @@ describe("World Services WhatsApp", () => {
       value: {
         resultRefType: "WORLD_SERVICE_REPLY",
         resultRefId: session.sessionId,
-        outgoing: [],
+        outgoing: [{ payload: { text: expect.stringContaining("Não entendi essa resposta") } }],
       },
     });
     expect(fixture.replyIntent.isExpectedReply).toHaveBeenCalledWith({

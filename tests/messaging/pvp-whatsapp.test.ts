@@ -6,7 +6,7 @@ describe("PVP WhatsApp routes", () => {
   it("exposes the challenge and acceptance commands", () => {
     const routes = createPvpWhatsAppRoutes({} as never);
     expect(routes.map((route) => route.command)).toEqual(
-      expect.arrayContaining(["desafiar", "aceitar"]),
+      expect.arrayContaining(["desafiar", "aceitar", "recusar", "cancelar"]),
     );
   });
 
@@ -25,8 +25,15 @@ describe("PVP WhatsApp routes", () => {
           }),
         ),
       },
-      pvp: { createChallenge, acceptChallenge: vi.fn(), startEncounter: vi.fn() },
+      pvp: {
+        createChallenge,
+        acceptChallenge: vi.fn(),
+        startEncounter: vi.fn(),
+        declineChallenge: vi.fn(),
+        cancelChallenge: vi.fn(),
+      },
       openChallengeIdForTarget: vi.fn(),
+      openChallengeIdForChallenger: vi.fn(),
     } as never);
     const route = routes.find((entry) => entry.command === "desafiar");
     if (route === undefined) throw new Error("missing route");
@@ -53,7 +60,7 @@ describe("PVP WhatsApp routes", () => {
     if (!result.ok) throw result.error;
     const outgoing = result.value.outgoing[0];
     expect(outgoing?.payload.text).toBe(
-      "⚔️ *@sender desafiou @target.*\n\n@target, `/aceitar` para começar.",
+      "⚔️ *@sender desafiou @target.*\n\n@target, `/aceitar` para começar ou `/recusar`.\nO desafiante pode usar `/cancelar` antes da resposta.",
     );
     expect(outgoing?.payload.mentions).toEqual(["sender@s.whatsapp.net", "target@s.whatsapp.net"]);
     expect(JSON.stringify(result.value.outgoing)).not.toContain("11111111");
@@ -86,8 +93,15 @@ describe("PVP WhatsApp routes", () => {
       players: {
         resolvePlayer: vi.fn(async () => ok({ playerId: targetPlayerId })),
       },
-      pvp: { createChallenge: vi.fn(), acceptChallenge, startEncounter },
+      pvp: {
+        createChallenge: vi.fn(),
+        acceptChallenge,
+        startEncounter,
+        declineChallenge: vi.fn(),
+        cancelChallenge: vi.fn(),
+      },
       openChallengeIdForTarget: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
+      openChallengeIdForChallenger: vi.fn(),
       externalRefForPlayer,
     } as never);
     const route = routes.find((entry) => entry.command === "aceitar");

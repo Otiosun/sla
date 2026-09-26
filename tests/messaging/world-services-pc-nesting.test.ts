@@ -94,7 +94,7 @@ describe("Pokémon Center PC nesting", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "ACTION_INVALID" },
+      error: { code: "FLOW_BLOCKED" },
     });
     expect(fixture.openVisit).not.toHaveBeenCalled();
   });

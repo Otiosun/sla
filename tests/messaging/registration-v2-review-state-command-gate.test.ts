@@ -132,13 +132,27 @@ function route(routes: ReturnType<typeof createRegistrationWhatsAppRoutesV2>, co
   return found;
 }
 
+describe("v2 starter discovery command", () => {
+  it("exposes /iniciais with the canonical configured starter names", async () => {
+    const state = harness();
+    const initials = route(state.routes, "iniciais");
+
+    expect(initials.policy).toEqual({
+      requiredGroupCapabilities: ["onboarding"],
+      allowedPlayerAccess: ["PENDING"],
+    });
+    const result = await initials.handler.handle(context("/iniciais", "iniciais"));
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗜𝗦");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("`01` Charmander");
+  });
+});
 describe("v2 compatibility aliases while a registration review is submitted", () => {
   for (const [command, text] of [
-    ["modo", "$modo completo"],
-    ["ficha", "$ficha"],
-    ["salvar", "$salvar"],
-    ["continuar", "$continuar"],
-    ["confirmar", "$confirmar"],
+    ["modo", "/modo completo"],
+    ["ficha", "/ficha"],
+    ["salvar", "/salvar"],
+    ["continuar", "/continuar"],
+    ["confirmar", "/confirmar"],
   ] as const) {
     it(`${command} reports the pending review without reopening mutable conversation state`, async () => {
       const state = harness();
@@ -159,7 +173,7 @@ describe("v2 compatibility aliases while a registration review is submitted", ()
         },
       });
       expect(result.ok && result.value.outgoing[0]?.payload.text).not.toMatch(
-        /FICHA COMPLETA|FICHA PRONTA PARA REVISÃO|Escolha como prefere|O que deseja corrigir/i,
+        /𝗙𝗜𝗖𝗛𝗔 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗔|𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢|𝗖𝗢𝗠𝗢 𝗣𝗥𝗘𝗙𝗘𝗥𝗘 𝗖𝗥𝗜𝗔𝗥|𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔/i,
       );
       expect(state.checkpoints).toEqual([]);
       expect(state.submitCalls()).toBe(0);

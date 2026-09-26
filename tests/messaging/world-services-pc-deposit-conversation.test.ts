@@ -181,18 +181,19 @@ describe("Pokemon PC deposit conversation", () => {
     });
   });
 
-  it("ignores a stale quoted reply and never reaches PC storage", async () => {
+  it("rejects a stale quoted reply with contextual feedback and preserves PC state", async () => {
     const current = fixture();
     const stale = incoming("01", "WA-PC-DEPOSIT-OLD");
 
-    await expect(current.resolver.admits(stale)).resolves.toBe(false);
+    await expect(current.resolver.admits(stale)).resolves.toBe(true);
     const result = await current.resolver.resolve(context("01", "WA-PC-DEPOSIT-OLD", "02"));
 
     expect(current.getStorage).not.toHaveBeenCalled();
     expect(current.deposit).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toBeNull();
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("etapa anterior");
+    expect(result.value.outgoing[0]?.payload.worldServicePrompt).toBeUndefined();
   });
 
   it("mutates storage only after an exact confirmation reply and renders the applied destination", async () => {
@@ -230,5 +231,31 @@ describe("Pokemon PC deposit conversation", () => {
     if (!result.ok || result.value === null) return;
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢");
     expect(result.value.outgoing[0]?.idempotencyKey).toContain(":center:pc:deposit:cancelled");
+  });
+
+  it("accepts loose sim confirmation without requiring WhatsApp reply", async () => {
+    const current = fixture({
+      promptKey: CONFIRM_PROMPT_KEY,
+      promptId: CONFIRM_PROMPT_ID,
+    });
+
+    const result = await current.resolver.resolve(context("sim", null, "05"));
+
+    expect(current.deposit).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value === null) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗔𝗥𝗠𝗔𝗭𝗘𝗡𝗔𝗗𝗢");
+  });
+
+  it("does not absorb slash or dollar mechanical commands into an active PC prompt", async () => {
+    const current = fixture({
+      promptKey: CONFIRM_PROMPT_KEY,
+      promptId: CONFIRM_PROMPT_ID,
+    });
+
+    await expect(current.resolver.admits(incoming("/menu", null))).resolves.toBe(false);
+    await expect(current.resolver.admits(incoming("$qualquer", null))).resolves.toBe(false);
+    expect(current.getStorage).not.toHaveBeenCalled();
+    expect(current.deposit).not.toHaveBeenCalled();
   });
 });
