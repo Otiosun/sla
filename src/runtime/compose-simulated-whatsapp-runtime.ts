@@ -63,6 +63,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
   const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitCommand: composition.admitRuntimeCommand,
     admitFreeform: composition.admitRuntimeFreeform,
+    normalizeCommandLikeFreeform: composition.normalizeRuntimeCommandLikeFreeform,
     beforeOutboxFlush: composition.runMaintenance,
     ...(options.onIncomingProcessingFailure === undefined
       ? {}
