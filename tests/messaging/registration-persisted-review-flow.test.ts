@@ -46,6 +46,7 @@ function completeDraft(): RegistrationDraftInput {
     appearance: "Cabelos negros e casaco de viagem.",
     personality: "Curiosa e competitiva.",
     backstory: "Saiu de casa para pesquisar Pokémon raros.",
+    profession: "PESQUISADOR",
     starterFormId: CHARMANDER_ID,
     regionId: ZHOULIA_ID,
     schemaVersion: 1,

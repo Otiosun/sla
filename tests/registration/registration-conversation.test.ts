@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderFullForm } from "../../src/modules/registration/conversation-renderer.js";
 import {
   looksLikeFullRegistrationTemplate,
   parseFullRegistrationTemplate,
@@ -84,6 +85,40 @@ describe("RegistrationConversationSessions", () => {
     expect(sessions.applyGuidedAnswer(playerId, "17")).toMatchObject({
       ok: true,
       value: { currentField: "genderPronouns", working: { age: 17 } },
+    });
+  });
+
+  it("resumes legacy em-dash profession drafts at the profession step", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    const started = sessions.start(playerId, {
+      mode: "GUIDED",
+      regionId: ZHOULIA_ID,
+      baseDraft: { ...completedDraft(), profession: "—" },
+    });
+
+    expect(started.currentField).toBe("profession");
+  });
+
+  it("places required profession immediately before the starter in guided mode", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    const draft = completedDraft();
+    const { profession: _profession, starterFormId: _starterFormId, ...beforeProfession } = draft;
+    const started = sessions.start(playerId, {
+      mode: "GUIDED",
+      regionId: ZHOULIA_ID,
+      baseDraft: beforeProfession,
+    });
+
+    expect(started.currentField).toBe("profession");
+    const profession = sessions.applyGuidedAnswer(playerId, "Artesão");
+    expect(profession).toMatchObject({
+      ok: true,
+      value: {
+        currentField: "starterFormId",
+        working: { profession: "ARTESAO" },
+      },
     });
   });
 
@@ -178,6 +213,33 @@ describe("RegistrationConversationSessions", () => {
     });
   });
 
+  it("round-trips the rendered full form without decorative text contaminating fields", () => {
+    const rendered = renderFullForm({
+      regionDisplayName: "Zhoulia",
+      starterOptions: ["Bulbasaur", "Charmander", "Squirtle"],
+    })
+      .replace("*Nome:*", "*Nome:* Emi")
+      .replace("*Idade:*", "*Idade:* 17")
+      .replace("*Gênero / pronomes:*", "*Gênero / pronomes:* ela/dela")
+      .replace("*Personalidade:*", "*Personalidade:* curiosa")
+      .replace("*Profissão:*", "*Profissão:* Artesão")
+      .replace("*Pokémon inicial:*", "*Pokémon inicial:* 02");
+
+    expect(parseFullRegistrationTemplate(rendered)).toMatchObject({
+      ok: true,
+      value: {
+        trainerName: "Emi",
+        age: 17,
+        genderPronouns: "ela/dela",
+        appearance: "—",
+        personality: "curiosa",
+        backstory: "—",
+        profession: "ARTESAO",
+        starterFormId: "02",
+      },
+    });
+  });
+
   it("treats Appearance and História as optional in a complete form", () => {
     const parsed = parseFullRegistrationTemplate(
       [
@@ -185,6 +247,7 @@ describe("RegistrationConversationSessions", () => {
         "Idade: 17",
         "Gênero / pronomes: ela/dela",
         "Personalidade: curiosa",
+        "Profissão: Artesão",
         "Pokémon inicial: 02",
       ].join("\n"),
     );
@@ -195,12 +258,13 @@ describe("RegistrationConversationSessions", () => {
         trainerName: "Emi",
         appearance: "—",
         backstory: "—",
+        profession: "ARTESAO",
         starterFormId: "02",
       },
     });
   });
 
-  it("parses an optional profession without making it required", () => {
+  it("requires a documented profession and rejects empty or unknown values", () => {
     const withProfession = parseFullRegistrationTemplate(
       [
         "Nome: Emi",
@@ -218,6 +282,26 @@ describe("RegistrationConversationSessions", () => {
 
     const invalid = parsePartialRegistrationTemplate("Profissão: astronauta");
     expect(invalid).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
+
+    const missing = parseFullRegistrationTemplate(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+        "Pokémon inicial: 02",
+      ].join("\n"),
+    );
+    expect(missing).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
+
+    const skipped = parsePartialRegistrationTemplate("Profissão: pular");
+    expect(skipped).toMatchObject({
       ok: false,
       error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
     });
@@ -250,6 +334,7 @@ describe("RegistrationConversationSessions", () => {
         "*Aparência:* Cabelos negros.",
         "*Personalidade:* Curiosa.",
         "*História:* Saiu de casa para explorar Zhoulia.",
+        "*Profissão:* Artesão",
         "*Pokémon inicial:* 02",
       ].join("\n"),
     );
@@ -260,6 +345,7 @@ describe("RegistrationConversationSessions", () => {
         trainerName: "Liora Vale",
         age: 17,
         genderPronouns: "ela/dela",
+        profession: "ARTESAO",
         starterFormId: "02",
       },
     });
@@ -274,6 +360,7 @@ describe("RegistrationConversationSessions", () => {
         "Cabelos negros e casaco de viagem.",
         "PERSONALIDADE: Curiosa e competitiva.",
         "História : Saiu de casa para pesquisar Pokémon raros.",
+        "Profissão: Pesquisador",
         `Inicial: ${SQUIRTLE_ID}`,
       ].join("\n"),
     );
@@ -287,6 +374,7 @@ describe("RegistrationConversationSessions", () => {
         appearance: "Cabelos negros e casaco de viagem.",
         personality: "Curiosa e competitiva.",
         backstory: "Saiu de casa para pesquisar Pokémon raros.",
+        profession: "PESQUISADOR",
         starterFormId: SQUIRTLE_ID,
       },
     });
@@ -306,6 +394,7 @@ describe("RegistrationConversationSessions", () => {
         "Cautelosa quando não conhece o lugar.",
         "História: Saiu de casa para pesquisar Pokémon raros.",
         "Passou um ano ajudando no laboratório da cidade.",
+        "Profissão: Pesquisador",
         `Inicial: ${SQUIRTLE_ID}`,
       ].join("\n"),
     );
@@ -326,6 +415,7 @@ describe("RegistrationConversationSessions", () => {
           "Saiu de casa para pesquisar Pokémon raros.",
           "Passou um ano ajudando no laboratório da cidade.",
         ].join("\n"),
+        profession: "PESQUISADOR",
         starterFormId: SQUIRTLE_ID,
       },
     });

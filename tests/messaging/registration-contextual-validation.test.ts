@@ -75,6 +75,7 @@ function completeDraft(): RegistrationDraftInput {
     appearance: "Cabelos negros e casaco de viagem.",
     personality: "Curiosa e competitiva.",
     backstory: "Saiu de casa para pesquisar Pokémon raros.",
+    profession: "PESQUISADOR",
     starterFormId: CHARMANDER_ID,
     regionId: ZHOULIA_ID,
     schemaVersion: 1,
@@ -214,7 +215,7 @@ describe("persisted Registration contextual validation", () => {
 
     const first = await router.dispatch(invalid);
 
-    expectContextualRetry(first, "02 / 07");
+    expectContextualRetry(first, "02 / 08");
     expect(state.checkpoints[0]).toMatchObject({
       state: "GUIDED_FIELD",
       currentField: "age",
@@ -236,7 +237,7 @@ describe("persisted Registration contextual validation", () => {
     expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain(
       "✓ *Idade registrada:* 19",
     );
-    expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain("03 / 07");
+    expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain("03 / 08");
   });
 
   it("keeps an invalid starter in the same guided field with canonical options", async () => {
@@ -256,7 +257,7 @@ describe("persisted Registration contextual validation", () => {
 
     const routed = await router.dispatch(messageContext("999", INITIAL_PROMPT_ID, "13"));
 
-    expectContextualRetry(routed, "07 / 07");
+    expectContextualRetry(routed, "08 / 08");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("`01` Charmander");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("`02` Squirtle");
     expect(state.getConversation()).toMatchObject({

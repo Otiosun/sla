@@ -41,22 +41,8 @@ const PROFESSION_BY_ALIAS = new Map<string, TrainerProfessionId>([
   ["tcg", "COLECIONADOR_TCG"],
 ]);
 
-const EMPTY_ALIASES = new Set([
-  "",
-  "-",
-  "—",
-  "pular",
-  "pula",
-  "depois",
-  "sem",
-  "nenhuma",
-  "nenhum",
-  "sem profissao",
-]);
-
 export function normalizeTrainerProfession(value: string): TrainerProfessionSelection | null {
   const key = normalized(value);
-  if (EMPTY_ALIASES.has(key)) return "—";
   return PROFESSION_BY_ALIAS.get(key) ?? null;
 }
 

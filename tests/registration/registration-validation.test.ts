@@ -11,6 +11,7 @@ const completeDraft = {
   appearance: "Cabelos negros e casaco de viagem.",
   personality: "Curiosa, cautelosa e competitiva.",
   backstory: "Saiu de casa para pesquisar Pokémon raros.",
+  profession: "PESQUISADOR",
   starterFormId: STARTER_FORM_ID,
   regionId: REGION_ID,
   schemaVersion: 1,
@@ -47,6 +48,15 @@ describe("registration draft validation", () => {
     });
   });
 
+  it("requires profession in a completed registration", () => {
+    const { profession: _profession, ...withoutProfession } = completeDraft;
+    const result = validateRegistrationDraft(withoutProfession);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
+  });
+
   it("accepts a documented profession and rejects unknown profession values", () => {
     expect(validateRegistrationDraft({ ...completeDraft, profession: "ARTESAO" })).toMatchObject({
       ok: true,
@@ -58,6 +68,15 @@ describe("registration draft validation", () => {
       profession: "ASTRONAUTA" as never,
     });
     expect(invalid).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
+
+    const legacyEmpty = validateRegistrationDraft({
+      ...completeDraft,
+      profession: "—",
+    });
+    expect(legacyEmpty).toMatchObject({
       ok: false,
       error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
     });

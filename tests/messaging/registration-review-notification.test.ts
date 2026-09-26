@@ -40,6 +40,7 @@ function completedDraft() {
     appearance: "Cabelos negros e casaco de viagem.",
     personality: "Curiosa e competitiva.",
     backstory: "Saiu de casa para pesquisar Pokémon raros.",
+    profession: "PESQUISADOR",
     starterFormId: STARTER_ID,
     regionId: REGION_ID,
     schemaVersion: 1,

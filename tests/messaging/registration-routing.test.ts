@@ -185,6 +185,7 @@ describe("registration conversation routing", () => {
         appearance: "Cabelos negros.",
         personality: "Curiosa.",
         backstory: "Uma história curta.",
+        profession: "PESQUISADOR",
         regionId: ZHOULIA_ID,
         schemaVersion: 1,
       },
@@ -272,6 +273,7 @@ describe("registration conversation routing", () => {
       "Aparência: Cabelos negros e casaco de viagem.",
       "Personalidade: Curiosa e competitiva.",
       "História: Saiu de casa para pesquisar Pokémon raros.",
+      "Profissão: Pesquisador",
       "Inicial: Charmander",
     ].join("\n");
 

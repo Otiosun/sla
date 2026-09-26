@@ -73,6 +73,7 @@ function completeDraft(starterFormId = CHARMANDER_ID): RegistrationDraftInput {
     appearance: "Cabelos negros e casaco de viagem.",
     personality: "Curiosa e competitiva.",
     backstory: "Saiu de casa para pesquisar Pokémon raros.",
+    profession: "PESQUISADOR",
     starterFormId,
     regionId: ZHOULIA_ID,
     schemaVersion: 1,
@@ -217,7 +218,7 @@ describe("persisted Registration conversation state machine", () => {
         ],
       },
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("01 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("01 / 08");
     expect(state.checkpoints).toHaveLength(1);
     expect(state.checkpoints[0]).toMatchObject({
       state: "GUIDED_FIELD",
@@ -277,7 +278,7 @@ describe("persisted Registration conversation state machine", () => {
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
       "✓ *Nome registrado:* Liora Vale",
     );
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 08");
   });
 
   it("lets the guided flow skip flexible Appearance without blocking progression", async () => {
@@ -307,7 +308,7 @@ describe("persisted Registration conversation state machine", () => {
       state: "GUIDED_FIELD",
       currentField: "personality",
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("05 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("05 / 08");
   });
 
   it("moves the final guided starter directly to REVIEW with the canonical starter", async () => {
@@ -350,6 +351,7 @@ describe("persisted Registration conversation state machine", () => {
         "Idade: 17",
         "Gênero / pronomes: ela/dela",
         "Personalidade: curiosa",
+        "Profissão: Pesquisador",
         "Pokémon inicial: 2",
       ].join("\n"),
       null,
@@ -368,6 +370,7 @@ describe("persisted Registration conversation state machine", () => {
       age: 17,
       genderPronouns: "ela/dela",
       personality: "curiosa",
+      profession: "PESQUISADOR",
       starterFormId: SQUIRTLE_ID,
     });
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
@@ -387,9 +390,13 @@ describe("persisted Registration conversation state machine", () => {
 
     const partial = await router.dispatch(
       messageContext(
-        ["Nome: Emi", "Idade: 17", "Gênero / pronomes: ela/dela", "Personalidade: curiosa"].join(
-          "\n",
-        ),
+        [
+          "Nome: Emi",
+          "Idade: 17",
+          "Gênero / pronomes: ela/dela",
+          "Personalidade: curiosa",
+          "Profissão: Pesquisador",
+        ].join("\n"),
         null,
         "11",
       ),
@@ -402,6 +409,7 @@ describe("persisted Registration conversation state machine", () => {
       age: 17,
       genderPronouns: "ela/dela",
       personality: "curiosa",
+      profession: "PESQUISADOR",
     });
     expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("𝗙𝗔𝗟𝗧𝗔 𝗣𝗢𝗨𝗖𝗢");
     expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("Pokémon inicial");
