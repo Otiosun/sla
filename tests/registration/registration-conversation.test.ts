@@ -161,12 +161,9 @@ describe("RegistrationConversationSessions", () => {
 
   it("parses partial full forms without inventing omitted flexible fields", () => {
     const parsed = parsePartialRegistrationTemplate(
-      [
-        "Nome: Emi",
-        "Idade: 17",
-        "Gênero / pronomes: ela/dela",
-        "Personalidade: curiosa",
-      ].join("\n"),
+      ["Nome: Emi", "Idade: 17", "Gênero / pronomes: ela/dela", "Personalidade: curiosa"].join(
+        "\n",
+      ),
     );
 
     expect(parsed).toEqual({
