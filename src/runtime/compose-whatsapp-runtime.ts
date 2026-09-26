@@ -168,6 +168,9 @@ export interface OperationalMessagingComposition {
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
   readonly admitRuntimeCommand: (message: IncomingMessage) => Promise<boolean>;
   readonly admitRuntimeFreeform: (message: IncomingMessage) => Promise<boolean>;
+  readonly normalizeRuntimeCommandLikeFreeform: (
+    message: IncomingMessage,
+  ) => Promise<IncomingMessage | null>;
   readonly runMaintenance: () => Promise<void>;
 }
 
@@ -636,6 +639,21 @@ export function createOperationalMessagingComposition(
         worldServiceConversationResolver.admits(message)
       );
     },
+    normalizeRuntimeCommandLikeFreeform: async (message) => {
+      const text = message.text?.trimStart() ?? "";
+      if (!text.startsWith("/") || text.length <= 1) return null;
+      const group = await community.resolveChat({
+        provider: message.provider,
+        chatRef: message.chatRef,
+      });
+      if (!isReception(group)) return null;
+
+      const normalized: IncomingMessage = {
+        ...message,
+        text: text.slice(1).trimStart(),
+      };
+      return (await registrationConversationResolver.admits(normalized)) ? normalized : null;
+    },
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
@@ -738,6 +756,7 @@ export function createOperationalWhatsAppRuntime(
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitCommand: composition.admitRuntimeCommand,
     admitFreeform: composition.admitRuntimeFreeform,
+    normalizeCommandLikeFreeform: composition.normalizeRuntimeCommandLikeFreeform,
     beforeOutboxFlush: composition.runMaintenance,
     onIncomingProcessingFailure: ({ stage, errorCode, correlationId }) => {
       options.logger.log("ERROR", "whatsapp.inbound.processing_failed", {
