@@ -330,11 +330,17 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
         },
       ],
       species: [],
+      forms: [],
+      effects: [],
+      releases: [],
     });
     expect(adminRewardCatalogGet).toHaveBeenCalledWith("77777777-7777-4777-8777-777777777777", {
       items: true,
       currencies: true,
       species: false,
+      forms: false,
+      effects: false,
+      releases: false,
     });
   });
 
