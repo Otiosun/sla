@@ -55,4 +55,3 @@ export interface AdminRewardCatalogRelease {
   readonly createdAt: string;
   readonly publishedAt: string | null;
 }
-
