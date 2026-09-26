@@ -8,6 +8,7 @@ export interface AdminRewardCatalogSections {
   readonly species: boolean;
   readonly forms: boolean;
   readonly effects: boolean;
+  readonly releases: boolean;
 }
 
 const ALL_REWARD_CATALOG_SECTIONS: AdminRewardCatalogSections = {
@@ -16,6 +17,7 @@ const ALL_REWARD_CATALOG_SECTIONS: AdminRewardCatalogSections = {
   species: true,
   forms: true,
   effects: true,
+  releases: true,
 };
 
 export class AdminRewardCatalogService {
@@ -63,6 +65,13 @@ export class AdminRewardCatalogService {
         input: {},
       });
     }
+    if (sections.releases) {
+      await this.authorizer.authorizeRead({
+        principalId,
+        operationType: "content.release.catalog.read",
+        input: {},
+      });
+    }
 
     const catalog = await this.repository.getActiveRewardCatalog();
     return {
@@ -71,6 +80,7 @@ export class AdminRewardCatalogService {
       species: sections.species ? (catalog.species ?? []) : [],
       forms: sections.forms ? (catalog.forms ?? []) : [],
       effects: sections.effects ? (catalog.effects ?? []) : [],
+      releases: sections.releases ? (catalog.releases ?? []) : [],
     };
   }
 }
