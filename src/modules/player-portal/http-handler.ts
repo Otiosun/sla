@@ -266,11 +266,15 @@ export class PlayerPortalHttpHandler {
         items: admin.capabilities.includes("inventory.read"),
         currencies: admin.capabilities.includes("economy.read"),
         species: admin.capabilities.includes("pokedex.read"),
+        forms: admin.capabilities.includes("pokemon.create"),
+        effects: admin.capabilities.includes("pokemon.edit.mechanics"),
       });
       return jsonResponse(200, {
         items: [...catalog.items],
         currencies: [...catalog.currencies],
         species: [...(catalog.species ?? [])],
+        forms: [...(catalog.forms ?? [])],
+        effects: [...(catalog.effects ?? [])],
       });
     } catch (error) {
       return adminErrorResponse(error);
