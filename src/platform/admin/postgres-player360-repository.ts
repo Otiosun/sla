@@ -159,7 +159,10 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                   location.area_id, location.entered_at,
                   location.revision::text AS location_revision
            FROM players player
-           LEFT JOIN player_profiles profile ON profile.player_id = player.id
+           JOIN player_access access
+             ON access.player_id = player.id
+            AND access.status IN ('ACTIVE', 'SUSPENDED')
+           JOIN player_profiles profile ON profile.player_id = player.id
            LEFT JOIN onboarding_states onboarding ON onboarding.player_id = player.id
            LEFT JOIN player_onboarding_context context ON context.player_id = player.id
            LEFT JOIN trainer_progression progression ON progression.player_id = player.id
@@ -698,7 +701,12 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
         };
 
         if (query.status !== null) {
-          conditions.push(`player.status = ${bind(query.status)}`);
+          const visibleStatus = `CASE
+            WHEN player.status = 'ARCHIVED' THEN 'ARCHIVED'
+            WHEN access.status = 'SUSPENDED' THEN 'SUSPENDED'
+            ELSE 'ACTIVE'
+          END`;
+          conditions.push(`${visibleStatus} = ${bind(query.status)}`);
         }
         if (query.trainerNamePrefix !== null) {
           conditions.push(
@@ -732,7 +740,12 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
         const limit = bind(query.limit + 1);
         const where = conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")}`;
         const result = await client.query<SearchRow>(
-          `SELECT player.id AS player_id, player.status,
+          `SELECT player.id AS player_id,
+                  CASE
+                    WHEN player.status = 'ARCHIVED' THEN 'ARCHIVED'
+                    WHEN access.status = 'SUSPENDED' THEN 'SUSPENDED'
+                    ELSE 'ACTIVE'
+                  END AS status,
                   profile.trainer_name, profile.origin_region_id,
                   progression.level AS trainer_level,
                   progression.progression_points::text,
@@ -743,8 +756,11 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                   battle.status AS active_battle_status,
                   player.created_at
            FROM players player
+           JOIN player_access access
+             ON access.player_id = player.id
+            AND access.status IN ('ACTIVE', 'SUSPENDED')
            JOIN trainer_progression progression ON progression.player_id = player.id
-           LEFT JOIN player_profiles profile ON profile.player_id = player.id
+           JOIN player_profiles profile ON profile.player_id = player.id
            LEFT JOIN player_locations location ON location.player_id = player.id
            LEFT JOIN encounters encounter
              ON encounter.player_id = player.id
