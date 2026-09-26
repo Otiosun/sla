@@ -141,7 +141,7 @@ function fieldInstruction(field: RegistrationConversationField): string {
     case "backstory":
       return "> _Opcional. Pode escrever normalmente ou responder `pular`._";
     case "profession":
-      return "› _Responda com o nome da profissão. Veja as opções no site: https://pokemon-hub-web-self.vercel.app/sistemas/profissoes_";
+      return "› _Responda com o nome da profissão escolhida._";
     case "starterFormId":
       return "› _Responda com o número ou o nome do Pokémon._";
   }
@@ -297,6 +297,7 @@ export function renderFullForm(options: RegistrationFullFormRenderOptions): stri
     "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes",
     `⌖ Região · *${options.regionDisplayName}*`,
     "> _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._",
+    "› _Envie a ficha preenchida._",
     "",
     "*Nome:*",
     "*Idade:*",
