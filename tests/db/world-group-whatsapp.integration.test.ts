@@ -267,14 +267,10 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [group.id],
         )
       ).rows,
-    ).toEqual(
-      ["admin.review", "onboarding", "player.basic", "pve", "pvp", "world"].map(
-        (capability_key) => ({ capability_key }),
-      ),
-    );
+).toEqual([{ capability_key: "admin.review" }, { capability_key: "onboarding" }]);
   });
 
-  it("enables all gameplay in Reception while preserving its role", async () => {
+  it("silently ignores setup commands inside an existing Reception and never broadens gameplay", async () => {
     const id = randomUUID();
     await pool.query(
       "INSERT INTO community_groups(id,provider,chat_ref,role,display_name) VALUES ($1,'baileys','120363900003@g.us','RECEPTION','Recepcao')",
@@ -299,10 +295,6 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [id],
         )
       ).rows,
-    ).toEqual(
-      ["admin.review", "onboarding", "player.basic", "pve", "pvp", "world"].map(
-        (capability_key) => ({ capability_key }),
-      ),
-    );
+).toEqual([{ capability_key: "onboarding" }]);
   });
 });
