@@ -38,7 +38,6 @@ import {
 } from "./conversation-session.js";
 import {
   type RegistrationConversationField as PersistedRegistrationConversationField,
-  REGISTRATION_CONVERSATION_FIELDS,
   type RegistrationConversationRecord,
 } from "./conversation-state.js";
 import type { RegistrationService } from "./service.js";
