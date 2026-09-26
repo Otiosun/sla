@@ -206,8 +206,10 @@ function isRenderedFullFormDecoration(line: string): boolean {
     line === "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes" ||
     line === "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*" ||
     line === "› _Envie a ficha preenchida. Aparência e História podem ficar em branco._" ||
-    line === "› _A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._" ||
-    line === "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._"
+    line ===
+      "› _A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._" ||
+    line ===
+      "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._"
   ) {
     return true;
   }
