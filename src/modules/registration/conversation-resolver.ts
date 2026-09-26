@@ -408,6 +408,16 @@ function parseEditFieldChoice(
   }
 }
 
+const GUIDED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationField[] = [
+  "trainerName",
+  "age",
+  "genderPronouns",
+  "appearance",
+  "personality",
+  "backstory",
+  "starterFormId",
+];
+
 const REQUIRED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationField[] = [
   "trainerName",
   "age",
@@ -454,7 +464,7 @@ function isFlexibleFieldSkip(
 function firstMissingField(
   draft: RegistrationDraftInput,
 ): PersistedRegistrationConversationField | null {
-  for (const field of REGISTRATION_CONVERSATION_FIELDS) {
+  for (const field of GUIDED_REGISTRATION_FIELDS) {
     const value = draft[field];
     if (value === undefined || (typeof value === "string" && value.trim().length === 0)) {
       return field;
