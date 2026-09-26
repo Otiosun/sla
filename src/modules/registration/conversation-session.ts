@@ -159,6 +159,7 @@ function normalizedLabel(value: string): string {
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
     .replace(/[*_`~]/g, "")
+    .replace(/[()]+/g, " ")
     .replace(/^[^a-z0-9]+/g, "")
     .replace(/[^a-z0-9/ ]+$/g, "")
     .replace(/\s+/g, " ")
@@ -220,10 +221,12 @@ function fieldForLabel(label: string): RegistrationConversationField | null {
     case "genero/pronomes":
       return "genderPronouns";
     case "aparencia":
+    case "aparencia opcional":
       return "appearance";
     case "personalidade":
       return "personality";
     case "historia":
+    case "historia opcional":
     case "historia / resumo":
     case "historia/resumo":
     case "resumo":
