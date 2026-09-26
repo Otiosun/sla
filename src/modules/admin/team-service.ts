@@ -1,5 +1,10 @@
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
-import { AdminTeamCapabilityReplaceSchema, type AdminTeamView } from "./team-contracts.js";
+import {
+  AdminTeamAddPrincipalSchema,
+  AdminTeamCapabilityReplaceSchema,
+  AdminTeamReceptionStaffSchema,
+  type AdminTeamView,
+} from "./team-contracts.js";
 import type { AdminTeamRepository } from "./team-ports.js";
 
 export class AdminTeamService {
@@ -25,6 +30,40 @@ export class AdminTeamService {
       this.repository.listCapabilityCatalog(),
     ]);
     return { principals, capabilityCatalog };
+  }
+
+  public async addPrincipal(actorPrincipalId: string, rawInput: unknown) {
+    await this.requireOwner(actorPrincipalId);
+    const parsed = AdminTeamAddPrincipalSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid admin creation request");
+    }
+    const capabilities = [...new Set(["central.view", ...parsed.data.capabilities])].sort();
+    return this.repository.addPrincipal({
+      actorPrincipalId,
+      playerId: parsed.data.playerId,
+      capabilities,
+      reason: parsed.data.reason,
+      receptionStaff: parsed.data.receptionStaff,
+    });
+  }
+
+  public async setReceptionStaff(
+    actorPrincipalId: string,
+    targetPrincipalId: string,
+    rawInput: unknown,
+  ) {
+    await this.requireOwner(actorPrincipalId);
+    const parsed = AdminTeamReceptionStaffSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid Reception staff update");
+    }
+    return this.repository.setReceptionStaff({
+      actorPrincipalId,
+      targetPrincipalId,
+      active: parsed.data.active,
+      reason: parsed.data.reason,
+    });
   }
 
   public async replaceCapabilities(
