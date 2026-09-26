@@ -93,13 +93,7 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
       const capabilities =
         group.role === "RECEPTION"
           ? (["admin.review", "onboarding"] as const)
-          : [
-              ...new Set([
-                ...beforeCapabilities,
-                "player.basic" as const,
-                "world" as const,
-              ]),
-            ].sort();
+          : [...new Set([...beforeCapabilities, "player.basic" as const, "world" as const])].sort();
       if (capabilities.some((capability) => !beforeCapabilities.includes(capability))) {
         const updated = await tx.replaceCapabilities(group.id, capabilities, group.revision);
         if (updated === null)
