@@ -6,8 +6,17 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
   public constructor(private readonly pool: Pool) {}
 
   public async getActiveRewardCatalog(): Promise<AdminRewardCatalogView> {
-    const [items, currencies, species, forms, abilities, natures, formAbilities, effects, releases] =
-      await Promise.all([
+    const [
+      items,
+      currencies,
+      species,
+      forms,
+      abilities,
+      natures,
+      formAbilities,
+      effects,
+      releases,
+    ] = await Promise.all([
       this.pool.query<{
         item_id: string;
         slug: string;
