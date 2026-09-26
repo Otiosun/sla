@@ -16,6 +16,7 @@ import {
   renderGuidedAcknowledgement,
   renderGuidedField,
   renderModeSelect,
+  renderMissingFullFormFields,
   renderPause,
   renderRestartConfirm,
   renderResumeMenu,
@@ -25,7 +26,10 @@ import {
 } from "./conversation-renderer.js";
 import {
   looksLikeFullRegistrationTemplate,
-  parseFullRegistrationTemplate,
+  looksLikeRegistrationTemplate,
+  normalizeRegistrationChoice,
+  parsePartialRegistrationTemplate,
+  parseRegistrationModeChoice,
   type RegistrationConversationField,
   type RegistrationConversationSession,
   type RegistrationConversationSessions,
@@ -314,14 +318,17 @@ function looksLikePersistedUnquotedIntent(
 ): boolean {
   switch (conversation.state) {
     case "MODE_SELECT":
-      return parsePersistedModeChoice(text) !== null;
+      return parseRegistrationModeChoice(text) !== null || looksLikeFullRegistrationTemplate(text);
     case "GUIDED_FIELD":
       return (
         conversation.currentField !== null &&
         looksLikeGuidedUnquotedAnswer(conversation.currentField, text)
       );
     case "FULL_FORM":
-      return looksLikeFullRegistrationTemplate(text);
+      return (
+        looksLikeRegistrationTemplate(text) ||
+        looksLikeGuidedUnquotedAnswer("starterFormId", text)
+      );
     case "REVIEW":
       return ["1", "2", "3"].includes(normalizedChoice(text));
     case "EDIT_SELECT":
@@ -346,8 +353,13 @@ function looksLikeSessionUnquotedIntent(
   session: RegistrationConversationSession,
   text: string,
 ): boolean {
-  if (session.mode === "CHOOSING") return parsePersistedModeChoice(text) !== null;
-  if (session.mode === "FULL") return looksLikeFullRegistrationTemplate(text);
+  if (session.mode === "CHOOSING")
+    return parseRegistrationModeChoice(text) !== null || looksLikeFullRegistrationTemplate(text);
+  if (session.mode === "FULL")
+    return (
+      looksLikeRegistrationTemplate(text) ||
+      looksLikeGuidedUnquotedAnswer("starterFormId", text)
+    );
   return session.currentField !== null && looksLikeGuidedUnquotedAnswer(session.currentField, text);
 }
 function isPersistedStateAwaitingReply(conversation: RegistrationConversationRecord): boolean {
@@ -364,29 +376,7 @@ function isPersistedStateAwaitingReply(conversation: RegistrationConversationRec
 }
 
 function normalizedChoice(value: string): string {
-  const normalized = value
-    .trim()
-    .normalize("NFD")
-    .replace(/\p{M}+/gu, "")
-    .toLocaleLowerCase("pt-BR")
-    .replace(/\s+/g, " ");
-  return /^0+\d+$/.test(normalized) ? String(Number(normalized)) : normalized;
-}
-
-function parsePersistedModeChoice(value: string): "GUIDED" | "FULL" | null {
-  switch (normalizedChoice(value)) {
-    case "1":
-    case "guiado":
-    case "passo a passo":
-      return "GUIDED";
-    case "2":
-    case "completo":
-    case "ficha":
-    case "ficha completa":
-      return "FULL";
-    default:
-      return null;
-  }
+  return normalizeRegistrationChoice(value);
 }
 
 function parseEditFieldChoice(
@@ -412,6 +402,27 @@ function parseEditFieldChoice(
     default:
       return null;
   }
+}
+
+const REQUIRED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationField[] = [
+  "trainerName",
+  "age",
+  "genderPronouns",
+  "personality",
+  "starterFormId",
+];
+
+function missingRequiredFields(
+  draft: RegistrationDraftInput,
+): PersistedRegistrationConversationField[] {
+  return REQUIRED_REGISTRATION_FIELDS.filter((field) => {
+    const value = draft[field];
+    return value === undefined || (typeof value === "string" && value.trim().length === 0);
+  });
+}
+
+function looksLikeStandaloneStarter(value: string): boolean {
+  return looksLikeGuidedUnquotedAnswer("starterFormId", value);
 }
 
 function firstMissingField(
