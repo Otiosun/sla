@@ -144,26 +144,88 @@ function menu(capabilities: readonly string[]): string {
   const lines = [
     "〔◆〕 *CENTRAL ADM · WHATSAPP*",
     "",
-    "As ações abaixo usam o mesmo motor auditado da Central.",
-    "",
+    "Este menu mostra apenas ferramentas compatíveis com seus poderes atuais.",
   ];
-  if (capabilities.includes("wallet.adjust")) {
-    lines.push("• `/adm dinheiro +500 para @jogador | motivo`");
+
+  const batchCapabilities = [
+    "wallet.adjust",
+    "progression.adjust",
+    "inventory.adjust",
+    "pokedex.seen.grant",
+  ];
+  if (batchCapabilities.some((capability) => capabilities.includes(capability))) {
+    lines.push("", "◇ *RECOMPENSAS E AJUSTES*");
+    if (capabilities.includes("wallet.adjust")) {
+      lines.push("• `/adm dinheiro +500 para @jogador | motivo`");
+    }
+    if (capabilities.includes("progression.adjust")) {
+      lines.push("• `/adm xp +50 para @jogador | motivo`");
+    }
+    if (capabilities.includes("inventory.adjust")) {
+      lines.push("• `/adm item potion +2 para @jogador | motivo`");
+    }
+    if (capabilities.includes("pokedex.seen.grant")) {
+      lines.push("• `/adm visto Pikachu para @jogador | motivo`");
+    }
+    lines.push(
+      "↳ Pode mencionar vários jogadores ou separar nomes por vírgula.",
+      "↳ Primeiro vem um preview. Para aplicar, responda ao preview com `/adm confirmar`.",
+    );
   }
-  if (capabilities.includes("progression.adjust")) {
-    lines.push("• `/adm xp +50 para @jogador | motivo`");
+
+  const receptionCapabilities = [
+    "player.registration.read",
+    "player.registration.approve",
+    "player.registration.request_changes",
+    "player.registration.reject",
+  ];
+  if (receptionCapabilities.some((capability) => capabilities.includes(capability))) {
+    lines.push("", "◇ *RECEPÇÃO*");
+    if (capabilities.includes("player.registration.read")) lines.push("• `/verficha`");
+    if (capabilities.includes("player.registration.approve")) lines.push("• `/aprovar`");
+    if (capabilities.includes("player.registration.request_changes")) lines.push("• `/ajustes`");
+    if (capabilities.includes("player.registration.reject")) lines.push("• `/rejeitar`");
+    lines.push("↳ Use respondendo diretamente à notificação da ficha.");
   }
-  if (capabilities.includes("inventory.adjust")) {
-    lines.push("• `/adm item potion +2 para @jogador | motivo`");
+
+  if (capabilities.includes("encounter.support")) {
+    lines.push(
+      "",
+      "◇ *NARRAÇÃO E PVE*",
+      "• `/spawn @treinador` · gerar encontro",
+      "• `/iniciarbatalha @treinador` · transformar encontro em combate",
+      "• `/assumir` · narrador assume o Pokémon selvagem",
+      "• `/automatico` · devolver o selvagem para a IA",
+    );
   }
-  if (capabilities.includes("pokedex.seen.grant")) {
-    lines.push("• `/adm visto Pikachu para @jogador | motivo`");
+
+  if (capabilities.includes("community.group.manage")) {
+    lines.push(
+      "",
+      "◇ *CONFIGURAÇÃO DE GRUPOS*",
+      "• `/grupo jogo Nome do grupo`",
+      "• `/grupo recepcao Nome do grupo`",
+      "↳ Envie dentro do próprio grupo que será configurado.",
+    );
   }
+
+  if (capabilities.includes("UAT_BOOTSTRAP")) {
+    lines.push(
+      "",
+      "◇ *TESTES*",
+      "• `/teste` · menu de testes",
+      "• `/teste eu` · diagnóstico",
+      "• `/teste preparar @jogador` · preparar jogador para UAT",
+    );
+  }
+
   lines.push(
     "",
-    "Pode mencionar vários jogadores ou separar nomes por vírgula.",
-    "O bot sempre mostra um *preview* primeiro.",
-    "Para executar, responda ao preview com `/adm confirmar`.",
+    "◇ *ATALHOS*",
+    "• `/hub` · abrir o Hub / Central",
+    "• `/menu` · comandos gerais do jogo",
+    "",
+    "_Para ver este guia novamente: /adm ajuda ou /adm guia_",
   );
   return lines.join("\n");
 }
@@ -447,7 +509,12 @@ export function createAdminBatchWhatsAppRoutes(
     const admin = resolvedAdmin.value;
     const body = commandBody(context);
 
-    if (body.length === 0 || normalize(body) === "menu" || normalize(body) === "ajuda") {
+    if (
+      body.length === 0 ||
+      normalize(body) === "menu" ||
+      normalize(body) === "ajuda" ||
+      normalize(body) === "guia"
+    ) {
       return textResult(context, menu(admin.capabilities), {}, "menu");
     }
 

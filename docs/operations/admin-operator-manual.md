@@ -6,6 +6,16 @@ This is the canonical operational manual for administrators of the Pokémon RPG 
 
 The source of truth for permissions remains code, especially `src/modules/admin/registry-catalog.ts`, `src/modules/admin/operation-registry.ts`, each domain `*-definitions.ts` file, and the persisted authorization/audit state. This document is an operator guide, not a second permission registry.
 
+### Human-facing guide surfaces
+
+Day-to-day administrators should not need this repository or any code knowledge. The supported human-facing help surfaces are:
+
+- WhatsApp: `/adm`, `/adm ajuda` or `/adm guia` show a capability-aware administrative command menu;
+- Hub: `/admin/guia` provides a searchable, capability-aware manual for Central ADM and the bot command catalog;
+- player commands remain discoverable through `/menu` and are also indexed in the Hub admin guide so staff can support players without reading source code.
+
+These guides may simplify terminology, but they must not claim powers the current principal does not have. Authorization still comes exclusively from the persisted AdminPrincipal, capability and scope model described below.
+
 ## Non-negotiable boundaries
 
 - Do not use raw SQL as the normal administrative interface.
