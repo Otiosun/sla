@@ -432,6 +432,9 @@ function missingRequiredFields(
 ): PersistedRegistrationConversationField[] {
   return REQUIRED_REGISTRATION_FIELDS.filter((field) => {
     const value = draft[field];
+    if (field === "profession") {
+      return typeof value !== "string" || normalizeTrainerProfession(value) === null;
+    }
     return value === undefined || (typeof value === "string" && value.trim().length === 0);
   });
 }
@@ -466,7 +469,11 @@ function firstMissingField(
 ): PersistedRegistrationConversationField | null {
   for (const field of GUIDED_REGISTRATION_FIELDS) {
     const value = draft[field];
-    if (value === undefined || (typeof value === "string" && value.trim().length === 0)) {
+    if (
+      field === "profession"
+        ? typeof value !== "string" || normalizeTrainerProfession(value) === null
+        : value === undefined || (typeof value === "string" && value.trim().length === 0)
+    ) {
       return field;
     }
   }
