@@ -80,9 +80,7 @@ describe("strict Reception messaging scope", () => {
   });
 
   it("makes a scoped-out command produce zero outgoing and never call its handler", async () => {
-    const handler = vi.fn(async () =>
-      ok({ resultRefType: null, resultRefId: null, outgoing: [] }),
-    );
+    const handler = vi.fn(async () => ok({ resultRefType: null, resultRefId: null, outgoing: [] }));
     const router = new MessageRouter(
       [{ command: "menu", handler: { handle: handler } }],
       undefined,
@@ -101,9 +99,7 @@ describe("strict Reception messaging scope", () => {
       ),
     };
     const fallback = {
-      resolve: vi.fn(async () =>
-        ok({ resultRefType: "WORLD", resultRefId: null, outgoing: [] }),
-      ),
+      resolve: vi.fn(async () => ok({ resultRefType: "WORLD", resultRefId: null, outgoing: [] })),
     };
     const resolver = new ReceptionScopedConversationResolver(
       community("RECEPTION"),
@@ -124,9 +120,7 @@ describe("strict Reception messaging scope", () => {
       ),
     };
     const fallback = {
-      resolve: vi.fn(async () =>
-        ok({ resultRefType: "WORLD", resultRefId: null, outgoing: [] }),
-      ),
+      resolve: vi.fn(async () => ok({ resultRefType: "WORLD", resultRefId: null, outgoing: [] })),
     };
     const resolver = new ReceptionScopedConversationResolver(
       community("GAME"),
