@@ -91,6 +91,7 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("Aparência (opcional):");
     expect(text).toContain("Personalidade:");
     expect(text).toContain("História (opcional):");
+    expect(text).toContain("Profissão (opcional):");
     expect(text).toContain("Pokémon inicial:");
     expect(text).toContain("Zhoulia");
     expect(text.toLocaleLowerCase("pt-BR")).toContain("envie a ficha preenchida");
@@ -104,12 +105,14 @@ describe("registration conversation renderer", () => {
       appearance: "Cabelo preto.",
       personality: "Reservado.",
       backstory: "Primeira linha.\nSegunda linha.",
+      profession: "ARTESAO",
       starterDisplayName: "Charmander",
       regionDisplayName: "Zhoulia",
     });
 
     expect(text).toContain("▣ *𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*");
     expect(text).toContain("*Nome:* Killian");
+    expect(text).toContain("*Profissão:* Artesão");
     expect(text).toContain("*Pokémon inicial:* Charmander");
     expect(text).toContain("*Região:* Zhoulia");
     expect(text.toLocaleLowerCase("pt-BR")).toContain("responda com");
@@ -123,7 +126,8 @@ describe("registration conversation renderer", () => {
     const edit = renderEditSelect();
     expect(edit).toContain("✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*");
     expect(edit).toContain("`01` Nome");
-    expect(edit).toContain("`08` Voltar");
+    expect(edit).toContain("`07` Profissão");
+    expect(edit).toContain("`09` Voltar");
     expect(edit.toLocaleLowerCase("pt-BR")).toContain("responda com");
 
     expect(renderPause()).toContain("Seu progresso foi salvo.");

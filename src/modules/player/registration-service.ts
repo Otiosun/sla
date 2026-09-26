@@ -94,7 +94,7 @@ export class PlayerRegistrationService {
           existing !== null &&
           existing.trainerName === profile.trainerName &&
           existing.locale === (profile.locale ?? null) &&
-          Object.keys(existing.metadata).length === 0
+          existing.metadata.profession === profile.metadata.profession
         ) {
           return ok({ playerId, state: "PROFILE_CREATED" });
         }

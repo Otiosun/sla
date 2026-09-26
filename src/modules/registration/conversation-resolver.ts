@@ -6,6 +6,7 @@ import type {
   MessageHandlerContext,
   MessageHandlerResult,
 } from "../messaging/contracts.js";
+import { normalizeTrainerProfession, trainerProfessionDisplayName } from "../player/professions.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 import {
   renderDraftProgress,
@@ -37,7 +38,6 @@ import {
 } from "./conversation-session.js";
 import {
   type RegistrationConversationField as PersistedRegistrationConversationField,
-  REGISTRATION_CONVERSATION_FIELDS,
   type RegistrationConversationRecord,
 } from "./conversation-state.js";
 import type { RegistrationService } from "./service.js";
@@ -307,6 +307,8 @@ function looksLikeGuidedUnquotedAnswer(
     case "personality":
     case "backstory":
       return text.length >= 4 && /\p{L}/u.test(text);
+    case "profession":
+      return normalizeTrainerProfession(text) !== null;
     case "starterFormId":
       return /^(?:#?0*\d+|[\p{L}][\p{L}\p{M}' .-]*)$/u.test(text);
   }
@@ -395,13 +397,25 @@ function parseEditFieldChoice(
     case "6":
       return "backstory";
     case "7":
-      return "starterFormId";
+      return "profession";
     case "8":
+      return "starterFormId";
+    case "9":
       return "BACK";
     default:
       return null;
   }
 }
+
+const GUIDED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationField[] = [
+  "trainerName",
+  "age",
+  "genderPronouns",
+  "appearance",
+  "personality",
+  "backstory",
+  "starterFormId",
+];
 
 const REQUIRED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationField[] = [
   "trainerName",
@@ -428,7 +442,7 @@ function isFlexibleFieldSkip(
   field: PersistedRegistrationConversationField,
   value: string,
 ): boolean {
-  if (field !== "appearance" && field !== "backstory") return false;
+  if (field !== "appearance" && field !== "backstory" && field !== "profession") return false;
   const normalized = normalizedFreeform(value);
   return [
     "-",
@@ -442,13 +456,14 @@ function isFlexibleFieldSkip(
     "sem historia",
     "sem aparência",
     "sem aparencia",
+    "sem profissao",
   ].includes(normalized);
 }
 
 function firstMissingField(
   draft: RegistrationDraftInput,
 ): PersistedRegistrationConversationField | null {
-  for (const field of REGISTRATION_CONVERSATION_FIELDS) {
+  for (const field of GUIDED_REGISTRATION_FIELDS) {
     const value = draft[field];
     if (value === undefined || (typeof value === "string" && value.trim().length === 0)) {
       return field;
@@ -467,6 +482,12 @@ function parseGuidedValue(
     return Number.isSafeInteger(age) && age > 0
       ? ok(age)
       : err(appError("VALIDATION_FAILED", "Idade inválida", { fields: [field] }));
+  }
+  if (field === "profession") {
+    const profession = normalizeTrainerProfession(value);
+    return profession === null
+      ? err(appError("VALIDATION_FAILED", "Profissão inválida", { fields: [field] }))
+      : ok(profession);
   }
   return value.length > 0
     ? ok(value)
@@ -521,6 +542,7 @@ function reviewText(snapshot: RegistrationSnapshot, setup: RegistrationSetup): s
     appearance: snapshot.appearance,
     personality: snapshot.personality,
     backstory: snapshot.backstory,
+    ...(snapshot.profession === undefined ? {} : { profession: snapshot.profession }),
     starterDisplayName: starterDisplayName(snapshot.starterFormId, setup),
     regionDisplayName: setup.regionDisplayName,
   });
@@ -534,6 +556,7 @@ function draftProgressText(draft: RegistrationDraftInput, setup: RegistrationSet
     ...(draft.appearance === undefined ? {} : { appearance: draft.appearance }),
     ...(draft.personality === undefined ? {} : { personality: draft.personality }),
     ...(draft.backstory === undefined ? {} : { backstory: draft.backstory }),
+    ...(draft.profession === undefined ? {} : { profession: draft.profession }),
     ...(draft.starterFormId === undefined
       ? {}
       : { starterDisplayName: starterDisplayName(draft.starterFormId, setup) }),
@@ -952,7 +975,11 @@ export class RegistrationConversationResolver {
       const acknowledgementValue =
         field === "starterFormId"
           ? starterDisplayName(String(parsedValue.value), setup.value)
-          : parsedValue.value;
+          : field === "profession"
+            ? trainerProfessionDisplayName(
+                String(parsedValue.value) as RegistrationDraftInput["profession"],
+              )
+            : parsedValue.value;
       const acknowledgement = renderGuidedAcknowledgement(field, acknowledgementValue);
 
       if (nextField === null) {
@@ -1315,7 +1342,7 @@ export class RegistrationConversationResolver {
           playerId,
           conversation,
           persistedDraft.value.revision,
-          "Escolha um campo de 1 a 7 ou 8 para voltar.",
+          "Escolha um campo de 1 a 8 ou 9 para voltar.",
           renderEditSelect(),
         );
       }
@@ -1409,7 +1436,11 @@ export class RegistrationConversationResolver {
       const acknowledgementValue =
         field === "starterFormId"
           ? starterDisplayName(String(parsedValue.value), setup.value)
-          : parsedValue.value;
+          : field === "profession"
+            ? trainerProfessionDisplayName(
+                String(parsedValue.value) as RegistrationDraftInput["profession"],
+              )
+            : parsedValue.value;
       const acknowledgement = renderEditAcknowledgement(field, acknowledgementValue);
       const saved = await registration.saveConversationCheckpoint({
         playerId,
@@ -1583,6 +1614,9 @@ export class RegistrationConversationResolver {
       ["appearance", parsed.value.appearance],
       ["personality", parsed.value.personality],
       ["backstory", parsed.value.backstory],
+      ...(parsed.value.profession === undefined
+        ? []
+        : [["profession", parsed.value.profession] as const]),
       ["starterFormId", starterFormId.value],
     ] as const satisfies readonly (readonly [RegistrationConversationField, string | number])[];
 

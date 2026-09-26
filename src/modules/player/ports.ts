@@ -4,6 +4,7 @@ import type {
   ExternalIdentity,
   OnboardingRecord,
   PlayerProfileView,
+  PlayerProfileMetadata,
   ProfileInput,
   RosterPlacement,
   StarterBuild,
@@ -15,7 +16,7 @@ import type {
 export interface StoredProfile {
   readonly trainerName: string;
   readonly locale: string | null;
-  readonly metadata: Readonly<Record<string, never>>;
+  readonly metadata: PlayerProfileMetadata;
   readonly originRegionId: string | null;
 }
 

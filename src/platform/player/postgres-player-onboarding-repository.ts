@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import {
   OnboardingStateSchema,
+  PlayerProfileMetadataSchema,
   type PlayerProfileView,
   type RosterPlacement,
   type StarterBuild,
@@ -316,6 +317,7 @@ class PostgresPlayerOnboardingTransaction
       trainer_name: string | null;
       origin_region_id: string | null;
       locale: string | null;
+      metadata: unknown;
       level: number;
       progression_points: string;
       onboarding_state: string;
@@ -325,6 +327,7 @@ class PostgresPlayerOnboardingTransaction
     }>(
       `SELECT player.id AS player_id, player.status AS player_status,
               profile.trainer_name, profile.origin_region_id, profile.locale,
+              COALESCE(profile.metadata, '{}'::jsonb) AS metadata,
               progression.level, progression.progression_points::text,
               onboarding.state AS onboarding_state,
               context.content_release_id, context.ruleset_id,
@@ -361,6 +364,7 @@ class PostgresPlayerOnboardingTransaction
       trainerName: row.trainer_name,
       originRegionId: row.origin_region_id,
       locale: row.locale,
+      profession: PlayerProfileMetadataSchema.parse(row.metadata).profession ?? null,
       trainerLevel: row.level,
       progressionPoints: BigInt(row.progression_points),
       onboardingState: OnboardingStateSchema.parse(row.onboarding_state),

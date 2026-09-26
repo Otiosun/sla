@@ -4,6 +4,8 @@ import {
   type ExternalIdentity,
   type OnboardingRecord,
   OnboardingStateSchema,
+  PlayerProfileMetadataSchema,
+  type PlayerProfileMetadata,
   type ProfileInput,
 } from "../../modules/player/contracts.js";
 import type { StoredProfile } from "../../modules/player/ports.js";
@@ -15,11 +17,12 @@ function asPlayerId(value: string): PlayerId {
   return parsed.value;
 }
 
-function asMetadata(value: unknown): Readonly<Record<string, never>> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Player profile metadata is not an object");
+function asMetadata(value: unknown): PlayerProfileMetadata {
+  const parsed = PlayerProfileMetadataSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("Player profile metadata is invalid");
   }
-  return value as Readonly<Record<string, never>>;
+  return parsed.data;
 }
 
 export class PostgresPlayerRegistrationTransaction {

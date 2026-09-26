@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { normalizeTrainerProfession } from "../player/professions.js";
 import type { RegistrationDraftInput, RegistrationSnapshot } from "./contracts.js";
 
 const uuidSchema = z.string().uuid();
@@ -16,6 +17,9 @@ function normalizedDraft(input: RegistrationDraftInput): RegistrationDraftInput 
     ...(input.backstory === undefined || input.backstory.trim().length === 0
       ? {}
       : { backstory: input.backstory.trim() }),
+    ...(input.profession === undefined
+      ? {}
+      : { profession: normalizeTrainerProfession(input.profession) ?? input.profession }),
     ...(input.starterFormId === undefined ? {} : { starterFormId: input.starterFormId.trim() }),
     regionId: input.regionId.trim(),
     schemaVersion: input.schemaVersion,
@@ -39,6 +43,12 @@ export function normalizeRegistrationDraft(
   }
   if (normalized.personality !== undefined && normalized.personality.length === 0) {
     invalidFields.push("personality");
+  }
+  if (
+    normalized.profession !== undefined &&
+    normalizeTrainerProfession(normalized.profession) === null
+  ) {
+    invalidFields.push("profession");
   }
   if (
     normalized.starterFormId !== undefined &&
@@ -98,6 +108,7 @@ export function validateRegistrationDraft(
     appearance: normalized.appearance ?? "—",
     personality,
     backstory: normalized.backstory ?? "—",
+    ...(normalized.profession === undefined ? {} : { profession: normalized.profession }),
     starterFormId,
     regionId: normalized.regionId,
     schemaVersion: normalized.schemaVersion,
