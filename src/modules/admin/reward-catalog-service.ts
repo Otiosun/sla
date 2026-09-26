@@ -6,9 +6,9 @@ export interface AdminRewardCatalogSections {
   readonly items: boolean;
   readonly currencies: boolean;
   readonly species: boolean;
-  readonly forms: boolean;
-  readonly effects: boolean;
-  readonly releases: boolean;
+  readonly forms?: boolean;
+  readonly effects?: boolean;
+  readonly releases?: boolean;
 }
 
 const ALL_REWARD_CATALOG_SECTIONS: AdminRewardCatalogSections = {
