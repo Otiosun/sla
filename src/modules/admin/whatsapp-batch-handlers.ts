@@ -550,6 +550,9 @@ export function createAdminBatchWhatsAppRoutes(
           items: false,
           currencies: true,
           species: false,
+          forms: false,
+          effects: false,
+          releases: false,
         });
         const currency = chooseCatalogEntry(
           catalog.currencies,
@@ -569,6 +572,9 @@ export function createAdminBatchWhatsAppRoutes(
           items: true,
           currencies: false,
           species: false,
+          forms: false,
+          effects: false,
+          releases: false,
         });
         const item = chooseCatalogEntry(catalog.items, parsed.catalogQuery ?? "");
         if (item === null) {
@@ -585,6 +591,9 @@ export function createAdminBatchWhatsAppRoutes(
           items: false,
           currencies: false,
           species: true,
+          forms: false,
+          effects: false,
+          releases: false,
         });
         const query = parsed.catalogQuery ?? "";
         const nationalDex = /^#?[0-9]+$/.test(query) ? Number(query.replace(/^#/, "")) : null;
