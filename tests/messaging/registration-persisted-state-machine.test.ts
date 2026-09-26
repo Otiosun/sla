@@ -340,9 +340,7 @@ describe("persisted Registration conversation state machine", () => {
       personality: "curiosa",
       starterFormId: SQUIRTLE_ID,
     });
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
-      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
-    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*Aparência:* —");
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*História:* —");
   });
@@ -359,12 +357,9 @@ describe("persisted Registration conversation state machine", () => {
 
     const partial = await router.dispatch(
       messageContext(
-        [
-          "Nome: Emi",
-          "Idade: 17",
-          "Gênero / pronomes: ela/dela",
-          "Personalidade: curiosa",
-        ].join("\n"),
+        ["Nome: Emi", "Idade: 17", "Gênero / pronomes: ela/dela", "Personalidade: curiosa"].join(
+          "\n",
+        ),
         null,
         "11",
       ),
@@ -386,9 +381,7 @@ describe("persisted Registration conversation state machine", () => {
     expect(starter.ok).toBe(true);
     expect(state.getConversation()).toMatchObject({ state: "REVIEW", editingMode: "FULL" });
     expect(state.getDraft()).toMatchObject({ starterFormId: SQUIRTLE_ID });
-    expect(starter.ok && starter.value?.outgoing[0]?.payload.text).toContain(
-      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
-    );
+    expect(starter.ok && starter.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
   });
 
   it("keeps an invalid full form in FULL_FORM and makes the retry the new active prompt", async () => {
