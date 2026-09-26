@@ -321,7 +321,8 @@ try {
     pokedex_caught: string;
     history_count: string;
   }>(
-    `SELECT instance.form_id, instance.level, instance.xp::text, instance.current_hp,
+    `SELECT instance.form_id, instance.nickname, instance.level, instance.xp::text,
+            instance.current_hp, instance.gender, instance.shiny,
             instance.revision::text, instance.ability_id, training.nature_id,
             (SELECT count(*)::text FROM pokemon_move_slots WHERE pokemon_instance_id = instance.id) AS move_count,
             roster.placement_kind, roster.slot_no,
