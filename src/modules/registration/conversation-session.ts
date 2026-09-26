@@ -1,5 +1,6 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { normalizeTrainerProfession, type TrainerProfessionSelection } from "../player/professions.js";
 import type { RegistrationDraftInput } from "./contracts.js";
 
 export type RegistrationEditingMode = "GUIDED" | "FULL";
@@ -11,6 +12,7 @@ export type RegistrationConversationField =
   | "appearance"
   | "personality"
   | "backstory"
+  | "profession"
   | "starterFormId";
 
 export interface RegistrationConversationWorkingDraft {
@@ -20,6 +22,7 @@ export interface RegistrationConversationWorkingDraft {
   readonly appearance?: string;
   readonly personality?: string;
   readonly backstory?: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterFormId?: string;
   readonly regionId: string;
   readonly schemaVersion: number;
@@ -52,6 +55,7 @@ export interface ParsedRegistrationTemplateDraft {
   readonly appearance?: string;
   readonly personality?: string;
   readonly backstory?: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterFormId?: string;
 }
 
@@ -62,6 +66,7 @@ export interface ParsedFullRegistrationTemplate {
   readonly appearance: string;
   readonly personality: string;
   readonly backstory: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterFormId: string;
 }
 
@@ -76,6 +81,7 @@ interface MutableSession {
     appearance?: string;
     personality?: string;
     backstory?: string;
+    profession?: TrainerProfessionSelection;
     starterFormId?: string;
     regionId: string;
     schemaVersion: number;
@@ -92,6 +98,7 @@ const GUIDED_FIELDS: readonly RegistrationConversationField[] = [
   "appearance",
   "personality",
   "backstory",
+  "profession",
   "starterFormId",
 ];
 
@@ -146,6 +153,12 @@ function parseGuidedValue(
     return Number.isSafeInteger(age) && age > 0
       ? ok(age)
       : err(appError("VALIDATION_FAILED", "Idade inválida", { fields: [field] }));
+  }
+  if (field === "profession") {
+    const profession = normalizeTrainerProfession(value);
+    return profession === null
+      ? err(appError("VALIDATION_FAILED", "Profissão inválida", { fields: [field] }))
+      : ok(profession);
   }
   return value.length > 0
     ? ok(value)
@@ -229,6 +242,9 @@ function fieldForLabel(label: string): RegistrationConversationField | null {
     case "historia/resumo":
     case "resumo":
       return "backstory";
+    case "profissao":
+    case "profissao opcional":
+      return "profession";
     case "inicial":
     case "pokemon inicial":
       return "starterFormId";
@@ -317,6 +333,12 @@ export function parsePartialRegistrationTemplate(
   const appearance = values.get("appearance");
   const personality = values.get("personality");
   const backstory = values.get("backstory");
+  const professionRaw = values.get("profession");
+  const profession =
+    professionRaw === undefined ? undefined : normalizeTrainerProfession(professionRaw);
+  if (professionRaw !== undefined && profession === null) {
+    return err(appError("VALIDATION_FAILED", "Profissão inválida", { fields: ["profession"] }));
+  }
   const starterFormId = values.get("starterFormId");
   const parsed: ParsedRegistrationTemplateDraft = {
     ...(trainerName === undefined ? {} : { trainerName }),
@@ -325,6 +347,7 @@ export function parsePartialRegistrationTemplate(
     ...(appearance === undefined ? {} : { appearance }),
     ...(personality === undefined ? {} : { personality }),
     ...(backstory === undefined ? {} : { backstory }),
+    ...(profession === undefined ? {} : { profession }),
     ...(starterFormId === undefined ? {} : { starterFormId }),
   };
   if (Object.keys(parsed).length === 0) {
@@ -371,6 +394,7 @@ export function parseFullRegistrationTemplate(
     appearance: value.appearance ?? "—",
     personality,
     backstory: value.backstory ?? "—",
+    ...(value.profession === undefined ? {} : { profession: value.profession }),
     starterFormId,
   });
 }
@@ -492,6 +516,8 @@ export class RegistrationConversationSessions {
     if (!parsed.ok) return parsed;
     if (field === "age") {
       session.working.age = parsed.value as number;
+    } else if (field === "profession") {
+      session.working.profession = parsed.value as TrainerProfessionSelection;
     } else {
       session.working[field] = parsed.value as string;
     }
@@ -520,6 +546,8 @@ export class RegistrationConversationSessions {
     if (!parsed.ok) return parsed;
     if (field === "age") {
       session.working.age = parsed.value as number;
+    } else if (field === "profession") {
+      session.working.profession = parsed.value as TrainerProfessionSelection;
     } else {
       session.working[field] = parsed.value as string;
     }
