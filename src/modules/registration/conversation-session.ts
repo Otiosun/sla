@@ -180,9 +180,7 @@ export function normalizeRegistrationChoice(rawValue: string): string {
   return numeric?.[1] === undefined ? normalized : String(Number(numeric[1]));
 }
 
-export function parseRegistrationModeChoice(
-  rawValue: string,
-): RegistrationEditingMode | null {
+export function parseRegistrationModeChoice(rawValue: string): RegistrationEditingMode | null {
   const normalized = normalizedLabel(rawValue);
   const numericTokens = [...normalized.matchAll(/(?:^|\s)#?0*([12])(?=\s|$)/g)].map(
     (match) => match[1],
