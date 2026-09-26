@@ -6,7 +6,8 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
   public constructor(private readonly pool: Pool) {}
 
   public async getActiveRewardCatalog(): Promise<AdminRewardCatalogView> {
-    const [items, currencies, species, forms, effects, releases] = await Promise.all([
+    const [items, currencies, species, forms, abilities, natures, formAbilities, effects, releases] =
+      await Promise.all([
       this.pool.query<{
         item_id: string;
         slug: string;
@@ -83,6 +84,46 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
          ORDER BY species.national_dex, form.slug`,
       ),
       this.pool.query<{
+        ability_id: string;
+        slug: string;
+      }>(
+        `SELECT ability.id AS ability_id, ability.slug
+         FROM content_release_pointers pointer
+         JOIN ability_revisions revision
+           ON revision.content_release_id = pointer.content_release_id
+          AND revision.active = TRUE
+         JOIN abilities ability ON ability.id = revision.ability_id
+         WHERE pointer.pointer_key = 'ACTIVE'
+         ORDER BY ability.slug`,
+      ),
+      this.pool.query<{
+        nature_id: string;
+        slug: string;
+      }>(
+        `SELECT nature.id AS nature_id, nature.slug
+         FROM content_release_pointers pointer
+         JOIN nature_revisions revision
+           ON revision.content_release_id = pointer.content_release_id
+          AND revision.active = TRUE
+         JOIN natures nature ON nature.id = revision.nature_id
+         WHERE pointer.pointer_key = 'ACTIVE'
+         ORDER BY nature.slug`,
+      ),
+      this.pool.query<{
+        form_id: string;
+        ability_id: string;
+      }>(
+        `SELECT option.form_id, option.ability_id
+         FROM content_release_pointers pointer
+         JOIN pokemon_form_ability_options option
+           ON option.content_release_id = pointer.content_release_id
+          AND option.active = TRUE
+         WHERE pointer.pointer_key = 'ACTIVE'
+         ORDER BY option.form_id,
+                  CASE option.slot_kind WHEN 'PRIMARY' THEN 1 WHEN 'SECONDARY' THEN 2 ELSE 3 END,
+                  option.ability_id`,
+      ),
+      this.pool.query<{
         effect_id: string;
         slug: string;
         scope: "PLAYER" | "POKEMON" | "BATTLE_PARTICIPANT" | "AREA";
@@ -130,6 +171,13 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
       ),
     ]);
 
+    const abilityIdsByForm = new Map<string, string[]>();
+    for (const row of formAbilities.rows) {
+      const current = abilityIdsByForm.get(row.form_id) ?? [];
+      current.push(row.ability_id);
+      abilityIdsByForm.set(row.form_id, current);
+    }
+
     return {
       items: items.rows.map((row) => ({
         itemId: row.item_id,
@@ -156,6 +204,15 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
         speciesSlug: row.species_slug,
         formSlug: row.form_slug,
         displayName: row.display_name,
+        abilityIds: abilityIdsByForm.get(row.form_id) ?? [],
+      })),
+      abilities: abilities.rows.map((row) => ({
+        abilityId: row.ability_id,
+        slug: row.slug,
+      })),
+      natures: natures.rows.map((row) => ({
+        natureId: row.nature_id,
+        slug: row.slug,
       })),
       effects: effects.rows.map((row) => ({
         effectId: row.effect_id,
