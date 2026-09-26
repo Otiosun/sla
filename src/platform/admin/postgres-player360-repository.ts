@@ -144,7 +144,13 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
       this.pool,
       async (client) => {
         const core = await client.query<CoreRow>(
-          `SELECT player.id, player.status, player.created_at, player.updated_at,
+          `SELECT player.id,
+                  CASE
+                    WHEN player.status = 'ARCHIVED' THEN 'ARCHIVED'
+                    WHEN access.status = 'SUSPENDED' THEN 'SUSPENDED'
+                    ELSE 'ACTIVE'
+                  END AS status,
+                  player.created_at, player.updated_at,
                   player.revision::text AS player_revision,
                   profile.trainer_name, profile.origin_region_id, profile.locale,
                   profile.metadata AS profile_metadata,
