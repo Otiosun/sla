@@ -115,6 +115,32 @@ export function createPhase12AdminOperationRegistry(
   registry.register(
     defineAdminOperation({
       kind: "READ",
+      operationType: "pokemon.form_catalog.read",
+      capabilityKey: "pokemon.create",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "POKEMON_FORM_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
+      operationType: "pokemon.effect_catalog.read",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 0,
+      authorizationMode: "GLOBAL_ONLY",
+      policy: readPolicy,
+      inputSchema: playerCollectionReadSchema,
+      target: () => ({ type: "POKEMON_EFFECT_CATALOG", id: null }),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation({
+      kind: "READ",
       operationType: "admin.operation.audit",
       capabilityKey: "audit.read",
       riskTier: 0,
