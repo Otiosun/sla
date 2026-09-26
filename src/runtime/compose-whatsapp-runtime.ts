@@ -30,6 +30,7 @@ import {
 import { CaptureService } from "../modules/capture/service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
+  isReceptionCommandAllowed,
   ReceptionCommandScopeGate,
   ReceptionScopedConversationResolver,
 } from "../modules/community/reception-message-scope.js";
@@ -37,7 +38,7 @@ import {
   type ReceptionMembershipEvent,
   ReceptionMembershipService,
 } from "../modules/community/reception-membership.js";
-import { ReceptionService } from "../modules/community/reception-service.js";
+import { isReception, ReceptionService } from "../modules/community/reception-service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../modules/community/service.js";
 import {
@@ -161,7 +162,7 @@ export interface OperationalMessagingComposition {
   readonly pveBattle: ReturnType<typeof createPveBattleRuntime> | null;
   readonly onMembership: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly router: MessageRouter;
-  readonly admitCommand: (message: IncomingMessage) => boolean;
+  readonly admitCommand: (message: IncomingMessage) => boolean | Promise<boolean>;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
   readonly runMaintenance: () => Promise<void>;
 }
@@ -584,10 +585,30 @@ export function createOperationalMessagingComposition(
     pveBattle,
     router,
     onMembership: (event) => receptionMembership.handle(event),
-    admitCommand: (message) => router.admitsCommand(message),
-    admitFreeform: async (message) =>
-      (await registrationConversationResolver.admits(message)) ||
-      worldServiceConversationResolver.admits(message),
+    admitCommand: (message) => {
+      if (!router.admitsCommand(message)) return false;
+      const command = router.classify(message).command;
+      if (command !== null && isReceptionCommandAllowed(command)) return true;
+      return community
+        .resolveChat({
+          provider: message.provider,
+          chatRef: message.chatRef,
+        })
+        .then((group) => !isReception(group));
+    },
+    admitFreeform: async (message) => {
+      const group = await community.resolveChat({
+        provider: message.provider,
+        chatRef: message.chatRef,
+      });
+      if (isReception(group)) {
+        return receptionConversationResolver.admits(message);
+      }
+      return (
+        (await registrationConversationResolver.admits(message)) ||
+        worldServiceConversationResolver.admits(message)
+      );
+    },
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
