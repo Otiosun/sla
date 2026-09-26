@@ -321,6 +321,38 @@ try {
     ownerId,
     ownerRoleId,
   ]);
+
+  for (const [playerId, trainerName] of playerRows) {
+    const reviewId = randomUUID();
+    await pool.query(
+      `INSERT INTO registration_revisions(
+         id, player_id, sequence_no, status, schema_version, snapshot_json,
+         decided_by_admin_principal_id, decided_at
+       ) VALUES ($1, $2, 1, 'APPROVED', 1, $3::jsonb, $4, now())`,
+      [reviewId, playerId, JSON.stringify({ trainerName }), ownerId],
+    );
+    await pool.query(
+      `INSERT INTO player_access(player_id, status, approved_review_id, revision)
+       VALUES ($1, 'ACTIVE', $2, 1)`,
+      [playerId, reviewId],
+    );
+  }
+
+  const pendingPlayerId = randomUUID();
+  await pool.query(
+    `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`,
+    [pendingPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO trainer_progression(player_id, level, progression_points)
+     VALUES ($1, 1, 0)`,
+    [pendingPlayerId],
+  );
+  await pool.query(
+    `INSERT INTO player_identities(id, player_id, provider, external_id, status)
+     VALUES ($1, $2, 'WHATSAPP', $3, 'ACTIVE')`,
+    [randomUUID(), pendingPlayerId, 'proof:pending'],
+  );
   for (const id of [globalSupportId, ownerId]) {
     await pool.query(
       `INSERT INTO admin_principal_scopes(id, principal_id, scope_type, scope_id)
@@ -411,6 +443,9 @@ try {
   const allPageIds = [...firstPage.items, ...secondPage.items].map((item) => item.playerId);
   if (new Set(allPageIds).size !== 3 || allPageIds[0] !== targetPlayerId) {
     throw new Error("Player 360 cursor pagination repeated, skipped or reordered players");
+  }
+  if (allPageIds.includes(pendingPlayerId)) {
+    throw new Error("Player 360 search leaked an unapproved registration foundation");
   }
 
   try {
