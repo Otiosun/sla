@@ -25,6 +25,7 @@ export interface AdminRewardCatalogView {
   readonly species?: readonly AdminRewardCatalogSpecies[];
   readonly forms?: readonly AdminRewardCatalogForm[];
   readonly effects?: readonly AdminRewardCatalogEffect[];
+  readonly releases?: readonly AdminRewardCatalogRelease[];
 }
 
 export interface AdminRewardCatalogForm {
@@ -40,5 +41,19 @@ export interface AdminRewardCatalogEffect {
   readonly effectId: string;
   readonly slug: string;
   readonly scope: "PLAYER" | "POKEMON" | "BATTLE_PARTICIPANT" | "AREA";
+}
+
+
+export interface AdminRewardCatalogRelease {
+  readonly releaseId: string;
+  readonly releaseNo: string;
+  readonly name: string;
+  readonly status: "DRAFT" | "VALIDATED" | "PUBLISHED" | "ARCHIVED";
+  readonly revision: string;
+  readonly parentReleaseId: string | null;
+  readonly defaultRulesetId: string;
+  readonly active: boolean;
+  readonly createdAt: string;
+  readonly publishedAt: string | null;
 }
 
