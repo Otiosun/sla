@@ -84,6 +84,39 @@ describe("WhatsApp runtime command prefixes", () => {
     expect(fixture.receive).toHaveBeenCalledWith(message);
   });
 
+  it("can reinterpret an unknown slash-prefixed registration reply as scoped freeform", async () => {
+    const adapter = new FakeWhatsAppAdapter();
+    const receive = vi.fn(async () =>
+      ok({
+        status: "PROCESSED",
+        inboxMessageId: "inbox",
+        correlationId: "correlation",
+        resultRefType: null,
+        resultRefId: null,
+      }),
+    );
+    const normalized = incoming("02");
+    const normalizeCommandLikeFreeform = vi.fn(async () => normalized);
+    const runtime = new WhatsAppMessagingRuntime(
+      adapter,
+      { receive } as unknown as MessagingService,
+      { runOnce: vi.fn() } as unknown as OutboxWorker,
+      {
+        admitCommand: vi.fn(async () => false),
+        admitFreeform: vi.fn(async () => false),
+        normalizeCommandLikeFreeform,
+      },
+    );
+    const original = incoming("/02");
+    await runtime.start();
+
+    await adapter.emit(original);
+
+    expect(normalizeCommandLikeFreeform).toHaveBeenCalledWith(original);
+    expect(receive).toHaveBeenCalledOnce();
+    expect(receive).toHaveBeenCalledWith(normalized);
+  });
+
   it("preserves dollar-prefixed command admission", async () => {
     const fixture = runtimeFixture();
     const message = incoming("/pokemart");
