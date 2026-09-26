@@ -265,7 +265,17 @@ try {
   const createPrepared = await admin.prepareMutation({
     principalId,
     operationType: "pokemon.create",
-    input: { playerId, formId, level: 5 },
+    input: {
+      playerId,
+      formId,
+      level: 5,
+      nickname: "Admin Gift",
+      shiny: true,
+      gender: "F",
+      natureId,
+      abilityId,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: 1 },
+    },
     reason: "Restore missing owned Pokemon after support incident",
     idempotencyKey: `pokemon-create-${randomUUID()}`,
     correlationId: createCorrelationId,
@@ -296,9 +306,12 @@ try {
 
   const created = await pool.query<{
     form_id: string;
+    nickname: string | null;
     level: number;
     xp: string;
     current_hp: number;
+    gender: string | null;
+    shiny: boolean;
     revision: string;
     ability_id: string | null;
     nature_id: string | null;
@@ -325,9 +338,12 @@ try {
   const createdRow = created.rows[0];
   if (
     createdRow?.form_id !== formId ||
+    createdRow.nickname !== "Admin Gift" ||
     createdRow.level !== 5 ||
     createdRow.xp !== "0" ||
     createdRow.current_hp <= 0 ||
+    createdRow.gender !== "F" ||
+    createdRow.shiny !== true ||
     createdRow.revision !== "0" ||
     createdRow.ability_id !== abilityId ||
     createdRow.nature_id !== natureId ||
@@ -345,6 +361,12 @@ try {
     playerId,
     formId,
     level: 5,
+    nickname: "Admin Gift",
+    shiny: true,
+    gender: "F",
+    natureId,
+    abilityId,
+    target: { placementKind: "TEAM", boxNo: null, slotNo: 1 },
     idempotencyKey: createPrepared.operation.id,
     correlationId: createCorrelationId,
     metadata: {
@@ -366,6 +388,12 @@ try {
     playerId,
     formId,
     level: 6,
+    nickname: "Admin Gift",
+    shiny: true,
+    gender: "F",
+    natureId,
+    abilityId,
+    target: { placementKind: "TEAM", boxNo: null, slotNo: 1 },
     idempotencyKey: createPrepared.operation.id,
     correlationId: createCorrelationId,
     metadata: {
