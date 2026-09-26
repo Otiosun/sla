@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   looksLikeFullRegistrationTemplate,
   parseFullRegistrationTemplate,
+  parsePartialRegistrationTemplate,
+  parseRegistrationModeChoice,
   RegistrationConversationSessions,
 } from "../../src/modules/registration/conversation-session.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
@@ -146,6 +148,57 @@ describe("RegistrationConversationSessions", () => {
     expect(changed).toMatchObject({
       ok: true,
       value: { persistedRevision: 3, dirty: true, currentField: "genderPronouns" },
+    });
+  });
+
+  it("accepts human mode variants used in the real Reception", () => {
+    expect(parseRegistrationModeChoice("01")).toBe("GUIDED");
+    expect(parseRegistrationModeChoice("/02")).toBe("FULL");
+    expect(parseRegistrationModeChoice("#2")).toBe("FULL");
+    expect(parseRegistrationModeChoice("quero o 2")).toBe("FULL");
+    expect(parseRegistrationModeChoice("vou de modo guiado")).toBeNull();
+  });
+
+  it("parses partial full forms without inventing omitted flexible fields", () => {
+    const parsed = parsePartialRegistrationTemplate(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+      ].join("\n"),
+    );
+
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        trainerName: "Emi",
+        age: 17,
+        genderPronouns: "ela/dela",
+        personality: "curiosa",
+      },
+    });
+  });
+
+  it("treats Appearance and História as optional in a complete form", () => {
+    const parsed = parseFullRegistrationTemplate(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+        "Pokémon inicial: 02",
+      ].join("\n"),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        trainerName: "Emi",
+        appearance: "—",
+        backstory: "—",
+        starterFormId: "02",
+      },
     });
   });
 
