@@ -3,6 +3,7 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { AuditedRegistrationReviewService } from "./admin-review-service.js";
+import { trainerProfessionDisplayName } from "../player/professions.js";
 import type { RegistrationRevisionRecord, RegistrationRevisionStatus } from "./ports.js";
 
 interface RegistrationReviewMessageRef {
@@ -140,6 +141,8 @@ function reviewText(
     `*Personalidade:* ${review.snapshot.personality}`,
     "",
     `*História:* ${review.snapshot.backstory}`,
+    "",
+    `*Profissão:* ${trainerProfessionDisplayName(review.snapshot.profession)}`,
     "",
     "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
     "",

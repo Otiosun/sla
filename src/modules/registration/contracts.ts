@@ -1,3 +1,5 @@
+import type { TrainerProfessionSelection } from "../player/professions.js";
+
 export interface RegistrationDraftInput {
   readonly trainerName?: string;
   readonly age?: number;
@@ -5,6 +7,7 @@ export interface RegistrationDraftInput {
   readonly appearance?: string;
   readonly personality?: string;
   readonly backstory?: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterFormId?: string;
   readonly regionId: string;
   readonly schemaVersion: number;
@@ -17,6 +20,7 @@ export interface RegistrationSnapshot {
   readonly appearance: string;
   readonly personality: string;
   readonly backstory: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterFormId: string;
   readonly regionId: string;
   readonly schemaVersion: number;
