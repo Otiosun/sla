@@ -88,6 +88,18 @@ describe("RegistrationConversationSessions", () => {
     });
   });
 
+  it("resumes legacy em-dash profession drafts at the profession step", () => {
+    const playerId = createPlayerId();
+    const sessions = new RegistrationConversationSessions();
+    const started = sessions.start(playerId, {
+      mode: "GUIDED",
+      regionId: ZHOULIA_ID,
+      baseDraft: { ...completedDraft(), profession: "—" },
+    });
+
+    expect(started.currentField).toBe("profession");
+  });
+
   it("places required profession immediately before the starter in guided mode", () => {
     const playerId = createPlayerId();
     const sessions = new RegistrationConversationSessions();
