@@ -80,7 +80,10 @@ interface PlayerPortalHttpDependencies {
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
   readonly adminRewardCatalog: Pick<AdminRewardCatalogService, "get">;
-  readonly adminTeam?: Pick<AdminTeamService, "isOwner" | "list" | "replaceCapabilities">;
+  readonly adminTeam?: Pick<
+    AdminTeamService,
+    "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
+  >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
 }
 
@@ -111,10 +114,19 @@ export class PlayerPortalHttpHandler {
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/team") {
       return this.withSession(request, (identity) => this.getAdminTeam(identity));
     }
+    if (request.method === "POST" && url.pathname === "/v1/hub/admin/team") {
+      return this.withSession(request, (identity) => this.addAdminTeamPrincipal(request, identity));
+    }
     const adminTeamTarget = adminTeamCapabilityTargetFromPath(url.pathname);
     if (request.method === "PUT" && adminTeamTarget !== null) {
       return this.withSession(request, (identity) =>
         this.replaceAdminTeamCapabilities(request, adminTeamTarget, identity),
+      );
+    }
+    const receptionStaffTarget = adminTeamReceptionStaffTargetFromPath(url.pathname);
+    if (request.method === "PUT" && receptionStaffTarget !== null) {
+      return this.withSession(request, (identity) =>
+        this.setAdminTeamReceptionStaff(request, receptionStaffTarget, identity),
       );
     }
     if (request.method === "POST" && url.pathname === "/v1/hub/admin/operations") {
@@ -292,6 +304,47 @@ export class PlayerPortalHttpHandler {
         principals: [...team.principals],
         capabilityCatalog: [...team.capabilityCatalog],
       });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async addAdminTeamPrincipal(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+    const body = await readJsonBody(request);
+    if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    try {
+      const principal = await adminTeam.addPrincipal(admin.principalId, body);
+      return jsonResponse(201, { principal });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async setAdminTeamReceptionStaff(
+    request: Request,
+    targetPrincipalId: string,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+    const body = await readJsonBody(request);
+    if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    try {
+      const principal = await adminTeam.setReceptionStaff(
+        admin.principalId,
+        targetPrincipalId,
+        body,
+      );
+      return jsonResponse(200, { principal });
     } catch (error) {
       return adminErrorResponse(error);
     }
@@ -777,6 +830,13 @@ function jsonResponse(
       ...extraHeaders,
     },
   });
+}
+
+function adminTeamReceptionStaffTargetFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/team\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/reception-staff$/i,
+  );
+  return match?.[1] ?? null;
 }
 
 function adminTeamCapabilityTargetFromPath(pathname: string): string | null {
