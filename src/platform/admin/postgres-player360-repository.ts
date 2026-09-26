@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { BattleStateSchema } from "../../modules/battle/contracts.js";
 import {
   type Player360ActivityView,
   type Player360BattleView,
@@ -381,12 +382,17 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
             created_at: Date;
             updated_at: Date;
             ended_at: Date | null;
+            battle_state: unknown | null;
           }>(
             `SELECT DISTINCT battle.id, battle.status, battle.battle_type, battle.encounter_id,
                     battle.content_release_id, battle.ruleset_id, battle.turn_number,
-                    battle.version::text, battle.created_at, battle.updated_at, battle.ended_at
+                    battle.version::text, battle.created_at, battle.updated_at, battle.ended_at,
+                    snapshot.state AS battle_state
              FROM battles battle
              JOIN battle_sides side ON side.battle_id = battle.id
+             LEFT JOIN battle_state_snapshots snapshot
+               ON snapshot.battle_id = battle.id
+              AND snapshot.version = battle.version
              WHERE side.player_id = $1
                AND battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
              ORDER BY battle.created_at DESC, battle.id DESC
@@ -587,6 +593,13 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
               };
 
         const battleRow = battleRows.rows[0];
+        const battleState =
+          battleRow?.battle_state === null || battleRow?.battle_state === undefined
+            ? null
+            : BattleStateSchema.parse(battleRow.battle_state);
+        const playerBattleSide =
+          battleState?.sides.find((side) => side.playerId === playerId) ?? null;
+        const playerParticipantIds = new Set(playerBattleSide?.participantIds ?? []);
         const activeBattle: Player360BattleView | null =
           battleRow === undefined
             ? null
@@ -602,6 +615,28 @@ export class PostgresPlayer360Repository implements Player360ReadRepository {
                 createdAt: iso(battleRow.created_at),
                 updatedAt: iso(battleRow.updated_at),
                 endedAt: isoNullable(battleRow.ended_at),
+                participants:
+                  battleState?.combatants
+                    .filter((combatant) => playerParticipantIds.has(combatant.participantId))
+                    .map((combatant) => ({
+                      participantId: combatant.participantId,
+                      pokemonInstanceId: combatant.pokemonInstanceId,
+                      level: combatant.level,
+                      currentHp: combatant.currentHp,
+                      maxHp: combatant.maxHp,
+                      majorStatus:
+                        combatant.majorStatus === null
+                          ? null
+                          : {
+                              key: combatant.majorStatus.key,
+                              counter: combatant.majorStatus.counter,
+                            },
+                      moves: combatant.moves.map((move) => ({
+                        slotNo: move.slotNo,
+                        ppCurrent: move.ppCurrent,
+                        maxPp: move.maxPp,
+                      })),
+                    })) ?? [],
               };
 
         const effects: Player360EffectView[] = effectRows.rows.map((entry) => ({
