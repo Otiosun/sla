@@ -6,7 +6,7 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
   public constructor(private readonly pool: Pool) {}
 
   public async getActiveRewardCatalog(): Promise<AdminRewardCatalogView> {
-    const [items, currencies, species] = await Promise.all([
+    const [items, currencies, species, forms, effects] = await Promise.all([
       this.pool.query<{
         item_id: string;
         slug: string;
@@ -53,6 +53,51 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
          WHERE pointer.pointer_key = 'ACTIVE'
          ORDER BY species.national_dex, species.slug`,
       ),
+      this.pool.query<{
+        form_id: string;
+        species_id: string;
+        national_dex: number;
+        species_slug: string;
+        form_slug: string;
+        display_name: string;
+      }>(
+        `SELECT form.id AS form_id,
+                species.id AS species_id,
+                species.national_dex,
+                species.slug AS species_slug,
+                form.slug AS form_slug,
+                COALESCE(form_revision.display_name, species_revision.display_name) AS display_name
+         FROM content_release_pointers pointer
+         JOIN pokemon_forms form ON TRUE
+         JOIN pokemon_species species ON species.id = form.species_id
+         JOIN pokemon_species_revisions species_revision
+           ON species_revision.content_release_id = pointer.content_release_id
+          AND species_revision.species_id = species.id
+          AND species_revision.active = TRUE
+         LEFT JOIN pokemon_form_revisions form_revision
+           ON form_revision.content_release_id = pointer.content_release_id
+          AND form_revision.form_id = form.id
+          AND form_revision.active = TRUE
+         WHERE pointer.pointer_key = 'ACTIVE'
+           AND (form_revision.id IS NOT NULL OR form.slug = 'default')
+         ORDER BY species.national_dex, form.slug`,
+      ),
+      this.pool.query<{
+        effect_id: string;
+        slug: string;
+        scope: "PLAYER" | "POKEMON" | "BATTLE_PARTICIPANT" | "AREA";
+      }>(
+        `SELECT effect.id AS effect_id,
+                effect.slug,
+                revision.scope
+         FROM content_release_pointers pointer
+         JOIN effect_revisions revision
+           ON revision.content_release_id = pointer.content_release_id
+          AND revision.active = TRUE
+         JOIN effects effect ON effect.id = revision.effect_id
+         WHERE pointer.pointer_key = 'ACTIVE'
+         ORDER BY effect.slug`,
+      ),
     ]);
 
     return {
@@ -73,6 +118,19 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
         nationalDex: row.national_dex,
         slug: row.slug,
         displayName: row.display_name,
+      })),
+      forms: forms.rows.map((row) => ({
+        formId: row.form_id,
+        speciesId: row.species_id,
+        nationalDex: row.national_dex,
+        speciesSlug: row.species_slug,
+        formSlug: row.form_slug,
+        displayName: row.display_name,
+      })),
+      effects: effects.rows.map((row) => ({
+        effectId: row.effect_id,
+        slug: row.slug,
+        scope: row.scope,
       })),
     };
   }
