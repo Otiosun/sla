@@ -300,7 +300,10 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
         throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, "Admin principal not found");
       }
       if (target.rows[0].status !== "ACTIVE" && input.active) {
-        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Disabled admin cannot serve Reception");
+        throw new AdminError(
+          ADMIN_ERROR_CODES.INVALID_INPUT,
+          "Disabled admin cannot serve Reception",
+        );
       }
 
       if (input.active) {
@@ -348,10 +351,9 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
          SET active = EXCLUDED.active, updated_at = now()`,
         [groupId, input.targetPrincipalId, input.active],
       );
-      await client.query(
-        `UPDATE admin_principals SET revision = revision + 1 WHERE id = $1`,
-        [input.targetPrincipalId],
-      );
+      await client.query(`UPDATE admin_principals SET revision = revision + 1 WHERE id = $1`, [
+        input.targetPrincipalId,
+      ]);
 
       await client.query(
         `INSERT INTO audit_events(
