@@ -112,8 +112,7 @@ async function main(): Promise<void> {
     const allGreen =
       result.rows.length > 0 &&
       result.rows.every(
-        (row) =>
-          row.has_admin_review && row.assigned_staff > 0 && row.mention_eligible_staff > 0,
+        (row) => row.has_admin_review && row.assigned_staff > 0 && row.mention_eligible_staff > 0,
       );
     console.log(`allReceptionMentionPrerequisites=${allGreen}`);
   } finally {
