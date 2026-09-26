@@ -68,8 +68,7 @@ export class PlayerProvisioningService {
     const profession = review.snapshot.profession;
     const profile = await this.playerRegistration.createProfile(review.playerId, {
       trainerName: review.snapshot.trainerName,
-      metadata:
-        profession !== undefined && isTrainerProfessionId(profession) ? { profession } : {},
+      metadata: profession !== undefined && isTrainerProfessionId(profession) ? { profession } : {},
     });
     if (!profile.ok) return profile;
 
