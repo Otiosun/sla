@@ -314,18 +314,20 @@ export function parsePartialRegistrationTemplate(
     return err(appError("VALIDATION_FAILED", "Idade inválida", { fields: ["age"] }));
   }
 
+  const trainerName = values.get("trainerName");
+  const genderPronouns = values.get("genderPronouns");
+  const appearance = values.get("appearance");
+  const personality = values.get("personality");
+  const backstory = values.get("backstory");
+  const starterFormId = values.get("starterFormId");
   const parsed: ParsedRegistrationTemplateDraft = {
-    ...(values.get("trainerName") === undefined ? {} : { trainerName: values.get("trainerName") }),
+    ...(trainerName === undefined ? {} : { trainerName }),
     ...(age === undefined ? {} : { age }),
-    ...(values.get("genderPronouns") === undefined
-      ? {}
-      : { genderPronouns: values.get("genderPronouns") }),
-    ...(values.get("appearance") === undefined ? {} : { appearance: values.get("appearance") }),
-    ...(values.get("personality") === undefined ? {} : { personality: values.get("personality") }),
-    ...(values.get("backstory") === undefined ? {} : { backstory: values.get("backstory") }),
-    ...(values.get("starterFormId") === undefined
-      ? {}
-      : { starterFormId: values.get("starterFormId") }),
+    ...(genderPronouns === undefined ? {} : { genderPronouns }),
+    ...(appearance === undefined ? {} : { appearance }),
+    ...(personality === undefined ? {} : { personality }),
+    ...(backstory === undefined ? {} : { backstory }),
+    ...(starterFormId === undefined ? {} : { starterFormId }),
   };
   if (Object.keys(parsed).length === 0) {
     return err(appError("VALIDATION_FAILED", "Nenhum campo da ficha foi reconhecido"));
