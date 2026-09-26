@@ -7,6 +7,7 @@ export const REGISTRATION_CONVERSATION_FIELDS = [
   "appearance",
   "personality",
   "backstory",
+  "profession",
   "starterFormId",
 ] as const;
 
