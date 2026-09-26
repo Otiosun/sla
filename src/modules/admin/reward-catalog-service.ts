@@ -6,12 +6,16 @@ export interface AdminRewardCatalogSections {
   readonly items: boolean;
   readonly currencies: boolean;
   readonly species: boolean;
+  readonly forms: boolean;
+  readonly effects: boolean;
 }
 
 const ALL_REWARD_CATALOG_SECTIONS: AdminRewardCatalogSections = {
   items: true,
   currencies: true,
   species: true,
+  forms: true,
+  effects: true,
 };
 
 export class AdminRewardCatalogService {
@@ -45,12 +49,28 @@ export class AdminRewardCatalogService {
         input: {},
       });
     }
+    if (sections.forms) {
+      await this.authorizer.authorizeRead({
+        principalId,
+        operationType: "pokemon.form_catalog.read",
+        input: {},
+      });
+    }
+    if (sections.effects) {
+      await this.authorizer.authorizeRead({
+        principalId,
+        operationType: "pokemon.effect_catalog.read",
+        input: {},
+      });
+    }
 
     const catalog = await this.repository.getActiveRewardCatalog();
     return {
       items: sections.items ? catalog.items : [],
       currencies: sections.currencies ? catalog.currencies : [],
       species: sections.species ? (catalog.species ?? []) : [],
+      forms: sections.forms ? (catalog.forms ?? []) : [],
+      effects: sections.effects ? (catalog.effects ?? []) : [],
     };
   }
 }
