@@ -162,7 +162,10 @@ function createMechanicalHarness() {
   return {
     state,
     registration: {
-      createProfile: async (_playerId: unknown, input: { trainerName: string; metadata?: { profession?: string } }) => {
+      createProfile: async (
+        _playerId: unknown,
+        input: { trainerName: string; metadata?: { profession?: string } },
+      ) => {
         if (state.failAt === "PROFILE") {
           return err(appError("FEATURE_UNAVAILABLE", "profile failed"));
         }
