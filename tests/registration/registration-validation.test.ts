@@ -47,6 +47,22 @@ describe("registration draft validation", () => {
     });
   });
 
+  it("accepts a documented profession and rejects unknown profession values", () => {
+    expect(validateRegistrationDraft({ ...completeDraft, profession: "ARTESAO" })).toMatchObject({
+      ok: true,
+      value: { profession: "ARTESAO" },
+    });
+
+    const invalid = validateRegistrationDraft({
+      ...completeDraft,
+      profession: "ASTRONAUTA" as never,
+    });
+    expect(invalid).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
+  });
+
   it("rejects non-integer or non-positive age", () => {
     for (const age of [0, -1, 17.5, Number.NaN]) {
       const result = validateRegistrationDraft({ ...completeDraft, age });
