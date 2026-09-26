@@ -1,11 +1,12 @@
 import type { MessageHandlerContext } from "../messaging/contracts.js";
+import type { CommunityChatContext } from "./contracts.js";
 import type {
   MessageConversationResolver,
   MessageRouteScopeGate,
 } from "../messaging/router.js";
 import { isReception } from "./reception-service.js";
 
-const RECEPTION_COMMANDS = new Set([
+const RECEPTION_PLAYER_COMMANDS = new Set([
   "registrar",
   "modo",
   "iniciais",
@@ -14,31 +15,20 @@ const RECEPTION_COMMANDS = new Set([
   "continuar",
   "editar",
   "confirmar",
-  "verficha",
-  "aprovar",
-  "ajustes",
-  "rejeitar",
+]);
+
+const RECEPTION_ADMIN_COMMAND_CAPABILITIES = new Map([
+  ["verficha", "player.registration.read"],
+  ["aprovar", "player.registration.approve"],
+  ["ajustes", "player.registration.request_changes"],
+  ["rejeitar", "player.registration.reject"],
 ]);
 
 interface ReceptionCommunityResolver {
   resolveChat(input: {
     readonly provider: string;
     readonly chatRef: string;
-  }): Promise<{
-    readonly known: boolean;
-    readonly groupId: string | null;
-    readonly role: "RECEPTION" | "GAME" | "PVP" | "COMMUNITY" | "STAFF" | null;
-    readonly capabilities: readonly (
-      | "onboarding"
-      | "player.basic"
-      | "admin.review"
-      | "world"
-      | "pve"
-      | "pvp"
-      | "admin"
-      | "observability"
-    )[];
-  }>;
+  }): Promise<CommunityChatContext>;
 }
 
 export class ReceptionCommandScopeGate implements MessageRouteScopeGate {
@@ -50,7 +40,7 @@ export class ReceptionCommandScopeGate implements MessageRouteScopeGate {
       chatRef: context.message.chatRef,
     });
     if (!isReception(group)) return true;
-    return RECEPTION_COMMANDS.has(canonicalCommand);
+    return isReceptionCommandAllowed(canonicalCommand);
   }
 }
 
@@ -73,6 +63,14 @@ export class ReceptionScopedConversationResolver implements MessageConversationR
   }
 }
 
+export function isReceptionPlayerCommand(command: string): boolean {
+  return RECEPTION_PLAYER_COMMANDS.has(command);
+}
+
+export function receptionAdminCapabilityFor(command: string): string | null {
+  return RECEPTION_ADMIN_COMMAND_CAPABILITIES.get(command) ?? null;
+}
+
 export function isReceptionCommandAllowed(command: string): boolean {
-  return RECEPTION_COMMANDS.has(command);
+  return isReceptionPlayerCommand(command) || receptionAdminCapabilityFor(command) !== null;
 }
