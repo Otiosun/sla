@@ -90,18 +90,16 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
         if (reloaded === null) throw new Error("Configured group disappeared");
         group = reloaded;
       }
-      const receptionCapabilities =
+      const capabilities =
         group.role === "RECEPTION"
-          ? ["onboarding" as const, "admin.review" as const, "pve" as const, "pvp" as const]
-          : [];
-      const capabilities = [
-        ...new Set([
-          ...beforeCapabilities,
-          ...receptionCapabilities,
-          "player.basic" as const,
-          "world" as const,
-        ]),
-      ].sort();
+          ? (["admin.review", "onboarding"] as const)
+          : [
+              ...new Set([
+                ...beforeCapabilities,
+                "player.basic" as const,
+                "world" as const,
+              ]),
+            ].sort();
       if (capabilities.some((capability) => !beforeCapabilities.includes(capability))) {
         const updated = await tx.replaceCapabilities(group.id, capabilities, group.revision);
         if (updated === null)
