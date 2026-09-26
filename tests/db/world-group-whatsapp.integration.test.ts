@@ -247,7 +247,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     });
   });
 
-  it("creates Reception from the current chat and keeps it nonexclusive on repeated setup", async () => {
+  it("creates a strict Reception from the current chat", async () => {
     const input = context("/grupo recepção Recepção UAT", "120363900007@g.us");
     const composition = createOperationalMessagingComposition(pool);
     expect(await composition.router.dispatch(input)).toMatchObject({ ok: true });
@@ -267,7 +267,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [group.id],
         )
       ).rows,
-).toEqual([{ capability_key: "admin.review" }, { capability_key: "onboarding" }]);
+    ).toEqual([{ capability_key: "admin.review" }, { capability_key: "onboarding" }]);
   });
 
   it("silently ignores setup commands inside an existing Reception and never broadens gameplay", async () => {
@@ -295,6 +295,6 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [id],
         )
       ).rows,
-).toEqual([{ capability_key: "onboarding" }]);
+    ).toEqual([{ capability_key: "onboarding" }]);
   });
 });
