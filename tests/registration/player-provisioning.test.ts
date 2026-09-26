@@ -30,6 +30,7 @@ function approvedReview(playerId = createPlayerId()): RegistrationRevisionRecord
       appearance: "Cabelos negros e casaco de viagem.",
       personality: "Curiosa, cautelosa e competitiva.",
       backstory: "Saiu de casa para pesquisar Pokémon raros.",
+      profession: "PESQUISADOR",
       starterFormId: STARTER_FORM_ID,
       regionId: REGION_ID,
       schemaVersion: 1,
@@ -155,15 +156,17 @@ function createMechanicalHarness() {
     locationInitialized: false,
     starterCreates: 0,
     failAt: null as "PROFILE" | "STARTER" | "LOCATION" | null,
+    profileInput: null as null | { trainerName: string; metadata?: { profession?: string } },
   };
 
   return {
     state,
     registration: {
-      createProfile: async () => {
+      createProfile: async (_playerId: unknown, input: { trainerName: string; metadata?: { profession?: string } }) => {
         if (state.failAt === "PROFILE") {
           return err(appError("FEATURE_UNAVAILABLE", "profile failed"));
         }
+        state.profileInput = input;
         state.profileCreated = true;
         return ok({ playerId: createPlayerId(), state: "PROFILE_CREATED" as const });
       },
@@ -227,6 +230,10 @@ describe("post-approval player provisioning", () => {
       value: { status: "ACTIVE", approvedReviewId: review.id },
     });
     expect(access.record?.status).toBe("ACTIVE");
+    expect(mechanical.state.profileInput).toEqual({
+      trainerName: "Liora Vale",
+      metadata: { profession: "PESQUISADOR" },
+    });
     expect(mechanical.state).toMatchObject({
       profileCreated: true,
       regionSelected: true,
