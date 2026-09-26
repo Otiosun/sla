@@ -64,7 +64,7 @@ const FIELD_COPY: Readonly<
   appearance: {
     progress: "4/7",
     label: "Aparência",
-    question: "Descreva a aparência do personagem.",
+    question: "Descreva a aparência do personagem, se quiser.",
   },
   personality: {
     progress: "5/7",
@@ -74,7 +74,7 @@ const FIELD_COPY: Readonly<
   backstory: {
     progress: "6/7",
     label: "História / resumo",
-    question: "Conte a história ou um resumo do personagem.",
+    question: "Conte a história ou um resumo do personagem, se quiser.",
   },
   starterFormId: {
     progress: "7/7",
@@ -122,11 +122,11 @@ function fieldInstruction(field: RegistrationConversationField): string {
     case "genderPronouns":
       return "› _Ex.: feminino · ela/dela_";
     case "appearance":
-      return "> _Pode escrever livremente. Não precisa resumir em uma linha._";
+      return "> _Opcional. Pode escrever livremente ou responder `pular`._";
     case "personality":
       return "> _Escreva do seu jeito._";
     case "backstory":
-      return "> _Uma apresentação curta funciona. Se quiser desenvolver mais, também funciona._";
+      return "> _Opcional. Pode escrever normalmente ou responder `pular`._";
     case "starterFormId":
       return "› _Responda com o número ou o nome do Pokémon._";
   }
