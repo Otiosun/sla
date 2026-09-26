@@ -310,6 +310,87 @@ describe("persisted Registration conversation state machine", () => {
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
   });
 
+  it("infers full mode when the player sends a filled form directly from MODE_SELECT", async () => {
+    const playerId = createPlayerId();
+    const state = harness({ initialConversation: conversation(playerId) });
+    const router = new MessageRouter([], undefined, state.resolver);
+    const context = messageContext(
+      [
+        "Nome: Emi",
+        "Idade: 17",
+        "Gênero / pronomes: ela/dela",
+        "Personalidade: curiosa",
+        "Pokémon inicial: 2",
+      ].join("\n"),
+      null,
+      "10",
+    );
+
+    const routed = await router.dispatch(context);
+
+    expect(routed.ok).toBe(true);
+    expect(state.getConversation()).toMatchObject({
+      state: "REVIEW",
+      editingMode: "FULL",
+    });
+    expect(state.getDraft()).toMatchObject({
+      trainerName: "Emi",
+      age: 17,
+      genderPronouns: "ela/dela",
+      personality: "curiosa",
+      starterFormId: SQUIRTLE_ID,
+    });
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(
+      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
+    );
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*Aparência:* —");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("*História:* —");
+  });
+
+  it("merges a partial full form and accepts the starter as a later isolated reply", async () => {
+    const playerId = createPlayerId();
+    const state = harness({
+      initialConversation: conversation(playerId, {
+        state: "FULL_FORM",
+        editingMode: "FULL",
+      }),
+    });
+    const router = new MessageRouter([], undefined, state.resolver);
+
+    const partial = await router.dispatch(
+      messageContext(
+        [
+          "Nome: Emi",
+          "Idade: 17",
+          "Gênero / pronomes: ela/dela",
+          "Personalidade: curiosa",
+        ].join("\n"),
+        null,
+        "11",
+      ),
+    );
+
+    expect(partial.ok).toBe(true);
+    expect(state.getConversation()).toMatchObject({ state: "FULL_FORM", editingMode: "FULL" });
+    expect(state.getDraft()).toMatchObject({
+      trainerName: "Emi",
+      age: 17,
+      genderPronouns: "ela/dela",
+      personality: "curiosa",
+    });
+    expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("𝗙𝗔𝗟𝗧𝗔 𝗣𝗢𝗨𝗖𝗢");
+    expect(partial.ok && partial.value?.outgoing[0]?.payload.text).toContain("Pokémon inicial");
+
+    const starter = await router.dispatch(messageContext("2", null, "12"));
+
+    expect(starter.ok).toBe(true);
+    expect(state.getConversation()).toMatchObject({ state: "REVIEW", editingMode: "FULL" });
+    expect(state.getDraft()).toMatchObject({ starterFormId: SQUIRTLE_ID });
+    expect(starter.ok && starter.value?.outgoing[0]?.payload.text).toContain(
+      "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢",
+    );
+  });
+
   it("keeps an invalid full form in FULL_FORM and makes the retry the new active prompt", async () => {
     const playerId = createPlayerId();
     const state = harness({
