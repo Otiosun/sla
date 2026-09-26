@@ -31,6 +31,8 @@ import { CaptureService } from "../modules/capture/service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   isReceptionCommandAllowed,
+  isReceptionPlayerCommand,
+  receptionAdminCapabilityFor,
   ReceptionCommandScopeGate,
   ReceptionScopedConversationResolver,
 } from "../modules/community/reception-message-scope.js";
@@ -585,16 +587,35 @@ export function createOperationalMessagingComposition(
     pveBattle,
     router,
     onMembership: (event) => receptionMembership.handle(event),
-    admitCommand: (message) => {
+    admitCommand: async (message) => {
       if (!router.admitsCommand(message)) return false;
       const command = router.classify(message).command;
-      if (command !== null && isReceptionCommandAllowed(command)) return true;
-      return community
-        .resolveChat({
+      if (command === null) return false;
+
+      const group = await community.resolveChat({
+        provider: message.provider,
+        chatRef: message.chatRef,
+      });
+      if (!isReception(group)) return true;
+      if (!isReceptionCommandAllowed(command)) return false;
+
+      if (isReceptionPlayerCommand(command)) {
+        const player = await playerRegistration.resolvePlayer({
           provider: message.provider,
-          chatRef: message.chatRef,
-        })
-        .then((group) => !isReception(group));
+          externalId: message.senderRef,
+        });
+        if (!player.ok) return player.error.code === "NOT_FOUND";
+        const access = await accessRepository.read(async (tx) => tx.load(player.value.playerId));
+        return access.status === "PENDING";
+      }
+
+      const requiredAdminCapability = receptionAdminCapabilityFor(command);
+      if (requiredAdminCapability === null) return false;
+      const adminCapabilities = await adminIdentity.capabilitiesFor({
+        provider: message.provider,
+        externalId: message.senderRef,
+      });
+      return adminCapabilities.includes(requiredAdminCapability);
     },
     admitFreeform: async (message) => {
       const group = await community.resolveChat({
