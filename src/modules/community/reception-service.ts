@@ -105,7 +105,7 @@ export class ReceptionService {
       provider: input.provider,
       externalId: input.externalId,
     });
-    if (!player.ok) return player.error.code === "NOT_FOUND";
+    if (!player.ok) return false;
 
     return this.dependencies.presence.needsFirstWelcome({
       groupId: group.groupId,
