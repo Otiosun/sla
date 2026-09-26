@@ -579,6 +579,7 @@ async function main(): Promise<void> {
     assert.equal(announcement.rows[0]?.status, "PENDING");
     assert.equal(announcement.rows[0]?.destination_ref, RECEPTION_CHAT);
     assert.match(announcement.rows[0]?.payload.text ?? "", /Liora Vale/);
+    assert.doesNotMatch(announcement.rows[0]?.payload.text ?? "", /\/menu/i);
 
     const location = unwrap(
       "load active location",
@@ -598,8 +599,9 @@ async function main(): Promise<void> {
     const commandText = `/ir ${routeIndex + 1}`;
     const receptionContext = directContext(PLAYER_JID, RECEPTION_CHAT, commandText);
     const denied = await runtime.composition.router.dispatch(receptionContext);
-    assert.equal(denied.ok, false);
-    if (denied.ok) throw new Error("World travel unexpectedly passed in Reception");
+    assert.equal(denied.ok, true);
+    if (!denied.ok) throw new Error(`Reception silence gate failed: ${denied.error.code}`);
+    assert.equal(denied.value, null);
 
     const worldContext = directContext(PLAYER_JID, WORLD_CHAT, commandText);
     const allowed = await runtime.composition.router.dispatch(worldContext);
