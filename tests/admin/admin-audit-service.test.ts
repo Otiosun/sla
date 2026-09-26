@@ -26,9 +26,7 @@ describe("AdminAuditService", () => {
     const repo = repository();
     const service = new AdminAuditService({ authorizeRead }, repo);
 
-    await expect(
-      service.list("00000000-0000-4000-8000-000000000001", 25),
-    ).resolves.toEqual([
+    await expect(service.list("00000000-0000-4000-8000-000000000001", 25)).resolves.toEqual([
       expect.objectContaining({
         operationType: "wallet.adjust",
         actorDisplayName: "Admin",
@@ -52,9 +50,7 @@ describe("AdminAuditService", () => {
     const repo = repository();
     const service = new AdminAuditService({ authorizeRead }, repo);
 
-    await expect(
-      service.list("00000000-0000-4000-8000-000000000002", 100),
-    ).rejects.toBe(denied);
+    await expect(service.list("00000000-0000-4000-8000-000000000002", 100)).rejects.toBe(denied);
     expect(repo.listRecent).not.toHaveBeenCalled();
   });
 
