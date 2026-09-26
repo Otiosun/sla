@@ -79,6 +79,8 @@ export class AdminRewardCatalogService {
       currencies: sections.currencies ? catalog.currencies : [],
       species: sections.species ? (catalog.species ?? []) : [],
       forms: sections.forms ? (catalog.forms ?? []) : [],
+      abilities: sections.forms ? (catalog.abilities ?? []) : [],
+      natures: sections.forms ? (catalog.natures ?? []) : [],
       effects: sections.effects ? (catalog.effects ?? []) : [],
       releases: sections.releases ? (catalog.releases ?? []) : [],
     };
