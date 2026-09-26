@@ -169,10 +169,15 @@ describe("Reception UX polish", () => {
       setup: { load: async () => ok(setup()) },
     });
 
-    const text = outgoingText(
+    const professionPrompt = outgoingText(
       await resolver.resolve(
         context("Saiu de casa para pesquisar Pokémon raros.", "bot-registration-prompt"),
       ),
+    );
+    expect(professionPrompt).toContain("𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢");
+
+    const text = outgoingText(
+      await resolver.resolve(context("Pesquisador", "bot-registration-prompt")),
     );
     expect(text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟");
     expect(text).toContain("`01` Bulbasaur");
