@@ -71,6 +71,15 @@ describe("registration draft validation", () => {
       ok: false,
       error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
     });
+
+    const legacyEmpty = validateRegistrationDraft({
+      ...completeDraft,
+      profession: "—",
+    });
+    expect(legacyEmpty).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
   });
 
   it("rejects non-integer or non-positive age", () => {
