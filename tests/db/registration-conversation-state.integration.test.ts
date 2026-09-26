@@ -121,6 +121,67 @@ describe.sequential("registration conversation persistence", () => {
     });
   });
 
+  it("persists profession as both guided and edit conversation fields", async () => {
+    const guidedPlayerId = createPlayerId();
+    const editPlayerId = createPlayerId();
+    await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')", [
+      guidedPlayerId,
+      editPlayerId,
+    ]);
+
+    const guided = await service.saveConversationCheckpoint({
+      playerId: guidedPlayerId,
+      chatRef: RECEPTION_JID,
+      state: "GUIDED_FIELD",
+      editingMode: "GUIDED",
+      currentField: "profession",
+      editField: null,
+      activePromptOutboxIdempotencyKey: "registration:prompt:profession:guided",
+      expectedConversationRevision: null,
+      expectedDraftRevision: null,
+      inboxMessageId: randomUUID(),
+      draft: {
+        trainerName: "Mina",
+        age: 18,
+        genderPronouns: "ela/dela",
+        personality: "Atenta.",
+        regionId: REGION_ID,
+        schemaVersion: 1,
+      },
+    });
+    expect(guided).toMatchObject({
+      ok: true,
+      value: { conversation: { state: "GUIDED_FIELD", currentField: "profession" } },
+    });
+
+    const edit = await service.saveConversationCheckpoint({
+      playerId: editPlayerId,
+      chatRef: RECEPTION_JID,
+      state: "EDIT_FIELD",
+      editingMode: "FULL",
+      currentField: null,
+      editField: "profession",
+      activePromptOutboxIdempotencyKey: "registration:prompt:profession:edit",
+      expectedConversationRevision: null,
+      expectedDraftRevision: null,
+      inboxMessageId: randomUUID(),
+      draft: {
+        trainerName: "Theo",
+        age: 19,
+        genderPronouns: "ele/dele",
+        personality: "Curioso.",
+        profession: "ARTESAO",
+        starterFormId: STARTER_ID,
+        regionId: REGION_ID,
+        schemaVersion: 1,
+      },
+    });
+    expect(edit).toMatchObject({
+      ok: true,
+      value: { conversation: { state: "EDIT_FIELD", editField: "profession" } },
+    });
+  });
+
   it("deletes only mutable draft/conversation and preserves immutable review history", async () => {
     const playerId = createPlayerId();
     await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
@@ -132,6 +193,7 @@ describe.sequential("registration conversation persistence", () => {
       appearance: "Cabelos negros e casaco de viagem.",
       personality: "Curiosa e competitiva.",
       backstory: "Saiu de casa para pesquisar Pokémon raros.",
+      profession: "PESQUISADOR",
       starterFormId: STARTER_ID,
       regionId: REGION_ID,
       schemaVersion: 1,

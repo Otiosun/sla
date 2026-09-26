@@ -414,6 +414,7 @@ const GUIDED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationFiel
   "appearance",
   "personality",
   "backstory",
+  "profession",
   "starterFormId",
 ];
 
@@ -422,6 +423,7 @@ const REQUIRED_REGISTRATION_FIELDS: readonly PersistedRegistrationConversationFi
   "age",
   "genderPronouns",
   "personality",
+  "profession",
   "starterFormId",
 ];
 
@@ -442,7 +444,7 @@ function isFlexibleFieldSkip(
   field: PersistedRegistrationConversationField,
   value: string,
 ): boolean {
-  if (field !== "appearance" && field !== "backstory" && field !== "profession") return false;
+  if (field !== "appearance" && field !== "backstory") return false;
   const normalized = normalizedFreeform(value);
   return [
     "-",
@@ -456,7 +458,6 @@ function isFlexibleFieldSkip(
     "sem historia",
     "sem aparência",
     "sem aparencia",
-    "sem profissao",
   ].includes(normalized);
 }
 
@@ -735,9 +736,16 @@ export class RegistrationConversationResolver {
         ...(parsedValue.appearance === undefined ? {} : { appearance: parsedValue.appearance }),
         ...(parsedValue.personality === undefined ? {} : { personality: parsedValue.personality }),
         ...(parsedValue.backstory === undefined ? {} : { backstory: parsedValue.backstory }),
+        ...(parsedValue.profession === undefined ? {} : { profession: parsedValue.profession }),
       };
-    } else if (looksLikeStandaloneStarter(text)) {
-      starterRaw = text;
+    } else {
+      const profession =
+        draft.profession === undefined ? normalizeTrainerProfession(text) : null;
+      if (profession !== null) {
+        draft = { ...draft, profession };
+      } else if (looksLikeStandaloneStarter(text)) {
+        starterRaw = text;
+      }
     }
 
     if (starterRaw !== undefined) {
@@ -1614,9 +1622,7 @@ export class RegistrationConversationResolver {
       ["appearance", parsed.value.appearance],
       ["personality", parsed.value.personality],
       ["backstory", parsed.value.backstory],
-      ...(parsed.value.profession === undefined
-        ? []
-        : [["profession", parsed.value.profession] as const]),
+      ["profession", parsed.value.profession],
       ["starterFormId", starterFormId.value],
     ] as const satisfies readonly (readonly [RegistrationConversationField, string | number])[];
 

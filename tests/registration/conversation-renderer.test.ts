@@ -24,15 +24,16 @@ describe("registration conversation renderer", () => {
     expect(text.toLocaleLowerCase("pt-BR")).toContain("responda com");
   });
 
-  it("renders every guided field with explicit 1/7 through 7/7 progress", () => {
+  it("renders every guided field with explicit 1/8 through 8/8 progress", () => {
     const cases = [
-      ["trainerName", "01 / 07", "𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥"],
-      ["age", "02 / 07", "𝗜𝗗𝗔𝗗𝗘"],
-      ["genderPronouns", "03 / 07", "𝗚Ê𝗡𝗘𝗥𝗢 & 𝗣𝗥𝗢𝗡𝗢𝗠𝗘𝗦"],
-      ["appearance", "04 / 07", "𝗔𝗣𝗔𝗥Ê𝗡𝗖𝗜𝗔"],
-      ["personality", "05 / 07", "𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗟𝗜𝗗𝗔𝗗𝗘"],
-      ["backstory", "06 / 07", "𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗔"],
-      ["starterFormId", "07 / 07", "𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟"],
+      ["trainerName", "01 / 08", "𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥"],
+      ["age", "02 / 08", "𝗜𝗗𝗔𝗗𝗘"],
+      ["genderPronouns", "03 / 08", "𝗚Ê𝗡𝗘𝗥𝗢 & 𝗣𝗥𝗢𝗡𝗢𝗠𝗘𝗦"],
+      ["appearance", "04 / 08", "𝗔𝗣𝗔𝗥Ê𝗡𝗖𝗜𝗔"],
+      ["personality", "05 / 08", "𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗟𝗜𝗗𝗔𝗗𝗘"],
+      ["backstory", "06 / 08", "𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗔"],
+      ["profession", "07 / 08", "𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢"],
+      ["starterFormId", "08 / 08", "𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟"],
     ] as const;
 
     for (const [field, progress, label] of cases) {
@@ -47,7 +48,7 @@ describe("registration conversation renderer", () => {
     const text = renderGuidedField("trainerName", { starterOptions, modeSelected: true });
 
     expect(text).toContain("✓ *Modo passo a passo escolhido.*");
-    expect(text).toContain("01 / 07");
+    expect(text).toContain("01 / 08");
     expect(text).toContain("𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥");
   });
 
@@ -72,6 +73,16 @@ describe("registration conversation renderer", () => {
     );
   });
 
+  it("points profession selection to the public systems page without dumping the catalog", () => {
+    const guided = renderGuidedField("profession");
+    expect(guided).toContain("07 / 08");
+    expect(guided).toContain("https://pokemon-hub-web-self.vercel.app/sistemas/profissoes");
+    expect(guided).not.toContain("Criador · Pesquisador");
+
+    const edit = renderEditSelect();
+    expect(edit).toContain("`07` Profissão");
+  });
+
   it("renders canonical starters as their own reusable message", () => {
     const text = renderStarterOptions(starterOptions);
 
@@ -91,7 +102,9 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("Aparência (opcional):");
     expect(text).toContain("Personalidade:");
     expect(text).toContain("História (opcional):");
-    expect(text).toContain("Profissão (opcional):");
+    expect(text).toContain("Profissão:");
+    expect(text).toContain("https://pokemon-hub-web-self.vercel.app/sistemas/profissoes");
+    expect(text).not.toContain("Criador · Pesquisador");
     expect(text).toContain("Pokémon inicial:");
     expect(text).toContain("Zhoulia");
     expect(text.toLocaleLowerCase("pt-BR")).toContain("envie a ficha preenchida");
@@ -153,7 +166,7 @@ describe("registration conversation renderer", () => {
     );
 
     expect(text).toContain("△ *Essa idade não é válida.");
-    expect(text).toContain("02 / 07");
+    expect(text).toContain("02 / 08");
     expect(text.toLocaleLowerCase("pt-BR")).not.toContain("correlation");
     expect(text.toLocaleLowerCase("pt-BR")).not.toContain("suporte:");
   });

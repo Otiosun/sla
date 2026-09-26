@@ -69,7 +69,7 @@ export interface ParsedFullRegistrationTemplate {
   readonly appearance: string;
   readonly personality: string;
   readonly backstory: string;
-  readonly profession?: TrainerProfessionSelection;
+  readonly profession: TrainerProfessionSelection;
   readonly starterFormId: string;
 }
 
@@ -101,6 +101,7 @@ const GUIDED_FIELDS: readonly RegistrationConversationField[] = [
   "appearance",
   "personality",
   "backstory",
+  "profession",
   "starterFormId",
 ];
 
@@ -369,6 +370,7 @@ export function parseFullRegistrationTemplate(
   if (value.age === undefined) missing.push("age");
   if (value.genderPronouns === undefined) missing.push("genderPronouns");
   if (value.personality === undefined) missing.push("personality");
+  if (value.profession === undefined) missing.push("profession");
   if (value.starterFormId === undefined) missing.push("starterFormId");
   if (missing.length > 0) {
     return err(appError("VALIDATION_FAILED", "Ficha incompleta ou inválida", { fields: missing }));
@@ -378,12 +380,14 @@ export function parseFullRegistrationTemplate(
   const age = value.age;
   const genderPronouns = value.genderPronouns;
   const personality = value.personality;
+  const profession = value.profession;
   const starterFormId = value.starterFormId;
   if (
     trainerName === undefined ||
     age === undefined ||
     genderPronouns === undefined ||
     personality === undefined ||
+    profession === undefined ||
     starterFormId === undefined
   ) {
     return err(appError("VALIDATION_FAILED", "Ficha incompleta ou inválida"));
@@ -396,7 +400,7 @@ export function parseFullRegistrationTemplate(
     appearance: value.appearance ?? "—",
     personality,
     backstory: value.backstory ?? "—",
-    ...(value.profession === undefined ? {} : { profession: value.profession }),
+    profession,
     starterFormId,
   });
 }

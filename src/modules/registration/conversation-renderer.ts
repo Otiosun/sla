@@ -1,5 +1,4 @@
 import {
-  TRAINER_PROFESSIONS,
   trainerProfessionDisplayName,
   type TrainerProfessionSelection,
 } from "../player/professions.js";
@@ -54,42 +53,42 @@ const FIELD_COPY: Readonly<
   >
 > = {
   trainerName: {
-    progress: "1/7",
+    progress: "1/8",
     label: "Nome do treinador",
     question: "Qual será o nome do personagem?",
   },
   age: {
-    progress: "2/7",
+    progress: "2/8",
     label: "Idade",
     question: "Qual é a idade do personagem?",
   },
   genderPronouns: {
-    progress: "3/7",
+    progress: "3/8",
     label: "Gênero / pronomes",
     question: "Como quer registrar esse campo?",
   },
   appearance: {
-    progress: "4/7",
+    progress: "4/8",
     label: "Aparência",
     question: "Descreva a aparência do personagem, se quiser.",
   },
   personality: {
-    progress: "5/7",
+    progress: "5/8",
     label: "Personalidade",
     question: "Descreva a personalidade do personagem.",
   },
   backstory: {
-    progress: "6/7",
+    progress: "6/8",
     label: "História / resumo",
     question: "Conte a história ou um resumo do personagem, se quiser.",
   },
   profession: {
-    progress: "—",
+    progress: "7/8",
     label: "Profissão",
-    question: "Escolha uma profissão para o personagem, se quiser.",
+    question: "Qual é a profissão do personagem?",
   },
   starterFormId: {
-    progress: "7/7",
+    progress: "8/8",
     label: "Pokémon inicial",
     question: "Escolha pelo número ou pelo nome.",
   },
@@ -142,7 +141,7 @@ function fieldInstruction(field: RegistrationConversationField): string {
     case "backstory":
       return "> _Opcional. Pode escrever normalmente ou responder `pular`._";
     case "profession":
-      return "> _Opcional. Responda com o nome da profissão ou pular._";
+      return "› _Responda com o nome da profissão. Veja as opções no site: https://pokemon-hub-web-self.vercel.app/sistemas/profissoes_";
     case "starterFormId":
       return "› _Responda com o número ou o nome do Pokémon._";
   }
@@ -191,18 +190,11 @@ export function renderGuidedField(
   ];
 
   if (field === "profession") {
-    const common = TRAINER_PROFESSIONS.filter((profession) => profession.tier === "COMMON")
-      .map((profession) => profession.label)
-      .join(" · ");
-    const premium = TRAINER_PROFESSIONS.filter((profession) => profession.tier === "PREMIUM")
-      .map((profession) => profession.label)
-      .join(" · ");
     lines.push(
-      "Escolha uma profissão, se quiser:",
+      "Escolha a profissão do personagem:",
       "",
-      common,
-      "",
-      `Premium: ${premium}`,
+      "› _Veja as profissões e os detalhes no site:_",
+      "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes",
       "",
       fieldInstruction(field),
     );
@@ -257,9 +249,10 @@ export function renderEditField(
   const lines = ["✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*", `　${copy.label}`, ""];
   if (field === "profession") {
     lines.push(
-      TRAINER_PROFESSIONS.map((profession) => profession.label).join(" · "),
+      "› _Veja as profissões e os detalhes no site:_",
+      "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes",
       "",
-      "› _Nome da profissão ou pular._",
+      "› _Envie o nome da nova profissão._",
     );
   } else if (field === "starterFormId") {
     lines.push(numberedOptions(options.starterOptions ?? []), "", "› _Número ou nome do Pokémon._");
@@ -299,35 +292,20 @@ export function renderFullForm(options: RegistrationFullFormRenderOptions): stri
     "　Recepção · Cadastro rápido",
     "",
     "> _Preencha os campos abaixo. Você pode escrever várias linhas onde precisar._",
-    "",
-    "◇ *𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥*",
+    "> _Aparência e História são opcionais. Profissão é obrigatória._",
+    "> _Veja as profissões e os detalhes no site:_",
+    "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes",
+    `⌖ Região · *${options.regionDisplayName}*`,
+    "> _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._",
     "",
     "*Nome:*",
     "*Idade:*",
     "*Gênero / pronomes:*",
-    "",
-    "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗚𝗘𝗠*",
-    "",
     "*Aparência (opcional):*",
     "*Personalidade:*",
     "*História (opcional):*",
-    "",
-    "◇ *𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢*",
-    "",
-    "*Profissão (opcional):*",
-    "　Criador · Pesquisador · Explorador · Ranger",
-    "　Pescador · Artesão · Coordenador",
-    "　Premium: Fotógrafo · Campeão · Colecionador — TCG",
-    "",
-    "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
-    "",
+    "*Profissão:*",
     "*Pokémon inicial:*",
-    "",
-    `⌖ Região · *${options.regionDisplayName}*`,
-    "",
-    "› _Envie a ficha preenchida. Aparência e História podem ficar em branco._",
-    "› _A formatação não precisa ficar idêntica; os campos serão reconhecidos pelo conteúdo._",
-    "› _Você pode usar o número ou o nome do inicial. Para rever as opções, use `/iniciais`._",
   ].join("\n");
 }
 
@@ -364,6 +342,18 @@ export function renderMissingFullFormFields(
     "",
     "› _Pode enviar somente os campos acima; não precisa repetir a ficha inteira._",
   ];
+
+  if (fields.includes("profession")) {
+    lines.push(
+      "",
+      "◇ *𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢*",
+      "",
+      "› _Veja as profissões e os detalhes no site:_",
+      "https://pokemon-hub-web-self.vercel.app/sistemas/profissoes",
+      "",
+      "› _Pode responder só com o nome, por exemplo: `Artesão`._",
+    );
+  }
 
   if (fields.includes("starterFormId")) {
     lines.push(

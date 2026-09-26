@@ -82,6 +82,7 @@ export function validateRegistrationDraft(
   if (normalized.age === undefined) missingFields.push("age");
   if (normalized.genderPronouns === undefined) missingFields.push("genderPronouns");
   if (normalized.personality === undefined) missingFields.push("personality");
+  if (normalized.profession === undefined) missingFields.push("profession");
   if (normalized.starterFormId === undefined) missingFields.push("starterFormId");
 
   if (missingFields.length > 0) {
@@ -90,12 +91,13 @@ export function validateRegistrationDraft(
     );
   }
 
-  const { trainerName, age, genderPronouns, personality, starterFormId } = normalized;
+  const { trainerName, age, genderPronouns, personality, profession, starterFormId } = normalized;
   if (
     trainerName === undefined ||
     age === undefined ||
     genderPronouns === undefined ||
     personality === undefined ||
+    profession === undefined ||
     starterFormId === undefined
   ) {
     return err(appError("VALIDATION_FAILED", "Registration draft is invalid"));
@@ -108,7 +110,7 @@ export function validateRegistrationDraft(
     appearance: normalized.appearance ?? "—",
     personality,
     backstory: normalized.backstory ?? "—",
-    ...(normalized.profession === undefined ? {} : { profession: normalized.profession }),
+    profession,
     starterFormId,
     regionId: normalized.regionId,
     schemaVersion: normalized.schemaVersion,
