@@ -113,12 +113,10 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
     const row = principal.rows[0];
     if (row === undefined) return null;
     const grants = await this.pool.query<{ key: string; risk_tier: number }>(
-      `SELECT DISTINCT capability.key, capability.risk_tier
-       FROM admin_principal_roles principal_role
-       JOIN admin_role_capabilities role_capability ON role_capability.role_id = principal_role.role_id
-       JOIN capabilities capability ON capability.id = role_capability.capability_id
-       WHERE principal_role.principal_id = $1
-       ORDER BY capability.key`,
+      `SELECT key, risk_tier
+       FROM admin_effective_capabilities
+       WHERE principal_id = $1
+       ORDER BY key`,
       [principalId],
     );
     const scopes = await this.pool.query<{ scope_type: string; scope_id: string | null }>(
@@ -454,8 +452,12 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
       if (principalRow === undefined) {
         throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, "Target principal not found");
       }
-      const role = await client.query(`SELECT 1 FROM admin_roles WHERE id = $1`, [parsed.roleId]);
-      if (role.rowCount !== 1) {
+      const role = await client.query<{ slug: string }>(
+        `SELECT slug FROM admin_roles WHERE id = $1`,
+        [parsed.roleId],
+      );
+      const roleRow = role.rows[0];
+      if (roleRow === undefined) {
         throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, "Role not found");
       }
       if (BigInt(principalRow.revision) !== locked.expectedRevision) {
@@ -473,8 +475,17 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
         [parsed.principalId, parsed.roleId],
       );
       const wasAssigned = assignedBefore.rowCount === 1;
+      let clearedOwnerOverrides = 0;
       let targetRevision = locked.expectedRevision;
       if (!wasAssigned) {
+        if (roleRow.slug === "OWNER_SECURITY_ADMIN") {
+          const cleared = await client.query(
+            `DELETE FROM admin_principal_capability_overrides
+             WHERE principal_id = $1`,
+            [parsed.principalId],
+          );
+          clearedOwnerOverrides = cleared.rowCount ?? 0;
+        }
         await client.query(
           `INSERT INTO admin_principal_roles(principal_id, role_id) VALUES ($1, $2)`,
           [parsed.principalId, parsed.roleId],
@@ -497,12 +508,14 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
         roleId: parsed.roleId,
         roleAssigned: wasAssigned,
         revision: locked.expectedRevision.toString(),
+        capabilityOverridesCleared: 0,
       };
       const after = {
         principalId: parsed.principalId,
         roleId: parsed.roleId,
         roleAssigned: true,
         revision: targetRevision.toString(),
+        capabilityOverridesCleared: clearedOwnerOverrides,
       };
       await client.query(
         `INSERT INTO admin_operation_changes(
@@ -543,6 +556,7 @@ export class PostgresAdminRepository implements AdminOperationRepository, AdminR
         applied: true,
         targetRevision: targetRevision.toString(),
         changed: !wasAssigned,
+        capabilityOverridesCleared: clearedOwnerOverrides,
       };
       await client.query(
         `UPDATE admin_operations

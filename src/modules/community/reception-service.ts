@@ -105,7 +105,7 @@ export class ReceptionService {
       provider: input.provider,
       externalId: input.externalId,
     });
-    if (!player.ok) return player.error.code === "NOT_FOUND";
+    if (!player.ok) return false;
 
     return this.dependencies.presence.needsFirstWelcome({
       groupId: group.groupId,
@@ -148,7 +148,7 @@ export class ReceptionService {
     if (access.status === "ACTIVE") {
       return ok({
         playerId: playerId,
-        text: "〔⚡〕 𝗥𝗢𝗧𝗢𝗠𝗗𝗘𝗫\n*TREINADOR RECONHECIDO*\n\nRegistro ativo. Você continua ativo; sua jornada continua de onde parou.\n\n`/menu`\n\n> Abra sua Central do Treinador.",
+        text: "〔⚡〕 𝗥𝗢𝗧𝗢𝗠𝗗𝗘𝗫\n*TREINADOR RECONHECIDO*\n\nSeu registro já está ativo. Esta Recepção é usada apenas para cadastro e revisão, roto.",
       });
     }
 

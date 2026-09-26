@@ -28,6 +28,12 @@ describe("AdminRewardCatalogService", () => {
     await expect(service.get("33333333-3333-4333-8333-333333333333")).resolves.toEqual({
       items: [expect.objectContaining({ slug: "great-ball" })],
       currencies: [expect.objectContaining({ slug: "poke-dollar" })],
+      species: [],
+      forms: [],
+      abilities: [],
+      natures: [],
+      effects: [],
+      releases: [],
     });
 
     expect(authorizeRead).toHaveBeenNthCalledWith(1, {
@@ -40,10 +46,15 @@ describe("AdminRewardCatalogService", () => {
       operationType: "economy.currency_catalog.read",
       input: {},
     });
+    expect(authorizeRead).toHaveBeenNthCalledWith(3, {
+      principalId: "33333333-3333-4333-8333-333333333333",
+      operationType: "pokedex.catalog.read",
+      input: {},
+    });
     expect(getActiveRewardCatalog).toHaveBeenCalledOnce();
   });
 
-  it("does not query the catalog if either authorization is denied", async () => {
+  it("does not query the catalog if a requested section authorization is denied", async () => {
     const authorizeRead = vi
       .fn()
       .mockResolvedValueOnce({ type: "ITEM_CATALOG", id: null })

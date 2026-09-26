@@ -179,7 +179,14 @@ function handler(
           ? { principalId: options.principalId ?? "77777777-7777-4777-8777-777777777777" }
           : null,
       capabilitiesFor: async () =>
-        options.admin ? [...(options.capabilities ?? ["player.read"])] : [],
+        options.admin
+          ? [
+              "central.view",
+              ...(options.capabilities ?? ["player.read"]).filter(
+                (capability) => capability !== "central.view",
+              ),
+            ]
+          : [],
     },
     adminPlayers: {
       search: adminPlayerSearch,
@@ -322,8 +329,19 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
           allowsNegative: false,
         },
       ],
+      species: [],
+      forms: [],
+      effects: [],
+      releases: [],
     });
-    expect(adminRewardCatalogGet).toHaveBeenCalledWith("77777777-7777-4777-8777-777777777777");
+    expect(adminRewardCatalogGet).toHaveBeenCalledWith("77777777-7777-4777-8777-777777777777", {
+      items: true,
+      currencies: true,
+      species: false,
+      forms: false,
+      effects: false,
+      releases: false,
+    });
   });
 
   it("lists only registered admin operations granted to the current principal", async () => {

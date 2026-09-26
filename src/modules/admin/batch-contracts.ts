@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AdminInventoryAdjustInputSchema,
+  AdminPokedexSeenGrantInputSchema,
   AdminTrainerProgressAdjustInputSchema,
   AdminWalletAdjustInputSchema,
 } from "./domain-contracts.js";
@@ -40,11 +41,15 @@ const progressionActionSchema = AdminTrainerProgressAdjustInputSchema.omit({
 }).extend({
   kind: z.literal("TRAINER_PROGRESSION_ADJUST"),
 });
+const pokedexSeenActionSchema = AdminPokedexSeenGrantInputSchema.omit({ playerId: true }).extend({
+  kind: z.literal("POKEDEX_SEEN_GRANT"),
+});
 
 export const AdminBatchActionSchema = z.discriminatedUnion("kind", [
   inventoryActionSchema,
   walletActionSchema,
   progressionActionSchema,
+  pokedexSeenActionSchema,
 ]);
 export type AdminBatchAction = z.infer<typeof AdminBatchActionSchema>;
 
@@ -123,14 +128,25 @@ export interface AdminBatchExecutionResult extends Readonly<Record<string, unkno
 }
 
 export function batchActionOperation(action: AdminBatchAction): {
-  readonly operationType: "inventory.adjust" | "wallet.adjust" | "progression.trainer.adjust";
-  readonly capabilityKey: "inventory.adjust" | "wallet.adjust" | "progression.adjust";
+  readonly operationType:
+    | "inventory.adjust"
+    | "wallet.adjust"
+    | "progression.trainer.adjust"
+    | "pokedex.seen.grant";
+  readonly capabilityKey:
+    | "inventory.adjust"
+    | "wallet.adjust"
+    | "progression.adjust"
+    | "pokedex.seen.grant";
 } {
   if (action.kind === "INVENTORY_ADJUST") {
     return { operationType: "inventory.adjust", capabilityKey: "inventory.adjust" };
   }
   if (action.kind === "WALLET_ADJUST") {
     return { operationType: "wallet.adjust", capabilityKey: "wallet.adjust" };
+  }
+  if (action.kind === "POKEDEX_SEEN_GRANT") {
+    return { operationType: "pokedex.seen.grant", capabilityKey: "pokedex.seen.grant" };
   }
   return { operationType: "progression.trainer.adjust", capabilityKey: "progression.adjust" };
 }
@@ -144,6 +160,9 @@ export function batchChildInput(
   }
   if (action.kind === "WALLET_ADJUST") {
     return { playerId, currencyId: action.currencyId, delta: action.delta };
+  }
+  if (action.kind === "POKEDEX_SEEN_GRANT") {
+    return { playerId, speciesId: action.speciesId, shiny: action.shiny };
   }
   return { playerId, delta: action.delta };
 }

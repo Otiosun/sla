@@ -1,6 +1,7 @@
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
+import type { AdminTeamService } from "../admin/team-service.js";
 import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
 import {
   AdminOperationApprovalRequestSchema,
@@ -47,6 +48,22 @@ interface PlayerPortalAdminOperationResult {
   readonly result: Readonly<Record<string, unknown>> | null;
 }
 
+interface PlayerPortalAdminAuditEntry {
+  readonly operationId: string;
+  readonly operationType: string;
+  readonly actorDisplayName: string;
+  readonly targetType: string;
+  readonly riskTier: number;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly createdAt: string;
+  readonly appliedAt: string | null;
+}
+
+interface PlayerPortalAdminAuditAccess {
+  list(principalId: string, limit: number): Promise<readonly PlayerPortalAdminAuditEntry[]>;
+}
+
 interface PlayerPortalAdminMutationAccess {
   listOperationDefinitions(): readonly PlayerPortalAdminOperationDefinition[];
   prepareMutation(request: unknown): Promise<{
@@ -79,6 +96,11 @@ interface PlayerPortalHttpDependencies {
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
   readonly adminRewardCatalog: Pick<AdminRewardCatalogService, "get">;
+  readonly adminAudit?: PlayerPortalAdminAuditAccess;
+  readonly adminTeam?: Pick<
+    AdminTeamService,
+    "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
+  >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
 }
 
@@ -100,11 +122,32 @@ export class PlayerPortalHttpHandler {
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/players") {
       return this.withSession(request, (identity) => this.searchAdminPlayers(url, identity));
     }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/audit") {
+      return this.withSession(request, (identity) => this.listAdminAudit(url, identity));
+    }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/operations") {
       return this.withSession(request, (identity) => this.listAdminOperations(identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/reward-catalog") {
       return this.withSession(request, (identity) => this.getAdminRewardCatalog(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/team") {
+      return this.withSession(request, (identity) => this.getAdminTeam(identity));
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/admin/team") {
+      return this.withSession(request, (identity) => this.addAdminTeamPrincipal(request, identity));
+    }
+    const adminTeamTarget = adminTeamCapabilityTargetFromPath(url.pathname);
+    if (request.method === "PUT" && adminTeamTarget !== null) {
+      return this.withSession(request, (identity) =>
+        this.replaceAdminTeamCapabilities(request, adminTeamTarget, identity),
+      );
+    }
+    const receptionStaffTarget = adminTeamReceptionStaffTargetFromPath(url.pathname);
+    if (request.method === "PUT" && receptionStaffTarget !== null) {
+      return this.withSession(request, (identity) =>
+        this.setAdminTeamReceptionStaff(request, receptionStaffTarget, identity),
+      );
     }
     if (request.method === "POST" && url.pathname === "/v1/hub/admin/operations") {
       return this.withSession(request, (identity) => this.prepareAdminOperation(request, identity));
@@ -217,41 +260,165 @@ export class PlayerPortalHttpHandler {
       : errorResponse(result.error, "read");
   }
 
-  private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
+  private async resolvePortalAdmin(identity: ExternalIdentity): Promise<{
+    readonly principalId: string;
+    readonly capabilities: readonly string[];
+  } | null> {
     const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) {
+    if (principal === null) return null;
+    const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
+    if (!capabilities.includes("central.view")) return null;
+    return { principalId: principal.principalId, capabilities };
+  }
+
+  private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) {
       return jsonResponse(200, { admin: null });
     }
-
-    const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
+    const owner =
+      this.dependencies.adminTeam === undefined
+        ? false
+        : await this.dependencies.adminTeam.isOwner(admin.principalId);
     return jsonResponse(200, {
       admin: {
-        principalId: principal.principalId,
-        capabilities: [...capabilities],
+        principalId: admin.principalId,
+        owner,
+        capabilities: [...admin.capabilities],
       },
     });
   }
 
   private async getAdminRewardCatalog(identity: ExternalIdentity): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     try {
-      const catalog = await this.dependencies.adminRewardCatalog.get(principal.principalId);
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: admin.capabilities.includes("inventory.read"),
+        currencies: admin.capabilities.includes("economy.read"),
+        species: admin.capabilities.includes("pokedex.read"),
+        forms: admin.capabilities.includes("pokemon.create"),
+        effects: admin.capabilities.includes("pokemon.edit.mechanics"),
+        releases:
+          admin.capabilities.includes("content.draft.edit") ||
+          admin.capabilities.includes("content.validate") ||
+          admin.capabilities.includes("content.publish"),
+      });
       return jsonResponse(200, {
         items: [...catalog.items],
         currencies: [...catalog.currencies],
+        species: [...(catalog.species ?? [])],
+        forms: [...(catalog.forms ?? [])],
+        effects: [...(catalog.effects ?? [])],
+        releases: [...(catalog.releases ?? [])],
       });
     } catch (error) {
       return adminErrorResponse(error);
     }
   }
 
-  private async listAdminOperations(identity: ExternalIdentity): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+  private async getAdminTeam(identity: ExternalIdentity): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+    try {
+      const team = await adminTeam.list(admin.principalId);
+      return jsonResponse(200, {
+        principals: [...team.principals],
+        capabilityCatalog: [...team.capabilityCatalog],
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
 
-    const capabilities = new Set(await this.dependencies.admin.capabilitiesFor(identity));
+  private async addAdminTeamPrincipal(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+    const body = await readJsonBody(request);
+    if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    try {
+      const principal = await adminTeam.addPrincipal(admin.principalId, body);
+      return jsonResponse(201, { principal });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async setAdminTeamReceptionStaff(
+    request: Request,
+    targetPrincipalId: string,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+    const body = await readJsonBody(request);
+    if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    try {
+      const principal = await adminTeam.setReceptionStaff(
+        admin.principalId,
+        targetPrincipalId,
+        body,
+      );
+      return jsonResponse(200, { principal });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async replaceAdminTeamCapabilities(
+    request: Request,
+    targetPrincipalId: string,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const adminTeam = this.dependencies.adminTeam;
+    if (adminTeam === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+    const body = await readJsonBody(request);
+    if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    try {
+      const principal = await adminTeam.replaceCapabilities(
+        admin.principalId,
+        targetPrincipalId,
+        body,
+      );
+      return jsonResponse(200, { principal });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async listAdminAudit(url: URL, identity: ExternalIdentity): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const audit = this.dependencies.adminAudit;
+    if (audit === undefined) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
+    const limit = Number.isFinite(rawLimit) ? rawLimit : 100;
+    try {
+      const entries = await audit.list(admin.principalId, limit);
+      return jsonResponse(200, { entries });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async listAdminOperations(identity: ExternalIdentity): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+
+    const capabilities = new Set(admin.capabilities);
     const operations = this.dependencies.adminMutations
       .listOperationDefinitions()
       .filter((operation) => capabilities.has(operation.capabilityKey))
@@ -271,8 +438,8 @@ export class PlayerPortalHttpHandler {
     request: Request,
     identity: ExternalIdentity,
   ): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const body = await readJsonBody(request);
     const parsed = AdminOperationPrepareRequestSchema.safeParse(body);
@@ -281,7 +448,7 @@ export class PlayerPortalHttpHandler {
     const data = parsed.data;
     try {
       const prepared = await this.dependencies.adminMutations.prepareMutation({
-        principalId: principal.principalId,
+        principalId: admin.principalId,
         operationType: data.operationType,
         input: data.input,
         ...(data.reason === undefined ? {} : { reason: data.reason }),
@@ -308,27 +475,18 @@ export class PlayerPortalHttpHandler {
     },
     identity: ExternalIdentity,
   ): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     try {
       const operation =
         action.action === "simulate"
-          ? await this.dependencies.adminMutations.simulate(
-              action.operationId,
-              principal.principalId,
-            )
+          ? await this.dependencies.adminMutations.simulate(action.operationId, admin.principalId)
           : action.action === "confirm"
-            ? await this.dependencies.adminMutations.confirm(
-                action.operationId,
-                principal.principalId,
-              )
+            ? await this.dependencies.adminMutations.confirm(action.operationId, admin.principalId)
             : action.action === "approve"
-              ? await this.approveAdminOperation(request, action.operationId, principal.principalId)
-              : await this.dependencies.adminMutations.apply(
-                  action.operationId,
-                  principal.principalId,
-                );
+              ? await this.approveAdminOperation(request, action.operationId, admin.principalId)
+              : await this.dependencies.adminMutations.apply(action.operationId, admin.principalId);
 
       return jsonResponse(200, {
         operationId: operation.id,
@@ -354,14 +512,14 @@ export class PlayerPortalHttpHandler {
   }
 
   private async searchAdminPlayers(url: URL, identity: ExternalIdentity): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const limitRaw = url.searchParams.get("limit");
     const limit =
       limitRaw === null || limitRaw.trim() === "" ? undefined : Number.parseInt(limitRaw, 10);
     const request = {
-      principalId: principal.principalId,
+      principalId: admin.principalId,
       includeSensitive: false,
       ...(url.searchParams.get("q")?.trim()
         ? { trainerNamePrefix: url.searchParams.get("q")?.trim() }
@@ -384,12 +542,12 @@ export class PlayerPortalHttpHandler {
   }
 
   private async getAdminPlayer(playerId: string, identity: ExternalIdentity): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     try {
       const player = await this.dependencies.adminPlayers.get({
-        principalId: principal.principalId,
+        principalId: admin.principalId,
         playerId,
         includeSensitive: false,
       });
@@ -404,8 +562,8 @@ export class PlayerPortalHttpHandler {
     playerId: string,
     identity: ExternalIdentity,
   ): Promise<Response> {
-    const principal = await this.dependencies.admin.resolvePrincipal(identity);
-    if (principal === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
 
     const body = await readJsonBody(request);
     const parsed = AdminPlayerAdjustmentRequestSchema.safeParse(body);
@@ -432,7 +590,7 @@ export class PlayerPortalHttpHandler {
 
     try {
       const prepared = await this.dependencies.adminMutations.prepareMutation({
-        principalId: principal.principalId,
+        principalId: admin.principalId,
         operationType: operation.operationType,
         input: operation.input,
         reason: data.reason,
@@ -441,7 +599,7 @@ export class PlayerPortalHttpHandler {
       });
       const applied = await this.dependencies.adminMutations.apply(
         prepared.operation.id,
-        principal.principalId,
+        admin.principalId,
       );
       return jsonResponse(200, {
         operationId: applied.id,
@@ -713,4 +871,18 @@ function jsonResponse(
       ...extraHeaders,
     },
   });
+}
+
+function adminTeamReceptionStaffTargetFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/team\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/reception-staff$/i,
+  );
+  return match?.[1] ?? null;
+}
+
+function adminTeamCapabilityTargetFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/v1\/hub\/admin\/team\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/capabilities$/i,
+  );
+  return match?.[1] ?? null;
 }

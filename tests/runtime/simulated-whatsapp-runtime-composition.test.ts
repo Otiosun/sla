@@ -30,7 +30,9 @@ describe("operational simulated WhatsApp runtime", () => {
       command: "menu",
       sensitiveActionKey: null,
     });
-    expect(runtime.composition.admitCommand(registration)).toBe(true);
-    expect(runtime.composition.admitCommand({ ...registration, text: "$naoexiste" })).toBe(false);
+    expect(runtime.composition.router.admitsCommand(registration)).toBe(true);
+    expect(runtime.composition.router.admitsCommand({ ...registration, text: "$naoexiste" })).toBe(
+      false,
+    );
   });
 });

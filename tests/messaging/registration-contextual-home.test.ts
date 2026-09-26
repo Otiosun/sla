@@ -160,8 +160,8 @@ describe("contextual /registrar home", () => {
 
     const result = await state.registrar.handler.handle(context("01"));
 
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("ficha em andamento");
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("1 — Continuar");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢");
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("`01` Continuar");
     expect(state.checkpoints[0]).toMatchObject({ state: "RESUME_MENU" });
   });
 
@@ -173,9 +173,7 @@ describe("contextual /registrar home", () => {
 
     const result = await state.registrar.handler.handle(context("02"));
 
-    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain(
-      "📋 FICHA PRONTA PARA REVISÃO",
-    );
+    expect(result.ok && result.value.outgoing[0]?.payload.text).toContain("𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
     expect(state.checkpoints[0]).toMatchObject({ state: "REVIEW" });
   });
 

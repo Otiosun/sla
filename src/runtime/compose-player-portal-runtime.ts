@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
 import { registerPhase12CBattleAdminOperations } from "../modules/admin/battle-definitions.js";
@@ -12,6 +13,7 @@ import { registerPhase12CEncounterAdminOperations } from "../modules/admin/encou
 import { AdminEncounterOperationService } from "../modules/admin/encounter-service.js";
 import { Player360Service } from "../modules/admin/player360-service.js";
 import { AdminRewardCatalogService } from "../modules/admin/reward-catalog-service.js";
+import { AdminTeamService } from "../modules/admin/team-service.js";
 import { AdminService } from "../modules/admin/service.js";
 import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
@@ -30,11 +32,13 @@ import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { SystemClock } from "../platform/clock/index.js";
+import { PostgresAdminAuditRepository } from "../platform/admin/postgres-admin-audit-repository.js";
 import { PostgresAdminBatchRepository } from "../platform/admin/postgres-admin-batch-repository.js";
 import { PostgresAdminCompensationCompletion } from "../platform/admin/postgres-admin-compensation-completion.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
 import { PostgresAdminRepository } from "../platform/admin/postgres-admin-repository.js";
 import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres-admin-reward-catalog-repository.js";
+import { PostgresAdminTeamRepository } from "../platform/admin/postgres-admin-team-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresBattleAdminRepository } from "../platform/battle/postgres-battle-admin-repository.js";
 import { PostgresBattleCancellation } from "../platform/battle/postgres-battle-cancellation.js";
@@ -46,6 +50,7 @@ import { PostgresPokemonLifecycleAdminRepository } from "../platform/pokemon/pos
 import { PostgresEncounterAdminRepository } from "../platform/encounter/postgres-encounter-admin-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-pokedex-admin-seen-owner.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
 import { PostgresPlayerPortalProfileCustomizationRepository } from "../platform/player-portal/postgres-player-portal-profile-customization-repository.js";
 import { PostgresPlayerPortalReadRepository } from "../platform/player-portal/postgres-player-portal-read-repository.js";
@@ -131,12 +136,17 @@ export function composePlayerPortalRuntime(
     progression,
     adminCompletion,
     pokemonAdmin,
+    new PostgresPokedexAdminSeenOwner(options.pool),
   );
   const adminRegistry = registerPhase12CDomainAdminOperations(
     createPhase12AdminOperationRegistry(adminRepository),
     adminDomain,
   );
   const adminService = new AdminService(adminRegistry, adminRepository);
+  const adminAudit = new AdminAuditService(
+    adminService,
+    new PostgresAdminAuditRepository(options.pool),
+  );
 
   const battleAdmin = new AdminBattleOperationService(
     adminService,
@@ -180,6 +190,7 @@ export function composePlayerPortalRuntime(
     adminService,
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
+  const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -190,6 +201,8 @@ export function composePlayerPortalRuntime(
     admin,
     adminPlayers,
     adminRewardCatalog,
+    adminAudit,
+    adminTeam,
     adminMutations: adminService,
   });
 

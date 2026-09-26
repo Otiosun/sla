@@ -72,13 +72,13 @@ function setup() {
     service,
   });
 
-  const route = (command: "teste" | "adm") => {
+  const route = (command: "teste") => {
     const found = routes.find((candidate) => candidate.command === command);
     if (found === undefined) throw new Error(`route ${command} missing`);
     return found;
   };
 
-  return { service, route };
+  return { service, route, routes };
 }
 
 describe("human UAT WhatsApp commands", () => {
@@ -152,14 +152,9 @@ describe("human UAT WhatsApp commands", () => {
     );
   });
 
-  it("keeps /adm teste criar as a legacy alias", async () => {
-    const { service, route } = setup();
-    const result = await route("adm").handler.handle(context("/adm teste criar @A", [A]));
+  it("does not reserve slash adm for legacy UAT aliases", () => {
+    const { routes } = setup();
 
-    expect(result.ok).toBe(true);
-    expect(service.bootstrap).toHaveBeenCalledWith(
-      { provider: "baileys", externalId: A },
-      "admin-1",
-    );
+    expect(routes.some((candidate) => candidate.command === "adm")).toBe(false);
   });
 });

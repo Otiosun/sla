@@ -30,18 +30,19 @@ describe("registration draft validation", () => {
     expect(result).toEqual({ ok: true, value: completeDraft });
   });
 
-  it("rejects a blank required text field instead of inventing a value", () => {
+  it("allows blank flexible Appearance and História and normalizes them to an em dash", () => {
     const result = validateRegistrationDraft({
       ...completeDraft,
       appearance: "   ",
+      backstory: "   ",
     });
 
     expect(result).toEqual({
-      ok: false,
-      error: {
-        code: "VALIDATION_FAILED",
-        message: "Registration draft is invalid",
-        details: { fields: ["appearance"] },
+      ok: true,
+      value: {
+        ...completeDraft,
+        appearance: "—",
+        backstory: "—",
       },
     });
   });

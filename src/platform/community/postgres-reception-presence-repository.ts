@@ -70,7 +70,7 @@ export class PostgresReceptionPresenceRepository {
        WHERE group_id = $1 AND player_id = $2`,
       [input.groupId, input.playerId],
     );
-    return result.rows[0]?.needs_welcome ?? true;
+    return result.rows[0]?.needs_welcome ?? false;
   }
 
   public async claimFirstWelcome(input: ClaimReceptionFirstWelcomeInput): Promise<boolean> {

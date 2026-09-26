@@ -184,7 +184,7 @@ function expectContextualRetry(
     ok: true,
     value: {
       resultRefType: "REGISTRATION_SESSION",
-      outgoing: [{ payload: { text: expect.stringContaining("⚠️") } }],
+      outgoing: [{ payload: { text: expect.stringContaining("△") } }],
     },
   });
   expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain(expectedText);
@@ -214,7 +214,7 @@ describe("persisted Registration contextual validation", () => {
 
     const first = await router.dispatch(invalid);
 
-    expectContextualRetry(first, "📝 2/7 — Idade");
+    expectContextualRetry(first, "02 / 07");
     expect(state.checkpoints[0]).toMatchObject({
       state: "GUIDED_FIELD",
       currentField: "age",
@@ -233,10 +233,10 @@ describe("persisted Registration contextual validation", () => {
       currentField: "genderPronouns",
     });
     expect(state.getDraft()).toMatchObject({ age: 19 });
-    expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain("✅ 2/7 — Idade: 19");
     expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain(
-      "📝 3/7 — Gênero / pronomes",
+      "✓ *Idade registrada:* 19",
     );
+    expect(second.ok && second.value?.outgoing[0]?.payload.text).toContain("03 / 07");
   });
 
   it("keeps an invalid starter in the same guided field with canonical options", async () => {
@@ -256,15 +256,42 @@ describe("persisted Registration contextual validation", () => {
 
     const routed = await router.dispatch(messageContext("999", INITIAL_PROMPT_ID, "13"));
 
-    expectContextualRetry(routed, "📝 7/7 — Pokémon inicial");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("1. Charmander");
-    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("2. Squirtle");
+    expectContextualRetry(routed, "07 / 07");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("`01` Charmander");
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("`02` Squirtle");
     expect(state.getConversation()).toMatchObject({
       state: "GUIDED_FIELD",
       currentField: "starterFormId",
     });
   });
 
+  it.each([
+    ["02", SQUIRTLE_ID],
+    ["#2", SQUIRTLE_ID],
+    ["quero o 2", SQUIRTLE_ID],
+    ["vou de Squirtle", SQUIRTLE_ID],
+    ["squirtle pf", SQUIRTLE_ID],
+  ])("accepts human starter choice %s", async (answer, expectedStarter) => {
+    const playerId = createPlayerId();
+    const draft = completeDraft();
+    delete (draft as { starterFormId?: string }).starterFormId;
+    const state = harness({
+      initialConversation: conversation(playerId, {
+        state: "GUIDED_FIELD",
+        editingMode: "GUIDED",
+        currentField: "starterFormId",
+        draftRevision: 2,
+      }),
+      initialDraft: draft,
+    });
+    const router = new MessageRouter([], undefined, state.resolver);
+
+    const routed = await router.dispatch(messageContext(answer, INITIAL_PROMPT_ID, "16"));
+
+    expect(routed.ok).toBe(true);
+    expect(state.getDraft()).toMatchObject({ starterFormId: expectedStarter });
+    expect(state.getConversation().state).toBe("REVIEW");
+  });
   it("keeps invalid REVIEW and EDIT_SELECT choices inside their conversational menus", async () => {
     const playerId = createPlayerId();
     const review = harness({
@@ -279,7 +306,7 @@ describe("persisted Registration contextual validation", () => {
 
     const invalidReview = await reviewRouter.dispatch(messageContext("9", INITIAL_PROMPT_ID, "14"));
 
-    expectContextualRetry(invalidReview, "📋 FICHA PRONTA PARA REVISÃO");
+    expectContextualRetry(invalidReview, "𝗥𝗘𝗩𝗜𝗦Ã𝗢 𝗗𝗢 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢");
     expect(review.getConversation().state).toBe("REVIEW");
 
     const editPlayerId = createPlayerId();
@@ -295,7 +322,7 @@ describe("persisted Registration contextual validation", () => {
 
     const invalidEdit = await editRouter.dispatch(messageContext("0", INITIAL_PROMPT_ID, "15"));
 
-    expectContextualRetry(invalidEdit, "✏️ O que deseja corrigir?");
+    expectContextualRetry(invalidEdit, "𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔");
     expect(edit.getConversation().state).toBe("EDIT_SELECT");
   });
 });

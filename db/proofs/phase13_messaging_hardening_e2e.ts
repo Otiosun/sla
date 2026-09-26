@@ -222,7 +222,7 @@ async function main(): Promise<void> {
         id: "action-limit-1",
         sender: "action-sender",
         chat: "action-chat",
-        text: "$sensitive",
+        text: "/sensitive",
       }),
     );
     const actionSecond = await actionLimiter.receive(
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
         id: "action-limit-2",
         sender: "action-sender",
         chat: "action-chat",
-        text: "$sensitive",
+        text: "/sensitive",
       }),
     );
     if (
@@ -267,7 +267,7 @@ async function main(): Promise<void> {
       id: "rate-crash",
       sender: "crash-sender",
       chat: "crash-chat",
-      text: "$crash",
+      text: "/crash",
     });
     const crashed = await crashService.receive(crashMessage);
     const recovered = await crashService.receive(crashMessage);
@@ -321,7 +321,7 @@ async function main(): Promise<void> {
         id: "friendly-error",
         sender: "error-sender",
         chat: "error-chat",
-        text: "$blocked",
+        text: "/blocked",
       }),
     );
     if (!blocked.ok || blocked.value.resultRefType !== "MESSAGING_ERROR") {
@@ -338,9 +338,10 @@ async function main(): Promise<void> {
     const friendly = errorOutbox.rows[0];
     if (
       friendly === undefined ||
-      !friendly.text.includes(`Código de suporte: ${blocked.value.correlationId}`) ||
+      friendly.text !== "Essa ação está bloqueada pelo fluxo atual." ||
       friendly.text.includes("internal detail") ||
       friendly.text.includes("secret-state") ||
+      friendly.text.includes(blocked.value.correlationId) ||
       friendly.correlation_id !== blocked.value.correlationId
     ) {
       throw new Error(
@@ -384,7 +385,7 @@ async function main(): Promise<void> {
       id: "media-message",
       sender: "registered-player",
       chat: "media-chat",
-      text: "$media",
+      text: "/media",
       mediaRefs: [
         {
           providerMediaId: "media-proof-1",

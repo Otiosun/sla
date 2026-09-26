@@ -29,6 +29,10 @@ export interface MessageConversationResolver {
   resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>>;
 }
 
+export interface MessageRouteScopeGate {
+  admits(context: MessageHandlerContext, canonicalCommand: string): Promise<boolean>;
+}
+
 interface RegisteredRoute {
   readonly canonicalCommand: string;
   readonly handler: MessageRouteHandler;
@@ -120,6 +124,7 @@ export class MessageRouter implements MessageRouterPort {
     definitions: readonly CommandRouteDefinition[] = [],
     private readonly policyGate?: CommandRoutePolicyGate,
     private readonly conversationResolver?: MessageConversationResolver,
+    private readonly scopeGate?: MessageRouteScopeGate,
   ) {
     for (const definition of definitions) {
       this.register(definition);
@@ -233,6 +238,13 @@ export class MessageRouter implements MessageRouterPort {
           userMessage: "Comando desconhecido. Use `/menu` para ver os comandos disponíveis.",
         }),
       );
+    }
+
+    if (
+      this.scopeGate !== undefined &&
+      !(await this.scopeGate.admits(context, route.canonicalCommand))
+    ) {
+      return ok(null);
     }
 
     const routedContext: MessageHandlerContext = {

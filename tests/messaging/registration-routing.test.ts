@@ -133,7 +133,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("Nome do treinador") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("𝗡𝗢𝗠𝗘 𝗗𝗢 𝗧𝗥𝗘𝗜𝗡𝗔𝗗𝗢𝗥") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({
@@ -162,7 +162,7 @@ describe("registration conversation routing", () => {
       value: {
         resultRefType: "REGISTRATION_SESSION",
         resultRefId: playerId,
-        outgoing: [{ payload: { text: expect.stringContaining("Idade") } }],
+        outgoing: [{ payload: { text: expect.stringContaining("𝗜𝗗𝗔𝗗𝗘") } }],
       },
     });
     expect(sessions.get(playerId)).toMatchObject({
