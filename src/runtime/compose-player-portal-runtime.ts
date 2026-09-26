@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
 import { registerPhase12CBattleAdminOperations } from "../modules/admin/battle-definitions.js";
@@ -31,6 +32,7 @@ import { ProgressionService } from "../modules/progression/service.js";
 import { WorldService } from "../modules/world/service.js";
 import { PokemonPcStorageService } from "../modules/world-services/pc-storage-service.js";
 import { SystemClock } from "../platform/clock/index.js";
+import { PostgresAdminAuditRepository } from "../platform/admin/postgres-admin-audit-repository.js";
 import { PostgresAdminBatchRepository } from "../platform/admin/postgres-admin-batch-repository.js";
 import { PostgresAdminCompensationCompletion } from "../platform/admin/postgres-admin-compensation-completion.js";
 import { PostgresAdminOperationCompletion } from "../platform/admin/postgres-admin-operation-completion.js";
@@ -141,6 +143,10 @@ export function composePlayerPortalRuntime(
     adminDomain,
   );
   const adminService = new AdminService(adminRegistry, adminRepository);
+  const adminAudit = new AdminAuditService(
+    adminService,
+    new PostgresAdminAuditRepository(options.pool),
+  );
 
   const battleAdmin = new AdminBattleOperationService(
     adminService,
@@ -195,6 +201,7 @@ export function composePlayerPortalRuntime(
     admin,
     adminPlayers,
     adminRewardCatalog,
+    adminAudit,
     adminTeam,
     adminMutations: adminService,
   });
