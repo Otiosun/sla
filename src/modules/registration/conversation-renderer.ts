@@ -1,4 +1,8 @@
-import { TRAINER_PROFESSIONS, trainerProfessionDisplayName, type TrainerProfessionSelection } from "../player/professions.js";
+import {
+  TRAINER_PROFESSIONS,
+  trainerProfessionDisplayName,
+  type TrainerProfessionSelection,
+} from "../player/professions.js";
 import type { RegistrationConversationField } from "./conversation-session.js";
 
 export interface RegistrationGuidedRenderOptions {
