@@ -666,7 +666,6 @@ export class RegistrationConversationResolver {
           expectedConversationRevision: conversation.revision,
           expectedDraftRevision: persistedDraft.revision,
           inboxMessageId: context.inboxMessageId,
-          draft,
         });
         if (!saved.ok) return saved;
         return persistedTextResult(
