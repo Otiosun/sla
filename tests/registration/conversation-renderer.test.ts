@@ -88,9 +88,9 @@ describe("registration conversation renderer", () => {
     expect(text).toContain("Nome:");
     expect(text).toContain("Idade:");
     expect(text).toContain("Gênero / pronomes:");
-    expect(text).toContain("Aparência:");
+    expect(text).toContain("Aparência (opcional):");
     expect(text).toContain("Personalidade:");
-    expect(text).toContain("História:");
+    expect(text).toContain("História (opcional):");
     expect(text).toContain("Pokémon inicial:");
     expect(text).toContain("Zhoulia");
     expect(text.toLocaleLowerCase("pt-BR")).toContain("envie a ficha preenchida");
