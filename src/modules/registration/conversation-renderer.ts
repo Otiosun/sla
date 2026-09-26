@@ -1,3 +1,4 @@
+import { TRAINER_PROFESSIONS, trainerProfessionDisplayName, type TrainerProfessionSelection } from "../player/professions.js";
 import type { RegistrationConversationField } from "./conversation-session.js";
 
 export interface RegistrationGuidedRenderOptions {
@@ -21,6 +22,7 @@ export interface RegistrationReviewRenderInput {
   readonly appearance: string;
   readonly personality: string;
   readonly backstory: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterDisplayName: string;
   readonly regionDisplayName: string;
 }
@@ -32,6 +34,7 @@ export interface RegistrationDraftProgressRenderInput {
   readonly appearance?: string;
   readonly personality?: string;
   readonly backstory?: string;
+  readonly profession?: TrainerProfessionSelection;
   readonly starterDisplayName?: string;
   readonly regionDisplayName: string;
 }
@@ -47,37 +50,42 @@ const FIELD_COPY: Readonly<
   >
 > = {
   trainerName: {
-    progress: "1/7",
+    progress: "1/8",
     label: "Nome do treinador",
     question: "Qual será o nome do personagem?",
   },
   age: {
-    progress: "2/7",
+    progress: "2/8",
     label: "Idade",
     question: "Qual é a idade do personagem?",
   },
   genderPronouns: {
-    progress: "3/7",
+    progress: "3/8",
     label: "Gênero / pronomes",
     question: "Como quer registrar esse campo?",
   },
   appearance: {
-    progress: "4/7",
+    progress: "4/8",
     label: "Aparência",
     question: "Descreva a aparência do personagem, se quiser.",
   },
   personality: {
-    progress: "5/7",
+    progress: "5/8",
     label: "Personalidade",
     question: "Descreva a personalidade do personagem.",
   },
   backstory: {
-    progress: "6/7",
+    progress: "6/8",
     label: "História / resumo",
     question: "Conte a história ou um resumo do personagem, se quiser.",
   },
+  profession: {
+    progress: "7/8",
+    label: "Profissão",
+    question: "Escolha uma profissão para o personagem, se quiser.",
+  },
   starterFormId: {
-    progress: "7/7",
+    progress: "8/8",
     label: "Pokémon inicial",
     question: "Escolha pelo número ou pelo nome.",
   },
@@ -108,6 +116,8 @@ function fieldHeading(field: RegistrationConversationField): string {
       return "◇ *𝗣𝗘𝗥𝗦𝗢𝗡𝗔𝗟𝗜𝗗𝗔𝗗𝗘*";
     case "backstory":
       return "◇ *𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗔*";
+    case "profession":
+      return "◇ *𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢*";
     case "starterFormId":
       return "✦ *𝗣𝗢𝗞É𝗠𝗢𝗡 𝗜𝗡𝗜𝗖𝗜𝗔𝗟*";
   }
@@ -127,6 +137,8 @@ function fieldInstruction(field: RegistrationConversationField): string {
       return "> _Escreva do seu jeito._";
     case "backstory":
       return "> _Opcional. Pode escrever normalmente ou responder `pular`._";
+    case "profession":
+      return "> _Opcional. Responda com o nome da profissão ou pular._";
     case "starterFormId":
       return "› _Responda com o número ou o nome do Pokémon._";
   }
@@ -174,7 +186,23 @@ export function renderGuidedField(
     "",
   ];
 
-  if (field === "starterFormId") {
+  if (field === "profession") {
+    const common = TRAINER_PROFESSIONS.filter((profession) => profession.tier === "COMMON")
+      .map((profession) => profession.label)
+      .join(" · ");
+    const premium = TRAINER_PROFESSIONS.filter((profession) => profession.tier === "PREMIUM")
+      .map((profession) => profession.label)
+      .join(" · ");
+    lines.push(
+      "Escolha uma profissão, se quiser:",
+      "",
+      common,
+      "",
+      `Premium: ${premium}`,
+      "",
+      fieldInstruction(field),
+    );
+  } else if (field === "starterFormId") {
     lines.push(
       "Escolha um dos Pokémon disponíveis:",
       "",
@@ -210,6 +238,8 @@ export function renderGuidedAcknowledgement(
       return "✓ *Personalidade registrada.*";
     case "backstory":
       return "✓ *História registrada.*";
+    case "profession":
+      return `✓ *Profissão registrada:* ${trainerProfessionDisplayName(String(value) as TrainerProfessionSelection)}`;
     case "starterFormId":
       return `✓ *Pokémon inicial registrado:* ${String(value).trim()}`;
   }
@@ -221,7 +251,13 @@ export function renderEditField(
 ): string {
   const copy = FIELD_COPY[field];
   const lines = ["✎ *𝗖𝗢𝗥𝗥𝗜𝗚𝗜𝗥 𝗙𝗜𝗖𝗛𝗔*", `　${copy.label}`, ""];
-  if (field === "starterFormId") {
+  if (field === "profession") {
+    lines.push(
+      TRAINER_PROFESSIONS.map((profession) => profession.label).join(" · "),
+      "",
+      "› _Nome da profissão ou pular._",
+    );
+  } else if (field === "starterFormId") {
     lines.push(numberedOptions(options.starterOptions ?? []), "", "› _Número ou nome do Pokémon._");
   } else {
     lines.push(copy.question, "", "› _Envie o novo valor respondendo a esta mensagem._");
@@ -246,6 +282,8 @@ export function renderEditAcknowledgement(
       return "✓ *Personalidade atualizada.*";
     case "backstory":
       return "✓ *História atualizada.*";
+    case "profession":
+      return `✓ *Profissão atualizada:* ${trainerProfessionDisplayName(String(value) as TrainerProfessionSelection)}`;
     case "starterFormId":
       return `✓ *Pokémon inicial atualizado:* ${String(value).trim()}`;
   }
@@ -269,6 +307,13 @@ export function renderFullForm(options: RegistrationFullFormRenderOptions): stri
     "*Aparência (opcional):*",
     "*Personalidade:*",
     "*História (opcional):*",
+    "",
+    "◇ *𝗣𝗥𝗢𝗙𝗜𝗦𝗦Ã𝗢*",
+    "",
+    "*Profissão (opcional):*",
+    "　Criador · Pesquisador · Explorador · Ranger",
+    "　Pescador · Artesão · Coordenador",
+    "　Premium: Fotógrafo · Campeão · Colecionador — TCG",
     "",
     "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
     "",
@@ -300,6 +345,8 @@ export function renderMissingFullFormFields(
         return "Personalidade";
       case "backstory":
         return "História";
+      case "profession":
+        return "Profissão";
       case "starterFormId":
         return "Pokémon inicial";
     }
@@ -346,6 +393,8 @@ export function renderReview(input: RegistrationReviewRenderInput): string {
     "",
     `*História:* ${input.backstory}`,
     "",
+    `*Profissão:* ${trainerProfessionDisplayName(input.profession)}`,
+    "",
     "✦ *𝗝𝗢𝗥𝗡𝗔𝗗𝗔*",
     "",
     `*Pokémon inicial:* ${input.starterDisplayName}`,
@@ -372,6 +421,7 @@ export function renderDraftProgress(input: RegistrationDraftProgressRenderInput)
     `*Aparência:* ${draftValue(input.appearance)}`,
     `*Personalidade:* ${draftValue(input.personality)}`,
     `*História:* ${draftValue(input.backstory)}`,
+    `*Profissão:* ${trainerProfessionDisplayName(input.profession)}`,
     `*Pokémon inicial:* ${draftValue(input.starterDisplayName)}`,
     `*Região:* ${input.regionDisplayName}`,
   ].join("\n");
@@ -388,9 +438,10 @@ export function renderEditSelect(): string {
     "`04` Aparência",
     "`05` Personalidade",
     "`06` História",
-    "`07` Pokémon inicial",
+    "`07` Profissão",
+    "`08` Pokémon inicial",
     "",
-    "‹ `08` Voltar",
+    "‹ `09` Voltar",
     "",
     "› _Responda com o número do campo._",
   ].join("\n");
