@@ -164,8 +164,10 @@ export interface OperationalMessagingComposition {
   readonly pveBattle: ReturnType<typeof createPveBattleRuntime> | null;
   readonly onMembership: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly router: MessageRouter;
-  readonly admitCommand: (message: IncomingMessage) => boolean | Promise<boolean>;
+  readonly admitCommand: (message: IncomingMessage) => boolean;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
+  readonly admitRuntimeCommand: (message: IncomingMessage) => Promise<boolean>;
+  readonly admitRuntimeFreeform: (message: IncomingMessage) => Promise<boolean>;
   readonly runMaintenance: () => Promise<void>;
 }
 
@@ -587,7 +589,11 @@ export function createOperationalMessagingComposition(
     pveBattle,
     router,
     onMembership: (event) => receptionMembership.handle(event),
-    admitCommand: async (message) => {
+    admitCommand: (message) => router.admitsCommand(message),
+    admitFreeform: async (message) =>
+      (await registrationConversationResolver.admits(message)) ||
+      worldServiceConversationResolver.admits(message),
+    admitRuntimeCommand: async (message) => {
       if (!router.admitsCommand(message)) return false;
       const command = router.classify(message).command;
       if (command === null) return false;
@@ -617,7 +623,7 @@ export function createOperationalMessagingComposition(
       });
       return adminCapabilities.includes(requiredAdminCapability);
     },
-    admitFreeform: async (message) => {
+    admitRuntimeFreeform: async (message) => {
       const group = await community.resolveChat({
         provider: message.provider,
         chatRef: message.chatRef,
@@ -730,8 +736,8 @@ export function createOperationalWhatsAppRuntime(
   const outboxWorker = createOperationalOutboxWorker(options.pool, messagingRepository, adapter);
 
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
-    admitCommand: composition.admitCommand,
-    admitFreeform: composition.admitFreeform,
+    admitCommand: composition.admitRuntimeCommand,
+    admitFreeform: composition.admitRuntimeFreeform,
     beforeOutboxFlush: composition.runMaintenance,
     onIncomingProcessingFailure: ({ stage, errorCode, correlationId }) => {
       options.logger.log("ERROR", "whatsapp.inbound.processing_failed", {
