@@ -132,7 +132,11 @@ function firstMissingField(
 ): RegistrationConversationField | null {
   for (const field of GUIDED_FIELDS) {
     const value = working[field];
-    if (value === undefined || (typeof value === "string" && value.trim().length === 0)) {
+    if (
+      field === "profession"
+        ? typeof value !== "string" || normalizeTrainerProfession(value) === null
+        : value === undefined || (typeof value === "string" && value.trim().length === 0)
+    ) {
       return field;
     }
   }
