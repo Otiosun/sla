@@ -155,7 +155,7 @@ export interface PlayerProfileView {
   readonly trainerName: string | null;
   readonly originRegionId: string | null;
   readonly locale: string | null;
-  readonly profession: TrainerProfessionId | null;
+  readonly profession?: TrainerProfessionId | null;
   readonly trainerLevel: number;
   readonly progressionPoints: bigint;
   readonly onboardingState: OnboardingState;
