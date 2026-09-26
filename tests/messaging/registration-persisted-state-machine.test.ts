@@ -280,6 +280,36 @@ describe("persisted Registration conversation state machine", () => {
     expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("02 / 07");
   });
 
+  it("lets the guided flow skip flexible Appearance without blocking progression", async () => {
+    const playerId = createPlayerId();
+    const state = harness({
+      initialConversation: conversation(playerId, {
+        state: "GUIDED_FIELD",
+        editingMode: "GUIDED",
+        currentField: "appearance",
+        draftRevision: 2,
+      }),
+      initialDraft: {
+        trainerName: "Emi",
+        age: 17,
+        genderPronouns: "ela/dela",
+        regionId: ZHOULIA_ID,
+        schemaVersion: 1,
+      },
+    });
+    const router = new MessageRouter([], undefined, state.resolver);
+
+    const routed = await router.dispatch(messageContext("pular", null, "13"));
+
+    expect(routed.ok).toBe(true);
+    expect(state.getDraft()).toMatchObject({ appearance: "—" });
+    expect(state.getConversation()).toMatchObject({
+      state: "GUIDED_FIELD",
+      currentField: "personality",
+    });
+    expect(routed.ok && routed.value?.outgoing[0]?.payload.text).toContain("05 / 07");
+  });
+
   it("moves the final guided starter directly to REVIEW with the canonical starter", async () => {
     const playerId = createPlayerId();
     const draft = completeDraft();
