@@ -30,6 +30,8 @@ describe("AdminRewardCatalogService", () => {
       currencies: [expect.objectContaining({ slug: "poke-dollar" })],
       species: [],
       forms: [],
+      abilities: [],
+      natures: [],
       effects: [],
       releases: [],
     });
