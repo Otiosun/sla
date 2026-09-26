@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRAINER_PROFESSIONS, type TrainerProfessionId } from "./professions.js";
 import type { CorrelationId, PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
 
 export const OnboardingStateSchema = z.enum([
@@ -24,11 +25,25 @@ export const ExternalIdentitySchema = z
   .strict();
 export type ExternalIdentity = z.infer<typeof ExternalIdentitySchema>;
 
+const TrainerProfessionIdSchema = z.enum(
+  TRAINER_PROFESSIONS.map((profession) => profession.id) as [
+    TrainerProfessionId,
+    ...TrainerProfessionId[],
+  ],
+);
+
+export const PlayerProfileMetadataSchema = z
+  .object({
+    profession: TrainerProfessionIdSchema.optional(),
+  })
+  .strict();
+export type PlayerProfileMetadata = z.infer<typeof PlayerProfileMetadataSchema>;
+
 export const ProfileInputSchema = z
   .object({
     trainerName: z.string().trim().min(1).max(40),
     locale: z.string().trim().min(2).max(32).nullable().optional(),
-    metadata: z.object({}).strict().default({}),
+    metadata: PlayerProfileMetadataSchema.default({}),
   })
   .strict();
 export type ProfileInput = z.infer<typeof ProfileInputSchema>;
@@ -140,6 +155,7 @@ export interface PlayerProfileView {
   readonly trainerName: string | null;
   readonly originRegionId: string | null;
   readonly locale: string | null;
+  readonly profession: TrainerProfessionId | null;
   readonly trainerLevel: number;
   readonly progressionPoints: bigint;
   readonly onboardingState: OnboardingState;
