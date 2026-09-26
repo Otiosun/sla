@@ -60,14 +60,13 @@ export function normalizeTrainerProfession(value: string): TrainerProfessionSele
   return PROFESSION_BY_ALIAS.get(key) ?? null;
 }
 
-export function trainerProfessionDisplayName(value: TrainerProfessionSelection | undefined): string {
+export function trainerProfessionDisplayName(
+  value: TrainerProfessionSelection | undefined,
+): string {
   if (value === undefined || value === "—") return "—";
   return TRAINER_PROFESSIONS.find((profession) => profession.id === value)?.label ?? "—";
 }
 
 export function isTrainerProfessionId(value: unknown): value is TrainerProfessionId {
-  return (
-    typeof value === "string" &&
-    TRAINER_PROFESSIONS.some((profession) => profession.id === value)
-  );
+  return typeof value === "string" && TRAINER_PROFESSIONS.some((profession) => profession.id === value);
 }
