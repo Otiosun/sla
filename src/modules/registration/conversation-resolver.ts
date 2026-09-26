@@ -36,9 +36,9 @@ import {
   type RegistrationConversationSession,
   type RegistrationConversationSessions,
 } from "./conversation-session.js";
-import {
-  type RegistrationConversationField as PersistedRegistrationConversationField,
-  type RegistrationConversationRecord,
+import type {
+  RegistrationConversationField as PersistedRegistrationConversationField,
+  RegistrationConversationRecord,
 } from "./conversation-state.js";
 import type { RegistrationService } from "./service.js";
 import { validateRegistrationDraft } from "./validation.js";
