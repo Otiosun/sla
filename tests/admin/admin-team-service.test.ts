@@ -28,6 +28,7 @@ describe("AdminTeamService", () => {
           displayName: "Dono",
           status: "ACTIVE" as const,
           owner: true,
+          receptionStaff: true,
           revision: "0",
           capabilities: ["central.view"],
         },
