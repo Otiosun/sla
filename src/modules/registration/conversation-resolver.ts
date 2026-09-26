@@ -967,7 +967,9 @@ export class RegistrationConversationResolver {
         field === "starterFormId"
           ? starterDisplayName(String(parsedValue.value), setup.value)
           : field === "profession"
-            ? trainerProfessionDisplayName(String(parsedValue.value) as RegistrationDraftInput["profession"])
+            ? trainerProfessionDisplayName(
+                String(parsedValue.value) as RegistrationDraftInput["profession"],
+              )
             : parsedValue.value;
       const acknowledgement = renderGuidedAcknowledgement(field, acknowledgementValue);
 
@@ -1426,7 +1428,9 @@ export class RegistrationConversationResolver {
         field === "starterFormId"
           ? starterDisplayName(String(parsedValue.value), setup.value)
           : field === "profession"
-            ? trainerProfessionDisplayName(String(parsedValue.value) as RegistrationDraftInput["profession"])
+            ? trainerProfessionDisplayName(
+                String(parsedValue.value) as RegistrationDraftInput["profession"],
+              )
             : parsedValue.value;
       const acknowledgement = renderEditAcknowledgement(field, acknowledgementValue);
       const saved = await registration.saveConversationCheckpoint({
