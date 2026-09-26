@@ -114,13 +114,13 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
   }): Promise<AdminTeamPrincipalView> {
     return withTransaction(this.pool, async (client) => {
       const actorOwner = await client.query<{ owner: boolean }>(
-        \`SELECT EXISTS (
+        `SELECT EXISTS (
            SELECT 1
            FROM admin_principal_roles relation
            JOIN admin_roles role ON role.id = relation.role_id
            WHERE relation.principal_id = $1
              AND role.slug = 'OWNER_SECURITY_ADMIN'
-         ) AS owner\`,
+         ) AS owner`,
         [input.actorPrincipalId],
       );
       if (actorOwner.rows[0]?.owner !== true) {
@@ -134,7 +134,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
         trainer_name: string;
         external_id: string;
       }>(
-        \`SELECT profile.trainer_name, identity.external_id
+        `SELECT profile.trainer_name, identity.external_id
          FROM players player
          JOIN player_access access
            ON access.player_id = player.id
@@ -150,7 +150,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
            LIMIT 1
          ) identity ON TRUE
          WHERE player.id = $1
-           AND player.status <> 'ARCHIVED'\`,
+           AND player.status <> 'ARCHIVED'`,
         [input.playerId],
       );
       const playerRow = player.rows[0];
@@ -161,9 +161,9 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
         );
       }
 
-      const identityRef = \`whatsapp:\${playerRow.external_id}\`;
+      const identityRef = `whatsapp:${playerRow.external_id}`;
       const existing = await client.query<{ id: string }>(
-        \`SELECT id FROM admin_principals WHERE identity_ref = $1\`,
+        `SELECT id FROM admin_principals WHERE identity_ref = $1`,
         [identityRef],
       );
       if (existing.rows[0] !== undefined) {
@@ -175,10 +175,10 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
         throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "UAT capability cannot be delegated");
       }
       const known = await client.query<{ id: string; key: string }>(
-        \`SELECT id, key
+        `SELECT id, key
          FROM capabilities
          WHERE key = ANY($1::text[])
-         ORDER BY key\`,
+         ORDER BY key`,
         [requested],
       );
       if (known.rows.length !== requested.length) {
@@ -187,22 +187,22 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
 
       const principalId = randomUUID();
       await client.query(
-        \`INSERT INTO admin_principals(id, identity_ref, status)
-         VALUES ($1, $2, 'ACTIVE')\`,
+        `INSERT INTO admin_principals(id, identity_ref, status)
+         VALUES ($1, $2, 'ACTIVE')`,
         [principalId, identityRef],
       );
       await client.query(
-        \`INSERT INTO admin_principal_scopes(
+        `INSERT INTO admin_principal_scopes(
            id, principal_id, scope_type, scope_id, status
-         ) VALUES ($1, $2, 'GLOBAL', NULL, 'ACTIVE')\`,
+         ) VALUES ($1, $2, 'GLOBAL', NULL, 'ACTIVE')`,
         [randomUUID(), principalId],
       );
 
       for (const capability of known.rows) {
         await client.query(
-          \`INSERT INTO admin_principal_capability_overrides(
+          `INSERT INTO admin_principal_capability_overrides(
              principal_id, capability_id, decision, reason, assigned_by_admin_principal_id
-           ) VALUES ($1, $2, 'GRANT', $3, $4)\`,
+           ) VALUES ($1, $2, 'GRANT', $3, $4)`,
           [principalId, capability.id, input.reason, input.actorPrincipalId],
         );
       }
@@ -215,10 +215,10 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
           );
         }
         const reception = await client.query<{ id: string }>(
-          \`SELECT id
+          `SELECT id
            FROM community_groups
            WHERE role = 'RECEPTION' AND status = 'ACTIVE'
-           ORDER BY created_at, id\`,
+           ORDER BY created_at, id`,
         );
         if (reception.rows.length !== 1 || reception.rows[0] === undefined) {
           throw new AdminError(
@@ -227,21 +227,21 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
           );
         }
         await client.query(
-          \`INSERT INTO reception_staff_assignments(
+          `INSERT INTO reception_staff_assignments(
              group_id, admin_principal_id, active, created_at, updated_at
-           ) VALUES ($1, $2, TRUE, now(), now())\`,
+           ) VALUES ($1, $2, TRUE, now(), now())`,
           [reception.rows[0].id, principalId],
         );
       }
 
       await client.query(
-        \`INSERT INTO audit_events(
+        `INSERT INTO audit_events(
            id, actor_type, actor_id, action, target_type, target_id, risk_tier, reason,
            before_data, after_data, metadata, correlation_id, causation_id
          ) VALUES (
            $1, 'ADMIN', $2, 'admin.principal.create', 'ADMIN_PRINCIPAL', $3, 4, $4,
            '{}'::jsonb, $5::jsonb, $6::jsonb, $7, NULL
-         )\`,
+         )`,
         [
           randomUUID(),
           input.actorPrincipalId,
@@ -259,7 +259,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
       );
 
       const refreshed = await client.query<PrincipalRow>(
-        \`\${PRINCIPAL_SELECT} WHERE principal.id = $1\`,
+        `${PRINCIPAL_SELECT} WHERE principal.id = $1`,
         [principalId],
       );
       const row = refreshed.rows[0];
@@ -276,13 +276,13 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
   }): Promise<AdminTeamPrincipalView> {
     return withTransaction(this.pool, async (client) => {
       const actorOwner = await client.query<{ owner: boolean }>(
-        \`SELECT EXISTS (
+        `SELECT EXISTS (
            SELECT 1
            FROM admin_principal_roles relation
            JOIN admin_roles role ON role.id = relation.role_id
            WHERE relation.principal_id = $1
              AND role.slug = 'OWNER_SECURITY_ADMIN'
-         ) AS owner\`,
+         ) AS owner`,
         [input.actorPrincipalId],
       );
       if (actorOwner.rows[0]?.owner !== true) {
@@ -293,7 +293,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
       }
 
       const target = await client.query<{ status: "ACTIVE" | "DISABLED" }>(
-        \`SELECT status FROM admin_principals WHERE id = $1 FOR UPDATE\`,
+        `SELECT status FROM admin_principals WHERE id = $1 FOR UPDATE`,
         [input.targetPrincipalId],
       );
       if (target.rows[0] === undefined) {
@@ -305,9 +305,9 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
 
       if (input.active) {
         const capability = await client.query(
-          \`SELECT 1
+          `SELECT 1
            FROM admin_effective_capabilities
-           WHERE principal_id = $1 AND key = 'player.registration.read'\`,
+           WHERE principal_id = $1 AND key = 'player.registration.read'`,
           [input.targetPrincipalId],
         );
         if (capability.rowCount !== 1) {
@@ -319,10 +319,10 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
       }
 
       const reception = await client.query<{ id: string }>(
-        \`SELECT id
+        `SELECT id
          FROM community_groups
          WHERE role = 'RECEPTION' AND status = 'ACTIVE'
-         ORDER BY created_at, id\`,
+         ORDER BY created_at, id`,
       );
       if (reception.rows.length !== 1 || reception.rows[0] === undefined) {
         throw new AdminError(
@@ -333,34 +333,34 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
       const groupId = reception.rows[0].id;
 
       const before = await client.query<{ active: boolean }>(
-        \`SELECT active
+        `SELECT active
          FROM reception_staff_assignments
-         WHERE group_id = $1 AND admin_principal_id = $2\`,
+         WHERE group_id = $1 AND admin_principal_id = $2`,
         [groupId, input.targetPrincipalId],
       );
       const beforeActive = before.rows[0]?.active === true;
 
       await client.query(
-        \`INSERT INTO reception_staff_assignments(
+        `INSERT INTO reception_staff_assignments(
            group_id, admin_principal_id, active, created_at, updated_at
          ) VALUES ($1, $2, $3, now(), now())
          ON CONFLICT (group_id, admin_principal_id) DO UPDATE
-         SET active = EXCLUDED.active, updated_at = now()\`,
+         SET active = EXCLUDED.active, updated_at = now()`,
         [groupId, input.targetPrincipalId, input.active],
       );
       await client.query(
-        \`UPDATE admin_principals SET revision = revision + 1 WHERE id = $1\`,
+        `UPDATE admin_principals SET revision = revision + 1 WHERE id = $1`,
         [input.targetPrincipalId],
       );
 
       await client.query(
-        \`INSERT INTO audit_events(
+        `INSERT INTO audit_events(
            id, actor_type, actor_id, action, target_type, target_id, risk_tier, reason,
            before_data, after_data, metadata, correlation_id, causation_id
          ) VALUES (
            $1, 'ADMIN', $2, 'community.reception.staff.set', 'ADMIN_PRINCIPAL', $3, 3, $4,
            $5::jsonb, $6::jsonb, $7::jsonb, $8, NULL
-         )\`,
+         )`,
         [
           randomUUID(),
           input.actorPrincipalId,
@@ -374,7 +374,7 @@ export class PostgresAdminTeamRepository implements AdminTeamRepository {
       );
 
       const refreshed = await client.query<PrincipalRow>(
-        \`\${PRINCIPAL_SELECT} WHERE principal.id = $1\`,
+        `${PRINCIPAL_SELECT} WHERE principal.id = $1`,
         [input.targetPrincipalId],
       );
       const row = refreshed.rows[0];
