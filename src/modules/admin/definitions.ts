@@ -142,7 +142,7 @@ export function createPhase12AdminOperationRegistry(
     defineAdminOperation({
       kind: "READ",
       operationType: "content.release.catalog.read",
-      capabilityKey: "content.draft.edit",
+      capabilityKey: "central.view",
       riskTier: 0,
       authorizationMode: "GLOBAL_ONLY",
       policy: readPolicy,
