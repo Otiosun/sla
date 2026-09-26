@@ -73,6 +73,12 @@ export const AdminPokemonCreateInputSchema = z
     playerId: uuidSchema,
     formId: uuidSchema,
     level: z.number().int().min(1).max(100),
+    nickname: z.string().trim().min(1).max(64).nullable().optional(),
+    shiny: z.boolean().optional(),
+    gender: z.enum(["M", "F", "GENDERLESS"]).nullable().optional(),
+    natureId: uuidSchema.nullable().optional(),
+    abilityId: uuidSchema.nullable().optional(),
+    target: PokemonRosterPlacementSchema.nullable().optional(),
   })
   .strict();
 export type AdminPokemonCreateInput = z.infer<typeof AdminPokemonCreateInputSchema>;
