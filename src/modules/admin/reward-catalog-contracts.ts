@@ -43,7 +43,6 @@ export interface AdminRewardCatalogEffect {
   readonly scope: "PLAYER" | "POKEMON" | "BATTLE_PARTICIPANT" | "AREA";
 }
 
-
 export interface AdminRewardCatalogRelease {
   readonly releaseId: string;
   readonly releaseNo: string;
