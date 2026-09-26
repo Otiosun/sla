@@ -225,7 +225,7 @@ describe("RegistrationConversationSessions", () => {
       .replace("*Profissão:*", "*Profissão:* Artesão")
       .replace("*Pokémon inicial:*", "*Pokémon inicial:* 02");
 
-    expect(parseFullRegistrationTemplate(rendered)).toMatchObject({
+    expect(parseFullRegistrationTemplate(rendered)).toEqual({
       ok: true,
       value: {
         trainerName: "Emi",
