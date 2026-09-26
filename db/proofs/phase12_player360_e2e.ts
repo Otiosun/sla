@@ -585,7 +585,7 @@ try {
     principalId: globalSupportId,
     playerId: suspendedPlayerId,
   });
-  if (suspendedView.status !== "SUSPENDED") {
+  if (suspendedView.player.status !== "SUSPENDED") {
     throw new Error("Player 360 detail did not project SUSPENDED gameplay access");
   }
 
