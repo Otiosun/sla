@@ -28,6 +28,7 @@ interface Fixture {
   readonly releaseId: string;
   readonly areaId: string;
   readonly speciesId: string;
+  readonly formId: string;
 }
 
 function databaseUrlFor(name: string): string {
@@ -250,7 +251,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
     [releaseId],
   );
 
-  return { rulesetId, releaseId, areaId, speciesId };
+  return { rulesetId, releaseId, areaId, speciesId, formId };
 }
 
 async function createEligiblePlayer(client: PoolClient, areaId: string): Promise<PlayerId> {
@@ -313,6 +314,32 @@ describe("encounter PostgreSQL integration", () => {
     await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }, 30_000);
+
+  it("honors a forced form only when it belongs to the eligible encounter table", async () => {
+    const client = await pool.connect();
+    const allowedPlayer = await createEligiblePlayer(client, fixture.areaId);
+    const blockedPlayer = await createEligiblePlayer(client, fixture.areaId);
+    client.release();
+
+    const allowed = unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId: allowedPlayer,
+        idempotencyKey: "forced-form-allowed",
+        forcedFormId: fixture.formId,
+      }),
+    );
+    expect(allowed.snapshot.formId).toBe(fixture.formId);
+
+    const blocked = await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+      playerId: blockedPlayer,
+      idempotencyKey: "forced-form-blocked",
+      forcedFormId: randomUUID(),
+    });
+    expect(blocked).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+  });
 
   it("replays duplicate creation across a logical restart without rerolling snapshot", async () => {
     const client = await pool.connect();
