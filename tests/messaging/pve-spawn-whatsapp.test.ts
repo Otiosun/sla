@@ -26,6 +26,17 @@ function context(mentions: readonly string[]): MessageHandlerContext {
   };
 }
 
+function contextWithText(text: string, mentions: readonly string[]): MessageHandlerContext {
+  const base = context(mentions);
+  return {
+    ...base,
+    message: {
+      ...base.message,
+      text,
+    },
+  };
+}
+
 describe("PVE /spawn WhatsApp route", () => {
   it("requires exactly one provider mention before resolving a player or consuming RNG", async () => {
     const resolvePlayer = vi.fn();
@@ -71,5 +82,122 @@ describe("PVE /spawn WhatsApp route", () => {
       }),
     );
     expect(output).toMatchObject({ ok: true, value: { resultRefId: encounterId } });
+  });
+
+  it("returns a visible feature error when the encounter environment is not configured", async () => {
+    const resolvePlayer = vi
+      .fn()
+      .mockResolvedValue(ok({ playerId, state: "COMPLETE", created: false }));
+    const createOrReplay = vi.fn();
+    const route = createSpawnWhatsAppRoute({
+      players: { resolvePlayer },
+      encounters: { createOrReplay },
+      environment: () => {
+        throw new Error("BELL_WORLD_TIME_OF_DAY must be explicitly set to DAY or NIGHT");
+      },
+    } as never);
+
+    const output = await route.handler.handle(context(["target@s.whatsapp.net"]));
+
+    expect(output).toMatchObject({
+      ok: false,
+      error: {
+        code: "FEATURE_UNAVAILABLE",
+        details: {
+          userMessage: expect.stringContaining("DAY ou NIGHT"),
+        },
+      },
+    });
+    expect(createOrReplay).not.toHaveBeenCalled();
+  });
+
+  it("resolves a forced species and starts an automatic battle for the marked trainer", async () => {
+    const battleId = "44444444-4444-4444-8444-444444444444";
+    const resolvePlayer = vi
+      .fn()
+      .mockResolvedValue(ok({ playerId, state: "COMPLETE", created: false }));
+    const createOrReplay = vi.fn().mockResolvedValue(
+      ok({
+        encounterId,
+        contentReleaseId: "55555555-5555-4555-8555-555555555555",
+        revision: 0n,
+        snapshot: {
+          speciesId: "66666666-6666-4666-8666-666666666666",
+          level: 7,
+        },
+      }),
+    );
+    const observe = vi.fn().mockResolvedValue(
+      ok({
+        encounterId,
+        contentReleaseId: "55555555-5555-4555-8555-555555555555",
+        revision: 1n,
+        status: "PRESENTED",
+        snapshot: {
+          speciesId: "66666666-6666-4666-8666-666666666666",
+          level: 7,
+        },
+      }),
+    );
+    const species = {
+      resolve: vi.fn().mockResolvedValue({
+        formId: "77777777-7777-4777-8777-777777777777",
+        displayName: "Poochyena",
+      }),
+    };
+    const start = vi.fn().mockResolvedValue({ ok: true, value: { battleId } });
+    const automatePlayers = vi.fn().mockResolvedValue({ automated: 1 });
+    const kick = vi.fn().mockResolvedValue([]);
+
+    const route = createSpawnWhatsAppRoute({
+      players: { resolvePlayer },
+      encounters: { createOrReplay, observe },
+      species,
+      environment: () => ({
+        timeOfDay: "NIGHT",
+        surface: "LAND",
+        rarity: "COMMON",
+      }),
+      speciesDisplayName: async () => "Poochyena",
+      autoBattle: { start, automatePlayers, kick },
+    } as never);
+
+    const output = await route.handler.handle(
+      contextWithText("/spawn auto Poochyena @target", ["target@s.whatsapp.net"]),
+    );
+
+    expect(species.resolve).toHaveBeenCalledWith("Poochyena");
+    expect(createOrReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId,
+        forcedFormId: "77777777-7777-4777-8777-777777777777",
+        spawnQuantity: 1,
+        environment: {
+          timeOfDay: "NIGHT",
+          surface: "LAND",
+          rarity: "COMMON",
+        },
+      }),
+    );
+    expect(start).toHaveBeenCalledWith({
+      playerId,
+      encounterId,
+      status: "PRESENTED",
+      expectedRevision: 1n,
+    });
+    expect(automatePlayers).toHaveBeenCalledWith(battleId);
+    expect(kick).toHaveBeenCalledWith(battleId);
+    expect(output).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "BATTLE",
+        resultRefId: battleId,
+      },
+    });
+    if (output.ok) {
+      expect(String(output.value.outgoing[0]?.payload.text ?? "")).toContain(
+        "BATALHA AUTOMÁTICA INICIADA",
+      );
+    }
   });
 });
