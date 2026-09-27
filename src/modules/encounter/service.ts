@@ -182,6 +182,7 @@ export class EncounterService {
       const entries = table.entries.filter(
         (entry) =>
           entry.active &&
+          (input.forcedFormId === undefined || entry.formId === input.forcedFormId) &&
           encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
       );
       if (entries.length === 0) {
