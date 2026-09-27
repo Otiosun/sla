@@ -70,6 +70,53 @@ export function normalizeRegistrationDraft(
   return ok(normalized);
 }
 
+export function normalizePersistedRegistrationSnapshot(
+  input: RegistrationDraftInput,
+): Result<RegistrationSnapshot> {
+  const normalizedResult = normalizeRegistrationDraft(input);
+  if (!normalizedResult.ok) return normalizedResult;
+  const normalized = normalizedResult.value;
+  const missingFields: string[] = [];
+
+  if (normalized.trainerName === undefined) missingFields.push("trainerName");
+  if (normalized.age === undefined) missingFields.push("age");
+  if (normalized.genderPronouns === undefined) missingFields.push("genderPronouns");
+  if (normalized.personality === undefined) missingFields.push("personality");
+  if (normalized.starterFormId === undefined) missingFields.push("starterFormId");
+
+  if (missingFields.length > 0) {
+    return err(
+      appError("VALIDATION_FAILED", "Persisted registration snapshot is invalid", {
+        fields: missingFields,
+      }),
+    );
+  }
+
+  const { trainerName, age, genderPronouns, personality, profession, starterFormId } = normalized;
+  if (
+    trainerName === undefined ||
+    age === undefined ||
+    genderPronouns === undefined ||
+    personality === undefined ||
+    starterFormId === undefined
+  ) {
+    return err(appError("VALIDATION_FAILED", "Persisted registration snapshot is invalid"));
+  }
+
+  return ok({
+    trainerName,
+    age,
+    genderPronouns,
+    appearance: normalized.appearance ?? "—",
+    personality,
+    backstory: normalized.backstory ?? "—",
+    ...(profession === undefined ? {} : { profession }),
+    starterFormId,
+    regionId: normalized.regionId,
+    schemaVersion: normalized.schemaVersion,
+  });
+}
+
 export function validateRegistrationDraft(
   input: RegistrationDraftInput,
 ): Result<RegistrationSnapshot> {
