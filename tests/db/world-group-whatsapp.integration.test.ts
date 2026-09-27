@@ -193,6 +193,86 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ]);
   });
 
+  it("reactivates a retired Reception as a strict GAME group through explicit /grupo jogo", async () => {
+    const id = randomUUID();
+    const chatRef = "120363900008@g.us";
+    await pool.query(
+      `INSERT INTO community_groups(
+         id,provider,chat_ref,role,display_name,status,retired_at,revision
+       ) VALUES ($1,'baileys',$2,'RECEPTION','Recepcao antiga','RETIRED',now(),3)`,
+      [id, chatRef],
+    );
+    await pool.query(
+      `INSERT INTO community_group_capabilities(group_id,capability_key)
+       VALUES ($1,'admin.review'),($1,'onboarding')`,
+      [id],
+    );
+    await pool.query(
+      `INSERT INTO reception_staff_assignments(group_id,admin_principal_id,active)
+       VALUES ($1,$2,TRUE)`,
+      [id, principalId],
+    );
+
+    const result = await createOperationalMessagingComposition(pool).router.dispatch(
+      context("/grupo jogo Teste Reativado", chatRef),
+    );
+    expect(result).toMatchObject({ ok: true });
+
+    expect(
+      (
+        await pool.query(
+          `SELECT role,display_name,status,retired_at,revision::int
+           FROM community_groups
+           WHERE id=$1`,
+          [id],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        role: "GAME",
+        display_name: "Teste Reativado",
+        status: "ACTIVE",
+        retired_at: null,
+        revision: 5,
+      },
+    ]);
+
+    expect(
+      (
+        await pool.query(
+          `SELECT capability_key
+           FROM community_group_capabilities
+           WHERE group_id=$1 AND active
+           ORDER BY capability_key`,
+          [id],
+        )
+      ).rows,
+    ).toEqual([{ capability_key: "player.basic" }, { capability_key: "world" }]);
+
+    expect(
+      (
+        await pool.query(
+          `SELECT active
+           FROM reception_staff_assignments
+           WHERE group_id=$1 AND admin_principal_id=$2`,
+          [id, principalId],
+        )
+      ).rows,
+    ).toEqual([{ active: false }]);
+
+    expect(
+      (
+        await pool.query(
+          `SELECT status
+           FROM admin_operations
+           WHERE operation_type='community.group.enable_world'
+             AND input->>'chatRef'=$1`,
+          [chatRef],
+        )
+      ).rows,
+    ).toEqual([{ status: "APPLIED" }]);
+  });
+
   it("requires global RPG scope even for an account with the capability", async () => {
     await pool.query(
       "UPDATE admin_principal_scopes SET status='REVOKED',revoked_at=now() WHERE principal_id=$1",
