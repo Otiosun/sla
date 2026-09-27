@@ -147,6 +147,8 @@ export interface CreateEncounterInput {
   readonly playerId: PlayerId;
   readonly idempotencyKey: string;
   readonly encounterTableSlug?: string;
+  /** Optional narrator/admin override; the form must still be eligible in the active area/table. */
+  readonly forcedFormId?: string;
   /** Narrator/admin spawn amount. Player-owned flows omit it and remain single-wild. */
   readonly spawnQuantity?: number;
   readonly environment?: EncounterEnvironmentContext;
