@@ -22,8 +22,8 @@ import type {
   SaveRegistrationDraftWrite,
 } from "../../modules/registration/ports.js";
 import {
+  normalizePersistedRegistrationSnapshot,
   normalizeRegistrationDraft,
-  validateRegistrationDraft,
 } from "../../modules/registration/validation.js";
 import { type PlayerId, parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
@@ -79,7 +79,7 @@ function asSnapshot(value: unknown): RegistrationSnapshot {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Database returned an invalid registration snapshot");
   }
-  const validated = validateRegistrationDraft(value as RegistrationDraftInput);
+  const validated = normalizePersistedRegistrationSnapshot(value as RegistrationDraftInput);
   if (!validated.ok) throw new Error("Database returned an invalid registration snapshot");
   return validated.value;
 }
