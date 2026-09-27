@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { validateRegistrationDraft } from "../../src/modules/registration/validation.js";
+import {
+  normalizePersistedRegistrationSnapshot,
+  validateRegistrationDraft,
+} from "../../src/modules/registration/validation.js";
 
 const REGION_ID = "11111111-1111-4111-8111-111111111111";
 const STARTER_FORM_ID = "22222222-2222-4222-8222-222222222222";
@@ -52,6 +55,20 @@ describe("registration draft validation", () => {
     const { profession: _profession, ...withoutProfession } = completeDraft;
     const result = validateRegistrationDraft(withoutProfession);
     expect(result).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
+    });
+  });
+
+  it("keeps legacy persisted reviews readable without weakening new registration rules", () => {
+    const { profession: _profession, ...legacySnapshot } = completeDraft;
+
+    expect(normalizePersistedRegistrationSnapshot(legacySnapshot)).toEqual({
+      ok: true,
+      value: legacySnapshot,
+    });
+
+    expect(validateRegistrationDraft(legacySnapshot)).toMatchObject({
       ok: false,
       error: { code: "VALIDATION_FAILED", details: { fields: ["profession"] } },
     });
