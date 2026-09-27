@@ -107,13 +107,7 @@ function statusText(group: GroupConfiguration): string {
 }
 
 function adminError(error: unknown) {
-  if (!(error instanceof AdminError)) {
-    return err(
-      appError("ACTION_INVALID", "Falha ao atualizar a configuração do grupo", {
-        userMessage: "Não consegui atualizar a configuração do grupo agora. Tente novamente.",
-      }),
-    );
-  }
+  if (!(error instanceof AdminError)) throw error;
 
   if (
     [
