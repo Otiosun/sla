@@ -182,7 +182,6 @@ export class EncounterService {
       const entries = table.entries.filter(
         (entry) =>
           entry.active &&
-          (input.forcedFormId === undefined || entry.formId === input.forcedFormId) &&
           encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
       );
       if (entries.length === 0) {
@@ -195,11 +194,20 @@ export class EncounterService {
       const wildSnapshots = [];
 
       for (let wildNo = 1; wildNo <= spawnQuantity; wildNo += 1) {
-        const entry = chooseWeightedEncounterEntry(entries, rng);
-        const level = chooseEncounterLevel(entry, rng);
-        const build = await transaction.wildBuild(content.contentReleaseId, entry.formId);
+        // The local table still owns the difficulty band. A narrator/admin forced form
+        // overrides only the species/form choice, never the area's level curve.
+        const levelEntry = chooseWeightedEncounterEntry(entries, rng);
+        const level = chooseEncounterLevel(levelEntry, rng);
+        const formId = input.forcedFormId ?? levelEntry.formId;
+        const build = await transaction.wildBuild(content.contentReleaseId, formId);
         if (build === null) {
-          return err(encounterNotReady("Encounter entry references unavailable Pokemon content"));
+          return err(
+            encounterNotReady(
+              input.forcedFormId === undefined
+                ? "Encounter entry references unavailable Pokemon content"
+                : "Requested Pokemon form is unavailable in the active content release",
+            ),
+          );
         }
         wildSnapshots.push({
           wildNo,
