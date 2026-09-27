@@ -29,6 +29,8 @@ interface Fixture {
   readonly areaId: string;
   readonly speciesId: string;
   readonly formId: string;
+  readonly forcedSpeciesId: string;
+  readonly forcedFormId: string;
 }
 
 function databaseUrlFor(name: string): string {
@@ -64,6 +66,8 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
   const flyingTypeId = randomUUID();
   const speciesId = randomUUID();
   const formId = randomUUID();
+  const forcedSpeciesId = randomUUID();
+  const forcedFormId = randomUUID();
   const abilityId = randomUUID();
   const natureId = randomUUID();
   const moveId = randomUUID();
@@ -121,13 +125,15 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
     [normalTypeId, flyingTypeId],
   );
   await client.query(
-    "INSERT INTO pokemon_species(id, national_dex, slug) VALUES ($1, 901, 'phase8-testmon')",
-    [speciesId],
+    `INSERT INTO pokemon_species(id, national_dex, slug)
+     VALUES ($1, 901, 'phase8-testmon'), ($2, 902, 'phase8-forcedmon')`,
+    [speciesId, forcedSpeciesId],
   );
-  await client.query("INSERT INTO pokemon_forms(id, species_id, slug) VALUES ($1, $2, 'default')", [
-    formId,
-    speciesId,
-  ]);
+  await client.query(
+    `INSERT INTO pokemon_forms(id, species_id, slug)
+     VALUES ($1, $2, 'default'), ($3, $4, 'default')`,
+    [formId, speciesId, forcedFormId, forcedSpeciesId],
+  );
   await client.query("INSERT INTO abilities(id, slug) VALUES ($1, 'phase8-keen-eye')", [abilityId]);
   await client.query("INSERT INTO natures(id, slug) VALUES ($1, 'phase8-hardy')", [natureId]);
   await client.query("INSERT INTO moves(id, slug) VALUES ($1, 'phase8-tackle')", [moveId]);
@@ -166,15 +172,27 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
   await client.query(
     `INSERT INTO pokemon_species_revisions(
        id, content_release_id, species_id, display_name, catch_rate, base_exp
-     ) VALUES ($1, $2, $3, 'Testmon', 255, 50)`,
-    [randomUUID(), releaseId, speciesId],
+     ) VALUES
+       ($1, $3, $4, 'Testmon', 255, 50),
+       ($2, $3, $5, 'Forcedmon', 200, 60)`,
+    [randomUUID(), randomUUID(), releaseId, speciesId, forcedSpeciesId],
   );
   await client.query(
     `INSERT INTO pokemon_form_revisions(
        id, content_release_id, form_id, display_name, type1_id, type2_id,
        base_hp, base_attack, base_defense, base_sp_attack, base_sp_defense, base_speed
-     ) VALUES ($1, $2, $3, 'Testmon', $4, $5, 40, 45, 40, 35, 35, 56)`,
-    [randomUUID(), releaseId, formId, normalTypeId, flyingTypeId],
+     ) VALUES
+       ($1, $3, $4, 'Testmon', $6, $7, 40, 45, 40, 35, 35, 56),
+       ($2, $3, $5, 'Forcedmon', $6, NULL, 35, 55, 35, 30, 30, 55)`,
+    [
+      randomUUID(),
+      randomUUID(),
+      releaseId,
+      formId,
+      forcedFormId,
+      normalTypeId,
+      flyingTypeId,
+    ],
   );
   await client.query(
     `INSERT INTO ability_revisions(id, content_release_id, ability_id, display_name)
@@ -196,14 +214,18 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
   await client.query(
     `INSERT INTO pokemon_form_ability_options(
        id, content_release_id, form_id, ability_id, slot_kind
-     ) VALUES ($1, $2, $3, $4, 'PRIMARY')`,
-    [randomUUID(), releaseId, formId, abilityId],
+     ) VALUES
+       ($1, $3, $4, $6, 'PRIMARY'),
+       ($2, $3, $5, $6, 'PRIMARY')`,
+    [randomUUID(), randomUUID(), releaseId, formId, forcedFormId, abilityId],
   );
   await client.query(
     `INSERT INTO move_learnset_entries(
        id, content_release_id, form_id, move_id, learn_method
-     ) VALUES ($1, $2, $3, $4, 'START')`,
-    [randomUUID(), releaseId, formId, moveId],
+     ) VALUES
+       ($1, $3, $4, $6, 'START'),
+       ($2, $3, $5, $6, 'START')`,
+    [randomUUID(), randomUUID(), releaseId, formId, forcedFormId, moveId],
   );
   await client.query(
     `INSERT INTO encounter_tables(id, area_id, slug)
@@ -251,7 +273,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
     [releaseId],
   );
 
-  return { rulesetId, releaseId, areaId, speciesId, formId };
+  return { rulesetId, releaseId, areaId, speciesId, formId, forcedSpeciesId, forcedFormId };
 }
 
 async function createEligiblePlayer(client: PoolClient, areaId: string): Promise<PlayerId> {
@@ -315,27 +337,30 @@ describe("encounter PostgreSQL integration", () => {
     await adminPool.end();
   }, 30_000);
 
-  it("honors a forced form only when it belongs to the eligible encounter table", async () => {
+  it("forces an active species even when it is not a natural entry while preserving the local level band", async () => {
     const client = await pool.connect();
-    const allowedPlayer = await createEligiblePlayer(client, fixture.areaId);
-    const blockedPlayer = await createEligiblePlayer(client, fixture.areaId);
+    const forcedPlayer = await createEligiblePlayer(client, fixture.areaId);
+    const missingPlayer = await createEligiblePlayer(client, fixture.areaId);
     client.release();
 
-    const allowed = unwrap(
+    const forced = unwrap(
       await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
-        playerId: allowedPlayer,
-        idempotencyKey: "forced-form-allowed",
-        forcedFormId: fixture.formId,
+        playerId: forcedPlayer,
+        idempotencyKey: "forced-form-outside-table",
+        forcedFormId: fixture.forcedFormId,
       }),
     );
-    expect(allowed.snapshot.formId).toBe(fixture.formId);
+    expect(forced.snapshot.formId).toBe(fixture.forcedFormId);
+    expect(forced.snapshot.speciesId).toBe(fixture.forcedSpeciesId);
+    expect(forced.snapshot.level).toBeGreaterThanOrEqual(3);
+    expect(forced.snapshot.level).toBeLessThanOrEqual(5);
 
-    const blocked = await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
-      playerId: blockedPlayer,
-      idempotencyKey: "forced-form-blocked",
+    const missing = await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+      playerId: missingPlayer,
+      idempotencyKey: "forced-form-missing",
       forcedFormId: randomUUID(),
     });
-    expect(blocked).toMatchObject({
+    expect(missing).toMatchObject({
       ok: false,
       error: { code: "ACTION_INVALID" },
     });
