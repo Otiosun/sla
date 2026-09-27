@@ -140,6 +140,19 @@ export function createWorldGroupSetupRoute(dependencies: {
               ),
             );
           }
+          if (
+            [
+              ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+              ADMIN_ERROR_CODES.REVISION_CONFLICT,
+              ADMIN_ERROR_CODES.INVALID_OPERATION_STATE,
+            ].some((code) => code === error.code)
+          ) {
+            return err(
+              appError("ACTION_INVALID", error.message, {
+                userMessage: error.message,
+              }),
+            );
+          }
           return err(appError("ACTION_INVALID", error.message));
         }
       },
