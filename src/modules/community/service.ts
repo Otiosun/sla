@@ -56,6 +56,29 @@ export class CommunityService {
     });
   }
 
+  public async getGroupConfigurationByProviderRef(
+    input: ResolveCommunityChatInput,
+  ): Promise<
+    | (CommunityGroupRecord & {
+        readonly capabilities: readonly CommunityCapability[];
+      })
+    | null
+  > {
+    const provider = input.provider.trim();
+    const chatRef = input.chatRef.trim();
+    if (provider.length === 0 || chatRef.length === 0) return null;
+
+    return this.repository.read(async (tx) => {
+      const group = await tx.loadGroupByProviderRef(provider, chatRef);
+      if (group === null) return null;
+
+      return {
+        ...group,
+        capabilities: capabilities(await tx.listCapabilities(group.id)),
+      };
+    });
+  }
+
   public async getGroupConfiguration(groupId: string): Promise<
     | (CommunityGroupRecord & {
         readonly capabilities: readonly CommunityCapability[];
