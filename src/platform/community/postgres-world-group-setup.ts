@@ -52,35 +52,66 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
       ]);
       const tx = new PostgresCommunityTransaction(client);
       let group = await tx.loadGroupByProviderRef(input.provider, input.chatRef);
-      if (group !== null && group.status !== "ACTIVE") {
-        throw new AdminError(
-          ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
-          "Este grupo foi desativado. Reative-o antes de configurar seus fluxos.",
-        );
-      }
       if (group !== null)
         await client.query("SELECT id FROM community_groups WHERE id=$1 FOR UPDATE", [group.id]);
       // Reload after acquiring the row lock so unrelated administrative updates are preserved.
       group = await tx.loadGroupByProviderRef(input.provider, input.chatRef);
-      if (group !== null && group.status !== "ACTIVE")
-        throw new AdminError(
-          ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
-          "A configuração do grupo mudou. Envie o comando novamente.",
-        );
       const beforeCapabilities = group === null ? [] : await tx.listCapabilities(group.id);
       const before = group === null ? null : { ...group, capabilities: beforeCapabilities };
-      if (group === null)
+      const requestedRole = input.role ?? "GAME";
+
+      if (group === null) {
         group = await tx.insertGroup({
           provider: input.provider,
           chatRef: input.chatRef,
-          role: input.role ?? "GAME",
+          role: requestedRole,
           displayName: input.displayName,
         });
+      } else if (group.status === "RETIRED") {
+        const reactivated = await client.query<{ id: string }>(
+          `UPDATE community_groups
+           SET role = $2,
+               display_name = $3,
+               status = 'ACTIVE',
+               retired_at = NULL,
+               revision = revision + 1,
+               updated_at = now()
+           WHERE id = $1 AND status = 'RETIRED'
+           RETURNING id`,
+          [group.id, requestedRole, input.displayName],
+        );
+        if (reactivated.rowCount !== 1) {
+          throw new AdminError(
+            ADMIN_ERROR_CODES.REVISION_CONFLICT,
+            "A configuração do grupo mudou. Envie o comando novamente.",
+          );
+        }
+        if (requestedRole !== "RECEPTION") {
+          await client.query(
+            `UPDATE reception_staff_assignments
+             SET active = FALSE, updated_at = now()
+             WHERE group_id = $1 AND active = TRUE`,
+            [group.id],
+          );
+        }
+        const reloaded = await tx.loadGroupById(group.id);
+        if (reloaded === null) throw new Error("Reactivated group disappeared");
+        group = reloaded;
+      }
+
       if (group === null)
         throw new AdminError(
           ADMIN_ERROR_CODES.REVISION_CONFLICT,
           "O grupo foi cadastrado simultaneamente. Envie o comando novamente.",
         );
+
+      if (group.status !== "ACTIVE") {
+        throw new AdminError(
+          ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+          "Este grupo não pôde ser reativado. Envie o comando novamente.",
+        );
+      }
+
       if (input.role === "RECEPTION" && group.role !== "RECEPTION") {
         await client.query(
           "UPDATE community_groups SET role='RECEPTION',revision=revision+1,updated_at=now() WHERE id=$1",
@@ -90,10 +121,20 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
         if (reloaded === null) throw new Error("Configured group disappeared");
         group = reloaded;
       }
+
+      const gameplayCapabilities = beforeCapabilities.filter(
+        (capability) => capability !== "admin.review" && capability !== "onboarding",
+      );
       const capabilities =
         group.role === "RECEPTION"
           ? (["admin.review", "onboarding"] as const)
-          : [...new Set([...beforeCapabilities, "player.basic" as const, "world" as const])].sort();
+          : [
+              ...new Set([
+                ...gameplayCapabilities,
+                "player.basic" as const,
+                "world" as const,
+              ]),
+            ].sort();
       const capabilitiesChanged =
         capabilities.length !== beforeCapabilities.length ||
         capabilities.some((capability) => !beforeCapabilities.includes(capability));
