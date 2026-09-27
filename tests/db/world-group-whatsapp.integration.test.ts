@@ -102,7 +102,11 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [groups.rows[0].id],
         )
       ).rows,
-    ).toEqual([{ capability_key: "player.basic" }, { capability_key: "world" }]);
+    ).toEqual([
+      { capability_key: "player.basic" },
+      { capability_key: "pve" },
+      { capability_key: "world" },
+    ]);
     expect(
       (
         await pool.query(
@@ -247,7 +251,11 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [id],
         )
       ).rows,
-    ).toEqual([{ capability_key: "player.basic" }, { capability_key: "world" }]);
+    ).toEqual([
+      { capability_key: "player.basic" },
+      { capability_key: "pve" },
+      { capability_key: "world" },
+    ]);
 
     expect(
       (
@@ -271,6 +279,89 @@ describe.sequential("World group setup through the operational WhatsApp router",
         )
       ).rows,
     ).toEqual([{ status: "APPLIED" }]);
+  });
+
+  it("shows group status and toggles PVE through audited WhatsApp controls", async () => {
+    const id = randomUUID();
+    const chatRef = "120363900009@g.us";
+    await pool.query(
+      "INSERT INTO community_groups(id,provider,chat_ref,role,display_name) VALUES ($1,'baileys',$2,'GAME','Controle UAT')",
+      [id, chatRef],
+    );
+    await pool.query(
+      `INSERT INTO community_group_capabilities(group_id,capability_key)
+       VALUES ($1,'player.basic'),($1,'world')`,
+      [id],
+    );
+
+    const status = await createOperationalMessagingComposition(pool).router.dispatch(
+      context("/grupo status", chatRef),
+    );
+    expect(status.ok).toBe(true);
+    if (!status.ok) throw status.error;
+    expect(status.value?.outgoing[0]?.payload.text).toContain("GRUPO · STATUS");
+    expect(status.value?.outgoing[0]?.payload.text).toContain("⬜ *Encontros e batalhas PVE*");
+
+    const enable = await createOperationalMessagingComposition(pool).router.dispatch(
+      context("/grupo ativar pve", chatRef),
+    );
+    expect(enable.ok).toBe(true);
+    if (!enable.ok) throw enable.error;
+    expect(enable.value?.outgoing[0]?.payload.text).toContain("PVE ativado");
+
+    expect(
+      (
+        await pool.query(
+          `SELECT capability_key
+           FROM community_group_capabilities
+           WHERE group_id=$1 AND active
+           ORDER BY capability_key`,
+          [id],
+        )
+      ).rows,
+    ).toEqual([
+      { capability_key: "player.basic" },
+      { capability_key: "pve" },
+      { capability_key: "world" },
+    ]);
+
+    expect(
+      (
+        await pool.query(
+          `SELECT status,operation_type,input->>'action' AS action
+           FROM admin_operations
+           WHERE operation_type='community.group.manage'
+             AND input->>'groupId'=$1
+           ORDER BY created_at`,
+          [id],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        status: "APPLIED",
+        operation_type: "community.group.manage",
+        action: "REPLACE_CAPABILITIES",
+      },
+    ]);
+
+    const disable = await createOperationalMessagingComposition(pool).router.dispatch(
+      context("/grupo desativar pve", chatRef),
+    );
+    expect(disable.ok).toBe(true);
+    if (!disable.ok) throw disable.error;
+    expect(disable.value?.outgoing[0]?.payload.text).toContain("PVE desativado");
+
+    expect(
+      (
+        await pool.query(
+          `SELECT capability_key
+           FROM community_group_capabilities
+           WHERE group_id=$1 AND active
+           ORDER BY capability_key`,
+          [id],
+        )
+      ).rows,
+    ).toEqual([{ capability_key: "player.basic" }, { capability_key: "world" }]);
   });
 
   it("requires global RPG scope even for an account with the capability", async () => {

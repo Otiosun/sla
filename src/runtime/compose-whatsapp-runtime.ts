@@ -578,6 +578,7 @@ export function createOperationalMessagingComposition(
       createWorldGroupSetupRoute({
         admins: adminIdentity,
         admin: adminService,
+        community,
         setup: new PostgresWorldGroupSetup(pool),
       }),
       ...uatBootstrapRoutes,
