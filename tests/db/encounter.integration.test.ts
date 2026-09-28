@@ -360,6 +360,58 @@ describe("encounter PostgreSQL integration", () => {
     });
   });
 
+  it("lets a fully directed species + level spawn work even when the area has no natural encounter table", async () => {
+    const client = await pool.connect();
+    let playerId: PlayerId;
+    const directedAreaId = randomUUID();
+    try {
+      const region = await client.query<{ region_id: string }>(
+        "SELECT region_id::text FROM areas WHERE id = $1",
+        [fixture.areaId],
+      );
+      const regionId = region.rows[0]?.region_id;
+      if (regionId === undefined) throw new Error("Fixture region was not found");
+      await client.query(
+        "INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'phase8-directed-route')",
+        [directedAreaId, regionId],
+      );
+      await client.query(
+        `INSERT INTO area_revisions(id, content_release_id, area_id, display_name, data)
+         VALUES ($1, $2, $3, 'Directed Route', $4::jsonb)`,
+        [
+          randomUUID(),
+          fixture.releaseId,
+          directedAreaId,
+          JSON.stringify({
+            schemaVersion: 1,
+            kind: "ROUTE",
+            safePoint: false,
+            startingArea: false,
+            relocationPriority: 0,
+          }),
+        ],
+      );
+      playerId = await createEligiblePlayer(client, directedAreaId);
+    } finally {
+      client.release();
+    }
+
+    const directed = unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId,
+        idempotencyKey: "fully-directed-no-natural-table",
+        forcedFormId: fixture.forcedFormId,
+        forcedLevel: 42,
+        forcedShiny: true,
+      }),
+    );
+
+    expect(directed.snapshot.formId).toBe(fixture.forcedFormId);
+    expect(directed.snapshot.speciesId).toBe(fixture.forcedSpeciesId);
+    expect(directed.snapshot.level).toBe(42);
+    expect(directed.snapshot.shiny).toBe(true);
+  });
+
   it("replays duplicate creation across a logical restart without rerolling snapshot", async () => {
     const client = await pool.connect();
     const playerId = await createEligiblePlayer(client, fixture.areaId);
