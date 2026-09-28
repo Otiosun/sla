@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -646,6 +648,61 @@ describe("encounter PostgreSQL integration", () => {
       },
     });
     expect(second).toMatchObject({ ok: true, value: { state: { version: 1 } } });
+  });
+
+  it("closes the encounter and cancels the CREATED battle when PVE initialization cannot assemble a player roster", async () => {
+    const client = await pool.connect();
+    const playerId = await createEligiblePlayer(client, fixture.areaId);
+    client.release();
+
+    const encounter = service(pool, new ManualClock(FIXED_NOW));
+    const created = unwrap(
+      await encounter.createOrReplay({
+        playerId,
+        idempotencyKey: "failed-initialization-compensation",
+      }),
+    );
+    const battle = new BattleService(new PostgresBattleRepository(pool, { turnWindowTtlMs: 60_000 }), {
+      decrypt: () => Buffer.alloc(32, 7),
+    });
+    const start = new PveBattleStartService(
+      encounter,
+      battle as never,
+      new PostgresPveBattleStartRollback(pool),
+    );
+
+    const result = await start.startCanonical({
+      playerId,
+      encounterId: created.encounterId,
+      status: "CREATED",
+      expectedRevision: created.revision,
+    });
+
+    expect(result.ok).toBe(false);
+    const persisted = await pool.query<{
+      encounter_status: string;
+      battle_status: string;
+      active_wilds: string;
+    }>(
+      `SELECT encounter.status AS encounter_status,
+              battle.status AS battle_status,
+              (
+                SELECT count(*)::text
+                FROM encounter_wild_snapshots wild
+                WHERE wild.encounter_id = encounter.id
+                  AND wild.status = 'ACTIVE'
+              ) AS active_wilds
+       FROM encounters encounter
+       JOIN battles battle ON battle.encounter_id = encounter.id
+       WHERE encounter.id = $1`,
+      [created.encounterId],
+    );
+    expect(persisted.rows[0]).toEqual({
+      encounter_status: "CLOSED",
+      battle_status: "CANCELLED",
+      active_wilds: "0",
+    });
+    expect(await new PostgresEncounterRepository(pool).read((tx) => tx.activeForPlayer(playerId))).toBeNull();
   });
 
   it("serializes concurrent creation so only one incompatible encounter becomes active", async () => {
