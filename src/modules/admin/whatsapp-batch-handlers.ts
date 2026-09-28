@@ -9,6 +9,9 @@ import type {
   AdminWhatsAppNameResolution,
   AdminWhatsAppPlayerTarget,
 } from "../../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
+import type {
+  AdminWhatsAppPokemonResolution,
+} from "../../platform/admin/postgres-admin-whatsapp-pokemon-target-resolver.js";
 import type { AdminBatchWhatsAppPreviewRef } from "../../platform/admin/postgres-admin-batch-whatsapp-preview-ref-repository.js";
 
 interface AdminIdentityResolver {
@@ -37,9 +40,14 @@ interface PreviewRefReader {
   }): Promise<AdminBatchWhatsAppPreviewRef | null>;
 }
 
+interface PokemonTargetResolver {
+  resolve(playerId: string, selector: string): Promise<AdminWhatsAppPokemonResolution>;
+}
+
 export interface AdminWhatsAppBatchDependencies {
   readonly admins: AdminIdentityResolver;
   readonly targets: PlayerTargetResolver;
+  readonly pokemonTargets: PokemonTargetResolver;
   readonly catalog: Pick<AdminRewardCatalogService, "get">;
   readonly admin: Pick<AdminService, "prepareMutation" | "apply" | "confirm">;
   readonly previewRefs: PreviewRefReader;
@@ -60,12 +68,13 @@ interface ResolvedAdmin {
 }
 
 interface ParsedAdminAction {
-  readonly kind: "PROGRESSION" | "WALLET" | "ITEM" | "POKEDEX_SEEN";
+  readonly kind: "PROGRESSION" | "POKEMON_XP" | "WALLET" | "ITEM" | "POKEDEX_SEEN";
   readonly label: string;
   readonly delta: string | null;
   readonly catalogQuery: string | null;
   readonly targetText: string;
   readonly reason: string;
+  readonly pokemonSelector?: string | null;
 }
 
 interface PreviewResult {
@@ -152,6 +161,7 @@ function menu(capabilities: readonly string[]): string {
     "progression.adjust",
     "inventory.adjust",
     "pokedex.seen.grant",
+    "pokemon.edit.mechanics",
   ];
   if (batchCapabilities.some((capability) => capabilities.includes(capability))) {
     lines.push("", "◇ *RECOMPENSAS E AJUSTES*");
@@ -159,7 +169,13 @@ function menu(capabilities: readonly string[]): string {
       lines.push("• `/adm dinheiro +500 para @jogador | motivo`");
     }
     if (capabilities.includes("progression.adjust")) {
-      lines.push("• `/adm xp +50 para @jogador | motivo`");
+      lines.push("• `/adm insignia +50 para @jogador | motivo` · pontos do treinador");
+    }
+    if (capabilities.includes("pokemon.edit.mechanics")) {
+      lines.push(
+        "• `/adm xp +50 #1 para @jogador | motivo` · XP do Pokémon escolhido",
+        "↳ `#1`, `pokemon 1`, espécie ou apelido identificam o Pokémon.",
+      );
     }
     if (capabilities.includes("inventory.adjust")) {
       lines.push("• `/adm item potion +2 para @jogador | motivo`");
@@ -278,12 +294,31 @@ function parseAction(body: string): ParsedAdminAction | null {
       reason: withReason.reason,
     };
   }
-  if (command === "xp" || command === "progresso" || command === "progressao") {
+  if (command === "xp") {
+    const delta = signedDelta(words[1] ?? "");
+    if (delta === null) return null;
+    const selector = words.slice(2).join(" ").trim();
+    return {
+      kind: "POKEMON_XP",
+      label: "XP do Pokémon",
+      delta,
+      catalogQuery: null,
+      targetText: targeted.targetText,
+      reason: withReason.reason,
+      pokemonSelector: selector.length === 0 ? null : selector,
+    };
+  }
+  if (
+    command === "insignia" ||
+    command === "insignias" ||
+    command === "progresso" ||
+    command === "progressao"
+  ) {
     const delta = signedDelta(words[1] ?? "");
     if (delta === null || words.length !== 2) return null;
     return {
       kind: "PROGRESSION",
-      label: "Progressão",
+      label: "Insígnias / pontos do treinador",
       delta,
       catalogQuery: null,
       targetText: targeted.targetText,
@@ -393,17 +428,16 @@ async function resolveTargets(
 function requiredPower(action: ParsedAdminAction): string {
   if (action.kind === "WALLET") return "wallet.adjust";
   if (action.kind === "PROGRESSION") return "progression.adjust";
+  if (action.kind === "POKEMON_XP") return "pokemon.edit.mechanics";
   if (action.kind === "ITEM") return "inventory.adjust";
   return "pokedex.seen.grant";
 }
 
 function ensurePowers(admin: ResolvedAdmin, action: ParsedAdminAction): Result<void> {
-  const required = [
-    "player.read",
-    "batch.preview",
-    "batch.execute.low_risk",
-    requiredPower(action),
-  ];
+  const required =
+    action.kind === "POKEMON_XP"
+      ? ["player.read", requiredPower(action)]
+      : ["player.read", "batch.preview", "batch.execute.low_risk", requiredPower(action)];
   if (action.kind === "WALLET") required.push("economy.read");
   if (action.kind === "ITEM") required.push("inventory.read");
   if (action.kind === "POKEDEX_SEEN") required.push("pokedex.read");
@@ -594,7 +628,8 @@ export function createAdminBatchWhatsAppRoutes(
             "",
             "Exemplos:",
             "`/adm dinheiro +500 para @jogador | evento`",
-            "`/adm xp +50 para Ana, Bia | cena aprovada`",
+            "`/adm insignia +50 para Ana, Bia | cena aprovada`",
+            "`/adm xp +50 #1 para @jogador | treino aprovado`",
             "`/adm item potion +2 para @jogador | recompensa`",
             "`/adm visto Pikachu para @jogador | encontro manual`",
           ].join("\n"),
@@ -606,6 +641,117 @@ export function createAdminBatchWhatsAppRoutes(
     if (!powers.ok) return powers;
     const targets = await resolveTargets(dependencies, context, parsed.targetText);
     if (!targets.ok) return targets;
+
+    if (parsed.kind === "POKEMON_XP") {
+      if (targets.value.length !== 1) {
+        return err(
+          appError("VALIDATION_FAILED", "Pokemon XP adjustment requires exactly one player", {
+            userMessage:
+              "XP de Pokémon é individual. Informe exatamente um jogador e escolha o Pokémon: `/adm xp +50 #1 para @jogador | motivo`.",
+          }),
+        );
+      }
+      if (parsed.pokemonSelector === null || parsed.pokemonSelector === undefined) {
+        return err(
+          appError("VALIDATION_FAILED", "Pokemon XP adjustment requires a Pokemon selector", {
+            userMessage:
+              "Escolha qual Pokémon recebe o XP. Ex.: `/adm xp +50 #1 para @jogador | treino` ou use espécie/apelido.",
+          }),
+        );
+      }
+
+      const player = targets.value[0]!;
+      const resolvedPokemon = await dependencies.pokemonTargets.resolve(
+        player.playerId,
+        parsed.pokemonSelector,
+      );
+      if (resolvedPokemon.status === "MISSING") {
+        return err(
+          appError("NOT_FOUND", "Pokemon XP target was not found", {
+            userMessage: `Não encontrei o Pokémon “${parsed.pokemonSelector}” entre os Pokémon ativos de ${player.trainerName}.`,
+          }),
+        );
+      }
+      if (resolvedPokemon.status === "AMBIGUOUS") {
+        const options = resolvedPokemon.candidates
+          .map(
+            (candidate) =>
+              `#${candidate.ordinal} ${candidate.displayName} · Nv. ${candidate.level} · XP ${candidate.xp}`,
+          )
+          .join("\n");
+        return err(
+          appError("VALIDATION_FAILED", "Pokemon XP target is ambiguous", {
+            userMessage: [
+              "Esse seletor encontrou mais de um Pokémon.",
+              "",
+              options,
+              "",
+              "Use o número, por exemplo: `#1`.",
+            ].join("\n"),
+          }),
+        );
+      }
+
+      try {
+        const pokemon = resolvedPokemon.target;
+        const prepared = await dependencies.admin.prepareMutation({
+          principalId: admin.principalId,
+          operationType: "pokemon.xp.adjust",
+          input: {
+            playerId: player.playerId,
+            pokemonInstanceId: pokemon.pokemonInstanceId,
+            delta: parsed.delta,
+          },
+          reason: parsed.reason,
+          idempotencyKey: `whatsapp-admin-pokemon-xp:${context.inboxMessageId}`,
+          correlationId: context.correlationId,
+        });
+        const applied = await dependencies.admin.apply(prepared.operation.id, admin.principalId);
+        if (applied.status !== "APPLIED") {
+          return err(
+            appError("ACTION_INVALID", "Pokemon XP adjustment did not reach APPLIED", {
+              userMessage: "O ajuste de XP não chegou ao estado aplicado.",
+            }),
+          );
+        }
+
+        const result = applied.result ?? {};
+        const beforeLevel =
+          typeof result.beforeLevel === "number" ? result.beforeLevel : pokemon.level;
+        const afterLevel =
+          typeof result.afterLevel === "number" ? result.afterLevel : beforeLevel;
+        const beforeXp = typeof result.beforeXp === "number" ? result.beforeXp : Number(pokemon.xp);
+        const afterXp = typeof result.afterXp === "number" ? result.afterXp : beforeXp;
+        const learned =
+          Array.isArray(result.learnedMoveIds) && result.learnedMoveIds.length > 0
+            ? `\n📘 ${result.learnedMoveIds.length} golpe(s) aprendido(s)/processado(s).`
+            : "";
+        const evolved =
+          Array.isArray(result.evolutions) && result.evolutions.length > 0
+            ? `\n✨ ${result.evolutions.length} evolução(ões) processada(s).`
+            : "";
+
+        return textResult(
+          context,
+          [
+            "✅ *XP DE POKÉMON AJUSTADO*",
+            "",
+            `${player.trainerName} · #${pokemon.ordinal} *${pokemon.displayName}*`,
+            `${parsed.delta} XP`,
+            `Nv. ${beforeLevel} · XP ${beforeXp} → Nv. ${afterLevel} · XP ${afterXp}`,
+            learned + evolved,
+            "",
+            `_Motivo: ${parsed.reason}_`,
+          ]
+            .filter((line) => line.length > 0)
+            .join("\n"),
+          {},
+          "pokemon-xp",
+        );
+      } catch (error) {
+        return adminFailure(error);
+      }
+    }
 
     let action: Readonly<Record<string, unknown>>;
     let actionLabel = parsed.label;
