@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import {
   OnboardingStateSchema,
-  PlayerProfileMetadataSchema,
+  PersistedPlayerProfileMetadataSchema,
   type PlayerProfileView,
   type RosterPlacement,
   type StarterBuild,
@@ -364,7 +364,7 @@ class PostgresPlayerOnboardingTransaction
       trainerName: row.trainer_name,
       originRegionId: row.origin_region_id,
       locale: row.locale,
-      profession: PlayerProfileMetadataSchema.parse(row.metadata).profession ?? null,
+      profession: PersistedPlayerProfileMetadataSchema.parse(row.metadata).profession ?? null,
       trainerLevel: row.level,
       progressionPoints: BigInt(row.progression_points),
       onboardingState: OnboardingStateSchema.parse(row.onboarding_state),
