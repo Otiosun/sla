@@ -29,6 +29,16 @@ export class PostgresNarratorBattleCleanup {
       if (row === undefined) return null;
 
       await client.query(
+        `UPDATE battle_turn_windows
+         SET status = 'CANCELLED',
+             locked_at = COALESCE(locked_at, now()),
+             revision = revision + 1
+         WHERE battle_id = $1
+           AND status IN ('COLLECTING', 'LOCKED')`,
+        [row.battle_id],
+      );
+
+      await client.query(
         `UPDATE encounter_wild_snapshots
          SET status = 'FLED', updated_at = now()
          WHERE encounter_id = $1
