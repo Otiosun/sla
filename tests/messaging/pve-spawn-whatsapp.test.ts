@@ -375,6 +375,71 @@ describe("PVE /spawn WhatsApp route", () => {
     expect(text).toContain("@target");
   });
 
+  it("rolls back a fast-path spawn when the requested opening move is unavailable", async () => {
+    const releaseId = "55555555-5555-4555-8555-555555555555";
+    const speciesId = "66666666-6666-4666-8666-666666666666";
+    const biteId = "88888888-8888-4888-8888-888888888888";
+    const resolvePlayer = vi
+      .fn()
+      .mockResolvedValue(ok({ playerId, state: "COMPLETE", created: false }));
+    const view = {
+      encounterId,
+      contentReleaseId: releaseId,
+      revision: 1n,
+      status: "PRESENTED",
+      snapshot: {
+        speciesId,
+        level: 9,
+        shiny: false,
+        moves: [{ moveId: biteId, ppCurrent: 25 }],
+      },
+      wilds: [
+        {
+          wildNo: 1,
+          status: "ACTIVE",
+          snapshot: {
+            speciesId,
+            level: 9,
+            shiny: false,
+            moves: [{ moveId: biteId, ppCurrent: 25 }],
+          },
+        },
+      ],
+    };
+    const flee = vi.fn(async () => ok({ ...view, status: "FLED", revision: 2n }));
+    const route = createSpawnWhatsAppRoute({
+      players: { resolvePlayer },
+      encounters: {
+        createOrReplay: vi.fn(async () => ok({ ...view, revision: 0n, status: "CREATED" })),
+        observe: vi.fn(async () => ok(view)),
+        flee,
+      },
+      species: {
+        resolve: vi.fn(async () => ({
+          formId: "77777777-7777-4777-8777-777777777777",
+          displayName: "Poochyena",
+        })),
+      },
+      moveDisplayNames: async () => new Map([[biteId, "Bite"]]),
+    } as never);
+
+    const output = await route.handler.handle(
+      contextWithText("/spawn Poochyena @target ataque Crunch", ["target@s.whatsapp.net"]),
+    );
+
+    expect(output.ok).toBe(false);
+    expect(flee).toHaveBeenCalledWith({
+      playerId,
+      encounterId,
+      expectedRevision: 1n,
+    });
+    if (!output.ok) {
+      expect(String(output.error.details?.userMessage ?? "")).toContain(
+        "nenhum encontro ficou preso",
+      );
+    }
+  });
+
   it("reports the real active-encounter cause instead of claiming a forced species is unavailable", async () => {
     const resolvePlayer = vi
       .fn()
