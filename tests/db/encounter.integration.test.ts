@@ -662,9 +662,12 @@ describe("encounter PostgreSQL integration", () => {
         idempotencyKey: "failed-initialization-compensation",
       }),
     );
-    const battle = new BattleService(new PostgresBattleRepository(pool, { turnWindowTtlMs: 60_000 }), {
-      decrypt: () => Buffer.alloc(32, 7),
-    });
+    const battle = new BattleService(
+      new PostgresBattleRepository(pool, { turnWindowTtlMs: 60_000 }),
+      {
+        decrypt: () => Buffer.alloc(32, 7),
+      },
+    );
     const start = new PveBattleStartService(
       encounter,
       battle as never,
@@ -702,7 +705,9 @@ describe("encounter PostgreSQL integration", () => {
       battle_status: "CANCELLED",
       active_wilds: "0",
     });
-    expect(await new PostgresEncounterRepository(pool).read((tx) => tx.activeForPlayer(playerId))).toBeNull();
+    expect(
+      await new PostgresEncounterRepository(pool).read((tx) => tx.activeForPlayer(playerId)),
+    ).toBeNull();
   });
 
   it("serializes concurrent creation so only one incompatible encounter becomes active", async () => {
