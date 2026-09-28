@@ -499,6 +499,59 @@ describe("PVE/PVP WhatsApp scene actions", () => {
       expect.objectContaining({ participantId: enemyId, kind: "AUTO", adminPrincipalId: null }),
     );
   });
+  it("lets a narrator act through a persisted NARRATOR controller without a player account", async () => {
+    const setup = dependencies(true);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const narratorState = {
+      ...state,
+      combatants: state.combatants.map((combatant) =>
+        combatant.participantId === enemyId
+          ? { ...combatant, moves: [{ slotNo: 1, moveId: quickAttackId }] }
+          : combatant,
+      ),
+    } as BattleState;
+    const narrator = {
+      participantId: enemyId,
+      battleId,
+      kind: "NARRATOR" as const,
+      playerId: null,
+      adminPrincipalId: principalId,
+      revision: 2,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setup.listByBattle.mockResolvedValue([narrator]);
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async () => ({
+          ok: false as const,
+          error: { code: "NOT_FOUND", message: "not a player" },
+        })),
+      },
+      narratorBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(narratorState)),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await createPveSceneConversationResolver(deps).resolve(
+      context("*Poochyena avança.*\n/movimento 1", { senderRef: "narrator" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        battleId,
+        playerId: null,
+        adminPrincipalId: principalId,
+      }),
+    );
+  });
+
   it("resolves a failed capture as the player's PVE turn action", async () => {
     const setup = dependencies(false);
     const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
