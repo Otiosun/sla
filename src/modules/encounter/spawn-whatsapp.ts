@@ -434,6 +434,57 @@ export function createSpawnWhatsAppRoute(
             );
       }
 
+      let validatedOpeningMove: { readonly slotNo: number; readonly displayName: string } | null =
+        null;
+      if (parsed.value.openingMoveReference !== null) {
+        const createdWilds =
+          created.value.wilds === undefined || created.value.wilds.length === 0
+            ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: created.value.snapshot }]
+            : created.value.wilds;
+        const createdWild = createdWilds[0];
+        if (createdWild === undefined) {
+          return err(appError("FLOW_BLOCKED", "Spawn fast path has no wild actor."));
+        }
+        const moveDisplayNames = dependencies.moveDisplayNames;
+        if (moveDisplayNames === undefined) {
+          throw new Error("Spawn fast-path move presentation invariant was lost after preflight");
+        }
+        validatedOpeningMove = await openingMoveFor(
+          created.value.contentReleaseId,
+          createdWild,
+          parsed.value.openingMoveReference,
+          moveDisplayNames,
+        );
+        if (validatedOpeningMove === null) {
+          const available = await availableMoveText(
+            created.value.contentReleaseId,
+            createdWild,
+            moveDisplayNames,
+          );
+          const rolledBack =
+            dependencies.encounters.flee === undefined
+              ? false
+              : (
+                  await dependencies.encounters.flee({
+                    playerId: target.value.playerId,
+                    encounterId: created.value.encounterId,
+                    expectedRevision: created.value.revision,
+                  })
+                ).ok;
+          return err(
+            appError("VALIDATION_FAILED", "Opening move was not found in the wild snapshot", {
+              userMessage: [
+                `Esse Pokémon não possui *${parsed.value.openingMoveReference}* nesse nível.`,
+                `Golpes: ${available}`,
+                rolledBack
+                  ? "_O spawn foi desfeito; nenhum encontro ficou preso._"
+                  : "O encontro foi mantido. Use `/iniciarbatalha @treinador` ou `/finalizarbatalha @treinador`.",
+              ].join("\n"),
+            }),
+          );
+        }
+      }
+
       const presented =
         dependencies.encounters.observe === undefined
           ? created
@@ -470,47 +521,12 @@ export function createSpawnWhatsAppRoute(
 
       if (parsed.value.openingMoveReference !== null) {
         const wild = wilds[0];
-        if (wild === undefined) {
-          return err(appError("FLOW_BLOCKED", "Spawn fast path has no wild actor."));
+        if (wild === undefined || validatedOpeningMove === null) {
+          throw new Error("Spawn fast-path move invariant was lost after presentation");
         }
-        const moveDisplayNames = dependencies.moveDisplayNames;
         const narratorOpening = dependencies.narratorOpening;
-        if (moveDisplayNames === undefined || narratorOpening === undefined) {
-          throw new Error("Spawn fast-path dependency invariant was lost after preflight");
-        }
-        const move = await openingMoveFor(
-          presented.value.contentReleaseId,
-          wild,
-          parsed.value.openingMoveReference,
-          moveDisplayNames,
-        );
-        if (move === null) {
-          const available = await availableMoveText(
-            presented.value.contentReleaseId,
-            wild,
-            moveDisplayNames,
-          );
-          const rolledBack =
-            dependencies.encounters.flee === undefined
-              ? false
-              : (
-                  await dependencies.encounters.flee({
-                    playerId: target.value.playerId,
-                    encounterId: presented.value.encounterId,
-                    expectedRevision: presented.value.revision,
-                  })
-                ).ok;
-          return err(
-            appError("VALIDATION_FAILED", "Opening move was not found in the wild snapshot", {
-              userMessage: [
-                `Esse Pokémon não possui *${parsed.value.openingMoveReference}* nesse nível.`,
-                `Golpes: ${available}`,
-                rolledBack
-                  ? "_O spawn foi desfeito; nenhum encontro ficou preso._"
-                  : "O encontro foi mantido. Use `/iniciarbatalha @treinador` ou `/finalizarbatalha @treinador`.",
-              ].join("\n"),
-            }),
-          );
+        if (narratorOpening === undefined) {
+          throw new Error("Spawn fast-path narrator invariant was lost after preflight");
         }
 
         const started = await narratorOpening.start({
@@ -520,7 +536,7 @@ export function createSpawnWhatsAppRoute(
           expectedRevision: presented.value.revision,
           provider: context.message.provider,
           narratorExternalId: context.message.senderRef,
-          moveSlot: move.slotNo,
+          moveSlot: validatedOpeningMove.slotNo,
           idempotencyKey: `${context.idempotencyKey}:opening`,
         });
         if (!started.ok) {
