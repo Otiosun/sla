@@ -492,12 +492,8 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         adminPrincipalId: principalId,
       }),
     );
-    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain(
-      "Quick Attack",
-    );
-    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain(
-      "`/batalha`",
-    );
+    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain("Quick Attack");
+    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain("`/batalha`");
 
     setup.listByBattle.mockResolvedValue([narrator]);
     await routeFor(routes, "automatico").handler.handle(context("/automatico"));
