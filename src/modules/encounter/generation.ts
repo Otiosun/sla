@@ -83,10 +83,16 @@ function chooseGender(
   return rng.randomInt(8) < genderRate ? "FEMALE" : "MALE";
 }
 
+export interface WildPokemonGenerationOverrides {
+  readonly shiny?: boolean;
+  readonly firstTurnInitiative?: "PLAYER" | "WILD";
+}
+
 export function generateWildPokemon(
   build: WildPokemonBuild,
   level: number,
   rng: RandomSource,
+  overrides: WildPokemonGenerationOverrides = {},
 ): WildPokemonSnapshot {
   if (!Number.isSafeInteger(level) || level < 1 || level > 100) {
     throw new RangeError("Wild Pokemon level must be in the range 1..100");
@@ -129,7 +135,10 @@ export function generateWildPokemon(
     moves,
     maxHp: hp,
     currentHp: hp,
-    shiny: false,
+    shiny: overrides.shiny ?? false,
     gender: chooseGender(build.genderRate, rng),
+    ...(overrides.firstTurnInitiative === undefined
+      ? {}
+      : { firstTurnInitiative: overrides.firstTurnInitiative }),
   };
 }

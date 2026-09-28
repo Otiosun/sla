@@ -4,8 +4,15 @@ import { loadPveBattleRuntimeConfig } from "../../src/runtime/pve-battle-runtime
 const rng = { encryptionKey: Buffer.alloc(32, 7), encryptionKeyVersion: 3 };
 
 describe("PVE runtime configuration", () => {
-  it("requires explicit opt-in and shares the encounter encryption key", () => {
-    expect(loadPveBattleRuntimeConfig(rng, {})).toBeNull();
+  it("is enabled by default and shares the encounter encryption key", () => {
+    expect(loadPveBattleRuntimeConfig(rng, {})).toEqual({
+      turnWindowTtlMs: 1_800_000,
+      maintenanceBatchSize: 25,
+      encryptionKeys: new Map([[3, rng.encryptionKey]]),
+    });
+  });
+
+  it("accepts explicit overrides independently", () => {
     expect(
       loadPveBattleRuntimeConfig(rng, {
         PVE_TURN_WINDOW_TTL_MS: "120000",
@@ -16,20 +23,27 @@ describe("PVE runtime configuration", () => {
       maintenanceBatchSize: 4,
       encryptionKeys: new Map([[3, rng.encryptionKey]]),
     });
+    expect(
+      loadPveBattleRuntimeConfig(rng, {
+        PVE_MAINTENANCE_BATCH_SIZE: "8",
+      }),
+    ).toEqual({
+      turnWindowTtlMs: 1_800_000,
+      maintenanceBatchSize: 8,
+      encryptionKeys: new Map([[3, rng.encryptionKey]]),
+    });
   });
 
-  it.each([undefined, "", "0", "-1", "1.5", "1e3", " 5", "9007199254740992"])(
-    "rejects partial or invalid configuration (%s)",
+  it.each(["", "0", "-1", "1.5", "1e3", " 5", "9007199254740992"])(
+    "rejects invalid explicit configuration (%s)",
     (value) => {
       expect(() =>
         loadPveBattleRuntimeConfig(rng, {
           PVE_TURN_WINDOW_TTL_MS: value,
-          PVE_MAINTENANCE_BATCH_SIZE: "4",
         }),
       ).toThrow("PVE_TURN_WINDOW_TTL_MS");
       expect(() =>
         loadPveBattleRuntimeConfig(rng, {
-          PVE_TURN_WINDOW_TTL_MS: "120000",
           PVE_MAINTENANCE_BATCH_SIZE: value,
         }),
       ).toThrow("PVE_MAINTENANCE_BATCH_SIZE");

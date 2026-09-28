@@ -149,6 +149,7 @@ export const BattleCombatantSchema = z
     formId: uuid,
     speciesId: uuid,
     level: z.number().int().min(1).max(100),
+    shiny: z.boolean().optional(),
     type1Id: uuid,
     type1Slug: z.string().min(1).max(64),
     type2Id: uuid.nullable(),
@@ -216,6 +217,7 @@ export const BattleStateSchema = z
     turnNumber: z.number().int().nonnegative(),
     version: z.number().int().nonnegative(),
     rngCounter: z.string().regex(/^\d+$/),
+    firstTurnInitiative: z.enum(["PLAYER", "WILD"]).optional(),
     sides: z.array(BattleSideSchema).min(2).max(16),
     combatants: z.array(BattleCombatantSchema).min(2).max(128),
   })

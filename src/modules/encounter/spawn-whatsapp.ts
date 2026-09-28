@@ -4,6 +4,7 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import { parseSpawnCommand } from "./spawn-command.js";
 import type { EncounterService } from "./service.js";
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -60,24 +61,71 @@ export interface NarratorAutoBattlePort {
   kick(battleId: string): Promise<unknown>;
 }
 
+export interface NarratorOpeningBattlePreview {
+  readonly displayName: string;
+  readonly level: number;
+  readonly shiny: boolean;
+  readonly currentHp: number;
+  readonly maxHp: number;
+  readonly moves: readonly {
+    readonly slotNo: number;
+    readonly displayName: string;
+    readonly ppCurrent: number | null;
+    readonly maxPp: number | null;
+  }[];
+}
+
+export interface NarratorOpeningBattlePort {
+  start(input: {
+    readonly playerId: string;
+    readonly encounterId: string;
+    readonly status: "PRESENTED";
+    readonly expectedRevision: bigint;
+    readonly provider: string;
+    readonly narratorExternalId: string;
+    readonly moveSlot: number;
+    readonly idempotencyKey: string;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly value: {
+          readonly battleId: string;
+          readonly moveDisplayName: string;
+          readonly player: NarratorOpeningBattlePreview;
+        };
+      }
+    | {
+        readonly ok: false;
+        readonly error: {
+          readonly message: string;
+          readonly battleId?: string;
+        };
+      }
+  >;
+}
+
 export interface SpawnWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly encounters: Pick<EncounterService, "createOrReplay"> &
-    Partial<Pick<EncounterService, "observe">>;
+    Partial<Pick<EncounterService, "observe" | "flee">>;
   readonly context?: NarratorSpawnContextResolver;
   readonly species?: NarratorSpawnSpeciesResolver;
   readonly speciesDisplayName?: (
     contentReleaseId: string,
     speciesId: string,
   ) => Promise<string | null>;
+  readonly moveDisplayNames?: (
+    contentReleaseId: string,
+    moveIds: readonly string[],
+  ) => Promise<ReadonlyMap<string, string>>;
   readonly environment?: () => EncounterEnvironmentContext;
   readonly autoBattle?: NarratorAutoBattlePort;
+  readonly narratorOpening?: NarratorOpeningBattlePort;
 }
 
-interface SpawnCommandOptions {
-  readonly automatic: boolean;
-  readonly quantity: number;
-  readonly speciesReference: string | null;
+function mentionTag(ref: string): string {
+  const local = ref.split("@", 1)[0] ?? ref;
+  return `@${local.replace(/:\d+$/u, "")}`;
 }
 
 function result(
@@ -85,6 +133,7 @@ function result(
   text: string,
   refType: "ENCOUNTER" | "BATTLE" | null,
   refId: string | null,
+  mentions: readonly string[] = [],
 ): Result<MessageHandlerResult> {
   return ok({
     resultRefType: refType,
@@ -94,43 +143,13 @@ function result(
         channel: "whatsapp",
         destinationRef: context.message.chatRef,
         messageType: "TEXT",
-        payload: { text },
+        payload: {
+          text,
+          ...(mentions.length === 0 ? {} : { mentions }),
+        },
         idempotencyKey: `${context.idempotencyKey}:spawn`,
       },
     ],
-  });
-}
-
-function parseCommand(context: MessageHandlerContext): Result<SpawnCommandOptions> {
-  const raw = context.message.text?.trim() ?? "";
-  const tokens = raw.split(/\s+/u).slice(1);
-  const meaningful = tokens.filter((token) => !token.startsWith("@"));
-
-  let quantity = 1;
-  const tail = meaningful.at(-1) ?? "";
-  if (/^\d+$/u.test(tail)) {
-    quantity = Number(tail);
-    meaningful.pop();
-  }
-  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 6) {
-    return err(appError("VALIDATION_FAILED", "A quantidade do spawn deve estar entre 1 e 6."));
-  }
-
-  let automatic = false;
-  if (meaningful[0]?.toLocaleLowerCase("pt-BR") === "auto") {
-    automatic = true;
-    meaningful.shift();
-  }
-
-  const speciesReference = meaningful.join(" ").trim();
-  if (speciesReference.length > 80) {
-    return err(appError("VALIDATION_FAILED", "O nome do Pokémon informado é muito longo."));
-  }
-
-  return ok({
-    automatic,
-    quantity,
-    speciesReference: speciesReference.length === 0 ? null : speciesReference,
   });
 }
 
@@ -149,7 +168,125 @@ function splitText(groups: readonly NarratorSpawnAreaGroup[]): string {
     "",
     ...sections.flatMap((section, index) => (index === 0 ? [section] : ["", section])),
     "",
-    "Escolha um participante de uma área comum ou reúna o grupo antes do spawn.",
+    "Reúna o grupo ou escolha alguém de uma área comum.",
+  ].join("\n");
+}
+
+function normalizeLookup(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/gu, " ");
+}
+
+async function openingMoveFor(
+  contentReleaseId: string,
+  wild: {
+    readonly snapshot: {
+      readonly moves: readonly { readonly moveId: string }[];
+    };
+  },
+  reference: string,
+  presentation: NonNullable<SpawnWhatsAppDependencies["moveDisplayNames"]>,
+): Promise<{ readonly slotNo: number; readonly displayName: string } | null> {
+  const normalized = normalizeLookup(reference);
+  const names = await presentation(
+    contentReleaseId,
+    wild.snapshot.moves.map((move) => move.moveId),
+  );
+
+  if (/^\d+$/u.test(normalized)) {
+    const slot = Number(normalized);
+    const source = wild.snapshot.moves[slot - 1];
+    if (source === undefined) return null;
+    return {
+      slotNo: slot,
+      displayName: names.get(source.moveId) ?? `Golpe ${slot}`,
+    };
+  }
+
+  const matches = wild.snapshot.moves.flatMap((move, index) => {
+    const displayName = names.get(move.moveId);
+    return displayName !== undefined && normalizeLookup(displayName) === normalized
+      ? [{ slotNo: index + 1, displayName }]
+      : [];
+  });
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+async function availableMoveText(
+  contentReleaseId: string,
+  wild: {
+    readonly snapshot: {
+      readonly moves: readonly { readonly moveId: string }[];
+    };
+  },
+  presentation: NonNullable<SpawnWhatsAppDependencies["moveDisplayNames"]>,
+): Promise<string> {
+  const names = await presentation(
+    contentReleaseId,
+    wild.snapshot.moves.map((move) => move.moveId),
+  );
+  return wild.snapshot.moves
+    .map((move, index) => `${index + 1}. ${names.get(move.moveId) ?? "Movimento"}`)
+    .join(" · ");
+}
+
+function creationUserMessage(message: string): string | null {
+  if (message.includes("active encounter")) {
+    return "Esse treinador já possui um encontro ativo. Use `/finalizarbatalha @treinador` para encerrá-lo.";
+  }
+  if (message.includes("active-battle") || message.includes("active battle")) {
+    return "Esse treinador já está em batalha.";
+  }
+  if (message.includes("Party is not eligible") || message.includes("Party membership changed")) {
+    return "A party mudou, está separada ou não está pronta para esse encontro.";
+  }
+  if (message.includes("No eligible encounter table")) {
+    return "Não há uma faixa de encontro válida nesta área/período agora.";
+  }
+  if (message.includes("no eligible active entries")) {
+    return "A área não possui uma faixa de nível elegível para esse spawn agora.";
+  }
+  if (message.includes("Player location is missing")) {
+    return "O treinador ainda não possui uma localização válida no mundo.";
+  }
+  return null;
+}
+
+function ppText(current: number | null, max: number | null): string {
+  if (current === null && max === null) return "";
+  return ` · PP \`${current ?? "—"}/${max ?? "—"}\``;
+}
+
+function openingBattleText(
+  targetRef: string,
+  wildName: string,
+  wildLevel: number,
+  wildShiny: boolean,
+  area: string,
+  moveName: string,
+  player: NarratorOpeningBattlePreview,
+): string {
+  const playerShiny = player.shiny ? " ✨" : "";
+  const wildSparkle = wildShiny ? " ✨" : "";
+  return [
+    "⚔️ *BATALHA INICIADA*",
+    "",
+    `${mentionTag(targetRef)} · *${player.displayName}*${playerShiny} Nv. ${player.level}  ×  *${wildName}*${wildSparkle} Nv. ${wildLevel}`,
+    `📍 ${area}`,
+    "",
+    `🎙️ *${moveName}* registrado · aguardando o treinador.`,
+    "",
+    "*Seus golpes*",
+    ...player.moves.map(
+      (move) => `\`${move.slotNo}\` ${move.displayName}${ppText(move.ppCurrent, move.maxPp)}`,
+    ),
+    "",
+    "`/movimento 1` · `/capturar` · `/fugir`",
+    "`/batalha` · consultar estado",
   ].join("\n");
 }
 
@@ -158,25 +295,54 @@ export function createSpawnWhatsAppRoute(
 ): CommandRouteDefinition {
   return {
     command: "spawn",
+    allowEmbedded: true,
     rateLimitClass: "SENSITIVE",
     policy: { requiredGroupCapabilities: ["pve"], requiredAdminCapability: "encounter.support" },
     handler: new FunctionalHandler(async (context) => {
       const mentions = context.message.mentions ?? [];
       if (mentions.length !== 1) {
         return err(
-          appError(
-            "VALIDATION_FAILED",
-            "Use `/spawn @treinador` com exatamente uma menção real. Também são aceitos `/spawn Poochyena @treinador` e `/spawn auto Poochyena @treinador`.",
-          ),
+          appError("VALIDATION_FAILED", "Use /spawn com exatamente uma menção real.", {
+            userMessage:
+              "Use `/spawn @treinador`, `/spawn Poochyena @treinador` ou combine modificadores como `nv 10`, `shiny`, `ataque Bite` e `auto`.",
+          }),
+        );
+      }
+      const targetRef = mentions[0];
+      if (targetRef === undefined) {
+        return err(appError("VALIDATION_FAILED", "Spawn target mention is missing."));
+      }
+
+      const parsed = parseSpawnCommand(context.message.text);
+      if (!parsed.ok) {
+        return err(
+          appError("VALIDATION_FAILED", parsed.message, {
+            userMessage: parsed.message,
+          }),
         );
       }
 
-      const parsed = parseCommand(context);
-      if (!parsed.ok) return parsed;
+      if (
+        parsed.value.openingMoveReference !== null &&
+        (dependencies.moveDisplayNames === undefined || dependencies.narratorOpening === undefined)
+      ) {
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Narrator opening battle is unavailable", {
+            userMessage: "O fast path com *ataque* não está disponível agora.",
+          }),
+        );
+      }
+      if (parsed.value.automatic && dependencies.autoBattle === undefined) {
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Automatic PVE battle is unavailable", {
+            userMessage: "O modo de batalha automática não está disponível agora.",
+          }),
+        );
+      }
 
       const target = await dependencies.players.resolvePlayer({
         provider: context.message.provider,
-        externalId: mentions[0],
+        externalId: targetRef,
       });
       if (!target.ok) return target;
 
@@ -194,14 +360,11 @@ export function createSpawnWhatsAppRoute(
             "_O encontro não foi criado._",
             "",
             ...spawnContext.participantDisplayNames.map((name) => `• ${name}`),
-            "",
-            "Aguarde o deslocamento terminar antes de gerar um encontro.",
           ].join("\n"),
           null,
           null,
         );
       }
-
       if (spawnContext.kind === "SPLIT") {
         return result(context, splitText(spawnContext.groups), null, null);
       }
@@ -225,7 +388,6 @@ export function createSpawnWhatsAppRoute(
       }
 
       let forcedFormId: string | undefined;
-      let forcedDisplayName: string | null = null;
       if (parsed.value.speciesReference !== null) {
         if (dependencies.species === undefined) {
           return err(
@@ -243,27 +405,84 @@ export function createSpawnWhatsAppRoute(
           );
         }
         forcedFormId = match.formId;
-        forcedDisplayName = match.displayName;
       }
+
+      const effectiveFirstTurn =
+        parsed.value.firstTurn ??
+        (parsed.value.openingMoveReference === null ? null : ("WILD" as const));
 
       const created = await dependencies.encounters.createOrReplay({
         playerId: target.value.playerId,
         participantPlayerIds: [],
         spawnQuantity: parsed.value.quantity,
         ...(forcedFormId === undefined ? {} : { forcedFormId }),
+        ...(parsed.value.forcedLevel === null ? {} : { forcedLevel: parsed.value.forcedLevel }),
+        ...(parsed.value.forcedShiny ? { forcedShiny: true } : {}),
+        ...(effectiveFirstTurn === null ? {} : { firstTurnInitiative: effectiveFirstTurn }),
         ...(environment === undefined ? {} : { environment }),
         idempotencyKey: context.idempotencyKey,
       });
       if (!created.ok) {
-        if (forcedDisplayName !== null) {
+        const userMessage = creationUserMessage(created.error.message);
+        return userMessage === null
+          ? created
+          : err(
+              appError(created.error.code, created.error.message, {
+                ...created.error.details,
+                userMessage,
+              }),
+            );
+      }
+
+      let validatedOpeningMove: { readonly slotNo: number; readonly displayName: string } | null =
+        null;
+      if (parsed.value.openingMoveReference !== null) {
+        const createdWilds =
+          created.value.wilds === undefined || created.value.wilds.length === 0
+            ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: created.value.snapshot }]
+            : created.value.wilds;
+        const createdWild = createdWilds[0];
+        if (createdWild === undefined) {
+          return err(appError("FLOW_BLOCKED", "Spawn fast path has no wild actor."));
+        }
+        const moveDisplayNames = dependencies.moveDisplayNames;
+        if (moveDisplayNames === undefined) {
+          throw new Error("Spawn fast-path move presentation invariant was lost after preflight");
+        }
+        validatedOpeningMove = await openingMoveFor(
+          created.value.contentReleaseId,
+          createdWild,
+          parsed.value.openingMoveReference,
+          moveDisplayNames,
+        );
+        if (validatedOpeningMove === null) {
+          const available = await availableMoveText(
+            created.value.contentReleaseId,
+            createdWild,
+            moveDisplayNames,
+          );
+          const rolledBack =
+            dependencies.encounters.flee === undefined
+              ? false
+              : (
+                  await dependencies.encounters.flee({
+                    playerId: target.value.playerId,
+                    encounterId: created.value.encounterId,
+                    expectedRevision: created.value.revision,
+                  })
+                ).ok;
           return err(
-            appError(created.error.code, created.error.message, {
-              ...created.error.details,
-              userMessage: `*${forcedDisplayName}* não está disponível para spawn nesta área/período agora.`,
+            appError("VALIDATION_FAILED", "Opening move was not found in the wild snapshot", {
+              userMessage: [
+                `Esse Pokémon não possui *${parsed.value.openingMoveReference}* nesse nível.`,
+                `Golpes: ${available}`,
+                rolledBack
+                  ? "_O spawn foi desfeito; nenhum encontro ficou preso._"
+                  : "O encontro foi mantido. Use `/iniciarbatalha @treinador` ou `/finalizarbatalha @treinador`.",
+              ].join("\n"),
             }),
           );
         }
-        return created;
       }
 
       const presented =
@@ -281,30 +500,79 @@ export function createSpawnWhatsAppRoute(
           ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: presented.value.snapshot }]
           : presented.value.wilds;
 
-      const wildLines = await Promise.all(
-        wilds.map(async (wild) => {
-          const name =
-            dependencies.speciesDisplayName === undefined
-              ? "Pokémon selvagem"
-              : ((await dependencies.speciesDisplayName(
-                  presented.value.contentReleaseId,
-                  wild.snapshot.speciesId,
-                )) ?? "Pokémon selvagem");
-          return wilds.length === 1
-            ? `*${name}* · Nv. ${wild.snapshot.level}`
-            : `${wild.wildNo}. *${name}* · Nv. ${wild.snapshot.level}`;
-        }),
+      const wildNames = await Promise.all(
+        wilds.map(async (wild) =>
+          dependencies.speciesDisplayName === undefined
+            ? "Pokémon selvagem"
+            : ((await dependencies.speciesDisplayName(
+                presented.value.contentReleaseId,
+                wild.snapshot.speciesId,
+              )) ?? "Pokémon selvagem"),
+        ),
       );
 
-      if (parsed.value.automatic) {
-        if (dependencies.autoBattle === undefined) {
+      const wildLines = wilds.map((wild, index) => {
+        const name = wildNames[index] ?? "Pokémon selvagem";
+        const sparkle = wild.snapshot.shiny ? " ✨" : "";
+        return wilds.length === 1
+          ? `*${name}*${sparkle} · Nv. ${wild.snapshot.level}`
+          : `${wild.wildNo}. *${name}*${sparkle} · Nv. ${wild.snapshot.level}`;
+      });
+
+      if (parsed.value.openingMoveReference !== null) {
+        const wild = wilds[0];
+        if (wild === undefined || validatedOpeningMove === null) {
+          throw new Error("Spawn fast-path move invariant was lost after presentation");
+        }
+        const narratorOpening = dependencies.narratorOpening;
+        if (narratorOpening === undefined) {
+          throw new Error("Spawn fast-path narrator invariant was lost after preflight");
+        }
+
+        const started = await narratorOpening.start({
+          playerId: target.value.playerId,
+          encounterId: presented.value.encounterId,
+          status: "PRESENTED",
+          expectedRevision: presented.value.revision,
+          provider: context.message.provider,
+          narratorExternalId: context.message.senderRef,
+          moveSlot: validatedOpeningMove.slotNo,
+          idempotencyKey: `${context.idempotencyKey}:opening`,
+        });
+        if (!started.ok) {
           return err(
-            appError("FEATURE_UNAVAILABLE", "Automatic PVE battle is unavailable", {
-              userMessage: "O modo de batalha automática não está disponível agora.",
+            appError("FLOW_BLOCKED", started.error.message, {
+              userMessage:
+                started.error.battleId === undefined
+                  ? "Não foi possível iniciar a batalha rápida."
+                  : "A batalha foi iniciada, mas o ataque inicial não pôde ser registrado. Use `/batalha` para continuar.",
             }),
           );
         }
-        const started = await dependencies.autoBattle.start({
+
+        return result(
+          context,
+          openingBattleText(
+            targetRef,
+            wildNames[0] ?? "Pokémon selvagem",
+            wild.snapshot.level,
+            wild.snapshot.shiny,
+            spawnContext.areaDisplayName,
+            started.value.moveDisplayName,
+            started.value.player,
+          ),
+          "BATTLE",
+          started.value.battleId,
+          [targetRef],
+        );
+      }
+
+      if (parsed.value.automatic) {
+        const autoBattle = dependencies.autoBattle;
+        if (autoBattle === undefined) {
+          throw new Error("Spawn AUTO dependency invariant was lost after preflight");
+        }
+        const started = await autoBattle.start({
           playerId: target.value.playerId,
           encounterId: presented.value.encounterId,
           status: "PRESENTED",
@@ -319,8 +587,8 @@ export function createSpawnWhatsAppRoute(
         }
 
         try {
-          await dependencies.autoBattle.automatePlayers(started.value.battleId);
-          await dependencies.autoBattle.kick(started.value.battleId);
+          await autoBattle.automatePlayers(started.value.battleId);
+          await autoBattle.kick(started.value.battleId);
         } catch (error) {
           return err(
             appError(
@@ -337,21 +605,17 @@ export function createSpawnWhatsAppRoute(
         return result(
           context,
           [
-            "🤖 *BATALHA AUTOMÁTICA INICIADA*",
+            "🤖 *BATALHA AUTOMÁTICA*",
             "",
-            `_${spawnContext.areaDisplayName}_`,
+            `${mentionTag(targetRef)} · ${wildLines.join(" · ")}`,
+            `📍 ${spawnContext.areaDisplayName}`,
             "",
-            ...wildLines,
-            "",
-            spawnContext.participantCount === 1
-              ? "O treinador marcado participa desta batalha."
-              : `A party co-localizada participa · ${spawnContext.participantCount} treinadores.`,
-            "",
-            "Treinador e adversário estão sob controle automático.",
-            "_O primeiro turno já foi disparado; os próximos seguem pelo runtime._",
+            "_Treinador e adversário estão sob controle da IA._",
+            "_Sem spam por turno; o resultado/recompensa aparece ao final._",
           ].join("\n"),
           "BATTLE",
           started.value.battleId,
+          [targetRef],
         );
       }
 
@@ -360,19 +624,15 @@ export function createSpawnWhatsAppRoute(
         [
           wilds.length === 1 ? "🌿 *ENCONTRO SELVAGEM*" : "🌿 *ENCONTRO SELVAGEM · GRUPO*",
           "",
-          `_Cena conduzida pelo narrador em ${spawnContext.areaDisplayName}._`,
-          "",
+          mentionTag(targetRef),
           ...wildLines,
+          `📍 ${spawnContext.areaDisplayName}`,
           "",
-          spawnContext.participantCount === 1
-            ? "O treinador marcado participa deste encontro."
-            : `A party co-localizada participa deste encontro · ${spawnContext.participantCount} treinadores.`,
-          "",
-          "O narrador decide quando a cena vira combate.",
-          "⚔️ `/iniciarbatalha @treinador`",
+          `⚔️ \`/iniciarbatalha ${mentionTag(targetRef)}\``,
         ].join("\n"),
         "ENCOUNTER",
         presented.value.encounterId,
+        [targetRef],
       );
     }),
   };

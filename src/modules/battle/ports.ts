@@ -58,6 +58,7 @@ export interface BattlePokemonBuild {
   readonly formId: string;
   readonly speciesId: string;
   readonly level: number;
+  readonly shiny?: boolean;
   readonly type1Id: string;
   readonly type1Slug: string;
   readonly type2Id: string | null;
@@ -102,6 +103,7 @@ export interface BattleInitializationData {
     readonly party: readonly BattlePokemonBuild[];
   }[];
   readonly opponentParty: readonly BattlePokemonBuild[];
+  readonly firstTurnInitiative?: "PLAYER" | "WILD";
 }
 
 export interface StoredBattleAction {

@@ -19,6 +19,7 @@ import type {
   EncounterMutationInput,
   EncounterPlayerContext,
   EncounterRecord,
+  EncounterTableRecord,
   EncounterStatus,
   EncounterView,
   ExpireResult,
@@ -88,6 +89,12 @@ export class EncounterService {
         ),
       );
     }
+    if (
+      input.forcedLevel !== undefined &&
+      (!Number.isSafeInteger(input.forcedLevel) || input.forcedLevel < 1 || input.forcedLevel > 100)
+    ) {
+      return err(encounterValidationError("forcedLevel must be an integer in 1..100"));
+    }
     const idempotency = createIdempotencyKey(ENCOUNTER_CREATE_SCOPE, input.idempotencyKey);
     if (!idempotency.ok) return idempotency;
 
@@ -120,6 +127,15 @@ export class EncounterService {
       ) {
         return err(encounterNotReady("Party membership changed; spawn was rejected"));
       }
+
+      if (context.activeBattle) {
+        return err(encounterNotReady("Player already has an active battle"));
+      }
+      const activeEncounter = await transaction.activeForPlayer(input.playerId, true);
+      if (activeEncounter !== null) {
+        return err(encounterNotReady("Player already has an incompatible active encounter"));
+      }
+
       for (const participantPlayerId of participants) {
         const participant = await transaction.playerContext(participantPlayerId, true);
         if (
@@ -129,15 +145,11 @@ export class EncounterService {
           participant.activeBattle ||
           participant.areaId === null ||
           participant.areaId !== context.areaId ||
-          (await transaction.activeForPlayer(participantPlayerId, true)) !== null
+          (participantPlayerId !== input.playerId &&
+            (await transaction.activeForPlayer(participantPlayerId, true)) !== null)
         ) {
           return err(encounterNotReady("Party is not eligible and co-located for this spawn"));
         }
-      }
-
-      const activeEncounter = await transaction.activeForPlayer(input.playerId, true);
-      if (activeEncounter !== null) {
-        return err(encounterNotReady("Player already has an incompatible active encounter"));
       }
 
       const content = await transaction.activeContent();
@@ -158,34 +170,42 @@ export class EncounterService {
       if (!gate.ok) return gate;
       if (context.areaId === null) return err(encounterNotReady("Player location is missing"));
 
+      const fullyDirectedSpawn =
+        input.forcedFormId !== undefined &&
+        input.forcedLevel !== undefined &&
+        input.encounterTableSlug === undefined;
       const unlocks = new Set(context.unlockKeys);
-      const allTables = await transaction.tables(content.contentReleaseId, context.areaId);
-      const eligibleTables = allTables.filter(
-        (table) =>
-          table.active &&
-          encounterConditionsAllow(table.conditions, unlocks, input.environment ?? {}) &&
-          (input.encounterTableSlug === undefined || table.slug === input.encounterTableSlug),
-      );
-      if (eligibleTables.length === 0) {
-        return err(encounterNotReady("No eligible encounter table exists for the current area"));
-      }
-      if (eligibleTables.length > 1 && input.encounterTableSlug === undefined) {
-        return err(
-          encounterNotReady(
-            "Multiple encounter tables are eligible; an explicit encounterTableSlug is required",
-          ),
+      let entries: EncounterTableRecord["entries"] = [];
+
+      if (!fullyDirectedSpawn) {
+        const allTables = await transaction.tables(content.contentReleaseId, context.areaId);
+        const eligibleTables = allTables.filter(
+          (table) =>
+            table.active &&
+            encounterConditionsAllow(table.conditions, unlocks, input.environment ?? {}) &&
+            (input.encounterTableSlug === undefined || table.slug === input.encounterTableSlug),
         );
-      }
-      const table = eligibleTables[0];
-      if (table === undefined)
-        return err(encounterNotReady("Encounter table could not be resolved"));
-      const entries = table.entries.filter(
-        (entry) =>
-          entry.active &&
-          encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
-      );
-      if (entries.length === 0) {
-        return err(encounterNotReady("Encounter table has no eligible active entries"));
+        if (eligibleTables.length === 0) {
+          return err(encounterNotReady("No eligible encounter table exists for the current area"));
+        }
+        if (eligibleTables.length > 1 && input.encounterTableSlug === undefined) {
+          return err(
+            encounterNotReady(
+              "Multiple encounter tables are eligible; an explicit encounterTableSlug is required",
+            ),
+          );
+        }
+        const table = eligibleTables[0];
+        if (table === undefined)
+          return err(encounterNotReady("Encounter table could not be resolved"));
+        entries = table.entries.filter(
+          (entry) =>
+            entry.active &&
+            encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
+        );
+        if (entries.length === 0) {
+          return err(encounterNotReady("Encounter table has no eligible active entries"));
+        }
       }
 
       const encounterId = createEncounterId();
@@ -194,11 +214,13 @@ export class EncounterService {
       const wildSnapshots = [];
 
       for (let wildNo = 1; wildNo <= spawnQuantity; wildNo += 1) {
-        // The local table still owns the difficulty band. A narrator/admin forced form
-        // overrides only the species/form choice, never the area's level curve.
-        const levelEntry = chooseWeightedEncounterEntry(entries, rng);
-        const level = chooseEncounterLevel(levelEntry, rng);
-        const formId = input.forcedFormId ?? levelEntry.formId;
+        const levelEntry = fullyDirectedSpawn ? null : chooseWeightedEncounterEntry(entries, rng);
+        const level =
+          input.forcedLevel ?? (levelEntry === null ? null : chooseEncounterLevel(levelEntry, rng));
+        const formId = input.forcedFormId ?? levelEntry?.formId;
+        if (level === null || formId === undefined) {
+          return err(encounterNotReady("Encounter generation could not resolve level or form"));
+        }
         const build = await transaction.wildBuild(content.contentReleaseId, formId);
         if (build === null) {
           return err(
@@ -212,7 +234,12 @@ export class EncounterService {
         wildSnapshots.push({
           wildNo,
           status: "ACTIVE" as const,
-          snapshot: generateWildPokemon(build, level, rng),
+          snapshot: generateWildPokemon(build, level, rng, {
+            ...(input.forcedShiny === undefined ? {} : { shiny: input.forcedShiny }),
+            ...(input.firstTurnInitiative === undefined
+              ? {}
+              : { firstTurnInitiative: input.firstTurnInitiative }),
+          }),
         });
       }
 

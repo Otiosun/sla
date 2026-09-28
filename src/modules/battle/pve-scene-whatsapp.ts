@@ -39,6 +39,7 @@ export interface PveCaptureBallReader {
 export interface PveSceneDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly activeBattleId: (playerId: PlayerId) => Promise<string | null>;
+  readonly narratorBattleId?: (adminPrincipalId: string) => Promise<string | null>;
   readonly battle: Pick<
     BattleRuntimeService,
     "currentState" | "resolvePlayerTurn" | "surrenderPvp"
@@ -255,7 +256,9 @@ function activeController(
   if (state.sides === undefined || state.sides.length === 0) {
     return controllers.find(predicate);
   }
-  const active = new Set(state.sides.map((side) => side.activeParticipantId));
+  const active = new Set(
+    state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
+  );
   return controllers.find(
     (controller) => active.has(controller.participantId) && predicate(controller),
   );
@@ -380,15 +383,16 @@ async function hud(
   state: BattleState,
   controller: BattleParticipantController,
   controllers: readonly BattleParticipantController[],
-  presentation: Pick<OperationalUxReadModel, "moveDisplayNames">,
+  presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">,
+  playerRef: string,
 ): Promise<string> {
   const own = state.combatants.find(
     (combatant) => combatant.participantId === controller.participantId,
   );
-  const opponentSide = state.sides.find((side) => {
-    const ownSide = own?.sideNo;
-    return ownSide !== undefined && side.sideNo !== ownSide && side.result === null;
-  });
+  const ownSide = own?.sideNo;
+  const opponentSide = state.sides.find(
+    (side) => ownSide !== undefined && side.sideNo !== ownSide && side.result === null,
+  );
   const opponent =
     opponentSide === undefined
       ? undefined
@@ -396,18 +400,24 @@ async function hud(
           (combatant) => combatant.participantId === opponentSide.activeParticipantId,
         );
 
-  const lines = [
-    `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
-    "",
-    "◇ *SEU POKÉMON*",
+  const [ownName, opponentName] = await Promise.all([
     own === undefined
-      ? "╰─ _indisponível_"
-      : `╰─ HP \`${own.currentHp}/${own.maxHp}\` · status \`${statusLabel(own.majorStatus)}\``,
-    "",
-    "◇ *OPONENTE*",
+      ? Promise.resolve<string | null>(null)
+      : presentation.speciesDisplayName(state.contentReleaseId, own.speciesId),
     opponent === undefined
-      ? "╰─ —"
-      : `╰─ HP \`${opponent.currentHp}/${opponent.maxHp}\` · status \`${statusLabel(opponent.majorStatus)}\``,
+      ? Promise.resolve<string | null>(null)
+      : presentation.speciesDisplayName(state.contentReleaseId, opponent.speciesId),
+  ]);
+
+  const lines = [
+    `⚔️ *BATALHA · T${state.turnNumber}* · ${mentionTag(playerRef)}`,
+    "",
+    own === undefined
+      ? "_Seu Pokémon está indisponível._"
+      : `*${ownName ?? "Pokémon"}*${own.shiny ? " ✨" : ""} · Nv. ${own.level} · ❤️ \`${own.currentHp}/${own.maxHp}\`${own.majorStatus === null ? "" : ` · ${statusLabel(own.majorStatus)}`}`,
+    opponent === undefined
+      ? "× —"
+      : `× *${opponentName ?? "Pokémon"}*${opponent.shiny ? " ✨" : ""} · Nv. ${opponent.level} · ❤️ \`${opponent.currentHp}/${opponent.maxHp}\`${opponent.majorStatus === null ? "" : ` · ${statusLabel(opponent.majorStatus)}`}`,
   ];
 
   if (own !== undefined && own.currentHp > 0) {
@@ -417,16 +427,26 @@ async function hud(
     );
     lines.push(
       "",
-      "◇ *AÇÕES*",
+      "*Golpes*",
       ...own.moves.map(
         (move) =>
-          `\`${String(move.slotNo)}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP ${
-            move.ppCurrent === null || move.ppCurrent === undefined ? "—" : String(move.ppCurrent)
-          } · \`/movimento ${String(move.slotNo)}\``,
+          `\`${move.slotNo}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP \`${
+            move.ppCurrent ?? "—"
+          }/${move.maxPp ?? "—"}\``,
       ),
     );
-    if (state.battleType === "WILD") {
-      lines.push("`/capturar` · tentar captura", "`/fugir` · fugir");
+    if (controller.kind === "NARRATOR") {
+      const narratorRoster = controlledRoster(state, controller, controllers);
+      lines.push(
+        "",
+        narratorRoster.length > 1
+          ? "`/movimento 1` · `/trocar 2` · `/automatico`"
+          : "`/movimento 1` · `/automatico`",
+      );
+    } else if (state.battleType === "WILD") {
+      lines.push("", "`/movimento 1` · `/capturar` · `/fugir`");
+    } else {
+      lines.push("", "`/movimento 1` · `/trocar 2`");
     }
   }
 
@@ -438,18 +458,23 @@ async function hud(
         ({ combatant }) => combatant.participantId !== own.participantId && combatant.currentHp > 0,
       );
     if (reserves.length > 0) {
+      const reserveNames = await Promise.all(
+        reserves.map(({ combatant }) =>
+          presentation.speciesDisplayName(state.contentReleaseId, combatant.speciesId),
+        ),
+      );
       lines.push(
         "",
         "💥 *TROCA OBRIGATÓRIA*",
         ...reserves.map(
-          ({ combatant, slot }) =>
-            `\`${slot}\`　HP \`${combatant.currentHp}/${combatant.maxHp}\` · \`/trocar ${slot}\``,
+          ({ combatant, slot }, index) =>
+            `\`${slot}\` ${reserveNames[index] ?? "Pokémon"} · ❤️ \`${combatant.currentHp}/${combatant.maxHp}\` · \`/trocar ${slot}\``,
         ),
       );
     }
   }
 
-  lines.push("", "`/combate` · comandos e regras");
+  lines.push("", "`/combate` · ajuda");
   return lines.join("\n");
 }
 
@@ -493,7 +518,10 @@ async function turnSummary(
         state.contentReleaseId,
         combatant.speciesId,
       );
-      speciesByParticipant.set(combatant.participantId, displayName ?? "Pokémon");
+      speciesByParticipant.set(
+        combatant.participantId,
+        `${displayName ?? "Pokémon"}${combatant.shiny ? " ✨" : ""}`,
+      );
     }),
   );
 
@@ -516,7 +544,7 @@ async function turnSummary(
       ? (speciesByParticipant.get(participantId) ?? "Pokémon")
       : "Pokémon";
 
-  const lines: string[] = [`⚔️ *Turno ${state.turnNumber}*`, ""];
+  const lines: string[] = [`⚔️ *TURNO ${state.turnNumber}*`, ""];
   let actionStarted = false;
 
   for (const entry of events) {
@@ -603,7 +631,11 @@ async function turnSummary(
   const firstMention = mentions[0];
   const secondMention = mentions[1];
   if (firstMention !== undefined && secondMention !== undefined) {
-    lines.push("", mentionTag(firstMention), "x", mentionTag(secondMention));
+    lines[0] = `⚔️ *TURNO ${state.turnNumber}* · ${mentionTag(firstMention)} × ${mentionTag(secondMention)}`;
+  } else if (firstMention !== undefined) {
+    lines[0] = `⚔️ *TURNO ${state.turnNumber}* · ${mentionTag(firstMention)}`;
+  } else {
+    lines[0] = `⚔️ *TURNO ${state.turnNumber}*`;
   }
 
   return { text: lines.join("\n"), mentions };
@@ -622,26 +654,46 @@ export function createPveSceneRoutes(
       );
     if (parsed.kind === "INVALID")
       return err(appError("VALIDATION_FAILED", "Use apenas um comando mecânico por mensagem."));
+
+    const principal = await dependencies.admins.resolvePrincipal({
+      provider: context.message.provider,
+      externalId: context.message.senderRef,
+    });
     const player = await dependencies.players.resolvePlayer({
       provider: context.message.provider,
       externalId: context.message.senderRef,
     });
-    if (!player.ok) return player;
-    const battleId = await dependencies.activeBattleId(player.value.playerId);
+    const playerId = player.ok ? player.value.playerId : null;
+    const narratorBattleId =
+      principal === null || dependencies.narratorBattleId === undefined
+        ? null
+        : await dependencies.narratorBattleId(principal.principalId);
+    const playerBattleId = playerId === null ? null : await dependencies.activeBattleId(playerId);
+    // An explicitly persisted NARRATOR controller wins over the admin's own player battle.
+    const battleId = narratorBattleId ?? playerBattleId;
+
     if (battleId === null) {
       if (
         parsed.intent.type !== "FLEE" ||
+        playerId === null ||
         dependencies.encounters === undefined ||
         dependencies.encounterWriter === undefined
       ) {
-        return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
+        return err(
+          appError("NOT_FOUND", "Nenhuma batalha PVE ativa.", {
+            userMessage:
+              principal === null
+                ? "Você não possui uma batalha PVE ativa."
+                : "Nenhuma batalha sob seu controle foi encontrada. Use `/assumir @treinador` primeiro.",
+          }),
+        );
       }
-      const encounter = await dependencies.encounters.activeForPlayer(player.value.playerId);
+      const encounter = await dependencies.encounters.activeForPlayer(playerId);
       if (!encounter.ok) {
         return err(appError("NOT_FOUND", "Nenhum encontro ativo para fugir."));
       }
       const fled = await dependencies.encounterWriter.flee({
-        playerId: player.value.playerId,
+        playerId,
         encounterId: encounter.value.encounterId,
         expectedRevision: encounter.value.revision,
       });
@@ -666,17 +718,15 @@ export function createPveSceneRoutes(
           userMessage: "A batalha não aceita essa ação no estado atual.",
         }),
       );
-    const principal = await dependencies.admins.resolvePrincipal({
-      provider: context.message.provider,
-      externalId: context.message.senderRef,
-    });
     const controllers = await dependencies.controllers.listByBattle(battleId);
     const controller = activeController(
       state.value,
       controllers,
       (entry) =>
-        (entry.kind === "PLAYER" && entry.playerId === player.value.playerId) ||
-        (entry.kind === "NARRATOR" && entry.adminPrincipalId === principal?.principalId),
+        (playerId !== null && entry.kind === "PLAYER" && entry.playerId === playerId) ||
+        (principal !== null &&
+          entry.kind === "NARRATOR" &&
+          entry.adminPrincipalId === principal.principalId),
     );
     if (controller === undefined) {
       return err(
@@ -701,6 +751,7 @@ export function createPveSceneRoutes(
       if (
         state.value.battleType !== "WILD" ||
         controller.kind !== "PLAYER" ||
+        playerId === null ||
         dependencies.capture === undefined ||
         dependencies.encounters === undefined ||
         dependencies.captureBalls === undefined
@@ -711,12 +762,12 @@ export function createPveSceneRoutes(
       if (target === undefined || target.currentHp <= 0) {
         return reply(context, "Não há um Pokémon selvagem ativo para capturar.", battleId);
       }
-      const encounter = await dependencies.encounters.activeForPlayer(player.value.playerId);
+      const encounter = await dependencies.encounters.activeForPlayer(playerId);
       if (!encounter.ok || encounter.value.battleId !== battleId) {
         return reply(context, "O encontro desta batalha não está disponível.", battleId);
       }
       const balls = await dependencies.captureBalls.listAvailable(
-        player.value.playerId,
+        playerId,
         encounter.value.contentReleaseId,
       );
       const ball = chooseBall(balls, parsed.intent.captureRef);
@@ -738,7 +789,7 @@ export function createPveSceneRoutes(
         targetParticipantId: target.participantId,
       };
       const captured = await dependencies.capture.attempt({
-        playerId: player.value.playerId,
+        playerId,
         encounterId: encounter.value.encounterId,
         expectedEncounterRevision: encounter.value.revision,
         expectedBattleVersion: state.value.version,
@@ -758,7 +809,7 @@ export function createPveSceneRoutes(
       if (captured.value.status === "FAILED") {
         const resolved = await dependencies.battle.resolvePlayerTurn({
           battleId,
-          playerId: player.value.playerId,
+          playerId,
           expectedVersion: state.value.version,
           idempotencyKey: context.idempotencyKey,
           action: captureAction,
@@ -812,7 +863,7 @@ export function createPveSceneRoutes(
     }
 
     if (parsed.intent.type === "SURRENDER") {
-      if (state.value.battleType !== "PVP" || controller.kind !== "PLAYER")
+      if (state.value.battleType !== "PVP" || controller.kind !== "PLAYER" || playerId === null)
         return err(
           appError("FLOW_BLOCKED", "Desistência não permitida agora.", {
             userMessage: "Você não pode desistir desta batalha agora.",
@@ -820,7 +871,7 @@ export function createPveSceneRoutes(
         );
       const surrendered = await dependencies.battle.surrenderPvp({
         battleId,
-        playerId: player.value.playerId,
+        playerId,
         expectedVersion: state.value.version,
       });
       if (!surrendered.ok)
@@ -831,6 +882,7 @@ export function createPveSceneRoutes(
         );
       return reply(context, "🏳️ Você desistiu. O adversário venceu.", battleId, { react: true });
     }
+
     const action =
       parsed.intent.type === "SWITCH"
         ? switchAction(state.value, controller, controllers, parsed.intent.switchSlot)
@@ -861,9 +913,14 @@ export function createPveSceneRoutes(
       });
     }
 
+    if (playerId === null) {
+      return err(
+        appError("PLAYER_INELIGIBLE", "Player identity disappeared during battle action."),
+      );
+    }
     const resolved = await dependencies.battle.resolvePlayerTurn({
       battleId,
-      playerId: player.value.playerId,
+      playerId,
       expectedVersion: state.value.version,
       idempotencyKey: context.idempotencyKey,
       action: action.value,
@@ -887,13 +944,54 @@ export function createPveSceneRoutes(
         return err(
           appError("PLAYER_INELIGIBLE", "Apenas um narrador autorizado pode controlar a batalha."),
         );
-      const player = await dependencies.players.resolvePlayer({
-        provider: context.message.provider,
-        externalId: context.message.senderRef,
-      });
-      if (!player.ok) return player;
-      const battleId = await dependencies.activeBattleId(player.value.playerId);
-      if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
+
+      const mentions = context.message.mentions ?? [];
+      if (mentions.length > 1) {
+        return err(
+          appError("VALIDATION_FAILED", "Use no máximo uma menção.", {
+            userMessage:
+              kind === "NARRATOR"
+                ? "Use `/assumir @treinador`."
+                : "Use `/automatico @treinador` ou apenas `/automatico` na batalha que você controla.",
+          }),
+        );
+      }
+
+      const targetRef: string | null = mentions[0] ?? null;
+      let battleId: string | null = null;
+
+      if (targetRef !== null) {
+        const target = await dependencies.players.resolvePlayer({
+          provider: context.message.provider,
+          externalId: targetRef,
+        });
+        if (!target.ok) return target;
+        battleId = await dependencies.activeBattleId(target.value.playerId);
+      } else {
+        battleId =
+          dependencies.narratorBattleId === undefined
+            ? null
+            : await dependencies.narratorBattleId(principal.principalId);
+        if (battleId === null) {
+          const self = await dependencies.players.resolvePlayer({
+            provider: context.message.provider,
+            externalId: context.message.senderRef,
+          });
+          if (self.ok) battleId = await dependencies.activeBattleId(self.value.playerId);
+        }
+      }
+
+      if (battleId === null) {
+        return err(
+          appError("NOT_FOUND", "Nenhuma batalha PVE ativa para controle.", {
+            userMessage:
+              kind === "NARRATOR"
+                ? "Nenhuma batalha encontrada. Use `/assumir @treinador`."
+                : "Nenhuma batalha sob seu controle foi encontrada.",
+          }),
+        );
+      }
+
       const state = await dependencies.battle.currentState(battleId);
       if (!state.ok)
         return err(
@@ -916,7 +1014,10 @@ export function createPveSceneRoutes(
       if (candidate === undefined) {
         return err(
           appError("FEATURE_UNAVAILABLE", "Controle de narrador indisponível.", {
-            userMessage: "O controle de narrador não está disponível agora.",
+            userMessage:
+              kind === "NARRATOR"
+                ? "O selvagem não está disponível para ser assumido agora."
+                : "Esse selvagem não está sob o seu controle de narrador.",
           }),
         );
       }
@@ -926,30 +1027,86 @@ export function createPveSceneRoutes(
         kind,
         adminPrincipalId: kind === "NARRATOR" ? principal.principalId : null,
       });
-      if (changed === null)
-        return err(appError("REVISION_CONFLICT", "O controle mudou; tente novamente."));
+      if (changed == null)
+        return err(
+          appError("REVISION_CONFLICT", "O controle mudou; tente novamente.", {
+            userMessage: "O turno mudou enquanto o controle era alterado. Tente novamente.",
+          }),
+        );
+
+      const mentionsOut = targetRef === null ? [] : [targetRef];
+      const suffix = targetRef === null ? "" : ` · ${mentionTag(targetRef)}`;
+      let narratorText: string | null = null;
+      if (kind === "NARRATOR") {
+        const actor = state.value.combatants.find(
+          (combatant) => combatant.participantId === changed.participantId,
+        );
+        if (actor !== undefined) {
+          const [speciesName, moveNames] = await Promise.all([
+            dependencies.presentation.speciesDisplayName(
+              state.value.contentReleaseId,
+              actor.speciesId,
+            ),
+            dependencies.presentation.moveDisplayNames(
+              state.value.contentReleaseId,
+              actor.moves.map((move) => move.moveId),
+            ),
+          ]);
+          narratorText = [
+            `🎙️ *CONTROLE DO NARRADOR*${suffix}`,
+            "",
+            `*${speciesName ?? "Pokémon selvagem"}*${actor.shiny ? " ✨" : ""} · Nv. ${actor.level}`,
+            `❤️ \`${actor.currentHp}/${actor.maxHp}\``,
+            "",
+            "*Golpes*",
+            ...actor.moves.map(
+              (move) =>
+                `\`${move.slotNo}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP \`${move.ppCurrent ?? "—"}/${move.maxPp ?? "—"}\``,
+            ),
+            "",
+            "`/movimento <golpe>` pode ficar dentro da própria cena.",
+            "`/batalha` · consultar · `/automatico` · devolver à IA",
+          ].join("\n");
+        }
+      }
       return reply(
         context,
         kind === "NARRATOR"
-          ? [
-              "🎙️ *CONTROLE DO NARRADOR*",
-              "",
-              "_Controle narrativo assumido._",
-              "",
-              "Use `/batalha` para ver o turno atual.",
-              "Quando quiser devolver à IA, use `/automatico`.",
-            ].join("\n")
-          : ["🤖 *CONTROLE AUTOMÁTICO*", "", "_Controle automático restaurado._"].join("\n"),
+          ? (narratorText ??
+              [
+                `🎙️ *CONTROLE DO NARRADOR*${suffix}`,
+                "",
+                "Selvagem sob seu controle.",
+                "`/movimento <golpe>` pode ficar dentro da própria cena.",
+                "`/automatico` · devolver à IA",
+              ].join("\n"))
+          : [`🤖 *CONTROLE AUTOMÁTICO*${suffix}`, "", "Selvagem devolvido à IA."].join("\n"),
         battleId,
+        { mentions: mentionsOut },
       );
     };
   const battleHud: Handler = async (context) => {
-    const player = await dependencies.players.resolvePlayer({
+    const principal = await dependencies.admins.resolvePrincipal({
       provider: context.message.provider,
       externalId: context.message.senderRef,
     });
-    if (!player.ok) return player;
-    const battleId = await dependencies.activeBattleId(player.value.playerId);
+    const controlledBattleId =
+      principal === null || dependencies.narratorBattleId === undefined
+        ? null
+        : await dependencies.narratorBattleId(principal.principalId);
+
+    let playerId: PlayerId | null = null;
+    let battleId = controlledBattleId;
+    if (battleId === null) {
+      const player = await dependencies.players.resolvePlayer({
+        provider: context.message.provider,
+        externalId: context.message.senderRef,
+      });
+      if (!player.ok) return player;
+      playerId = player.value.playerId;
+      battleId = await dependencies.activeBattleId(playerId);
+    }
+
     if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
     const state = await dependencies.battle.currentState(battleId);
     if (!state.ok)
@@ -962,7 +1119,11 @@ export function createPveSceneRoutes(
     const controller = activeController(
       state.value,
       controllers,
-      (entry) => entry.kind === "PLAYER" && entry.playerId === player.value.playerId,
+      (entry) =>
+        (playerId !== null && entry.kind === "PLAYER" && entry.playerId === playerId) ||
+        (principal !== null &&
+          entry.kind === "NARRATOR" &&
+          entry.adminPrincipalId === principal.principalId),
     );
     if (controller === undefined)
       return err(
@@ -972,8 +1133,15 @@ export function createPveSceneRoutes(
       );
     return reply(
       context,
-      await hud(state.value, controller, controllers, dependencies.presentation),
+      await hud(
+        state.value,
+        controller,
+        controllers,
+        dependencies.presentation,
+        context.message.senderRef,
+      ),
       battleId,
+      { mentions: [context.message.senderRef] },
     );
   };
   return [
@@ -984,6 +1152,7 @@ export function createPveSceneRoutes(
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
         requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
       },
     })),
     {
@@ -1008,6 +1177,7 @@ export function createPveSceneRoutes(
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
         requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
       },
     },
   ];

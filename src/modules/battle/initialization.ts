@@ -33,6 +33,7 @@ export interface BattleInitializationSide {
 export interface InitializeBattleStateInput {
   readonly root: BattleRootRecord;
   readonly sides: readonly BattleInitializationSide[];
+  readonly firstTurnInitiative?: "PLAYER" | "WILD";
   readonly idFactory: () => string;
 }
 
@@ -71,6 +72,7 @@ function buildCombatant(
     formId: build.formId,
     speciesId: build.speciesId,
     level: build.level,
+    shiny: build.shiny ?? false,
     type1Id: build.type1Id,
     type1Slug: build.type1Slug,
     type2Id: build.type2Id,
@@ -264,6 +266,9 @@ export function initializeBattleState(
     turnNumber: 0,
     version: 0,
     rngCounter: input.root.rngCounter.toString(),
+    ...(input.firstTurnInitiative === undefined
+      ? {}
+      : { firstTurnInitiative: input.firstTurnInitiative }),
     sides,
     combatants,
   };

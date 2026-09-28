@@ -50,8 +50,6 @@ export class PostgresNarratorSpawnSpeciesResolver {
       [slug, display],
     );
     const row = result.rows[0];
-    return row === undefined
-      ? null
-      : { formId: row.form_id, displayName: row.display_name };
+    return row === undefined ? null : { formId: row.form_id, displayName: row.display_name };
   }
 }

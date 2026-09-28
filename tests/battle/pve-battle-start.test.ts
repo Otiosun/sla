@@ -75,6 +75,39 @@ describe("PveBattleStartService", () => {
     expect(battle.initialize).not.toHaveBeenCalled();
   });
 
+  it("compensates a newly-created battle when initialization fails", async () => {
+    const battleId = "99999999-9999-4999-8999-999999999999";
+    const encounter = {
+      startBattle: vi.fn(async () => ({
+        ok: true as const,
+        value: {
+          encounter: { status: "IN_BATTLE" as const },
+          battleId,
+          replayed: false,
+        },
+      })),
+    };
+    const battle = {
+      initialize: vi.fn(async () => ({
+        ok: false as const,
+        error: {
+          code: "BATTLE_INITIALIZATION_INVALID" as const,
+          message: "initialization data missing",
+        },
+      })),
+    };
+    const rollback = { rollback: vi.fn(async () => true) };
+    const service = new PveBattleStartService(encounter as never, battle as never, rollback);
+
+    const result = await service.start(input);
+
+    expect(result.ok).toBe(false);
+    expect(rollback.rollback).toHaveBeenCalledWith({
+      playerId: input.playerId,
+      battleId,
+    });
+  });
+
   it("still initializes after an idempotent Encounter start replay", async () => {
     const started = {
       encounter: { status: "IN_BATTLE" },

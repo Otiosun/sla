@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -184,15 +186,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
      ) VALUES
        ($1, $3, $4, 'Testmon', $6, $7, 40, 45, 40, 35, 35, 56),
        ($2, $3, $5, 'Forcedmon', $6, NULL, 35, 55, 35, 30, 30, 55)`,
-    [
-      randomUUID(),
-      randomUUID(),
-      releaseId,
-      formId,
-      forcedFormId,
-      normalTypeId,
-      flyingTypeId,
-    ],
+    [randomUUID(), randomUUID(), releaseId, formId, forcedFormId, normalTypeId, flyingTypeId],
   );
   await client.query(
     `INSERT INTO ability_revisions(id, content_release_id, ability_id, display_name)
@@ -366,6 +360,42 @@ describe("encounter PostgreSQL integration", () => {
     });
   });
 
+  it("lets a fully directed species + level spawn work even when the area has no natural encounter table", async () => {
+    const client = await pool.connect();
+    let playerId: PlayerId;
+    const directedAreaId = randomUUID();
+    try {
+      const region = await client.query<{ region_id: string }>(
+        "SELECT region_id::text FROM areas WHERE id = $1",
+        [fixture.areaId],
+      );
+      const regionId = region.rows[0]?.region_id;
+      if (regionId === undefined) throw new Error("Fixture region was not found");
+      await client.query(
+        "INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'phase8-directed-route')",
+        [directedAreaId, regionId],
+      );
+      playerId = await createEligiblePlayer(client, directedAreaId);
+    } finally {
+      client.release();
+    }
+
+    const directed = unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId,
+        idempotencyKey: "fully-directed-no-natural-table",
+        forcedFormId: fixture.forcedFormId,
+        forcedLevel: 42,
+        forcedShiny: true,
+      }),
+    );
+
+    expect(directed.snapshot.formId).toBe(fixture.forcedFormId);
+    expect(directed.snapshot.speciesId).toBe(fixture.forcedSpeciesId);
+    expect(directed.snapshot.level).toBe(42);
+    expect(directed.snapshot.shiny).toBe(true);
+  });
+
   it("replays duplicate creation across a logical restart without rerolling snapshot", async () => {
     const client = await pool.connect();
     const playerId = await createEligiblePlayer(client, fixture.areaId);
@@ -395,6 +425,32 @@ describe("encounter PostgreSQL integration", () => {
       [playerId],
     );
     expect(counts.rows[0]).toEqual({ encounters: "1", snapshots: "1" });
+  });
+
+  it("surfaces the owner's existing encounter instead of collapsing it into generic party ineligibility", async () => {
+    const client = await pool.connect();
+    const playerId = await createEligiblePlayer(client, fixture.areaId);
+    client.release();
+
+    unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId,
+        idempotencyKey: "owner-active-encounter-first",
+      }),
+    );
+
+    const second = await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+      playerId,
+      idempotencyKey: "owner-active-encounter-second",
+      forcedFormId: fixture.forcedFormId,
+    });
+
+    expect(second).toMatchObject({
+      ok: false,
+      error: {
+        message: "Player already has an incompatible active encounter",
+      },
+    });
   });
 
   it("creates one frozen shared encounter for a co-located durable party and replays it", async () => {
@@ -654,6 +710,66 @@ describe("encounter PostgreSQL integration", () => {
       },
     });
     expect(second).toMatchObject({ ok: true, value: { state: { version: 1 } } });
+  });
+
+  it("closes the encounter and cancels the CREATED battle when PVE initialization cannot assemble a player roster", async () => {
+    const client = await pool.connect();
+    const playerId = await createEligiblePlayer(client, fixture.areaId);
+    client.release();
+
+    const encounter = service(pool, new ManualClock(FIXED_NOW));
+    const created = unwrap(
+      await encounter.createOrReplay({
+        playerId,
+        idempotencyKey: "failed-initialization-compensation",
+      }),
+    );
+    const battle = new BattleService(
+      new PostgresBattleRepository(pool, { turnWindowTtlMs: 60_000 }),
+      {
+        decrypt: () => Buffer.alloc(32, 7),
+      },
+    );
+    const start = new PveBattleStartService(
+      encounter,
+      battle as never,
+      new PostgresPveBattleStartRollback(pool),
+    );
+
+    const result = await start.startCanonical({
+      playerId,
+      encounterId: created.encounterId,
+      status: "CREATED",
+      expectedRevision: created.revision,
+    });
+
+    expect(result.ok).toBe(false);
+    const persisted = await pool.query<{
+      encounter_status: string;
+      battle_status: string;
+      active_wilds: string;
+    }>(
+      `SELECT encounter.status AS encounter_status,
+              battle.status AS battle_status,
+              (
+                SELECT count(*)::text
+                FROM encounter_wild_snapshots wild
+                WHERE wild.encounter_id = encounter.id
+                  AND wild.status = 'ACTIVE'
+              ) AS active_wilds
+       FROM encounters encounter
+       JOIN battles battle ON battle.encounter_id = encounter.id
+       WHERE encounter.id = $1`,
+      [created.encounterId],
+    );
+    expect(persisted.rows[0]).toEqual({
+      encounter_status: "CLOSED",
+      battle_status: "CANCELLED",
+      active_wilds: "0",
+    });
+    expect(
+      await new PostgresEncounterRepository(pool).read((tx) => tx.activeForPlayer(playerId)),
+    ).toBeNull();
   });
 
   it("serializes concurrent creation so only one incompatible encounter becomes active", async () => {

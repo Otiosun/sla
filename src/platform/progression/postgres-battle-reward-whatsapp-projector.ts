@@ -123,7 +123,6 @@ async function resolveDestination(
       AND identity.provider='baileys'
       AND identity.status='ACTIVE'
      WHERE inbox.status='PROCESSED'
-       AND inbox.player_id=$2
        AND inbox.result_ref_type='BATTLE'
        AND inbox.result_ref_id=$1
        AND inbox.normalized_payload->>'provider'='baileys'

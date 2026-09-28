@@ -6,7 +6,8 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -75,10 +76,10 @@ describe("admin automatic PVE battle control", () => {
       "INSERT INTO pokemon_species(id,national_dex,slug) VALUES ($1,999,'auto-battle-testmon')",
       [speciesId],
     );
-    await pool.query(
-      "INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,'default')",
-      [formId, speciesId],
-    );
+    await pool.query("INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,'default')", [
+      formId,
+      speciesId,
+    ]);
     await pool.query(
       `INSERT INTO pokemon_instances(
          id,owner_player_id,form_id,level,current_hp,origin_type
@@ -91,7 +92,14 @@ describe("admin automatic PVE battle control", () => {
          turn_number,version,rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,
          rng_seed_key_version,rng_counter
        ) VALUES ($1,'WILD','ACTIVE',$2,$3,0,0,$4,$5,$6,1,0)`,
-      [battleId, releaseId, rulesetId, Buffer.alloc(32, 1), Buffer.alloc(12, 2), Buffer.alloc(16, 3)],
+      [
+        battleId,
+        releaseId,
+        rulesetId,
+        Buffer.alloc(32, 1),
+        Buffer.alloc(12, 2),
+        Buffer.alloc(16, 3),
+      ],
     );
     await pool.query(
       `INSERT INTO battle_sides(id,battle_id,side_no,controller_kind,player_id)
@@ -161,9 +169,7 @@ describe("admin automatic PVE battle control", () => {
           [playerParticipantId],
         )
       ).rows,
-    ).toEqual([
-      { kind: "AUTO", player_id: null, admin_principal_id: null, revision: 1 },
-    ]);
+    ).toEqual([{ kind: "AUTO", player_id: null, admin_principal_id: null, revision: 1 }]);
 
     expect(
       (
@@ -174,9 +180,7 @@ describe("admin automatic PVE battle control", () => {
           [windowId],
         )
       ).rows,
-    ).toEqual([
-      { status: "LOCKED", required_controllers: [], locked: true, revision: 1 },
-    ]);
+    ).toEqual([{ status: "LOCKED", required_controllers: [], locked: true, revision: 1 }]);
 
     expect(
       (

@@ -65,6 +65,8 @@ export interface WildPokemonSnapshot {
   readonly currentHp: number;
   readonly shiny: boolean;
   readonly gender: "MALE" | "FEMALE" | null;
+  /** Optional one-turn narrator override; normal priority/speed resumes after turn zero. */
+  readonly firstTurnInitiative?: "PLAYER" | "WILD" | undefined;
 }
 
 export interface EncounterRecord {
@@ -147,8 +149,14 @@ export interface CreateEncounterInput {
   readonly playerId: PlayerId;
   readonly idempotencyKey: string;
   readonly encounterTableSlug?: string;
-  /** Optional narrator/admin override; the form must still be eligible in the active area/table. */
+  /** Optional narrator/admin species override. Area/time still supplies the local difficulty band. */
   readonly forcedFormId?: string;
+  /** Optional narrator/admin level override. Does not alter species eligibility for random spawns. */
+  readonly forcedLevel?: number;
+  /** Optional narrator/admin shiny override. Omitted means the normal generator default. */
+  readonly forcedShiny?: boolean;
+  /** Optional first-turn side override. Priority/speed resumes normally after turn zero. */
+  readonly firstTurnInitiative?: "PLAYER" | "WILD";
   /** Narrator/admin spawn amount. Player-owned flows omit it and remain single-wild. */
   readonly spawnQuantity?: number;
   readonly environment?: EncounterEnvironmentContext;

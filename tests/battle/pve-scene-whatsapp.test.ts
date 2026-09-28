@@ -126,7 +126,23 @@ function dependencies(pending: boolean) {
       },
     ],
   );
-  const transition = vi.fn();
+  const transition = vi.fn(
+    async (input: {
+      readonly participantId: string;
+      readonly expectedRevision: number;
+      readonly kind: "NARRATOR" | "AUTO";
+      readonly adminPrincipalId: string | null;
+    }): Promise<BattleParticipantController> => ({
+      participantId: input.participantId,
+      battleId,
+      kind: input.kind,
+      playerId: null,
+      adminPrincipalId: input.adminPrincipalId,
+      revision: input.expectedRevision + 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+  );
   const resolvePrincipal = vi.fn(
     async (): Promise<{ readonly principalId: string } | null> => null,
   );
@@ -362,12 +378,12 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(second.value.outgoing).toHaveLength(2);
     expect(second.value.outgoing[0]?.messageType).toBe("REACTION");
     const text = String(second.value.outgoing[1]?.payload.text);
-    expect(text).toContain("⚔️ *Turno 4*");
+    expect(text).toContain("⚔️ *TURNO 4* · @111 × @222");
     expect(text).toContain("Pikachu usou *Quick Attack*.");
     expect(text).toContain("Squirtle: 21 → 14 HP.");
     expect(text).toContain("Squirtle usou *Water Gun*.");
     expect(text).toContain("Pikachu: 24 → 17 HP.");
-    expect(text).toContain("@111\nx\n@222");
+    expect(text).not.toContain("@111\nx\n@222");
     expect(second.value.outgoing[1]?.payload.mentions).toEqual([
       "111@s.whatsapp.net",
       "222@s.whatsapp.net",
@@ -431,13 +447,15 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     const routes = createPveSceneRoutes(setup.dependencies);
     const hud = await routeFor(routes, "batalha").handler.handle(context("/batalha"));
     const text = String(hud.ok ? hud.value.outgoing[0]?.payload.text : "");
-    expect(text).toContain("*BATALHA · Turno 3*");
-    expect(text).toContain("◇ *SEU POKÉMON*");
-    expect(text).toContain("HP `12/20`");
-    expect(text).toContain("◇ *OPONENTE*");
-    expect(text).toContain("`/combate` · comandos e regras");
+    expect(text).toContain("*BATALHA · T3* · @sender");
+    expect(text).toContain("*Pikachu*");
+    expect(text).toContain("❤️ `12/20`");
+    expect(text).toContain("× *Rattata*");
+    expect(text).toContain("*Golpes*");
     expect(text).toContain("Quick Attack");
     expect(text).toContain("`/movimento 1`");
+    expect(text).toContain("`/combate` · ajuda");
+    expect(hud.ok && hud.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
   });
 
   it("lets an authorized narrator submit, assume, and restore automatic control", async () => {
@@ -482,7 +500,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
 
     const auto = { ...narrator, kind: "AUTO" as const, adminPrincipalId: null, revision: 3 };
     setup.listByBattle.mockResolvedValue([auto]);
-    await routeFor(routes, "assumir").handler.handle(context("/assumir"));
+    const assumed = await routeFor(routes, "assumir").handler.handle(context("/assumir"));
     expect(setup.transition).toHaveBeenLastCalledWith(
       expect.objectContaining({
         participantId: enemyId,
@@ -490,6 +508,8 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         adminPrincipalId: principalId,
       }),
     );
+    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain("Quick Attack");
+    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain("`/batalha`");
 
     setup.listByBattle.mockResolvedValue([narrator]);
     await routeFor(routes, "automatico").handler.handle(context("/automatico"));
@@ -497,6 +517,148 @@ describe("PVE/PVP WhatsApp scene actions", () => {
       expect.objectContaining({ participantId: enemyId, kind: "AUTO", adminPrincipalId: null }),
     );
   });
+  it("lets a narrator act through a persisted NARRATOR controller without a player account", async () => {
+    const setup = dependencies(true);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const narratorState = {
+      ...state,
+      combatants: state.combatants.map((combatant) =>
+        combatant.participantId === enemyId
+          ? { ...combatant, moves: [{ slotNo: 1, moveId: quickAttackId }] }
+          : combatant,
+      ),
+    } as BattleState;
+    const narrator = {
+      participantId: enemyId,
+      battleId,
+      kind: "NARRATOR" as const,
+      playerId: null,
+      adminPrincipalId: principalId,
+      revision: 2,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setup.listByBattle.mockResolvedValue([narrator]);
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async () => ({
+          ok: false as const,
+          error: { code: "NOT_FOUND", message: "not a player" },
+        })),
+      },
+      narratorBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(narratorState)),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await createPveSceneConversationResolver(deps).resolve(
+      context("*Poochyena avança.*\n/movimento 1", { senderRef: "narrator" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        battleId,
+        playerId: null,
+        adminPrincipalId: principalId,
+      }),
+    );
+  });
+
+  it("lets a controller-backed narrator inspect the wild HUD without owning a player account", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const narratorState = {
+      ...state,
+      combatants: state.combatants.map((combatant) =>
+        combatant.participantId === enemyId
+          ? {
+              ...combatant,
+              moves: [{ slotNo: 1, moveId: quickAttackId, ppCurrent: 30, maxPp: 30 }],
+            }
+          : combatant,
+      ),
+    } as BattleState;
+    const narrator = {
+      participantId: enemyId,
+      battleId,
+      kind: "NARRATOR" as const,
+      playerId: null,
+      adminPrincipalId: principalId,
+      revision: 2,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setup.listByBattle.mockResolvedValue([narrator]);
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async () => ({
+          ok: false as const,
+          error: { code: "NOT_FOUND", message: "not a player" },
+        })),
+      },
+      narratorBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(narratorState)),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const hud = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha", { senderRef: "narrator@s.whatsapp.net" }),
+    );
+
+    expect(hud.ok).toBe(true);
+    if (!hud.ok) return;
+    const text = String(hud.value.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("*Rattata*");
+    expect(text).toContain("Quick Attack");
+    expect(text).toContain("`/automatico`");
+    expect(text).not.toContain("`/capturar`");
+  });
+
+  it("lets /assumir explicitly target another trainer battle", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    const auto = {
+      participantId: enemyId,
+      battleId,
+      kind: "AUTO" as const,
+      playerId: null,
+      adminPrincipalId: null,
+      revision: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setup.listByBattle.mockResolvedValue([auto]);
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+
+    const routes = createPveSceneRoutes(setup.dependencies);
+    const base = context("/assumir @target", { senderRef: "narrator" });
+    const result = await routeFor(routes, "assumir").handler.handle({
+      ...base,
+      message: { ...base.message, mentions: [targetRef] },
+    });
+
+    expect(setup.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participantId: enemyId,
+        kind: "NARRATOR",
+        adminPrincipalId: principalId,
+      }),
+    );
+    expect(result.ok && result.value.outgoing[0]?.payload.mentions).toEqual([targetRef]);
+  });
+
   it("resolves a failed capture as the player's PVE turn action", async () => {
     const setup = dependencies(false);
     const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";

@@ -18,6 +18,11 @@ export interface CommandPolicyRequirement {
   readonly allowedPlayerAccess?: readonly PlayerAccessStatus[];
   readonly requiredAdminCapability?: string;
   readonly requiresMechanicalReady?: boolean;
+  /**
+   * Lets a narrator/admin use a mechanically-scoped command without owning a
+   * player character. The handler must still verify the persisted controller.
+   */
+  readonly mechanicalReadyAdminBypassCapability?: string;
 }
 
 export function evaluateCommandPolicy(
@@ -76,7 +81,15 @@ export function evaluateCommandPolicy(
     return err(appError("PLAYER_INELIGIBLE", "Administrative capability is required"));
   }
 
-  if (requirement.requiresMechanicalReady === true && !context.mechanicalReady) {
+  const mechanicalReadyBypassed =
+    requirement.mechanicalReadyAdminBypassCapability !== undefined &&
+    context.adminCapabilities.includes(requirement.mechanicalReadyAdminBypassCapability);
+
+  if (
+    requirement.requiresMechanicalReady === true &&
+    !context.mechanicalReady &&
+    !mechanicalReadyBypassed
+  ) {
     return err(appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command"));
   }
 
