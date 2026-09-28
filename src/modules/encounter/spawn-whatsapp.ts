@@ -217,7 +217,7 @@ export function createSpawnWhatsAppRoute(
               error instanceof Error ? error.message : "Encounter environment is unavailable",
               {
                 userMessage:
-                  "O período dos encontros ainda não está configurado. Defina o mundo como DAY ou NIGHT antes de usar `/spawn`.",
+                  "A configuração explícita do período do mundo é inválida. Remova o override ou use DAY/NIGHT.",
               },
             ),
           );
