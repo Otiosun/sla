@@ -1073,13 +1073,13 @@ export function createPveSceneRoutes(
         context,
         kind === "NARRATOR"
           ? (narratorText ??
-            [
-              `🎙️ *CONTROLE DO NARRADOR*${suffix}`,
-              "",
-              "Selvagem sob seu controle.",
-              "`/movimento <golpe>` pode ficar dentro da própria cena.",
-              "`/automatico` · devolver à IA",
-            ].join("\n"))
+              [
+                `🎙️ *CONTROLE DO NARRADOR*${suffix}`,
+                "",
+                "Selvagem sob seu controle.",
+                "`/movimento <golpe>` pode ficar dentro da própria cena.",
+                "`/automatico` · devolver à IA",
+              ].join("\n"))
           : [`🤖 *CONTROLE AUTOMÁTICO*${suffix}`, "", "Selvagem devolvido à IA."].join("\n"),
         battleId,
         { mentions: mentionsOut },
