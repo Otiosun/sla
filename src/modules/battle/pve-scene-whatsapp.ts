@@ -949,7 +949,7 @@ export function createPveSceneRoutes(
         );
       }
 
-      let targetRef: string | null = mentions[0] ?? null;
+      const targetRef: string | null = mentions[0] ?? null;
       let battleId: string | null = null;
 
       if (targetRef !== null) {
