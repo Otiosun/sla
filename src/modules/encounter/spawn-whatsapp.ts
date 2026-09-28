@@ -107,7 +107,7 @@ export interface NarratorOpeningBattlePort {
 export interface SpawnWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly encounters: Pick<EncounterService, "createOrReplay"> &
-    Partial<Pick<EncounterService, "observe">>;
+    Partial<Pick<EncounterService, "observe" | "flee">>;
   readonly context?: NarratorSpawnContextResolver;
   readonly species?: NarratorSpawnSpeciesResolver;
   readonly speciesDisplayName?: (
@@ -477,9 +477,25 @@ export function createSpawnWhatsAppRoute(
             wild,
             dependencies.moveDisplayNames,
           );
+          const rolledBack =
+            dependencies.encounters.flee === undefined
+              ? false
+              : (
+                  await dependencies.encounters.flee({
+                    playerId: target.value.playerId,
+                    encounterId: presented.value.encounterId,
+                    expectedRevision: presented.value.revision,
+                  })
+                ).ok;
           return err(
             appError("VALIDATION_FAILED", "Opening move was not found in the wild snapshot", {
-              userMessage: `Esse Pokémon não possui *${parsed.value.openingMoveReference}* nesse nível.\nGolpes: ${available}`,
+              userMessage: [
+                `Esse Pokémon não possui *${parsed.value.openingMoveReference}* nesse nível.`,
+                `Golpes: ${available}`,
+                rolledBack
+                  ? "_O spawn foi desfeito; nenhum encontro ficou preso._"
+                  : "O encontro foi mantido. Use `/iniciarbatalha @treinador` ou `/finalizarbatalha @treinador`.",
+              ].join("\n"),
             }),
           );
         }
