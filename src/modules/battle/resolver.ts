@@ -66,6 +66,15 @@ function actionPriority(state: BattleState, action: BattleAction): number {
   return actor.moves.find((move) => move.slotNo === action.moveSlot)?.priority ?? -100;
 }
 
+function firstTurnRank(state: BattleState, actor: BattleCombatant): number {
+  if (state.turnNumber !== 0 || state.firstTurnInitiative === undefined) return 0;
+  const side = findSide(state, actor.sideNo);
+  if (state.firstTurnInitiative === "PLAYER") {
+    return side.controllerKind === "PLAYER" ? 1 : 0;
+  }
+  return side.controllerKind === "WILD" ? 1 : 0;
+}
+
 function orderedActions(
   state: BattleState,
   actions: readonly BattleAction[],
@@ -77,6 +86,7 @@ function orderedActions(
     return {
       action,
       index,
+      firstTurn: firstTurnRank(state, actor),
       priority: actionPriority(state, action),
       speed: effectiveSpeed(actor, rules),
       tie: 0,
@@ -96,6 +106,7 @@ function orderedActions(
   return decorated
     .sort(
       (left, right) =>
+        right.firstTurn - left.firstTurn ||
         right.priority - left.priority ||
         right.speed - left.speed ||
         right.tie - left.tie ||
