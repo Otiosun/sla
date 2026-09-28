@@ -101,6 +101,7 @@ import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgre
 import { PostgresAdminWhatsAppPlayerTargetResolver } from "../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
 import { PostgresAdminAutoBattleControl } from "../platform/battle/postgres-admin-auto-battle-control.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
+import { PostgresNarratorBattleCleanup } from "../platform/battle/postgres-narrator-battle-cleanup.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
 import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
@@ -646,7 +647,7 @@ export function createOperationalMessagingComposition(
                 player: {
                   displayName: speciesName ?? "Pokémon",
                   level: playerActor.level,
-                  shiny: playerActor.shiny,
+                  shiny: playerActor.shiny ?? false,
                   currentHp: playerActor.currentHp,
                   maxHp: playerActor.maxHp,
                   moves: playerActor.moves.map((entry) => ({
@@ -792,6 +793,7 @@ export function createOperationalMessagingComposition(
                     battle: pveBattle.battle,
                     encounters: encounter,
                     encounterWriter,
+                    cancelledWildCleanup: new PostgresNarratorBattleCleanup(pool),
                   }),
                 ]),
           ]),
