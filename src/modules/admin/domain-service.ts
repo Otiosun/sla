@@ -497,6 +497,10 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       result: {
         requestedDelta: value.requestedDelta,
         appliedDelta: value.appliedDelta,
+        beforeLevel: value.beforeLevel,
+        afterLevel: value.afterLevel,
+        beforeXp: value.beforeXp,
+        afterXp: value.afterXp,
         learnedMoveIds: value.learnedMoveIds,
         pendingMoveChoiceIds: value.pendingMoveChoiceIds,
         evolutions: value.evolutions,
