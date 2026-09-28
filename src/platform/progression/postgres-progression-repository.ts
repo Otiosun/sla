@@ -730,8 +730,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           );
         }
         const offeredXp = battlePokemonXp(baseExp, terminal.defeated.level);
-        const pokemonResult = await this.applyPokemonBattleReward(client, {
-          battleId: input.battleId,
+        const pokemonResult = await this.applyPositivePokemonXp(client, {
           playerId: terminal.playerId,
           contentReleaseId: battleRow.content_release_id,
           rulesetId: battleRow.ruleset_id,
@@ -740,6 +739,15 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           combatant: terminal.winner,
           offeredXp,
           correlationId: input.correlationId,
+          source: {
+            sourceType: "BATTLE_REWARD",
+            sourceId: input.battleId,
+            reason: "Battle reward XP",
+            actorType: "SYSTEM",
+            actorId: null,
+            idempotencyScope: "progression.battle-reward.xp",
+            syncBattleState: true,
+          },
         });
         const trainerResult = await this.applyTrainerBattleReward(client, {
           battleId: input.battleId,
