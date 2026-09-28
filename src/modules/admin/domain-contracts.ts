@@ -54,6 +54,15 @@ export const AdminTrainerProgressAdjustInputSchema = z
   .strict();
 export type AdminTrainerProgressAdjustInput = z.infer<typeof AdminTrainerProgressAdjustInputSchema>;
 
+export const AdminPokemonXpAdjustInputSchema = z
+  .object({
+    playerId: uuidSchema,
+    pokemonInstanceId: uuidSchema,
+    delta: safeSignedProgressDeltaSchema,
+  })
+  .strict();
+export type AdminPokemonXpAdjustInput = z.infer<typeof AdminPokemonXpAdjustInputSchema>;
+
 export const AdminPokedexSeenGrantInputSchema = z
   .object({
     playerId: uuidSchema,
