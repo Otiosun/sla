@@ -168,6 +168,36 @@ describe("community command policy", () => {
     ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
+  it("lets an authorized narrator bypass player mechanical readiness only when explicitly allowed", () => {
+    const narratorPolicy: CommandPolicyRequirement = {
+      requiredAnyGroupCapabilities: ["pve", "pvp"],
+      requiresMechanicalReady: true,
+      mechanicalReadyAdminBypassCapability: "encounter.support",
+    };
+
+    expect(
+      evaluateCommandPolicy(
+        context({
+          group: worldGroup,
+          mechanicalReady: false,
+          adminCapabilities: ["encounter.support"],
+        }),
+        narratorPolicy,
+      ),
+    ).toEqual({ ok: true, value: undefined });
+
+    expect(
+      evaluateCommandPolicy(
+        context({
+          group: worldGroup,
+          mechanicalReady: false,
+          adminCapabilities: [],
+        }),
+        narratorPolicy,
+      ),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
   it("fails closed for unknown groups before any scoped command reaches a handler", () => {
     expect(
       evaluateCommandPolicy(
