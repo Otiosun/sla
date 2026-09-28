@@ -104,7 +104,7 @@ describe("PVE /spawn WhatsApp route", () => {
       error: {
         code: "FEATURE_UNAVAILABLE",
         details: {
-          userMessage: expect.stringContaining("DAY ou NIGHT"),
+          userMessage: expect.stringContaining("DAY/NIGHT"),
         },
       },
     });
