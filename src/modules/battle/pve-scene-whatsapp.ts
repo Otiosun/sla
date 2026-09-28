@@ -39,6 +39,7 @@ export interface PveCaptureBallReader {
 export interface PveSceneDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly activeBattleId: (playerId: PlayerId) => Promise<string | null>;
+  readonly narratorBattleId?: (adminPrincipalId: string) => Promise<string | null>;
   readonly battle: Pick<
     BattleRuntimeService,
     "currentState" | "resolvePlayerTurn" | "surrenderPvp"
@@ -255,7 +256,11 @@ function activeController(
   if (state.sides === undefined || state.sides.length === 0) {
     return controllers.find(predicate);
   }
-  const active = new Set(state.sides.map((side) => side.activeParticipantId));
+  const active = new Set(
+    state.sides.flatMap((side) =>
+      (side.slots ?? [side]).map((slot) => slot.activeParticipantId),
+    ),
+  );
   return controllers.find(
     (controller) => active.has(controller.participantId) && predicate(controller),
   );
@@ -380,15 +385,16 @@ async function hud(
   state: BattleState,
   controller: BattleParticipantController,
   controllers: readonly BattleParticipantController[],
-  presentation: Pick<OperationalUxReadModel, "moveDisplayNames">,
+  presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">,
+  playerRef: string,
 ): Promise<string> {
   const own = state.combatants.find(
     (combatant) => combatant.participantId === controller.participantId,
   );
-  const opponentSide = state.sides.find((side) => {
-    const ownSide = own?.sideNo;
-    return ownSide !== undefined && side.sideNo !== ownSide && side.result === null;
-  });
+  const ownSide = own?.sideNo;
+  const opponentSide = state.sides.find(
+    (side) => ownSide !== undefined && side.sideNo !== ownSide && side.result === null,
+  );
   const opponent =
     opponentSide === undefined
       ? undefined
@@ -396,18 +402,24 @@ async function hud(
           (combatant) => combatant.participantId === opponentSide.activeParticipantId,
         );
 
-  const lines = [
-    `⚔️ *BATALHA · Turno ${state.turnNumber}*`,
-    "",
-    "◇ *SEU POKÉMON*",
+  const [ownName, opponentName] = await Promise.all([
     own === undefined
-      ? "╰─ _indisponível_"
-      : `╰─ HP \`${own.currentHp}/${own.maxHp}\` · status \`${statusLabel(own.majorStatus)}\``,
-    "",
-    "◇ *OPONENTE*",
+      ? Promise.resolve<string | null>(null)
+      : presentation.speciesDisplayName(state.contentReleaseId, own.speciesId),
     opponent === undefined
-      ? "╰─ —"
-      : `╰─ HP \`${opponent.currentHp}/${opponent.maxHp}\` · status \`${statusLabel(opponent.majorStatus)}\``,
+      ? Promise.resolve<string | null>(null)
+      : presentation.speciesDisplayName(state.contentReleaseId, opponent.speciesId),
+  ]);
+
+  const lines = [
+    `⚔️ *BATALHA · T${state.turnNumber}* · ${mentionTag(playerRef)}`,
+    "",
+    own === undefined
+      ? "_Seu Pokémon está indisponível._"
+      : `*${ownName ?? "Pokémon"}*${own.shiny ? " ✨" : ""} · Nv. ${own.level} · ❤️ \`${own.currentHp}/${own.maxHp}\`${own.majorStatus === null ? "" : ` · ${statusLabel(own.majorStatus)}`}`,
+    opponent === undefined
+      ? "× —"
+      : `× *${opponentName ?? "Pokémon"}*${opponent.shiny ? " ✨" : ""} · Nv. ${opponent.level} · ❤️ \`${opponent.currentHp}/${opponent.maxHp}\`${opponent.majorStatus === null ? "" : ` · ${statusLabel(opponent.majorStatus)}`}`,
   ];
 
   if (own !== undefined && own.currentHp > 0) {
@@ -417,16 +429,18 @@ async function hud(
     );
     lines.push(
       "",
-      "◇ *AÇÕES*",
+      "*Golpes*",
       ...own.moves.map(
         (move) =>
-          `\`${String(move.slotNo)}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP ${
-            move.ppCurrent === null || move.ppCurrent === undefined ? "—" : String(move.ppCurrent)
-          } · \`/movimento ${String(move.slotNo)}\``,
+          `\`${move.slotNo}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP \`${
+            move.ppCurrent ?? "—"
+          }/${move.maxPp ?? "—"}\``,
       ),
     );
     if (state.battleType === "WILD") {
-      lines.push("`/capturar` · tentar captura", "`/fugir` · fugir");
+      lines.push("", "`/movimento 1` · `/capturar` · `/fugir`");
+    } else {
+      lines.push("", "`/movimento 1` · `/trocar 2`");
     }
   }
 
@@ -438,18 +452,23 @@ async function hud(
         ({ combatant }) => combatant.participantId !== own.participantId && combatant.currentHp > 0,
       );
     if (reserves.length > 0) {
+      const reserveNames = await Promise.all(
+        reserves.map(({ combatant }) =>
+          presentation.speciesDisplayName(state.contentReleaseId, combatant.speciesId),
+        ),
+      );
       lines.push(
         "",
         "💥 *TROCA OBRIGATÓRIA*",
         ...reserves.map(
-          ({ combatant, slot }) =>
-            `\`${slot}\`　HP \`${combatant.currentHp}/${combatant.maxHp}\` · \`/trocar ${slot}\``,
+          ({ combatant, slot }, index) =>
+            `\`${slot}\` ${reserveNames[index] ?? "Pokémon"} · ❤️ \`${combatant.currentHp}/${combatant.maxHp}\` · \`/trocar ${slot}\``,
         ),
       );
     }
   }
 
-  lines.push("", "`/combate` · comandos e regras");
+  lines.push("", "`/combate` · ajuda");
   return lines.join("\n");
 }
 
@@ -516,7 +535,7 @@ async function turnSummary(
       ? (speciesByParticipant.get(participantId) ?? "Pokémon")
       : "Pokémon";
 
-  const lines: string[] = [`⚔️ *Turno ${state.turnNumber}*`, ""];
+  const lines: string[] = [`⚔️ *TURNO ${state.turnNumber}*`, ""];
   let actionStarted = false;
 
   for (const entry of events) {
@@ -603,7 +622,11 @@ async function turnSummary(
   const firstMention = mentions[0];
   const secondMention = mentions[1];
   if (firstMention !== undefined && secondMention !== undefined) {
-    lines.push("", mentionTag(firstMention), "x", mentionTag(secondMention));
+    lines[0] = `⚔️ *TURNO ${state.turnNumber}* · ${mentionTag(firstMention)} × ${mentionTag(secondMention)}`;
+  } else if (firstMention !== undefined) {
+    lines[0] = `⚔️ *TURNO ${state.turnNumber}* · ${mentionTag(firstMention)}`;
+  } else {
+    lines[0] = `⚔️ *TURNO ${state.turnNumber}*`;
   }
 
   return { text: lines.join("\n"), mentions };
@@ -972,8 +995,15 @@ export function createPveSceneRoutes(
       );
     return reply(
       context,
-      await hud(state.value, controller, controllers, dependencies.presentation),
+      await hud(
+        state.value,
+        controller,
+        controllers,
+        dependencies.presentation,
+        context.message.senderRef,
+      ),
       battleId,
+      { mentions: [context.message.senderRef] },
     );
   };
   return [
