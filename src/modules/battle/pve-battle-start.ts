@@ -1,3 +1,4 @@
+import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { EncounterMutationInput } from "../encounter/contracts.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
@@ -270,7 +271,7 @@ export function createPveBattleStartWhatsAppRoute(
 
 export interface PveBattleFinishWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
-  readonly activeBattleId: (playerId: string) => Promise<string | null>;
+  readonly activeBattleId: (playerId: PlayerId) => Promise<string | null>;
   readonly battle: Pick<BattleRuntimeService, "currentState" | "cancel">;
   readonly encounters: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly encounterWriter: Pick<EncounterService, "flee">;
@@ -374,7 +375,7 @@ export function createPveBattleFinishWhatsAppRoute(
         );
       }
       const fled = await dependencies.encounterWriter.flee({
-        playerId: target.value.playerId as never,
+        playerId: target.value.playerId,
         encounterId: encounter.value.encounterId,
         expectedRevision: encounter.value.revision,
       });
