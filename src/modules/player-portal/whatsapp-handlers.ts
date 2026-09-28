@@ -57,7 +57,7 @@ function textResult(context: MessageHandlerContext, text: string): Result<Messag
     outgoing: [
       {
         channel: "whatsapp",
-        destinationRef: context.message.chatRef,
+        destinationRef: context.message.senderRef,
         messageType: "TEXT",
         payload: { text },
         idempotencyKey: `${context.idempotencyKey}:reply`,
