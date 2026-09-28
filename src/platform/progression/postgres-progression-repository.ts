@@ -856,7 +856,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       row.iv_sp_defense !== input.combatant.ivs.spDefense ||
       row.iv_speed !== input.combatant.ivs.speed
     ) {
-      throw new ProgressionStateViolation("Pokemon changed after XP adjustment snapshot was pinned");
+      throw new ProgressionStateViolation(
+        "Pokemon changed after XP adjustment snapshot was pinned",
+      );
     }
 
     const persistentMoves = await client.query<{
@@ -1080,9 +1082,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     await insertPokemonHistory(client, {
       pokemonInstanceId: pokemonId,
       eventType:
-        input.source.sourceType === "BATTLE_REWARD"
-          ? "BATTLE_REWARD_XP"
-          : "ADMIN_XP_ADJUSTED",
+        input.source.sourceType === "BATTLE_REWARD" ? "BATTLE_REWARD_XP" : "ADMIN_XP_ADJUSTED",
       payload: {
         sourceType: input.source.sourceType,
         sourceId: input.source.sourceId,
@@ -1324,7 +1324,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         const nature =
           row.nature_id === null
             ? null
-            : (
+            : ((
                 await client.query<{
                   increased_stat:
                     | "ATTACK"
@@ -1346,7 +1346,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
                    WHERE content_release_id = $1 AND nature_id = $2 AND active = TRUE`,
                   [activeRow.release_id, row.nature_id],
                 )
-              ).rows[0] ?? null;
+              ).rows[0] ?? null);
         if (config.battle.natureEnabled && nature === null) {
           return { kind: "STATE_INVALID", reason: "Active content cannot resolve Pokemon Nature" };
         }
