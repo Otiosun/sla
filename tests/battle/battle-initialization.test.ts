@@ -14,6 +14,7 @@ function buildFromCombatant(combatant: BattleCombatant): BattlePokemonBuild {
     formId: combatant.formId,
     speciesId: combatant.speciesId,
     level: combatant.level,
+    shiny: combatant.shiny,
     type1Id: combatant.type1Id,
     type1Slug: combatant.type1Slug,
     type2Id: combatant.type2Id,
@@ -98,6 +99,36 @@ describe("shared Battle initialization", () => {
     expect(initialized.ok).toBe(true);
     if (!initialized.ok) return;
     expect(initialized.value).toEqual(battleState(false));
+  });
+
+  it("preserves shiny state and the optional first-turn directive", () => {
+    const shinyWild = { ...buildFromCombatant(wildCombatant()), shiny: true };
+    const initialized = initializeBattleState({
+      root: root("WILD"),
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId: IDS.player,
+          party: [buildFromCombatant(playerCombatant())],
+        },
+        {
+          sideNo: 2,
+          controllerKind: "WILD",
+          playerId: null,
+          party: [shinyWild],
+        },
+      ],
+      firstTurnInitiative: "WILD",
+      idFactory: idFactory([IDS.p1, IDS.p2]),
+    });
+
+    expect(initialized.ok).toBe(true);
+    if (!initialized.ok) return;
+    expect(initialized.value.firstTurnInitiative).toBe("WILD");
+    expect(initialized.value.combatants.find((entry) => entry.participantId === IDS.p2)?.shiny).toBe(
+      true,
+    );
   });
 
   it("rejects a side whose entire roster is fainted before battle starts", () => {
