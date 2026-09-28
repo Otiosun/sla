@@ -9,9 +9,7 @@ import type {
   AdminWhatsAppNameResolution,
   AdminWhatsAppPlayerTarget,
 } from "../../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
-import type {
-  AdminWhatsAppPokemonResolution,
-} from "../../platform/admin/postgres-admin-whatsapp-pokemon-target-resolver.js";
+import type { AdminWhatsAppPokemonResolution } from "../../platform/admin/postgres-admin-whatsapp-pokemon-target-resolver.js";
 import type { AdminBatchWhatsAppPreviewRef } from "../../platform/admin/postgres-admin-batch-whatsapp-preview-ref-repository.js";
 
 interface AdminIdentityResolver {
@@ -660,7 +658,14 @@ export function createAdminBatchWhatsAppRoutes(
         );
       }
 
-      const player = targets.value[0]!;
+      const player = targets.value[0];
+      if (player === undefined) {
+        return err(
+          appError("NOT_FOUND", "Pokemon XP player target disappeared", {
+            userMessage: "Não encontrei o jogador para ajustar o XP do Pokémon.",
+          }),
+        );
+      }
       const resolvedPokemon = await dependencies.pokemonTargets.resolve(
         player.playerId,
         parsed.pokemonSelector,
@@ -718,8 +723,7 @@ export function createAdminBatchWhatsAppRoutes(
         const result = applied.result ?? {};
         const beforeLevel =
           typeof result.beforeLevel === "number" ? result.beforeLevel : pokemon.level;
-        const afterLevel =
-          typeof result.afterLevel === "number" ? result.afterLevel : beforeLevel;
+        const afterLevel = typeof result.afterLevel === "number" ? result.afterLevel : beforeLevel;
         const beforeXp = typeof result.beforeXp === "number" ? result.beforeXp : Number(pokemon.xp);
         const afterXp = typeof result.afterXp === "number" ? result.afterXp : beforeXp;
         const learned =
