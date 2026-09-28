@@ -88,6 +88,12 @@ export class EncounterService {
         ),
       );
     }
+    if (
+      input.forcedLevel !== undefined &&
+      (!Number.isSafeInteger(input.forcedLevel) || input.forcedLevel < 1 || input.forcedLevel > 100)
+    ) {
+      return err(encounterValidationError("forcedLevel must be an integer in 1..100"));
+    }
     const idempotency = createIdempotencyKey(ENCOUNTER_CREATE_SCOPE, input.idempotencyKey);
     if (!idempotency.ok) return idempotency;
 
@@ -197,7 +203,7 @@ export class EncounterService {
         // The local table still owns the difficulty band. A narrator/admin forced form
         // overrides only the species/form choice, never the area's level curve.
         const levelEntry = chooseWeightedEncounterEntry(entries, rng);
-        const level = chooseEncounterLevel(levelEntry, rng);
+        const level = input.forcedLevel ?? chooseEncounterLevel(levelEntry, rng);
         const formId = input.forcedFormId ?? levelEntry.formId;
         const build = await transaction.wildBuild(content.contentReleaseId, formId);
         if (build === null) {
@@ -212,7 +218,12 @@ export class EncounterService {
         wildSnapshots.push({
           wildNo,
           status: "ACTIVE" as const,
-          snapshot: generateWildPokemon(build, level, rng),
+          snapshot: generateWildPokemon(build, level, rng, {
+            ...(input.forcedShiny === undefined ? {} : { shiny: input.forcedShiny }),
+            ...(input.firstTurnInitiative === undefined
+              ? {}
+              : { firstTurnInitiative: input.firstTurnInitiative }),
+          }),
         });
       }
 
