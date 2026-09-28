@@ -68,6 +68,71 @@ export const TrainerProgressAdjustmentResultSchema = z
   .strict();
 export type TrainerProgressAdjustmentResult = z.infer<typeof TrainerProgressAdjustmentResultSchema>;
 
+export const AdjustPokemonXpInputSchema = z
+  .object({
+    playerId: uuid,
+    pokemonInstanceId: uuid,
+    delta: signedSafeDelta,
+    idempotencyKey,
+    correlationId: uuid,
+    metadata: z
+      .object({
+        sourceType: progressionSourceToken,
+        sourceId: z.string().trim().min(1).max(255),
+        reason: z.string().trim().min(1).max(512),
+        actorType: z.enum(["SYSTEM", "ADMIN"]),
+        actorId: uuid.nullable(),
+      })
+      .strict()
+      .superRefine((value, context) => {
+        if (value.actorType === "SYSTEM" && value.actorId !== null) {
+          context.addIssue({
+            code: "custom",
+            path: ["actorId"],
+            message: "SYSTEM Pokemon XP adjustment must not carry actorId",
+          });
+        }
+        if (value.actorType === "ADMIN" && value.actorId === null) {
+          context.addIssue({
+            code: "custom",
+            path: ["actorId"],
+            message: "ADMIN Pokemon XP adjustment requires actorId",
+          });
+        }
+      }),
+  })
+  .strict();
+export type AdjustPokemonXpInput = z.infer<typeof AdjustPokemonXpInputSchema>;
+
+export const PokemonXpAdjustmentResultSchema = z
+  .object({
+    pokemonInstanceId: uuid,
+    requestedDelta: signedSafeDelta,
+    appliedDelta: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER),
+    beforeLevel: z.number().int().min(1).max(100),
+    afterLevel: z.number().int().min(1).max(100),
+    beforeXp: safeNonNegative,
+    afterXp: safeNonNegative,
+    learnedMoveIds: z.array(uuid),
+    pendingMoveChoiceIds: z.array(uuid),
+    evolutions: z.array(z.object({
+      pokemonInstanceId: uuid,
+      fromFormId: uuid,
+      toFormId: uuid,
+      triggerKind: z.enum(["LEVEL", "ITEM", "CONDITION"]),
+      beforeLevel: z.number().int().min(1).max(100),
+      afterLevel: z.number().int().min(1).max(100),
+      replayed: z.boolean(),
+    }).strict()),
+    sideEffectPolicy: z.enum([
+      "NORMAL_LEVEL_UP_V1",
+      "PRESERVE_HISTORICAL_FORM_AND_MOVES_V1",
+    ]),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type PokemonXpAdjustmentResult = z.infer<typeof PokemonXpAdjustmentResultSchema>;
+
 export const ApplyBattleRewardInputSchema = z
   .object({ battleId: uuid, idempotencyKey, correlationId: uuid })
   .strict();
