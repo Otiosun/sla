@@ -427,6 +427,32 @@ describe("encounter PostgreSQL integration", () => {
     expect(counts.rows[0]).toEqual({ encounters: "1", snapshots: "1" });
   });
 
+  it("surfaces the owner's existing encounter instead of collapsing it into generic party ineligibility", async () => {
+    const client = await pool.connect();
+    const playerId = await createEligiblePlayer(client, fixture.areaId);
+    client.release();
+
+    unwrap(
+      await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId,
+        idempotencyKey: "owner-active-encounter-first",
+      }),
+    );
+
+    const second = await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+      playerId,
+      idempotencyKey: "owner-active-encounter-second",
+      forcedFormId: fixture.forcedFormId,
+    });
+
+    expect(second).toMatchObject({
+      ok: false,
+      error: {
+        message: "Player already has an incompatible active encounter",
+      },
+    });
+  });
+
   it("creates one frozen shared encounter for a co-located durable party and replays it", async () => {
     const client = await pool.connect();
     let owner: PlayerId;
