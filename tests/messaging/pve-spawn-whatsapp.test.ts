@@ -284,7 +284,6 @@ describe("PVE /spawn WhatsApp route", () => {
     const speciesId = "66666666-6666-4666-8666-666666666666";
     const formId = "77777777-7777-4777-8777-777777777777";
     const biteId = "88888888-8888-4888-8888-888888888888";
-    const waterGunId = "99999999-9999-4999-8999-999999999999";
     const resolvePlayer = vi
       .fn()
       .mockResolvedValue(ok({ playerId, state: "COMPLETE", created: false }));
@@ -322,8 +321,8 @@ describe("PVE /spawn WhatsApp route", () => {
         resolve: vi.fn(async () => ({ formId, displayName: "Poochyena" })),
       },
       speciesDisplayName: async () => "Poochyena",
-      moveDisplayNames: async (_release, ids) =>
-        new Map(ids.map((id) => [id, id === biteId ? "Bite" : "Water Gun"])),
+      moveDisplayNames: async (_release: string, ids: readonly string[]) =>
+        new Map(ids.map((id: string) => [id, id === biteId ? "Bite" : "Water Gun"])),
       context: {
         resolve: async () => ({
           kind: "READY" as const,
