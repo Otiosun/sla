@@ -393,6 +393,10 @@ export function createSpawnWhatsAppRoute(
         forcedFormId = match.formId;
       }
 
+      const effectiveFirstTurn =
+        parsed.value.firstTurn ??
+        (parsed.value.openingMoveReference === null ? null : ("WILD" as const));
+
       const created = await dependencies.encounters.createOrReplay({
         playerId: target.value.playerId,
         participantPlayerIds: [],
@@ -400,9 +404,7 @@ export function createSpawnWhatsAppRoute(
         ...(forcedFormId === undefined ? {} : { forcedFormId }),
         ...(parsed.value.forcedLevel === null ? {} : { forcedLevel: parsed.value.forcedLevel }),
         ...(parsed.value.forcedShiny ? { forcedShiny: true } : {}),
-        ...(parsed.value.firstTurn === null
-          ? {}
-          : { firstTurnInitiative: parsed.value.firstTurn }),
+        ...(effectiveFirstTurn === null ? {} : { firstTurnInitiative: effectiveFirstTurn }),
         ...(environment === undefined ? {} : { environment }),
         idempotencyKey: context.idempotencyKey,
       });
