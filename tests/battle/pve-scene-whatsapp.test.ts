@@ -484,13 +484,19 @@ describe("PVE/PVP WhatsApp scene actions", () => {
 
     const auto = { ...narrator, kind: "AUTO" as const, adminPrincipalId: null, revision: 3 };
     setup.listByBattle.mockResolvedValue([auto]);
-    await routeFor(routes, "assumir").handler.handle(context("/assumir"));
+    const assumed = await routeFor(routes, "assumir").handler.handle(context("/assumir"));
     expect(setup.transition).toHaveBeenLastCalledWith(
       expect.objectContaining({
         participantId: enemyId,
         kind: "NARRATOR",
         adminPrincipalId: principalId,
       }),
+    );
+    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain(
+      "Quick Attack",
+    );
+    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain(
+      "`/batalha`",
     );
 
     setup.listByBattle.mockResolvedValue([narrator]);
@@ -550,6 +556,61 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         adminPrincipalId: principalId,
       }),
     );
+  });
+
+  it("lets a controller-backed narrator inspect the wild HUD without owning a player account", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const narratorState = {
+      ...state,
+      combatants: state.combatants.map((combatant) =>
+        combatant.participantId === enemyId
+          ? {
+              ...combatant,
+              moves: [{ slotNo: 1, moveId: quickAttackId, ppCurrent: 30, maxPp: 30 }],
+            }
+          : combatant,
+      ),
+    } as BattleState;
+    const narrator = {
+      participantId: enemyId,
+      battleId,
+      kind: "NARRATOR" as const,
+      playerId: null,
+      adminPrincipalId: principalId,
+      revision: 2,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setup.listByBattle.mockResolvedValue([narrator]);
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async () => ({
+          ok: false as const,
+          error: { code: "NOT_FOUND", message: "not a player" },
+        })),
+      },
+      narratorBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(narratorState)),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const hud = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha", { senderRef: "narrator@s.whatsapp.net" }),
+    );
+
+    expect(hud.ok).toBe(true);
+    if (!hud.ok) return;
+    const text = String(hud.value.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("*Rattata*");
+    expect(text).toContain("Quick Attack");
+    expect(text).toContain("`/automatico`");
+    expect(text).not.toContain("`/capturar`");
   });
 
   it("lets /assumir explicitly target another trainer battle", async () => {
