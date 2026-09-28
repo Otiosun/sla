@@ -5,6 +5,7 @@ const maintenance = vi.hoisted(() => ({
   provisioning: vi.fn(async () => undefined),
   battle: vi.fn(async () => ({ turns: [], defeats: [] })),
   rewardProjection: vi.fn(async () => ({ claimed: 0, projected: 0, deferred: 0 })),
+  autoTerminalProjection: vi.fn(async () => ({ claimed: 0, projected: 0 })),
   compose: vi.fn(),
 }));
 
@@ -19,6 +20,12 @@ vi.mock("../../src/runtime/compose-pve-battle-runtime.js", () => ({
 vi.mock("../../src/platform/progression/postgres-battle-reward-whatsapp-projector.js", () => ({
   PostgresBattleRewardWhatsAppProjector: class {
     runOnce = maintenance.rewardProjection;
+  },
+}));
+
+vi.mock("../../src/platform/battle/postgres-auto-battle-terminal-whatsapp-projector.js", () => ({
+  PostgresAutoBattleTerminalWhatsAppProjector: class {
+    runOnce = maintenance.autoTerminalProjection;
   },
 }));
 
@@ -48,6 +55,7 @@ describe("PVE WhatsApp maintenance composition", () => {
     expect(maintenance.battle).toHaveBeenCalledTimes(2);
     expect(maintenance.provisioning).toHaveBeenCalledTimes(2);
     expect(maintenance.rewardProjection).toHaveBeenCalledTimes(2);
+    expect(maintenance.autoTerminalProjection).toHaveBeenCalledTimes(2);
   });
 
   it("preserves the unconfigured runtime without choosing a TTL or migrating battles", async () => {
