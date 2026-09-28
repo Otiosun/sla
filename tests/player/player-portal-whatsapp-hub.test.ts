@@ -8,7 +8,10 @@ import { ok } from "../../src/shared-kernel/result.js";
 const TICKET = "A".repeat(43);
 const SENDER = "5511999999999@s.whatsapp.net";
 
-function context(text = "/hub"): MessageHandlerContext {
+function context(
+  text = "/hub",
+  chatRef = SENDER,
+): MessageHandlerContext {
   return {
     inboxMessageId: "inbox-hub-1",
     correlationId: "00000000-0000-4000-8000-000000000031",
@@ -18,7 +21,7 @@ function context(text = "/hub"): MessageHandlerContext {
       provider: "baileys",
       externalMessageId: "message-hub-1",
       senderRef: SENDER,
-      chatRef: SENDER,
+      chatRef,
       occurredAt: "2026-09-18T17:00:00-03:00",
       text,
       mediaRefs: [],
@@ -52,6 +55,28 @@ describe("WhatsApp /hub command", () => {
     expect(text).not.toContain("playerId");
     expect(text).not.toContain(SENDER);
     expect(issue).toHaveBeenCalledWith({ provider: "baileys", externalId: SENDER });
+  });
+
+  it("never exposes the personal Hub ticket in a group", async () => {
+    const issue = vi.fn(async (_identity: ExternalIdentity) =>
+      ok({ ticket: TICKET, expiresAt: new Date("2026-09-18T20:05:00.000Z") }),
+    );
+    const groupRef = "120363999999999999@g.us";
+    const result = await routerFor(
+      createHubWhatsAppRoutes({
+        tickets: { issue },
+        publicUrl: "https://hub.example.test/",
+      }),
+    ).dispatch(context("/hub", groupRef));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value?.outgoing).toHaveLength(1);
+    expect(result.value?.outgoing[0]?.destinationRef).toBe(SENDER);
+    expect(result.value?.outgoing[0]?.destinationRef).not.toBe(groupRef);
+    expect(result.value?.outgoing[0]?.payload.text).toContain(
+      `https://hub.example.test/#hub_ticket=${TICKET}`,
+    );
   });
 
   it("is sensitive, active-only and mechanically-ready", () => {
