@@ -512,7 +512,10 @@ async function turnSummary(
         state.contentReleaseId,
         combatant.speciesId,
       );
-      speciesByParticipant.set(combatant.participantId, displayName ?? "Pokémon");
+      speciesByParticipant.set(
+        combatant.participantId,
+        `${displayName ?? "Pokémon"}${combatant.shiny ? " ✨" : ""}`,
+      );
     }),
   );
 
