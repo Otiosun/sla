@@ -126,9 +126,9 @@ describe("shared Battle initialization", () => {
     expect(initialized.ok).toBe(true);
     if (!initialized.ok) return;
     expect(initialized.value.firstTurnInitiative).toBe("WILD");
-    expect(initialized.value.combatants.find((entry) => entry.participantId === IDS.p2)?.shiny).toBe(
-      true,
-    );
+    expect(
+      initialized.value.combatants.find((entry) => entry.participantId === IDS.p2)?.shiny,
+    ).toBe(true);
   });
 
   it("rejects a side whose entire roster is fainted before battle starts", () => {

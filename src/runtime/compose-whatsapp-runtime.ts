@@ -541,8 +541,7 @@ export function createOperationalMessagingComposition(
 
             const wildActor = state.combatants.find(
               (entry) =>
-                entry.participantKind === "WILD_POKEMON" &&
-                activeIds.has(entry.participantId),
+                entry.participantKind === "WILD_POKEMON" && activeIds.has(entry.participantId),
             );
             if (wildActor === undefined) {
               return {

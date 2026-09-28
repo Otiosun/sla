@@ -184,15 +184,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
      ) VALUES
        ($1, $3, $4, 'Testmon', $6, $7, 40, 45, 40, 35, 35, 56),
        ($2, $3, $5, 'Forcedmon', $6, NULL, 35, 55, 35, 30, 30, 55)`,
-    [
-      randomUUID(),
-      randomUUID(),
-      releaseId,
-      formId,
-      forcedFormId,
-      normalTypeId,
-      flyingTypeId,
-    ],
+    [randomUUID(), randomUUID(), releaseId, formId, forcedFormId, normalTypeId, flyingTypeId],
   );
   await client.query(
     `INSERT INTO ability_revisions(id, content_release_id, ability_id, display_name)

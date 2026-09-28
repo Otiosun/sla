@@ -46,8 +46,7 @@ export function createPveBattleRuntime(pool: Pool, config: PveBattleRuntimeConfi
   );
   return {
     battle,
-    runAutoTurnOnce: async (battleId: string) =>
-      dispatcher.runOnce({ limit: 1, battleId }),
+    runAutoTurnOnce: async (battleId: string) => dispatcher.runOnce({ limit: 1, battleId }),
     runMaintenance: async () => {
       const turns = await dispatcher.runOnce({ limit: config.maintenanceBatchSize });
       const defeats = await aftermath.runOnce(config.maintenanceBatchSize);

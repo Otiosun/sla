@@ -201,7 +201,8 @@ describe("PVE /spawn WhatsApp route", () => {
       expect(text).toContain("controle da IA");
       expect(output.value.outgoing[0]?.payload.mentions).toEqual(["target@s.whatsapp.net"]);
     }
-  });  it("forwards forced level, shiny and first-turn overrides without changing random environment context", async () => {
+  });
+  it("forwards forced level, shiny and first-turn overrides without changing random environment context", async () => {
     const resolvePlayer = vi
       .fn()
       .mockResolvedValue(ok({ playerId, state: "COMPLETE", created: false }));
@@ -253,10 +254,9 @@ describe("PVE /spawn WhatsApp route", () => {
     } as never);
 
     const output = await route.handler.handle(
-      contextWithText(
-        "/spawn Poochyena @target nv 12 shiny inicio selvagem",
-        ["target@s.whatsapp.net"],
-      ),
+      contextWithText("/spawn Poochyena @target nv 12 shiny inicio selvagem", [
+        "target@s.whatsapp.net",
+      ]),
     );
 
     expect(createOrReplay).toHaveBeenCalledWith(
@@ -358,14 +358,11 @@ describe("PVE /spawn WhatsApp route", () => {
     } as never);
 
     const output = await route.handler.handle(
-      contextWithText(
-        "/spawn Poochyena @target nv 9 ataque Bite",
-        ["target@s.whatsapp.net"],
-      ),
+      contextWithText("/spawn Poochyena @target nv 9 ataque Bite", ["target@s.whatsapp.net"]),
     );
 
     expect(route.allowEmbedded).toBe(true);
-    const opening = (route as never) as { handler: unknown };
+    const opening = route as never as { handler: unknown };
     expect(opening).toBeDefined();
     if (!output.ok) throw new Error("expected fast spawn success");
     expect(output.value.resultRefType).toBe("BATTLE");
@@ -419,7 +416,6 @@ describe("PVE /spawn WhatsApp route", () => {
     }
   });
 
-
   it("accepts /spawn embedded at the end of a human-written scene without touching the prose", async () => {
     const resolvePlayer = vi
       .fn()
@@ -449,15 +445,10 @@ describe("PVE /spawn WhatsApp route", () => {
       },
       speciesDisplayName: async () => "Poochyena",
     } as never);
-    const router = new MessageRouter(
-      [route],
-      { authorize: async () => ok(undefined) },
-    );
+    const router = new MessageRouter([route], { authorize: async () => ok(undefined) });
     const scene =
       "*Poochyena rompeu o mato e avançou contra o treinador.*\n\n/spawn Poochyena @target nv 7";
-    const output = await router.dispatch(
-      contextWithText(scene, ["target@s.whatsapp.net"]),
-    );
+    const output = await router.dispatch(contextWithText(scene, ["target@s.whatsapp.net"]));
 
     expect(output.ok).toBe(true);
     expect(createOrReplay).toHaveBeenCalledWith(
@@ -468,5 +459,4 @@ describe("PVE /spawn WhatsApp route", () => {
     );
     expect(scene).toContain("Poochyena rompeu o mato");
   });
-
 });

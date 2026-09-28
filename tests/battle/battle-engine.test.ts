@@ -88,9 +88,9 @@ describe("Battle Engine v1 pure resolver", () => {
     );
     expect(opening.ok).toBe(true);
     if (!opening.ok) return;
-    expect(opening.value.events.find((entry) => entry.type === "MoveUsed")?.payload.participantId).toBe(
-      IDS.p2,
-    );
+    expect(
+      opening.value.events.find((entry) => entry.type === "MoveUsed")?.payload.participantId,
+    ).toBe(IDS.p2);
 
     const next = resolveTurn(
       opening.value.state,
@@ -103,9 +103,9 @@ describe("Battle Engine v1 pure resolver", () => {
     );
     expect(next.ok).toBe(true);
     if (!next.ok) return;
-    expect(next.value.events.find((entry) => entry.type === "MoveUsed")?.payload.participantId).toBe(
-      IDS.p1,
-    );
+    expect(
+      next.value.events.find((entry) => entry.type === "MoveUsed")?.payload.participantId,
+    ).toBe(IDS.p1);
   });
 
   it("replays a speed tie identically from the same seed and counter", () => {

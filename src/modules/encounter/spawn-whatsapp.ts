@@ -302,14 +302,10 @@ export function createSpawnWhatsAppRoute(
       const mentions = context.message.mentions ?? [];
       if (mentions.length !== 1) {
         return err(
-          appError(
-            "VALIDATION_FAILED",
-            "Use /spawn com exatamente uma menção real.",
-            {
-              userMessage:
-                "Use `/spawn @treinador`, `/spawn Poochyena @treinador` ou combine modificadores como `nv 10`, `shiny`, `ataque Bite` e `auto`.",
-            },
-          ),
+          appError("VALIDATION_FAILED", "Use /spawn com exatamente uma menção real.", {
+            userMessage:
+              "Use `/spawn @treinador`, `/spawn Poochyena @treinador` ou combine modificadores como `nv 10`, `shiny`, `ataque Bite` e `auto`.",
+          }),
         );
       }
       const targetRef = mentions[0];
@@ -459,7 +455,10 @@ export function createSpawnWhatsAppRoute(
         if (wild === undefined) {
           return err(appError("FLOW_BLOCKED", "Spawn fast path has no wild actor."));
         }
-        if (dependencies.moveDisplayNames === undefined || dependencies.narratorOpening === undefined) {
+        if (
+          dependencies.moveDisplayNames === undefined ||
+          dependencies.narratorOpening === undefined
+        ) {
           return err(
             appError("FEATURE_UNAVAILABLE", "Narrator opening battle is unavailable", {
               userMessage: "O fast path com *ataque* não está disponível agora.",

@@ -17,7 +17,12 @@ export function resolveNarratorEncounterEnvironment(
   now: Date = new Date(),
 ): EncounterEnvironmentContext {
   const configured = source.BELL_WORLD_TIME_OF_DAY?.trim().toUpperCase();
-  if (configured !== undefined && configured.length > 0 && configured !== "DAY" && configured !== "NIGHT") {
+  if (
+    configured !== undefined &&
+    configured.length > 0 &&
+    configured !== "DAY" &&
+    configured !== "NIGHT"
+  ) {
     throw new EncounterEnvironmentRuntimeConfigError(
       "BELL_WORLD_TIME_OF_DAY must be DAY or NIGHT when explicitly configured",
     );

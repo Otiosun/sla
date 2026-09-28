@@ -257,9 +257,7 @@ function activeController(
     return controllers.find(predicate);
   }
   const active = new Set(
-    state.sides.flatMap((side) =>
-      (side.slots ?? [side]).map((slot) => slot.activeParticipantId),
-    ),
+    state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
   );
   return controllers.find(
     (controller) => active.has(controller.participantId) && predicate(controller),
@@ -662,8 +660,7 @@ export function createPveSceneRoutes(
       principal === null || dependencies.narratorBattleId === undefined
         ? null
         : await dependencies.narratorBattleId(principal.principalId);
-    const playerBattleId =
-      playerId === null ? null : await dependencies.activeBattleId(playerId);
+    const playerBattleId = playerId === null ? null : await dependencies.activeBattleId(playerId);
     // An explicitly persisted NARRATOR controller wins over the admin's own player battle.
     const battleId = narratorBattleId ?? playerBattleId;
 
@@ -909,7 +906,9 @@ export function createPveSceneRoutes(
     }
 
     if (playerId === null) {
-      return err(appError("PLAYER_INELIGIBLE", "Player identity disappeared during battle action."));
+      return err(
+        appError("PLAYER_INELIGIBLE", "Player identity disappeared during battle action."),
+      );
     }
     const resolved = await dependencies.battle.resolvePlayerTurn({
       battleId,

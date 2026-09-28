@@ -268,7 +268,6 @@ export function createPveBattleStartWhatsAppRoute(
   };
 }
 
-
 export interface PveBattleFinishWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly activeBattleId: (playerId: PlayerId) => Promise<string | null>;
@@ -370,7 +369,8 @@ export function createPveBattleFinishWhatsAppRoute(
       if (!["CREATED", "PRESENTED", "ENGAGED"].includes(encounter.value.status)) {
         return err(
           appError("FLOW_BLOCKED", "Active encounter cannot be narrator-finished from this state", {
-            userMessage: "Esse encontro está em uma transição mecânica e não pode ser encerrado agora.",
+            userMessage:
+              "Esse encontro está em uma transição mecânica e não pode ser encerrado agora.",
           }),
         );
       }

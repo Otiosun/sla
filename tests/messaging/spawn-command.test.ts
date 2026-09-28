@@ -19,9 +19,7 @@ describe("spawn director command parser", () => {
 
   it("parses flexible narrator modifiers without requiring a rigid order", () => {
     expect(
-      parseSpawnCommand(
-        "/spawn @Migueel shiny Poochyena ataque Bite inicio selvagem nv 12",
-      ),
+      parseSpawnCommand("/spawn @Migueel shiny Poochyena ataque Bite inicio selvagem nv 12"),
     ).toEqual({
       ok: true,
       value: {
@@ -76,7 +74,9 @@ describe("spawn director command parser", () => {
     expect(parseSpawnCommand("/spawn Poochyena @Migueel nv 5 nv 8")).toMatchObject({
       ok: false,
     });
-    expect(parseSpawnCommand("/spawn Poochyena @Migueel inicio jogador inicio selvagem")).toMatchObject({
+    expect(
+      parseSpawnCommand("/spawn Poochyena @Migueel inicio jogador inicio selvagem"),
+    ).toMatchObject({
       ok: false,
     });
   });

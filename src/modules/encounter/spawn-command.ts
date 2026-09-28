@@ -32,7 +32,9 @@ function normalize(value: string): string {
     .replace(/[,:;.!?]+$/gu, "");
 }
 
-function modifierKind(token: string): "AUTO" | "SHINY" | "LEVEL" | "QUANTITY" | "MOVE" | "INITIATIVE" | null {
+function modifierKind(
+  token: string,
+): "AUTO" | "SHINY" | "LEVEL" | "QUANTITY" | "MOVE" | "INITIATIVE" | null {
   const value = normalize(token);
   if (AUTO.has(value)) return "AUTO";
   if (SHINY.has(value)) return "SHINY";

@@ -113,9 +113,7 @@ describe("narrator spawn WhatsApp front", () => {
     expect(text).toContain("*Bellsprout* · Nv. 6");
     expect(text).toContain("📍 Vila dos Arrozais");
     expect(text).toContain("`/iniciarbatalha @5511777777777`");
-    expect(result.value.outgoing[0]?.payload.mentions).toEqual([
-      "5511777777777@s.whatsapp.net",
-    ]);
+    expect(result.value.outgoing[0]?.payload.mentions).toEqual(["5511777777777@s.whatsapp.net"]);
     expect(text).not.toContain("Cena conduzida");
     expect(text).not.toContain(encounterId);
     expect(text.toLowerCase()).not.toContain("revision");
