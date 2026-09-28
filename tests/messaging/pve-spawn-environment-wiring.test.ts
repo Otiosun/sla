@@ -8,7 +8,8 @@ describe("narrator encounter environment wiring", () => {
     const service = fs.readFileSync("src/modules/encounter/service.ts", "utf8");
 
     expect(spawn).toContain("readonly environment?: () => EncounterEnvironmentContext;");
-    expect(spawn).toContain("environment: dependencies.environment()");
+    expect(spawn).toContain("environment = dependencies.environment();");
+    expect(spawn).toContain("let environment: EncounterEnvironmentContext | undefined;");
     expect(compose).toContain("resolveNarratorEncounterEnvironment");
     expect(compose).toContain(
       "environment: () => resolveNarratorEncounterEnvironment(process.env)",
