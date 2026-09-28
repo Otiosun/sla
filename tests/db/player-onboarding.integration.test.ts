@@ -308,6 +308,25 @@ describe.sequential("Phase 5 player onboarding on disposable PostgreSQL", () => 
     expect(completed.onboardingState).toBe("COMPLETE");
     expect(completed.starterPokemonInstanceId).toBe(grantedA.pokemonInstanceId);
 
+    await pool.query(
+      `UPDATE player_profiles
+       SET metadata = metadata || $2::jsonb
+       WHERE player_id = $1`,
+      [
+        first.playerId,
+        JSON.stringify({
+          profession: "CRIADOR",
+          hubCustomization: { accent: "gold", title: "Explorador" },
+          endgame: true,
+          leaderSeed: "V36C",
+          leaderIndex: 2,
+        }),
+      ],
+    );
+    const extendedMetadataProfile = unwrap(await afterRestart.getProfile(first.playerId));
+    expect(extendedMetadataProfile.profession).toBe("CRIADOR");
+    expect(extendedMetadataProfile.onboardingState).toBe("COMPLETE");
+
     const disabled = await afterRestart.evaluateGameplayAccess(first.playerId, {
       enabled: false,
       reason: "maintenance",

@@ -4,7 +4,7 @@ import {
   type ExternalIdentity,
   type OnboardingRecord,
   OnboardingStateSchema,
-  PlayerProfileMetadataSchema,
+  PersistedPlayerProfileMetadataSchema,
   type PlayerProfileMetadata,
   type ProfileInput,
 } from "../../modules/player/contracts.js";
@@ -18,7 +18,7 @@ function asPlayerId(value: string): PlayerId {
 }
 
 function asMetadata(value: unknown): PlayerProfileMetadata {
-  const parsed = PlayerProfileMetadataSchema.safeParse(value);
+  const parsed = PersistedPlayerProfileMetadataSchema.safeParse(value);
   if (!parsed.success) {
     throw new Error("Player profile metadata is invalid");
   }
