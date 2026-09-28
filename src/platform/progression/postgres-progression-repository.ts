@@ -789,23 +789,25 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     }
   }
 
-  private async applyPokemonBattleReward(
+  private async applyPositivePokemonXp(
     client: PoolClient,
     input: {
-      readonly battleId: string;
       readonly playerId: string;
       readonly contentReleaseId: string;
       readonly rulesetId: string;
       readonly config: RulesetConfig;
       readonly progression: ProgressionRules;
-      readonly combatant: BattleCombatant;
+      readonly combatant: PokemonXpSnapshot;
       readonly offeredXp: number;
       readonly correlationId: string;
+      readonly source: PokemonXpSourceMetadata;
     },
   ): Promise<PokemonXpAwardResult> {
     const pokemonId = input.combatant.pokemonInstanceId;
-    if (pokemonId === null)
-      throw new ProgressionStateViolation("Winner lacks Pokemon instance identity");
+    if (pokemonId === null) {
+      throw new ProgressionStateViolation("Pokemon XP target lacks instance identity");
+    }
+
     const pokemon = await client.query<{
       form_id: string;
       level: number;
@@ -829,8 +831,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       [pokemonId, input.playerId],
     );
     const row = pokemon.rows[0];
-    if (row === undefined)
-      throw new ProgressionStateViolation("Winning Pokemon is not an active owned instance");
+    if (row === undefined) {
+      throw new ProgressionStateViolation("Pokemon XP target is not an active owned instance");
+    }
+
     const beforeXp = safeInteger(row.xp, "pokemon.xp");
     if (
       row.form_id !== input.combatant.formId ||
@@ -844,9 +848,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       row.iv_sp_defense !== input.combatant.ivs.spDefense ||
       row.iv_speed !== input.combatant.ivs.speed
     ) {
-      throw new ProgressionStateViolation(
-        "Winning Pokemon changed after battle snapshot was pinned",
-      );
+      throw new ProgressionStateViolation("Pokemon changed after XP adjustment snapshot was pinned");
     }
 
     const persistentMoves = await client.query<{
@@ -858,42 +860,47 @@ export class PostgresProgressionRepository implements ProgressionRepository {
        FROM pokemon_move_slots WHERE pokemon_instance_id = $1 ORDER BY slot_no FOR UPDATE`,
       [pokemonId],
     );
-    if (persistentMoves.rows.length !== input.combatant.moves.length) {
-      throw new ProgressionStateViolation("Persistent move slots diverged from battle snapshot");
-    }
-    const slots: MutableMoveSlot[] = [];
-    for (const battleMove of input.combatant.moves) {
-      const persisted = persistentMoves.rows.find((move) => move.slot_no === battleMove.slotNo);
-      if (persisted?.move_id !== battleMove.moveId) {
-        throw new ProgressionStateViolation(
-          "Persistent move identity diverged from battle snapshot",
+    const slots: MutableMoveSlot[] = persistentMoves.rows.map((move) => ({
+      slotNo: move.slot_no,
+      moveId: move.move_id,
+    }));
+
+    if (input.source.syncBattleState) {
+      if (persistentMoves.rows.length !== input.combatant.moves.length) {
+        throw new ProgressionStateViolation("Persistent move slots diverged from battle snapshot");
+      }
+      for (const battleMove of input.combatant.moves) {
+        const persisted = persistentMoves.rows.find((move) => move.slot_no === battleMove.slotNo);
+        if (persisted?.move_id !== battleMove.moveId) {
+          throw new ProgressionStateViolation(
+            "Persistent move identity diverged from battle snapshot",
+          );
+        }
+        await client.query(
+          `UPDATE pokemon_move_slots SET pp_current = $3
+           WHERE pokemon_instance_id = $1 AND slot_no = $2`,
+          [pokemonId, battleMove.slotNo, battleMove.ppCurrent],
         );
       }
-      await client.query(
-        `UPDATE pokemon_move_slots SET pp_current = $3
-         WHERE pokemon_instance_id = $1 AND slot_no = $2`,
-        [pokemonId, battleMove.slotNo, battleMove.ppCurrent],
-      );
-      slots.push({ slotNo: battleMove.slotNo, moveId: battleMove.moveId });
-    }
 
-    await client.query(
-      `DELETE FROM pokemon_persistent_conditions
-       WHERE pokemon_instance_id = $1 AND condition_key = ANY($2::text[])`,
-      [pokemonId, MAJOR_STATUS_KEYS],
-    );
-    if (input.combatant.majorStatus !== null) {
       await client.query(
-        `INSERT INTO pokemon_persistent_conditions(
-           pokemon_instance_id, condition_key, source_type, source_id, data
-         ) VALUES ($1, $2, 'BATTLE', $3, $4::jsonb)`,
-        [
-          pokemonId,
-          input.combatant.majorStatus.key,
-          input.battleId,
-          JSON.stringify({ counter: input.combatant.majorStatus.counter }),
-        ],
+        `DELETE FROM pokemon_persistent_conditions
+         WHERE pokemon_instance_id = $1 AND condition_key = ANY($2::text[])`,
+        [pokemonId, MAJOR_STATUS_KEYS],
       );
+      if (input.combatant.majorStatus !== null) {
+        await client.query(
+          `INSERT INTO pokemon_persistent_conditions(
+             pokemon_instance_id, condition_key, source_type, source_id, data
+           ) VALUES ($1, $2, 'BATTLE', $3, $4::jsonb)`,
+          [
+            pokemonId,
+            input.combatant.majorStatus.key,
+            input.source.sourceId,
+            JSON.stringify({ counter: input.combatant.majorStatus.counter }),
+          ],
+        );
+      }
     }
 
     const xp = applyPokemonXp({
@@ -907,7 +914,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     const evolutions: EvolutionResult[] = [];
     let currentFormId = row.form_id;
     if (row.ability_id === null) {
-      throw new ProgressionStateViolation("Winning Pokemon has no persisted Ability");
+      throw new ProgressionStateViolation("Pokemon has no persisted Ability");
     }
     let currentAbilityId: string = row.ability_id;
     let previousLevel = row.level;
@@ -920,7 +927,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         contentReleaseId: input.contentReleaseId,
         formId: currentFormId,
         level: crossedLevel,
-        sourceId: input.battleId,
+        sourceType: input.source.sourceType,
+        sourceId: input.source.sourceId,
+        actorType: input.source.actorType,
+        actorId: input.source.actorId,
         correlationId: input.correlationId,
         slots,
         learnedMoveIds,
@@ -949,7 +959,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           throw new ProgressionStateViolation("Evolution rules contain a cycle");
         }
         const evolution = await persistAutoEvolution(client, {
-          battleId: input.battleId,
+          sourceType: input.source.sourceType,
+          sourceId: input.source.sourceId,
+          idempotencyScope: `${input.source.idempotencyScope}.evolution`,
+          actorType: input.source.actorType,
+          actorId: input.source.actorId,
           pokemonInstanceId: pokemonId,
           playerId: input.playerId,
           contentReleaseId: input.contentReleaseId,
@@ -975,7 +989,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           contentReleaseId: input.contentReleaseId,
           formId: currentFormId,
           level: crossedLevel,
-          sourceId: input.battleId,
+          sourceType: input.source.sourceType,
+          sourceId: input.source.sourceId,
+          actorType: input.source.actorType,
+          actorId: input.source.actorId,
           correlationId: input.correlationId,
           slots,
           learnedMoveIds,
@@ -1016,8 +1033,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         row.level,
       ],
     );
-    if (updated.rowCount !== 1)
+    if (updated.rowCount !== 1) {
       throw new ProgressionStateViolation("Pokemon progression CAS failed");
+    }
 
     if (xp.awardedXp > 0) {
       const ledger = await client.query(
@@ -1025,9 +1043,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
            id, pokemon_instance_id, awarded_xp, before_level, after_level, before_xp, after_xp,
            content_release_id, ruleset_id, source_type, source_id, reason, actor_type, actor_id,
            idempotency_scope, idempotency_key, correlation_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                   'BATTLE_REWARD', $10, 'Battle reward XP', 'SYSTEM', NULL,
-                   'progression.battle-reward.xp', $11, $12)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [
           randomUUID(),
           pokemonId,
@@ -1038,19 +1054,30 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           xp.afterXp,
           input.contentReleaseId,
           input.rulesetId,
-          input.battleId,
-          hashParts("progression.battle-reward.xp", input.battleId, pokemonId),
+          input.source.sourceType,
+          input.source.sourceId,
+          input.source.reason,
+          input.source.actorType,
+          input.source.actorId,
+          input.source.idempotencyScope,
+          hashParts(input.source.idempotencyScope, input.source.sourceId, pokemonId),
           input.correlationId,
         ],
       );
-      if (ledger.rowCount !== 1)
+      if (ledger.rowCount !== 1) {
         throw new ProgressionStateViolation("Pokemon XP ledger claim failed");
+      }
     }
+
     await insertPokemonHistory(client, {
       pokemonInstanceId: pokemonId,
-      eventType: "BATTLE_REWARD_XP",
+      eventType:
+        input.source.sourceType === "BATTLE_REWARD"
+          ? "BATTLE_REWARD_XP"
+          : "ADMIN_XP_ADJUSTED",
       payload: {
-        battleId: input.battleId,
+        sourceType: input.source.sourceType,
+        sourceId: input.source.sourceId,
         offeredXp: input.offeredXp,
         awardedXp: xp.awardedXp,
         discardedXp: xp.discardedXp,
@@ -1059,8 +1086,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         beforeXp: xp.beforeXp,
         afterXp: xp.afterXp,
         finalHp,
+        reason: input.source.reason,
       },
-      actorType: "SYSTEM",
+      actorType: input.source.actorType,
+      actorId: input.source.actorId,
       correlationId: input.correlationId,
     });
 
