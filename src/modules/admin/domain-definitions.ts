@@ -15,6 +15,8 @@ import {
   AdminPokemonHpCorrectInputSchema,
   type AdminPokemonProgressCorrectInput,
   AdminPokemonProgressCorrectInputSchema,
+  type AdminPokemonXpAdjustInput,
+  AdminPokemonXpAdjustInputSchema,
   type AdminPokemonRosterMoveInput,
   AdminPokemonRosterMoveInputSchema,
   type AdminPokemonStatusCorrectInput,
@@ -169,6 +171,21 @@ export function registerPhase12CDomainAdminOperations(
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
       apply: (context, input) =>
         port.applyPokemonProgressCorrection(context.operation, context.actorPrincipalId, input),
+    }),
+  );
+
+  registry.register(
+    defineAdminOperation<AdminPokemonXpAdjustInput>({
+      kind: "MUTATION",
+      operationType: "pokemon.xp.adjust",
+      capabilityKey: "pokemon.edit.mechanics",
+      riskTier: 2,
+      authorizationMode: "SUBJECT",
+      policy: deltaPolicy,
+      inputSchema: AdminPokemonXpAdjustInputSchema,
+      target: (input) => ({ type: "PLAYER", id: input.playerId }),
+      apply: (context, input) =>
+        port.applyPokemonXpAdjustment(context.operation, context.actorPrincipalId, input),
     }),
   );
 
