@@ -54,11 +54,36 @@ const MAJOR_STATUS_KEYS = ["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP",
 
 class ProgressionStateViolation extends Error {}
 
-type PokemonXpSnapshot = Pick<
-  BattleCombatant,
-  "pokemonInstanceId" | "formId" | "level" | "ability" | "nature" | "ivs" | "moves" |
-    "majorStatus" | "currentHp" | "maxHp"
->;
+interface PokemonXpSnapshot {
+  readonly pokemonInstanceId: string | null;
+  readonly formId: string;
+  readonly level: number;
+  readonly ability: { readonly abilityId: string };
+  readonly nature: {
+    readonly natureId: string;
+    readonly increasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
+    readonly decreasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
+  };
+  readonly ivs: {
+    readonly hp: number;
+    readonly attack: number;
+    readonly defense: number;
+    readonly spAttack: number;
+    readonly spDefense: number;
+    readonly speed: number;
+  };
+  readonly moves: readonly {
+    readonly slotNo: number;
+    readonly moveId: string;
+    readonly ppCurrent: number | null;
+  }[];
+  readonly majorStatus: {
+    readonly key: (typeof MAJOR_STATUS_KEYS)[number];
+    readonly counter: number | null;
+  } | null;
+  readonly currentHp: number;
+  readonly maxHp: number;
+}
 
 interface PokemonXpSourceMetadata {
   readonly sourceType: string;
