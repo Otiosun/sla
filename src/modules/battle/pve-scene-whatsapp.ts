@@ -1027,7 +1027,7 @@ export function createPveSceneRoutes(
         kind,
         adminPrincipalId: kind === "NARRATOR" ? principal.principalId : null,
       });
-      if (changed === null)
+      if (changed == null)
         return err(
           appError("REVISION_CONFLICT", "O controle mudou; tente novamente.", {
             userMessage: "O turno mudou enquanto o controle era alterado. Tente novamente.",
