@@ -8,7 +8,10 @@ import { ok } from "../../src/shared-kernel/result.js";
 const TICKET = "A".repeat(43);
 const SENDER = "5511999999999@s.whatsapp.net";
 
-function context(text = "/hub", chatRef = SENDER): MessageHandlerContext {
+function context(
+  text = "/hub",
+  chatRef = SENDER,
+): MessageHandlerContext {
   return {
     inboxMessageId: "inbox-hub-1",
     correlationId: "00000000-0000-4000-8000-000000000031",
