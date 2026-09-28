@@ -74,8 +74,8 @@ export interface PveBattleStartWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly encounters: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly start: Pick<PveBattleStartService, "startCanonical">;
-  readonly controllers: Pick<BattleParticipantControllerRepository, "listByBattle">;
-  readonly presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">;
+  readonly controllers?: Pick<BattleParticipantControllerRepository, "listByBattle">;
+  readonly presentation?: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">;
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -120,6 +120,9 @@ async function battleStartText(
   ].join("\n");
 
   const battleState = state;
+  if (dependencies.controllers === undefined || dependencies.presentation === undefined) {
+    return fallback;
+  }
   const controllers = await dependencies.controllers.listByBattle(battleId);
   const activeIds = new Set(
     battleState.sides.flatMap((side) =>
