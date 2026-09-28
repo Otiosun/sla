@@ -7,6 +7,7 @@ import type { OperationalUxReadModel } from "../messaging/operational-ux-read-mo
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import type { BattleState } from "./contracts.js";
 import type { BattleParticipantControllerRepository } from "./participant-controller.js";
 import type { BattleRuntimeService } from "./runtime.js";
 
@@ -108,12 +109,7 @@ async function battleStartText(
   battleId: string,
   targetPlayerId: string,
   targetRef: string,
-  state: Awaited<ReturnType<PveBattleStartService["startCanonical"]>> extends {
-    ok: true;
-    value: { initialization: { state: infer T } };
-  }
-    ? T
-    : never,
+  state: BattleState,
 ): Promise<string> {
   const fallback = [
     "⚔️ *BATALHA INICIADA*",
@@ -123,8 +119,7 @@ async function battleStartText(
     "`/batalha` · ver Pokémon, HP e golpes",
   ].join("\n");
 
-  if (state === null || typeof state !== "object") return fallback;
-  const battleState = state as import("./contracts.js").BattleState;
+  const battleState = state;
   const controllers = await dependencies.controllers.listByBattle(battleId);
   const activeIds = new Set(
     battleState.sides.flatMap((side) =>
