@@ -1,0 +1,1 @@
+V53A final WhatsApp validation trigger. No production runtime semantics.
