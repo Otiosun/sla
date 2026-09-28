@@ -406,12 +406,13 @@ describe("PVE /spawn WhatsApp route", () => {
         },
       ],
     };
-    const flee = vi.fn(async () => ok({ ...view, status: "FLED", revision: 2n }));
+    const flee = vi.fn(async () => ok({ ...view, status: "FLED", revision: 1n }));
+    const observe = vi.fn(async () => ok(view));
     const route = createSpawnWhatsAppRoute({
       players: { resolvePlayer },
       encounters: {
         createOrReplay: vi.fn(async () => ok({ ...view, revision: 0n, status: "CREATED" })),
-        observe: vi.fn(async () => ok(view)),
+        observe,
         flee,
       },
       species: {
@@ -436,8 +437,9 @@ describe("PVE /spawn WhatsApp route", () => {
     expect(flee).toHaveBeenCalledWith({
       playerId,
       encounterId,
-      expectedRevision: 1n,
+      expectedRevision: 0n,
     });
+    expect(observe).not.toHaveBeenCalled();
     if (!output.ok) {
       expect(String(output.error.details?.userMessage ?? "")).toContain(
         "nenhum encontro ficou preso",
