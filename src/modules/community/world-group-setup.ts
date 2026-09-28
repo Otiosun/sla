@@ -100,7 +100,7 @@ function statusText(group: GroupConfiguration): string {
     "*Módulos:*",
     ...controlled,
     "",
-    `*Capabilities ativas:* ${group.capabilities.length === 0 ? "nenhuma" : group.capabilities.map((capability) => "`" + capability + "`").join(" · ")}`,
+    `*Capabilities ativas:* ${group.capabilities.length === 0 ? "nenhuma" : group.capabilities.map((capability) => `\`${capability}\``).join(" · ")}`,
     "",
     "_Use `/grupo` para ver os controles._",
   ].join("\n");
