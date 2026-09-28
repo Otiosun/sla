@@ -1,10 +1,12 @@
 import {
+  AdjustPokemonXpInputSchema,
   AdjustTrainerProgressInputSchema,
   ApplyBattleRewardInputSchema,
   type BattleRewardResult,
   type EvolutionResult,
   EvolvePokemonInputSchema,
   type MoveChoiceResult,
+  type PokemonXpAdjustmentResult,
   ResolveMoveChoiceInputSchema,
   type TrainerProgressAdjustmentResult,
 } from "./contracts.js";
@@ -43,6 +45,46 @@ export class ProgressionService {
         return progressionFailure(
           "PROGRESSION_IDEMPOTENCY_CONFLICT",
           "Idempotency key is already bound to another reward",
+        );
+    }
+  }
+
+  public async adjustPokemonXp(
+    input: unknown,
+  ): Promise<ProgressionResult<PokemonXpAdjustmentResult>> {
+    const parsed = AdjustPokemonXpInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return progressionFailure("PROGRESSION_INPUT_INVALID", "Invalid Pokemon XP adjustment");
+    }
+    const persisted = await this.repository.adjustPokemonXp(parsed.data);
+    switch (persisted.kind) {
+      case "APPLIED":
+        return { ok: true, value: persisted.result };
+      case "REPLAYED":
+        return { ok: true, value: { ...persisted.result, replayed: true } };
+      case "NOT_FOUND":
+        return progressionFailure("POKEMON_NOT_FOUND", "Pokemon was not found");
+      case "UNDERFLOW":
+        return progressionFailure(
+          "POKEMON_XP_UNDERFLOW",
+          "Pokemon XP adjustment cannot move progression below level 1 / 0 XP",
+        );
+      case "ACTIVE_BATTLE":
+        return progressionFailure(
+          "PROGRESSION_STATE_INVALID",
+          "Pokemon XP cannot be adjusted while the Pokemon is referenced by an active battle",
+        );
+      case "RULES_MISSING":
+        return progressionFailure(
+          "PROGRESSION_RULES_MISSING",
+          "Active ruleset has no Pokemon progression policy",
+        );
+      case "STATE_INVALID":
+        return progressionFailure("PROGRESSION_STATE_INVALID", persisted.reason);
+      case "IDEMPOTENCY_CONFLICT":
+        return progressionFailure(
+          "PROGRESSION_IDEMPOTENCY_CONFLICT",
+          "Idempotency key is already bound to another Pokemon XP adjustment",
         );
     }
   }
