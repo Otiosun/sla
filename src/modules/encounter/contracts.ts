@@ -66,7 +66,7 @@ export interface WildPokemonSnapshot {
   readonly shiny: boolean;
   readonly gender: "MALE" | "FEMALE" | null;
   /** Optional one-turn narrator override; normal priority/speed resumes after turn zero. */
-  readonly firstTurnInitiative?: "PLAYER" | "WILD";
+  readonly firstTurnInitiative?: "PLAYER" | "WILD" | undefined;
 }
 
 export interface EncounterRecord {
