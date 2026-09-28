@@ -375,22 +375,6 @@ describe("encounter PostgreSQL integration", () => {
         "INSERT INTO areas(id, region_id, slug) VALUES ($1, $2, 'phase8-directed-route')",
         [directedAreaId, regionId],
       );
-      await client.query(
-        `INSERT INTO area_revisions(id, content_release_id, area_id, display_name, data)
-         VALUES ($1, $2, $3, 'Directed Route', $4::jsonb)`,
-        [
-          randomUUID(),
-          fixture.releaseId,
-          directedAreaId,
-          JSON.stringify({
-            schemaVersion: 1,
-            kind: "ROUTE",
-            safePoint: false,
-            startingArea: false,
-            relocationPriority: 0,
-          }),
-        ],
-      );
       playerId = await createEligiblePlayer(client, directedAreaId);
     } finally {
       client.release();
