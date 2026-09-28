@@ -14,6 +14,7 @@ import type {
   AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
   AdminPokemonProgressCorrectInput,
+  AdminPokemonXpAdjustInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
   AdminTrainerProgressAdjustInput,
@@ -430,6 +431,79 @@ export class AdminDomainOperationService implements AdminDomainOperationPort {
       input.pokemonInstanceId,
       result.value,
     );
+  }
+
+  public async applyPokemonXpAdjustment(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonXpAdjustInput,
+  ): Promise<AdminOperationRecord> {
+    assertPlayerTarget(operation, input.playerId);
+    const delta = Number(BigInt(input.delta));
+    if (!Number.isSafeInteger(delta) || delta === 0) {
+      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Pokemon XP delta is invalid");
+    }
+
+    const result = await this.progression.adjustPokemonXp({
+      playerId: input.playerId,
+      pokemonInstanceId: input.pokemonInstanceId,
+      delta,
+      idempotencyKey: operation.id,
+      correlationId: operation.correlationId,
+      metadata: {
+        sourceType: "ADMIN_OPERATION",
+        sourceId: operation.id,
+        reason: requiredReason(operation),
+        actorType: "ADMIN",
+        actorId: operation.principalId,
+      },
+    });
+    if (!result.ok) {
+      if (result.error.code === "PROGRESSION_IDEMPOTENCY_CONFLICT") {
+        throw new AdminError(ADMIN_ERROR_CODES.IDEMPOTENCY_CONFLICT, result.error.message);
+      }
+      if (result.error.code === "POKEMON_NOT_FOUND") {
+        throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, result.error.message);
+      }
+      if (
+        result.error.code === "PROGRESSION_INPUT_INVALID" ||
+        result.error.code === "POKEMON_XP_UNDERFLOW"
+      ) {
+        throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, result.error.message);
+      }
+      throw new AdminError(ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED, result.error.message, {
+        ownerCode: result.error.code,
+      });
+    }
+
+    const value = result.value;
+    return this.completion.completeAppliedOperation({
+      operation,
+      actorPrincipalId,
+      resourceType: "POKEMON_XP",
+      resourceId: input.pokemonInstanceId,
+      beforeData: {
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        level: value.beforeLevel,
+        xp: value.beforeXp,
+      },
+      afterData: {
+        playerId: input.playerId,
+        pokemonInstanceId: input.pokemonInstanceId,
+        level: value.afterLevel,
+        xp: value.afterXp,
+      },
+      result: {
+        requestedDelta: value.requestedDelta,
+        appliedDelta: value.appliedDelta,
+        learnedMoveIds: value.learnedMoveIds,
+        pendingMoveChoiceIds: value.pendingMoveChoiceIds,
+        evolutions: value.evolutions,
+        sideEffectPolicy: value.sideEffectPolicy,
+        ownerReplayed: value.replayed,
+      },
+    });
   }
 
   public async applyPokemonProgressCorrection(
