@@ -211,10 +211,7 @@ export class EncounterService {
       for (let wildNo = 1; wildNo <= spawnQuantity; wildNo += 1) {
         const levelEntry = fullyDirectedSpawn ? null : chooseWeightedEncounterEntry(entries, rng);
         const level =
-          input.forcedLevel ??
-          (levelEntry === null
-            ? null
-            : chooseEncounterLevel(levelEntry, rng));
+          input.forcedLevel ?? (levelEntry === null ? null : chooseEncounterLevel(levelEntry, rng));
         const formId = input.forcedFormId ?? levelEntry?.formId;
         if (level === null || formId === undefined) {
           return err(encounterNotReady("Encounter generation could not resolve level or form"));
