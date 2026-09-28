@@ -31,6 +31,15 @@ export const AdminPlayerAdjustmentRequestSchema = z.discriminatedUnion("kind", [
       reason,
     })
     .strict(),
+  z
+    .object({
+      requestId: uuid,
+      kind: z.literal("POKEMON_XP"),
+      pokemonInstanceId: uuid,
+      delta: signedDelta,
+      reason,
+    })
+    .strict(),
 ]);
 
 export type AdminPlayerAdjustmentRequest = z.infer<typeof AdminPlayerAdjustmentRequestSchema>;

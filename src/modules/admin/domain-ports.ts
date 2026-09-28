@@ -8,6 +8,7 @@ import type {
   AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
   AdminPokemonProgressCorrectInput,
+  AdminPokemonXpAdjustInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
   AdminTrainerProgressAdjustInput,
@@ -49,6 +50,11 @@ export interface AdminDomainOperationPort {
     operation: AdminOperationRecord,
     actorPrincipalId: string,
     input: AdminPokemonProgressCorrectInput,
+  ): Promise<AdminOperationRecord>;
+  applyPokemonXpAdjustment(
+    operation: AdminOperationRecord,
+    actorPrincipalId: string,
+    input: AdminPokemonXpAdjustInput,
   ): Promise<AdminOperationRecord>;
   applyPokemonHpCorrection(
     operation: AdminOperationRecord,

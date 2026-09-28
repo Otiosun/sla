@@ -1,10 +1,12 @@
 import type {
+  AdjustPokemonXpInput,
   AdjustTrainerProgressInput,
   ApplyBattleRewardInput,
   BattleRewardResult,
   EvolutionResult,
   EvolvePokemonInput,
   MoveChoiceResult,
+  PokemonXpAdjustmentResult,
   ResolveMoveChoiceInput,
   TrainerProgressAdjustmentResult,
 } from "./contracts.js";
@@ -14,6 +16,16 @@ export type TrainerProgressAdjustmentPersistenceResult =
   | { readonly kind: "REPLAYED"; readonly result: TrainerProgressAdjustmentResult }
   | { readonly kind: "NOT_FOUND" }
   | { readonly kind: "UNDERFLOW" }
+  | { readonly kind: "RULES_MISSING" }
+  | { readonly kind: "STATE_INVALID"; readonly reason: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" };
+
+export type PokemonXpAdjustmentPersistenceResult =
+  | { readonly kind: "APPLIED"; readonly result: PokemonXpAdjustmentResult }
+  | { readonly kind: "REPLAYED"; readonly result: PokemonXpAdjustmentResult }
+  | { readonly kind: "NOT_FOUND" }
+  | { readonly kind: "UNDERFLOW" }
+  | { readonly kind: "ACTIVE_BATTLE" }
   | { readonly kind: "RULES_MISSING" }
   | { readonly kind: "STATE_INVALID"; readonly reason: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" };
@@ -44,6 +56,7 @@ export type EvolutionPersistenceResult =
   | { readonly kind: "IDEMPOTENCY_CONFLICT" };
 
 export interface ProgressionRepository {
+  adjustPokemonXp(input: AdjustPokemonXpInput): Promise<PokemonXpAdjustmentPersistenceResult>;
   adjustTrainerProgress(
     input: AdjustTrainerProgressInput,
   ): Promise<TrainerProgressAdjustmentPersistenceResult>;

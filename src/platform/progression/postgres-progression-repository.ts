@@ -17,6 +17,7 @@ import {
   type PokemonBaseStats,
 } from "../../modules/pokemon/stats.js";
 import {
+  type AdjustPokemonXpInput,
   type AdjustTrainerProgressInput,
   type ApplyBattleRewardInput,
   BattleRewardResultSchema,
@@ -24,6 +25,8 @@ import {
   EvolutionResultSchema,
   type EvolvePokemonInput,
   MoveChoiceResultSchema,
+  type PokemonXpAdjustmentResult,
+  PokemonXpAdjustmentResultSchema,
   type PokemonXpAwardResult,
   type ResolveMoveChoiceInput,
   TrainerProgressAdjustmentResultSchema,
@@ -34,12 +37,14 @@ import type {
   BattleRewardPersistenceResult,
   EvolutionPersistenceResult,
   MoveChoicePersistenceResult,
+  PokemonXpAdjustmentPersistenceResult,
   ProgressionRepository,
   TrainerProgressAdjustmentPersistenceResult,
 } from "../../modules/progression/ports.js";
 import {
   applyPokemonXp,
   battlePokemonXp,
+  pokemonXpRequiredForNextLevel,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
 import { withTransaction } from "../db/transaction.js";
@@ -48,6 +53,104 @@ import { recordPokedexOwned } from "../pokedex/postgres-pokedex-writer.js";
 const MAJOR_STATUS_KEYS = ["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
 
 class ProgressionStateViolation extends Error {}
+
+interface PokemonXpSnapshot {
+  readonly pokemonInstanceId: string | null;
+  readonly formId: string;
+  readonly level: number;
+  readonly ability: { readonly abilityId: string };
+  readonly nature: {
+    readonly natureId: string | null;
+    readonly increasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
+    readonly decreasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
+  };
+  readonly ivs: {
+    readonly hp: number;
+    readonly attack: number;
+    readonly defense: number;
+    readonly spAttack: number;
+    readonly spDefense: number;
+    readonly speed: number;
+  };
+  readonly moves: readonly {
+    readonly slotNo: number;
+    readonly moveId: string;
+    readonly ppCurrent: number | null;
+  }[];
+  readonly majorStatus: {
+    readonly key: (typeof MAJOR_STATUS_KEYS)[number];
+    readonly counter: number | null;
+  } | null;
+  readonly currentHp: number;
+  readonly maxHp: number;
+}
+
+interface PokemonXpSourceMetadata {
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly reason: string;
+  readonly actorType: "SYSTEM" | "ADMIN";
+  readonly actorId: string | null;
+  readonly idempotencyScope: string;
+  readonly syncBattleState: boolean;
+}
+
+function pokemonTotalXp(level: number, xp: number): number {
+  if (!Number.isInteger(level) || level < 1 || level > 100) {
+    throw new ProgressionStateViolation("Pokemon level is outside the supported range");
+  }
+  if (!Number.isSafeInteger(xp) || xp < 0) {
+    throw new ProgressionStateViolation("Pokemon XP is outside the supported range");
+  }
+  const total = level ** 3 - 1 + xp;
+  if (!Number.isSafeInteger(total)) {
+    throw new ProgressionStateViolation("Pokemon total XP is outside the safe integer range");
+  }
+  return total;
+}
+
+function pokemonProgressForTotalXp(
+  totalXp: number,
+  levelCap: number,
+): { readonly level: number; readonly xp: number } {
+  if (!Number.isSafeInteger(totalXp) || totalXp < 0) {
+    throw new ProgressionStateViolation("Pokemon total XP cannot be negative");
+  }
+  for (let level = levelCap; level >= 1; level -= 1) {
+    const base = level ** 3 - 1;
+    if (totalXp < base) continue;
+    if (level === levelCap) return { level, xp: 0 };
+    const xp = totalXp - base;
+    const threshold = pokemonXpRequiredForNextLevel(level);
+    if (xp < threshold) return { level, xp };
+  }
+  return { level: 1, xp: 0 };
+}
+
+async function hasUnsafePokemonBattleReference(
+  client: PoolClient,
+  pokemonInstanceId: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1
+     FROM battle_participants participant
+     JOIN battles battle ON battle.id = participant.battle_id
+     WHERE participant.pokemon_instance_id = $1
+       AND (
+         battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
+         OR (
+           battle.status = 'WON'
+           AND battle.battle_type IN ('WILD', 'NPC')
+           AND NOT EXISTS (
+             SELECT 1 FROM battle_reward_claims reward WHERE reward.battle_id = battle.id
+           )
+         )
+       )
+     LIMIT 1`,
+    [pokemonInstanceId],
+  );
+  return result.rowCount === 1;
+}
 
 function hashParts(...parts: readonly string[]): string {
   const hash = createHash("sha256");
@@ -204,7 +307,10 @@ async function learnMovesAtLevel(
     readonly contentReleaseId: string;
     readonly formId: string;
     readonly level: number;
+    readonly sourceType: string;
     readonly sourceId: string;
+    readonly actorType: "SYSTEM" | "ADMIN";
+    readonly actorId: string | null;
     readonly correlationId: string;
     readonly slots: MutableMoveSlot[];
     readonly learnedMoveIds: string[];
@@ -250,7 +356,8 @@ async function learnMovesAtLevel(
         pokemonInstanceId: input.pokemonInstanceId,
         eventType: "MOVE_LEARNED",
         payload: { moveId: move.move_id, level: input.level, sourceId: input.sourceId },
-        actorType: "SYSTEM",
+        actorType: input.actorType,
+        actorId: input.actorId,
         correlationId: input.correlationId,
       });
       continue;
@@ -271,6 +378,7 @@ async function learnMovesAtLevel(
         input.contentReleaseId,
         move.move_id,
         input.level,
+        input.sourceType,
         input.sourceId,
         input.correlationId,
       ],
@@ -292,7 +400,8 @@ async function learnMovesAtLevel(
       pokemonInstanceId: input.pokemonInstanceId,
       eventType: "MOVE_CHOICE_PENDING",
       payload: { moveId: move.move_id, level: input.level, choiceId: persistedChoiceId },
-      actorType: "SYSTEM",
+      actorType: input.actorType,
+      actorId: input.actorId,
       correlationId: input.correlationId,
     });
   }
@@ -383,7 +492,11 @@ async function findLevelEvolution(
 async function persistAutoEvolution(
   client: PoolClient,
   input: {
-    readonly battleId: string;
+    readonly sourceType: string;
+    readonly sourceId: string;
+    readonly idempotencyScope: string;
+    readonly actorType: "SYSTEM" | "ADMIN";
+    readonly actorId: string | null;
     readonly pokemonInstanceId: string;
     readonly playerId: string;
     readonly contentReleaseId: string;
@@ -405,8 +518,8 @@ async function persistAutoEvolution(
     replayed: false,
   });
   const idempotencyKey = hashParts(
-    "progression.auto-evolution",
-    input.battleId,
+    input.idempotencyScope,
+    input.sourceId,
     input.pokemonInstanceId,
     input.rule.id,
   );
@@ -432,7 +545,9 @@ async function persistAutoEvolution(
       input.rule.id,
       input.fromFormId,
       input.rule.toFormId,
-      input.battleId,
+      input.sourceType,
+      input.sourceId,
+      input.idempotencyScope,
       idempotencyKey,
       fingerprint,
       input.correlationId,
@@ -453,9 +568,11 @@ async function persistAutoEvolution(
       evolutionRuleId: input.rule.id,
       triggerKind: "LEVEL",
       level: input.level,
-      battleId: input.battleId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
     },
-    actorType: "SYSTEM",
+    actorType: input.actorType,
+    actorId: input.actorId,
     correlationId: input.correlationId,
   });
   return result;
@@ -613,8 +730,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           );
         }
         const offeredXp = battlePokemonXp(baseExp, terminal.defeated.level);
-        const pokemonResult = await this.applyPokemonBattleReward(client, {
-          battleId: input.battleId,
+        const pokemonResult = await this.applyPositivePokemonXp(client, {
           playerId: terminal.playerId,
           contentReleaseId: battleRow.content_release_id,
           rulesetId: battleRow.ruleset_id,
@@ -623,6 +739,15 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           combatant: terminal.winner,
           offeredXp,
           correlationId: input.correlationId,
+          source: {
+            sourceType: "BATTLE_REWARD",
+            sourceId: input.battleId,
+            reason: "Battle reward XP",
+            actorType: "SYSTEM",
+            actorId: null,
+            idempotencyScope: "progression.battle-reward.xp",
+            syncBattleState: true,
+          },
         });
         const trainerResult = await this.applyTrainerBattleReward(client, {
           battleId: input.battleId,
@@ -672,23 +797,25 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     }
   }
 
-  private async applyPokemonBattleReward(
+  private async applyPositivePokemonXp(
     client: PoolClient,
     input: {
-      readonly battleId: string;
       readonly playerId: string;
       readonly contentReleaseId: string;
       readonly rulesetId: string;
       readonly config: RulesetConfig;
       readonly progression: ProgressionRules;
-      readonly combatant: BattleCombatant;
+      readonly combatant: PokemonXpSnapshot;
       readonly offeredXp: number;
       readonly correlationId: string;
+      readonly source: PokemonXpSourceMetadata;
     },
   ): Promise<PokemonXpAwardResult> {
     const pokemonId = input.combatant.pokemonInstanceId;
-    if (pokemonId === null)
-      throw new ProgressionStateViolation("Winner lacks Pokemon instance identity");
+    if (pokemonId === null) {
+      throw new ProgressionStateViolation("Pokemon XP target lacks instance identity");
+    }
+
     const pokemon = await client.query<{
       form_id: string;
       level: number;
@@ -712,8 +839,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       [pokemonId, input.playerId],
     );
     const row = pokemon.rows[0];
-    if (row === undefined)
-      throw new ProgressionStateViolation("Winning Pokemon is not an active owned instance");
+    if (row === undefined) {
+      throw new ProgressionStateViolation("Pokemon XP target is not an active owned instance");
+    }
+
     const beforeXp = safeInteger(row.xp, "pokemon.xp");
     if (
       row.form_id !== input.combatant.formId ||
@@ -728,7 +857,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       row.iv_speed !== input.combatant.ivs.speed
     ) {
       throw new ProgressionStateViolation(
-        "Winning Pokemon changed after battle snapshot was pinned",
+        "Pokemon changed after XP adjustment snapshot was pinned",
       );
     }
 
@@ -741,42 +870,47 @@ export class PostgresProgressionRepository implements ProgressionRepository {
        FROM pokemon_move_slots WHERE pokemon_instance_id = $1 ORDER BY slot_no FOR UPDATE`,
       [pokemonId],
     );
-    if (persistentMoves.rows.length !== input.combatant.moves.length) {
-      throw new ProgressionStateViolation("Persistent move slots diverged from battle snapshot");
-    }
-    const slots: MutableMoveSlot[] = [];
-    for (const battleMove of input.combatant.moves) {
-      const persisted = persistentMoves.rows.find((move) => move.slot_no === battleMove.slotNo);
-      if (persisted?.move_id !== battleMove.moveId) {
-        throw new ProgressionStateViolation(
-          "Persistent move identity diverged from battle snapshot",
+    const slots: MutableMoveSlot[] = persistentMoves.rows.map((move) => ({
+      slotNo: move.slot_no,
+      moveId: move.move_id,
+    }));
+
+    if (input.source.syncBattleState) {
+      if (persistentMoves.rows.length !== input.combatant.moves.length) {
+        throw new ProgressionStateViolation("Persistent move slots diverged from battle snapshot");
+      }
+      for (const battleMove of input.combatant.moves) {
+        const persisted = persistentMoves.rows.find((move) => move.slot_no === battleMove.slotNo);
+        if (persisted?.move_id !== battleMove.moveId) {
+          throw new ProgressionStateViolation(
+            "Persistent move identity diverged from battle snapshot",
+          );
+        }
+        await client.query(
+          `UPDATE pokemon_move_slots SET pp_current = $3
+           WHERE pokemon_instance_id = $1 AND slot_no = $2`,
+          [pokemonId, battleMove.slotNo, battleMove.ppCurrent],
         );
       }
-      await client.query(
-        `UPDATE pokemon_move_slots SET pp_current = $3
-         WHERE pokemon_instance_id = $1 AND slot_no = $2`,
-        [pokemonId, battleMove.slotNo, battleMove.ppCurrent],
-      );
-      slots.push({ slotNo: battleMove.slotNo, moveId: battleMove.moveId });
-    }
 
-    await client.query(
-      `DELETE FROM pokemon_persistent_conditions
-       WHERE pokemon_instance_id = $1 AND condition_key = ANY($2::text[])`,
-      [pokemonId, MAJOR_STATUS_KEYS],
-    );
-    if (input.combatant.majorStatus !== null) {
       await client.query(
-        `INSERT INTO pokemon_persistent_conditions(
-           pokemon_instance_id, condition_key, source_type, source_id, data
-         ) VALUES ($1, $2, 'BATTLE', $3, $4::jsonb)`,
-        [
-          pokemonId,
-          input.combatant.majorStatus.key,
-          input.battleId,
-          JSON.stringify({ counter: input.combatant.majorStatus.counter }),
-        ],
+        `DELETE FROM pokemon_persistent_conditions
+         WHERE pokemon_instance_id = $1 AND condition_key = ANY($2::text[])`,
+        [pokemonId, MAJOR_STATUS_KEYS],
       );
+      if (input.combatant.majorStatus !== null) {
+        await client.query(
+          `INSERT INTO pokemon_persistent_conditions(
+             pokemon_instance_id, condition_key, source_type, source_id, data
+           ) VALUES ($1, $2, 'BATTLE', $3, $4::jsonb)`,
+          [
+            pokemonId,
+            input.combatant.majorStatus.key,
+            input.source.sourceId,
+            JSON.stringify({ counter: input.combatant.majorStatus.counter }),
+          ],
+        );
+      }
     }
 
     const xp = applyPokemonXp({
@@ -790,7 +924,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     const evolutions: EvolutionResult[] = [];
     let currentFormId = row.form_id;
     if (row.ability_id === null) {
-      throw new ProgressionStateViolation("Winning Pokemon has no persisted Ability");
+      throw new ProgressionStateViolation("Pokemon has no persisted Ability");
     }
     let currentAbilityId: string = row.ability_id;
     let previousLevel = row.level;
@@ -803,7 +937,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         contentReleaseId: input.contentReleaseId,
         formId: currentFormId,
         level: crossedLevel,
-        sourceId: input.battleId,
+        sourceType: input.source.sourceType,
+        sourceId: input.source.sourceId,
+        actorType: input.source.actorType,
+        actorId: input.source.actorId,
         correlationId: input.correlationId,
         slots,
         learnedMoveIds,
@@ -832,7 +969,11 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           throw new ProgressionStateViolation("Evolution rules contain a cycle");
         }
         const evolution = await persistAutoEvolution(client, {
-          battleId: input.battleId,
+          sourceType: input.source.sourceType,
+          sourceId: input.source.sourceId,
+          idempotencyScope: `${input.source.idempotencyScope}.evolution`,
+          actorType: input.source.actorType,
+          actorId: input.source.actorId,
           pokemonInstanceId: pokemonId,
           playerId: input.playerId,
           contentReleaseId: input.contentReleaseId,
@@ -858,7 +999,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           contentReleaseId: input.contentReleaseId,
           formId: currentFormId,
           level: crossedLevel,
-          sourceId: input.battleId,
+          sourceType: input.source.sourceType,
+          sourceId: input.source.sourceId,
+          actorType: input.source.actorType,
+          actorId: input.source.actorId,
           correlationId: input.correlationId,
           slots,
           learnedMoveIds,
@@ -899,8 +1043,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         row.level,
       ],
     );
-    if (updated.rowCount !== 1)
+    if (updated.rowCount !== 1) {
       throw new ProgressionStateViolation("Pokemon progression CAS failed");
+    }
 
     if (xp.awardedXp > 0) {
       const ledger = await client.query(
@@ -908,9 +1053,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
            id, pokemon_instance_id, awarded_xp, before_level, after_level, before_xp, after_xp,
            content_release_id, ruleset_id, source_type, source_id, reason, actor_type, actor_id,
            idempotency_scope, idempotency_key, correlation_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                   'BATTLE_REWARD', $10, 'Battle reward XP', 'SYSTEM', NULL,
-                   'progression.battle-reward.xp', $11, $12)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [
           randomUUID(),
           pokemonId,
@@ -921,19 +1064,28 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           xp.afterXp,
           input.contentReleaseId,
           input.rulesetId,
-          input.battleId,
-          hashParts("progression.battle-reward.xp", input.battleId, pokemonId),
+          input.source.sourceType,
+          input.source.sourceId,
+          input.source.reason,
+          input.source.actorType,
+          input.source.actorId,
+          input.source.idempotencyScope,
+          hashParts(input.source.idempotencyScope, input.source.sourceId, pokemonId),
           input.correlationId,
         ],
       );
-      if (ledger.rowCount !== 1)
+      if (ledger.rowCount !== 1) {
         throw new ProgressionStateViolation("Pokemon XP ledger claim failed");
+      }
     }
+
     await insertPokemonHistory(client, {
       pokemonInstanceId: pokemonId,
-      eventType: "BATTLE_REWARD_XP",
+      eventType:
+        input.source.sourceType === "BATTLE_REWARD" ? "BATTLE_REWARD_XP" : "ADMIN_XP_ADJUSTED",
       payload: {
-        battleId: input.battleId,
+        sourceType: input.source.sourceType,
+        sourceId: input.source.sourceId,
         offeredXp: input.offeredXp,
         awardedXp: xp.awardedXp,
         discardedXp: xp.discardedXp,
@@ -942,8 +1094,10 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         beforeXp: xp.beforeXp,
         afterXp: xp.afterXp,
         finalHp,
+        reason: input.source.reason,
       },
-      actorType: "SYSTEM",
+      actorType: input.source.actorType,
+      actorId: input.source.actorId,
       correlationId: input.correlationId,
     });
 
@@ -1038,6 +1192,369 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       afterLevel,
       unlockKeys,
     };
+  }
+
+  public async adjustPokemonXp(
+    input: AdjustPokemonXpInput,
+  ): Promise<PokemonXpAdjustmentPersistenceResult> {
+    const storageKey = hashParts("progression.pokemon-xp-adjust", input.idempotencyKey.trim());
+    const fingerprint = hashParts(
+      input.playerId,
+      input.pokemonInstanceId,
+      String(input.delta),
+      input.metadata.sourceType,
+      input.metadata.sourceId,
+      input.metadata.reason,
+      input.metadata.actorType,
+      input.metadata.actorId ?? "",
+    );
+
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        await acquireLocks(client, [
+          `progression:pokemon-xp-adjust-key:${storageKey}`,
+          `progression:pokemon:${input.pokemonInstanceId}`,
+        ]);
+
+        const existing = await client.query<{
+          player_id: string;
+          pokemon_instance_id: string;
+          requested_delta: string;
+          request_fingerprint: string;
+          result: unknown;
+        }>(
+          `SELECT player_id, pokemon_instance_id, requested_delta::text,
+                  request_fingerprint, result
+           FROM pokemon_xp_adjustment_claims
+           WHERE idempotency_key = $1
+           FOR UPDATE`,
+          [storageKey],
+        );
+        const replay = existing.rows[0];
+        if (replay !== undefined) {
+          if (
+            replay.player_id !== input.playerId ||
+            replay.pokemon_instance_id !== input.pokemonInstanceId ||
+            safeInteger(replay.requested_delta, "Pokemon XP adjustment delta") !== input.delta ||
+            replay.request_fingerprint !== fingerprint
+          ) {
+            return { kind: "IDEMPOTENCY_CONFLICT" };
+          }
+          const parsed = PokemonXpAdjustmentResultSchema.parse(replay.result);
+          return { kind: "REPLAYED", result: { ...parsed, replayed: true } };
+        }
+
+        if (await hasUnsafePokemonBattleReference(client, input.pokemonInstanceId)) {
+          return { kind: "ACTIVE_BATTLE" };
+        }
+
+        const active = await client.query<{
+          release_id: string;
+          ruleset_id: string;
+          config: unknown;
+        }>(
+          `SELECT release.id AS release_id, release.default_ruleset_id AS ruleset_id, ruleset.config
+           FROM content_release_pointers pointer
+           JOIN content_releases release
+             ON release.id = pointer.content_release_id AND release.status = 'PUBLISHED'
+           JOIN rulesets ruleset
+             ON ruleset.id = release.default_ruleset_id AND ruleset.status = 'PUBLISHED'
+           WHERE pointer.pointer_key = 'ACTIVE'
+           FOR SHARE OF pointer, release, ruleset`,
+        );
+        const activeRow = active.rows[0];
+        if (activeRow === undefined) return { kind: "RULES_MISSING" };
+        const config = parseRulesetConfig(activeRow.config);
+        const progression = config.progression;
+        if (progression === undefined) return { kind: "RULES_MISSING" };
+        if (config.battle.evEnabled) {
+          return {
+            kind: "STATE_INVALID",
+            reason: "Pokemon XP adjustment does not support EV-enabled rulesets",
+          };
+        }
+
+        const pokemon = await client.query<{
+          status: string;
+          form_id: string;
+          level: number;
+          xp: string;
+          current_hp: number;
+          ability_id: string | null;
+          nature_id: string | null;
+          iv_hp: number | null;
+          iv_attack: number | null;
+          iv_defense: number | null;
+          iv_sp_attack: number | null;
+          iv_sp_defense: number | null;
+          iv_speed: number | null;
+        }>(
+          `SELECT instance.status, instance.form_id, instance.level, instance.xp::text,
+                  instance.current_hp, instance.ability_id,
+                  training.nature_id, training.iv_hp, training.iv_attack, training.iv_defense,
+                  training.iv_sp_attack, training.iv_sp_defense, training.iv_speed
+           FROM pokemon_instances instance
+           JOIN pokemon_training_values training ON training.pokemon_instance_id = instance.id
+           WHERE instance.id = $1 AND instance.owner_player_id = $2
+           FOR UPDATE OF instance, training`,
+          [input.pokemonInstanceId, input.playerId],
+        );
+        const row = pokemon.rows[0];
+        if (row === undefined) return { kind: "NOT_FOUND" };
+        if (row.status !== "ACTIVE") {
+          return { kind: "STATE_INVALID", reason: "Archived Pokemon XP cannot be adjusted" };
+        }
+        if (row.ability_id === null) {
+          return { kind: "STATE_INVALID", reason: "Pokemon has no persisted Ability" };
+        }
+        if (
+          config.battle.ivEnabled &&
+          [
+            row.iv_hp,
+            row.iv_attack,
+            row.iv_defense,
+            row.iv_sp_attack,
+            row.iv_sp_defense,
+            row.iv_speed,
+          ].some((value) => value === null)
+        ) {
+          return { kind: "STATE_INVALID", reason: "Pokemon IV state is incomplete" };
+        }
+
+        const nature =
+          row.nature_id === null
+            ? null
+            : ((
+                await client.query<{
+                  increased_stat:
+                    | "ATTACK"
+                    | "DEFENSE"
+                    | "SP_ATTACK"
+                    | "SP_DEFENSE"
+                    | "SPEED"
+                    | null;
+                  decreased_stat:
+                    | "ATTACK"
+                    | "DEFENSE"
+                    | "SP_ATTACK"
+                    | "SP_DEFENSE"
+                    | "SPEED"
+                    | null;
+                }>(
+                  `SELECT increased_stat, decreased_stat
+                   FROM nature_revisions
+                   WHERE content_release_id = $1 AND nature_id = $2 AND active = TRUE`,
+                  [activeRow.release_id, row.nature_id],
+                )
+              ).rows[0] ?? null);
+        if (config.battle.natureEnabled && nature === null) {
+          return { kind: "STATE_INVALID", reason: "Active content cannot resolve Pokemon Nature" };
+        }
+
+        const form = await loadFormStats(client, activeRow.release_id, row.form_id);
+        const ivs = {
+          hp: row.iv_hp ?? 0,
+          attack: row.iv_attack ?? 0,
+          defense: row.iv_defense ?? 0,
+          spAttack: row.iv_sp_attack ?? 0,
+          spDefense: row.iv_sp_defense ?? 0,
+          speed: row.iv_speed ?? 0,
+        };
+        const battleNature = {
+          natureId: row.nature_id,
+          increasedStat: nature?.increased_stat ?? null,
+          decreasedStat: nature?.decreased_stat ?? null,
+        };
+        const currentStats = calculatePokemonStats({
+          baseStats: form,
+          ivs,
+          level: row.level,
+          nature: battleNature,
+          ivEnabled: config.battle.ivEnabled,
+          natureEnabled: config.battle.natureEnabled,
+        });
+        const beforeXp = safeInteger(row.xp, "pokemon.xp");
+        const beforeTotal = pokemonTotalXp(row.level, beforeXp);
+
+        const moves = await client.query<{
+          slot_no: number;
+          move_id: string;
+          pp_current: number | null;
+        }>(
+          `SELECT slot_no, move_id, pp_current
+           FROM pokemon_move_slots
+           WHERE pokemon_instance_id = $1
+           ORDER BY slot_no`,
+          [input.pokemonInstanceId],
+        );
+
+        const snapshot: PokemonXpSnapshot = {
+          pokemonInstanceId: input.pokemonInstanceId,
+          formId: row.form_id,
+          level: row.level,
+          ability: { abilityId: row.ability_id },
+          nature: battleNature,
+          ivs,
+          moves: moves.rows.map((move) => ({
+            slotNo: move.slot_no,
+            moveId: move.move_id,
+            ppCurrent: move.pp_current,
+          })),
+          majorStatus: null,
+          currentHp: row.current_hp,
+          maxHp: currentStats.hp,
+        };
+
+        let result: PokemonXpAdjustmentResult;
+
+        if (input.delta > 0) {
+          if (row.level >= progression.pokemon.levelCap) {
+            return { kind: "STATE_INVALID", reason: "Pokemon is already at the level cap" };
+          }
+          const awarded = await this.applyPositivePokemonXp(client, {
+            playerId: input.playerId,
+            contentReleaseId: activeRow.release_id,
+            rulesetId: activeRow.ruleset_id,
+            config,
+            progression,
+            combatant: snapshot,
+            offeredXp: input.delta,
+            correlationId: input.correlationId,
+            source: {
+              sourceType: input.metadata.sourceType,
+              sourceId: input.metadata.sourceId,
+              reason: input.metadata.reason,
+              actorType: input.metadata.actorType,
+              actorId: input.metadata.actorId,
+              idempotencyScope: "progression.admin-pokemon-xp",
+              syncBattleState: false,
+            },
+          });
+
+          result = PokemonXpAdjustmentResultSchema.parse({
+            pokemonInstanceId: input.pokemonInstanceId,
+            requestedDelta: input.delta,
+            appliedDelta: awarded.awardedXp,
+            beforeLevel: awarded.beforeLevel,
+            afterLevel: awarded.afterLevel,
+            beforeXp: awarded.beforeXp,
+            afterXp: awarded.afterXp,
+            learnedMoveIds: awarded.learnedMoveIds,
+            pendingMoveChoiceIds: awarded.pendingMoveChoiceIds,
+            evolutions: awarded.evolutions,
+            sideEffectPolicy: "NORMAL_LEVEL_UP_V1",
+            replayed: false,
+          });
+        } else {
+          const afterTotal = beforeTotal + input.delta;
+          if (afterTotal < 0) return { kind: "UNDERFLOW" };
+          const target = pokemonProgressForTotalXp(afterTotal, progression.pokemon.levelCap);
+          if (target.level === row.level && target.xp === beforeXp) {
+            return { kind: "STATE_INVALID", reason: "Pokemon XP adjustment would be a no-op" };
+          }
+          const targetStats = calculatePokemonStats({
+            baseStats: form,
+            ivs,
+            level: target.level,
+            nature: battleNature,
+            ivEnabled: config.battle.ivEnabled,
+            natureEnabled: config.battle.natureEnabled,
+          });
+          const afterHp = adjustCurrentHpAfterStatChange({
+            currentHp: row.current_hp,
+            oldMaxHp: currentStats.hp,
+            newMaxHp: targetStats.hp,
+          });
+          const updated = await client.query(
+            `UPDATE pokemon_instances
+             SET level = $3, xp = $4, current_hp = $5,
+                 revision = revision + 1, updated_at = now()
+             WHERE id = $1 AND owner_player_id = $2 AND status = 'ACTIVE'`,
+            [input.pokemonInstanceId, input.playerId, target.level, target.xp, afterHp],
+          );
+          if (updated.rowCount !== 1) {
+            throw new ProgressionStateViolation("Pokemon negative XP adjustment update failed");
+          }
+          await insertPokemonHistory(client, {
+            pokemonInstanceId: input.pokemonInstanceId,
+            eventType: "ADMIN_XP_ADJUSTED",
+            payload: {
+              sourceType: input.metadata.sourceType,
+              sourceId: input.metadata.sourceId,
+              requestedDelta: input.delta,
+              appliedDelta: input.delta,
+              beforeLevel: row.level,
+              afterLevel: target.level,
+              beforeXp,
+              afterXp: target.xp,
+              finalHp: afterHp,
+              sideEffectPolicy: "PRESERVE_HISTORICAL_FORM_AND_MOVES_V1",
+              reason: input.metadata.reason,
+            },
+            actorType: input.metadata.actorType,
+            actorId: input.metadata.actorId,
+            correlationId: input.correlationId,
+          });
+
+          result = PokemonXpAdjustmentResultSchema.parse({
+            pokemonInstanceId: input.pokemonInstanceId,
+            requestedDelta: input.delta,
+            appliedDelta: input.delta,
+            beforeLevel: row.level,
+            afterLevel: target.level,
+            beforeXp,
+            afterXp: target.xp,
+            learnedMoveIds: [],
+            pendingMoveChoiceIds: [],
+            evolutions: [],
+            sideEffectPolicy: "PRESERVE_HISTORICAL_FORM_AND_MOVES_V1",
+            replayed: false,
+          });
+        }
+
+        const claim = await client.query(
+          `INSERT INTO pokemon_xp_adjustment_claims(
+             id, pokemon_instance_id, player_id, requested_delta, applied_delta,
+             before_level, after_level, before_xp, after_xp, content_release_id, ruleset_id,
+             source_type, source_id, reason, actor_type, actor_id,
+             idempotency_key, request_fingerprint, result, correlation_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                     $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20)`,
+          [
+            randomUUID(),
+            input.pokemonInstanceId,
+            input.playerId,
+            input.delta,
+            result.appliedDelta,
+            result.beforeLevel,
+            result.afterLevel,
+            result.beforeXp,
+            result.afterXp,
+            activeRow.release_id,
+            activeRow.ruleset_id,
+            input.metadata.sourceType,
+            input.metadata.sourceId,
+            input.metadata.reason,
+            input.metadata.actorType,
+            input.metadata.actorId,
+            storageKey,
+            fingerprint,
+            JSON.stringify(result),
+            input.correlationId,
+          ],
+        );
+        if (claim.rowCount !== 1) {
+          throw new ProgressionStateViolation("Pokemon XP adjustment claim failed");
+        }
+
+        return { kind: "APPLIED", result };
+      });
+    } catch (error) {
+      if (error instanceof ProgressionStateViolation) {
+        return { kind: "STATE_INVALID", reason: error.message };
+      }
+      throw error;
+    }
   }
 
   public async adjustTrainerProgress(

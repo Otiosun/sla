@@ -99,6 +99,7 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres-admin-reward-catalog-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresAdminWhatsAppPlayerTargetResolver } from "../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
+import { PostgresAdminWhatsAppPokemonTargetResolver } from "../platform/admin/postgres-admin-whatsapp-pokemon-target-resolver.js";
 import { PostgresAdminAutoBattleControl } from "../platform/battle/postgres-admin-auto-battle-control.js";
 import { PostgresAutoBattleTerminalWhatsAppProjector } from "../platform/battle/postgres-auto-battle-terminal-whatsapp-projector.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
@@ -341,6 +342,7 @@ export function createOperationalMessagingComposition(
   const adminBatchWhatsAppRoutes = createAdminBatchWhatsAppRoutes({
     admins: adminIdentity,
     targets: new PostgresAdminWhatsAppPlayerTargetResolver(pool),
+    pokemonTargets: new PostgresAdminWhatsAppPokemonTargetResolver(pool),
     catalog: adminRewardCatalog,
     admin: adminService,
     previewRefs: new PostgresAdminBatchWhatsAppPreviewRefRepository(pool),
