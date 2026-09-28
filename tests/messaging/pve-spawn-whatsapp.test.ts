@@ -421,6 +421,11 @@ describe("PVE /spawn WhatsApp route", () => {
         })),
       },
       moveDisplayNames: async () => new Map([[biteId, "Bite"]]),
+      narratorOpening: {
+        start: vi.fn(async () => {
+          throw new Error("opening start must not run for an invalid move");
+        }),
+      },
     } as never);
 
     const output = await route.handler.handle(
