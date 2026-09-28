@@ -127,6 +127,15 @@ export class EncounterService {
       ) {
         return err(encounterNotReady("Party membership changed; spawn was rejected"));
       }
+
+      if (context.activeBattle) {
+        return err(encounterNotReady("Player already has an active battle"));
+      }
+      const activeEncounter = await transaction.activeForPlayer(input.playerId, true);
+      if (activeEncounter !== null) {
+        return err(encounterNotReady("Player already has an incompatible active encounter"));
+      }
+
       for (const participantPlayerId of participants) {
         const participant = await transaction.playerContext(participantPlayerId, true);
         if (
@@ -136,15 +145,11 @@ export class EncounterService {
           participant.activeBattle ||
           participant.areaId === null ||
           participant.areaId !== context.areaId ||
-          (await transaction.activeForPlayer(participantPlayerId, true)) !== null
+          (participantPlayerId !== input.playerId &&
+            (await transaction.activeForPlayer(participantPlayerId, true)) !== null)
         ) {
           return err(encounterNotReady("Party is not eligible and co-located for this spawn"));
         }
-      }
-
-      const activeEncounter = await transaction.activeForPlayer(input.playerId, true);
-      if (activeEncounter !== null) {
-        return err(encounterNotReady("Player already has an incompatible active encounter"));
       }
 
       const content = await transaction.activeContent();
