@@ -126,7 +126,23 @@ function dependencies(pending: boolean) {
       },
     ],
   );
-  const transition = vi.fn();
+  const transition = vi.fn(
+    async (input: {
+      readonly participantId: string;
+      readonly expectedRevision: number;
+      readonly kind: "NARRATOR" | "AUTO";
+      readonly adminPrincipalId: string | null;
+    }): Promise<BattleParticipantController> => ({
+      participantId: input.participantId,
+      battleId,
+      kind: input.kind,
+      playerId: null,
+      adminPrincipalId: input.adminPrincipalId,
+      revision: input.expectedRevision + 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+  );
   const resolvePrincipal = vi.fn(
     async (): Promise<{ readonly principalId: string } | null> => null,
   );
