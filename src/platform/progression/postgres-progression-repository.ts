@@ -375,7 +375,8 @@ async function learnMovesAtLevel(
       pokemonInstanceId: input.pokemonInstanceId,
       eventType: "MOVE_CHOICE_PENDING",
       payload: { moveId: move.move_id, level: input.level, choiceId: persistedChoiceId },
-      actorType: "SYSTEM",
+      actorType: input.actorType,
+      actorId: input.actorId,
       correlationId: input.correlationId,
     });
   }
@@ -542,9 +543,11 @@ async function persistAutoEvolution(
       evolutionRuleId: input.rule.id,
       triggerKind: "LEVEL",
       level: input.level,
-      battleId: input.battleId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
     },
-    actorType: "SYSTEM",
+    actorType: input.actorType,
+    actorId: input.actorId,
     correlationId: input.correlationId,
   });
   return result;
