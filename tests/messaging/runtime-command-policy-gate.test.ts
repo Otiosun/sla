@@ -144,6 +144,35 @@ describe("RuntimeCommandPolicyGate", () => {
     ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
+  it("admits an authorized narrator without a player account for controller-backed battle commands", async () => {
+    const allowed = new RuntimeCommandPolicyGate(
+      dependencies({
+        player: "MISSING",
+        group: "WORLD",
+        adminCapabilities: ["encounter.support"],
+      }),
+    );
+
+    expect(
+      await allowed.authorize(context({ chatRef: "world@g.us" }), {
+        requiredGroupCapabilities: ["world"],
+        requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
+      }),
+    ).toEqual(ok(undefined));
+
+    const denied = new RuntimeCommandPolicyGate(
+      dependencies({ player: "MISSING", group: "WORLD", adminCapabilities: [] }),
+    );
+    expect(
+      await denied.authorize(context({ chatRef: "world@g.us" }), {
+        requiredGroupCapabilities: ["world"],
+        requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
   it("requires an actual RPG admin capability rather than WhatsApp group status", async () => {
     const denied = new RuntimeCommandPolicyGate(dependencies({ adminCapabilities: [] }));
     expect(
