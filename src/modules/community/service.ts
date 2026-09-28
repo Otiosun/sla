@@ -56,7 +56,9 @@ export class CommunityService {
     });
   }
 
-  public async getGroupConfigurationByProviderRef(input: ResolveCommunityChatInput): Promise<
+  public async getGroupConfigurationByProviderRef(
+    input: ResolveCommunityChatInput,
+  ): Promise<
     | (CommunityGroupRecord & {
         readonly capabilities: readonly CommunityCapability[];
       })
