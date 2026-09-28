@@ -470,6 +470,181 @@ export function createOperationalMessagingComposition(
           kick: (battleId: string) => pveBattle.runAutoTurnOnce(battleId),
         };
 
+  const narratorOpening =
+    pveBattleStart === null || pveBattle === null
+      ? null
+      : {
+          start: async (input: {
+            readonly playerId: string;
+            readonly encounterId: string;
+            readonly status: "PRESENTED";
+            readonly expectedRevision: bigint;
+            readonly provider: string;
+            readonly narratorExternalId: string;
+            readonly moveSlot: number;
+            readonly idempotencyKey: string;
+          }) => {
+            const started = await pveBattleStart.startCanonical({
+              playerId: input.playerId as never,
+              encounterId: input.encounterId as never,
+              status: input.status,
+              expectedRevision: input.expectedRevision,
+            });
+            if (!started.ok) {
+              return { ok: false as const, error: { message: started.error.message } };
+            }
+
+            const battleId = started.value.start.battleId;
+            const principal = await adminIdentity.resolvePrincipal({
+              provider: input.provider,
+              externalId: input.narratorExternalId,
+            });
+            if (principal === null) {
+              return {
+                ok: false as const,
+                error: { message: "Narrator principal was not found", battleId },
+              };
+            }
+
+            const stateResult = await pveBattle.battle.currentState(battleId);
+            if (!stateResult.ok) {
+              return {
+                ok: false as const,
+                error: { message: stateResult.error.message, battleId },
+              };
+            }
+            const state = stateResult.value;
+            const controllers = new PostgresBattleParticipantControllerRepository(pool);
+            const persistedControllers = await controllers.listByBattle(battleId);
+            const activeIds = new Set(
+              state.sides.flatMap((side) =>
+                (side.slots ?? [side]).map((slot) => slot.activeParticipantId),
+              ),
+            );
+
+            const wildActor = state.combatants.find(
+              (entry) =>
+                entry.participantKind === "WILD_POKEMON" &&
+                activeIds.has(entry.participantId),
+            );
+            if (wildActor === undefined) {
+              return {
+                ok: false as const,
+                error: { message: "Active wild battle actor was not found", battleId },
+              };
+            }
+            const playerController = persistedControllers.find(
+              (entry) =>
+                entry.kind === "PLAYER" &&
+                entry.playerId === input.playerId &&
+                activeIds.has(entry.participantId),
+            );
+            const playerActor =
+              playerController === undefined
+                ? undefined
+                : state.combatants.find(
+                    (entry) => entry.participantId === playerController.participantId,
+                  );
+            if (playerController === undefined || playerActor === undefined) {
+              return {
+                ok: false as const,
+                error: { message: "Target player has no active battle actor", battleId },
+              };
+            }
+
+            const sourceController = persistedControllers.find(
+              (entry) => entry.participantId === wildActor.participantId,
+            );
+            if (sourceController === undefined) {
+              return {
+                ok: false as const,
+                error: { message: "Wild battle controller was not found", battleId },
+              };
+            }
+
+            let narratorController = sourceController;
+            if (sourceController.kind === "AUTO") {
+              const changed = await controllers.transition({
+                participantId: sourceController.participantId,
+                expectedRevision: sourceController.revision,
+                kind: "NARRATOR",
+                adminPrincipalId: principal.principalId,
+              });
+              if (changed === null) {
+                return {
+                  ok: false as const,
+                  error: { message: "Wild controller could not be assigned to narrator", battleId },
+                };
+              }
+              narratorController = changed;
+            } else if (
+              sourceController.kind !== "NARRATOR" ||
+              sourceController.adminPrincipalId !== principal.principalId
+            ) {
+              return {
+                ok: false as const,
+                error: { message: "Wild actor is controlled by another controller", battleId },
+              };
+            }
+
+            const move = wildActor.moves.find((entry) => entry.slotNo === input.moveSlot);
+            if (move === undefined) {
+              return {
+                ok: false as const,
+                error: { message: "Opening move slot disappeared during battle start", battleId },
+              };
+            }
+            const submitted = await pveBattle.battle.resolvePlayerTurn({
+              battleId,
+              playerId: null,
+              adminPrincipalId: narratorController.adminPrincipalId,
+              expectedVersion: state.version,
+              idempotencyKey: input.idempotencyKey,
+              action: {
+                type: "USE_MOVE",
+                actorParticipantId: wildActor.participantId,
+                targetParticipantId: playerActor.participantId,
+                moveSlot: input.moveSlot,
+              },
+            });
+            if (!submitted.ok) {
+              return {
+                ok: false as const,
+                error: { message: submitted.error.message, battleId },
+              };
+            }
+
+            const [speciesName, moveNames, playerMoveNames] = await Promise.all([
+              reads.speciesDisplayName(state.contentReleaseId, playerActor.speciesId),
+              reads.moveDisplayNames(state.contentReleaseId, [move.moveId]),
+              reads.moveDisplayNames(
+                state.contentReleaseId,
+                playerActor.moves.map((entry) => entry.moveId),
+              ),
+            ]);
+            return {
+              ok: true as const,
+              value: {
+                battleId,
+                moveDisplayName: moveNames.get(move.moveId) ?? "Movimento",
+                player: {
+                  displayName: speciesName ?? "Pokémon",
+                  level: playerActor.level,
+                  shiny: playerActor.shiny,
+                  currentHp: playerActor.currentHp,
+                  maxHp: playerActor.maxHp,
+                  moves: playerActor.moves.map((entry) => ({
+                    slotNo: entry.slotNo,
+                    displayName: playerMoveNames.get(entry.moveId) ?? "Movimento",
+                    ppCurrent: entry.ppCurrent,
+                    maxPp: entry.maxPp,
+                  })),
+                },
+              },
+            };
+          },
+        };
+
   const policyGate = new RuntimeCommandPolicyGate({
     community,
     players: playerRegistration,
@@ -600,7 +775,9 @@ export function createOperationalMessagingComposition(
               context: new PostgresNarratorSpawnContextResolver(pool),
               species: new PostgresNarratorSpawnSpeciesResolver(pool),
               speciesDisplayName: reads.speciesDisplayName.bind(reads),
+              moveDisplayNames: reads.moveDisplayNames.bind(reads),
               ...(narratorAutoBattle === null ? {} : { autoBattle: narratorAutoBattle }),
+              ...(narratorOpening === null ? {} : { narratorOpening }),
             }),
           ]),
       createWorldGroupSetupRoute({
