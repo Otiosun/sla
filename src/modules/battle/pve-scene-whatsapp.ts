@@ -435,7 +435,15 @@ async function hud(
           }/${move.maxPp ?? "—"}\``,
       ),
     );
-    if (state.battleType === "WILD") {
+    if (controller.kind === "NARRATOR") {
+      const narratorRoster = controlledRoster(state, controller, controllers);
+      lines.push(
+        "",
+        narratorRoster.length > 1
+          ? "`/movimento 1` · `/trocar 2` · `/automatico`"
+          : "`/movimento 1` · `/automatico`",
+      );
+    } else if (state.battleType === "WILD") {
       lines.push("", "`/movimento 1` · `/capturar` · `/fugir`");
     } else {
       lines.push("", "`/movimento 1` · `/trocar 2`");
@@ -1028,28 +1036,77 @@ export function createPveSceneRoutes(
 
       const mentionsOut = targetRef === null ? [] : [targetRef];
       const suffix = targetRef === null ? "" : ` · ${mentionTag(targetRef)}`;
+      let narratorText: string | null = null;
+      if (kind === "NARRATOR") {
+        const actor = state.value.combatants.find(
+          (combatant) => combatant.participantId === changed.participantId,
+        );
+        if (actor !== undefined) {
+          const [speciesName, moveNames] = await Promise.all([
+            dependencies.presentation.speciesDisplayName(
+              state.value.contentReleaseId,
+              actor.speciesId,
+            ),
+            dependencies.presentation.moveDisplayNames(
+              state.value.contentReleaseId,
+              actor.moves.map((move) => move.moveId),
+            ),
+          ]);
+          narratorText = [
+            `🎙️ *CONTROLE DO NARRADOR*${suffix}`,
+            "",
+            `*${speciesName ?? "Pokémon selvagem"}*${actor.shiny ? " ✨" : ""} · Nv. ${actor.level}`,
+            `❤️ \`${actor.currentHp}/${actor.maxHp}\``,
+            "",
+            "*Golpes*",
+            ...actor.moves.map(
+              (move) =>
+                `\`${move.slotNo}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP \`${move.ppCurrent ?? "—"}/${move.maxPp ?? "—"}\``,
+            ),
+            "",
+            "`/movimento <golpe>` pode ficar dentro da própria cena.",
+            "`/batalha` · consultar · `/automatico` · devolver à IA",
+          ].join("\n");
+        }
+      }
       return reply(
         context,
         kind === "NARRATOR"
-          ? [
+          ? (narratorText ??
+            [
               `🎙️ *CONTROLE DO NARRADOR*${suffix}`,
               "",
               "Selvagem sob seu controle.",
               "`/movimento <golpe>` pode ficar dentro da própria cena.",
               "`/automatico` · devolver à IA",
-            ].join("\n")
+            ].join("\n"))
           : [`🤖 *CONTROLE AUTOMÁTICO*${suffix}`, "", "Selvagem devolvido à IA."].join("\n"),
         battleId,
         { mentions: mentionsOut },
       );
     };
   const battleHud: Handler = async (context) => {
-    const player = await dependencies.players.resolvePlayer({
+    const principal = await dependencies.admins.resolvePrincipal({
       provider: context.message.provider,
       externalId: context.message.senderRef,
     });
-    if (!player.ok) return player;
-    const battleId = await dependencies.activeBattleId(player.value.playerId);
+    const controlledBattleId =
+      principal === null || dependencies.narratorBattleId === undefined
+        ? null
+        : await dependencies.narratorBattleId(principal.principalId);
+
+    let playerId: PlayerId | null = null;
+    let battleId = controlledBattleId;
+    if (battleId === null) {
+      const player = await dependencies.players.resolvePlayer({
+        provider: context.message.provider,
+        externalId: context.message.senderRef,
+      });
+      if (!player.ok) return player;
+      playerId = player.value.playerId;
+      battleId = await dependencies.activeBattleId(playerId);
+    }
+
     if (battleId === null) return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
     const state = await dependencies.battle.currentState(battleId);
     if (!state.ok)
@@ -1062,7 +1119,11 @@ export function createPveSceneRoutes(
     const controller = activeController(
       state.value,
       controllers,
-      (entry) => entry.kind === "PLAYER" && entry.playerId === player.value.playerId,
+      (entry) =>
+        (playerId !== null && entry.kind === "PLAYER" && entry.playerId === playerId) ||
+        (principal !== null &&
+          entry.kind === "NARRATOR" &&
+          entry.adminPrincipalId === principal.principalId),
     );
     if (controller === undefined)
       return err(
@@ -1091,6 +1152,7 @@ export function createPveSceneRoutes(
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
         requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
       },
     })),
     {
@@ -1115,6 +1177,7 @@ export function createPveSceneRoutes(
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
         requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
       },
     },
   ];
