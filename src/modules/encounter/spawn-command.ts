@@ -76,6 +76,7 @@ export function parseSpawnCommand(text: string | null): SpawnCommandParseResult 
   let seenQuantity = false;
   let seenInitiative = false;
   let seenMove = false;
+  let structuralModifiersStarted = false;
 
   for (let index = 0; index < tokens.length; index += 1) {
     const rawToken = tokens[index] ?? "";
@@ -97,6 +98,7 @@ export function parseSpawnCommand(text: string | null): SpawnCommandParseResult 
     }
 
     if (kind === "LEVEL") {
+      structuralModifiersStarted = true;
       if (seenLevel) return duplicate("nível");
       seenLevel = true;
       const attached = token.match(/^(?:nv|nivel|level|lvl)(\d+)$/u)?.[1];
@@ -111,6 +113,7 @@ export function parseSpawnCommand(text: string | null): SpawnCommandParseResult 
     }
 
     if (kind === "QUANTITY") {
+      structuralModifiersStarted = true;
       if (seenQuantity) return duplicate("quantidade");
       seenQuantity = true;
       const candidate = tokens[index + 1];
@@ -124,6 +127,7 @@ export function parseSpawnCommand(text: string | null): SpawnCommandParseResult 
     }
 
     if (kind === "INITIATIVE") {
+      structuralModifiersStarted = true;
       if (seenInitiative) return duplicate("início");
       seenInitiative = true;
       const actorRaw = tokens[index + 1];
@@ -141,6 +145,7 @@ export function parseSpawnCommand(text: string | null): SpawnCommandParseResult 
     }
 
     if (kind === "MOVE") {
+      structuralModifiersStarted = true;
       if (seenMove) return duplicate("ataque");
       seenMove = true;
       const parts: string[] = [];
@@ -163,6 +168,13 @@ export function parseSpawnCommand(text: string | null): SpawnCommandParseResult 
       continue;
     }
 
+    if (structuralModifiersStarted) {
+      return {
+        ok: false,
+        message:
+          "A espécie deve vir antes dos modificadores de nível, início ou ataque. Ex.: `/spawn Poochyena @treinador nv 12 ataque Bite`.",
+      };
+    }
     species.push(rawToken);
   }
 
