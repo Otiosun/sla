@@ -310,6 +310,8 @@ export class PlayerPortalHttpHandler {
         currencies: [...catalog.currencies],
         species: [...(catalog.species ?? [])],
         forms: [...(catalog.forms ?? [])],
+        abilities: [...(catalog.abilities ?? [])],
+        natures: [...(catalog.natures ?? [])],
         effects: [...(catalog.effects ?? [])],
         releases: [...(catalog.releases ?? [])],
       });
@@ -583,10 +585,19 @@ export class PlayerPortalHttpHandler {
               operationType: "wallet.adjust",
               input: { playerId, currencyId: data.currencyId, delta: data.delta },
             }
-          : {
-              operationType: "progression.trainer.adjust",
-              input: { playerId, delta: data.delta },
-            };
+          : data.kind === "POKEMON_XP"
+            ? {
+                operationType: "pokemon.xp.adjust",
+                input: {
+                  playerId,
+                  pokemonInstanceId: data.pokemonInstanceId,
+                  delta: data.delta,
+                },
+              }
+            : {
+                operationType: "progression.trainer.adjust",
+                input: { playerId, delta: data.delta },
+              };
 
     try {
       const prepared = await this.dependencies.adminMutations.prepareMutation({
