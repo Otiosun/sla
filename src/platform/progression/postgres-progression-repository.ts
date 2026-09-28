@@ -17,6 +17,7 @@ import {
   type PokemonBaseStats,
 } from "../../modules/pokemon/stats.js";
 import {
+  type AdjustPokemonXpInput,
   type AdjustTrainerProgressInput,
   type ApplyBattleRewardInput,
   BattleRewardResultSchema,
@@ -24,6 +25,8 @@ import {
   EvolutionResultSchema,
   type EvolvePokemonInput,
   MoveChoiceResultSchema,
+  type PokemonXpAdjustmentResult,
+  PokemonXpAdjustmentResultSchema,
   type PokemonXpAwardResult,
   type ResolveMoveChoiceInput,
   TrainerProgressAdjustmentResultSchema,
@@ -34,12 +37,14 @@ import type {
   BattleRewardPersistenceResult,
   EvolutionPersistenceResult,
   MoveChoicePersistenceResult,
+  PokemonXpAdjustmentPersistenceResult,
   ProgressionRepository,
   TrainerProgressAdjustmentPersistenceResult,
 } from "../../modules/progression/ports.js";
 import {
   applyPokemonXp,
   battlePokemonXp,
+  pokemonXpRequiredForNextLevel,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
 import { withTransaction } from "../db/transaction.js";
@@ -48,6 +53,79 @@ import { recordPokedexOwned } from "../pokedex/postgres-pokedex-writer.js";
 const MAJOR_STATUS_KEYS = ["BURN", "POISON", "BAD_POISON", "PARALYSIS", "SLEEP", "FREEZE"] as const;
 
 class ProgressionStateViolation extends Error {}
+
+type PokemonXpSnapshot = Pick<
+  BattleCombatant,
+  "pokemonInstanceId" | "formId" | "level" | "ability" | "nature" | "ivs" | "moves" |
+    "majorStatus" | "currentHp" | "maxHp"
+>;
+
+interface PokemonXpSourceMetadata {
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly reason: string;
+  readonly actorType: "SYSTEM" | "ADMIN";
+  readonly actorId: string | null;
+  readonly idempotencyScope: string;
+  readonly syncBattleState: boolean;
+}
+
+function pokemonTotalXp(level: number, xp: number): number {
+  if (!Number.isInteger(level) || level < 1 || level > 100) {
+    throw new ProgressionStateViolation("Pokemon level is outside the supported range");
+  }
+  if (!Number.isSafeInteger(xp) || xp < 0) {
+    throw new ProgressionStateViolation("Pokemon XP is outside the supported range");
+  }
+  const total = level ** 3 - 1 + xp;
+  if (!Number.isSafeInteger(total)) {
+    throw new ProgressionStateViolation("Pokemon total XP is outside the safe integer range");
+  }
+  return total;
+}
+
+function pokemonProgressForTotalXp(
+  totalXp: number,
+  levelCap: number,
+): { readonly level: number; readonly xp: number } {
+  if (!Number.isSafeInteger(totalXp) || totalXp < 0) {
+    throw new ProgressionStateViolation("Pokemon total XP cannot be negative");
+  }
+  for (let level = levelCap; level >= 1; level -= 1) {
+    const base = level ** 3 - 1;
+    if (totalXp < base) continue;
+    if (level === levelCap) return { level, xp: 0 };
+    const xp = totalXp - base;
+    const threshold = pokemonXpRequiredForNextLevel(level);
+    if (xp < threshold) return { level, xp };
+  }
+  return { level: 1, xp: 0 };
+}
+
+async function hasUnsafePokemonBattleReference(
+  client: PoolClient,
+  pokemonInstanceId: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1
+     FROM battle_participants participant
+     JOIN battles battle ON battle.id = participant.battle_id
+     WHERE participant.pokemon_instance_id = $1
+       AND (
+         battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
+         OR (
+           battle.status = 'WON'
+           AND battle.battle_type IN ('WILD', 'NPC')
+           AND NOT EXISTS (
+             SELECT 1 FROM battle_reward_claims reward WHERE reward.battle_id = battle.id
+           )
+         )
+       )
+     LIMIT 1`,
+    [pokemonInstanceId],
+  );
+  return result.rowCount === 1;
+}
 
 function hashParts(...parts: readonly string[]): string {
   const hash = createHash("sha256");
