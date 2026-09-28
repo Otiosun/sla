@@ -362,12 +362,12 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(second.value.outgoing).toHaveLength(2);
     expect(second.value.outgoing[0]?.messageType).toBe("REACTION");
     const text = String(second.value.outgoing[1]?.payload.text);
-    expect(text).toContain("⚔️ *Turno 4*");
+    expect(text).toContain("⚔️ *TURNO 4* · @111 × @222");
     expect(text).toContain("Pikachu usou *Quick Attack*.");
     expect(text).toContain("Squirtle: 21 → 14 HP.");
     expect(text).toContain("Squirtle usou *Water Gun*.");
     expect(text).toContain("Pikachu: 24 → 17 HP.");
-    expect(text).toContain("@111\nx\n@222");
+    expect(text).not.toContain("@111\nx\n@222");
     expect(second.value.outgoing[1]?.payload.mentions).toEqual([
       "111@s.whatsapp.net",
       "222@s.whatsapp.net",
@@ -431,13 +431,15 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     const routes = createPveSceneRoutes(setup.dependencies);
     const hud = await routeFor(routes, "batalha").handler.handle(context("/batalha"));
     const text = String(hud.ok ? hud.value.outgoing[0]?.payload.text : "");
-    expect(text).toContain("*BATALHA · Turno 3*");
-    expect(text).toContain("◇ *SEU POKÉMON*");
-    expect(text).toContain("HP `12/20`");
-    expect(text).toContain("◇ *OPONENTE*");
-    expect(text).toContain("`/combate` · comandos e regras");
+    expect(text).toContain("*BATALHA · T3* · @sender");
+    expect(text).toContain("*Pikachu*");
+    expect(text).toContain("❤️ `12/20`");
+    expect(text).toContain("× *Rattata*");
+    expect(text).toContain("*Golpes*");
     expect(text).toContain("Quick Attack");
     expect(text).toContain("`/movimento 1`");
+    expect(text).toContain("`/combate` · ajuda");
+    expect(hud.ok && hud.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
   });
 
   it("lets an authorized narrator submit, assume, and restore automatic control", async () => {
