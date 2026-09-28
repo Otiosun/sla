@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSpawnWhatsAppRoute } from "../../src/modules/encounter/spawn-whatsapp.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 const playerId = "11111111-1111-4111-8111-111111111111" as never;
@@ -416,6 +417,56 @@ describe("PVE /spawn WhatsApp route", () => {
         "Poochyena não está disponível",
       );
     }
+  });
+
+
+  it("accepts /spawn embedded at the end of a human-written scene without touching the prose", async () => {
+    const resolvePlayer = vi
+      .fn()
+      .mockResolvedValue(ok({ playerId, state: "COMPLETE", created: false }));
+    const createOrReplay = vi.fn().mockResolvedValue(
+      ok({
+        encounterId,
+        contentReleaseId: "55555555-5555-4555-8555-555555555555",
+        revision: 1n,
+        status: "PRESENTED",
+        snapshot: {
+          speciesId: "66666666-6666-4666-8666-666666666666",
+          level: 7,
+          shiny: false,
+          moves: [],
+        },
+      }),
+    );
+    const route = createSpawnWhatsAppRoute({
+      players: { resolvePlayer },
+      encounters: { createOrReplay },
+      species: {
+        resolve: vi.fn(async () => ({
+          formId: "77777777-7777-4777-8777-777777777777",
+          displayName: "Poochyena",
+        })),
+      },
+      speciesDisplayName: async () => "Poochyena",
+    } as never);
+    const router = new MessageRouter(
+      [route],
+      { authorize: async () => ok(undefined) },
+    );
+    const scene =
+      "*Poochyena rompeu o mato e avançou contra o treinador.*\n\n/spawn Poochyena @target nv 7";
+    const output = await router.dispatch(
+      contextWithText(scene, ["target@s.whatsapp.net"]),
+    );
+
+    expect(output.ok).toBe(true);
+    expect(createOrReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forcedLevel: 7,
+        forcedFormId: "77777777-7777-4777-8777-777777777777",
+      }),
+    );
+    expect(scene).toContain("Poochyena rompeu o mato");
   });
 
 });
