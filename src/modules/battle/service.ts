@@ -172,6 +172,9 @@ export class BattleService {
             party: data.opponentParty,
           },
         ],
+        ...(data.firstTurnInitiative === undefined
+          ? {}
+          : { firstTurnInitiative: data.firstTurnInitiative }),
         idFactory: this.idFactory,
       });
       if (!built.ok) {
