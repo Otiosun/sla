@@ -552,6 +552,40 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     );
   });
 
+  it("lets /assumir explicitly target another trainer battle", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    const auto = {
+      participantId: enemyId,
+      battleId,
+      kind: "AUTO" as const,
+      playerId: null,
+      adminPrincipalId: null,
+      revision: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setup.listByBattle.mockResolvedValue([auto]);
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+
+    const routes = createPveSceneRoutes(setup.dependencies);
+    const base = context("/assumir @target", { senderRef: "narrator" });
+    const result = await routeFor(routes, "assumir").handler.handle({
+      ...base,
+      message: { ...base.message, mentions: [targetRef] },
+    });
+
+    expect(setup.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participantId: enemyId,
+        kind: "NARRATOR",
+        adminPrincipalId: principalId,
+      }),
+    );
+    expect(result.ok && result.value.outgoing[0]?.payload.mentions).toEqual([targetRef]);
+  });
+
   it("resolves a failed capture as the player's PVE turn action", async () => {
     const setup = dependencies(false);
     const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
