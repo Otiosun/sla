@@ -149,7 +149,7 @@ export const BattleCombatantSchema = z
     formId: uuid,
     speciesId: uuid,
     level: z.number().int().min(1).max(100),
-    shiny: z.boolean().default(false),
+    shiny: z.boolean().optional(),
     type1Id: uuid,
     type1Slug: z.string().min(1).max(64),
     type2Id: uuid.nullable(),
