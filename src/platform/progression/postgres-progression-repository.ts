@@ -282,7 +282,10 @@ async function learnMovesAtLevel(
     readonly contentReleaseId: string;
     readonly formId: string;
     readonly level: number;
+    readonly sourceType: string;
     readonly sourceId: string;
+    readonly actorType: "SYSTEM" | "ADMIN";
+    readonly actorId: string | null;
     readonly correlationId: string;
     readonly slots: MutableMoveSlot[];
     readonly learnedMoveIds: string[];
@@ -328,7 +331,8 @@ async function learnMovesAtLevel(
         pokemonInstanceId: input.pokemonInstanceId,
         eventType: "MOVE_LEARNED",
         payload: { moveId: move.move_id, level: input.level, sourceId: input.sourceId },
-        actorType: "SYSTEM",
+        actorType: input.actorType,
+        actorId: input.actorId,
         correlationId: input.correlationId,
       });
       continue;
@@ -349,6 +353,7 @@ async function learnMovesAtLevel(
         input.contentReleaseId,
         move.move_id,
         input.level,
+        input.sourceType,
         input.sourceId,
         input.correlationId,
       ],
@@ -461,7 +466,11 @@ async function findLevelEvolution(
 async function persistAutoEvolution(
   client: PoolClient,
   input: {
-    readonly battleId: string;
+    readonly sourceType: string;
+    readonly sourceId: string;
+    readonly idempotencyScope: string;
+    readonly actorType: "SYSTEM" | "ADMIN";
+    readonly actorId: string | null;
     readonly pokemonInstanceId: string;
     readonly playerId: string;
     readonly contentReleaseId: string;
@@ -483,8 +492,8 @@ async function persistAutoEvolution(
     replayed: false,
   });
   const idempotencyKey = hashParts(
-    "progression.auto-evolution",
-    input.battleId,
+    input.idempotencyScope,
+    input.sourceId,
     input.pokemonInstanceId,
     input.rule.id,
   );
@@ -510,7 +519,9 @@ async function persistAutoEvolution(
       input.rule.id,
       input.fromFormId,
       input.rule.toFormId,
-      input.battleId,
+      input.sourceType,
+      input.sourceId,
+      input.idempotencyScope,
       idempotencyKey,
       fingerprint,
       input.correlationId,
