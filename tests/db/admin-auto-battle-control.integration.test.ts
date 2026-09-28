@@ -50,6 +50,9 @@ describe("admin automatic PVE battle control", () => {
     const rulesetId = randomUUID();
     const releaseId = randomUUID();
     const playerId = randomUUID();
+    const speciesId = randomUUID();
+    const formId = randomUUID();
+    const pokemonInstanceId = randomUUID();
     const battleId = randomUUID();
     const playerSideId = randomUUID();
     const wildSideId = randomUUID();
@@ -69,6 +72,20 @@ describe("admin automatic PVE battle control", () => {
     );
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [playerId]);
     await pool.query(
+      "INSERT INTO pokemon_species(id,national_dex,slug) VALUES ($1,999,'auto-battle-testmon')",
+      [speciesId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,'default')",
+      [formId, speciesId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_instances(
+         id,owner_player_id,form_id,level,current_hp,origin_type
+       ) VALUES ($1,$2,$3,5,20,'TEST')`,
+      [pokemonInstanceId, playerId, formId],
+    );
+    await pool.query(
       `INSERT INTO battles(
          id,battle_type,status,content_release_id,ruleset_id,
          turn_number,version,rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,
@@ -83,11 +100,18 @@ describe("admin automatic PVE battle control", () => {
     );
     await pool.query(
       `INSERT INTO battle_participants(
-         id,battle_id,battle_side_id,participant_kind,roster_position,active_member,snapshot
+         id,battle_id,battle_side_id,pokemon_instance_id,participant_kind,roster_position,active_member,snapshot
        ) VALUES
-         ($1,$5,$3,'PLAYER_POKEMON',1,TRUE,'{}'::jsonb),
-         ($2,$5,$4,'WILD_POKEMON',1,TRUE,'{}'::jsonb)`,
-      [playerParticipantId, wildParticipantId, playerSideId, wildSideId, battleId],
+         ($1,$5,$3,$6,'PLAYER_POKEMON',1,TRUE,'{}'::jsonb),
+         ($2,$5,$4,NULL,'WILD_POKEMON',1,TRUE,'{}'::jsonb)`,
+      [
+        playerParticipantId,
+        wildParticipantId,
+        playerSideId,
+        wildSideId,
+        battleId,
+        pokemonInstanceId,
+      ],
     );
     await pool.query(
       `INSERT INTO battle_participant_controllers(
