@@ -57,7 +57,7 @@ export class PostgresAutoBattleTerminalWhatsAppProjector {
           AND community.status = 'ACTIVE'
          WHERE inbox.status = 'PROCESSED'
            AND inbox.result_ref_type = 'BATTLE'
-           AND inbox.result_ref_id = battle.id::text
+           AND inbox.result_ref_id = battle.id
            AND inbox.normalized_payload->>'provider' = 'baileys'
          ORDER BY inbox.processed_at DESC NULLS LAST,
                   inbox.received_at DESC,
