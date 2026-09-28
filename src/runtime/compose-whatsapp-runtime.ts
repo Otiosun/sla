@@ -20,6 +20,7 @@ import { AdminBatchWhatsAppPreviewDeliveryPreparation } from "../modules/admin/w
 import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import {
+  createPveBattleFinishWhatsAppRoute,
   createPveBattleStartWhatsAppRoute,
   PveBattleStartService,
 } from "../modules/battle/pve-battle-start.js";
@@ -425,12 +426,28 @@ export function createOperationalMessagingComposition(
     receptionConversationResolver,
     nonReceptionConversationResolver,
   );
+  const narratorBattleId = async (adminPrincipalId: string): Promise<string | null> => {
+    const result = await pool.query<{ battle_id: string }>(
+      `SELECT controller.battle_id
+       FROM battle_participant_controllers controller
+       JOIN battles battle ON battle.id = controller.battle_id
+       WHERE controller.kind = 'NARRATOR'
+         AND controller.admin_principal_id = $1
+         AND battle.status = 'ACTIVE'
+       ORDER BY controller.updated_at DESC, controller.participant_id
+       LIMIT 1`,
+      [adminPrincipalId],
+    );
+    return result.rows[0]?.battle_id ?? null;
+  };
+
   const pveScene =
     pveBattle === null
       ? null
       : createPveSceneConversationResolver({
           players: playerRegistration,
           activeBattleId: reads.activeBattleId.bind(reads),
+          narratorBattleId,
           battle: pveBattle.battle,
           controllers: new PostgresBattleParticipantControllerRepository(pool),
           encounters: encounter,
@@ -737,6 +754,7 @@ export function createOperationalMessagingComposition(
         : createPveSceneRoutes({
             players: playerRegistration,
             activeBattleId: reads.activeBattleId.bind(reads),
+            narratorBattleId,
             battle: pveBattle.battle,
             controllers: new PostgresBattleParticipantControllerRepository(pool),
             encounters: encounter,
@@ -763,7 +781,20 @@ export function createOperationalMessagingComposition(
               players: playerRegistration,
               encounters: encounter,
               start: pveBattleStart,
+              controllers: new PostgresBattleParticipantControllerRepository(pool),
+              presentation: reads,
             }),
+            ...(encounterWriter === undefined
+              ? []
+              : [
+                  createPveBattleFinishWhatsAppRoute({
+                    players: playerRegistration,
+                    activeBattleId: reads.activeBattleId.bind(reads),
+                    battle: pveBattle.battle,
+                    encounters: encounter,
+                    encounterWriter,
+                  }),
+                ]),
           ]),
       ...(encounterWriter === undefined
         ? []
