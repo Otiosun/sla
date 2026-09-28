@@ -322,6 +322,24 @@ export function createSpawnWhatsAppRoute(
         );
       }
 
+      if (
+        parsed.value.openingMoveReference !== null &&
+        (dependencies.moveDisplayNames === undefined || dependencies.narratorOpening === undefined)
+      ) {
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Narrator opening battle is unavailable", {
+            userMessage: "O fast path com *ataque* não está disponível agora.",
+          }),
+        );
+      }
+      if (parsed.value.automatic && dependencies.autoBattle === undefined) {
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Automatic PVE battle is unavailable", {
+            userMessage: "O modo de batalha automática não está disponível agora.",
+          }),
+        );
+      }
+
       const target = await dependencies.players.resolvePlayer({
         provider: context.message.provider,
         externalId: targetRef,
@@ -455,27 +473,22 @@ export function createSpawnWhatsAppRoute(
         if (wild === undefined) {
           return err(appError("FLOW_BLOCKED", "Spawn fast path has no wild actor."));
         }
-        if (
-          dependencies.moveDisplayNames === undefined ||
-          dependencies.narratorOpening === undefined
-        ) {
-          return err(
-            appError("FEATURE_UNAVAILABLE", "Narrator opening battle is unavailable", {
-              userMessage: "O fast path com *ataque* não está disponível agora.",
-            }),
-          );
+        const moveDisplayNames = dependencies.moveDisplayNames;
+        const narratorOpening = dependencies.narratorOpening;
+        if (moveDisplayNames === undefined || narratorOpening === undefined) {
+          throw new Error("Spawn fast-path dependency invariant was lost after preflight");
         }
         const move = await openingMoveFor(
           presented.value.contentReleaseId,
           wild,
           parsed.value.openingMoveReference,
-          dependencies.moveDisplayNames,
+          moveDisplayNames,
         );
         if (move === null) {
           const available = await availableMoveText(
             presented.value.contentReleaseId,
             wild,
-            dependencies.moveDisplayNames,
+            moveDisplayNames,
           );
           const rolledBack =
             dependencies.encounters.flee === undefined
@@ -500,7 +513,7 @@ export function createSpawnWhatsAppRoute(
           );
         }
 
-        const started = await dependencies.narratorOpening.start({
+        const started = await narratorOpening.start({
           playerId: target.value.playerId,
           encounterId: presented.value.encounterId,
           status: "PRESENTED",
@@ -539,14 +552,11 @@ export function createSpawnWhatsAppRoute(
       }
 
       if (parsed.value.automatic) {
-        if (dependencies.autoBattle === undefined) {
-          return err(
-            appError("FEATURE_UNAVAILABLE", "Automatic PVE battle is unavailable", {
-              userMessage: "O modo de batalha automática não está disponível agora.",
-            }),
-          );
+        const autoBattle = dependencies.autoBattle;
+        if (autoBattle === undefined) {
+          throw new Error("Spawn AUTO dependency invariant was lost after preflight");
         }
-        const started = await dependencies.autoBattle.start({
+        const started = await autoBattle.start({
           playerId: target.value.playerId,
           encounterId: presented.value.encounterId,
           status: "PRESENTED",
@@ -561,8 +571,8 @@ export function createSpawnWhatsAppRoute(
         }
 
         try {
-          await dependencies.autoBattle.automatePlayers(started.value.battleId);
-          await dependencies.autoBattle.kick(started.value.battleId);
+          await autoBattle.automatePlayers(started.value.battleId);
+          await autoBattle.kick(started.value.battleId);
         } catch (error) {
           return err(
             appError(
