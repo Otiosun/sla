@@ -84,11 +84,12 @@ export class PostgresAdminWhatsAppPokemonTargetResolver {
     const key = normalize(clean);
     if (key.length === 0) return { status: "MISSING" };
     const exact = targets.filter(
-      (target) =>
-        normalize(target.displayName) === key ||
-        normalize(target.speciesSlug) === key,
+      (target) => normalize(target.displayName) === key || normalize(target.speciesSlug) === key,
     );
-    if (exact.length === 1) return { status: "RESOLVED", target: exact[0]! };
+    const exactTarget = exact[0];
+    if (exact.length === 1 && exactTarget !== undefined) {
+      return { status: "RESOLVED", target: exactTarget };
+    }
     if (exact.length > 1) return { status: "AMBIGUOUS", candidates: exact.slice(0, 6) };
 
     const prefix = targets.filter(
@@ -96,7 +97,10 @@ export class PostgresAdminWhatsAppPokemonTargetResolver {
         normalize(target.displayName).startsWith(key) ||
         normalize(target.speciesSlug).startsWith(key),
     );
-    if (prefix.length === 1) return { status: "RESOLVED", target: prefix[0]! };
+    const prefixTarget = prefix[0];
+    if (prefix.length === 1 && prefixTarget !== undefined) {
+      return { status: "RESOLVED", target: prefixTarget };
+    }
     if (prefix.length > 1) return { status: "AMBIGUOUS", candidates: prefix.slice(0, 6) };
     return { status: "MISSING" };
   }
