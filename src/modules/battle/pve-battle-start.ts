@@ -274,6 +274,12 @@ export interface PveBattleFinishWhatsAppDependencies {
   readonly battle: Pick<BattleRuntimeService, "currentState" | "cancel">;
   readonly encounters: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly encounterWriter: Pick<EncounterService, "flee">;
+  readonly cancelledWildCleanup?: {
+    cleanupForPlayer(playerId: PlayerId): Promise<{
+      readonly battleId: string;
+      readonly encounterId: string;
+    } | null>;
+  };
 }
 
 export function createPveBattleFinishWhatsAppRoute(
@@ -329,6 +335,7 @@ export function createPveBattleFinishWhatsAppRoute(
             }),
           );
         }
+        await dependencies.cancelledWildCleanup?.cleanupForPlayer(target.value.playerId);
         return ok({
           resultRefType: "BATTLE",
           resultRefId: battleId,
@@ -342,6 +349,27 @@ export function createPveBattleFinishWhatsAppRoute(
                 mentions: [targetRef],
               },
               idempotencyKey: `${context.idempotencyKey}:pve-battle-finish`,
+            },
+          ],
+        });
+      }
+
+      const recovered =
+        await dependencies.cancelledWildCleanup?.cleanupForPlayer(target.value.playerId);
+      if (recovered !== undefined && recovered !== null) {
+        return ok({
+          resultRefType: "BATTLE",
+          resultRefId: recovered.battleId,
+          outgoing: [
+            {
+              channel: "whatsapp",
+              destinationRef: context.message.chatRef,
+              messageType: "TEXT",
+              payload: {
+                text: `🛑 *BATALHA ENCERRADA* · ${mentionTag(targetRef)}`,
+                mentions: [targetRef],
+              },
+              idempotencyKey: `${context.idempotencyKey}:pve-battle-finish-recovered`,
             },
           ],
         });
