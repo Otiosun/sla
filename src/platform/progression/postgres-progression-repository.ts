@@ -60,7 +60,7 @@ interface PokemonXpSnapshot {
   readonly level: number;
   readonly ability: { readonly abilityId: string };
   readonly nature: {
-    readonly natureId: string;
+    readonly natureId: string | null;
     readonly increasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
     readonly decreasedStat: "ATTACK" | "DEFENSE" | "SP_ATTACK" | "SP_DEFENSE" | "SPEED" | null;
   };
