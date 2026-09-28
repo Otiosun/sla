@@ -122,6 +122,12 @@ describe("admin automatic PVE battle control", () => {
       [playerParticipantId, wildParticipantId, battleId, playerId],
     );
     await pool.query(
+      `INSERT INTO battle_state_snapshots(
+         battle_id,version,schema_version,state
+       ) VALUES ($1,0,1,'{}'::jsonb)`,
+      [battleId],
+    );
+    await pool.query(
       `INSERT INTO battle_turn_windows(
          id,battle_id,battle_version,turn_number,status,opened_at,deadline_at,
          revision,required_controllers
