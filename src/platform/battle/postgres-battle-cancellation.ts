@@ -16,8 +16,6 @@ import { withTransaction } from "../db/transaction.js";
 interface RootRow {
   readonly status: string;
   readonly version: string;
-  readonly battle_type: string;
-  readonly encounter_id: string | null;
 }
 
 interface PvpRootRow extends RootRow {
@@ -76,7 +74,7 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
       this.pool,
       async (client) => {
         const rootResult = await client.query<RootRow>(
-          `SELECT status, version::text, battle_type, encounter_id
+          `SELECT status, version::text
            FROM battles
            WHERE id = $1
            FOR UPDATE`,
@@ -193,30 +191,6 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
            WHERE battle_id = $1`,
           [input.battleId],
         );
-        await client.query(
-          `UPDATE battle_turn_windows
-           SET status = 'CANCELLED', revision = revision + 1
-           WHERE battle_id = $1 AND status IN ('COLLECTING', 'LOCKED')`,
-          [input.battleId],
-        );
-
-        if (root.battle_type === "WILD" && root.encounter_id !== null) {
-          await client.query(
-            `UPDATE encounters
-             SET status = 'CLOSED',
-                 revision = revision + 1,
-                 updated_at = now(),
-                 closed_at = COALESCE(closed_at, now())
-             WHERE id = $1 AND status IN ('CREATED','PRESENTED','ENGAGED','IN_BATTLE')`,
-            [root.encounter_id],
-          );
-          await client.query(
-            `UPDATE encounter_wild_snapshots
-             SET status = 'FLED', updated_at = now()
-             WHERE encounter_id = $1 AND status = 'ACTIVE'`,
-            [root.encounter_id],
-          );
-        }
 
         return { kind: "PERSISTED", state: nextState, events };
       },
