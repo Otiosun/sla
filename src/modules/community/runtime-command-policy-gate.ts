@@ -87,22 +87,33 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
       }
     }
 
-    if (requirement.requiredAdminCapability !== undefined) {
-      const adminCapabilities = await this.dependencies.admins.capabilitiesFor({
-        provider: context.message.provider,
-        externalId: context.message.senderRef,
-      });
-      if (!adminCapabilities.includes(requirement.requiredAdminCapability)) {
-        return err(
-          appError("PLAYER_INELIGIBLE", "Administrative capability is required", {
-            userMessage: "Este comando exige uma permissão administrativa do RPG.",
-          }),
-        );
-      }
+    const needsAdminCapabilities =
+      requirement.requiredAdminCapability !== undefined ||
+      requirement.mechanicalReadyAdminBypassCapability !== undefined;
+    const adminCapabilities = needsAdminCapabilities
+      ? await this.dependencies.admins.capabilitiesFor({
+          provider: context.message.provider,
+          externalId: context.message.senderRef,
+        })
+      : [];
+
+    if (
+      requirement.requiredAdminCapability !== undefined &&
+      !adminCapabilities.includes(requirement.requiredAdminCapability)
+    ) {
+      return err(
+        appError("PLAYER_INELIGIBLE", "Administrative capability is required", {
+          userMessage: "Este comando exige uma permissão administrativa do RPG.",
+        }),
+      );
     }
 
+    const mechanicalReadyBypassed =
+      requirement.mechanicalReadyAdminBypassCapability !== undefined &&
+      adminCapabilities.includes(requirement.mechanicalReadyAdminBypassCapability);
     const needsPlayer =
-      requirement.allowedPlayerAccess !== undefined || requirement.requiresMechanicalReady === true;
+      requirement.allowedPlayerAccess !== undefined ||
+      (requirement.requiresMechanicalReady === true && !mechanicalReadyBypassed);
     if (!needsPlayer) return ok(undefined);
 
     const player = await this.dependencies.players.resolvePlayer({
@@ -121,7 +132,7 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
           }),
         );
       }
-      if (requirement.requiresMechanicalReady === true) {
+      if (requirement.requiresMechanicalReady === true && !mechanicalReadyBypassed) {
         return err(
           appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command", {
             userMessage:
@@ -143,7 +154,11 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
         }),
       );
     }
-    if (requirement.requiresMechanicalReady === true && player.value.state !== "COMPLETE") {
+    if (
+      requirement.requiresMechanicalReady === true &&
+      player.value.state !== "COMPLETE" &&
+      !mechanicalReadyBypassed
+    ) {
       return err(
         appError("FLOW_BLOCKED", "Player mechanical state is not ready for this command", {
           userMessage: "Conclua a preparação mecânica do treinador antes de usar este comando.",
