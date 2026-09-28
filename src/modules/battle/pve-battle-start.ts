@@ -16,10 +16,18 @@ export interface CanonicalPveBattleStartInput extends EncounterMutationInput {
   readonly status: "CREATED" | "PRESENTED" | "ENGAGED" | "IN_BATTLE";
 }
 
+export interface PveBattleStartRollbackPort {
+  rollback(input: {
+    readonly playerId: EncounterMutationInput["playerId"];
+    readonly battleId: string;
+  }): Promise<boolean>;
+}
+
 export class PveBattleStartService {
   public constructor(
     private readonly encounter: Pick<EncounterService, "observe" | "engage" | "startBattle">,
     private readonly battle: Pick<BattleRuntimeService, "initialize">,
+    private readonly rollback?: PveBattleStartRollbackPort,
   ) {}
 
   public async start(input: EncounterMutationInput) {
@@ -27,7 +35,20 @@ export class PveBattleStartService {
     if (!started.ok) return started;
 
     const initialized = await this.battle.initialize(started.value.battleId);
-    if (!initialized.ok) return initialized;
+    if (!initialized.ok) {
+      if (this.rollback !== undefined) {
+        try {
+          await this.rollback.rollback({
+            playerId: input.playerId,
+            battleId: started.value.battleId,
+          });
+        } catch {
+          // Preserve the original initialization error. The admin recovery route
+          // remains available if compensation itself is unavailable.
+        }
+      }
+      return initialized;
+    }
 
     return {
       ok: true as const,
