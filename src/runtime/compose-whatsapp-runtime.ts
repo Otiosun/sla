@@ -774,7 +774,7 @@ export function createOperationalMessagingComposition(
             openChallengeIdForChallenger: pvp.openChallengeIdForChallenger,
             externalRefForPlayer,
           })),
-      ...(pveBattleStart === null
+      ...(pveBattleStart === null || pveBattle === null
         ? []
         : [
             createPveBattleStartWhatsAppRoute({
