@@ -115,19 +115,20 @@ export const PokemonXpAdjustmentResultSchema = z
     afterXp: safeNonNegative,
     learnedMoveIds: z.array(uuid),
     pendingMoveChoiceIds: z.array(uuid),
-    evolutions: z.array(z.object({
-      pokemonInstanceId: uuid,
-      fromFormId: uuid,
-      toFormId: uuid,
-      triggerKind: z.enum(["LEVEL", "ITEM", "CONDITION"]),
-      beforeLevel: z.number().int().min(1).max(100),
-      afterLevel: z.number().int().min(1).max(100),
-      replayed: z.boolean(),
-    }).strict()),
-    sideEffectPolicy: z.enum([
-      "NORMAL_LEVEL_UP_V1",
-      "PRESERVE_HISTORICAL_FORM_AND_MOVES_V1",
-    ]),
+    evolutions: z.array(
+      z
+        .object({
+          pokemonInstanceId: uuid,
+          fromFormId: uuid,
+          toFormId: uuid,
+          triggerKind: z.enum(["LEVEL", "ITEM", "CONDITION"]),
+          beforeLevel: z.number().int().min(1).max(100),
+          afterLevel: z.number().int().min(1).max(100),
+          replayed: z.boolean(),
+        })
+        .strict(),
+    ),
+    sideEffectPolicy: z.enum(["NORMAL_LEVEL_UP_V1", "PRESERVE_HISTORICAL_FORM_AND_MOVES_V1"]),
     replayed: z.boolean(),
   })
   .strict();
