@@ -39,6 +39,19 @@ export const PlayerProfileMetadataSchema = z
   .strict();
 export type PlayerProfileMetadata = z.infer<typeof PlayerProfileMetadataSchema>;
 
+/**
+ * Persisted profile metadata is an extension point shared by Hub customization,
+ * admin/endgame markers and other durable subsystems. Reads validate the fields
+ * this module owns while preserving unrelated keys written by those subsystems.
+ *
+ * New profile input remains strict through PlayerProfileMetadataSchema.
+ */
+export const PersistedPlayerProfileMetadataSchema = z
+  .object({
+    profession: TrainerProfessionIdSchema.optional(),
+  })
+  .passthrough();
+
 export const ProfileInputSchema = z
   .object({
     trainerName: z.string().trim().min(1).max(40),
