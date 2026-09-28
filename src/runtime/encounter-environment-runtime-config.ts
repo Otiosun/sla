@@ -14,17 +14,26 @@ export interface EncounterEnvironmentRuntimeSource {
 
 export function resolveNarratorEncounterEnvironment(
   source: EncounterEnvironmentRuntimeSource,
+  now: Date = new Date(),
 ): EncounterEnvironmentContext {
-  const rawTime = source.BELL_WORLD_TIME_OF_DAY?.trim().toUpperCase();
-  if (rawTime !== "DAY" && rawTime !== "NIGHT") {
+  const configured = source.BELL_WORLD_TIME_OF_DAY?.trim().toUpperCase();
+  if (configured !== undefined && configured.length > 0 && configured !== "DAY" && configured !== "NIGHT") {
     throw new EncounterEnvironmentRuntimeConfigError(
-      "BELL_WORLD_TIME_OF_DAY must be explicitly set to DAY or NIGHT",
+      "BELL_WORLD_TIME_OF_DAY must be DAY or NIGHT when explicitly configured",
     );
   }
 
+  const localHour = now.getHours();
+  const timeOfDay: "DAY" | "NIGHT" =
+    configured === "DAY" || configured === "NIGHT"
+      ? configured
+      : localHour >= 6 && localHour < 18
+        ? "DAY"
+        : "NIGHT";
+
   const rawWeather = source.BELL_WORLD_WEATHER_KEY?.trim();
   return {
-    timeOfDay: rawTime,
+    timeOfDay,
     surface: "LAND",
     rarity: "COMMON",
     ...(rawWeather === undefined || rawWeather.length === 0 ? {} : { weatherKey: rawWeather }),

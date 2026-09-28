@@ -98,6 +98,7 @@ import { PostgresAdminRepository } from "../platform/admin/postgres-admin-reposi
 import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres-admin-reward-catalog-repository.js";
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresAdminWhatsAppPlayerTargetResolver } from "../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
+import { PostgresAdminAutoBattleControl } from "../platform/battle/postgres-admin-auto-battle-control.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
@@ -109,6 +110,7 @@ import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-gr
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
+import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
@@ -443,6 +445,30 @@ export function createOperationalMessagingComposition(
     encounterWriter === undefined || pveBattle === null
       ? null
       : new PveBattleStartService(encounterWriter, pveBattle.battle);
+  const narratorAutoBattle =
+    pveBattleStart === null || pveBattle === null
+      ? null
+      : {
+          start: async (input: {
+            readonly playerId: string;
+            readonly encounterId: string;
+            readonly status: "PRESENTED";
+            readonly expectedRevision: bigint;
+          }) => {
+            const started = await pveBattleStart.startCanonical({
+              playerId: input.playerId as never,
+              encounterId: input.encounterId as never,
+              status: input.status,
+              expectedRevision: input.expectedRevision,
+            });
+            return started.ok
+              ? { ok: true as const, value: { battleId: started.value.start.battleId } }
+              : { ok: false as const, error: { message: started.error.message } };
+          },
+          automatePlayers: (battleId: string) =>
+            new PostgresAdminAutoBattleControl(pool).automatePlayers(battleId),
+          kick: (battleId: string) => pveBattle.runAutoTurnOnce(battleId),
+        };
 
   const policyGate = new RuntimeCommandPolicyGate({
     community,
@@ -572,7 +598,9 @@ export function createOperationalMessagingComposition(
               encounters: encounterWriter,
               environment: () => resolveNarratorEncounterEnvironment(process.env),
               context: new PostgresNarratorSpawnContextResolver(pool),
+              species: new PostgresNarratorSpawnSpeciesResolver(pool),
               speciesDisplayName: reads.speciesDisplayName.bind(reads),
+              ...(narratorAutoBattle === null ? {} : { autoBattle: narratorAutoBattle }),
             }),
           ]),
       createWorldGroupSetupRoute({
