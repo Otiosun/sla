@@ -62,6 +62,7 @@ interface PokemonRow {
   readonly species_id: string;
   readonly level: number;
   readonly current_hp: number;
+  readonly shiny: boolean;
   readonly type1_id: string;
   readonly type1_slug: string;
   readonly type2_id: string | null;
@@ -287,6 +288,7 @@ class PostgresBattleTransaction implements BattleTransaction {
       formId: row.form_id,
       speciesId: row.species_id,
       level: row.level,
+      shiny: row.shiny,
       type1Id: row.type1_id,
       type1Slug: row.type1_slug,
       type2Id: row.type2_id,
@@ -377,6 +379,7 @@ class PostgresBattleTransaction implements BattleTransaction {
       formId: snapshot.formId,
       speciesId: snapshot.speciesId,
       level: snapshot.level,
+      shiny: snapshot.shiny,
       type1Id: snapshot.type1Id,
       type1Slug: row.type1_slug,
       type2Id: snapshot.type2Id,
@@ -461,7 +464,7 @@ class PostgresBattleTransaction implements BattleTransaction {
     for (const member of members.rows) {
       const party = await this.client.query<PokemonRow>(
         `SELECT pi.id AS pokemon_instance_id, prs.slot_no AS roster_position,
-              pi.form_id, pf.species_id, pi.level, pi.current_hp,
+              pi.form_id, pf.species_id, pi.level, pi.current_hp, pi.shiny,
               pfr.type1_id, t1.slug AS type1_slug, pfr.type2_id, t2.slug AS type2_slug,
               pfr.base_hp, pfr.base_attack, pfr.base_defense, pfr.base_sp_attack,
               pfr.base_sp_defense, pfr.base_speed,
@@ -519,6 +522,9 @@ class PostgresBattleTransaction implements BattleTransaction {
           this.enrichWildPokemon(root.contentReleaseId, wild.snapshot, wild.wildNo),
         ),
       ),
+      ...(wildRoster[0]?.snapshot.firstTurnInitiative === undefined
+        ? {}
+        : { firstTurnInitiative: wildRoster[0].snapshot.firstTurnInitiative }),
     };
   }
 
