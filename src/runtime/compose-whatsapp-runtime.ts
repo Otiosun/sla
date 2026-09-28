@@ -100,6 +100,7 @@ import { PostgresAdminRewardCatalogRepository } from "../platform/admin/postgres
 import { PostgresAdminWhatsAppIdentityResolver } from "../platform/admin/postgres-admin-whatsapp-identity-resolver.js";
 import { PostgresAdminWhatsAppPlayerTargetResolver } from "../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
 import { PostgresAdminAutoBattleControl } from "../platform/battle/postgres-admin-auto-battle-control.js";
+import { PostgresAutoBattleTerminalWhatsAppProjector } from "../platform/battle/postgres-auto-battle-terminal-whatsapp-projector.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresNarratorBattleCleanup } from "../platform/battle/postgres-narrator-battle-cleanup.js";
 import { PostgresPveBattleStartRollback } from "../platform/battle/postgres-pve-battle-start-rollback.js";
@@ -193,6 +194,8 @@ export function createOperationalMessagingComposition(
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
     pveBattleConfig === null ? null : new PostgresBattleRewardWhatsAppProjector(pool);
+  const autoBattleTerminalNotifications =
+    pveBattleConfig === null ? null : new PostgresAutoBattleTerminalWhatsAppProjector(pool);
   const pvp = (() => {
     if (pveBattleConfig === null) return null;
     const keyEntries = [...pveBattleConfig.encryptionKeys.entries()];
@@ -900,7 +903,9 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
-      await battleRewardNotifications?.runOnce(pveBattleConfig?.maintenanceBatchSize ?? 25);
+      const maintenanceBatchSize = pveBattleConfig?.maintenanceBatchSize ?? 25;
+      await battleRewardNotifications?.runOnce(maintenanceBatchSize);
+      await autoBattleTerminalNotifications?.runOnce(maintenanceBatchSize);
     },
   };
 }
