@@ -14,7 +14,7 @@ function buildFromCombatant(combatant: BattleCombatant): BattlePokemonBuild {
     formId: combatant.formId,
     speciesId: combatant.speciesId,
     level: combatant.level,
-    shiny: combatant.shiny,
+    shiny: combatant.shiny ?? false,
     type1Id: combatant.type1Id,
     type1Slug: combatant.type1Slug,
     type2Id: combatant.type2Id,
