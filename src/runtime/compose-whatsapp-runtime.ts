@@ -102,6 +102,7 @@ import { PostgresAdminWhatsAppPlayerTargetResolver } from "../platform/admin/pos
 import { PostgresAdminAutoBattleControl } from "../platform/battle/postgres-admin-auto-battle-control.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresNarratorBattleCleanup } from "../platform/battle/postgres-narrator-battle-cleanup.js";
+import { PostgresPveBattleStartRollback } from "../platform/battle/postgres-pve-battle-start-rollback.js";
 import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
 import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
@@ -462,7 +463,11 @@ export function createOperationalMessagingComposition(
   const pveBattleStart =
     encounterWriter === undefined || pveBattle === null
       ? null
-      : new PveBattleStartService(encounterWriter, pveBattle.battle);
+      : new PveBattleStartService(
+          encounterWriter,
+          pveBattle.battle,
+          new PostgresPveBattleStartRollback(pool),
+        );
   const narratorAutoBattle =
     pveBattleStart === null || pveBattle === null
       ? null
