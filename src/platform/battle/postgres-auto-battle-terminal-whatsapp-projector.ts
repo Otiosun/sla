@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 
 interface AutoTerminalRow {
   readonly battle_id: string;
-  readonly status: "LOST" | "DRAW" | "FLED";
+  readonly status: "WON" | "LOST" | "DRAW" | "FLED";
   readonly player_id: string;
   readonly chat_ref: string;
   readonly external_id: string;
@@ -21,11 +21,13 @@ function mentionTag(ref: string): string {
 
 function terminalText(row: AutoTerminalRow): string {
   const result =
-    row.status === "LOST"
-      ? "❌ Derrota."
-      : row.status === "DRAW"
-        ? "➖ Empate."
-        : "💨 A batalha terminou em fuga.";
+    row.status === "WON"
+      ? "🏆 Vitória."
+      : row.status === "LOST"
+        ? "❌ Derrota."
+        : row.status === "DRAW"
+          ? "➖ Empate."
+          : "💨 A batalha terminou em fuga.";
   return ["🤖 *BATALHA AUTOMÁTICA · FIM*", "", mentionTag(row.external_id), result].join("\n");
 }
 
@@ -65,7 +67,7 @@ export class PostgresAutoBattleTerminalWhatsAppProjector {
          LIMIT 1
        ) origin ON TRUE
        WHERE battle.battle_type = 'WILD'
-         AND battle.status IN ('LOST', 'DRAW', 'FLED')
+         AND battle.status IN ('WON', 'LOST', 'DRAW', 'FLED')
          AND EXISTS (
            SELECT 1
            FROM battle_participant_controllers controller
