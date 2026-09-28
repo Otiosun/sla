@@ -73,6 +73,41 @@ describe("Battle Engine v1 pure resolver", () => {
     ).toBe(29);
   });
 
+  it("honors an explicit first-turn side once, then returns to priority and Speed", () => {
+    const state = battleState();
+    state.firstTurnInitiative = "WILD";
+
+    const opening = resolveTurn(
+      state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 3, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(9),
+    );
+    expect(opening.ok).toBe(true);
+    if (!opening.ok) return;
+    expect(opening.value.events.find((entry) => entry.type === "MoveUsed")?.payload.participantId).toBe(
+      IDS.p2,
+    );
+
+    const next = resolveTurn(
+      opening.value.state,
+      [
+        { type: "USE_MOVE", actorParticipantId: IDS.p1, moveSlot: 3, targetParticipantId: IDS.p2 },
+        { type: "USE_MOVE", actorParticipantId: IDS.p2, moveSlot: 1, targetParticipantId: IDS.p1 },
+      ],
+      TEST_RULES,
+      rng(10),
+    );
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+    expect(next.value.events.find((entry) => entry.type === "MoveUsed")?.payload.participantId).toBe(
+      IDS.p1,
+    );
+  });
+
   it("replays a speed tie identically from the same seed and counter", () => {
     const stateA = battleState();
     const stateB = battleState();
