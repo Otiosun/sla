@@ -354,8 +354,9 @@ export function createPveBattleFinishWhatsAppRoute(
         });
       }
 
-      const recovered =
-        await dependencies.cancelledWildCleanup?.cleanupForPlayer(target.value.playerId);
+      const recovered = await dependencies.cancelledWildCleanup?.cleanupForPlayer(
+        target.value.playerId,
+      );
       if (recovered !== undefined && recovered !== null) {
         return ok({
           resultRefType: "BATTLE",
