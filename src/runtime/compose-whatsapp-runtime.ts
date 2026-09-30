@@ -798,7 +798,7 @@ export function createOperationalMessagingComposition(
             openChallengeIdForTarget: pvp.openChallengeIdForTarget,
             openChallengeIdForChallenger: pvp.openChallengeIdForChallenger,
             externalRefForPlayer,
-            battle: pveBattle?.battle,
+            ...(pveBattle === null ? {} : { battle: pveBattle.battle }),
             presentation: reads,
           })),
       ...(pveBattleStart === null || pveBattle === null
