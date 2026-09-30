@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { IncomingMessage, MessageHandlerResult } from "../../src/modules/messaging/contracts.js";
+import type {
+  IncomingMessage,
+  MessageHandlerResult,
+} from "../../src/modules/messaging/contracts.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresWhatsAppReplyResultContextResolver } from "../../src/platform/messaging/postgres-whatsapp-reply-result-context.js";
