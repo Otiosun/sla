@@ -13,6 +13,7 @@ import type {
   BattleParticipantController,
   BattleParticipantControllerRepository,
 } from "./participant-controller.js";
+import type { PveBattleStartService } from "./pve-battle-start.js";
 import type { BattleRuntimeService } from "./runtime.js";
 import { parseSceneAction } from "./scene-action.js";
 
@@ -36,10 +37,28 @@ export interface PveCaptureBallReader {
   ): Promise<readonly PveCaptureBallOption[]>;
 }
 
+export interface PveReplyContext {
+  readonly resultRefType: string | null;
+  readonly resultRefId: string | null;
+  readonly mentions: readonly string[];
+}
+
+export interface PveReplyContextResolver {
+  resolve(input: {
+    readonly chatRef: string;
+    readonly externalMessageId: string;
+  }): Promise<PveReplyContext | null>;
+}
+
 export interface PveSceneDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly activeBattleId: (playerId: PlayerId) => Promise<string | null>;
+  /** Legacy single-battle resolver retained for isolated tests/backwards compatibility. */
   readonly narratorBattleId?: (adminPrincipalId: string) => Promise<string | null>;
+  readonly narratorBattleIds?: (adminPrincipalId: string) => Promise<readonly string[]>;
+  readonly replyContext?: PveReplyContextResolver;
+  readonly battleStart?: Pick<PveBattleStartService, "startCanonical">;
+  readonly roster?: Pick<OperationalUxReadModel, "listTeam" | "teamPokemonDetail">;
   readonly battle: Pick<
     BattleRuntimeService,
     "currentState" | "resolvePlayerTurn" | "surrenderPvp"
@@ -136,6 +155,161 @@ function normalizeLookup(value: string): string {
     .trim()
     .toLocaleLowerCase("pt-BR")
     .replace(/\s+/gu, " ");
+}
+
+async function replyContextFor(
+  dependencies: PveSceneDependencies,
+  context: MessageHandlerContext,
+): Promise<PveReplyContext | null> {
+  const externalMessageId = context.message.replyToExternalMessageId;
+  if (externalMessageId === null || dependencies.replyContext === undefined) return null;
+  return dependencies.replyContext.resolve({
+    chatRef: context.message.chatRef,
+    externalMessageId,
+  });
+}
+
+async function narratorBattleIdsFor(
+  dependencies: PveSceneDependencies,
+  principalId: string,
+): Promise<readonly string[]> {
+  if (dependencies.narratorBattleIds !== undefined) {
+    return [...new Set(await dependencies.narratorBattleIds(principalId))];
+  }
+  if (dependencies.narratorBattleId === undefined) return [];
+  const one = await dependencies.narratorBattleId(principalId);
+  return one === null ? [] : [one];
+}
+
+function privateResult(
+  context: MessageHandlerContext,
+  text: string,
+  refType: "BATTLE" | "ENCOUNTER" | null,
+  refId: string | null,
+  react = true,
+): Result<MessageHandlerResult> {
+  return ok({
+    resultRefType: refType,
+    resultRefId: refId,
+    outgoing: [
+      ...(react ? [reactionDraft(context)] : []),
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.senderRef,
+        messageType: "TEXT",
+        payload: { text },
+        idempotencyKey: `${context.idempotencyKey}:private`,
+      },
+    ],
+  });
+}
+
+function numberedMoveLines(
+  moves: readonly {
+    readonly slotNo: number;
+    readonly displayName: string;
+    readonly ppCurrent: number | null;
+    readonly maxPp: number | null;
+  }[],
+): readonly string[] {
+  return moves.map(
+    (move) =>
+      `\`${String(move.slotNo).padStart(2, "0")}\` ${move.displayName} · PP \`${move.ppCurrent ?? "—"} / ${move.maxPp ?? "—"}\``,
+  );
+}
+
+function moveReferenceMatches(
+  moveRef: string,
+  move: { readonly slotNo: number; readonly displayName: string },
+): boolean {
+  const normalized = normalizeLookup(moveRef);
+  if (/^\d+$/u.test(normalized)) return Number(normalized) === move.slotNo;
+  return normalizeLookup(move.displayName) === normalized;
+}
+
+async function preflightPlayerMove(
+  dependencies: PveSceneDependencies,
+  playerId: PlayerId,
+  moveRef: string,
+): Promise<Result<void>> {
+  if (dependencies.roster === undefined) {
+    return err(
+      appError("FEATURE_UNAVAILABLE", "Pre-battle move lookup is unavailable.", {
+        userMessage: "Não foi possível conferir esse movimento agora. Use `/moves` e tente novamente.",
+      }),
+    );
+  }
+  const team = await dependencies.roster.listTeam(playerId);
+  const active = team.find((entry) => entry.currentHp > 0);
+  if (active === undefined) {
+    return err(
+      appError("PLAYER_INELIGIBLE", "No battle-ready Pokemon was found.", {
+        userMessage: "Você não possui um Pokémon apto para iniciar a batalha.",
+      }),
+    );
+  }
+  const detail = await dependencies.roster.teamPokemonDetail(playerId, active.slotNo);
+  if (detail === null) {
+    return err(appError("NOT_FOUND", "Active team Pokemon detail was not found."));
+  }
+  const move = detail.moves.find((entry) => moveReferenceMatches(moveRef, entry));
+  if (move === undefined) {
+    return err(
+      appError("VALIDATION_FAILED", "Opening move is not known by the active Pokemon.", {
+        userMessage: "Seu Pokémon não possui esse movimento. Use `/moves` para consultar.",
+      }),
+    );
+  }
+  if (move.ppCurrent !== null && move.ppCurrent <= 0) {
+    return err(
+      appError("FLOW_BLOCKED", "Opening move has no PP.", {
+        userMessage: "Esse movimento está sem PP. Use `/moves` para consultar os disponíveis.",
+      }),
+    );
+  }
+  return ok(undefined);
+}
+
+async function preflightWildMove(
+  dependencies: PveSceneDependencies,
+  encounter: Awaited<ReturnType<EncounterOperationalReadService["activeForPlayer"]>> extends Result<
+    infer T
+  >
+    ? T
+    : never,
+  moveRef: string,
+): Promise<Result<void>> {
+  const wilds =
+    encounter.wilds === undefined || encounter.wilds.length === 0
+      ? [{ wildNo: 1, status: "ACTIVE" as const, snapshot: encounter.snapshot }]
+      : encounter.wilds;
+  const wild = wilds.find((entry) => entry.status === "ACTIVE") ?? wilds[0];
+  if (wild === undefined) return err(appError("NOT_FOUND", "No active wild Pokemon was found."));
+  const names = await dependencies.presentation.moveDisplayNames(
+    encounter.contentReleaseId,
+    wild.snapshot.moves.map((move) => move.moveId),
+  );
+  const moves = wild.snapshot.moves.map((move, index) => ({
+    slotNo: index + 1,
+    displayName: names.get(move.moveId) ?? "Movimento",
+    ppCurrent: move.ppCurrent ?? null,
+  }));
+  const selected = moves.find((entry) => moveReferenceMatches(moveRef, entry));
+  if (selected === undefined) {
+    return err(
+      appError("VALIDATION_FAILED", "Opening wild move is unavailable.", {
+        userMessage: "Esse selvagem não possui esse movimento. Use `/moves` para consultar.",
+      }),
+    );
+  }
+  if (selected.ppCurrent !== null && selected.ppCurrent <= 0) {
+    return err(
+      appError("FLOW_BLOCKED", "Opening wild move has no PP.", {
+        userMessage: "Esse movimento está sem PP. Use `/moves` para consultar.",
+      }),
+    );
+  }
+  return ok(undefined);
 }
 
 async function moveSlotFor(
