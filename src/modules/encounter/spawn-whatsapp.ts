@@ -162,13 +162,11 @@ function splitText(groups: readonly NarratorSpawnAreaGroup[]): string {
   );
 
   return [
-    "⚠️ *GRUPO DIVIDIDO*",
-    "",
-    "_O encontro não foi criado._",
+    "〔!〕 *𝗚𝗥𝗨𝗣𝗢 𝗗𝗜𝗩𝗜𝗗𝗜𝗗𝗢*",
     "",
     ...sections.flatMap((section, index) => (index === 0 ? [section] : ["", section])),
     "",
-    "Reúna o grupo ou escolha alguém de uma área comum.",
+    "› _Escolha alguém da área desejada ou reúna o grupo._",
   ].join("\n");
 }
 
@@ -256,11 +254,6 @@ function creationUserMessage(message: string): string | null {
   return null;
 }
 
-function ppText(current: number | null, max: number | null): string {
-  if (current === null && max === null) return "";
-  return ` · PP \`${current ?? "—"}/${max ?? "—"}\``;
-}
-
 function openingBattleText(
   targetRef: string,
   wildName: string,
@@ -270,23 +263,18 @@ function openingBattleText(
   moveName: string,
   player: NarratorOpeningBattlePreview,
 ): string {
-  const playerShiny = player.shiny ? " ✨" : "";
-  const wildSparkle = wildShiny ? " ✨" : "";
   return [
-    "⚔️ *BATALHA INICIADA*",
+    "✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+    `　${mentionTag(targetRef)} · ${area}`,
     "",
-    `${mentionTag(targetRef)} · *${player.displayName}*${playerShiny} Nv. ${player.level}  ×  *${wildName}*${wildSparkle} Nv. ${wildLevel}`,
-    `📍 ${area}`,
+    `*${player.displayName}*${player.shiny ? " ✦" : ""} · Nv. \`${player.level}\``,
+    `HP \`${player.currentHp} / ${player.maxHp}\``,
     "",
-    `🎙️ *${moveName}* registrado · aguardando o treinador.`,
+    `*${wildName}*${wildShiny ? " ✦" : ""} · Nv. \`${wildLevel}\``,
     "",
-    "*Seus golpes*",
-    ...player.moves.map(
-      (move) => `\`${move.slotNo}\` ${move.displayName}${ppText(move.ppCurrent, move.maxPp)}`,
-    ),
+    `> _${moveName} já foi definido pelo selvagem._`,
     "",
-    "`/movimento 1` · `/capturar` · `/fugir`",
-    "`/batalha` · consultar estado",
+    "› _Use `/moves` para consultar seus movimentos._",
   ].join("\n");
 }
 
@@ -355,11 +343,11 @@ export function createSpawnWhatsAppRoute(
         return result(
           context,
           [
-            "🚶 *GRUPO EM DESLOCAMENTO*",
-            "",
-            "_O encontro não foi criado._",
+            "〔!〕 *𝗚𝗥𝗨𝗣𝗢 𝗘𝗠 𝗗𝗘𝗦𝗟𝗢𝗖𝗔𝗠𝗘𝗡𝗧𝗢*",
             "",
             ...spawnContext.participantDisplayNames.map((name) => `• ${name}`),
+            "",
+            "> _O encontro não foi criado._",
           ].join("\n"),
           null,
           null,
@@ -478,7 +466,7 @@ export function createSpawnWhatsAppRoute(
                 `Golpes: ${available}`,
                 rolledBack
                   ? "_O spawn foi desfeito; nenhum encontro ficou preso._"
-                  : "O encontro foi mantido. Use `/iniciarbatalha @treinador` ou `/finalizarbatalha @treinador`.",
+                  : "O encontro foi mantido. Corrija o golpe ou use `/finalizarbatalha @treinador`.",
               ].join("\n"),
             }),
           );
@@ -513,10 +501,10 @@ export function createSpawnWhatsAppRoute(
 
       const wildLines = wilds.map((wild, index) => {
         const name = wildNames[index] ?? "Pokémon selvagem";
-        const sparkle = wild.snapshot.shiny ? " ✨" : "";
+        const sparkle = wild.snapshot.shiny ? " ✦" : "";
         return wilds.length === 1
-          ? `*${name}*${sparkle} · Nv. ${wild.snapshot.level}`
-          : `${wild.wildNo}. *${name}*${sparkle} · Nv. ${wild.snapshot.level}`;
+          ? `*${name}*${sparkle} · Nv. \`${wild.snapshot.level}\``
+          : `\`${String(wild.wildNo).padStart(2, "0")}\` *${name}*${sparkle} · Nv. \`${wild.snapshot.level}\``;
       });
 
       if (parsed.value.openingMoveReference !== null) {
@@ -605,13 +593,12 @@ export function createSpawnWhatsAppRoute(
         return result(
           context,
           [
-            "🤖 *BATALHA AUTOMÁTICA*",
+            "◇ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔 𝗔𝗨𝗧𝗢𝗠Á𝗧𝗜𝗖𝗔*",
+            `　${mentionTag(targetRef)} · ${spawnContext.areaDisplayName}`,
             "",
-            `${mentionTag(targetRef)} · ${wildLines.join(" · ")}`,
-            `📍 ${spawnContext.areaDisplayName}`,
+            ...wildLines,
             "",
-            "_Treinador e adversário estão sob controle da IA._",
-            "_Sem spam por turno; o resultado/recompensa aparece ao final._",
+            "> _O combate será resolvido sem mensagens por turno._",
           ].join("\n"),
           "BATTLE",
           started.value.battleId,
@@ -622,13 +609,12 @@ export function createSpawnWhatsAppRoute(
       return result(
         context,
         [
-          wilds.length === 1 ? "🌿 *ENCONTRO SELVAGEM*" : "🌿 *ENCONTRO SELVAGEM · GRUPO*",
+          "◇ *𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠*",
+          `　${spawnContext.areaDisplayName}${wilds.length === 1 ? "" : " · Grupo"}`,
           "",
           mentionTag(targetRef),
-          ...wildLines,
-          `📍 ${spawnContext.areaDisplayName}`,
           "",
-          `⚔️ \`/iniciarbatalha ${mentionTag(targetRef)}\``,
+          ...wildLines,
         ].join("\n"),
         "ENCOUNTER",
         presented.value.encounterId,
