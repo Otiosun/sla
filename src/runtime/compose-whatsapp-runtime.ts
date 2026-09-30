@@ -118,6 +118,7 @@ import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/post
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
+import { PostgresWhatsAppReplyResultContextResolver } from "../platform/messaging/postgres-whatsapp-reply-result-context.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
 import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-pokedex-admin-seen-owner.js";
@@ -433,20 +434,33 @@ export function createOperationalMessagingComposition(
     receptionConversationResolver,
     nonReceptionConversationResolver,
   );
-  const narratorBattleId = async (adminPrincipalId: string): Promise<string | null> => {
+  const narratorBattleIds = async (adminPrincipalId: string): Promise<readonly string[]> => {
     const result = await pool.query<{ battle_id: string }>(
-      `SELECT controller.battle_id
+      `SELECT DISTINCT controller.battle_id
        FROM battle_participant_controllers controller
        JOIN battles battle ON battle.id = controller.battle_id
        WHERE controller.kind = 'NARRATOR'
          AND controller.admin_principal_id = $1
          AND battle.status = 'ACTIVE'
-       ORDER BY controller.updated_at DESC, controller.participant_id
-       LIMIT 1`,
+       ORDER BY controller.battle_id`,
       [adminPrincipalId],
     );
-    return result.rows[0]?.battle_id ?? null;
+    return result.rows.map((row) => row.battle_id);
   };
+  const narratorBattleId = async (adminPrincipalId: string): Promise<string | null> => {
+    const ids = await narratorBattleIds(adminPrincipalId);
+    return ids.length === 1 ? (ids[0] ?? null) : null;
+  };
+
+  const pveBattleStart =
+    encounterWriter === undefined || pveBattle === null
+      ? null
+      : new PveBattleStartService(
+          encounterWriter,
+          pveBattle.battle,
+          new PostgresPveBattleStartRollback(pool),
+        );
+  const replyContext = new PostgresWhatsAppReplyResultContextResolver(pool);
 
   const pveScene =
     pveBattle === null
@@ -455,6 +469,10 @@ export function createOperationalMessagingComposition(
           players: playerRegistration,
           activeBattleId: reads.activeBattleId.bind(reads),
           narratorBattleId,
+          narratorBattleIds,
+          replyContext,
+          ...(pveBattleStart === null ? {} : { battleStart: pveBattleStart }),
+          roster: reads,
           battle: pveBattle.battle,
           controllers: new PostgresBattleParticipantControllerRepository(pool),
           encounters: encounter,
@@ -465,14 +483,7 @@ export function createOperationalMessagingComposition(
           playerExternalRef: externalRefForPlayer,
           admins: adminIdentity,
         });
-  const pveBattleStart =
-    encounterWriter === undefined || pveBattle === null
-      ? null
-      : new PveBattleStartService(
-          encounterWriter,
-          pveBattle.battle,
-          new PostgresPveBattleStartRollback(pool),
-        );
+
   const narratorAutoBattle =
     pveBattleStart === null || pveBattle === null
       ? null
@@ -765,6 +776,10 @@ export function createOperationalMessagingComposition(
             players: playerRegistration,
             activeBattleId: reads.activeBattleId.bind(reads),
             narratorBattleId,
+            narratorBattleIds,
+            replyContext,
+            ...(pveBattleStart === null ? {} : { battleStart: pveBattleStart }),
+            roster: reads,
             battle: pveBattle.battle,
             controllers: new PostgresBattleParticipantControllerRepository(pool),
             encounters: encounter,
