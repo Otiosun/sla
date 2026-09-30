@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BattleCombatant } from "../../src/modules/battle/contracts.js";
-import type {
-  BattlePokemonBuild,
-  BattleRootRecord,
-} from "../../src/modules/battle/ports.js";
+import type { BattlePokemonBuild, BattleRootRecord } from "../../src/modules/battle/ports.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { IDS, playerCombatant, wildCombatant } from "./fixtures.js";
 
@@ -90,7 +87,11 @@ describe("BattleService initialization initiative precedence", () => {
     const service = new BattleService(
       repository as never,
       {} as never,
-      () => ids[index++] ?? (() => { throw new Error("id factory exhausted"); })(),
+      () =>
+        ids[index++] ??
+        (() => {
+          throw new Error("id factory exhausted");
+        })(),
     );
 
     const result = await service.initialize(IDS.battle, "PLAYER");
@@ -123,7 +124,11 @@ describe("BattleService initialization initiative precedence", () => {
     const service = new BattleService(
       repository as never,
       {} as never,
-      () => ids[index++] ?? (() => { throw new Error("id factory exhausted"); })(),
+      () =>
+        ids[index++] ??
+        (() => {
+          throw new Error("id factory exhausted");
+        })(),
     );
 
     const result = await service.initialize(IDS.battle, "PLAYER");
