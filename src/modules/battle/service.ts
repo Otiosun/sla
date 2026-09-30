@@ -158,6 +158,7 @@ export class BattleService {
           "Battle initialization data could not be assembled from pinned content",
         );
       }
+      const firstTurnInitiative = data.firstTurnInitiative ?? firstTurnInitiativeOverride;
       const built = initializeBattleState({
         root,
         sides: [
@@ -175,9 +176,7 @@ export class BattleService {
             party: data.opponentParty,
           },
         ],
-        ...((firstTurnInitiativeOverride ?? data.firstTurnInitiative) === undefined
-          ? {}
-          : { firstTurnInitiative: firstTurnInitiativeOverride ?? data.firstTurnInitiative }),
+        ...(firstTurnInitiative === undefined ? {} : { firstTurnInitiative }),
         idFactory: this.idFactory,
       });
       if (!built.ok) {
