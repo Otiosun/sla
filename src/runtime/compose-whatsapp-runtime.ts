@@ -150,6 +150,7 @@ import {
   type PveBattleRuntimeConfig,
 } from "./compose-pve-battle-runtime.js";
 import { resolveNarratorEncounterEnvironment } from "./encounter-environment-runtime-config.js";
+import { filterActiveNarratorBattleIds } from "./narrator-battle-context.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
@@ -435,17 +436,27 @@ export function createOperationalMessagingComposition(
     nonReceptionConversationResolver,
   );
   const narratorBattleIds = async (adminPrincipalId: string): Promise<readonly string[]> => {
-    const result = await pool.query<{ battle_id: string }>(
-      `SELECT DISTINCT controller.battle_id
+    const result = await pool.query<{ battle_id: string; participant_id: string }>(
+      `SELECT controller.battle_id, controller.participant_id
        FROM battle_participant_controllers controller
        JOIN battles battle ON battle.id = controller.battle_id
        WHERE controller.kind = 'NARRATOR'
          AND controller.admin_principal_id = $1
          AND battle.status = 'ACTIVE'
-       ORDER BY controller.battle_id`,
+       ORDER BY controller.battle_id, controller.participant_id`,
       [adminPrincipalId],
     );
-    return result.rows.map((row) => row.battle_id);
+    if (pveBattle === null) return [];
+    return filterActiveNarratorBattleIds(
+      result.rows.map((row) => ({
+        battleId: row.battle_id,
+        participantId: row.participant_id,
+      })),
+      async (battleId) => {
+        const state = await pveBattle.battle.currentState(battleId);
+        return state.ok ? state.value : null;
+      },
+    );
   };
   const narratorBattleId = async (adminPrincipalId: string): Promise<string | null> => {
     const ids = await narratorBattleIds(adminPrincipalId);
