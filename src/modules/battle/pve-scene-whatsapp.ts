@@ -229,9 +229,10 @@ function numberedMoveLines(
     readonly maxPp: number | null;
   }[],
 ): readonly string[] {
-  return moves.map(
-    (move) =>
-      `\`${String(move.slotNo).padStart(2, "0")}\` ${move.displayName} · PP \`${move.ppCurrent ?? "—"} / ${move.maxPp ?? "—"}\``,
+  return moves.map((move) =>
+    move.maxPp === null
+      ? `\`${String(move.slotNo).padStart(2, "0")}\` ${move.displayName} · PP \`${move.ppCurrent ?? "—"}\``
+      : `\`${String(move.slotNo).padStart(2, "0")}\` ${move.displayName} · PP \`${move.ppCurrent ?? "—"} / ${move.maxPp}\``,
   );
 }
 
@@ -252,7 +253,8 @@ async function preflightPlayerMove(
   if (dependencies.roster === undefined) {
     return err(
       appError("FEATURE_UNAVAILABLE", "Pre-battle move lookup is unavailable.", {
-        userMessage: "Não foi possível conferir esse movimento agora. Use `/moves` e tente novamente.",
+        userMessage:
+          "Não foi possível conferir esse movimento agora. Use `/moves` e tente novamente.",
       }),
     );
   }
@@ -548,7 +550,9 @@ function chooseBall(
 
 function ballPrompt(options: readonly PveCaptureBallOption[]): string {
   if (options.length === 0) {
-    return ["〔!〕 *𝗦𝗘𝗠 𝗣𝗢𝗞É 𝗕𝗢𝗟𝗔𝗦*", "", "> _Você não possui uma Poké Bola disponível._"].join("\n");
+    return ["〔!〕 *𝗦𝗘𝗠 𝗣𝗢𝗞É 𝗕𝗢𝗟𝗔𝗦*", "", "> _Você não possui uma Poké Bola disponível._"].join(
+      "\n",
+    );
   }
   return [
     "◇ *𝗣𝗢𝗞É 𝗕𝗢𝗟𝗔*",
@@ -944,9 +948,7 @@ export function createPveSceneRoutes(
   dependencies: PveSceneDependencies,
 ): readonly CommandRouteDefinition[] {
   const handle: Handler = async (context) => {
-    const parsed = parseSceneAction(
-      context.message.text?.replace(/\s+@\S+\s*$/u, "") ?? null,
-    );
+    const parsed = parseSceneAction(context.message.text?.replace(/\s+@\S+\s*$/u, "") ?? null);
     if (parsed.kind === "NONE")
       return err(
         appError("VALIDATION_FAILED", "Nenhuma diretiva de batalha encontrada.", {
@@ -1102,7 +1104,8 @@ export function createPveSceneRoutes(
         if (principal !== null && parsed.intent.type !== "USE_MOVE") {
           return err(
             appError("FLOW_BLOCKED", "Narrator opening action must be a move.", {
-              userMessage: "Para abrir esse combate como narrador, narre e use `/movimento <golpe>`.",
+              userMessage:
+                "Para abrir esse combate como narrador, narre e use `/movimento <golpe>`.",
             }),
           );
         }
@@ -1114,10 +1117,7 @@ export function createPveSceneRoutes(
               : await preflightWildMove(dependencies, encounter.value, parsed.intent.moveRef);
           if (!preflight.ok) return preflight;
         } else if (parsed.intent.type === "CAPTURE") {
-          if (
-            dependencies.captureBalls === undefined ||
-            principal !== null
-          ) {
+          if (dependencies.captureBalls === undefined || principal !== null) {
             return err(
               appError("FEATURE_UNAVAILABLE", "Opening capture is unavailable.", {
                 userMessage: "A captura não está disponível agora.",
@@ -1164,7 +1164,8 @@ export function createPveSceneRoutes(
         if (!started.ok) {
           return err(
             appError("FLOW_BLOCKED", started.error.message, {
-              userMessage: "O encontro mudou antes da ação ser registrada. Use `/batalha` e tente novamente.",
+              userMessage:
+                "O encontro mudou antes da ação ser registrada. Use `/batalha` e tente novamente.",
             }),
           );
         }
@@ -1466,8 +1467,7 @@ export function createPveSceneRoutes(
 
       const replyContext = await replyContextFor(dependencies, context);
       const targetRef = mentions[0] ?? null;
-      let battleId =
-        replyContext?.resultRefType === "BATTLE" ? replyContext.resultRefId : null;
+      let battleId = replyContext?.resultRefType === "BATTLE" ? replyContext.resultRefId : null;
 
       if (battleId === null && targetRef !== null) {
         const target = await dependencies.players.resolvePlayer({
@@ -1561,8 +1561,7 @@ export function createPveSceneRoutes(
               state.value.contentReleaseId,
               actor.speciesId,
             );
-      const displayTarget =
-        targetRef ?? replyContext?.mentions[0] ?? null;
+      const displayTarget = targetRef ?? replyContext?.mentions[0] ?? null;
       const suffix = displayTarget === null ? "" : ` · ${mentionTag(displayTarget)}`;
 
       return reply(
@@ -1578,7 +1577,9 @@ export function createPveSceneRoutes(
               "",
               `› _Use \`/moves${displayTarget === null ? "" : ` ${mentionTag(displayTarget)}`}\` para consultar os movimentos._`,
               `› _Use \`/automatico${displayTarget === null ? "" : ` ${mentionTag(displayTarget)}`}\` para devolver à IA._`,
-            ].filter((line, index, all) => !(line === "" && all[index - 1] === "")).join("\n")
+            ]
+              .filter((line, index, all) => !(line === "" && all[index - 1] === ""))
+              .join("\n")
           : [
               "◇ *𝗖𝗢𝗡𝗧𝗥𝗢𝗟𝗘 𝗔𝗨𝗧𝗢𝗠Á𝗧𝗜𝗖𝗢*",
               `　${speciesName ?? "Pokémon selvagem"}${suffix}`,
@@ -1594,9 +1595,19 @@ export function createPveSceneRoutes(
     context: MessageHandlerContext,
     principal: { readonly principalId: string } | null,
   ): Promise<
-    | { readonly kind: "BATTLE"; readonly battleId: string; readonly playerId: PlayerId | null; readonly targetRef: string | null }
+    | {
+        readonly kind: "BATTLE";
+        readonly battleId: string;
+        readonly playerId: PlayerId | null;
+        readonly targetRef: string | null;
+      }
     | { readonly kind: "CHOICE"; readonly text: string; readonly mentions: readonly string[] }
-    | { readonly kind: "NONE"; readonly playerId: PlayerId | null; readonly targetRef: string | null; readonly replyContext: PveReplyContext | null }
+    | {
+        readonly kind: "NONE";
+        readonly playerId: PlayerId | null;
+        readonly targetRef: string | null;
+        readonly replyContext: PveReplyContext | null;
+      }
   > => {
     const mentions = context.message.mentions ?? [];
     if (mentions.length > 1) {
