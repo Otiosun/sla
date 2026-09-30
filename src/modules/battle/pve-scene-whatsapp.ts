@@ -671,7 +671,7 @@ async function battleMovesText(
     slotNo: move.slotNo,
     displayName: names.get(move.moveId) ?? "Movimento",
     ppCurrent: move.ppCurrent ?? null,
-    maxPp: null,
+    maxPp: move.maxPp ?? null,
   }));
   return [
     "◇ *𝗠𝗢𝗩𝗜𝗠𝗘𝗡𝗧𝗢𝗦*",
@@ -1621,7 +1621,7 @@ export function createPveSceneRoutes(
     const targetRef = mentions[0] ?? null;
     let targetPlayerId: PlayerId | null = null;
 
-    if (targetRef !== null) {
+    if (targetRef !== null && principal !== null) {
       const target = await dependencies.players.resolvePlayer({
         provider: context.message.provider,
         externalId: targetRef,
