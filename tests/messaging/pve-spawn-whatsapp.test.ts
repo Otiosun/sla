@@ -531,7 +531,7 @@ describe("PVE /spawn WhatsApp route", () => {
       }),
     );
     expect(scene).toContain("Poochyena rompeu o mato");
-    if (!output.ok) throw new Error("expected embedded spawn success");
+    if (!output.ok || output.value === null) throw new Error("expected embedded spawn success");
     const text = String(output.value.outgoing[0]?.payload.text ?? "");
     expect(text).toContain("◇ *𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠*");
     expect(text).not.toContain("/iniciarbatalha");
