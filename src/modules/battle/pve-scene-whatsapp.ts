@@ -1487,11 +1487,7 @@ export function createPveSceneRoutes(
         battleId = await dependencies.activeBattleId(target.value.playerId);
       }
 
-      if (
-        battleId === null &&
-        kind === "AUTO" &&
-        !hasUnresolvedTextualMention(context)
-      ) {
+      if (battleId === null && kind === "AUTO" && !hasUnresolvedTextualMention(context)) {
         const controlled = await narratorBattleIdsFor(dependencies, principal.principalId);
         if (controlled.length === 1) battleId = controlled[0] ?? null;
         else if (controlled.length > 1) {
