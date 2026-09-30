@@ -48,7 +48,16 @@ describe("WhatsApp /hub command", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const text = result.value?.outgoing[0]?.payload.text;
-    expect(text).toContain(`https://hub.example.test/#hub_ticket=${TICKET}`);
+    const accessUrl = String(text)
+      .split("\n")
+      .find((line) => line.startsWith("https://"));
+    expect(accessUrl).toBeDefined();
+    const parsedUrl = new URL(accessUrl ?? "https://invalid.test/");
+    expect(parsedUrl.searchParams.get("hub_open")).toBe(
+      String(new Date("2026-09-18T20:05:00.000Z").getTime()),
+    );
+    expect(parsedUrl.searchParams.has("hub_ticket")).toBe(false);
+    expect(parsedUrl.hash).toBe(`#hub_ticket=${TICKET}`);
     expect(text).not.toContain("playerId");
     expect(text).not.toContain(SENDER);
     expect(issue).toHaveBeenCalledWith({ provider: "baileys", externalId: SENDER });
@@ -71,9 +80,10 @@ describe("WhatsApp /hub command", () => {
     expect(result.value?.outgoing).toHaveLength(1);
     expect(result.value?.outgoing[0]?.destinationRef).toBe(SENDER);
     expect(result.value?.outgoing[0]?.destinationRef).not.toBe(groupRef);
-    expect(result.value?.outgoing[0]?.payload.text).toContain(
-      `https://hub.example.test/#hub_ticket=${TICKET}`,
-    );
+    const text = String(result.value?.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("https://hub.example.test/?hub_open=");
+    expect(text).toContain(`#hub_ticket=${TICKET}`);
+    expect(text).not.toContain(`hub_ticket=${TICKET}&`);
   });
 
   it("is sensitive, active-only and mechanically-ready", () => {
