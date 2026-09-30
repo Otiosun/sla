@@ -31,7 +31,9 @@ export class PveBattleStartService {
     private readonly rollback?: PveBattleStartRollbackPort,
   ) {}
 
-  public async start(input: EncounterMutationInput) {
+  public async start(
+    input: EncounterMutationInput & { readonly firstTurnInitiative?: "PLAYER" | "WILD" },
+  ) {
     const started = await this.encounter.startBattle(input);
     if (!started.ok) return started;
 
