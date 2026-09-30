@@ -14,10 +14,7 @@ import type {
   BattleParticipantController,
   BattleParticipantControllerRepository,
 } from "./participant-controller.js";
-import type {
-  CanonicalPveBattleStartInput,
-  PveBattleStartService,
-} from "./pve-battle-start.js";
+import type { CanonicalPveBattleStartInput, PveBattleStartService } from "./pve-battle-start.js";
 import type { BattleRuntimeService } from "./runtime.js";
 import type { TurnWindowAggregate } from "./turn-window.js";
 import { parseSceneAction } from "./scene-action.js";
@@ -171,10 +168,7 @@ function isBattleStartEncounterStatus(
   status: EncounterView["status"],
 ): status is CanonicalPveBattleStartInput["status"] {
   return (
-    status === "CREATED" ||
-    status === "PRESENTED" ||
-    status === "ENGAGED" ||
-    status === "IN_BATTLE"
+    status === "CREATED" || status === "PRESENTED" || status === "ENGAGED" || status === "IN_BATTLE"
   );
 }
 
@@ -1844,7 +1838,9 @@ export function createPveSceneRoutes(
           state.value,
           actor,
           principal !== null
-            ? (resolved.targetRef === null ? "Batalha atual" : mentionTag(resolved.targetRef))
+            ? resolved.targetRef === null
+              ? "Batalha atual"
+              : mentionTag(resolved.targetRef)
             : state.value.battleType === "PVP"
               ? "PVP"
               : "Batalha atual",
