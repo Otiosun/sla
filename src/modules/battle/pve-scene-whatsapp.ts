@@ -827,7 +827,7 @@ async function turnSummary(
       ? (speciesByParticipant.get(participantId) ?? "Pokémon")
       : "Pokémon";
 
-  const lines: string[] = [`⚔️ *TURNO ${state.turnNumber}*`, ""];
+  const lines: string[] = [`◇ *𝗧𝗨𝗥𝗡𝗢 ${String(state.turnNumber).padStart(2, "0")}*`, ""];
   let actionStarted = false;
 
   for (const entry of events) {
@@ -859,7 +859,7 @@ async function turnSummary(
 
         if (damage !== null && remainingHp !== null) {
           lines.push(
-            `${nameOf(entry.payload.participantId)}: ${remainingHp + damage} → ${remainingHp} HP.`,
+            `${nameOf(entry.payload.participantId)} · HP \`${remainingHp + damage} → ${remainingHp}\``,
           );
         }
         break;
@@ -870,7 +870,7 @@ async function turnSummary(
           typeof entry.payload.remainingHp === "number" ? entry.payload.remainingHp : null;
         if (amount !== null && remainingHp !== null) {
           lines.push(
-            `${nameOf(entry.payload.participantId)}: ${remainingHp - amount} → ${remainingHp} HP.`,
+            `${nameOf(entry.payload.participantId)} · HP \`${remainingHp - amount} → ${remainingHp}\``,
           );
         }
         break;
@@ -881,7 +881,7 @@ async function turnSummary(
         );
         break;
       case "Fainted":
-        lines.push(`💥 ${nameOf(entry.payload.participantId)} não consegue mais lutar.`);
+        lines.push(`〔!〕 ${nameOf(entry.payload.participantId)} não consegue mais lutar.`);
         break;
       case "Switched":
         lines.push(`${nameOf(entry.payload.toParticipantId)} entrou em campo.`);
@@ -889,12 +889,12 @@ async function turnSummary(
       case "ActionSkipped":
         if (entry.payload.reason === "CAPTURE_FAILED") {
           if (actionStarted && lines[lines.length - 1] !== "") lines.push("");
-          lines.push("🔴 A Poké Ball foi lançada.", "O Pokémon escapou.");
+          lines.push("A Poké Ball foi lançada.", "O Pokémon escapou.");
           actionStarted = true;
         }
         break;
       case "BattleEnded":
-        if (entry.payload.status === "FLED") lines.push("💨 A batalha terminou em fuga.");
+        if (entry.payload.status === "FLED") lines.push("> _A batalha terminou em fuga._");
         break;
       default:
         break;
@@ -914,11 +914,11 @@ async function turnSummary(
   const firstMention = mentions[0];
   const secondMention = mentions[1];
   if (firstMention !== undefined && secondMention !== undefined) {
-    lines[0] = `⚔️ *TURNO ${state.turnNumber}* · ${mentionTag(firstMention)} × ${mentionTag(secondMention)}`;
+    lines[1] = `　${mentionTag(firstMention)} × ${mentionTag(secondMention)}`;
   } else if (firstMention !== undefined) {
-    lines[0] = `⚔️ *TURNO ${state.turnNumber}* · ${mentionTag(firstMention)}`;
+    lines[1] = `　${mentionTag(firstMention)}`;
   } else {
-    lines[0] = `⚔️ *TURNO ${state.turnNumber}*`;
+    lines.splice(1, 1);
   }
 
   return { text: lines.join("\n"), mentions };
@@ -1287,7 +1287,7 @@ export function createPveSceneRoutes(
           if (captured.value.replayed) {
             return reply(
               context,
-              ["🔴 A Poké Ball foi lançada.", "", "O Pokémon escapou."].join("\n"),
+              ["◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔*", "", "A Poké Ball foi lançada.", "O Pokémon escapou."].join("\n"),
               battleId,
               { react: true },
             );
@@ -1315,12 +1315,19 @@ export function createPveSceneRoutes(
             : `Foi para o *Box ${placement.boxNo ?? 1}* · slot ${placement.slotNo}.`;
       const after = await dependencies.battle.currentState(battleId);
       const continues = after.ok && after.value.status === "ACTIVE";
+      const capturedName =
+        (await dependencies.presentation.speciesDisplayName(
+          state.value.contentReleaseId,
+          target.speciesId,
+        )) ?? "Pokémon";
       return reply(
         context,
         [
-          "🔴 *Pokémon capturado.*",
+          "〔✓〕 *𝗖𝗔𝗣𝗧𝗨𝗥𝗔 𝗖𝗢𝗡𝗖𝗟𝗨Í𝗗𝗔*",
+          "",
+          `*${capturedName}* foi capturado.`,
           placementText,
-          ...(continues ? ["O encontro continua."] : []),
+          ...(continues ? ["", "> _O encontro continua._"] : []),
         ].join("\n"),
         battleId,
         { react: true },
@@ -1349,7 +1356,12 @@ export function createPveSceneRoutes(
             userMessage: "Essa batalha já terminou.",
           }),
         );
-      return reply(context, "🏳️ Você desistiu. O adversário venceu.", battleId, { react: true });
+      return reply(
+        context,
+        ["〔×〕 *𝗕𝗔𝗧𝗔𝗟𝗛𝗔 𝗘𝗡𝗖𝗘𝗥𝗥𝗔𝗗𝗔*", "", "> _Você desistiu. O adversário venceu._"].join("\n"),
+        battleId,
+        { react: true },
+      );
     }
 
     const action =
