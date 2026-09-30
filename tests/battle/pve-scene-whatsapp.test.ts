@@ -1249,6 +1249,98 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("does not fall back to an unrelated controlled battle when a narrator types a non-native @ target in PV", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const currentState = vi.fn(async () => ok(state));
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async () => ({
+          ok: false as const,
+          error: { code: "NOT_FOUND", message: "not a player" },
+        })),
+      },
+      narratorBattleIds: vi.fn(async () => [battleId]),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState,
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "moves").handler.handle(
+      context("/moves @target", {
+        senderRef: "narrator@s.whatsapp.net",
+        mentions: [],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.details?.userMessage).toContain("No PV");
+    expect(currentState).not.toHaveBeenCalled();
+  });
+
+  it("still resolves narrator /moves through a real WhatsApp mention instead of a controlled battle", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const currentState = vi.fn(async () => ok(state));
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          externalId === targetRef
+            ? ok({ playerId })
+            : ({
+                ok: false as const,
+                error: { code: "NOT_FOUND", message: "not a player" },
+              } as never),
+        ),
+      },
+      activeBattleId: vi.fn(async () => battleId),
+      narratorBattleIds: vi.fn(async () => [
+        "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      ]),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState,
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "moves").handler.handle(
+      context("/moves @target", {
+        senderRef: "narrator@s.whatsapp.net",
+        mentions: [targetRef],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(currentState).toHaveBeenCalledWith(battleId);
+  });
+
+  it("does not let text-only /automatico target an unrelated sole narrator battle", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const deps = {
+      ...setup.dependencies,
+      narratorBattleIds: vi.fn(async () => [battleId]),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "automatico").handler.handle(
+      context("/automatico @target", {
+        senderRef: "narrator@s.whatsapp.net",
+        mentions: [],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(setup.transition).not.toHaveBeenCalled();
+  });
+
   it("does not guess when a narrator has multiple controlled battles", async () => {
     const setup = dependencies(false);
     const principalId = "55555555-5555-4555-8555-555555555555";
