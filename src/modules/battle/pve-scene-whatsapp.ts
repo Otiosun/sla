@@ -1,6 +1,7 @@
 import { type PlayerId, parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { CaptureService } from "../capture/service.js";
+import type { EncounterView } from "../encounter/contracts.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { EncounterService } from "../encounter/service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -272,11 +273,7 @@ async function preflightPlayerMove(
 
 async function preflightWildMove(
   dependencies: PveSceneDependencies,
-  encounter: Awaited<ReturnType<EncounterOperationalReadService["activeForPlayer"]>> extends Result<
-    infer T
-  >
-    ? T
-    : never,
+  encounter: EncounterView,
   moveRef: string,
 ): Promise<Result<void>> {
   const wilds =
