@@ -647,7 +647,7 @@ async function battleMovesText(
     slotNo: move.slotNo,
     displayName: names.get(move.moveId) ?? "Movimento",
     ppCurrent: move.ppCurrent ?? null,
-    maxPp: move.maxPp ?? null,
+    maxPp: null,
   }));
   return [
     "◇ *𝗠𝗢𝗩𝗜𝗠𝗘𝗡𝗧𝗢𝗦*",
