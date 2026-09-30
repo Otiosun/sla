@@ -58,9 +58,12 @@ describe("battle reward WhatsApp evolution rendering", () => {
         [FROM_FORM_ID, "Charmander"],
         [TO_FORM_ID, "Charmeleon"],
       ]),
+      new Map([[POKEMON_ID, "Charmander"]]),
     );
 
-    expect(output).toContain("✨ Evolução: *Charmander* → *Charmeleon*.");
+    expect(output).toContain("Progressão · `+10`");
+    expect(output).toContain("*Charmander* · `+120 XP`");
+    expect(output).toContain("✦ Evolução · *Charmander* → *Charmeleon*");
     expect(output).not.toContain(FROM_FORM_ID);
     expect(output).not.toContain(TO_FORM_ID);
   });
@@ -68,7 +71,7 @@ describe("battle reward WhatsApp evolution rendering", () => {
   it("falls back to a human message if display metadata is unavailable", () => {
     const output = renderBattleRewardWhatsAppText(reward(), "player:test");
 
-    expect(output).toContain("✨ Uma evolução foi concluída.");
+    expect(output).toContain("✦ Uma evolução foi concluída.");
     expect(output).not.toContain("Evoluções aplicadas");
     expect(output).not.toContain(FROM_FORM_ID);
     expect(output).not.toContain(TO_FORM_ID);
