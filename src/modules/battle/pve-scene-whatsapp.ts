@@ -1634,7 +1634,10 @@ export function createPveSceneRoutes(
         kind: "BATTLE",
         battleId: replyContext.resultRefId,
         playerId: targetPlayerId,
-        targetRef: targetRef ?? replyContext.mentions[0] ?? null,
+        targetRef:
+          principal === null
+            ? context.message.senderRef
+            : (targetRef ?? replyContext.mentions[0] ?? null),
       };
     }
 
@@ -1749,24 +1752,32 @@ export function createPveSceneRoutes(
 
     let ownActionState: "SUBMITTED" | "PENDING" | null = null;
     if (dependencies.turnWindowForBattleVersion !== undefined && controller.kind === "PLAYER") {
-      const window = await dependencies.turnWindowForBattleVersion(
-        resolved.battleId,
-        state.value.version,
-      );
-      if (window !== null) {
-        const required =
-          window.window.requiredControllers?.some(
-            (entry) => entry.participantId === controller.participantId,
-          ) ??
-          window.window.requiredPlayers.some((entry) => entry.playerId === controller.playerId);
-        if (required) {
-          const submitted = window.submissions.some(
-            (entry) =>
-              (entry.status === "ACTIVE" || entry.status === "COMMITTED") &&
-              (entry.action.actorParticipantId === controller.participantId ||
-                (controller.playerId !== null && entry.playerId === controller.playerId)),
-          );
-          ownActionState = submitted ? "SUBMITTED" : "PENDING";
+      const caller = await dependencies.players.resolvePlayer({
+        provider: context.message.provider,
+        externalId: context.message.senderRef,
+      });
+      const controllerBelongsToCaller =
+        caller.ok && controller.playerId !== null && caller.value.playerId === controller.playerId;
+      if (controllerBelongsToCaller) {
+        const window = await dependencies.turnWindowForBattleVersion(
+          resolved.battleId,
+          state.value.version,
+        );
+        if (window !== null) {
+          const required =
+            window.window.requiredControllers?.some(
+              (entry) => entry.participantId === controller.participantId,
+            ) ??
+            window.window.requiredPlayers.some((entry) => entry.playerId === controller.playerId);
+          if (required) {
+            const submitted = window.submissions.some(
+              (entry) =>
+                (entry.status === "ACTIVE" || entry.status === "COMMITTED") &&
+                (entry.action.actorParticipantId === controller.participantId ||
+                  (controller.playerId !== null && entry.playerId === controller.playerId)),
+            );
+            ownActionState = submitted ? "SUBMITTED" : "PENDING";
+          }
         }
       }
     }
