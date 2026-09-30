@@ -976,7 +976,12 @@ export function createPveSceneRoutes(
       battleId = await dependencies.activeBattleId(explicitTargetPlayerId);
     }
 
-    if (battleId === null && principal !== null) {
+    if (
+      battleId === null &&
+      principal !== null &&
+      explicitTargetPlayerId === null &&
+      replyContext?.resultRefType !== "ENCOUNTER"
+    ) {
       const controlled = await narratorBattleIdsFor(dependencies, principal.principalId);
       if (controlled.length === 1) {
         battleId = controlled[0] ?? null;
@@ -1602,7 +1607,11 @@ export function createPveSceneRoutes(
       }
     }
 
-    if (principal !== null) {
+    if (
+      principal !== null &&
+      targetPlayerId === null &&
+      replyContext?.resultRefType !== "ENCOUNTER"
+    ) {
       const controlled = await narratorBattleIdsFor(dependencies, principal.principalId);
       if (controlled.length === 1) {
         return {
