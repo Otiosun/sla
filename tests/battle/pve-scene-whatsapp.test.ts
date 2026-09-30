@@ -542,6 +542,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     } as BattleState;
     const narratorDependencies = {
       ...setup.dependencies,
+      narratorBattleId: vi.fn(async () => battleId),
       battle: {
         ...setup.dependencies.battle,
         currentState: vi.fn(async () => ok(narratorState)),
