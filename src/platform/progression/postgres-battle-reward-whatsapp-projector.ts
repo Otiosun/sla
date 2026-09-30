@@ -44,9 +44,7 @@ function pokemonLines(
     const name = pokemonNames.get(pokemon.pokemonInstanceId) ?? `Pokémon ${index + 1}`;
     const lines = [`*${name}* · \`+${pokemon.awardedXp} XP\`${level}`];
     if (pokemon.pendingMoveChoiceIds.length > 0) {
-      lines.push(
-        `〔!〕 ${pokemon.pendingMoveChoiceIds.length} novo golpe aguarda escolha.`,
-      );
+      lines.push(`〔!〕 ${pokemon.pendingMoveChoiceIds.length} novo golpe aguarda escolha.`);
     }
     for (const evolution of pokemon.evolutions) {
       const fromName = evolutionFormNames.get(evolution.fromFormId);
@@ -137,10 +135,9 @@ async function resolvePokemonNames(
     [reward.playerId, ids],
   );
   return new Map(
-    result.rows.map((row) => [
-      row.pokemon_instance_id,
-      row.nickname?.trim() || row.display_name,
-    ] as const),
+    result.rows.map(
+      (row) => [row.pokemon_instance_id, row.nickname?.trim() || row.display_name] as const,
+    ),
   );
 }
 
