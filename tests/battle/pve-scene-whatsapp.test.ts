@@ -465,6 +465,50 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(hud.ok && hud.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
   });
 
+  it("shows only the caller's own turn submission state in /batalha", async () => {
+    const setup = dependencies(false);
+    const submittedDeps = {
+      ...setup.dependencies,
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [{ participantId }],
+          requiredPlayers: [],
+        },
+        submissions: [
+          {
+            status: "ACTIVE",
+            playerId,
+            action: { actorParticipantId: participantId },
+          },
+        ],
+      })),
+    } as unknown as PveSceneDependencies;
+    const submitted = await routeFor(
+      createPveSceneRoutes(submittedDeps),
+      "batalha",
+    ).handler.handle(context("/batalha"));
+    expect(submitted.ok && String(submitted.value.outgoing[0]?.payload.text)).toContain(
+      "〔✓〕 Sua ação já foi definida.",
+    );
+
+    const pendingDeps = {
+      ...setup.dependencies,
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [{ participantId }],
+          requiredPlayers: [],
+        },
+        submissions: [],
+      })),
+    } as unknown as PveSceneDependencies;
+    const pending = await routeFor(createPveSceneRoutes(pendingDeps), "batalha").handler.handle(
+      context("/batalha"),
+    );
+    expect(pending.ok && String(pending.value.outgoing[0]?.payload.text)).toContain(
+      "Sua ação ainda não foi definida.",
+    );
+  });
+
   it("shows current battle moves privately and only reacts in the source chat", async () => {
     const setup = dependencies(false);
     const result = await routeFor(createPveSceneRoutes(setup.dependencies), "moves").handler.handle(
