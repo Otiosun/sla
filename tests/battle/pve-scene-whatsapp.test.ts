@@ -615,6 +615,79 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(result.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
   });
 
+  it("does not expose a targeted player's hidden PVP submission state to an admin caller", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    const opponentPlayerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const opponentParticipantId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const pvpState = {
+      ...state,
+      battleType: "PVP",
+      sides: [
+        state.sides[0],
+        {
+          sideNo: 2,
+          controllerKind: "PLAYER",
+          playerId: opponentPlayerId,
+          participantIds: [opponentParticipantId],
+          activeParticipantId: opponentParticipantId,
+          result: null,
+        },
+      ],
+      combatants: [
+        state.combatants[0],
+        {
+          ...state.combatants[1],
+          participantId: opponentParticipantId,
+          participantKind: "PLAYER_POKEMON",
+        },
+      ],
+    } as unknown as BattleState;
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          externalId === targetRef
+            ? ok({ playerId })
+            : ({
+                ok: false as const,
+                error: { code: "NOT_FOUND", message: "not a player" },
+              } as never),
+        ),
+      },
+      activeBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(pvpState)),
+      },
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [{ participantId, playerId, kind: "PLAYER" }],
+          requiredPlayers: [],
+        },
+        submissions: [
+          {
+            status: "ACTIVE",
+            playerId,
+            action: { actorParticipantId: participantId },
+          },
+        ],
+      })),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha @target", { senderRef: "narrator", mentions: [targetRef] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text ?? "");
+    expect(text).not.toContain("〔✓〕 Sua ação já foi definida.");
+    expect(text).not.toContain("Sua ação ainda não foi definida.");
+  });
+
   it("shows current battle moves privately and only reacts in the source chat", async () => {
     const setup = dependencies(false);
     const result = await routeFor(createPveSceneRoutes(setup.dependencies), "moves").handler.handle(
