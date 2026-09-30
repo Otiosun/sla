@@ -197,8 +197,8 @@ describe("PVE /spawn WhatsApp route", () => {
     });
     if (output.ok) {
       const text = String(output.value.outgoing[0]?.payload.text ?? "");
-      expect(text).toContain("BATALHA AUTOMÁTICA");
-      expect(text).toContain("controle da IA");
+      expect(text).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔 𝗔𝗨𝗧𝗢𝗠Á𝗧𝗜𝗖𝗔");
+      expect(text).toContain("sem mensagens por turno");
       expect(output.value.outgoing[0]?.payload.mentions).toEqual(["target@s.whatsapp.net"]);
     }
   });
