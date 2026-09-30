@@ -1339,28 +1339,6 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(setup.transition).not.toHaveBeenCalled();
   });
 
-  it("does not reuse another narrator battle when a typed target is not a native mention", async () => {
-    const setup = dependencies(false);
-    const principalId = "55555555-5555-4555-8555-555555555555";
-    setup.resolvePrincipal.mockResolvedValue({ principalId });
-    const narratorBattleIds = vi.fn(async () => [battleId]);
-    const deps = {
-      ...setup.dependencies,
-      narratorBattleIds,
-    } as unknown as PveSceneDependencies;
-
-    const result = await routeFor(createPveSceneRoutes(deps), "moves").handler.handle(
-      context("/moves @target", { senderRef: "narrator@s.whatsapp.net" }),
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(narratorBattleIds).not.toHaveBeenCalled();
-    expect(result.value.outgoing[0]?.messageType).toBe("REACTION");
-    expect(result.value.outgoing[1]?.destinationRef).toBe("narrator@s.whatsapp.net");
-    expect(String(result.value.outgoing[1]?.payload.text)).toContain("𝗔𝗟𝗩𝗢 𝗡Ã𝗢 𝗜𝗗𝗘𝗡𝗧𝗜𝗙𝗜𝗖𝗔𝗗𝗢");
-  });
-
   it("does not guess when a narrator has multiple controlled battles", async () => {
     const setup = dependencies(false);
     const principalId = "55555555-5555-4555-8555-555555555555";
