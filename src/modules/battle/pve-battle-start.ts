@@ -153,9 +153,7 @@ async function battleStartText(
   }
   const controllers = await dependencies.controllers.listByBattle(battleId);
   const activeIds = new Set(
-    state.sides.flatMap((side) =>
-      (side.slots ?? [side]).map((slot) => slot.activeParticipantId),
-    ),
+    state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
   );
   const ownController = controllers.find(
     (entry) =>
