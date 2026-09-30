@@ -34,7 +34,7 @@ describe("narrator battle context", () => {
     const states = new Map<string, BattleState>([
       [activeBattleId, state(activeBattleId, narratorActive)],
       [staleBattleId, state(staleBattleId, newActiveWild)],
-      [endedBattleId, state(endedBattleId, narratorEnded, "COMPLETED")],
+      [endedBattleId, state(endedBattleId, narratorEnded, "WON")],
     ]);
     const loadState = vi.fn(async (battleId: string) => states.get(battleId) ?? null);
 
