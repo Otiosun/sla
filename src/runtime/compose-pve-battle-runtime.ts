@@ -46,6 +46,8 @@ export function createPveBattleRuntime(pool: Pool, config: PveBattleRuntimeConfi
   );
   return {
     battle,
+    turnWindowForBattleVersion: (battleId: string, version: number) =>
+      repository.read((transaction) => transaction.loadTurnWindowByBattleVersion(battleId, version)),
     runAutoTurnOnce: async (battleId: string) => dispatcher.runOnce({ limit: 1, battleId }),
     runMaintenance: async () => {
       const turns = await dispatcher.runOnce({ limit: config.maintenanceBatchSize });
