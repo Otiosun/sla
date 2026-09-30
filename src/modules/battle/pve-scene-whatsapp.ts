@@ -46,6 +46,7 @@ export interface PveReplyContext {
 
 export interface PveReplyContextResolver {
   resolve(input: {
+    readonly provider: string;
     readonly chatRef: string;
     readonly externalMessageId: string;
   }): Promise<PveReplyContext | null>;
@@ -165,6 +166,7 @@ async function replyContextFor(
   const externalMessageId = context.message.replyToExternalMessageId;
   if (externalMessageId === null || dependencies.replyContext === undefined) return null;
   return dependencies.replyContext.resolve({
+    provider: context.message.provider,
     chatRef: context.message.chatRef,
     externalMessageId,
   });
