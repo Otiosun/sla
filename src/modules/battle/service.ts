@@ -135,7 +135,10 @@ export class BattleService {
     private readonly idFactory: IdFactory = randomUUID,
   ) {}
 
-  public async initialize(battleId: string): Promise<BattleServiceResult<InitializeBattleOutput>> {
+  public async initialize(
+    battleId: string,
+    firstTurnInitiativeOverride?: "PLAYER" | "WILD",
+  ): Promise<BattleServiceResult<InitializeBattleOutput>> {
     return this.repository.transaction(async (transaction) => {
       const root = await transaction.loadRoot(battleId, true);
       if (root === null) return failure("BATTLE_NOT_FOUND", "Battle was not found");
@@ -172,9 +175,9 @@ export class BattleService {
             party: data.opponentParty,
           },
         ],
-        ...(data.firstTurnInitiative === undefined
+        ...((firstTurnInitiativeOverride ?? data.firstTurnInitiative) === undefined
           ? {}
-          : { firstTurnInitiative: data.firstTurnInitiative }),
+          : { firstTurnInitiative: firstTurnInitiativeOverride ?? data.firstTurnInitiative }),
         idFactory: this.idFactory,
       });
       if (!built.ok) {
