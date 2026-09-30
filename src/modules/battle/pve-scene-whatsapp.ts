@@ -790,6 +790,11 @@ function mentionTag(ref: string): string {
   return `@${local.replace(/:\d+$/u, "")}`;
 }
 
+function hasUnresolvedTextualMention(context: MessageHandlerContext): boolean {
+  if ((context.message.mentions ?? []).length > 0) return false;
+  return /(?:^|\s)@[^\s]+/u.test(context.message.text ?? "");
+}
+
 function statusText(value: unknown): string {
   switch (value) {
     case "BURN":
@@ -1482,7 +1487,11 @@ export function createPveSceneRoutes(
         battleId = await dependencies.activeBattleId(target.value.playerId);
       }
 
-      if (battleId === null && kind === "AUTO") {
+      if (
+        battleId === null &&
+        kind === "AUTO" &&
+        !hasUnresolvedTextualMention(context)
+      ) {
         const controlled = await narratorBattleIdsFor(dependencies, principal.principalId);
         if (controlled.length === 1) battleId = controlled[0] ?? null;
         else if (controlled.length > 1) {
@@ -1492,10 +1501,12 @@ export function createPveSceneRoutes(
       }
 
       if (battleId === null) {
+        const unresolvedTextualTarget = hasUnresolvedTextualMention(context);
         return err(
           appError("NOT_FOUND", "Nenhuma batalha PVE foi identificada.", {
-            userMessage:
-              kind === "NARRATOR"
+            userMessage: unresolvedTextualTarget
+              ? "No PV, o @ digitado não identifica o treinador. Use a menção real no grupo ou responda à mensagem da batalha desejada."
+              : kind === "NARRATOR"
                 ? "Responda à mensagem da batalha desejada ou use `/assumir @treinador`."
                 : "Responda à batalha desejada ou use `/automatico @treinador`.",
           }),
@@ -1579,8 +1590,12 @@ export function createPveSceneRoutes(
               "",
               "> _O selvagem agora está sob seu controle._",
               "",
-              `› _Use \`/moves${displayTarget === null ? "" : ` ${mentionTag(displayTarget)}`}\` para consultar os movimentos._`,
-              `› _Use \`/automatico${displayTarget === null ? "" : ` ${mentionTag(displayTarget)}`}\` para devolver à IA._`,
+              displayTarget === null
+                ? "› _Use `/moves` para consultar os movimentos._"
+                : `› _No grupo, use \`/moves ${mentionTag(displayTarget)}\`; a lista chega no seu PV._`,
+              displayTarget === null
+                ? "› _Use `/automatico` para devolver à IA._"
+                : `› _No grupo, use \`/automatico ${mentionTag(displayTarget)}\` para devolver à IA._`,
             ]
               .filter((line, index, all) => !(line === "" && all[index - 1] === ""))
               .join("\n")
@@ -1651,7 +1666,8 @@ export function createPveSceneRoutes(
     if (
       principal !== null &&
       targetPlayerId === null &&
-      replyContext?.resultRefType !== "ENCOUNTER"
+      replyContext?.resultRefType !== "ENCOUNTER" &&
+      !hasUnresolvedTextualMention(context)
     ) {
       const controlled = await narratorBattleIdsFor(dependencies, principal.principalId);
       if (controlled.length === 1) {
@@ -1705,7 +1721,10 @@ export function createPveSceneRoutes(
     if (resolved.kind !== "BATTLE" || resolved.battleId.length === 0) {
       return err(
         appError("NOT_FOUND", "Nenhuma batalha ativa.", {
-          userMessage: "Nenhuma batalha ativa foi encontrada.",
+          userMessage:
+            principal !== null && hasUnresolvedTextualMention(context)
+              ? "No PV, o @ digitado não identifica o treinador. Use a menção real no grupo ou responda à batalha desejada."
+              : "Nenhuma batalha ativa foi encontrada.",
         }),
       );
     }
@@ -1889,7 +1908,9 @@ export function createPveSceneRoutes(
           userMessage:
             principal === null
               ? "Você não possui uma batalha ou encontro ativo."
-              : "Responda ao encontro desejado ou use `/moves @treinador`.",
+              : hasUnresolvedTextualMention(context)
+                ? "No PV, o @ digitado não identifica o treinador. Use a menção real no grupo; a lista será enviada no seu PV."
+                : "Responda ao encontro desejado ou use `/moves @treinador` no grupo.",
         }),
       );
     }
