@@ -1301,9 +1301,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         ),
       },
       activeBattleId: vi.fn(async () => battleId),
-      narratorBattleIds: vi.fn(async () => [
-        "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-      ]),
+      narratorBattleIds: vi.fn(async () => ["eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"]),
       battle: {
         ...setup.dependencies.battle,
         currentState,
