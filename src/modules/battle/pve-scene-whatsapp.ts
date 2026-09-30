@@ -581,45 +581,16 @@ async function hud(
   ]);
 
   const lines = [
-    `⚔️ *BATALHA · T${state.turnNumber}* · ${mentionTag(playerRef)}`,
+    "◇ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+    `　Turno \`${String(state.turnNumber).padStart(2, "0")}\` · ${mentionTag(playerRef)}`,
     "",
     own === undefined
       ? "_Seu Pokémon está indisponível._"
-      : `*${ownName ?? "Pokémon"}*${own.shiny ? " ✨" : ""} · Nv. ${own.level} · ❤️ \`${own.currentHp}/${own.maxHp}\`${own.majorStatus === null ? "" : ` · ${statusLabel(own.majorStatus)}`}`,
+      : `*${ownName ?? "Pokémon"}*${own.shiny ? " ✦" : ""} · Nv. \`${own.level}\`\nHP \`${own.currentHp} / ${own.maxHp}\`${own.majorStatus === null ? "" : ` · ${statusLabel(own.majorStatus)}`}`,
     opponent === undefined
-      ? "× —"
-      : `× *${opponentName ?? "Pokémon"}*${opponent.shiny ? " ✨" : ""} · Nv. ${opponent.level} · ❤️ \`${opponent.currentHp}/${opponent.maxHp}\`${opponent.majorStatus === null ? "" : ` · ${statusLabel(opponent.majorStatus)}`}`,
+      ? ""
+      : `*${opponentName ?? "Pokémon"}*${opponent.shiny ? " ✦" : ""} · Nv. \`${opponent.level}\`\nHP \`${opponent.currentHp} / ${opponent.maxHp}\`${opponent.majorStatus === null ? "" : ` · ${statusLabel(opponent.majorStatus)}`}`,
   ];
-
-  if (own !== undefined && own.currentHp > 0) {
-    const moveNames = await presentation.moveDisplayNames(
-      state.contentReleaseId,
-      own.moves.map((move) => move.moveId),
-    );
-    lines.push(
-      "",
-      "*Golpes*",
-      ...own.moves.map(
-        (move) =>
-          `\`${move.slotNo}\` ${moveNames.get(move.moveId) ?? "Movimento"} · PP \`${
-            move.ppCurrent ?? "—"
-          }/${move.maxPp ?? "—"}\``,
-      ),
-    );
-    if (controller.kind === "NARRATOR") {
-      const narratorRoster = controlledRoster(state, controller, controllers);
-      lines.push(
-        "",
-        narratorRoster.length > 1
-          ? "`/movimento 1` · `/trocar 2` · `/automatico`"
-          : "`/movimento 1` · `/automatico`",
-      );
-    } else if (state.battleType === "WILD") {
-      lines.push("", "`/movimento 1` · `/capturar` · `/fugir`");
-    } else {
-      lines.push("", "`/movimento 1` · `/trocar 2`");
-    }
-  }
 
   if (own !== undefined && own.currentHp <= 0) {
     const roster = controlledRoster(state, controller, controllers);
@@ -636,17 +607,88 @@ async function hud(
       );
       lines.push(
         "",
-        "💥 *TROCA OBRIGATÓRIA*",
+        "〔!〕 *𝗧𝗥𝗢𝗖𝗔 𝗢𝗕𝗥𝗜𝗚𝗔𝗧Ó𝗥𝗜𝗔*",
+        "",
         ...reserves.map(
           ({ combatant, slot }, index) =>
-            `\`${slot}\` ${reserveNames[index] ?? "Pokémon"} · ❤️ \`${combatant.currentHp}/${combatant.maxHp}\` · \`/trocar ${slot}\``,
+            `\`${String(slot).padStart(2, "0")}\` ${reserveNames[index] ?? "Pokémon"} · HP \`${combatant.currentHp} / ${combatant.maxHp}\``,
         ),
+        "",
+        "› _Use `/trocar <número>`._",
       );
+      return lines.join("\n");
     }
   }
 
-  lines.push("", "`/combate` · ajuda");
-  return lines.join("\n");
+  if (controller.kind === "NARRATOR") {
+    lines.push("", "> _O selvagem está sob seu controle._");
+  }
+  lines.push("", "› _Use `/moves` para consultar os movimentos._");
+  return lines.filter((line, index, all) => !(line === "" && all[index - 1] === "")).join("\n");
+}
+
+async function battleMovesText(
+  dependencies: PveSceneDependencies,
+  state: BattleState,
+  actor: BattleState["combatants"][number],
+  contextLabel: string,
+): Promise<string> {
+  const [speciesName, names] = await Promise.all([
+    dependencies.presentation.speciesDisplayName(state.contentReleaseId, actor.speciesId),
+    dependencies.presentation.moveDisplayNames(
+      state.contentReleaseId,
+      actor.moves.map((move) => move.moveId),
+    ),
+  ]);
+  const moves = actor.moves.map((move) => ({
+    slotNo: move.slotNo,
+    displayName: names.get(move.moveId) ?? "Movimento",
+    ppCurrent: move.ppCurrent ?? null,
+    maxPp: move.maxPp ?? null,
+  }));
+  return [
+    "◇ *𝗠𝗢𝗩𝗜𝗠𝗘𝗡𝗧𝗢𝗦*",
+    `　${speciesName ?? "Pokémon"} · ${contextLabel}`,
+    "",
+    ...numberedMoveLines(moves),
+    "",
+    "› _Na cena, use `/movimento 1` ou o nome do golpe._",
+  ].join("\n");
+}
+
+async function narratorBattleChoiceText(
+  dependencies: PveSceneDependencies,
+  battleIds: readonly string[],
+): Promise<{ readonly text: string; readonly mentions: readonly string[] }> {
+  const lines = ["▣ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔𝗦 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢*", "　Condução do narrador", ""];
+  const mentions: string[] = [];
+  let index = 0;
+  for (const battleId of battleIds) {
+    const state = await dependencies.battle.currentState(battleId);
+    if (!state.ok) continue;
+    const wild = activeWildParticipant(state.value);
+    const wildName =
+      wild === undefined
+        ? "Selvagem"
+        : ((await dependencies.presentation.speciesDisplayName(
+            state.value.contentReleaseId,
+            wild.speciesId,
+          )) ?? "Selvagem");
+    const playerSide = state.value.sides.find((side) => side.playerId !== null);
+    const ref =
+      playerSide?.playerId === null ||
+      playerSide?.playerId === undefined ||
+      dependencies.playerExternalRef === undefined
+        ? null
+        : await dependencies.playerExternalRef(playerSide.playerId);
+    index += 1;
+    if (ref !== null) mentions.push(ref);
+    lines.push(
+      `\`${String(index).padStart(2, "0")}\` ${ref === null ? "Treinador" : mentionTag(ref)} · ${wildName}`,
+    );
+  }
+  lines.push("", "› _Responda à batalha desejada ou mencione o treinador._");
+  return { text: lines.join("\n"), mentions };
 }
 
 function mentionTag(ref: string): string {
