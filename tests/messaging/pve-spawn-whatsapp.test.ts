@@ -274,7 +274,7 @@ describe("PVE /spawn WhatsApp route", () => {
     );
     if (!output.ok) throw new Error("expected forced spawn success");
     const text = String(output.value.outgoing[0]?.payload.text ?? "");
-    expect(text).toContain("*Poochyena* ✨ · Nv. 12");
+    expect(text).toContain("*Poochyena* ✦ · Nv. `12`");
     expect(text).toContain("@target");
     expect(output.value.outgoing[0]?.payload.mentions).toEqual(["target@s.whatsapp.net"]);
   });
@@ -368,10 +368,11 @@ describe("PVE /spawn WhatsApp route", () => {
     expect(output.value.resultRefType).toBe("BATTLE");
     expect(output.value.resultRefId).toBe(battleId);
     const text = String(output.value.outgoing[0]?.payload.text ?? "");
-    expect(text).toContain("*BATALHA INICIADA*");
-    expect(text).toContain("🎙️ *Bite* registrado");
-    expect(text).toContain("*Seus golpes*");
-    expect(text).toContain("Water Gun");
+    expect(text).toContain("✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*");
+    expect(text).toContain("Bite já foi definido pelo selvagem");
+    expect(text).toContain("`/moves`");
+    expect(text).not.toContain("*Seus golpes*");
+    expect(text).not.toContain("Water Gun");
     expect(text).toContain("@target");
   });
 
@@ -530,5 +531,9 @@ describe("PVE /spawn WhatsApp route", () => {
       }),
     );
     expect(scene).toContain("Poochyena rompeu o mato");
+    if (!output.ok) throw new Error("expected embedded spawn success");
+    const text = String(output.value.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("◇ *𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠*");
+    expect(text).not.toContain("/iniciarbatalha");
   });
 });
