@@ -14,6 +14,7 @@ import type { BattleRuntimeService } from "./runtime.js";
 
 export interface CanonicalPveBattleStartInput extends EncounterMutationInput {
   readonly status: "CREATED" | "PRESENTED" | "ENGAGED" | "IN_BATTLE";
+  readonly firstTurnInitiative?: "PLAYER" | "WILD";
 }
 
 export interface PveBattleStartRollbackPort {
@@ -34,7 +35,10 @@ export class PveBattleStartService {
     const started = await this.encounter.startBattle(input);
     if (!started.ok) return started;
 
-    const initialized = await this.battle.initialize(started.value.battleId);
+    const initialized =
+      input.firstTurnInitiative === undefined
+        ? await this.battle.initialize(started.value.battleId)
+        : await this.battle.initialize(started.value.battleId, input.firstTurnInitiative);
     if (!initialized.ok) {
       if (this.rollback !== undefined) {
         try {
@@ -88,6 +92,9 @@ export class PveBattleStartService {
       playerId: input.playerId,
       encounterId: input.encounterId,
       expectedRevision: revision,
+      ...(input.firstTurnInitiative === undefined
+        ? {}
+        : { firstTurnInitiative: input.firstTurnInitiative }),
     });
   }
 }
