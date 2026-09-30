@@ -19,6 +19,7 @@ import type {
   PveBattleStartService,
 } from "./pve-battle-start.js";
 import type { BattleRuntimeService } from "./runtime.js";
+import type { TurnWindowAggregate } from "./turn-window.js";
 import { parseSceneAction } from "./scene-action.js";
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -64,6 +65,10 @@ export interface PveSceneDependencies {
   readonly replyContext?: PveReplyContextResolver;
   readonly battleStart?: Pick<PveBattleStartService, "startCanonical">;
   readonly roster?: Pick<OperationalUxReadModel, "listTeam" | "teamPokemonDetail">;
+  readonly turnWindowForBattleVersion?: (
+    battleId: string,
+    version: number,
+  ) => Promise<TurnWindowAggregate | null>;
   readonly battle: Pick<
     BattleRuntimeService,
     "currentState" | "resolvePlayerTurn" | "surrenderPvp"
@@ -579,6 +584,7 @@ async function hud(
   controllers: readonly BattleParticipantController[],
   presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">,
   playerRef: string,
+  ownActionState: "SUBMITTED" | "PENDING" | null = null,
 ): Promise<string> {
   const own = state.combatants.find(
     (combatant) => combatant.participantId === controller.participantId,
@@ -645,6 +651,10 @@ async function hud(
 
   if (controller.kind === "NARRATOR") {
     lines.push("", "> _O selvagem está sob seu controle._");
+  } else if (ownActionState === "SUBMITTED") {
+    lines.push("", "〔✓〕 Sua ação já foi definida.");
+  } else if (ownActionState === "PENDING") {
+    lines.push("", "› _Sua ação ainda não foi definida._");
   }
   lines.push("", "› _Use `/moves` para consultar os movimentos._");
   return lines.filter((line, index, all) => !(line === "" && all[index - 1] === "")).join("\n");
@@ -1743,6 +1753,30 @@ export function createPveSceneRoutes(
       );
     }
 
+    let ownActionState: "SUBMITTED" | "PENDING" | null = null;
+    if (dependencies.turnWindowForBattleVersion !== undefined && controller.kind === "PLAYER") {
+      const window = await dependencies.turnWindowForBattleVersion(
+        resolved.battleId,
+        state.value.version,
+      );
+      if (window !== null) {
+        const required =
+          window.window.requiredControllers?.some(
+            (entry) => entry.participantId === controller.participantId,
+          ) ??
+          window.window.requiredPlayers.some((entry) => entry.playerId === controller.playerId);
+        if (required) {
+          const submitted = window.submissions.some(
+            (entry) =>
+              (entry.status === "ACTIVE" || entry.status === "COMMITTED") &&
+              (entry.action.actorParticipantId === controller.participantId ||
+                (controller.playerId !== null && entry.playerId === controller.playerId)),
+          );
+          ownActionState = submitted ? "SUBMITTED" : "PENDING";
+        }
+      }
+    }
+
     return reply(
       context,
       await hud(
@@ -1751,6 +1785,7 @@ export function createPveSceneRoutes(
         controllers,
         dependencies.presentation,
         resolved.targetRef ?? context.message.senderRef,
+        ownActionState,
       ),
       resolved.battleId,
       { mentions: resolved.targetRef === null ? [] : [resolved.targetRef] },
