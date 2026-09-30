@@ -483,10 +483,9 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         ],
       })),
     } as unknown as PveSceneDependencies;
-    const submitted = await routeFor(
-      createPveSceneRoutes(submittedDeps),
-      "batalha",
-    ).handler.handle(context("/batalha"));
+    const submitted = await routeFor(createPveSceneRoutes(submittedDeps), "batalha").handler.handle(
+      context("/batalha"),
+    );
     expect(submitted.ok && String(submitted.value.outgoing[0]?.payload.text)).toContain(
       "〔✓〕 Sua ação já foi definida.",
     );
