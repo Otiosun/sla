@@ -1633,23 +1633,13 @@ export function createPveSceneRoutes(
     const unresolvedTypedTarget =
       principal !== null &&
       targetRef === null &&
-      /(?:^|\s)@[^\s]+/u.test(context.message.text ?? "") &&
+      hasUnresolvedTextualMention(context) &&
       replyContext?.resultRefType !== "BATTLE" &&
       replyContext?.resultRefType !== "ENCOUNTER";
     let targetPlayerId: PlayerId | null = null;
 
     if (unresolvedTypedTarget) {
-      return {
-        kind: "CHOICE",
-        text: [
-          "▣ *𝗔𝗟𝗩𝗢 𝗡Ã𝗢 𝗜𝗗𝗘𝗡𝗧𝗜𝗙𝗜𝗖𝗔𝗗𝗢*",
-          "",
-          "A marcação digitada não chegou como menção nativa do WhatsApp.",
-          "",
-          "› _Responda à mensagem do encontro/batalha desejada ou envie o comando com uma menção nativa._",
-        ].join("\n"),
-        mentions: [],
-      };
+      return { kind: "NONE", playerId: null, targetRef: null, replyContext };
     }
 
     if (targetRef !== null && principal !== null) {
