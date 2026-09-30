@@ -14,7 +14,10 @@ import type {
   BattleParticipantController,
   BattleParticipantControllerRepository,
 } from "./participant-controller.js";
-import type { PveBattleStartService } from "./pve-battle-start.js";
+import type {
+  CanonicalPveBattleStartInput,
+  PveBattleStartService,
+} from "./pve-battle-start.js";
 import type { BattleRuntimeService } from "./runtime.js";
 import { parseSceneAction } from "./scene-action.js";
 
@@ -157,6 +160,17 @@ function normalizeLookup(value: string): string {
     .trim()
     .toLocaleLowerCase("pt-BR")
     .replace(/\s+/gu, " ");
+}
+
+function isBattleStartEncounterStatus(
+  status: EncounterView["status"],
+): status is CanonicalPveBattleStartInput["status"] {
+  return (
+    status === "CREATED" ||
+    status === "PRESENTED" ||
+    status === "ENGAGED" ||
+    status === "IN_BATTLE"
+  );
 }
 
 async function replyContextFor(
@@ -1132,6 +1146,13 @@ export function createPveSceneRoutes(
             }),
           );
         }
+        if (!isBattleStartEncounterStatus(encounter.value.status)) {
+          return err(
+            appError("FLOW_BLOCKED", "Encounter is not in a battle-startable state.", {
+              userMessage: "Esse encontro já não pode iniciar uma nova batalha.",
+            }),
+          );
+        }
 
         const started = await dependencies.battleStart.startCanonical({
           playerId: encounterPlayerId,
@@ -1785,6 +1806,10 @@ export function createPveSceneRoutes(
         "BATTLE",
         resolved.battleId,
       );
+    }
+
+    if (resolved.kind !== "NONE") {
+      return err(appError("NOT_FOUND", "Nenhuma batalha ou encontro ativo."));
     }
 
     let encounterPlayerId = resolved.playerId;
