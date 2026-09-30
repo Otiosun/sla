@@ -816,7 +816,9 @@ export function createPveSceneRoutes(
   dependencies: PveSceneDependencies,
 ): readonly CommandRouteDefinition[] {
   const handle: Handler = async (context) => {
-    const parsed = parseSceneAction(context.message.text);
+    const parsed = parseSceneAction(
+      context.message.text?.replace(/\s+@\S+\s*$/u, "") ?? null,
+    );
     if (parsed.kind === "NONE")
       return err(
         appError("VALIDATION_FAILED", "Nenhuma diretiva de batalha encontrada.", {
@@ -835,51 +837,235 @@ export function createPveSceneRoutes(
       externalId: context.message.senderRef,
     });
     const playerId = player.ok ? player.value.playerId : null;
-    const narratorBattleId =
-      principal === null || dependencies.narratorBattleId === undefined
-        ? null
-        : await dependencies.narratorBattleId(principal.principalId);
-    const playerBattleId = playerId === null ? null : await dependencies.activeBattleId(playerId);
-    // An explicitly persisted NARRATOR controller wins over the admin's own player battle.
-    const battleId = narratorBattleId ?? playerBattleId;
+    const mentions = context.message.mentions ?? [];
+    if (mentions.length > 1) {
+      return err(
+        appError("VALIDATION_FAILED", "Use no máximo uma menção por ação.", {
+          userMessage: "Responda à mensagem da batalha desejada ou mencione apenas um treinador.",
+        }),
+      );
+    }
+
+    const replyContext = await replyContextFor(dependencies, context);
+    let explicitTargetPlayerId: PlayerId | null = null;
+    if (principal !== null && mentions[0] !== undefined) {
+      const target = await dependencies.players.resolvePlayer({
+        provider: context.message.provider,
+        externalId: mentions[0],
+      });
+      if (!target.ok) return target;
+      explicitTargetPlayerId = target.value.playerId;
+    }
+
+    let battleId: string | null =
+      replyContext?.resultRefType === "BATTLE" ? replyContext.resultRefId : null;
+
+    if (battleId === null && explicitTargetPlayerId !== null) {
+      battleId = await dependencies.activeBattleId(explicitTargetPlayerId);
+    }
+
+    if (battleId === null && principal !== null) {
+      const controlled = await narratorBattleIdsFor(dependencies, principal.principalId);
+      if (controlled.length === 1) {
+        battleId = controlled[0] ?? null;
+      } else if (controlled.length > 1 && replyContext?.resultRefType !== "ENCOUNTER") {
+        return err(
+          appError("VALIDATION_FAILED", "Narrator controls more than one active battle.", {
+            userMessage:
+              "Você conduz mais de uma batalha. Responda à mensagem da batalha desejada ou mencione o treinador.",
+          }),
+        );
+      }
+    }
+
+    if (battleId === null && playerId !== null && principal === null) {
+      battleId = await dependencies.activeBattleId(playerId);
+    }
 
     if (battleId === null) {
+      if (dependencies.encounters === undefined) {
+        return err(appError("NOT_FOUND", "Nenhuma batalha ou encontro ativo."));
+      }
+
+      let encounterPlayerId: PlayerId | null = explicitTargetPlayerId;
       if (
-        parsed.intent.type !== "FLEE" ||
-        playerId === null ||
-        dependencies.encounters === undefined ||
-        dependencies.encounterWriter === undefined
+        encounterPlayerId === null &&
+        principal !== null &&
+        replyContext?.resultRefType === "ENCOUNTER" &&
+        replyContext.mentions.length === 1
       ) {
+        const repliedTarget = await dependencies.players.resolvePlayer({
+          provider: context.message.provider,
+          externalId: replyContext.mentions[0] ?? "",
+        });
+        if (repliedTarget.ok) encounterPlayerId = repliedTarget.value.playerId;
+      }
+      if (encounterPlayerId === null && principal === null) encounterPlayerId = playerId;
+
+      if (
+        parsed.intent.type === "FLEE" &&
+        principal === null &&
+        encounterPlayerId !== null &&
+        dependencies.encounterWriter !== undefined
+      ) {
+        const encounter = await dependencies.encounters.activeForPlayer(encounterPlayerId);
+        if (!encounter.ok) return err(appError("NOT_FOUND", "Nenhum encontro ativo para fugir."));
+        const fled = await dependencies.encounterWriter.flee({
+          playerId: encounterPlayerId,
+          encounterId: encounter.value.encounterId,
+          expectedRevision: encounter.value.revision,
+        });
+        if (!fled.ok) {
+          return err(
+            appError("FLOW_BLOCKED", "Não foi possível fugir deste encontro.", {
+              userMessage: "Não foi possível fugir deste encontro agora.",
+            }),
+          );
+        }
+        return encounterReply(
+          context,
+          ["〔‹〕 *ENCONTRO ENCERRADO*", "", "> _Você fugiu._"].join("\n"),
+          encounter.value.encounterId,
+        );
+      }
+
+      if (encounterPlayerId === null) {
         return err(
-          appError("NOT_FOUND", "Nenhuma batalha PVE ativa.", {
+          appError("NOT_FOUND", "No encounter target could be resolved.", {
             userMessage:
               principal === null
-                ? "Você não possui uma batalha PVE ativa."
-                : "Nenhuma batalha sob seu controle foi encontrada. Use `/assumir @treinador` primeiro.",
+                ? "Você não possui um encontro ativo."
+                : "Responda à mensagem do encontro desejado ou mencione o treinador.",
           }),
         );
       }
-      const encounter = await dependencies.encounters.activeForPlayer(playerId);
+
+      const encounter = await dependencies.encounters.activeForPlayer(encounterPlayerId);
       if (!encounter.ok) {
-        return err(appError("NOT_FOUND", "Nenhum encontro ativo para fugir."));
-      }
-      const fled = await dependencies.encounterWriter.flee({
-        playerId,
-        encounterId: encounter.value.encounterId,
-        expectedRevision: encounter.value.revision,
-      });
-      if (!fled.ok) {
         return err(
-          appError("FLOW_BLOCKED", "Não foi possível fugir deste encontro.", {
-            userMessage: "Não foi possível fugir deste encontro agora.",
+          appError("NOT_FOUND", "Nenhum encontro ativo.", {
+            userMessage: "Não há um encontro ativo para essa ação.",
           }),
         );
       }
-      return encounterReply(
-        context,
-        ["🏃 *VOCÊ FUGIU*", "", "_O encontro terminou._"].join("\n"),
-        encounter.value.encounterId,
-      );
+
+      if (encounter.value.battleId !== null) {
+        battleId = encounter.value.battleId;
+      } else {
+        if (parsed.intent.type === "SWITCH") {
+          return err(
+            appError("FLOW_BLOCKED", "A battle has not started yet.", {
+              userMessage: "A batalha ainda não começou. Faça uma ação primeiro.",
+            }),
+          );
+        }
+        if (parsed.intent.type === "SURRENDER") {
+          return err(
+            appError("FLOW_BLOCKED", "There is no PVP battle to surrender.", {
+              userMessage: "Não há uma batalha PVP ativa.",
+            }),
+          );
+        }
+        if (principal !== null && parsed.intent.type !== "USE_MOVE") {
+          return err(
+            appError("FLOW_BLOCKED", "Narrator opening action must be a move.", {
+              userMessage: "Para abrir esse combate como narrador, narre e use `/movimento <golpe>`.",
+            }),
+          );
+        }
+
+        if (parsed.intent.type === "USE_MOVE") {
+          const preflight =
+            principal === null
+              ? await preflightPlayerMove(dependencies, encounterPlayerId, parsed.intent.moveRef)
+              : await preflightWildMove(dependencies, encounter.value, parsed.intent.moveRef);
+          if (!preflight.ok) return preflight;
+        } else if (parsed.intent.type === "CAPTURE") {
+          if (
+            dependencies.captureBalls === undefined ||
+            principal !== null
+          ) {
+            return err(
+              appError("FEATURE_UNAVAILABLE", "Opening capture is unavailable.", {
+                userMessage: "A captura não está disponível agora.",
+              }),
+            );
+          }
+          const balls = await dependencies.captureBalls.listAvailable(
+            encounterPlayerId,
+            encounter.value.contentReleaseId,
+          );
+          if (chooseBall(balls, parsed.intent.captureRef) === null) {
+            return privateResult(
+              context,
+              ballPrompt(balls),
+              "ENCOUNTER",
+              encounter.value.encounterId,
+              false,
+            );
+          }
+        }
+
+        if (dependencies.battleStart === undefined) {
+          return err(
+            appError("FEATURE_UNAVAILABLE", "Automatic battle start is unavailable.", {
+              userMessage: "Não foi possível iniciar a batalha por essa ação agora.",
+            }),
+          );
+        }
+
+        const started = await dependencies.battleStart.startCanonical({
+          playerId: encounterPlayerId,
+          encounterId: encounter.value.encounterId,
+          status: encounter.value.status,
+          expectedRevision: encounter.value.revision,
+          firstTurnInitiative: principal === null ? "PLAYER" : "WILD",
+        });
+        if (!started.ok) {
+          return err(
+            appError("FLOW_BLOCKED", started.error.message, {
+              userMessage: "O encontro mudou antes da ação ser registrada. Use `/batalha` e tente novamente.",
+            }),
+          );
+        }
+        battleId = started.value.start.battleId;
+
+        if (principal !== null) {
+          const openingState = started.value.initialization.state;
+          const activeWild = activeWildParticipant(openingState);
+          if (activeWild === undefined) {
+            return err(appError("FLOW_BLOCKED", "Opening wild actor was not found."));
+          }
+          const initialControllers = await dependencies.controllers.listByBattle(battleId);
+          const automatic = initialControllers.find(
+            (entry) => entry.participantId === activeWild.participantId && entry.kind === "AUTO",
+          );
+          if (automatic === undefined) {
+            return err(
+              appError("FLOW_BLOCKED", "Opening wild controller was not available.", {
+                userMessage: "O selvagem não pôde ser assumido para essa primeira ação.",
+              }),
+            );
+          }
+          const changed = await dependencies.controllers.transition({
+            participantId: automatic.participantId,
+            expectedRevision: automatic.revision,
+            kind: "NARRATOR",
+            adminPrincipalId: principal.principalId,
+          });
+          if (changed === null) {
+            return err(
+              appError("REVISION_CONFLICT", "Opening wild control changed.", {
+                userMessage: "O controle do selvagem mudou. Tente novamente.",
+              }),
+            );
+          }
+        }
+      }
+    }
+
+    if (battleId === null) {
+      return err(appError("NOT_FOUND", "Nenhuma batalha PVE ativa."));
     }
 
     const state = await dependencies.battle.currentState(battleId);
