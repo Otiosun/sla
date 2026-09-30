@@ -895,9 +895,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         teamPokemonDetail: vi.fn(async () => ({
           displayName: "Pikachu",
           nickname: null,
-          moves: [
-            { slotNo: 1, displayName: "Quick Attack", ppCurrent: 30, maxPp: 30 },
-          ],
+          moves: [{ slotNo: 1, displayName: "Quick Attack", ppCurrent: 30, maxPp: 30 }],
         })),
       },
     } as unknown as PveSceneDependencies;
@@ -983,7 +981,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
               speciesId: rattataSpecies,
               level: 5,
               shiny: false,
-              moves: [{ moveId: quickAttackId, ppCurrent: 30, maxPp: 30 }],
+              moves: [{ moveId: quickAttackId, ppCurrent: 30 }],
             },
           }),
         ),
@@ -1036,9 +1034,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
       narratorBattleIds: vi.fn(async () => [battleId, secondBattle]),
       battle: {
         ...setup.dependencies.battle,
-        currentState: vi.fn(async (id: string) =>
-          ok({ ...state, battleId: id }),
-        ),
+        currentState: vi.fn(async (id: string) => ok({ ...state, battleId: id })),
       },
       playerExternalRef: vi.fn(async () => "target@s.whatsapp.net"),
     } as unknown as PveSceneDependencies;
@@ -1051,9 +1047,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     if (!result.ok) return;
     expect(result.value.outgoing[0]?.messageType).toBe("REACTION");
     expect(result.value.outgoing[1]?.destinationRef).toBe("narrator");
-    expect(String(result.value.outgoing[1]?.payload.text)).toContain(
-      "𝗕𝗔𝗧𝗔𝗟𝗛𝗔𝗦 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢",
-    );
+    expect(String(result.value.outgoing[1]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔𝗦 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢");
   });
 
   it("does not expose the unsupported /item battle command", () => {
