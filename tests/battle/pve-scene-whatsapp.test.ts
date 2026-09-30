@@ -51,7 +51,7 @@ const state = {
       speciesId: pikachuSpecies,
       currentHp: 12,
       maxHp: 20,
-      moves: [{ slotNo: 1, moveId: quickAttackId }],
+      moves: [{ slotNo: 1, moveId: quickAttackId, ppCurrent: 24, maxPp: 30 }],
       majorStatus: null,
     },
     {
@@ -508,6 +508,113 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     );
   });
 
+  it("does not let a player inspect another player's hidden PVP submission state by mentioning them", async () => {
+    const setup = dependencies(false);
+    const opponentPlayerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const opponentParticipantId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const opponentRef = "opponent@s.whatsapp.net";
+    const pvpState = {
+      ...state,
+      battleType: "PVP",
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId,
+          participantIds: [participantId],
+          activeParticipantId: participantId,
+          result: null,
+        },
+        {
+          sideNo: 2,
+          controllerKind: "PLAYER",
+          playerId: opponentPlayerId,
+          participantIds: [opponentParticipantId],
+          activeParticipantId: opponentParticipantId,
+          result: null,
+        },
+      ],
+      combatants: [
+        state.combatants[0],
+        {
+          ...state.combatants[1],
+          participantId: opponentParticipantId,
+          participantKind: "PLAYER_POKEMON",
+        },
+      ],
+    } as unknown as BattleState;
+    const controllers: readonly BattleParticipantController[] = [
+      {
+        participantId,
+        battleId,
+        kind: "PLAYER",
+        playerId,
+        adminPrincipalId: null,
+        revision: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        participantId: opponentParticipantId,
+        battleId,
+        kind: "PLAYER",
+        playerId: opponentPlayerId,
+        adminPrincipalId: null,
+        revision: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          ok({ playerId: externalId === opponentRef ? opponentPlayerId : playerId }),
+        ),
+      },
+      activeBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(pvpState)),
+      },
+      controllers: {
+        ...setup.dependencies.controllers,
+        listByBattle: vi.fn(async () => controllers),
+      },
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [
+            { participantId, playerId, kind: "PLAYER" },
+            {
+              participantId: opponentParticipantId,
+              playerId: opponentPlayerId,
+              kind: "PLAYER",
+            },
+          ],
+          requiredPlayers: [],
+        },
+        submissions: [
+          {
+            status: "ACTIVE",
+            playerId: opponentPlayerId,
+            action: { actorParticipantId: opponentParticipantId },
+          },
+        ],
+      })),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha @opponent", { mentions: [opponentRef] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("Sua ação ainda não foi definida.");
+    expect(text).not.toContain("〔✓〕 Sua ação já foi definida.");
+    expect(result.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
+  });
+
   it("shows current battle moves privately and only reacts in the source chat", async () => {
     const setup = dependencies(false);
     const result = await routeFor(createPveSceneRoutes(setup.dependencies), "moves").handler.handle(
@@ -523,6 +630,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     const text = String(result.value.outgoing[1]?.payload.text ?? "");
     expect(text).toContain("◇ *𝗠𝗢𝗩𝗜𝗠𝗘𝗡𝗧𝗢𝗦*");
     expect(text).toContain("Quick Attack");
+    expect(text).toContain("PP `24 / 30`");
     expect(text).toContain("`/movimento 1`");
   });
 
