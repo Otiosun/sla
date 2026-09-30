@@ -109,8 +109,7 @@ async function pvpStartText(
       ),
     )
     .filter(
-      (combatant): combatant is (typeof state.value.combatants)[number] =>
-        combatant !== undefined,
+      (combatant): combatant is (typeof state.value.combatants)[number] => combatant !== undefined,
     )
     .slice(0, 2);
   const names = await Promise.all(
@@ -207,12 +206,7 @@ export function createPvpWhatsAppRoutes(
 
     const challengerRef = refs[0];
     const targetRef = refs[1];
-    const text = await pvpStartText(
-      dependencies,
-      started.value.battleId,
-      challengerRef,
-      targetRef,
-    );
+    const text = await pvpStartText(dependencies, started.value.battleId, challengerRef, targetRef);
 
     return reply(context, text, started.value.battleId, refs);
   };
