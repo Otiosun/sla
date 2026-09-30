@@ -14,6 +14,7 @@ import type { BattleRuntimeService } from "./runtime.js";
 
 export interface CanonicalPveBattleStartInput extends EncounterMutationInput {
   readonly status: "CREATED" | "PRESENTED" | "ENGAGED" | "IN_BATTLE";
+  readonly firstTurnInitiative?: "PLAYER" | "WILD";
 }
 
 export interface PveBattleStartRollbackPort {
@@ -30,11 +31,20 @@ export class PveBattleStartService {
     private readonly rollback?: PveBattleStartRollbackPort,
   ) {}
 
-  public async start(input: EncounterMutationInput) {
-    const started = await this.encounter.startBattle(input);
+  public async start(
+    input: EncounterMutationInput & { readonly firstTurnInitiative?: "PLAYER" | "WILD" },
+  ) {
+    const started = await this.encounter.startBattle({
+      playerId: input.playerId,
+      encounterId: input.encounterId,
+      expectedRevision: input.expectedRevision,
+    });
     if (!started.ok) return started;
 
-    const initialized = await this.battle.initialize(started.value.battleId);
+    const initialized =
+      input.firstTurnInitiative === undefined
+        ? await this.battle.initialize(started.value.battleId)
+        : await this.battle.initialize(started.value.battleId, input.firstTurnInitiative);
     if (!initialized.ok) {
       if (this.rollback !== undefined) {
         try {
@@ -88,6 +98,9 @@ export class PveBattleStartService {
       playerId: input.playerId,
       encounterId: input.encounterId,
       expectedRevision: revision,
+      ...(input.firstTurnInitiative === undefined
+        ? {}
+        : { firstTurnInitiative: input.firstTurnInitiative }),
     });
   }
 }
@@ -121,11 +134,6 @@ function mentionTag(ref: string): string {
   return `@${local.replace(/:\d+$/u, "")}`;
 }
 
-function pp(current: number | null, max: number | null): string {
-  if (current === null && max === null) return "";
-  return ` · PP \`${current ?? "—"}/${max ?? "—"}\``;
-}
-
 async function battleStartText(
   dependencies: PveBattleStartWhatsAppDependencies,
   battleId: string,
@@ -134,22 +142,18 @@ async function battleStartText(
   state: BattleState,
 ): Promise<string> {
   const fallback = [
-    "⚔️ *BATALHA INICIADA*",
+    "✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+    `　${mentionTag(targetRef)}`,
     "",
-    mentionTag(targetRef),
-    "",
-    "`/batalha` · ver Pokémon, HP e golpes",
+    "› _Use `/moves` para consultar seus movimentos._",
   ].join("\n");
 
-  const battleState = state;
   if (dependencies.controllers === undefined || dependencies.presentation === undefined) {
     return fallback;
   }
   const controllers = await dependencies.controllers.listByBattle(battleId);
   const activeIds = new Set(
-    battleState.sides.flatMap((side) =>
-      (side.slots ?? [side]).map((slot) => slot.activeParticipantId),
-    ),
+    state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
   );
   const ownController = controllers.find(
     (entry) =>
@@ -160,46 +164,31 @@ async function battleStartText(
   const own =
     ownController === undefined
       ? undefined
-      : battleState.combatants.find(
+      : state.combatants.find(
           (combatant) => combatant.participantId === ownController.participantId,
         );
-  const opponent = battleState.combatants.find(
+  const opponent = state.combatants.find(
     (combatant) =>
       combatant.participantKind === "WILD_POKEMON" && activeIds.has(combatant.participantId),
   );
   if (own === undefined || opponent === undefined) return fallback;
 
-  const [ownName, opponentName, moveNames] = await Promise.all([
-    dependencies.presentation.speciesDisplayName(battleState.contentReleaseId, own.speciesId),
-    dependencies.presentation.speciesDisplayName(battleState.contentReleaseId, opponent.speciesId),
-    dependencies.presentation.moveDisplayNames(
-      battleState.contentReleaseId,
-      own.moves.map((move) => move.moveId),
-    ),
+  const [ownName, opponentName] = await Promise.all([
+    dependencies.presentation.speciesDisplayName(state.contentReleaseId, own.speciesId),
+    dependencies.presentation.speciesDisplayName(state.contentReleaseId, opponent.speciesId),
   ]);
-  const ownSparkle = own.shiny ? " ✨" : "";
-  const opponentSparkle = opponent.shiny ? " ✨" : "";
 
   return [
-    "⚔️ *BATALHA INICIADA*",
+    "✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+    `　${mentionTag(targetRef)}`,
     "",
-    `${mentionTag(targetRef)} · *${ownName ?? "Pokémon"}*${ownSparkle} Nv. ${own.level}`,
-    `❤️ \`${own.currentHp}/${own.maxHp}\``,
+    `*${ownName ?? "Pokémon"}*${own.shiny ? " ✦" : ""} · Nv. \`${own.level}\``,
+    `HP \`${own.currentHp} / ${own.maxHp}\``,
     "",
-    `× *${opponentName ?? "Pokémon selvagem"}*${opponentSparkle} Nv. ${opponent.level}`,
-    `❤️ \`${opponent.currentHp}/${opponent.maxHp}\``,
+    `*${opponentName ?? "Pokémon selvagem"}*${opponent.shiny ? " ✦" : ""} · Nv. \`${opponent.level}\``,
+    `HP \`${opponent.currentHp} / ${opponent.maxHp}\``,
     "",
-    "*Seus golpes*",
-    ...own.moves.map(
-      (move) =>
-        `\`${move.slotNo}\` ${moveNames.get(move.moveId) ?? "Movimento"}${pp(
-          move.ppCurrent,
-          move.maxPp,
-        )}`,
-    ),
-    "",
-    "`/movimento 1` · `/capturar` · `/fugir`",
-    "`/batalha` · consultar estado",
+    "› _Use `/moves` para consultar seus movimentos._",
   ].join("\n");
 }
 

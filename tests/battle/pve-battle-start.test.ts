@@ -52,6 +52,29 @@ describe("PveBattleStartService", () => {
     expect(battle.initialize).toHaveBeenCalledWith(started.battleId);
   });
 
+  it("applies an opening initiative override only to battle initialization", async () => {
+    const started = {
+      encounter: { status: "IN_BATTLE" },
+      battleId: "33333333-3333-4333-8333-333333333333",
+      replayed: false,
+    };
+    const encounter = {
+      startBattle: vi.fn(async () => ({ ok: true as const, value: started })),
+    };
+    const battle = {
+      initialize: vi.fn(async () => ({
+        ok: true as const,
+        value: { state: { status: "ACTIVE" }, replayed: false },
+      })),
+    };
+    const service = new PveBattleStartService(encounter as never, battle as never);
+
+    await service.start({ ...input, firstTurnInitiative: "PLAYER" });
+
+    expect(encounter.startBattle).toHaveBeenCalledWith(input);
+    expect(battle.initialize).toHaveBeenCalledWith(started.battleId, "PLAYER");
+  });
+
   it("does not initialize a battle when Encounter start fails", async () => {
     const failure = {
       ok: false as const,

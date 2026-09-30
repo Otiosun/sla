@@ -653,8 +653,10 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
     const texts = delivered
       .map((message) => message.payload.text)
       .filter((value): value is string => typeof value === "string");
-    expect(texts.some((text) => text.includes("ENCONTRO SELVAGEM · GRUPO"))).toBe(true);
-    expect(texts.some((text) => text.includes("BATALHA INICIADA"))).toBe(true);
+    expect(
+      texts.some((text) => text.includes("𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠") && text.includes("· Grupo")),
+    ).toBe(true);
+    expect(texts.some((text) => text.includes("✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*"))).toBe(true);
     expect(texts.some((text) => text.includes("capturado."))).toBe(true);
     expect(texts.every((text) => !UUID_IN_TEXT.test(text))).toBe(true);
 

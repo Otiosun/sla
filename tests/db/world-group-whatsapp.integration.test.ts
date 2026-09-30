@@ -74,10 +74,14 @@ describe.sequential("World group setup through the operational WhatsApp router",
   afterAll(async () => {
     await pool?.end();
     if (adminPool) {
-      await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+      await adminPool.query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+        [dbName],
+      );
+      await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
       await adminPool.end();
     }
-  });
+  }, 30_000);
 
   it("admits setup in an unknown group and persists one audited GAME group with world access", async () => {
     const composition = createOperationalMessagingComposition(pool);

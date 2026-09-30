@@ -58,7 +58,7 @@ describe("narrator spawn WhatsApp front", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const text = String(result.value.outgoing[0]?.payload.text ?? "");
-    expect(text).toContain("*GRUPO DIVIDIDO*");
+    expect(text).toContain("𝗚𝗥𝗨𝗣𝗢 𝗗𝗜𝗩𝗜𝗗𝗜𝗗𝗢");
     expect(text).toContain("*Vila dos Arrozais*");
     expect(text).toContain("*Campos de Yun*");
     expect(createOrReplay).not.toHaveBeenCalled();
@@ -108,11 +108,11 @@ describe("narrator spawn WhatsApp front", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const text = String(result.value.outgoing[0]?.payload.text ?? "");
-    expect(text).toContain("🌿 *ENCONTRO SELVAGEM*");
+    expect(text).toContain("◇ *𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠*");
     expect(text).toContain("@5511777777777");
-    expect(text).toContain("*Bellsprout* · Nv. 6");
-    expect(text).toContain("📍 Vila dos Arrozais");
-    expect(text).toContain("`/iniciarbatalha @5511777777777`");
+    expect(text).toContain("*Bellsprout* · Nv. `6`");
+    expect(text).toContain("Vila dos Arrozais");
+    expect(text).not.toContain("/iniciarbatalha");
     expect(result.value.outgoing[0]?.payload.mentions).toEqual(["5511777777777@s.whatsapp.net"]);
     expect(text).not.toContain("Cena conduzida");
     expect(text).not.toContain(encounterId);
@@ -138,7 +138,7 @@ describe("narrator spawn WhatsApp front", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const text = String(result.value.outgoing[0]?.payload.text ?? "");
-    expect(text).toContain("*GRUPO EM DESLOCAMENTO*");
+    expect(text).toContain("𝗚𝗥𝗨𝗣𝗢 𝗘𝗠 𝗗𝗘𝗦𝗟𝗢𝗖𝗔𝗠𝗘𝗡𝗧𝗢");
     expect(text).toContain("Liora");
     expect(text).toContain("Kai");
     expect(createOrReplay).not.toHaveBeenCalled();
@@ -210,10 +210,11 @@ describe("narrator spawn WhatsApp front", () => {
     expect(createOrReplay).toHaveBeenCalledWith(expect.objectContaining({ spawnQuantity: 3 }));
     if (!result.ok) return;
     const text = String(result.value.outgoing[0]?.payload.text ?? "");
-    expect(text).toContain("*ENCONTRO SELVAGEM · GRUPO*");
-    expect(text).toContain("1. *Oddish* · Nv. 5");
-    expect(text).toContain("2. *Ponyta* · Nv. 7");
-    expect(text).toContain("3. *Hoppip* · Nv. 6");
+    expect(text).toContain("◇ *𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠*");
+    expect(text).toContain("Campos de Yun · Grupo");
+    expect(text).toContain("`01` *Oddish* · Nv. `5`");
+    expect(text).toContain("`02` *Ponyta* · Nv. `7`");
+    expect(text).toContain("`03` *Hoppip* · Nv. `6`");
   });
 
   it("rejects narrator spawn quantities outside 1..6 before consuming encounter RNG", async () => {

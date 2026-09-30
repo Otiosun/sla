@@ -135,7 +135,10 @@ export class BattleService {
     private readonly idFactory: IdFactory = randomUUID,
   ) {}
 
-  public async initialize(battleId: string): Promise<BattleServiceResult<InitializeBattleOutput>> {
+  public async initialize(
+    battleId: string,
+    firstTurnInitiativeOverride?: "PLAYER" | "WILD",
+  ): Promise<BattleServiceResult<InitializeBattleOutput>> {
     return this.repository.transaction(async (transaction) => {
       const root = await transaction.loadRoot(battleId, true);
       if (root === null) return failure("BATTLE_NOT_FOUND", "Battle was not found");
@@ -155,6 +158,7 @@ export class BattleService {
           "Battle initialization data could not be assembled from pinned content",
         );
       }
+      const firstTurnInitiative = data.firstTurnInitiative ?? firstTurnInitiativeOverride;
       const built = initializeBattleState({
         root,
         sides: [
@@ -172,9 +176,7 @@ export class BattleService {
             party: data.opponentParty,
           },
         ],
-        ...(data.firstTurnInitiative === undefined
-          ? {}
-          : { firstTurnInitiative: data.firstTurnInitiative }),
+        ...(firstTurnInitiative === undefined ? {} : { firstTurnInitiative }),
         idFactory: this.idFactory,
       });
       if (!built.ok) {

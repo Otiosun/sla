@@ -6,7 +6,7 @@ const rng = { encryptionKey: Buffer.alloc(32, 7), encryptionKeyVersion: 3 };
 describe("PVE runtime configuration", () => {
   it("is enabled by default and shares the encounter encryption key", () => {
     expect(loadPveBattleRuntimeConfig(rng, {})).toEqual({
-      turnWindowTtlMs: 1_800_000,
+      turnWindowTtlMs: 604_800_000,
       maintenanceBatchSize: 25,
       encryptionKeys: new Map([[3, rng.encryptionKey]]),
     });
@@ -28,7 +28,7 @@ describe("PVE runtime configuration", () => {
         PVE_MAINTENANCE_BATCH_SIZE: "8",
       }),
     ).toEqual({
-      turnWindowTtlMs: 1_800_000,
+      turnWindowTtlMs: 604_800_000,
       maintenanceBatchSize: 8,
       encryptionKeys: new Map([[3, rng.encryptionKey]]),
     });

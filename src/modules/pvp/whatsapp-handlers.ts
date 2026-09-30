@@ -1,8 +1,10 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import type { BattleRuntimeService } from "../battle/runtime.js";
 import type { PvpService } from "./service.js";
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -27,6 +29,8 @@ export interface PvpWhatsAppDependencies {
   readonly openChallengeIdForTarget: (playerId: string) => Promise<string | null>;
   readonly openChallengeIdForChallenger: (playerId: string) => Promise<string | null>;
   readonly externalRefForPlayer?: (playerId: string) => Promise<string | null>;
+  readonly battle?: Pick<BattleRuntimeService, "currentState">;
+  readonly presentation?: Pick<OperationalUxReadModel, "speciesDisplayName">;
 }
 
 function mentionTag(ref: string): string {
@@ -65,6 +69,73 @@ async function player(dependencies: PvpWhatsAppDependencies, context: MessageHan
   });
 }
 
+async function pvpStartText(
+  dependencies: PvpWhatsAppDependencies,
+  battleId: string,
+  challengerRef: string | undefined,
+  targetRef: string | undefined,
+): Promise<string> {
+  const heading = [
+    "✦ *𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢*",
+    ...(challengerRef !== undefined && targetRef !== undefined
+      ? [`　${mentionTag(challengerRef)} × ${mentionTag(targetRef)}`]
+      : []),
+  ];
+  if (dependencies.battle === undefined || dependencies.presentation === undefined) {
+    return [
+      ...heading,
+      "",
+      "> _As ações ficam ocultas até os dois escolherem._",
+      "",
+      "› _Use `/moves` para consultar seus movimentos._",
+    ].join("\n");
+  }
+
+  const state = await dependencies.battle.currentState(battleId);
+  if (!state.ok) {
+    return [
+      ...heading,
+      "",
+      "> _As ações ficam ocultas até os dois escolherem._",
+      "",
+      "› _Use `/moves` para consultar seus movimentos._",
+    ].join("\n");
+  }
+
+  const active = state.value.sides
+    .map((side) =>
+      state.value.combatants.find(
+        (combatant) => combatant.participantId === side.activeParticipantId,
+      ),
+    )
+    .filter(
+      (combatant): combatant is (typeof state.value.combatants)[number] => combatant !== undefined,
+    )
+    .slice(0, 2);
+  const names = await Promise.all(
+    active.map((combatant) =>
+      dependencies.presentation?.speciesDisplayName(
+        state.value.contentReleaseId,
+        combatant.speciesId,
+      ),
+    ),
+  );
+
+  return [
+    ...heading,
+    "",
+    ...active.flatMap((combatant, index) => [
+      `*${names[index] ?? "Pokémon"}*${combatant.shiny ? " ✦" : ""} · Nv. \`${combatant.level}\``,
+      `HP \`${combatant.currentHp} / ${combatant.maxHp}\``,
+      ...(index === active.length - 1 ? [] : [""]),
+    ]),
+    "",
+    "> _As ações ficam ocultas até os dois escolherem._",
+    "",
+    "› _Use `/moves` para consultar seus movimentos._",
+  ].join("\n");
+}
+
 export function createPvpWhatsAppRoutes(
   dependencies: PvpWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
@@ -96,9 +167,10 @@ export function createPvpWhatsAppRoutes(
     return reply(
       context,
       [
-        `⚔️ *${mentionTag(challengerRef)} desafiou ${mentionTag(targetMention)}.*`,
+        "◇ *𝗗𝗘𝗦𝗔𝗙𝗜𝗢*",
+        `　${mentionTag(challengerRef)} × ${mentionTag(targetMention)}`,
         "",
-        `${mentionTag(targetMention)}, \`/aceitar\` para começar ou \`/recusar\`.\nO desafiante pode usar \`/cancelar\` antes da resposta.`,
+        `› _${mentionTag(targetMention)} pode usar \`/aceitar\` ou \`/recusar\`._`,
       ].join("\n"),
       created.value.challenge.id,
       [challengerRef, targetMention],
@@ -134,14 +206,7 @@ export function createPvpWhatsAppRoutes(
 
     const challengerRef = refs[0];
     const targetRef = refs[1];
-    const text =
-      challengerRef !== undefined && targetRef !== undefined
-        ? [
-            `⚔️ *${mentionTag(challengerRef)} × ${mentionTag(targetRef)}*`,
-            "",
-            "Batalha iniciada.",
-          ].join("\n")
-        : ["⚔️ *BATALHA PVP*", "", "Batalha iniciada."].join("\n");
+    const text = await pvpStartText(dependencies, started.value.battleId, challengerRef, targetRef);
 
     return reply(context, text, started.value.battleId, refs);
   };
@@ -156,7 +221,7 @@ export function createPvpWhatsAppRoutes(
       actorPlayerId: actor.value.playerId,
     });
     if (!declined.ok) return declined;
-    return reply(context, "❌ *Desafio recusado.*", challengeId);
+    return reply(context, "〔×〕 *𝗗𝗘𝗦𝗔𝗙𝗜𝗢 𝗥𝗘𝗖𝗨𝗦𝗔𝗗𝗢*", challengeId);
   };
 
   const cancel: Handler = async (context) => {
@@ -171,7 +236,7 @@ export function createPvpWhatsAppRoutes(
       actorPlayerId: actor.value.playerId,
     });
     if (!cancelled.ok) return cancelled;
-    return reply(context, "🚫 *Desafio cancelado.*", challengeId);
+    return reply(context, "〔‹〕 *𝗗𝗘𝗦𝗔𝗙𝗜𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢*", challengeId);
   };
 
   return [

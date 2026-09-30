@@ -51,7 +51,7 @@ const state = {
       speciesId: pikachuSpecies,
       currentHp: 12,
       maxHp: 20,
-      moves: [{ slotNo: 1, moveId: quickAttackId }],
+      moves: [{ slotNo: 1, moveId: quickAttackId, ppCurrent: 24, maxPp: 30 }],
       majorStatus: null,
     },
     {
@@ -70,7 +70,12 @@ const state = {
 
 function context(
   text: string,
-  input: { readonly senderRef?: string; readonly idempotencyKey?: string } = {},
+  input: {
+    readonly senderRef?: string;
+    readonly idempotencyKey?: string;
+    readonly replyToExternalMessageId?: string | null;
+    readonly mentions?: readonly string[];
+  } = {},
 ): MessageHandlerContext {
   return {
     inboxMessageId: "inbox",
@@ -84,8 +89,9 @@ function context(
       chatRef: "chat",
       occurredAt: "2026-09-10T00:00:00.000Z",
       text,
+      ...(input.mentions === undefined ? {} : { mentions: [...input.mentions] }),
       mediaRefs: [],
-      replyToExternalMessageId: null,
+      replyToExternalMessageId: input.replyToExternalMessageId ?? null,
     },
   };
 }
@@ -378,11 +384,12 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(second.value.outgoing).toHaveLength(2);
     expect(second.value.outgoing[0]?.messageType).toBe("REACTION");
     const text = String(second.value.outgoing[1]?.payload.text);
-    expect(text).toContain("⚔️ *TURNO 4* · @111 × @222");
+    expect(text).toContain("◇ *𝗧𝗨𝗥𝗡𝗢 04*");
+    expect(text).toContain("@111 × @222");
     expect(text).toContain("Pikachu usou *Quick Attack*.");
-    expect(text).toContain("Squirtle: 21 → 14 HP.");
+    expect(text).toContain("Squirtle · HP `21 → 14`");
     expect(text).toContain("Squirtle usou *Water Gun*.");
-    expect(text).toContain("Pikachu: 24 → 17 HP.");
+    expect(text).toContain("Pikachu · HP `24 → 17`");
     expect(text).not.toContain("@111\nx\n@222");
     expect(second.value.outgoing[1]?.payload.mentions).toEqual([
       "111@s.whatsapp.net",
@@ -442,20 +449,262 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(result.ok && result.value?.outgoing[1]?.payload.text).toContain("desistiu");
   });
 
-  it("renders a battle HUD with usable move options", async () => {
+  it("renders a compact battle HUD without dumping moves", async () => {
     const setup = dependencies(false);
     const routes = createPveSceneRoutes(setup.dependencies);
     const hud = await routeFor(routes, "batalha").handler.handle(context("/batalha"));
     const text = String(hud.ok ? hud.value.outgoing[0]?.payload.text : "");
-    expect(text).toContain("*BATALHA · T3* · @sender");
+    expect(text).toContain("◇ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*");
+    expect(text).toContain("Turno `03`");
     expect(text).toContain("*Pikachu*");
-    expect(text).toContain("❤️ `12/20`");
-    expect(text).toContain("× *Rattata*");
-    expect(text).toContain("*Golpes*");
-    expect(text).toContain("Quick Attack");
-    expect(text).toContain("`/movimento 1`");
-    expect(text).toContain("`/combate` · ajuda");
+    expect(text).toContain("HP `12 / 20`");
+    expect(text).toContain("*Rattata*");
+    expect(text).toContain("`/moves`");
+    expect(text).not.toContain("Quick Attack");
+    expect(text).not.toContain("*Golpes*");
     expect(hud.ok && hud.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
+  });
+
+  it("shows only the caller's own turn submission state in /batalha", async () => {
+    const setup = dependencies(false);
+    const submittedDeps = {
+      ...setup.dependencies,
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [{ participantId }],
+          requiredPlayers: [],
+        },
+        submissions: [
+          {
+            status: "ACTIVE",
+            playerId,
+            action: { actorParticipantId: participantId },
+          },
+        ],
+      })),
+    } as unknown as PveSceneDependencies;
+    const submitted = await routeFor(createPveSceneRoutes(submittedDeps), "batalha").handler.handle(
+      context("/batalha"),
+    );
+    expect(submitted.ok && String(submitted.value.outgoing[0]?.payload.text)).toContain(
+      "〔✓〕 Sua ação já foi definida.",
+    );
+
+    const pendingDeps = {
+      ...setup.dependencies,
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [{ participantId }],
+          requiredPlayers: [],
+        },
+        submissions: [],
+      })),
+    } as unknown as PveSceneDependencies;
+    const pending = await routeFor(createPveSceneRoutes(pendingDeps), "batalha").handler.handle(
+      context("/batalha"),
+    );
+    expect(pending.ok && String(pending.value.outgoing[0]?.payload.text)).toContain(
+      "Sua ação ainda não foi definida.",
+    );
+  });
+
+  it("does not let a player inspect another player's hidden PVP submission state by mentioning them", async () => {
+    const setup = dependencies(false);
+    const opponentPlayerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const opponentParticipantId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const opponentRef = "opponent@s.whatsapp.net";
+    const pvpState = {
+      ...state,
+      battleType: "PVP",
+      sides: [
+        {
+          sideNo: 1,
+          controllerKind: "PLAYER",
+          playerId,
+          participantIds: [participantId],
+          activeParticipantId: participantId,
+          result: null,
+        },
+        {
+          sideNo: 2,
+          controllerKind: "PLAYER",
+          playerId: opponentPlayerId,
+          participantIds: [opponentParticipantId],
+          activeParticipantId: opponentParticipantId,
+          result: null,
+        },
+      ],
+      combatants: [
+        state.combatants[0],
+        {
+          ...state.combatants[1],
+          participantId: opponentParticipantId,
+          participantKind: "PLAYER_POKEMON",
+        },
+      ],
+    } as unknown as BattleState;
+    const controllers: readonly BattleParticipantController[] = [
+      {
+        participantId,
+        battleId,
+        kind: "PLAYER",
+        playerId,
+        adminPrincipalId: null,
+        revision: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        participantId: opponentParticipantId,
+        battleId,
+        kind: "PLAYER",
+        playerId: opponentPlayerId,
+        adminPrincipalId: null,
+        revision: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          ok({ playerId: externalId === opponentRef ? opponentPlayerId : playerId }),
+        ),
+      },
+      activeBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(pvpState)),
+      },
+      controllers: {
+        ...setup.dependencies.controllers,
+        listByBattle: vi.fn(async () => controllers),
+      },
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [
+            { participantId, playerId, kind: "PLAYER" },
+            {
+              participantId: opponentParticipantId,
+              playerId: opponentPlayerId,
+              kind: "PLAYER",
+            },
+          ],
+          requiredPlayers: [],
+        },
+        submissions: [
+          {
+            status: "ACTIVE",
+            playerId: opponentPlayerId,
+            action: { actorParticipantId: opponentParticipantId },
+          },
+        ],
+      })),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha @opponent", { mentions: [opponentRef] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text ?? "");
+    expect(text).toContain("Sua ação ainda não foi definida.");
+    expect(text).not.toContain("〔✓〕 Sua ação já foi definida.");
+    expect(result.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
+  });
+
+  it("does not expose a targeted player's hidden PVP submission state to an admin caller", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    const opponentPlayerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const opponentParticipantId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const pvpState = {
+      ...state,
+      battleType: "PVP",
+      sides: [
+        state.sides[0],
+        {
+          sideNo: 2,
+          controllerKind: "PLAYER",
+          playerId: opponentPlayerId,
+          participantIds: [opponentParticipantId],
+          activeParticipantId: opponentParticipantId,
+          result: null,
+        },
+      ],
+      combatants: [
+        state.combatants[0],
+        {
+          ...state.combatants[1],
+          participantId: opponentParticipantId,
+          participantKind: "PLAYER_POKEMON",
+        },
+      ],
+    } as unknown as BattleState;
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          externalId === targetRef
+            ? ok({ playerId })
+            : ({
+                ok: false as const,
+                error: { code: "NOT_FOUND", message: "not a player" },
+              } as never),
+        ),
+      },
+      activeBattleId: vi.fn(async () => battleId),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(pvpState)),
+      },
+      turnWindowForBattleVersion: vi.fn(async () => ({
+        window: {
+          requiredControllers: [{ participantId, playerId, kind: "PLAYER" }],
+          requiredPlayers: [],
+        },
+        submissions: [
+          {
+            status: "ACTIVE",
+            playerId,
+            action: { actorParticipantId: participantId },
+          },
+        ],
+      })),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha @target", { senderRef: "narrator", mentions: [targetRef] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text ?? "");
+    expect(text).not.toContain("〔✓〕 Sua ação já foi definida.");
+    expect(text).not.toContain("Sua ação ainda não foi definida.");
+  });
+
+  it("shows current battle moves privately and only reacts in the source chat", async () => {
+    const setup = dependencies(false);
+    const result = await routeFor(createPveSceneRoutes(setup.dependencies), "moves").handler.handle(
+      context("/moves"),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outgoing[0]).toMatchObject({
+      messageType: "REACTION",
+      payload: { emoji: "✅" },
+    });
+    expect(result.value.outgoing[1]?.destinationRef).toBe("sender");
+    const text = String(result.value.outgoing[1]?.payload.text ?? "");
+    expect(text).toContain("◇ *𝗠𝗢𝗩𝗜𝗠𝗘𝗡𝗧𝗢𝗦*");
+    expect(text).toContain("Quick Attack");
+    expect(text).toContain("PP `24 / 30`");
+    expect(text).toContain("`/movimento 1`");
   });
 
   it("lets an authorized narrator submit, assume, and restore automatic control", async () => {
@@ -474,6 +723,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     } as BattleState;
     const narratorDependencies = {
       ...setup.dependencies,
+      narratorBattleId: vi.fn(async () => battleId),
       battle: {
         ...setup.dependencies.battle,
         currentState: vi.fn(async () => ok(narratorState)),
@@ -500,7 +750,9 @@ describe("PVE/PVP WhatsApp scene actions", () => {
 
     const auto = { ...narrator, kind: "AUTO" as const, adminPrincipalId: null, revision: 3 };
     setup.listByBattle.mockResolvedValue([auto]);
-    const assumed = await routeFor(routes, "assumir").handler.handle(context("/assumir"));
+    const assumed = await routeFor(routes, "assumir").handler.handle(
+      context("/assumir @target", { mentions: ["target@s.whatsapp.net"], senderRef: "narrator" }),
+    );
     expect(setup.transition).toHaveBeenLastCalledWith(
       expect.objectContaining({
         participantId: enemyId,
@@ -508,8 +760,10 @@ describe("PVE/PVP WhatsApp scene actions", () => {
         adminPrincipalId: principalId,
       }),
     );
-    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain("Quick Attack");
-    expect(assumed.ok && String(assumed.value.outgoing[0]?.payload.text)).toContain("`/batalha`");
+    const assumedText = String(assumed.ok ? assumed.value.outgoing[0]?.payload.text : "");
+    expect(assumedText).toContain("𝗖𝗢𝗡𝗧𝗥𝗢𝗟𝗘 𝗗𝗢 𝗡𝗔𝗥𝗥𝗔𝗗𝗢𝗥");
+    expect(assumedText).toContain("`/moves @target`");
+    expect(assumedText).not.toContain("Quick Attack");
 
     setup.listByBattle.mockResolvedValue([narrator]);
     await routeFor(routes, "automatico").handler.handle(context("/automatico"));
@@ -620,8 +874,10 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     if (!hud.ok) return;
     const text = String(hud.value.outgoing[0]?.payload.text ?? "");
     expect(text).toContain("*Rattata*");
-    expect(text).toContain("Quick Attack");
-    expect(text).toContain("`/automatico`");
+    expect(text).toContain("*Rattata*");
+    expect(text).toContain("O selvagem está sob seu controle");
+    expect(text).toContain("`/moves`");
+    expect(text).not.toContain("Quick Attack");
     expect(text).not.toContain("`/capturar`");
   });
 
@@ -755,8 +1011,360 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     if (!result.ok || result.value === null) throw new Error("Expected failed capture turn reply");
     expect(String(result.value.outgoing[1]?.payload.text)).toContain("A Poké Ball foi lançada.");
     expect(String(result.value.outgoing[1]?.payload.text)).toContain("O Pokémon escapou.");
-    expect(String(result.value.outgoing[1]?.payload.text)).toContain("12 → 10 HP.");
+    expect(String(result.value.outgoing[1]?.payload.text)).toContain("HP `12 → 10`");
   });
+  it("starts a presented encounter from the player's first move with PLAYER initiative", async () => {
+    const setup = dependencies(true);
+    const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const startCanonical = vi.fn(async () =>
+      ok({
+        start: { battleId },
+        initialization: { state, replayed: false },
+      }),
+    );
+    const deps = {
+      ...setup.dependencies,
+      activeBattleId: vi.fn(async () => null),
+      encounters: {
+        activeForPlayer: vi.fn(async () =>
+          ok({
+            encounterId,
+            playerId,
+            status: "PRESENTED",
+            contentReleaseId: releaseId,
+            revision: 2n,
+            battleId: null,
+            snapshot: {
+              speciesId: rattataSpecies,
+              level: 5,
+              shiny: false,
+              moves: [],
+            },
+          }),
+        ),
+      },
+      battleStart: { startCanonical },
+      roster: {
+        listTeam: vi.fn(async () => [
+          {
+            pokemonInstanceId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            displayName: "Pikachu",
+            level: 5,
+            currentHp: 12,
+            slotNo: 1,
+          },
+        ]),
+        teamPokemonDetail: vi.fn(async () => ({
+          displayName: "Pikachu",
+          nickname: null,
+          moves: [
+            {
+              slotNo: 1,
+              displayName: "Quick Attack",
+              ppCurrent: 30,
+              maxPp: 30,
+            },
+          ],
+        })),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await createPveSceneConversationResolver(deps).resolve(
+      context("Pikachu avança. /movimento Quick Attack"),
+    );
+
+    expect(startCanonical).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId,
+        encounterId,
+        firstTurnInitiative: "PLAYER",
+      }),
+    );
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ battleId, playerId }),
+    );
+    expect(result.ok && result.value?.outgoing[0]?.messageType).toBe("REACTION");
+  });
+
+  it("does not create a battle when the player's first move is invalid", async () => {
+    const setup = dependencies(true);
+    const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const startCanonical = vi.fn();
+    const deps = {
+      ...setup.dependencies,
+      activeBattleId: vi.fn(async () => null),
+      encounters: {
+        activeForPlayer: vi.fn(async () =>
+          ok({
+            encounterId,
+            playerId,
+            status: "PRESENTED",
+            contentReleaseId: releaseId,
+            revision: 2n,
+            battleId: null,
+            snapshot: { speciesId: rattataSpecies, level: 5, shiny: false, moves: [] },
+          }),
+        ),
+      },
+      battleStart: { startCanonical },
+      roster: {
+        listTeam: vi.fn(async () => [
+          {
+            pokemonInstanceId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            displayName: "Pikachu",
+            level: 5,
+            currentHp: 12,
+            slotNo: 1,
+          },
+        ]),
+        teamPokemonDetail: vi.fn(async () => ({
+          displayName: "Pikachu",
+          nickname: null,
+          moves: [{ slotNo: 1, displayName: "Quick Attack", ppCurrent: 30, maxPp: 30 }],
+        })),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await createPveSceneConversationResolver(deps).resolve(
+      context("/movimento Thunderbolt"),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(startCanonical).not.toHaveBeenCalled();
+  });
+
+  it("uses an encounter reply for the narrator's first move even when another battle is controlled", async () => {
+    const setup = dependencies(true);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    const encounterId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const otherBattleId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const wildState = {
+      ...state,
+      combatants: state.combatants.map((combatant) =>
+        combatant.participantId === enemyId
+          ? {
+              ...combatant,
+              moves: [{ slotNo: 1, moveId: quickAttackId, ppCurrent: 30, maxPp: 30 }],
+            }
+          : combatant,
+      ),
+    } as BattleState;
+    const auto: BattleParticipantController = {
+      participantId: enemyId,
+      battleId,
+      kind: "AUTO",
+      playerId: null,
+      adminPrincipalId: null,
+      revision: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const narrator: BattleParticipantController = {
+      ...auto,
+      kind: "NARRATOR",
+      adminPrincipalId: principalId,
+      revision: 1,
+    };
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    setup.listByBattle.mockResolvedValueOnce([auto]).mockResolvedValue([narrator]);
+    setup.transition.mockResolvedValue(narrator);
+    const startCanonical = vi.fn(async () =>
+      ok({ start: { battleId }, initialization: { state: wildState, replayed: false } }),
+    );
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          externalId === targetRef
+            ? ok({ playerId })
+            : ({
+                ok: false as const,
+                error: { code: "NOT_FOUND", message: "not a player" },
+              } as never),
+        ),
+      },
+      activeBattleId: vi.fn(async () => null),
+      narratorBattleIds: vi.fn(async () => [otherBattleId]),
+      replyContext: {
+        resolve: vi.fn(async () => ({
+          resultRefType: "ENCOUNTER",
+          resultRefId: encounterId,
+          mentions: [targetRef],
+        })),
+      },
+      encounters: {
+        activeForPlayer: vi.fn(async () =>
+          ok({
+            encounterId,
+            playerId,
+            status: "PRESENTED",
+            contentReleaseId: releaseId,
+            revision: 2n,
+            battleId: null,
+            snapshot: {
+              speciesId: rattataSpecies,
+              level: 5,
+              shiny: false,
+              moves: [{ moveId: quickAttackId, ppCurrent: 30 }],
+            },
+          }),
+        ),
+      },
+      battleStart: { startCanonical },
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(wildState)),
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await createPveSceneConversationResolver(deps).resolve(
+      context("Poochyena avança. /movimento Quick Attack", {
+        senderRef: "narrator",
+        replyToExternalMessageId: "spawn-message",
+      }),
+    );
+
+    expect(startCanonical).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId,
+        encounterId,
+        firstTurnInitiative: "WILD",
+      }),
+    );
+    expect(setup.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participantId: enemyId,
+        kind: "NARRATOR",
+        adminPrincipalId: principalId,
+      }),
+    );
+    expect(setup.resolvePlayerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        battleId,
+        playerId: null,
+        adminPrincipalId: principalId,
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not fall back to an unrelated controlled battle when a narrator types a non-native @ target in PV", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const currentState = vi.fn(async () => ok(state));
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async () => ({
+          ok: false as const,
+          error: { code: "NOT_FOUND", message: "not a player" },
+        })),
+      },
+      narratorBattleIds: vi.fn(async () => [battleId]),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState,
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "moves").handler.handle(
+      context("/moves @target", {
+        senderRef: "narrator@s.whatsapp.net",
+        mentions: [],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.details?.userMessage).toContain("No PV");
+    expect(currentState).not.toHaveBeenCalled();
+  });
+
+  it("still resolves narrator /moves through a real WhatsApp mention instead of a controlled battle", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    const targetRef = "target@s.whatsapp.net";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const currentState = vi.fn(async () => ok(state));
+    const deps = {
+      ...setup.dependencies,
+      players: {
+        resolvePlayer: vi.fn(async ({ externalId }: { readonly externalId: string }) =>
+          externalId === targetRef
+            ? ok({ playerId })
+            : ({
+                ok: false as const,
+                error: { code: "NOT_FOUND", message: "not a player" },
+              } as never),
+        ),
+      },
+      activeBattleId: vi.fn(async () => battleId),
+      narratorBattleIds: vi.fn(async () => ["eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"]),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState,
+      },
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "moves").handler.handle(
+      context("/moves @target", {
+        senderRef: "narrator@s.whatsapp.net",
+        mentions: [targetRef],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(currentState).toHaveBeenCalledWith(battleId);
+  });
+
+  it("does not let text-only /automatico target an unrelated sole narrator battle", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const deps = {
+      ...setup.dependencies,
+      narratorBattleIds: vi.fn(async () => [battleId]),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "automatico").handler.handle(
+      context("/automatico @target", {
+        senderRef: "narrator@s.whatsapp.net",
+        mentions: [],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(setup.transition).not.toHaveBeenCalled();
+  });
+
+  it("does not guess when a narrator has multiple controlled battles", async () => {
+    const setup = dependencies(false);
+    const principalId = "55555555-5555-4555-8555-555555555555";
+    setup.resolvePrincipal.mockResolvedValue({ principalId });
+    const secondBattle = "66666666-6666-4666-8666-666666666666";
+    const deps = {
+      ...setup.dependencies,
+      narratorBattleIds: vi.fn(async () => [battleId, secondBattle]),
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async (id: string) => ok({ ...state, battleId: id })),
+      },
+      playerExternalRef: vi.fn(async () => "target@s.whatsapp.net"),
+    } as unknown as PveSceneDependencies;
+
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha", { senderRef: "narrator" }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outgoing[0]?.messageType).toBe("REACTION");
+    expect(result.value.outgoing[1]?.destinationRef).toBe("narrator");
+    expect(String(result.value.outgoing[1]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔𝗦 𝗘𝗠 𝗔𝗡𝗗𝗔𝗠𝗘𝗡𝗧𝗢");
+  });
+
   it("does not expose the unsupported /item battle command", () => {
     const setup = dependencies(false);
     const routes = createPveSceneRoutes(setup.dependencies);

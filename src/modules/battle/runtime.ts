@@ -8,7 +8,10 @@ import type {
 } from "./service.js";
 
 export interface BattleCorePort {
-  initialize(battleId: string): Promise<BattleServiceResult<InitializeBattleOutput>>;
+  initialize(
+    battleId: string,
+    firstTurnInitiativeOverride?: "PLAYER" | "WILD",
+  ): Promise<BattleServiceResult<InitializeBattleOutput>>;
   currentState(battleId: string): Promise<BattleServiceResult<BattleState>>;
   resolvePlayerTurn(
     input: ResolvePlayerTurnInput,
@@ -94,8 +97,11 @@ export class BattleRuntimeService {
     private readonly cancellation: BattleCancellationPort,
   ) {}
 
-  public initialize(battleId: string): Promise<BattleServiceResult<InitializeBattleOutput>> {
-    return this.core.initialize(battleId);
+  public initialize(
+    battleId: string,
+    firstTurnInitiativeOverride?: "PLAYER" | "WILD",
+  ): Promise<BattleServiceResult<InitializeBattleOutput>> {
+    return this.core.initialize(battleId, firstTurnInitiativeOverride);
   }
 
   public currentState(battleId: string): Promise<BattleServiceResult<BattleState>> {

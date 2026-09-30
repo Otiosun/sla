@@ -60,7 +60,7 @@ describe("PVP WhatsApp routes", () => {
     if (!result.ok) throw result.error;
     const outgoing = result.value.outgoing[0];
     expect(outgoing?.payload.text).toBe(
-      "⚔️ *@sender desafiou @target.*\n\n@target, `/aceitar` para começar ou `/recusar`.\nO desafiante pode usar `/cancelar` antes da resposta.",
+      "◇ *𝗗𝗘𝗦𝗔𝗙𝗜𝗢*\n　@sender × @target\n\n› _@target pode usar `/aceitar` ou `/recusar`._",
     );
     expect(outgoing?.payload.mentions).toEqual(["sender@s.whatsapp.net", "target@s.whatsapp.net"]);
     expect(JSON.stringify(result.value.outgoing)).not.toContain("11111111");
@@ -134,7 +134,9 @@ describe("PVP WhatsApp routes", () => {
     });
     if (!result.ok) throw result.error;
     const outgoing = result.value.outgoing[0];
-    expect(outgoing?.payload.text).toBe("⚔️ *@111 × @222*\n\nBatalha iniciada.");
+    expect(outgoing?.payload.text).toBe(
+      "✦ *𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢*\n　@111 × @222\n\n> _As ações ficam ocultas até os dois escolherem._\n\n› _Use `/moves` para consultar seus movimentos._",
+    );
     expect(outgoing?.payload.mentions).toEqual(["111@s.whatsapp.net", "222@s.whatsapp.net"]);
     expect(JSON.stringify(result.value.outgoing)).not.toContain("33333333");
   });

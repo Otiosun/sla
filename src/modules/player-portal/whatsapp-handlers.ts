@@ -26,7 +26,11 @@ class HubLoginHandler implements MessageRouteHandler {
     });
     if (!issued.ok) return issued;
 
-    const url = hubLoginUrl(this.dependencies.publicUrl, issued.value.ticket);
+    const url = hubLoginUrl(
+      this.dependencies.publicUrl,
+      issued.value.ticket,
+      issued.value.expiresAt,
+    );
     return textResult(
       context,
       [
@@ -41,8 +45,11 @@ class HubLoginHandler implements MessageRouteHandler {
   }
 }
 
-function hubLoginUrl(publicUrl: string, ticket: string): string {
+function hubLoginUrl(publicUrl: string, ticket: string, expiresAt: Date): string {
   const url = new URL(publicUrl);
+  // Keep the credential in the fragment, but make every issued link a real navigation.
+  // This prevents an already-open Hub/webview from reusing a stale browser session.
+  url.searchParams.set("hub_open", String(expiresAt.getTime()));
   const rawHash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
   const fragment = new URLSearchParams(rawHash);
   fragment.set("hub_ticket", ticket);

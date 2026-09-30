@@ -1,7 +1,7 @@
 import type { PveBattleRuntimeConfig } from "./compose-pve-battle-runtime.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 
-const DEFAULT_TURN_WINDOW_TTL_MS = 30 * 60 * 1_000;
+const DEFAULT_TURN_WINDOW_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const DEFAULT_MAINTENANCE_BATCH_SIZE = 25;
 
 function positiveInteger(value: string | undefined, name: string, fallback: number): number {
