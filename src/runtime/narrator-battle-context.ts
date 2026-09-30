@@ -21,9 +21,7 @@ export async function filterActiveNarratorBattleIds(
     const state = await loadState(battleId);
     if (state === null || state.status !== "ACTIVE") continue;
     const activeParticipantIds = new Set(
-      state.sides.flatMap((side) =>
-        (side.slots ?? [side]).map((slot) => slot.activeParticipantId),
-      ),
+      state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
     );
     const narratorParticipants = byBattle.get(battleId);
     if (
