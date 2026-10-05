@@ -310,6 +310,8 @@ export class PlayerPortalHttpHandler {
         currencies: [...catalog.currencies],
         species: [...(catalog.species ?? [])],
         forms: [...(catalog.forms ?? [])],
+        abilities: [...(catalog.abilities ?? [])],
+        natures: [...(catalog.natures ?? [])],
         effects: [...(catalog.effects ?? [])],
         releases: [...(catalog.releases ?? [])],
       });
@@ -797,7 +799,6 @@ async function readTicket(request: Request): Promise<string | null> {
 
 function readCookie(header: string | null, name: string): string | null {
   if (header === null) return null;
-
   for (const pair of header.split(";")) {
     const separator = pair.indexOf("=");
     if (separator < 1) continue;
