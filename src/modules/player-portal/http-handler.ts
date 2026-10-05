@@ -799,6 +799,7 @@ async function readTicket(request: Request): Promise<string | null> {
 
 function readCookie(header: string | null, name: string): string | null {
   if (header === null) return null;
+
   for (const pair of header.split(";")) {
     const separator = pair.indexOf("=");
     if (separator < 1) continue;
