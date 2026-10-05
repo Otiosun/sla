@@ -331,6 +331,8 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       ],
       species: [],
       forms: [],
+      abilities: [],
+      natures: [],
       effects: [],
       releases: [],
     });
