@@ -20,7 +20,10 @@ describe("admin catalog read policy alignment", () => {
     );
     const catalogReads = registry
       .list()
-      .filter((definition) => definition.kind === "READ" && definition.operationType.endsWith(".catalog.read"));
+      .filter(
+        (definition) =>
+          definition.kind === "READ" && definition.operationType.endsWith(".catalog.read"),
+      );
 
     expect(catalogReads.length).toBeGreaterThan(0);
     for (const definition of catalogReads) {
