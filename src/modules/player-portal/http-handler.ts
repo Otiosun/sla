@@ -310,6 +310,8 @@ export class PlayerPortalHttpHandler {
         currencies: [...catalog.currencies],
         species: [...(catalog.species ?? [])],
         forms: [...(catalog.forms ?? [])],
+        abilities: [...(catalog.abilities ?? [])],
+        natures: [...(catalog.natures ?? [])],
         effects: [...(catalog.effects ?? [])],
         releases: [...(catalog.releases ?? [])],
       });
