@@ -76,20 +76,18 @@ export class PostgresAdminRewardCatalogRepository implements AdminRewardCatalogR
                 species.national_dex,
                 species.slug AS species_slug,
                 form.slug AS form_slug,
-                COALESCE(form_revision.display_name, species_revision.display_name) AS display_name
+                form_revision.display_name AS display_name
          FROM content_release_pointers pointer
-         JOIN pokemon_forms form ON TRUE
+         JOIN pokemon_form_revisions form_revision
+           ON form_revision.content_release_id = pointer.content_release_id
+          AND form_revision.active = TRUE
+         JOIN pokemon_forms form ON form.id = form_revision.form_id
          JOIN pokemon_species species ON species.id = form.species_id
          JOIN pokemon_species_revisions species_revision
            ON species_revision.content_release_id = pointer.content_release_id
           AND species_revision.species_id = species.id
           AND species_revision.active = TRUE
-         LEFT JOIN pokemon_form_revisions form_revision
-           ON form_revision.content_release_id = pointer.content_release_id
-          AND form_revision.form_id = form.id
-          AND form_revision.active = TRUE
          WHERE pointer.pointer_key = 'ACTIVE'
-           AND (form_revision.id IS NOT NULL OR form.slug = 'default')
          ORDER BY species.national_dex, form.slug`,
       ),
       this.pool.query<{
