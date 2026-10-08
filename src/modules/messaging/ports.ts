@@ -66,7 +66,7 @@ export interface OutboundMessageAdapter {
 }
 
 export interface OutboxDeliveryPreparation {
-  prepare(message: PendingOutboxMessage): Promise<void>;
+  prepare(message: PendingOutboxMessage): Promise<PendingOutboxMessage | undefined>;
 }
 
 export interface MediaProcessorAdapter {

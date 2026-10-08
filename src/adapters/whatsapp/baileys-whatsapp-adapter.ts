@@ -160,19 +160,33 @@ function textOutboundContent(message: PendingOutboxMessage): BaileysOutboundCont
 }
 
 function imageOutboundContent(message: PendingOutboxMessage): BaileysOutboundContentLike {
+  const imageBase64 = message.payload.imageBase64;
   const imageUrl = message.payload.imageUrl;
-  if (typeof imageUrl !== "string" || imageUrl.trim().length === 0) {
-    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
-  }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(imageUrl.trim());
-  } catch {
-    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
-  }
-  if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
-    throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+  let imageSource: { readonly url: string } | Uint8Array;
+  if (typeof imageBase64 === "string" && imageBase64.length > 0) {
+    const buffer = Buffer.from(imageBase64, "base64");
+    if (buffer.length === 0 || buffer.length > 16 * 1024 * 1024) {
+      throw new Error("Baileys IMAGE outbound payload has an invalid prepared image buffer");
+    }
+    imageSource = buffer;
+  } else {
+    if (typeof imageUrl !== "string" || imageUrl.trim().length === 0) {
+      throw new Error(
+        "Baileys IMAGE outbound payload requires an HTTPS image URL or prepared buffer",
+      );
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(imageUrl.trim());
+    } catch {
+      throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+    }
+    if (parsed.protocol !== "https:" || parsed.hostname.length === 0) {
+      throw new Error("Baileys IMAGE outbound payload requires an HTTPS image URL");
+    }
+    imageSource = { url: imageUrl.trim() };
   }
 
   const caption = message.payload.caption;
@@ -186,7 +200,7 @@ function imageOutboundContent(message: PendingOutboxMessage): BaileysOutboundCon
     throw new Error("Baileys IMAGE outbound mentions must be up to 64 non-empty JIDs");
   }
   const image = {
-    image: { url: imageUrl.trim() },
+    image: imageSource,
     ...(mentions === undefined ? {} : { mentions: mentions as string[] }),
   };
   if (caption === undefined) return image;
@@ -308,6 +322,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
   private stopped = true;
   private generation = 0;
   private membershipQueue: Promise<void> = Promise.resolve();
+  private incomingQueue: Promise<void> = Promise.resolve();
   private readonly onMembership: BaileysWhatsAppAdapterOptions["onMembership"];
 
   constructor(options: BaileysWhatsAppAdapterOptions) {
@@ -356,7 +371,7 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
     const socket = this.socket;
     this.socket = null;
     socket?.end();
-    await this.membershipQueue;
+    await Promise.all([this.membershipQueue, this.incomingQueue]);
   }
 
   async send(message: PendingOutboxMessage): Promise<OutboundMessageReceipt> {
@@ -455,10 +470,12 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
       void this.auth.saveCredentials().catch((error) => this.onProviderError(error));
     });
     socket.ev.on("messages.upsert", (event) => {
-      void this.handleMessageUpsert(generation, socket, event).catch((error) => {
-        this.metrics.increment("whatsapp.incoming.errors_total");
-        this.onProviderError(error);
-      });
+      this.incomingQueue = this.incomingQueue
+        .then(() => this.handleMessageUpsert(generation, socket, event))
+        .catch((error) => {
+          this.metrics.increment("whatsapp.incoming.errors_total");
+          this.onProviderError(error);
+        });
     });
     socket.ev.on("connection.update", (update) => {
       void this.handleConnectionUpdate(generation, socket, update).catch((error) =>

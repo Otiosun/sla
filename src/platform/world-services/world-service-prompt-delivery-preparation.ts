@@ -45,7 +45,7 @@ function parseAnchor(value: unknown): WorldServicePromptDeliveryAnchor | null {
 export class WorldServicePromptDeliveryPreparation implements OutboxDeliveryPreparation {
   public constructor(private readonly options: WorldServicePromptDeliveryPreparationOptions) {}
 
-  public async prepare(message: PendingOutboxMessage): Promise<void> {
+  public async prepare(message: PendingOutboxMessage): Promise<PendingOutboxMessage | undefined> {
     if (message.channel !== "whatsapp") return;
 
     const anchor = parseAnchor(message.payload.worldServicePrompt);

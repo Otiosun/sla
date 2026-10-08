@@ -108,7 +108,9 @@ FROM (VALUES
   ('messaging_rate_limit_charges'),
   ('mutation_rate_limit_charges'),
   ('world_travel_receipts'),
-  ('registration_idempotency_receipts')
+  ('registration_idempotency_receipts'),
+  ('competitive_spawn_attempts'),
+  ('competitive_spawn_grants')
 ) AS protected(protected_table)
 WHERE to_regclass('public.' || protected_table) IS NOT NULL
 \gexec
@@ -188,7 +190,9 @@ SELECT format(
         'messaging_rate_limit_charges',
         'mutation_rate_limit_charges',
         'world_travel_receipts',
-        'registration_idempotency_receipts'
+        'registration_idempotency_receipts',
+        'competitive_spawn_attempts',
+        'competitive_spawn_grants'
       ]) AS protected(table_name)
       WHERE to_regclass('public.' || table_name) IS NOT NULL
         AND (

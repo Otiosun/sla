@@ -369,8 +369,8 @@ export class OutboxWorker {
         continue;
       }
       try {
-        await this.deliveryPreparation?.prepare(message);
-        await adapter.send(message);
+        const prepared = await this.deliveryPreparation?.prepare(message);
+        await adapter.send(prepared ?? message);
         await this.repository.markOutboxSent(message.id);
         sent += 1;
       } catch {
