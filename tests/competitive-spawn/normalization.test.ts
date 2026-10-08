@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   competitiveSpawnTimeBucket,
-  competitiveSpawnTrigger,
   normalizeCompetitiveSpawnGuess,
 } from "../../src/modules/competitive-spawn/normalization.js";
 
@@ -10,16 +9,8 @@ describe("competitive spawn normalization", () => {
     expect(normalizeCompetitiveSpawnGuess("  Farfetch'd!! ")).toBe("farfetchd");
     expect(normalizeCompetitiveSpawnGuess("Mr. Mime")).toBe("mr mime");
     expect(normalizeCompetitiveSpawnGuess("Porygon-Z")).toBe("porygon z");
-  });
-
-  it("uses a deterministic activity trigger", () => {
-    const message = {
-      provider: "baileys",
-      chatRef: "game@g.us",
-      externalMessageId: "wamid-fixed",
-      text: "narracao de teste",
-    };
-    expect(competitiveSpawnTrigger(message, 18)).toBe(competitiveSpawnTrigger(message, 18));
+    expect(normalizeCompetitiveSpawnGuess("Nidoran♀")).toBe("nidoran f");
+    expect(normalizeCompetitiveSpawnGuess("Nidoran♂")).toBe("nidoran m");
   });
 
   it("maps local clock time into the four visual buckets", () => {

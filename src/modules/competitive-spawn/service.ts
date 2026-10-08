@@ -9,22 +9,22 @@ import type {
   MessageHandlerContext,
   MessageHandlerResult,
 } from "../messaging/contracts.js";
+import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import {
+  type CompetitiveSpawnActivityRepository,
+  competitiveActivityBaseWeightMilli,
+  competitiveActivityFingerprint,
+} from "./activity.js";
 import type {
   CompetitiveSpawnCandidate,
-  CompetitiveSpawnRecord,
   CompetitiveSpawnRenderSpec,
   CompetitiveSpawnRepository,
 } from "./contracts.js";
-import {
-  competitiveSpawnTimeBucket,
-  competitiveSpawnTrigger,
-  normalizeCompetitiveSpawnGuess,
-} from "./normalization.js";
+import { competitiveSpawnTimeBucket, normalizeCompetitiveSpawnGuess } from "./normalization.js";
 
-export const COMPETITIVE_SPAWN_TRIGGER_DENOMINATOR = 18;
-export const COMPETITIVE_SPAWN_COOLDOWN_MS = 120_000;
-export const COMPETITIVE_SPAWN_TTL_MS = 10 * 60_000;
+export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
+export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
 export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 35;
 
 const PROTOTYPE_BACKGROUND_URL =
@@ -43,6 +43,7 @@ interface BuildPort {
 
 interface CompetitiveSpawnDependencies {
   readonly repository: CompetitiveSpawnRepository;
+  readonly activity: CompetitiveSpawnActivityRepository;
   readonly community: CommunityPort;
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly builds: BuildPort;
@@ -114,16 +115,16 @@ function renderProfile(
   ]).get(nationalDex);
   const profile = override ?? { maxSize: 345, floatY: 0, shadowOpacity: 0.24 };
   const base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other";
-  const homePath = shiny ? `home/shiny/${nationalDex}.png` : `home/${nationalDex}.png`;
   const artworkPath = shiny
     ? `official-artwork/shiny/${nationalDex}.png`
     : `official-artwork/${nationalDex}.png`;
+  const artworkUrl = `${base}/${artworkPath}`;
 
   return {
     schemaVersion: 1,
     backgroundUrl: PROTOTYPE_BACKGROUND_URL,
-    spriteUrl: `${base}/${homePath}`,
-    fallbackSpriteUrl: `${base}/${artworkPath}`,
+    spriteUrl: artworkUrl,
+    fallbackSpriteUrl: artworkUrl,
     centerX: 455 + rng.randomInt(91),
     groundY: 438,
     maxSize: profile.maxSize,
@@ -152,8 +153,37 @@ export class CompetitiveSpawnService {
     this.now = dependencies.now ?? (() => new Date());
   }
 
+  public async observeActivity(message: IncomingMessage): Promise<void> {
+    const baseWeightMilli = competitiveActivityBaseWeightMilli(message);
+    if (baseWeightMilli <= 0) return;
+
+    const group = await this.dependencies.community.resolveChat({
+      provider: message.provider,
+      chatRef: message.chatRef,
+    });
+    if (!isGameGroup(group)) return;
+
+    const player = await this.dependencies.players.resolvePlayer({
+      provider: message.provider,
+      externalId: message.senderRef,
+    });
+    if (!player.ok) return;
+
+    await this.dependencies.activity.observe({
+      communityGroupId: group.groupId,
+      provider: message.provider,
+      externalMessageId: message.externalMessageId,
+      playerId: player.value.playerId,
+      senderRef: message.senderRef,
+      fingerprint: competitiveActivityFingerprint(message),
+      baseWeightMilli,
+      targetRoll: this.dependencies.rng.randomInt(10_000),
+      now: this.now(),
+      cooldownMs: COMPETITIVE_SPAWN_COOLDOWN_MS,
+    });
+  }
+
   public async admits(message: IncomingMessage): Promise<boolean> {
-    if (message.text === null || message.text.trim().length === 0) return false;
     const group = await this.dependencies.community.resolveChat({
       provider: message.provider,
       chatRef: message.chatRef,
@@ -161,21 +191,19 @@ export class CompetitiveSpawnService {
     if (!isGameGroup(group)) return false;
 
     const active = await this.dependencies.repository.activeForGroup(group.groupId);
-    if (active !== null && active.expiresAt.getTime() > this.now().getTime()) return true;
-    if (!competitiveSpawnTrigger(message, COMPETITIVE_SPAWN_TRIGGER_DENOMINATOR)) return false;
-    return this.dependencies.repository.canOpen(
-      group.groupId,
-      this.now(),
-      COMPETITIVE_SPAWN_COOLDOWN_MS,
-    );
+    if (active !== null) return false;
+
+    const now = this.now();
+    const activity = await this.dependencies.activity.stateForGroup(group.groupId, now);
+    if (activity.targetMilli === null || activity.progressMilli < activity.targetMilli)
+      return false;
+
+    return this.dependencies.repository.canOpen(group.groupId, now, COMPETITIVE_SPAWN_COOLDOWN_MS);
   }
 
   public async resolve(
     context: MessageHandlerContext,
   ): Promise<Result<MessageHandlerResult | null>> {
-    const text = context.message.text?.trim() ?? "";
-    if (text.length === 0) return ok(null);
-
     const group = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
       chatRef: context.message.chatRef,
@@ -183,14 +211,11 @@ export class CompetitiveSpawnService {
     if (!isGameGroup(group)) return ok(null);
 
     const now = this.now();
-    await this.dependencies.repository.expireDue(now, 50);
-
     const active = await this.dependencies.repository.activeForGroup(group.groupId);
-    if (active !== null) {
-      return this.resolveGuess(context, active, now);
-    }
+    if (active !== null) return ok(null);
 
-    if (!competitiveSpawnTrigger(context.message, COMPETITIVE_SPAWN_TRIGGER_DENOMINATOR)) {
+    const activity = await this.dependencies.activity.stateForGroup(group.groupId, now);
+    if (activity.targetMilli === null || activity.progressMilli < activity.targetMilli) {
       return ok(null);
     }
     if (
@@ -269,7 +294,7 @@ export class CompetitiveSpawnService {
           destinationRef: context.message.chatRef,
           messageType: "IMAGE",
           payload: {
-            caption: "\u2728 Um Pokemon selvagem apareceu!",
+            caption: "✨ Um Pokémon selvagem apareceu!",
             competitiveSpawnRender: created.renderSpec,
           },
           idempotencyKey: `competitive-spawn:${created.id}:image`,
@@ -282,13 +307,23 @@ export class CompetitiveSpawnService {
     return this.dependencies.repository.expireDue(this.now(), 100);
   }
 
-  private async resolveGuess(
+  public async resolveGuessCommand(
     context: MessageHandlerContext,
-    active: CompetitiveSpawnRecord,
-    now: Date,
   ): Promise<Result<MessageHandlerResult | null>> {
-    const guess = normalizeCompetitiveSpawnGuess(context.message.text ?? "");
-    if (guess.length === 0) return ok(null);
+    const group = await this.dependencies.community.resolveChat({
+      provider: context.message.provider,
+      chatRef: context.message.chatRef,
+    });
+    if (!isGameGroup(group)) return ok(null);
+
+    const now = this.now();
+    const active = await this.dependencies.repository.activeForGroup(group.groupId);
+    if (active === null || active.expiresAt.getTime() <= now.getTime()) return ok(null);
+
+    const commandText = context.message.text?.trim() ?? "";
+    const guessText = commandText.replace(/^\/[^\s]+\s*/u, "").trim();
+    const guess = normalizeCompetitiveSpawnGuess(guessText);
+    if (guess.length === 0) return ok(emptyResult(active.id));
 
     const player = await this.dependencies.players.resolvePlayer({
       provider: context.message.provider,
@@ -346,4 +381,25 @@ export class CompetitiveSpawnService {
       ],
     });
   }
+}
+export function createCompetitiveSpawnGuessRoute(
+  service: CompetitiveSpawnService,
+): CommandRouteDefinition {
+  return {
+    command: "c",
+    aliases: ["catch"],
+    rateLimitClass: "STANDARD",
+    policy: {
+      requiredAnyGroupCapabilities: ["pve", "world"],
+      allowedPlayerAccess: ["ACTIVE"],
+      requiresMechanicalReady: true,
+    },
+    handler: {
+      handle: async (context) => {
+        const resolved = await service.resolveGuessCommand(context);
+        if (!resolved.ok) return resolved;
+        return ok(resolved.value ?? emptyResult());
+      },
+    },
+  };
 }

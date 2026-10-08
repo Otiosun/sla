@@ -161,7 +161,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
   }
 
   public async canOpen(groupId: string, now: Date, cooldownMs: number): Promise<boolean> {
-    const result = await this.pool.query<{ open: boolean; last_opened_at: Date | null }>(
+    const result = await this.pool.query<{ open: boolean; cooldown_anchor: Date | null }>(
       `SELECT
          EXISTS (
            SELECT 1 FROM competitive_spawns
@@ -170,17 +170,21 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
              AND expires_at > $2
          ) AS open,
          (
-           SELECT opened_at FROM competitive_spawns
+           SELECT CASE
+                    WHEN status = 'OPEN' THEN expires_at
+                    ELSE COALESCE(resolved_at, opened_at)
+                  END
+           FROM competitive_spawns
            WHERE community_group_id = $1
            ORDER BY opened_at DESC
            LIMIT 1
-         ) AS last_opened_at`,
+         ) AS cooldown_anchor`,
       [groupId, now],
     );
     const row = result.rows[0];
     if (row === undefined || row.open) return false;
-    if (row.last_opened_at === null) return true;
-    return now.getTime() - row.last_opened_at.getTime() >= cooldownMs;
+    if (row.cooldown_anchor === null) return true;
+    return now.getTime() - row.cooldown_anchor.getTime() >= cooldownMs;
   }
 
   public async candidateContext(
@@ -313,7 +317,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       await client.query(
         `UPDATE competitive_spawns
          SET status = 'EXPIRED',
-             resolved_at = $2
+             resolved_at = expires_at
          WHERE community_group_id = $1
            AND status = 'OPEN'
            AND expires_at <= $2`,
@@ -323,14 +327,18 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       const existing = await activeForGroupClient(client, input.communityGroupId, true);
       if (existing !== null) return null;
 
-      const recent = await client.query<{ opened_at: Date }>(
-        `SELECT opened_at FROM competitive_spawns
+      const recent = await client.query<{ cooldown_anchor: Date }>(
+        `SELECT CASE
+                  WHEN status = 'OPEN' THEN expires_at
+                  ELSE COALESCE(resolved_at, opened_at)
+                END AS cooldown_anchor
+         FROM competitive_spawns
          WHERE community_group_id = $1
          ORDER BY opened_at DESC
          LIMIT 1`,
         [input.communityGroupId],
       );
-      const last = recent.rows[0]?.opened_at;
+      const last = recent.rows[0]?.cooldown_anchor;
       if (last !== undefined && input.openedAt.getTime() - last.getTime() < cooldownMs) return null;
 
       const inserted = await client.query<SpawnRow>(
@@ -371,6 +379,22 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
           input.expiresAt,
         ],
       );
+      await client.query(
+        `INSERT INTO competitive_spawn_activity_state(
+           community_group_id, progress_milli, target_roll, cycle_no,
+           last_activity_at, last_player_id, sender_streak, updated_at
+         ) VALUES ($1, 0, NULL, 1, NULL, NULL, 0, $2)
+         ON CONFLICT (community_group_id) DO UPDATE SET
+           progress_milli = 0,
+           target_roll = NULL,
+           cycle_no = competitive_spawn_activity_state.cycle_no + 1,
+           last_activity_at = NULL,
+           last_player_id = NULL,
+           sender_streak = 0,
+           updated_at = EXCLUDED.updated_at`,
+        [input.communityGroupId, input.openedAt],
+      );
+
       const row = inserted.rows[0];
       return row === undefined ? null : mapSpawn(row);
     });
@@ -593,7 +617,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
          FOR UPDATE SKIP LOCKED
        )
        UPDATE competitive_spawns spawn
-       SET status = 'EXPIRED', resolved_at = $1
+       SET status = 'EXPIRED', resolved_at = spawn.expires_at
        FROM due
        WHERE spawn.id = due.id`,
       [now, limit],

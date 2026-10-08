@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
-import type { IncomingMessage } from "../messaging/contracts.js";
 import type { CompetitiveSpawnTimeBucket } from "./contracts.js";
 
 export function normalizeCompetitiveSpawnGuess(value: string): string {
   return value
+    .replace(/♀/gu, " f")
+    .replace(/♂/gu, " m")
     .normalize("NFD")
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("pt-BR")
@@ -11,21 +11,6 @@ export function normalizeCompetitiveSpawnGuess(value: string): string {
     .replace(/[-\s]+/gu, " ")
     .replace(/[^\p{L}\p{N} :]/gu, "")
     .trim();
-}
-
-export function competitiveSpawnTrigger(
-  message: Pick<IncomingMessage, "provider" | "chatRef" | "externalMessageId" | "text">,
-  denominator: number,
-): boolean {
-  if (!Number.isSafeInteger(denominator) || denominator < 1) {
-    throw new RangeError("Competitive spawn trigger denominator must be a positive safe integer");
-  }
-  const text = message.text?.trim() ?? "";
-  if (text.length < 2) return false;
-  const hash = createHash("sha256")
-    .update(`${message.provider}:${message.chatRef}:${message.externalMessageId}`)
-    .digest();
-  return hash.readUInt32BE(0) % denominator === 0;
 }
 
 export function competitiveSpawnTimeBucket(occurredAt: string): CompetitiveSpawnTimeBucket {

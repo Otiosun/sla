@@ -48,7 +48,10 @@ import {
   createWorldGroupSetupRoute,
   registerWorldGroupSetupOperation,
 } from "../modules/community/world-group-setup.js";
-import { CompetitiveSpawnService } from "../modules/competitive-spawn/service.js";
+import {
+  CompetitiveSpawnService,
+  createCompetitiveSpawnGuessRoute,
+} from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
@@ -114,6 +117,7 @@ import { PostgresCommunityRepository } from "../platform/community/postgres-comm
 import { PostgresReceptionPresenceRepository } from "../platform/community/postgres-reception-presence-repository.js";
 import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-group-setup.js";
 import { CompetitiveSpawnImagePreparation } from "../platform/competitive-spawn/competitive-spawn-image-preparation.js";
+import { PostgresCompetitiveSpawnActivityRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-activity-repository.js";
 import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
@@ -177,6 +181,7 @@ export interface OperationalMessagingComposition {
   readonly pveBattle: ReturnType<typeof createPveBattleRuntime> | null;
   readonly onMembership: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly router: MessageRouter;
+  readonly observeIncoming: (message: IncomingMessage) => Promise<void>;
   readonly admitCommand: (message: IncomingMessage) => boolean;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
   readonly admitRuntimeCommand: (message: IncomingMessage) => Promise<boolean>;
@@ -305,8 +310,10 @@ export function createOperationalMessagingComposition(
 
   const community = new CommunityService(new PostgresCommunityRepository(pool));
   const competitiveSpawnRepository = new PostgresCompetitiveSpawnRepository(pool);
+  const competitiveSpawnActivity = new PostgresCompetitiveSpawnActivityRepository(pool);
   const competitiveSpawn = new CompetitiveSpawnService({
     repository: competitiveSpawnRepository,
+    activity: competitiveSpawnActivity,
     community,
     players: playerRegistration,
     builds: {
@@ -822,6 +829,7 @@ export function createOperationalMessagingComposition(
   const receptionCommandScope = new ReceptionCommandScopeGate(community);
   const router = new MessageRouter(
     [
+      createCompetitiveSpawnGuessRoute(competitiveSpawn),
       ...legacyRoutes,
       ...worldServiceRoutes,
       ...progressionRoutes,
@@ -915,6 +923,7 @@ export function createOperationalMessagingComposition(
   return {
     pveBattle,
     router,
+    observeIncoming: (message) => competitiveSpawn.observeActivity(message),
     onMembership: (event) => receptionMembership.handle(event),
     admitCommand: (message) => router.admitsCommand(message),
     admitFreeform: async (message) =>
@@ -1087,6 +1096,12 @@ export function createOperationalWhatsAppRuntime(
     admitCommand: composition.admitRuntimeCommand,
     admitFreeform: composition.admitRuntimeFreeform,
     normalizeCommandLikeFreeform: composition.normalizeRuntimeCommandLikeFreeform,
+    observeIncoming: composition.observeIncoming,
+    onIncomingObservationFailure: (error) => {
+      options.logger.log("WARN", "competitive-spawn.activity.observe_failed", {
+        errorKind: errorKind(error),
+      });
+    },
     beforeOutboxFlush: composition.runMaintenance,
     onIncomingProcessingFailure: ({ stage, errorCode, correlationId }) => {
       options.logger.log("ERROR", "whatsapp.inbound.processing_failed", {
