@@ -50,6 +50,7 @@ import {
 } from "../modules/community/world-group-setup.js";
 import {
   CompetitiveSpawnService,
+  createCompetitiveSpawnAdminRoute,
   createCompetitiveSpawnGuessRoute,
 } from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
@@ -119,6 +120,7 @@ import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-gr
 import { CompetitiveSpawnImagePreparation } from "../platform/competitive-spawn/competitive-spawn-image-preparation.js";
 import { PostgresCompetitiveSpawnActivityRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-activity-repository.js";
 import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-repository.js";
+import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
@@ -311,9 +313,11 @@ export function createOperationalMessagingComposition(
   const community = new CommunityService(new PostgresCommunityRepository(pool));
   const competitiveSpawnRepository = new PostgresCompetitiveSpawnRepository(pool);
   const competitiveSpawnActivity = new PostgresCompetitiveSpawnActivityRepository(pool);
+  const competitiveSpawnSettings = new PostgresCompetitiveSpawnSettingsRepository(pool);
   const competitiveSpawn = new CompetitiveSpawnService({
     repository: competitiveSpawnRepository,
     activity: competitiveSpawnActivity,
+    settings: competitiveSpawnSettings,
     community,
     players: playerRegistration,
     builds: {
@@ -829,6 +833,7 @@ export function createOperationalMessagingComposition(
   const receptionCommandScope = new ReceptionCommandScopeGate(community);
   const router = new MessageRouter(
     [
+      createCompetitiveSpawnAdminRoute(competitiveSpawn),
       createCompetitiveSpawnGuessRoute(competitiveSpawn),
       ...legacyRoutes,
       ...worldServiceRoutes,

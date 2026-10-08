@@ -22,6 +22,10 @@ import type {
   CompetitiveSpawnRepository,
 } from "./contracts.js";
 import { competitiveSpawnTimeBucket, normalizeCompetitiveSpawnGuess } from "./normalization.js";
+import {
+  type CompetitiveSpawnSettingsRepository,
+  parseCompetitiveSpawnToggle,
+} from "./settings.js";
 
 export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
 export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
@@ -44,6 +48,7 @@ interface BuildPort {
 interface CompetitiveSpawnDependencies {
   readonly repository: CompetitiveSpawnRepository;
   readonly activity: CompetitiveSpawnActivityRepository;
+  readonly settings: CompetitiveSpawnSettingsRepository;
   readonly community: CommunityPort;
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly builds: BuildPort;
@@ -162,6 +167,7 @@ export class CompetitiveSpawnService {
       chatRef: message.chatRef,
     });
     if (!isGameGroup(group)) return;
+    if (!(await this.dependencies.settings.isEnabled(group.groupId))) return;
 
     const player = await this.dependencies.players.resolvePlayer({
       provider: message.provider,
@@ -189,6 +195,7 @@ export class CompetitiveSpawnService {
       chatRef: message.chatRef,
     });
     if (!isGameGroup(group)) return false;
+    if (!(await this.dependencies.settings.isEnabled(group.groupId))) return false;
 
     const active = await this.dependencies.repository.activeForGroup(group.groupId);
     if (active !== null) return false;
@@ -209,6 +216,7 @@ export class CompetitiveSpawnService {
       chatRef: context.message.chatRef,
     });
     if (!isGameGroup(group)) return ok(null);
+    if (!(await this.dependencies.settings.isEnabled(group.groupId))) return ok(null);
 
     const now = this.now();
     const active = await this.dependencies.repository.activeForGroup(group.groupId);
@@ -303,6 +311,84 @@ export class CompetitiveSpawnService {
     });
   }
 
+  public async manageGroup(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
+    const group = await this.dependencies.community.resolveChat({
+      provider: context.message.provider,
+      chatRef: context.message.chatRef,
+    });
+    if (!isGameGroup(group)) {
+      return ok({
+        resultRefType: null,
+        resultRefId: null,
+        outgoing: [
+          {
+            channel: "whatsapp",
+            destinationRef: context.message.chatRef,
+            messageType: "TEXT",
+            payload: { text: "Este recurso só pode ser configurado em um grupo GAME do RPG." },
+            idempotencyKey: `${context.idempotencyKey}:competitive-admin-invalid-group`,
+          },
+        ],
+      });
+    }
+
+    const action = parseCompetitiveSpawnToggle(context.message.text);
+    if (action === null) {
+      return ok({
+        resultRefType: "COMMUNITY_GROUP",
+        resultRefId: group.groupId,
+        outgoing: [
+          {
+            channel: "whatsapp",
+            destinationRef: context.message.chatRef,
+            messageType: "TEXT",
+            payload: {
+              text: [
+                "◇ *𝗦𝗣𝗔𝗪𝗡 𝗖𝗢𝗠𝗣𝗘𝗧𝗜𝗧𝗜𝗩𝗢*",
+                "",
+                "`/competitivo ativar`",
+                "`/competitivo desativar`",
+                "`/competitivo status`",
+              ].join("\n"),
+            },
+            idempotencyKey: `${context.idempotencyKey}:competitive-admin-help`,
+          },
+        ],
+      });
+    }
+
+    const enabled =
+      action === "STATUS"
+        ? await this.dependencies.settings.isEnabled(group.groupId)
+        : (
+            await this.dependencies.settings.setEnabled({
+              communityGroupId: group.groupId,
+              enabled: action === "ENABLE",
+              now: this.now(),
+            })
+          ).enabled;
+
+    return ok({
+      resultRefType: "COMMUNITY_GROUP",
+      resultRefId: group.groupId,
+      outgoing: [
+        {
+          channel: "whatsapp",
+          destinationRef: context.message.chatRef,
+          messageType: "TEXT",
+          payload: {
+            text: [
+              "◇ *𝗦𝗣𝗔𝗪𝗡 𝗖𝗢𝗠𝗣𝗘𝗧𝗜𝗧𝗜𝗩𝗢*",
+              `Estado · \`${enabled ? "ATIVO" : "DESATIVADO"}\``,
+              "Grupo · `este grupo`",
+            ].join("\n"),
+          },
+          idempotencyKey: `${context.idempotencyKey}:competitive-admin-state`,
+        },
+      ],
+    });
+  }
+
   public async expireDue(): Promise<number> {
     return this.dependencies.repository.expireDue(this.now(), 100);
   }
@@ -315,6 +401,7 @@ export class CompetitiveSpawnService {
       chatRef: context.message.chatRef,
     });
     if (!isGameGroup(group)) return ok(null);
+    if (!(await this.dependencies.settings.isEnabled(group.groupId))) return ok(null);
 
     const now = this.now();
     const active = await this.dependencies.repository.activeForGroup(group.groupId);
@@ -382,6 +469,22 @@ export class CompetitiveSpawnService {
     });
   }
 }
+export function createCompetitiveSpawnAdminRoute(
+  service: CompetitiveSpawnService,
+): CommandRouteDefinition {
+  return {
+    command: "competitivo",
+    rateLimitClass: "SENSITIVE",
+    policy: {
+      requiredAnyGroupCapabilities: ["pve", "world"],
+      requiredAdminCapability: "community.group.manage",
+    },
+    handler: {
+      handle: (context) => service.manageGroup(context),
+    },
+  };
+}
+
 export function createCompetitiveSpawnGuessRoute(
   service: CompetitiveSpawnService,
 ): CommandRouteDefinition {
