@@ -23,6 +23,9 @@ export interface CompetitiveSpawnCandidate {
   readonly nationalDex: number;
   readonly speciesSlug: string;
   readonly displayName: string;
+  /** Canonical pokemon_types.slug values. Runtime Postgres candidates always populate them. */
+  readonly type1Slug?: string;
+  readonly type2Slug?: string | null;
   readonly weight: number;
   readonly minLevel: number;
   readonly maxLevel: number;

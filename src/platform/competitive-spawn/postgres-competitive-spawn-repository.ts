@@ -117,6 +117,8 @@ function mapCandidate(row: {
   national_dex: number;
   species_slug: string;
   display_name: string;
+  type1_slug: string;
+  type2_slug: string | null;
   weight: string | number;
   min_level: number;
   max_level: number;
@@ -132,6 +134,8 @@ function mapCandidate(row: {
     nationalDex: row.national_dex,
     speciesSlug: row.species_slug,
     displayName: row.display_name,
+    type1Slug: row.type1_slug,
+    type2Slug: row.type2_slug,
     weight,
     minLevel: row.min_level,
     maxLevel: row.max_level,
@@ -362,6 +366,8 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       national_dex: number;
       species_slug: string;
       display_name: string;
+      type1_slug: string;
+      type2_slug: string | null;
       weight: number;
       min_level: number;
       max_level: number;
@@ -372,6 +378,8 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
               species.national_dex,
               species.slug AS species_slug,
               species_revision.display_name,
+              type1.slug AS type1_slug,
+              type2.slug AS type2_slug,
               1 AS weight,
               1 AS min_level,
               50 AS max_level,
@@ -388,6 +396,8 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
          ON form_revision.form_id = form.id
         AND form_revision.content_release_id = $1
         AND form_revision.active = TRUE
+       JOIN pokemon_types type1 ON type1.id = form_revision.type1_id
+       LEFT JOIN pokemon_types type2 ON type2.id = form_revision.type2_id
        WHERE species.national_dex BETWEEN 1 AND 386
        ORDER BY species.national_dex`,
       [activeRow.content_release_id],
@@ -401,6 +411,8 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         national_dex: number;
         species_slug: string;
         display_name: string;
+        type1_slug: string;
+        type2_slug: string | null;
         weight: string;
         min_level: number;
         max_level: number;
@@ -411,6 +423,8 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
                 species.national_dex,
                 species.slug AS species_slug,
                 species_revision.display_name,
+                type1.slug AS type1_slug,
+                type2.slug AS type2_slug,
                 SUM(entry.weight)::text AS weight,
                 MIN(entry.min_level) AS min_level,
                 MAX(entry.max_level) AS max_level,
@@ -433,11 +447,13 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
            ON form_revision.form_id = form.id
           AND form_revision.content_release_id = $1
           AND form_revision.active = TRUE
+         JOIN pokemon_types type1 ON type1.id = form_revision.type1_id
+         LEFT JOIN pokemon_types type2 ON type2.id = form_revision.type2_id
          WHERE table_identity.area_id = $2
            AND species.national_dex BETWEEN 1 AND 386
            AND form.slug = species.slug
          GROUP BY form.id, species.id, species.national_dex, species.slug,
-                  species_revision.display_name, table_identity.area_id
+                  species_revision.display_name, type1.slug, type2.slug, table_identity.area_id
          ORDER BY species.national_dex`,
         [activeRow.content_release_id, areaId],
       );

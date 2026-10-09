@@ -95,6 +95,31 @@ export function competitiveSpawnBackgroundUrlFor(input: {
   return backgroundUrl;
 }
 
+export function competitiveSpawnBackgroundContextForTypes(
+  type1Slug: string | undefined,
+  type2Slug: string | null | undefined,
+): CompetitiveSpawnBackgroundContext {
+  const types = new Set(
+    [type1Slug, type2Slug]
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .map((value) => value.toLocaleLowerCase("en-US")),
+  );
+
+  if (types.has("water")) return "WATER";
+  if (types.has("ice")) return "SNOW";
+  if (types.has("flying")) return "SKY";
+  if (
+    types.has("rock") ||
+    types.has("ground") ||
+    types.has("fire") ||
+    types.has("steel") ||
+    types.has("ghost") ||
+    types.has("dark")
+  ) {
+    return "RUGGED";
+  }
+  return "NEUTRAL";
+}
 export function competitiveSpawnCenterX(input: {
   readonly rng: { randomInt(maxExclusive: number): number };
 }): number {
@@ -186,6 +211,7 @@ function levelFor(candidate: CompetitiveSpawnCandidate, rng: RandomSource): numb
 function renderProfile(
   nationalDex: number,
   shiny: boolean,
+  backgroundContext: CompetitiveSpawnBackgroundContext,
   occurredAt: string,
   rng: RandomSource,
 ): CompetitiveSpawnRenderSpec {
@@ -205,7 +231,7 @@ function renderProfile(
   const artworkUrl = competitiveSpawnArtworkUrl(nationalDex, shiny);
   const backgroundUrl = competitiveSpawnBackgroundUrlFor({
     rng,
-    context: "NEUTRAL",
+    context: backgroundContext,
   });
 
   return {
@@ -350,6 +376,7 @@ export class CompetitiveSpawnService {
     const renderSpec = renderProfile(
       candidate.nationalDex,
       shiny,
+      competitiveSpawnBackgroundContextForTypes(candidate.type1Slug, candidate.type2Slug),
       context.message.occurredAt,
       this.dependencies.rng,
     );
