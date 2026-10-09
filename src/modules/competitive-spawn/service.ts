@@ -62,11 +62,49 @@ export const COMPETITIVE_SPAWN_BACKGROUND_URLS = [
   `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/23.png`,
 ] as const;
 
+export type CompetitiveSpawnBackgroundContext = "NEUTRAL" | "RUGGED" | "SNOW" | "WATER" | "SKY";
+
+export const COMPETITIVE_SPAWN_BACKGROUND_GROUPS = {
+  NEUTRAL: [1, 3, 4, 11],
+  RUGGED: [2, 5, 6, 8, 18, 20],
+  SNOW: [7, 10, 13, 17, 22, 23],
+  WATER: [14, 15, 19],
+  SKY: [9, 12, 16, 21],
+} as const satisfies Record<CompetitiveSpawnBackgroundContext, readonly number[]>;
+
 const COMPETITIVE_SPAWN_SAFE_ZONE = {
-  minCenterX: 455,
-  maxCenterX: 545,
+  minCenterX: 382,
+  maxCenterX: 418,
   groundY: 438,
 } as const;
+
+export function competitiveSpawnBackgroundUrlFor(input: {
+  readonly rng: { randomInt(maxExclusive: number): number };
+  readonly context?: CompetitiveSpawnBackgroundContext;
+}): string {
+  const context = input.context ?? "NEUTRAL";
+  const backgroundIds = COMPETITIVE_SPAWN_BACKGROUND_GROUPS[context];
+  const selectedId = backgroundIds[input.rng.randomInt(backgroundIds.length)];
+  if (selectedId === undefined) {
+    throw new Error("Competitive spawn background group selection did not resolve");
+  }
+  const backgroundUrl = COMPETITIVE_SPAWN_BACKGROUND_URLS[selectedId - 1];
+  if (backgroundUrl === undefined) {
+    throw new Error("Competitive spawn background URL did not resolve");
+  }
+  return backgroundUrl;
+}
+
+export function competitiveSpawnCenterX(input: {
+  readonly rng: { randomInt(maxExclusive: number): number };
+}): number {
+  return (
+    COMPETITIVE_SPAWN_SAFE_ZONE.minCenterX +
+    input.rng.randomInt(
+      COMPETITIVE_SPAWN_SAFE_ZONE.maxCenterX - COMPETITIVE_SPAWN_SAFE_ZONE.minCenterX + 1,
+    )
+  );
+}
 
 export function competitiveSpawnArtworkUrl(nationalDex: number, shiny: boolean): string {
   if (!Number.isSafeInteger(nationalDex) || nationalDex <= 0) {
@@ -165,22 +203,17 @@ function renderProfile(
   ]).get(nationalDex);
   const profile = override ?? { maxSize: 345, floatY: 0, shadowOpacity: 0.24 };
   const artworkUrl = competitiveSpawnArtworkUrl(nationalDex, shiny);
-  const backgroundUrl =
-    COMPETITIVE_SPAWN_BACKGROUND_URLS[rng.randomInt(COMPETITIVE_SPAWN_BACKGROUND_URLS.length)];
-  if (backgroundUrl === undefined) {
-    throw new Error("Competitive spawn background selection did not resolve");
-  }
+  const backgroundUrl = competitiveSpawnBackgroundUrlFor({
+    rng,
+    context: "NEUTRAL",
+  });
 
   return {
     schemaVersion: 1,
     backgroundUrl,
     spriteUrl: artworkUrl,
     fallbackSpriteUrl: artworkUrl,
-    centerX:
-      COMPETITIVE_SPAWN_SAFE_ZONE.minCenterX +
-      rng.randomInt(
-        COMPETITIVE_SPAWN_SAFE_ZONE.maxCenterX - COMPETITIVE_SPAWN_SAFE_ZONE.minCenterX + 1,
-      ),
+    centerX: competitiveSpawnCenterX({ rng }),
     groundY: COMPETITIVE_SPAWN_SAFE_ZONE.groundY,
     maxSize: profile.maxSize,
     floatY: profile.floatY,
