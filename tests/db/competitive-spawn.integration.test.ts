@@ -537,4 +537,202 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
     );
     expect(fled.rows[0]?.count).toBe("1");
   });
+  it("preserves frozen shiny IVs and nature when Pokemon bonus is granted", async () => {
+    const shinyGroupId = randomUUID();
+    const shinyChatRef = `120363-shiny-${shinyGroupId}@g.us`;
+    await pool.query(
+      `INSERT INTO community_groups(
+         id, provider, chat_ref, role, display_name, status
+       ) VALUES ($1, 'baileys', $2, 'GAME', 'V65 Shiny Freeze Test', 'ACTIVE')`,
+      [shinyGroupId, shinyChatRef],
+    );
+
+    const shinySpawnId = randomUUID();
+    const openedAt = new Date();
+    const frozenSnapshot: WildPokemonSnapshot = {
+      ...snapshot,
+      level: 27,
+      currentHp: 41,
+      maxHp: 41,
+      shiny: true,
+      ivs: {
+        hp: 31,
+        attack: 30,
+        defense: 29,
+        spAttack: 28,
+        spDefense: 27,
+        speed: 26,
+      },
+    };
+
+    const opened = await repository.createOpen(
+      {
+        ...spawnWrite(
+          shinySpawnId,
+          openedAt,
+          new Date(openedAt.getTime() + 5 * 60_000),
+          shinyGroupId,
+        ),
+        chatRef: shinyChatRef,
+        level: frozenSnapshot.level,
+        shiny: frozenSnapshot.shiny,
+        snapshot: frozenSnapshot,
+      },
+      60_000,
+    );
+    expect(opened?.id).toBe(shinySpawnId);
+
+    const sentAt = new Date(openedAt.getTime() + 1_000);
+    await publishSpawn(shinySpawnId, sentAt);
+
+    const shinyInboxId = randomUUID();
+    await insertInbox(shinyInboxId, playerA, "shiny-frozen-bonus");
+
+    const result = await repository.claimCorrect({
+      spawnId: shinySpawnId,
+      inboxMessageId: shinyInboxId,
+      playerId: playerA,
+      senderRef: "5511000000077@s.whatsapp.net",
+      normalizedGuess: "pikachu",
+      idempotencyKey: "winner-shiny-frozen-bonus",
+      correlationId: randomUUID(),
+      rewardKindRoll: 0,
+      rewardAmountRoll: 0,
+      rewardItemRoll: 0,
+      pokemonBonusRoll: 0,
+      now: new Date(sentAt.getTime() + 1_000),
+    });
+
+    expect(result.kind).toBe("WON");
+    if (result.kind !== "WON") return;
+    expect(result.pokemonBonus).toBe(true);
+    expect(result.pokemonInstanceId).not.toBeNull();
+
+    const instance = await pool.query<{
+      form_id: string;
+      level: number;
+      current_hp: number;
+      gender: string | null;
+      shiny: boolean;
+      ability_id: string | null;
+      nature_id: string;
+      iv_hp: number;
+      iv_attack: number;
+      iv_defense: number;
+      iv_sp_attack: number;
+      iv_sp_defense: number;
+      iv_speed: number;
+    }>(
+      `SELECT
+         instance.form_id,
+         instance.level,
+         instance.current_hp,
+         instance.gender,
+         instance.shiny,
+         instance.ability_id,
+         training.nature_id,
+         training.iv_hp,
+         training.iv_attack,
+         training.iv_defense,
+         training.iv_sp_attack,
+         training.iv_sp_defense,
+         training.iv_speed
+       FROM pokemon_instances instance
+       JOIN pokemon_training_values training
+         ON training.pokemon_instance_id = instance.id
+       WHERE instance.id = $1`,
+      [result.pokemonInstanceId],
+    );
+
+    expect(instance.rows[0]).toEqual({
+      form_id: frozenSnapshot.formId,
+      level: frozenSnapshot.level,
+      current_hp: frozenSnapshot.currentHp,
+      gender: frozenSnapshot.gender,
+      shiny: frozenSnapshot.shiny,
+      ability_id: frozenSnapshot.abilityId,
+      nature_id: frozenSnapshot.natureId,
+      iv_hp: frozenSnapshot.ivs.hp,
+      iv_attack: frozenSnapshot.ivs.attack,
+      iv_defense: frozenSnapshot.ivs.defense,
+      iv_sp_attack: frozenSnapshot.ivs.spAttack,
+      iv_sp_defense: frozenSnapshot.ivs.spDefense,
+      iv_speed: frozenSnapshot.ivs.speed,
+    });
+
+    const persistedMoves = await pool.query<{
+      slot_no: number;
+      move_id: string;
+      pp_current: number | null;
+    }>(
+      `SELECT slot_no, move_id, pp_current
+       FROM pokemon_move_slots
+       WHERE pokemon_instance_id = $1
+       ORDER BY slot_no`,
+      [result.pokemonInstanceId],
+    );
+
+    expect(persistedMoves.rows).toEqual(
+      frozenSnapshot.moves.map((move, index) => ({
+        slot_no: index + 1,
+        move_id: move.moveId,
+        pp_current: move.ppCurrent,
+      })),
+    );
+  });
+
+  it("keeps active spawns independent across different groups", async () => {
+    const groupA = randomUUID();
+    const groupB = randomUUID();
+    const chatA = `120363-independent-a-${groupA}@g.us`;
+    const chatB = `120363-independent-b-${groupB}@g.us`;
+
+    await pool.query(
+      `INSERT INTO community_groups(
+         id, provider, chat_ref, role, display_name, status
+       ) VALUES
+         ($1, 'baileys', $2, 'GAME', 'V65 Independent A', 'ACTIVE'),
+         ($3, 'baileys', $4, 'GAME', 'V65 Independent B', 'ACTIVE')`,
+      [groupA, chatA, groupB, chatB],
+    );
+
+    const openedAt = new Date();
+    const spawnA = randomUUID();
+    const spawnB = randomUUID();
+
+    const openedA = await repository.createOpen(
+      {
+        ...spawnWrite(spawnA, openedAt, new Date(openedAt.getTime() + 5 * 60_000), groupA),
+        chatRef: chatA,
+      },
+      60_000,
+    );
+    const openedB = await repository.createOpen(
+      {
+        ...spawnWrite(spawnB, openedAt, new Date(openedAt.getTime() + 5 * 60_000), groupB),
+        chatRef: chatB,
+      },
+      60_000,
+    );
+
+    expect(openedA?.id).toBe(spawnA);
+    expect(openedB?.id).toBe(spawnB);
+
+    // createOpen reserves an unpublished OPEN, which activeForGroup intentionally hides
+    // until the image outbox is SENT and publication is reconciled.
+    const sentAtA = new Date(openedAt.getTime() + 1_000);
+    const sentAtB = new Date(openedAt.getTime() + 2_000);
+    await publishSpawn(spawnA, sentAtA);
+    await publishSpawn(spawnB, sentAtB);
+
+    const activeA = await repository.activeForGroup(groupA);
+    const activeB = await repository.activeForGroup(groupB);
+    expect(activeA?.id).toBe(spawnA);
+    expect(activeB?.id).toBe(spawnB);
+    expect(activeA?.communityGroupId).toBe(groupA);
+    expect(activeB?.communityGroupId).toBe(groupB);
+
+    await expect(repository.canOpen(groupA, new Date(), 60_000)).resolves.toBe(false);
+    await expect(repository.canOpen(groupB, new Date(), 60_000)).resolves.toBe(false);
+  });
 });
