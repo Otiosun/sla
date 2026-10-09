@@ -34,8 +34,50 @@ export const COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS = 1_200;
 export const COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER = 50;
 export const COMPETITIVE_SPAWN_PUBLICATION_ORPHAN_GRACE_MS = 2 * 60_000;
 
-const PROTOTYPE_BACKGROUND_URL =
-  "https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/main/backgrounds/1.png";
+export const COMPETITIVE_SPAWN_BACKGROUND_REVISION = "5efaff824d4255e347da71f4a175239a3f8c3874";
+
+export const COMPETITIVE_SPAWN_BACKGROUND_URLS = [
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/1.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/2.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/3.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/4.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/5.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/6.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/7.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/8.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/9.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/10.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/11.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/12.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/13.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/14.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/15.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/16.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/17.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/18.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/19.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/20.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/21.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/22.png`,
+  `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/23.png`,
+] as const;
+
+const COMPETITIVE_SPAWN_SAFE_ZONE = {
+  minCenterX: 455,
+  maxCenterX: 545,
+  groundY: 438,
+} as const;
+
+export function competitiveSpawnArtworkUrl(nationalDex: number, shiny: boolean): string {
+  if (!Number.isSafeInteger(nationalDex) || nationalDex <= 0) {
+    throw new RangeError("Competitive spawn National Dex id must be a positive integer");
+  }
+  const base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other";
+  const artworkPath = shiny
+    ? `official-artwork/shiny/${nationalDex}.png`
+    : `official-artwork/${nationalDex}.png`;
+  return `${base}/${artworkPath}`;
+}
 
 interface CommunityPort {
   resolveChat(input: {
@@ -122,19 +164,24 @@ function renderProfile(
     [384, { maxSize: 390, floatY: 70, shadowOpacity: 0.12 }],
   ]).get(nationalDex);
   const profile = override ?? { maxSize: 345, floatY: 0, shadowOpacity: 0.24 };
-  const base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other";
-  const artworkPath = shiny
-    ? `official-artwork/shiny/${nationalDex}.png`
-    : `official-artwork/${nationalDex}.png`;
-  const artworkUrl = `${base}/${artworkPath}`;
+  const artworkUrl = competitiveSpawnArtworkUrl(nationalDex, shiny);
+  const backgroundUrl =
+    COMPETITIVE_SPAWN_BACKGROUND_URLS[rng.randomInt(COMPETITIVE_SPAWN_BACKGROUND_URLS.length)];
+  if (backgroundUrl === undefined) {
+    throw new Error("Competitive spawn background selection did not resolve");
+  }
 
   return {
     schemaVersion: 1,
-    backgroundUrl: PROTOTYPE_BACKGROUND_URL,
+    backgroundUrl,
     spriteUrl: artworkUrl,
     fallbackSpriteUrl: artworkUrl,
-    centerX: 455 + rng.randomInt(91),
-    groundY: 438,
+    centerX:
+      COMPETITIVE_SPAWN_SAFE_ZONE.minCenterX +
+      rng.randomInt(
+        COMPETITIVE_SPAWN_SAFE_ZONE.maxCenterX - COMPETITIVE_SPAWN_SAFE_ZONE.minCenterX + 1,
+      ),
+    groundY: COMPETITIVE_SPAWN_SAFE_ZONE.groundY,
     maxSize: profile.maxSize,
     floatY: profile.floatY,
     shadowOpacity: profile.shadowOpacity,
