@@ -9,6 +9,10 @@ import type {
   WhatsAppProviderConnectionState,
 } from "./adapter.js";
 import { normalizeBaileysMessage } from "./baileys-normalizer.js";
+import {
+  messageReceiptDiagnostics,
+  messageUpdateDiagnostics,
+} from "./baileys-delivery-observability.js";
 import type {
   BaileysConnectionUpdateLike,
   BaileysEventSourceLike,
@@ -460,6 +464,37 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
         this.onProviderError(error);
       });
     });
+
+    socket.ev.on("message-receipt.update", (event) => {
+      for (const context of messageReceiptDiagnostics(event)) {
+        process.stdout.write(
+          `${JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "INFO",
+            event: "whatsapp.outgoing.receipt",
+            correlationId: null,
+            causationId: null,
+            context,
+          })}\n`,
+        );
+      }
+    });
+
+    socket.ev.on("messages.update", (event) => {
+      for (const context of messageUpdateDiagnostics(event)) {
+        process.stdout.write(
+          `${JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "INFO",
+            event: "whatsapp.outgoing.status",
+            correlationId: null,
+            causationId: null,
+            context,
+          })}\n`,
+        );
+      }
+    });
+
     socket.ev.on("connection.update", (update) => {
       void this.handleConnectionUpdate(generation, socket, update).catch((error) =>
         this.onProviderError(error),

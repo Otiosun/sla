@@ -99,6 +99,32 @@ export interface BaileysEventMapLike {
     }[];
   };
   readonly "creds.update": Readonly<Record<string, unknown>>;
+  readonly "message-receipt.update": readonly {
+    readonly key: {
+      readonly remoteJid?: string | null;
+      readonly id?: string | null;
+      readonly fromMe?: boolean | null;
+      readonly participant?: string | null;
+    };
+    readonly receipt: Readonly<Record<string, unknown>> & {
+      readonly userJid?: string | null;
+      readonly receiptTimestamp?: unknown;
+      readonly readTimestamp?: unknown;
+      readonly playedTimestamp?: unknown;
+    };
+  }[];
+  readonly "messages.update": readonly {
+    readonly key: {
+      readonly remoteJid?: string | null;
+      readonly id?: string | null;
+      readonly fromMe?: boolean | null;
+      readonly participant?: string | null;
+    };
+    readonly update: Readonly<Record<string, unknown>> & {
+      readonly status?: unknown;
+      readonly messageTimestamp?: unknown;
+    };
+  }[];
   readonly "messages.upsert": BaileysMessagesUpsertLike;
   readonly "connection.update": BaileysConnectionUpdateLike;
 }
