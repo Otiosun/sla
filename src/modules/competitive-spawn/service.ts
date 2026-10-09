@@ -128,6 +128,8 @@ export function competitiveSpawnBackgroundContextForTypes(
   return "NEUTRAL";
 }
 const COMPETITIVE_SPAWN_COSMIC_SPECIES = new Set(["deoxys", "rayquaza"] as const);
+const COMPETITIVE_SPAWN_SKY_SPECIES = new Set(["pelipper", "wingull"] as const);
+const COMPETITIVE_SPAWN_WATER_SPECIES = new Set(["gyarados", "mantine"] as const);
 
 export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   speciesSlug: string | undefined,
@@ -138,6 +140,12 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
     typeof speciesSlug === "string" ? speciesSlug.toLocaleLowerCase("en-US") : "";
   if (COMPETITIVE_SPAWN_COSMIC_SPECIES.has(normalizedSpecies as "deoxys" | "rayquaza")) {
     return "COSMIC";
+  }
+  if (COMPETITIVE_SPAWN_SKY_SPECIES.has(normalizedSpecies as "pelipper" | "wingull")) {
+    return "SKY";
+  }
+  if (COMPETITIVE_SPAWN_WATER_SPECIES.has(normalizedSpecies as "gyarados" | "mantine")) {
+    return "WATER";
   }
   return competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
 }

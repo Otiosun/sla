@@ -58,4 +58,18 @@ describe("competitive spawn semantic background routing", () => {
       }
     }
   });
+  it("routes ambiguous Water/Flying species explicitly", () => {
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("wingull", "water", "flying")).toBe(
+      "SKY",
+    );
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("pelipper", "water", "flying")).toBe(
+      "SKY",
+    );
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("gyarados", "water", "flying")).toBe(
+      "WATER",
+    );
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("mantine", "water", "flying")).toBe(
+      "WATER",
+    );
+  });
 });
