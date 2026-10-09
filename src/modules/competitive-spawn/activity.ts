@@ -29,6 +29,16 @@ export function competitiveActivityTargetMilli(activeParticipants: number, roll:
   const span = maximum - minimum;
   return minimum + Math.floor((span * roll) / 9_999);
 }
+export function competitiveActivityMonotoneTargetMilli(input: {
+  readonly previousTargetMilli: number | null;
+  readonly activeParticipants: number;
+  readonly roll: number;
+  readonly resetCycle: boolean;
+}): number {
+  const candidate = competitiveActivityTargetMilli(input.activeParticipants, input.roll);
+  if (input.resetCycle || input.previousTargetMilli === null) return candidate;
+  return Math.min(input.previousTargetMilli, candidate);
+}
 
 function normalizedText(value: string | null): string {
   return (value ?? "")

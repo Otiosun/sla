@@ -6,6 +6,7 @@ import {
   type CompetitiveSpawnActivityRepository,
   competitiveActivityCreditMilli,
   competitiveActivityDecayedProgressMilli,
+  competitiveActivityMonotoneTargetMilli,
   competitiveActivityTargetMilli,
 } from "../../modules/competitive-spawn/activity.js";
 import { withTransaction } from "../db/transaction.js";
@@ -13,6 +14,7 @@ import { withTransaction } from "../db/transaction.js";
 interface ActivityStateRow {
   readonly progress_milli: number;
   readonly target_roll: number | null;
+  readonly target_milli: number | null;
   readonly cycle_no: string | number | bigint;
   readonly last_activity_at: Date | null;
   readonly last_player_id: string | null;
@@ -40,6 +42,7 @@ async function activeParticipants(client: PoolClient, groupId: string, now: Date
 function observation(input: {
   readonly progressMilli: number;
   readonly targetRoll: number | null;
+  readonly targetMilli: number | null;
   readonly activeParticipants: number;
   readonly creditedMilli: number;
   readonly frozen: "ACTIVE_SPAWN" | "COOLDOWN" | null;
@@ -50,7 +53,7 @@ function observation(input: {
     targetMilli:
       input.targetRoll === null
         ? null
-        : competitiveActivityTargetMilli(participantCount, input.targetRoll),
+        : (input.targetMilli ?? competitiveActivityTargetMilli(participantCount, input.targetRoll)),
     activeParticipants: input.activeParticipants,
     creditedMilli: input.creditedMilli,
     frozen: input.frozen,
@@ -63,7 +66,7 @@ async function effectiveState(
   now: Date,
 ): Promise<CompetitiveSpawnActivityObservation> {
   const state = await client.query<ActivityStateRow>(
-    `SELECT progress_milli, target_roll, cycle_no, last_activity_at, last_player_id, sender_streak
+    `SELECT progress_milli, target_roll, target_milli, cycle_no, last_activity_at, last_player_id, sender_streak
      FROM competitive_spawn_activity_state
      WHERE community_group_id = $1`,
     [groupId],
@@ -74,6 +77,7 @@ async function effectiveState(
     return observation({
       progressMilli: 0,
       targetRoll: null,
+      targetMilli: null,
       activeParticipants: participants,
       creditedMilli: 0,
       frozen: null,
@@ -87,6 +91,7 @@ async function effectiveState(
   return observation({
     progressMilli: decayed.progressMilli,
     targetRoll: row.target_roll,
+    targetMilli: row.target_milli,
     activeParticipants: participants,
     creditedMilli: 0,
     frozen: null,
@@ -194,7 +199,7 @@ export class PostgresCompetitiveSpawnActivityRepository
       }
 
       let state = await client.query<ActivityStateRow>(
-        `SELECT progress_milli, target_roll, cycle_no, last_activity_at, last_player_id, sender_streak
+        `SELECT progress_milli, target_roll, target_milli, cycle_no, last_activity_at, last_player_id, sender_streak
          FROM competitive_spawn_activity_state
          WHERE community_group_id = $1
          FOR UPDATE`,
@@ -209,7 +214,7 @@ export class PostgresCompetitiveSpawnActivityRepository
           [input.communityGroupId, input.targetRoll, input.now],
         );
         state = await client.query<ActivityStateRow>(
-          `SELECT progress_milli, target_roll, cycle_no, last_activity_at, last_player_id, sender_streak
+          `SELECT progress_milli, target_roll, target_milli, cycle_no, last_activity_at, last_player_id, sender_streak
            FROM competitive_spawn_activity_state
            WHERE community_group_id = $1
            FOR UPDATE`,
@@ -262,6 +267,13 @@ export class PostgresCompetitiveSpawnActivityRepository
       );
 
       const participants = await activeParticipants(client, input.communityGroupId, input.now);
+      const targetMilli = competitiveActivityMonotoneTargetMilli({
+        previousTargetMilli:
+          decay.resetCycle || current.target_roll === null ? null : current.target_milli,
+        activeParticipants: participants,
+        roll: targetRoll,
+        resetCycle: decay.resetCycle,
+      });
       const nextStreak = current.last_player_id === input.playerId ? current.sender_streak + 1 : 1;
       const creditedMilli = competitiveActivityCreditMilli({
         baseWeightMilli: input.baseWeightMilli,
@@ -276,16 +288,18 @@ export class PostgresCompetitiveSpawnActivityRepository
         `UPDATE competitive_spawn_activity_state
          SET progress_milli = $2,
              target_roll = $3,
-             cycle_no = $4,
-             last_activity_at = $5,
-             last_player_id = $6,
-             sender_streak = $7,
-             updated_at = $5
+             target_milli = $4,
+             cycle_no = $5,
+             last_activity_at = $6,
+             last_player_id = $7,
+             sender_streak = $8,
+             updated_at = $6
          WHERE community_group_id = $1`,
         [
           input.communityGroupId,
           progressMilli,
           targetRoll,
+          targetMilli,
           cycleNo.toString(),
           input.now,
           input.playerId,
@@ -312,6 +326,7 @@ export class PostgresCompetitiveSpawnActivityRepository
       return observation({
         progressMilli,
         targetRoll,
+        targetMilli,
         activeParticipants: participants,
         creditedMilli,
         frozen: null,
