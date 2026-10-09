@@ -8,6 +8,7 @@ import {
   competitiveActivityDecayedProgressMilli,
   competitiveActivityMonotoneTargetMilli,
   competitiveActivityTargetMilli,
+  competitiveIncenseTargetMilli,
 } from "../../modules/competitive-spawn/activity.js";
 import { withTransaction } from "../db/transaction.js";
 
@@ -124,6 +125,7 @@ export class PostgresCompetitiveSpawnActivityRepository
     readonly fingerprint: string;
     readonly baseWeightMilli: number;
     readonly targetRoll: number;
+    readonly incenseActive?: boolean;
     readonly now: Date;
     readonly cooldownMs: number;
   }): Promise<CompetitiveSpawnActivityObservation> {
@@ -267,13 +269,17 @@ export class PostgresCompetitiveSpawnActivityRepository
       );
 
       const participants = await activeParticipants(client, input.communityGroupId, input.now);
-      const targetMilli = competitiveActivityMonotoneTargetMilli({
+      const monotoneTargetMilli = competitiveActivityMonotoneTargetMilli({
         previousTargetMilli:
           decay.resetCycle || current.target_roll === null ? null : current.target_milli,
         activeParticipants: participants,
         roll: targetRoll,
         resetCycle: decay.resetCycle,
       });
+      const targetMilli =
+        input.incenseActive === true
+          ? Math.min(monotoneTargetMilli, competitiveIncenseTargetMilli(targetRoll))
+          : monotoneTargetMilli;
       const nextStreak = current.last_player_id === input.playerId ? current.sender_streak + 1 : 1;
       const creditedMilli = competitiveActivityCreditMilli({
         baseWeightMilli: input.baseWeightMilli,

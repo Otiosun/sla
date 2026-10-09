@@ -45,6 +45,14 @@ export class PostgresCompetitiveSpawnSettingsRepository
 
       let cancelledOpenSpawn = false;
       if (!input.enabled) {
+        await client.query(
+          `UPDATE competitive_spawn_group_settings
+           SET incense_until = NULL,
+               updated_at = $2
+           WHERE community_group_id = $1`,
+          [input.communityGroupId, input.now],
+        );
+
         const cancelled = await client.query(
           `UPDATE competitive_spawns
            SET status = 'CANCELLED', resolved_at = $2
@@ -76,5 +84,38 @@ export class PostgresCompetitiveSpawnSettingsRepository
 
       return { enabled: input.enabled, cancelledOpenSpawn };
     });
+  }
+
+  public async incenseUntil(communityGroupId: string, now: Date): Promise<Date | null> {
+    const result = await this.pool.query<{ incense_until: Date | null }>(
+      `SELECT CASE
+                WHEN incense_until > $2 THEN incense_until
+                ELSE NULL
+              END AS incense_until
+       FROM competitive_spawn_group_settings
+       WHERE community_group_id = $1`,
+      [communityGroupId, now],
+    );
+    return result.rows[0]?.incense_until ?? null;
+  }
+
+  public async setIncense(input: {
+    readonly communityGroupId: string;
+    readonly incenseUntil: Date | null;
+    readonly now: Date;
+  }): Promise<Date | null> {
+    const result = await this.pool.query<{ incense_until: Date | null }>(
+      `UPDATE competitive_spawn_group_settings
+       SET incense_until = $2,
+           revision = revision + CASE
+             WHEN incense_until IS DISTINCT FROM $2 THEN 1
+             ELSE 0
+           END,
+           updated_at = $3
+       WHERE community_group_id = $1
+       RETURNING incense_until`,
+      [input.communityGroupId, input.incenseUntil, input.now],
+    );
+    return result.rows[0]?.incense_until ?? null;
   }
 }

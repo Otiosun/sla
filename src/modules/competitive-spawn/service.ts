@@ -24,7 +24,7 @@ import type {
 import { competitiveSpawnTimeBucket, normalizeCompetitiveSpawnGuess } from "./normalization.js";
 import {
   type CompetitiveSpawnSettingsRepository,
-  parseCompetitiveSpawnToggle,
+  parseCompetitiveSpawnAdminAction,
 } from "./settings.js";
 
 export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
@@ -167,6 +167,12 @@ export class CompetitiveSpawnService {
     if (!isGameGroup(group)) return;
     if (!(await this.dependencies.settings.isEnabled(group.groupId))) return;
 
+    const now = this.now();
+    const incenseUntil =
+      this.dependencies.settings.incenseUntil === undefined
+        ? null
+        : await this.dependencies.settings.incenseUntil(group.groupId, now);
+
     const player = await this.dependencies.players.resolvePlayer({
       provider: message.provider,
       externalId: message.senderRef,
@@ -182,7 +188,8 @@ export class CompetitiveSpawnService {
       fingerprint: competitiveActivityFingerprint(message),
       baseWeightMilli,
       targetRoll: this.dependencies.rng.randomInt(10_000),
-      now: this.now(),
+      incenseActive: incenseUntil !== null,
+      now,
       cooldownMs: COMPETITIVE_SPAWN_COOLDOWN_MS,
     });
   }
@@ -208,6 +215,7 @@ export class CompetitiveSpawnService {
 
   public async resolve(
     context: MessageHandlerContext,
+    options: { readonly bypassActivity?: boolean } = {},
   ): Promise<Result<MessageHandlerResult | null>> {
     const group = await this.dependencies.community.resolveChat({
       provider: context.message.provider,
@@ -220,9 +228,11 @@ export class CompetitiveSpawnService {
     const active = await this.dependencies.repository.activeForGroup(group.groupId);
     if (active !== null) return ok(null);
 
-    const activity = await this.dependencies.activity.stateForGroup(group.groupId, now);
-    if (activity.targetMilli === null || activity.progressMilli < activity.targetMilli) {
-      return ok(null);
+    if (options.bypassActivity !== true) {
+      const activity = await this.dependencies.activity.stateForGroup(group.groupId, now);
+      if (activity.targetMilli === null || activity.progressMilli < activity.targetMilli) {
+        return ok(null);
+      }
     }
     if (
       !(await this.dependencies.repository.canOpen(
@@ -330,7 +340,7 @@ export class CompetitiveSpawnService {
       });
     }
 
-    const action = parseCompetitiveSpawnToggle(context.message.text);
+    const action = parseCompetitiveSpawnAdminAction(context.message.text);
     if (action === null) {
       return ok({
         resultRefType: "COMMUNITY_GROUP",
@@ -347,6 +357,9 @@ export class CompetitiveSpawnService {
                 "`/competitivo ativar`",
                 "`/competitivo desativar`",
                 "`/competitivo status`",
+                "`/competitivo incenso [30m|1h]`",
+                "`/competitivo incenso parar`",
+                "`/competitivo forçar`",
               ].join("\n"),
             },
             idempotencyKey: `${context.idempotencyKey}:competitive-admin-help`,
@@ -355,16 +368,86 @@ export class CompetitiveSpawnService {
       });
     }
 
-    const enabled =
-      action === "STATUS"
-        ? await this.dependencies.settings.isEnabled(group.groupId)
-        : (
-            await this.dependencies.settings.setEnabled({
-              communityGroupId: group.groupId,
-              enabled: action === "ENABLE",
-              now: this.now(),
-            })
-          ).enabled;
+    const now = this.now();
+    const stateMessage = async (suffix: string): Promise<MessageHandlerResult> => {
+      const enabled = await this.dependencies.settings.isEnabled(group.groupId);
+      const incenseUntil =
+        this.dependencies.settings.incenseUntil === undefined
+          ? null
+          : await this.dependencies.settings.incenseUntil(group.groupId, now);
+      const incenseText =
+        incenseUntil === null
+          ? "DESATIVADO"
+          : `ATIVO · ${Math.max(1, Math.ceil((incenseUntil.getTime() - now.getTime()) / 60_000))}min`;
+
+      return {
+        resultRefType: "COMMUNITY_GROUP",
+        resultRefId: group.groupId,
+        outgoing: [
+          {
+            channel: "whatsapp",
+            destinationRef: context.message.chatRef,
+            messageType: "TEXT",
+            payload: {
+              text: [
+                "◇ *𝗦𝗣𝗔𝗪𝗡 𝗖𝗢𝗠𝗣𝗘𝗧𝗜𝗧𝗜𝗩𝗢*",
+                `Estado · \`${enabled ? "ATIVO" : "DESATIVADO"}\``,
+                `Incenso · \`${incenseText}\``,
+                "Grupo · `este grupo`",
+              ].join("\n"),
+            },
+            idempotencyKey: `${context.idempotencyKey}:competitive-admin-${suffix}`,
+          },
+        ],
+      };
+    };
+
+    if (action.kind === "STATUS") return ok(await stateMessage("status"));
+
+    if (action.kind === "ENABLE" || action.kind === "DISABLE") {
+      await this.dependencies.settings.setEnabled({
+        communityGroupId: group.groupId,
+        enabled: action.kind === "ENABLE",
+        now,
+      });
+      return ok(await stateMessage("state"));
+    }
+
+    const enabled = await this.dependencies.settings.isEnabled(group.groupId);
+    if (!enabled) {
+      return ok({
+        resultRefType: "COMMUNITY_GROUP",
+        resultRefId: group.groupId,
+        outgoing: [
+          {
+            channel: "whatsapp",
+            destinationRef: context.message.chatRef,
+            messageType: "TEXT",
+            payload: { text: "Ative o competitivo neste grupo antes de usar este controle." },
+            idempotencyKey: `${context.idempotencyKey}:competitive-admin-disabled`,
+          },
+        ],
+      });
+    }
+
+    if (action.kind === "INCENSE_START" || action.kind === "INCENSE_STOP") {
+      if (this.dependencies.settings.setIncense === undefined) {
+        throw new Error("Competitive spawn Incense persistence is unavailable");
+      }
+      await this.dependencies.settings.setIncense({
+        communityGroupId: group.groupId,
+        incenseUntil:
+          action.kind === "INCENSE_START" ? new Date(now.getTime() + action.durationMs) : null,
+        now,
+      });
+      return ok(
+        await stateMessage(action.kind === "INCENSE_START" ? "incense-start" : "incense-stop"),
+      );
+    }
+
+    const forced = await this.resolve(context, { bypassActivity: true });
+    if (!forced.ok) return forced;
+    if (forced.value !== null) return ok(forced.value);
 
     return ok({
       resultRefType: "COMMUNITY_GROUP",
@@ -375,13 +458,9 @@ export class CompetitiveSpawnService {
           destinationRef: context.message.chatRef,
           messageType: "TEXT",
           payload: {
-            text: [
-              "◇ *𝗦𝗣𝗔𝗪𝗡 𝗖𝗢𝗠𝗣𝗘𝗧𝗜𝗧𝗜𝗩𝗢*",
-              `Estado · \`${enabled ? "ATIVO" : "DESATIVADO"}\``,
-              "Grupo · `este grupo`",
-            ].join("\n"),
+            text: "Não foi possível forçar agora: há spawn ativo, cooldown em curso ou a pool não está disponível.",
           },
-          idempotencyKey: `${context.idempotencyKey}:competitive-admin-state`,
+          idempotencyKey: `${context.idempotencyKey}:competitive-admin-force-blocked`,
         },
       ],
     });

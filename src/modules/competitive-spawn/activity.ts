@@ -29,6 +29,12 @@ export function competitiveActivityTargetMilli(activeParticipants: number, roll:
   const span = maximum - minimum;
   return minimum + Math.floor((span * roll) / 9_999);
 }
+export function competitiveIncenseTargetMilli(roll: number): number {
+  if (!Number.isSafeInteger(roll) || roll < 0 || roll >= 10_000) {
+    throw new RangeError("Competitive Incense target roll must be an integer from 0 to 9999");
+  }
+  return 3_000 + Math.floor((2_000 * roll) / 9_999);
+}
 export function competitiveActivityMonotoneTargetMilli(input: {
   readonly previousTargetMilli: number | null;
   readonly activeParticipants: number;
@@ -154,6 +160,7 @@ export interface CompetitiveSpawnActivityRepository {
     readonly fingerprint: string;
     readonly baseWeightMilli: number;
     readonly targetRoll: number;
+    readonly incenseActive?: boolean;
     readonly now: Date;
     readonly cooldownMs: number;
   }): Promise<CompetitiveSpawnActivityObservation>;
