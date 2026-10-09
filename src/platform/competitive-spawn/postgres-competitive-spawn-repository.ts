@@ -9,10 +9,19 @@ import type {
   CompetitiveSpawnRenderSpec,
   CompetitiveSpawnRepository,
 } from "../../modules/competitive-spawn/contracts.js";
+import {
+  type CompetitiveSpawnRewardDescriptor,
+  competitiveSpawnBaseRewardKind,
+  competitiveSpawnItemQuantity,
+  competitiveSpawnMoneyAmount,
+  competitiveSpawnPokemonBonusBasisPoints,
+  competitiveSpawnPokemonBonusWon,
+  competitiveSpawnProgressAmount,
+} from "../../modules/competitive-spawn/reward.js";
 import { WildPokemonSnapshotSchema } from "../../modules/encounter/snapshot-schema.js";
 import { withTransaction } from "../db/transaction.js";
 import { nextCanonicalRosterPlacement } from "../player/postgres-roster-placement.js";
-import { recordPokedexCaught } from "../pokedex/postgres-pokedex-writer.js";
+import { recordPokedexSeen } from "../pokedex/postgres-pokedex-writer.js";
 
 interface SpawnRow {
   readonly id: string;
@@ -127,6 +136,143 @@ function mapCandidate(row: {
     maxLevel: row.max_level,
     areaId: row.area_id,
   };
+}
+
+interface ResolvedCompetitiveReward {
+  readonly descriptor: CompetitiveSpawnRewardDescriptor;
+  readonly pokemonBonus: boolean;
+  readonly bonusBasisPoints: number;
+}
+
+async function resolveCompetitiveReward(
+  client: PoolClient,
+  spawn: CompetitiveSpawnRecord,
+  input: {
+    readonly rewardKindRoll: number;
+    readonly rewardAmountRoll: number;
+    readonly rewardItemRoll: number;
+    readonly pokemonBonusRoll: number;
+  },
+): Promise<ResolvedCompetitiveReward> {
+  const catchRateResult = await client.query<{ catch_rate: number | null }>(
+    `SELECT catch_rate
+     FROM pokemon_species_revisions
+     WHERE content_release_id = $1
+       AND species_id = $2
+       AND active = TRUE`,
+    [spawn.contentReleaseId, spawn.speciesId],
+  );
+  const catchRate = catchRateResult.rows[0]?.catch_rate ?? null;
+  const bonusBasisPoints = competitiveSpawnPokemonBonusBasisPoints(catchRate);
+  const pokemonBonus = competitiveSpawnPokemonBonusWon(catchRate, input.pokemonBonusRoll);
+
+  const currency = await client.query<{ id: string; display_name: string }>(
+    `SELECT currency.id, currency.display_name
+     FROM item_purchase_offers offer
+     JOIN currency_definitions currency ON currency.id = offer.currency_id
+     WHERE offer.content_release_id = $1
+       AND offer.active = TRUE
+     GROUP BY currency.id, currency.display_name
+     ORDER BY count(*) DESC, currency.display_name
+     LIMIT 1`,
+    [spawn.contentReleaseId],
+  );
+
+  const items = await client.query<{ item_id: string; display_name: string }>(
+    `SELECT offer.item_id, revision.display_name
+     FROM item_purchase_offers offer
+     JOIN item_revisions revision
+       ON revision.item_id = offer.item_id
+      AND revision.content_release_id = offer.content_release_id
+      AND revision.active = TRUE
+     WHERE offer.content_release_id = $1
+       AND offer.active = TRUE
+     ORDER BY offer.sort_order, offer.price_amount, offer.offer_key
+     LIMIT 16`,
+    [spawn.contentReleaseId],
+  );
+
+  let kind = competitiveSpawnBaseRewardKind(input.rewardKindRoll);
+  if (kind === "MONEY" && currency.rows[0] === undefined) kind = "PROGRESSION";
+  if (kind === "ITEM" && items.rows.length === 0) {
+    kind = currency.rows[0] === undefined ? "PROGRESSION" : "MONEY";
+  }
+
+  if (kind === "MONEY") {
+    const selected = currency.rows[0];
+    if (selected === undefined) throw new Error("Competitive money reward currency disappeared");
+    const amount = competitiveSpawnMoneyAmount(input.rewardAmountRoll);
+    return {
+      descriptor: {
+        kind,
+        amount,
+        currencyId: selected.id,
+        itemId: null,
+        displayName: `${amount.toLocaleString("pt-BR")} ${selected.display_name}`,
+      },
+      pokemonBonus,
+      bonusBasisPoints,
+    };
+  }
+
+  if (kind === "ITEM") {
+    const selected = items.rows[input.rewardItemRoll % items.rows.length];
+    if (selected === undefined) throw new Error("Competitive item reward candidate disappeared");
+    const amount = competitiveSpawnItemQuantity(input.rewardAmountRoll);
+    return {
+      descriptor: {
+        kind,
+        amount,
+        currencyId: null,
+        itemId: selected.item_id,
+        displayName: `${amount}× ${selected.display_name}`,
+      },
+      pokemonBonus,
+      bonusBasisPoints,
+    };
+  }
+
+  const amount = competitiveSpawnProgressAmount(input.rewardAmountRoll);
+  return {
+    descriptor: {
+      kind: "PROGRESSION",
+      amount,
+      currencyId: null,
+      itemId: null,
+      displayName: `Progressão +${amount}`,
+    },
+    pokemonBonus,
+    bonusBasisPoints,
+  };
+}
+
+async function recordCompetitiveCaughtOnly(
+  client: PoolClient,
+  playerId: string,
+  speciesId: string,
+  shiny: boolean,
+): Promise<void> {
+  const updated = await client.query(
+    `UPDATE player_pokedex_species
+     SET caught_count = caught_count + 1,
+         first_caught_at = COALESCE(first_caught_at, now()),
+         last_caught_at = now(),
+         shiny_caught_count = shiny_caught_count + CASE WHEN $3::boolean THEN 1 ELSE 0 END,
+         first_shiny_caught_at = CASE
+           WHEN $3::boolean THEN COALESCE(first_shiny_caught_at, now())
+           ELSE first_shiny_caught_at
+         END,
+         last_shiny_caught_at = CASE
+           WHEN $3::boolean THEN now()
+           ELSE last_shiny_caught_at
+         END,
+         revision = revision + 1
+     WHERE player_id = $1 AND species_id = $2`,
+    [playerId, speciesId, shiny],
+  );
+  if ((updated.rowCount ?? 0) !== 1) {
+    throw new Error("Competitive Pokemon bonus could not update caught history");
+  }
 }
 
 async function activeForGroupClient(
@@ -433,6 +579,11 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
     readonly senderRef: string;
     readonly normalizedGuess: string;
     readonly idempotencyKey: string;
+    readonly correlationId: string;
+    readonly rewardKindRoll: number;
+    readonly rewardAmountRoll: number;
+    readonly rewardItemRoll: number;
+    readonly pokemonBonusRoll: number;
     readonly now: Date;
   }): Promise<CompetitiveSpawnClaimResult> {
     return withTransaction(this.pool, async (client) => {
@@ -483,104 +634,147 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         ],
       );
 
-      const placement = await nextCanonicalRosterPlacement(client, input.playerId as never);
-      const pokemonInstanceId = randomUUID();
-      const grantId = randomUUID();
+      // Every correct identification is a sighting, independently of the Pokemon bonus.
+      await recordPokedexSeen(client, input.playerId, spawn.speciesId, spawn.shiny);
 
-      await client.query(
-        `INSERT INTO pokemon_instances(
-           id, owner_player_id, form_id, level, current_hp, gender, shiny,
-           ability_id, origin_type, origin_id, captured_at, metadata
-         ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7,
-           $8, 'COMPETITIVE_SPAWN', $9, $10, $11::jsonb
-         )`,
-        [
-          pokemonInstanceId,
-          input.playerId,
-          spawn.formId,
-          spawn.snapshot.level,
-          spawn.snapshot.currentHp,
-          spawn.snapshot.gender,
-          spawn.snapshot.shiny,
-          spawn.snapshot.abilityId,
-          spawn.id,
-          input.now,
-          JSON.stringify({ competitiveSpawnId: spawn.id }),
-        ],
-      );
+      const reward = await resolveCompetitiveReward(client, spawn, input);
 
-      await client.query(
-        `INSERT INTO pokemon_training_values(
-           pokemon_instance_id, nature_id, iv_hp, iv_attack, iv_defense,
-           iv_sp_attack, iv_sp_defense, iv_speed
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          pokemonInstanceId,
-          spawn.snapshot.natureId,
-          spawn.snapshot.ivs.hp,
-          spawn.snapshot.ivs.attack,
-          spawn.snapshot.ivs.defense,
-          spawn.snapshot.ivs.spAttack,
-          spawn.snapshot.ivs.spDefense,
-          spawn.snapshot.ivs.speed,
-        ],
-      );
+      let pokemonInstanceId: string | null = null;
+      let placement: {
+        readonly placementKind: "TEAM" | "BOX";
+        readonly boxNo: number | null;
+        readonly slotNo: number;
+      } | null = null;
 
-      for (const [index, move] of spawn.snapshot.moves.entries()) {
+      if (reward.pokemonBonus) {
+        placement = await nextCanonicalRosterPlacement(client, input.playerId as never);
+        pokemonInstanceId = randomUUID();
+
         await client.query(
-          `INSERT INTO pokemon_move_slots(pokemon_instance_id, slot_no, move_id, pp_current)
-           VALUES ($1, $2, $3, $4)`,
-          [pokemonInstanceId, index + 1, move.moveId, move.ppCurrent],
+          `INSERT INTO pokemon_instances(
+             id, owner_player_id, form_id, level, current_hp, gender, shiny,
+             ability_id, origin_type, origin_id, captured_at, metadata
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, 'COMPETITIVE_SPAWN', $9, $10, $11::jsonb
+           )`,
+          [
+            pokemonInstanceId,
+            input.playerId,
+            spawn.formId,
+            spawn.snapshot.level,
+            spawn.snapshot.currentHp,
+            spawn.snapshot.gender,
+            spawn.snapshot.shiny,
+            spawn.snapshot.abilityId,
+            spawn.id,
+            input.now,
+            JSON.stringify({ competitiveSpawnId: spawn.id }),
+          ],
+        );
+
+        await client.query(
+          `INSERT INTO pokemon_training_values(
+             pokemon_instance_id, nature_id, iv_hp, iv_attack, iv_defense,
+             iv_sp_attack, iv_sp_defense, iv_speed
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            pokemonInstanceId,
+            spawn.snapshot.natureId,
+            spawn.snapshot.ivs.hp,
+            spawn.snapshot.ivs.attack,
+            spawn.snapshot.ivs.defense,
+            spawn.snapshot.ivs.spAttack,
+            spawn.snapshot.ivs.spDefense,
+            spawn.snapshot.ivs.speed,
+          ],
+        );
+
+        for (const [index, move] of spawn.snapshot.moves.entries()) {
+          await client.query(
+            `INSERT INTO pokemon_move_slots(pokemon_instance_id, slot_no, move_id, pp_current)
+             VALUES ($1, $2, $3, $4)`,
+            [pokemonInstanceId, index + 1, move.moveId, move.ppCurrent],
+          );
+        }
+
+        await client.query(
+          `INSERT INTO pokemon_roster_slots(
+             pokemon_instance_id, player_id, placement_kind, box_no, slot_no
+           ) VALUES ($1, $2, $3, $4, $5)`,
+          [
+            pokemonInstanceId,
+            input.playerId,
+            placement.placementKind,
+            placement.boxNo,
+            placement.slotNo,
+          ],
+        );
+
+        // recordPokedexSeen already incremented seen_count above. Bonus only increments caught history.
+        await recordCompetitiveCaughtOnly(client, input.playerId, spawn.speciesId, spawn.shiny);
+
+        await client.query(
+          `INSERT INTO pokemon_history_events(
+             id, pokemon_instance_id, event_type, payload, actor_type, correlation_id
+           ) VALUES ($1, $2, 'COMPETITIVE_SPAWN_CAPTURED', $3::jsonb, 'SYSTEM', $4)`,
+          [
+            randomUUID(),
+            pokemonInstanceId,
+            JSON.stringify({
+              competitiveSpawnId: spawn.id,
+              communityGroupId: spawn.communityGroupId,
+              formId: spawn.formId,
+              speciesId: spawn.speciesId,
+            }),
+            input.correlationId,
+          ],
+        );
+
+        await client.query(
+          `INSERT INTO competitive_spawn_grants(
+             id, spawn_id, player_id, pokemon_instance_id,
+             placement_kind, box_no, slot_no, idempotency_key
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            randomUUID(),
+            spawn.id,
+            input.playerId,
+            pokemonInstanceId,
+            placement.placementKind,
+            placement.boxNo,
+            placement.slotNo,
+            `${input.idempotencyKey}:pokemon-bonus`,
+          ],
         );
       }
 
       await client.query(
-        `INSERT INTO pokemon_roster_slots(
-           pokemon_instance_id, player_id, placement_kind, box_no, slot_no
-         ) VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO competitive_spawn_reward_intents(
+           spawn_id, player_id, reward_kind, reward_amount, currency_id, item_id,
+           display_name, correlation_id, pokemon_bonus, pokemon_bonus_basis_points,
+           pokemon_bonus_roll, idempotency_key
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
-          pokemonInstanceId,
-          input.playerId,
-          placement.placementKind,
-          placement.boxNo,
-          placement.slotNo,
-        ],
-      );
-
-      await recordPokedexCaught(client, input.playerId, spawn.speciesId, spawn.shiny);
-
-      await client.query(
-        `INSERT INTO pokemon_history_events(
-           id, pokemon_instance_id, event_type, payload, actor_type, correlation_id
-         ) VALUES ($1, $2, 'COMPETITIVE_SPAWN_CAPTURED', $3::jsonb, 'SYSTEM', NULL)`,
-        [
-          randomUUID(),
-          pokemonInstanceId,
-          JSON.stringify({
-            competitiveSpawnId: spawn.id,
-            communityGroupId: spawn.communityGroupId,
-            formId: spawn.formId,
-            speciesId: spawn.speciesId,
-          }),
-        ],
-      );
-
-      await client.query(
-        `INSERT INTO competitive_spawn_grants(
-           id, spawn_id, player_id, pokemon_instance_id,
-           placement_kind, box_no, slot_no, idempotency_key
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          grantId,
           spawn.id,
           input.playerId,
-          pokemonInstanceId,
-          placement.placementKind,
-          placement.boxNo,
-          placement.slotNo,
-          input.idempotencyKey,
+          reward.descriptor.kind,
+          reward.descriptor.amount,
+          reward.descriptor.currencyId,
+          reward.descriptor.itemId,
+          reward.descriptor.displayName,
+          input.correlationId,
+          reward.pokemonBonus,
+          reward.bonusBasisPoints,
+          input.pokemonBonusRoll,
+          `competitive-spawn:${spawn.id}:reward-intent`,
         ],
+      );
+
+      await client.query(
+        `INSERT INTO competitive_spawn_reward_deliveries(spawn_id, next_attempt_at)
+         VALUES ($1, $2)`,
+        [spawn.id, input.now],
       );
 
       const won = await client.query(
@@ -592,8 +786,9 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
          WHERE id = $1 AND status = 'OPEN'`,
         [spawn.id, input.playerId, input.inboxMessageId, input.now],
       );
-      if (won.rowCount !== 1)
+      if (won.rowCount !== 1) {
         throw new Error("Competitive spawn winner transition lost its row lock");
+      }
 
       return {
         kind: "WON",
@@ -601,6 +796,8 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         pokemonInstanceId,
         placement,
         trainerName: player.trainer_name,
+        reward: reward.descriptor,
+        pokemonBonus: reward.pokemonBonus,
       };
     });
   }

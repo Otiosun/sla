@@ -1,4 +1,5 @@
 import type { WildPokemonSnapshot } from "../encounter/contracts.js";
+import type { CompetitiveSpawnRewardDescriptor } from "./reward.js";
 
 export type CompetitiveSpawnStatus = "OPEN" | "WON" | "EXPIRED" | "CANCELLED";
 export type CompetitiveSpawnTimeBucket = "MORNING" | "DAY" | "EVENING" | "NIGHT";
@@ -85,13 +86,15 @@ export type CompetitiveSpawnClaimResult =
   | {
       readonly kind: "WON";
       readonly spawn: CompetitiveSpawnRecord;
-      readonly pokemonInstanceId: string;
+      readonly pokemonInstanceId: string | null;
       readonly placement: {
         readonly placementKind: "TEAM" | "BOX";
         readonly boxNo: number | null;
         readonly slotNo: number;
-      };
+      } | null;
       readonly trainerName: string | null;
+      readonly reward: CompetitiveSpawnRewardDescriptor;
+      readonly pokemonBonus: boolean;
     }
   | { readonly kind: "CLOSED" }
   | { readonly kind: "REPLAYED" }
@@ -119,6 +122,11 @@ export interface CompetitiveSpawnRepository {
     readonly senderRef: string;
     readonly normalizedGuess: string;
     readonly idempotencyKey: string;
+    readonly correlationId: string;
+    readonly rewardKindRoll: number;
+    readonly rewardAmountRoll: number;
+    readonly rewardItemRoll: number;
+    readonly pokemonBonusRoll: number;
     readonly now: Date;
   }): Promise<CompetitiveSpawnClaimResult>;
   expireDue(now: Date, limit: number): Promise<number>;

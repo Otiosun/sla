@@ -208,6 +208,11 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       senderRef: "5511000000001@s.whatsapp.net",
       normalizedGuess: "pikachu",
       idempotencyKey: "winner-alpha",
+      correlationId: "00000000-0000-4000-8000-000000000065",
+      rewardKindRoll: 0,
+      rewardAmountRoll: 0,
+      rewardItemRoll: 0,
+      pokemonBonusRoll: 0,
       now: new Date(),
     });
     await new Promise((resolve) => setImmediate(resolve));
@@ -218,6 +223,11 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       senderRef: "5511000000002@s.whatsapp.net",
       normalizedGuess: "pikachu",
       idempotencyKey: "winner-beta",
+      correlationId: "00000000-0000-4000-8000-000000000065",
+      rewardKindRoll: 0,
+      rewardAmountRoll: 0,
+      rewardItemRoll: 0,
+      pokemonBonusRoll: 0,
       now: new Date(),
     });
 
@@ -254,6 +264,11 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       senderRef: "5511000000009@s.whatsapp.net",
       normalizedGuess: "pikachu",
       idempotencyKey: "winner-replay",
+      correlationId: "00000000-0000-4000-8000-000000000065",
+      rewardKindRoll: 0,
+      rewardAmountRoll: 0,
+      rewardItemRoll: 0,
+      pokemonBonusRoll: 0,
       now: new Date(),
     });
     expect(replay.kind).toBe("CLOSED");
@@ -296,6 +311,11 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       senderRef: "5511000000003@s.whatsapp.net",
       normalizedGuess: "pikachu",
       idempotencyKey: "winner-box",
+      correlationId: "00000000-0000-4000-8000-000000000065",
+      rewardKindRoll: 0,
+      rewardAmountRoll: 0,
+      rewardItemRoll: 0,
+      pokemonBonusRoll: 0,
       now: new Date(),
     });
 

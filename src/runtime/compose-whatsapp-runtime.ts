@@ -48,6 +48,8 @@ import {
   createWorldGroupSetupRoute,
   registerWorldGroupSetupOperation,
 } from "../modules/community/world-group-setup.js";
+import { CompetitiveSpawnRewardApplicationService } from "../modules/competitive-spawn/reward-application.js";
+import { CompetitiveSpawnRewardRecoveryWorker } from "../modules/competitive-spawn/reward-recovery.js";
 import {
   CompetitiveSpawnService,
   createCompetitiveSpawnAdminRoute,
@@ -120,6 +122,7 @@ import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-gr
 import { CompetitiveSpawnImagePreparation } from "../platform/competitive-spawn/competitive-spawn-image-preparation.js";
 import { PostgresCompetitiveSpawnActivityRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-activity-repository.js";
 import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-repository.js";
+import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-reward-recovery.js";
 import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
@@ -314,6 +317,14 @@ export function createOperationalMessagingComposition(
   const competitiveSpawnRepository = new PostgresCompetitiveSpawnRepository(pool);
   const competitiveSpawnActivity = new PostgresCompetitiveSpawnActivityRepository(pool);
   const competitiveSpawnSettings = new PostgresCompetitiveSpawnSettingsRepository(pool);
+  const competitiveSpawnRewardApplication = new CompetitiveSpawnRewardApplicationService(
+    economy,
+    progression,
+  );
+  const competitiveSpawnRewardRecovery = new CompetitiveSpawnRewardRecoveryWorker(
+    new PostgresCompetitiveSpawnRewardRecoveryRepository(pool),
+    competitiveSpawnRewardApplication,
+  );
   const competitiveSpawn = new CompetitiveSpawnService({
     repository: competitiveSpawnRepository,
     activity: competitiveSpawnActivity,
@@ -997,6 +1008,7 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
+      await competitiveSpawnRewardRecovery.runOnce();
       const maintenanceBatchSize = pveBattleConfig?.maintenanceBatchSize ?? 25;
       await battleRewardNotifications?.runOnce(maintenanceBatchSize);
       await autoBattleTerminalNotifications?.runOnce(maintenanceBatchSize);

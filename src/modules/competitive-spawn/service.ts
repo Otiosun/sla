@@ -146,11 +146,6 @@ function answerAliases(candidate: CompetitiveSpawnCandidate): readonly string[] 
   ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
 }
 
-function mentionToken(senderRef: string): string | null {
-  const match = senderRef.match(/^(\d+)@s\.whatsapp\.net$/u);
-  return match?.[1] ?? null;
-}
-
 export class CompetitiveSpawnService {
   private readonly now: () => Date;
 
@@ -436,37 +431,18 @@ export class CompetitiveSpawnService {
       senderRef: context.message.senderRef,
       normalizedGuess: guess,
       idempotencyKey: `${context.idempotencyKey}:competitive-spawn-win`,
+      correlationId: context.correlationId,
+      rewardKindRoll: this.dependencies.rng.randomInt(10_000),
+      rewardAmountRoll: this.dependencies.rng.randomInt(10_000),
+      rewardItemRoll: this.dependencies.rng.randomInt(10_000),
+      pokemonBonusRoll: this.dependencies.rng.randomInt(10_000),
       now,
     });
     if (claimed.kind !== "WON") return ok(emptyResult(active.id));
 
-    const phone = mentionToken(context.message.senderRef);
-    const display = phone === null ? (claimed.trainerName ?? "Treinador") : `@${phone}`;
-    const destination =
-      claimed.placement.placementKind === "TEAM"
-        ? `Equipe slot ${claimed.placement.slotNo}`
-        : `Box ${claimed.placement.boxNo} slot ${claimed.placement.slotNo}`;
-    const shinyLine = claimed.spawn.shiny ? "\n\u2728 Shiny" : "";
-
-    return ok({
-      resultRefType: "COMPETITIVE_SPAWN",
-      resultRefId: claimed.spawn.id,
-      outgoing: [
-        {
-          channel: "whatsapp",
-          destinationRef: context.message.chatRef,
-          messageType: "TEXT",
-          payload: {
-            text:
-              `\uD83C\uDF89 ${display} foi o primeiro!\n\n` +
-              `*${claimed.spawn.speciesDisplayName}* \u00B7 Nv. ${claimed.spawn.level}` +
-              `${shinyLine}\n> ${destination}`,
-            ...(phone === null ? {} : { mentions: [context.message.senderRef] }),
-          },
-          idempotencyKey: `competitive-spawn:${claimed.spawn.id}:winner`,
-        },
-      ],
-    });
+    // Base reward application and the winner message are durable maintenance work.
+    // Returning no immediate output avoids a crash window between WON and reward delivery.
+    return ok(emptyResult(claimed.spawn.id));
   }
 }
 export function createCompetitiveSpawnAdminRoute(
