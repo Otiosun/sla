@@ -62,14 +62,21 @@ export const COMPETITIVE_SPAWN_BACKGROUND_URLS = [
   `https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/${COMPETITIVE_SPAWN_BACKGROUND_REVISION}/backgrounds/23.png`,
 ] as const;
 
-export type CompetitiveSpawnBackgroundContext = "NEUTRAL" | "RUGGED" | "SNOW" | "WATER" | "SKY";
+export type CompetitiveSpawnBackgroundContext =
+  | "NEUTRAL"
+  | "RUGGED"
+  | "SNOW"
+  | "WATER"
+  | "SKY"
+  | "COSMIC";
 
 export const COMPETITIVE_SPAWN_BACKGROUND_GROUPS = {
-  NEUTRAL: [1, 3, 4, 11],
-  RUGGED: [2, 5, 6, 8, 18, 20],
+  NEUTRAL: [1, 3, 4],
+  RUGGED: [2, 5, 6, 8, 11, 18, 20],
   SNOW: [7, 10, 13, 17, 22, 23],
   WATER: [14, 15, 19],
-  SKY: [9, 12, 16, 21],
+  SKY: [9, 12, 16],
+  COSMIC: [21],
 } as const satisfies Record<CompetitiveSpawnBackgroundContext, readonly number[]>;
 
 const COMPETITIVE_SPAWN_SAFE_ZONE = {
@@ -119,6 +126,20 @@ export function competitiveSpawnBackgroundContextForTypes(
     return "RUGGED";
   }
   return "NEUTRAL";
+}
+const COMPETITIVE_SPAWN_COSMIC_SPECIES = new Set(["deoxys", "rayquaza"] as const);
+
+export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
+  speciesSlug: string | undefined,
+  type1Slug: string | undefined,
+  type2Slug: string | null | undefined,
+): CompetitiveSpawnBackgroundContext {
+  const normalizedSpecies =
+    typeof speciesSlug === "string" ? speciesSlug.toLocaleLowerCase("en-US") : "";
+  if (COMPETITIVE_SPAWN_COSMIC_SPECIES.has(normalizedSpecies as "deoxys" | "rayquaza")) {
+    return "COSMIC";
+  }
+  return competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
 }
 export function competitiveSpawnCenterX(input: {
   readonly rng: { randomInt(maxExclusive: number): number };
@@ -376,7 +397,11 @@ export class CompetitiveSpawnService {
     const renderSpec = renderProfile(
       candidate.nationalDex,
       shiny,
-      competitiveSpawnBackgroundContextForTypes(candidate.type1Slug, candidate.type2Slug),
+      competitiveSpawnBackgroundContextForSpeciesAndTypes(
+        candidate.speciesSlug,
+        candidate.type1Slug,
+        candidate.type2Slug,
+      ),
       context.message.occurredAt,
       this.dependencies.rng,
     );
