@@ -327,7 +327,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
            ORDER BY opened_at DESC
            LIMIT 1
          ) AS cooldown_anchor`,
-      [groupId, now],
+      [groupId],
     );
     const row = result.rows[0];
     if (row === undefined || row.open) return false;
@@ -462,8 +462,16 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         `competitive-spawn:${input.communityGroupId}`,
       ]);
 
-      const existing = await activeForGroupClient(client, input.communityGroupId, true);
-      if (existing !== null) return null;
+      const existing = await client.query<{ id: string }>(
+        `SELECT id
+         FROM competitive_spawns
+         WHERE community_group_id = $1
+           AND status = 'OPEN'
+         LIMIT 1
+         FOR UPDATE`,
+        [input.communityGroupId],
+      );
+      if (existing.rows[0] !== undefined) return null;
 
       const recent = await client.query<{ cooldown_anchor: Date }>(
         `SELECT CASE

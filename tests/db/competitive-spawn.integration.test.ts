@@ -110,10 +110,15 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
     );
   }
 
-  function spawnWrite(spawnId: string, openedAt: Date, expiresAt: Date) {
+  function spawnWrite(
+    spawnId: string,
+    openedAt: Date,
+    expiresAt: Date,
+    communityGroupId: string = groupId,
+  ) {
     return {
       id: spawnId,
-      communityGroupId: groupId,
+      communityGroupId,
       provider: "baileys",
       chatRef: "120363000000000000@g.us",
       contentReleaseId: releaseId,
@@ -132,6 +137,53 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       openedAt,
       expiresAt,
     } as const;
+  }
+
+  async function imageOutbox(
+    spawnId: string,
+    status: "SENT" | "DEAD",
+    sentAt: Date | null,
+  ): Promise<void> {
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id, channel, destination_ref, message_type, payload, idempotency_key,
+         status, attempts, next_attempt_at, correlation_id, causation_id, sequence_no, sent_at
+       ) VALUES (
+         $1, 'whatsapp', '120363000000000000@g.us', 'IMAGE', $2::jsonb, $3,
+         $4, 1, NULL, $5, NULL, 0, $6
+       )`,
+      [
+        randomUUID(),
+        JSON.stringify({ caption: "✨ Um Pokémon selvagem apareceu!" }),
+        `competitive-spawn:${spawnId}:image`,
+        status,
+        randomUUID(),
+        sentAt,
+      ],
+    );
+  }
+
+  async function publishSpawn(spawnId: string, sentAt = new Date()): Promise<Date> {
+    await imageOutbox(spawnId, "SENT", sentAt);
+    const reconciled = await repository.reconcilePublication({
+      now: sentAt,
+      ttlMs: 5 * 60_000,
+      orphanGraceMs: 2 * 60_000,
+      limit: 100,
+    });
+    expect(reconciled).toEqual({ published: 1, cancelled: 0 });
+    return sentAt;
+  }
+
+  async function failUnpublishedSpawn(spawnId: string, now = new Date()): Promise<void> {
+    await imageOutbox(spawnId, "DEAD", null);
+    const reconciled = await repository.reconcilePublication({
+      now,
+      ttlMs: 5 * 60_000,
+      orphanGraceMs: 2 * 60_000,
+      limit: 100,
+    });
+    expect(reconciled.cancelled).toBe(1);
   }
 
   beforeAll(async () => {
@@ -200,6 +252,7 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       0,
     );
     expect(created?.id).toBe(spawnId);
+    await publishSpawn(spawnId);
 
     const first = repository.claimCorrect({
       spawnId,
@@ -303,6 +356,7 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
       spawnWrite(spawnId, openedAt, new Date(openedAt.getTime() + 60_000)),
       0,
     );
+    await publishSpawn(spawnId);
 
     const result = await repository.claimCorrect({
       spawnId,
@@ -328,33 +382,159 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
     });
   });
 
-  it("expires a stale OPEN row atomically before opening the next spawn", async () => {
-    const staleId = randomUUID();
-    const staleOpened = new Date();
+  it("records seen and durable reward even when the Pokemon bonus does not roll", async () => {
+    const inboxId = randomUUID();
+    await insertInbox(inboxId, playerA, "no-bonus");
+
+    const before = await pool.query<{ seen_count: number; caught_count: number }>(
+      `SELECT seen_count, caught_count
+       FROM player_pokedex_species
+       WHERE player_id = $1 AND species_id = $2`,
+      [playerA, speciesId],
+    );
+    const beforeSeen = Number(before.rows[0]?.seen_count ?? 0);
+    const beforeCaught = Number(before.rows[0]?.caught_count ?? 0);
+
+    const spawnId = randomUUID();
+    const openedAt = new Date();
     await repository.createOpen(
-      spawnWrite(staleId, staleOpened, new Date(staleOpened.getTime() + 80)),
+      spawnWrite(spawnId, openedAt, new Date(openedAt.getTime() + 60_000)),
       0,
     );
+    await publishSpawn(spawnId);
+
+    const result = await repository.claimCorrect({
+      spawnId,
+      inboxMessageId: inboxId,
+      playerId: playerA,
+      senderRef: "5511000000099@s.whatsapp.net",
+      normalizedGuess: "pikachu",
+      idempotencyKey: "winner-no-bonus",
+      correlationId: randomUUID(),
+      rewardKindRoll: 0,
+      rewardAmountRoll: 0,
+      rewardItemRoll: 0,
+      pokemonBonusRoll: 9999,
+      now: new Date(),
+    });
+
+    expect(result.kind).toBe("WON");
+    if (result.kind !== "WON") return;
+    expect(result.pokemonBonus).toBe(false);
+    expect(result.pokemonInstanceId).toBeNull();
+    expect(result.placement).toBeNull();
+
+    const after = await pool.query<{
+      seen_count: number;
+      caught_count: number;
+      reward_intents: string;
+      pokemon_grants: string;
+    }>(
+      `SELECT
+         COALESCE((SELECT seen_count FROM player_pokedex_species WHERE player_id = $2 AND species_id = $3), 0) AS seen_count,
+         COALESCE((SELECT caught_count FROM player_pokedex_species WHERE player_id = $2 AND species_id = $3), 0) AS caught_count,
+         (SELECT count(*)::text FROM competitive_spawn_reward_intents WHERE spawn_id = $1) AS reward_intents,
+         (SELECT count(*)::text FROM competitive_spawn_grants WHERE spawn_id = $1) AS pokemon_grants`,
+      [spawnId, playerA, speciesId],
+    );
+    expect(Number(after.rows[0]?.seen_count ?? 0)).toBe(beforeSeen + 1);
+    expect(Number(after.rows[0]?.caught_count ?? 0)).toBe(beforeCaught);
+    expect(after.rows[0]?.reward_intents).toBe("1");
+    expect(after.rows[0]?.pokemon_grants).toBe("0");
+  });
+
+  it("reserves unpublished OPEN, cancels DEAD without cooldown, and anchors TTL to SENT", async () => {
+    const lifecycleGroupId = randomUUID();
+    await pool.query(
+      `INSERT INTO community_groups(
+         id, provider, chat_ref, role, display_name, status
+       ) VALUES ($1, 'baileys', $2, 'GAME', 'V65 Lifecycle Test', 'ACTIVE')`,
+      [lifecycleGroupId, `120363-lifecycle-${lifecycleGroupId}@g.us`],
+    );
+
+    await pool.query(
+      `INSERT INTO competitive_spawn_activity_state(
+         community_group_id, progress_milli, target_roll, cycle_no,
+         last_activity_at, last_player_id, sender_streak, updated_at
+       ) VALUES ($1, 4321, 1000, 7, now(), $2, 2, now())
+       ON CONFLICT (community_group_id) DO UPDATE SET
+         progress_milli = 4321,
+         target_roll = 1000,
+         cycle_no = 7,
+         last_activity_at = now(),
+         last_player_id = $2,
+         sender_streak = 2,
+         updated_at = now()`,
+      [lifecycleGroupId, playerA],
+    );
+
+    const pendingId = randomUUID();
+    const pendingOpened = new Date();
+    const pending = await repository.createOpen(
+      spawnWrite(
+        pendingId,
+        pendingOpened,
+        new Date(pendingOpened.getTime() + 80),
+        lifecycleGroupId,
+      ),
+      60_000,
+    );
+    expect(pending?.id).toBe(pendingId);
+    await expect(repository.activeForGroup(lifecycleGroupId)).resolves.toBeNull();
 
     await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const blockedId = randomUUID();
+    const blocked = await repository.createOpen(
+      spawnWrite(blockedId, new Date(), new Date(Date.now() + 60_000), lifecycleGroupId),
+      60_000,
+    );
+    expect(blocked).toBeNull();
+
+    await failUnpublishedSpawn(pendingId, new Date());
+
+    const preserved = await pool.query<{
+      progress_milli: number;
+      target_roll: number | null;
+      cycle_no: string;
+    }>(
+      `SELECT progress_milli, target_roll, cycle_no::text
+       FROM competitive_spawn_activity_state
+       WHERE community_group_id = $1`,
+      [lifecycleGroupId],
+    );
+    expect(preserved.rows[0]).toEqual({
+      progress_milli: 4321,
+      target_roll: 1000,
+      cycle_no: "7",
+    });
+    await expect(repository.canOpen(lifecycleGroupId, new Date(), 60_000)).resolves.toBe(true);
 
     const freshId = randomUUID();
     const freshOpened = new Date();
     const fresh = await repository.createOpen(
-      spawnWrite(freshId, freshOpened, new Date(freshOpened.getTime() + 60_000)),
-      0,
+      spawnWrite(freshId, freshOpened, new Date(freshOpened.getTime() + 60_000), lifecycleGroupId),
+      60_000,
     );
     expect(fresh?.id).toBe(freshId);
 
-    const statuses = await pool.query<{ id: string; status: string }>(
-      "SELECT id, status FROM competitive_spawns WHERE id = ANY($1::uuid[]) ORDER BY id",
-      [[staleId, freshId]],
+    const sentAt = new Date(freshOpened.getTime() + 10_000);
+    await publishSpawn(freshId, sentAt);
+
+    const publication = await pool.query<{ published_at: Date; expires_at: Date }>(
+      "SELECT published_at, expires_at FROM competitive_spawns WHERE id = $1",
+      [freshId],
     );
-    expect(new Map(statuses.rows.map((row) => [row.id, row.status]))).toEqual(
-      new Map([
-        [staleId, "EXPIRED"],
-        [freshId, "OPEN"],
-      ]),
+    expect(publication.rows[0]?.published_at.getTime()).toBe(sentAt.getTime());
+    expect(publication.rows[0]?.expires_at.getTime()).toBe(sentAt.getTime() + 5 * 60_000);
+
+    const expired = await repository.expireDue(new Date(sentAt.getTime() + 5 * 60_000 + 1), 100);
+    expect(expired).toBe(1);
+
+    const fled = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM outbox_messages WHERE idempotency_key = $1",
+      [`competitive-spawn:${freshId}:fled`],
     );
+    expect(fled.rows[0]?.count).toBe("1");
   });
 });
