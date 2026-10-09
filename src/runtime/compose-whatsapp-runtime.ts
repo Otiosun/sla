@@ -1010,6 +1010,7 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
+      await competitiveSpawn.reconcilePublication();
       await competitiveSpawn.expireDue();
       await competitiveSpawnRewardRecovery.runOnce();
       const maintenanceBatchSize = pveBattleConfig?.maintenanceBatchSize ?? 25;

@@ -42,6 +42,7 @@ interface SpawnRow {
   readonly pokemon_snapshot: unknown;
   readonly render_spec: unknown;
   readonly opened_at: Date;
+  readonly published_at: Date | null;
   readonly expires_at: Date;
   readonly winner_player_id: string | null;
 }
@@ -284,6 +285,7 @@ async function activeForGroupClient(
     `${SPAWN_SELECT}
      WHERE community_group_id = $1
        AND status = 'OPEN'
+       AND published_at IS NOT NULL
        AND expires_at > now()
      ORDER BY opened_at DESC
      LIMIT 1
@@ -313,15 +315,15 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
            SELECT 1 FROM competitive_spawns
            WHERE community_group_id = $1
              AND status = 'OPEN'
-             AND expires_at > $2
          ) AS open,
          (
            SELECT CASE
                     WHEN status = 'OPEN' THEN expires_at
-                    ELSE COALESCE(resolved_at, opened_at)
+                    ELSE COALESCE(resolved_at, published_at)
                   END
            FROM competitive_spawns
            WHERE community_group_id = $1
+             AND published_at IS NOT NULL
            ORDER BY opened_at DESC
            LIMIT 1
          ) AS cooldown_anchor`,
@@ -460,16 +462,6 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         `competitive-spawn:${input.communityGroupId}`,
       ]);
 
-      await client.query(
-        `UPDATE competitive_spawns
-         SET status = 'EXPIRED',
-             resolved_at = expires_at
-         WHERE community_group_id = $1
-           AND status = 'OPEN'
-           AND expires_at <= $2`,
-        [input.communityGroupId, input.openedAt],
-      );
-
       const existing = await activeForGroupClient(client, input.communityGroupId, true);
       if (existing !== null) return null;
 
@@ -480,6 +472,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
                 END AS cooldown_anchor
          FROM competitive_spawns
          WHERE community_group_id = $1
+           AND published_at IS NOT NULL
          ORDER BY opened_at DESC
          LIMIT 1`,
         [input.communityGroupId],
@@ -502,7 +495,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
          RETURNING id, community_group_id, provider, chat_ref, status,
                    content_release_id, ruleset_id, area_id, form_id, species_id,
                    species_display_name, normalized_answers, national_dex, level, shiny,
-                   pokemon_snapshot, render_spec, opened_at, expires_at, winner_player_id`,
+                   pokemon_snapshot, render_spec, opened_at, published_at, expires_at, winner_player_id`,
         [
           input.id,
           input.communityGroupId,
@@ -525,22 +518,6 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
           input.expiresAt,
         ],
       );
-      await client.query(
-        `INSERT INTO competitive_spawn_activity_state(
-           community_group_id, progress_milli, target_roll, cycle_no,
-           last_activity_at, last_player_id, sender_streak, updated_at
-         ) VALUES ($1, 0, NULL, 1, NULL, NULL, 0, $2)
-         ON CONFLICT (community_group_id) DO UPDATE SET
-           progress_milli = 0,
-           target_roll = NULL,
-           cycle_no = competitive_spawn_activity_state.cycle_no + 1,
-           last_activity_at = NULL,
-           last_player_id = NULL,
-           sender_streak = 0,
-           updated_at = EXCLUDED.updated_at`,
-        [input.communityGroupId, input.openedAt],
-      );
-
       const row = inserted.rows[0];
       return row === undefined ? null : mapSpawn(row);
     });
@@ -606,7 +583,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
        )
        SELECT $1, spawn.id, $3, $4, $5, $6, FALSE
        FROM competitive_spawns spawn
-       WHERE spawn.id = $2 AND spawn.status = 'OPEN' AND spawn.expires_at > now()
+       WHERE spawn.id = $2 AND spawn.status = 'OPEN' AND spawn.published_at IS NOT NULL AND spawn.expires_at > now()
        ON CONFLICT (inbox_message_id) DO NOTHING`,
       [
         randomUUID(),
@@ -641,6 +618,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       if (
         row === undefined ||
         row.status !== "OPEN" ||
+        row.published_at === null ||
         row.expires_at.getTime() <= input.now.getTime()
       ) {
         return { kind: "CLOSED" };
@@ -849,6 +827,121 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
     });
   }
 
+  public async reconcilePublication(input: {
+    readonly now: Date;
+    readonly ttlMs: number;
+    readonly orphanGraceMs: number;
+    readonly limit: number;
+  }): Promise<{ readonly published: number; readonly cancelled: number }> {
+    if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) {
+      throw new Error("Competitive spawn publication TTL must be positive");
+    }
+    if (!Number.isSafeInteger(input.orphanGraceMs) || input.orphanGraceMs < 0) {
+      throw new Error("Competitive spawn publication orphan grace must be non-negative");
+    }
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1) {
+      return { published: 0, cancelled: 0 };
+    }
+
+    return withTransaction(this.pool, async (client) => {
+      const published = await client.query<{
+        id: string;
+        community_group_id: string;
+        published_at: Date;
+      }>(
+        `WITH due AS (
+           SELECT spawn.id, spawn.community_group_id, outbox.sent_at
+           FROM competitive_spawns spawn
+           JOIN outbox_messages outbox
+             ON outbox.idempotency_key = 'competitive-spawn:' || spawn.id::text || ':image'
+           WHERE spawn.status = 'OPEN'
+             AND spawn.published_at IS NULL
+             AND outbox.status = 'SENT'
+             AND outbox.sent_at IS NOT NULL
+           ORDER BY outbox.sent_at, spawn.id
+           LIMIT $1
+           FOR UPDATE OF spawn SKIP LOCKED
+         )
+         UPDATE competitive_spawns spawn
+         SET published_at = due.sent_at,
+             expires_at = due.sent_at + ($2::bigint * interval '1 millisecond')
+         FROM due
+         WHERE spawn.id = due.id
+         RETURNING spawn.id, spawn.community_group_id, spawn.published_at`,
+        [input.limit, input.ttlMs],
+      );
+
+      for (const spawn of published.rows) {
+        await client.query(
+          `UPDATE competitive_spawn_activity_state
+           SET progress_milli = 0,
+               target_roll = NULL,
+               cycle_no = cycle_no + 1,
+               last_activity_at = NULL,
+               last_player_id = NULL,
+               sender_streak = 0,
+               updated_at = $2
+           WHERE community_group_id = $1`,
+          [spawn.community_group_id, spawn.published_at],
+        );
+      }
+
+      const dead = await client.query<{ id: string }>(
+        `WITH due AS (
+           SELECT spawn.id
+           FROM competitive_spawns spawn
+           JOIN outbox_messages outbox
+             ON outbox.idempotency_key = 'competitive-spawn:' || spawn.id::text || ':image'
+           WHERE spawn.status = 'OPEN'
+             AND spawn.published_at IS NULL
+             AND outbox.status = 'DEAD'
+           ORDER BY spawn.opened_at, spawn.id
+           LIMIT $1
+           FOR UPDATE OF spawn SKIP LOCKED
+         )
+         UPDATE competitive_spawns spawn
+         SET status = 'CANCELLED',
+             resolved_at = $2
+         FROM due
+         WHERE spawn.id = due.id
+         RETURNING spawn.id`,
+        [input.limit, input.now],
+      );
+
+      const orphanCutoff = new Date(input.now.getTime() - input.orphanGraceMs);
+      const orphaned = await client.query<{ id: string }>(
+        `WITH due AS (
+           SELECT spawn.id
+           FROM competitive_spawns spawn
+           WHERE spawn.status = 'OPEN'
+             AND spawn.published_at IS NULL
+             AND spawn.opened_at <= $1
+             AND NOT EXISTS (
+               SELECT 1
+               FROM outbox_messages outbox
+               WHERE outbox.idempotency_key =
+                 'competitive-spawn:' || spawn.id::text || ':image'
+             )
+           ORDER BY spawn.opened_at, spawn.id
+           LIMIT $2
+           FOR UPDATE OF spawn SKIP LOCKED
+         )
+         UPDATE competitive_spawns spawn
+         SET status = 'CANCELLED',
+             resolved_at = $3
+         FROM due
+         WHERE spawn.id = due.id
+         RETURNING spawn.id`,
+        [orphanCutoff, input.limit, input.now],
+      );
+
+      return {
+        published: published.rows.length,
+        cancelled: dead.rows.length + orphaned.rows.length,
+      };
+    });
+  }
+
   public async expireDue(now: Date, limit: number): Promise<number> {
     if (!Number.isSafeInteger(limit) || limit < 1) return 0;
     return withTransaction(this.pool, async (client) => {
@@ -856,7 +949,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         `WITH due AS (
            SELECT id
            FROM competitive_spawns
-           WHERE status = 'OPEN' AND expires_at <= $1
+           WHERE status = 'OPEN' AND published_at IS NOT NULL AND expires_at <= $1
            ORDER BY expires_at
            LIMIT $2
            FOR UPDATE SKIP LOCKED

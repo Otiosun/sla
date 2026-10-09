@@ -137,31 +137,39 @@ export class PostgresCompetitiveSpawnActivityRepository
         return effectiveState(client, input.communityGroupId, input.now);
       }
 
-      const recentSpawn = await client.query<{
+      const openSpawn = await client.query<{ active: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM competitive_spawns
+           WHERE community_group_id = $1
+             AND status = 'OPEN'
+         ) AS active`,
+        [input.communityGroupId],
+      );
+      const recentPublished = await client.query<{
         status: "OPEN" | "WON" | "EXPIRED" | "CANCELLED";
-        opened_at: Date;
+        published_at: Date;
         expires_at: Date;
         resolved_at: Date | null;
       }>(
-        `SELECT status, opened_at, expires_at, resolved_at
+        `SELECT status, published_at, expires_at, resolved_at
          FROM competitive_spawns
          WHERE community_group_id = $1
+           AND published_at IS NOT NULL
          ORDER BY opened_at DESC
          LIMIT 1`,
         [input.communityGroupId],
       );
-      const latest = recentSpawn.rows[0];
-      const isActive =
-        latest !== undefined &&
-        latest.status === "OPEN" &&
-        latest.expires_at.getTime() > input.now.getTime();
+      const isActive = openSpawn.rows[0]?.active === true;
+      const latestPublished = recentPublished.rows[0];
       const cooldownAnchor =
-        latest === undefined
+        latestPublished === undefined
           ? null
-          : latest.status === "OPEN"
-            ? latest.expires_at
-            : (latest.resolved_at ?? latest.opened_at);
+          : latestPublished.status === "OPEN"
+            ? latestPublished.expires_at
+            : (latestPublished.resolved_at ?? latestPublished.published_at);
       const inCooldown =
+        !isActive &&
         cooldownAnchor !== null &&
         input.now.getTime() - cooldownAnchor.getTime() < input.cooldownMs;
 

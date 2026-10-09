@@ -136,5 +136,11 @@ export interface CompetitiveSpawnRepository {
     readonly pokemonBonusRoll: number;
     readonly now: Date;
   }): Promise<CompetitiveSpawnClaimResult>;
+  reconcilePublication(input: {
+    readonly now: Date;
+    readonly ttlMs: number;
+    readonly orphanGraceMs: number;
+    readonly limit: number;
+  }): Promise<{ readonly published: number; readonly cancelled: number }>;
   expireDue(now: Date, limit: number): Promise<number>;
 }

@@ -32,6 +32,7 @@ export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
 export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 35;
 export const COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS = 1_200;
 export const COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER = 50;
+export const COMPETITIVE_SPAWN_PUBLICATION_ORPHAN_GRACE_MS = 2 * 60_000;
 
 const PROTOTYPE_BACKGROUND_URL =
   "https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/main/backgrounds/1.png";
@@ -383,6 +384,18 @@ export class CompetitiveSpawnService {
           idempotencyKey: `${context.idempotencyKey}:competitive-admin-state`,
         },
       ],
+    });
+  }
+
+  public async reconcilePublication(): Promise<{
+    readonly published: number;
+    readonly cancelled: number;
+  }> {
+    return this.dependencies.repository.reconcilePublication({
+      now: this.now(),
+      ttlMs: COMPETITIVE_SPAWN_TTL_MS,
+      orphanGraceMs: COMPETITIVE_SPAWN_PUBLICATION_ORPHAN_GRACE_MS,
+      limit: 100,
     });
   }
 
