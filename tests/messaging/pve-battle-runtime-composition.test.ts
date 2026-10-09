@@ -5,6 +5,7 @@ const maintenance = vi.hoisted(() => ({
   provisioning: vi.fn(async () => undefined),
   battle: vi.fn(async () => ({ turns: [], defeats: [] })),
   rewardProjection: vi.fn(async () => ({ claimed: 0, projected: 0, deferred: 0 })),
+  competitiveSpawnExpiry: vi.fn(async () => 0),
   competitiveRewardRecovery: vi.fn(async () => ({
     claimed: 0,
     applied: 0,
@@ -32,6 +33,12 @@ vi.mock("../../src/platform/progression/postgres-battle-reward-whatsapp-projecto
 vi.mock("../../src/platform/battle/postgres-auto-battle-terminal-whatsapp-projector.js", () => ({
   PostgresAutoBattleTerminalWhatsAppProjector: class {
     runOnce = maintenance.autoTerminalProjection;
+  },
+}));
+
+vi.mock("../../src/platform/competitive-spawn/postgres-competitive-spawn-repository.js", () => ({
+  PostgresCompetitiveSpawnRepository: class {
+    expireDue = maintenance.competitiveSpawnExpiry;
   },
 }));
 
@@ -67,6 +74,7 @@ describe("PVE WhatsApp maintenance composition", () => {
     expect(maintenance.battle).toHaveBeenCalledTimes(2);
     expect(maintenance.provisioning).toHaveBeenCalledTimes(2);
     expect(maintenance.rewardProjection).toHaveBeenCalledTimes(2);
+    expect(maintenance.competitiveSpawnExpiry).toHaveBeenCalledTimes(2);
     expect(maintenance.competitiveRewardRecovery).toHaveBeenCalledTimes(2);
     expect(maintenance.autoTerminalProjection).toHaveBeenCalledTimes(2);
   });
@@ -78,6 +86,7 @@ describe("PVE WhatsApp maintenance composition", () => {
     expect(createPveBattleRuntime).not.toHaveBeenCalled();
     expect(maintenance.battle).not.toHaveBeenCalled();
     expect(maintenance.provisioning).toHaveBeenCalledOnce();
+    expect(maintenance.competitiveSpawnExpiry).toHaveBeenCalledOnce();
     expect(maintenance.competitiveRewardRecovery).toHaveBeenCalledOnce();
   });
 });

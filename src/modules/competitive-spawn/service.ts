@@ -30,6 +30,8 @@ import {
 export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
 export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
 export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 35;
+export const COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS = 1_200;
+export const COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER = 50;
 
 const PROTOTYPE_BACKGROUND_URL =
   "https://raw.githubusercontent.com/LightningDev1/PokeTwo-AI/main/backgrounds/1.png";
@@ -413,6 +415,15 @@ export class CompetitiveSpawnService {
     });
     if (!player.ok) return ok(null);
 
+    const guessAdmitted = await this.dependencies.repository.consumeGuessBudget({
+      spawnId: active.id,
+      playerId: player.value.playerId,
+      now,
+      minIntervalMs: COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS,
+      maxAttempts: COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER,
+    });
+    if (!guessAdmitted) return ok(emptyResult(active.id));
+
     if (!active.normalizedAnswers.includes(guess)) {
       await this.dependencies.repository.recordWrongGuess({
         spawnId: active.id,
@@ -421,7 +432,7 @@ export class CompetitiveSpawnService {
         senderRef: context.message.senderRef,
         normalizedGuess: guess,
       });
-      return ok(null);
+      return ok(emptyResult(active.id));
     }
 
     const claimed = await this.dependencies.repository.claimCorrect({

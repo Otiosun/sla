@@ -546,6 +546,53 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
     });
   }
 
+  public async consumeGuessBudget(input: {
+    readonly spawnId: string;
+    readonly playerId: string;
+    readonly now: Date;
+    readonly minIntervalMs: number;
+    readonly maxAttempts: number;
+  }): Promise<boolean> {
+    if (!Number.isSafeInteger(input.minIntervalMs) || input.minIntervalMs < 0) return false;
+    if (!Number.isSafeInteger(input.maxAttempts) || input.maxAttempts < 1) return false;
+    return withTransaction(this.pool, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `competitive-spawn-guess:${input.spawnId}:${input.playerId}`,
+      ]);
+      const current = await client.query<{
+        accepted_count: number;
+        last_accepted_at: Date | null;
+      }>(
+        `SELECT accepted_count, last_accepted_at
+         FROM competitive_spawn_guess_budgets
+         WHERE spawn_id = $1 AND player_id = $2
+         FOR UPDATE`,
+        [input.spawnId, input.playerId],
+      );
+      const row = current.rows[0];
+      if (row !== undefined) {
+        if (row.accepted_count >= input.maxAttempts) return false;
+        if (
+          row.last_accepted_at !== null &&
+          input.now.getTime() - row.last_accepted_at.getTime() < input.minIntervalMs
+        ) {
+          return false;
+        }
+      }
+      await client.query(
+        `INSERT INTO competitive_spawn_guess_budgets(
+           spawn_id, player_id, accepted_count, last_accepted_at, updated_at
+         ) VALUES ($1, $2, 1, $3, $3)
+         ON CONFLICT (spawn_id, player_id) DO UPDATE SET
+           accepted_count = competitive_spawn_guess_budgets.accepted_count + 1,
+           last_accepted_at = EXCLUDED.last_accepted_at,
+           updated_at = EXCLUDED.updated_at`,
+        [input.spawnId, input.playerId, input.now],
+      );
+      return true;
+    });
+  }
+
   public async recordWrongGuess(input: {
     readonly spawnId: string;
     readonly inboxMessageId: string;
@@ -804,21 +851,45 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
 
   public async expireDue(now: Date, limit: number): Promise<number> {
     if (!Number.isSafeInteger(limit) || limit < 1) return 0;
-    const result = await this.pool.query(
-      `WITH due AS (
-         SELECT id
-         FROM competitive_spawns
-         WHERE status = 'OPEN' AND expires_at <= $1
-         ORDER BY expires_at
-         LIMIT $2
-         FOR UPDATE SKIP LOCKED
-       )
-       UPDATE competitive_spawns spawn
-       SET status = 'EXPIRED', resolved_at = spawn.expires_at
-       FROM due
-       WHERE spawn.id = due.id`,
-      [now, limit],
-    );
-    return result.rowCount ?? 0;
+    return withTransaction(this.pool, async (client) => {
+      const expired = await client.query<{ id: string; chat_ref: string }>(
+        `WITH due AS (
+           SELECT id
+           FROM competitive_spawns
+           WHERE status = 'OPEN' AND expires_at <= $1
+           ORDER BY expires_at
+           LIMIT $2
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE competitive_spawns spawn
+         SET status = 'EXPIRED', resolved_at = spawn.expires_at
+         FROM due
+         WHERE spawn.id = due.id
+         RETURNING spawn.id, spawn.chat_ref`,
+        [now, limit],
+      );
+
+      for (const spawn of expired.rows) {
+        await client.query(
+          `INSERT INTO outbox_messages(
+             id, channel, destination_ref, message_type, payload, idempotency_key,
+             status, attempts, next_attempt_at, correlation_id, causation_id
+           ) VALUES (
+             $1, 'whatsapp', $2, 'TEXT', $3::jsonb, $4,
+             'PENDING', 0, $5, $6, NULL
+           )
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            randomUUID(),
+            spawn.chat_ref,
+            JSON.stringify({ text: "💨 O Pokémon selvagem fugiu!" }),
+            `competitive-spawn:${spawn.id}:fled`,
+            now,
+            randomUUID(),
+          ],
+        );
+      }
+      return expired.rows.length;
+    });
   }
 }

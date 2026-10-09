@@ -546,6 +546,7 @@ export function createOperationalMessagingComposition(
       ? null
       : createPveSceneConversationResolver({
           players: playerRegistration,
+          competitiveCapture: competitiveSpawn,
           activeBattleId: reads.activeBattleId.bind(reads),
           narratorBattleId,
           narratorBattleIds,
@@ -856,6 +857,7 @@ export function createOperationalMessagingComposition(
         ? []
         : createPveSceneRoutes({
             players: playerRegistration,
+            competitiveCapture: competitiveSpawn,
             activeBattleId: reads.activeBattleId.bind(reads),
             narratorBattleId,
             narratorBattleIds,
@@ -1008,6 +1010,7 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
+      await competitiveSpawn.expireDue();
       await competitiveSpawnRewardRecovery.runOnce();
       const maintenanceBatchSize = pveBattleConfig?.maintenanceBatchSize ?? 25;
       await battleRewardNotifications?.runOnce(maintenanceBatchSize);

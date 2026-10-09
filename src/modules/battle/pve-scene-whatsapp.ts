@@ -16,8 +16,8 @@ import type {
 } from "./participant-controller.js";
 import type { CanonicalPveBattleStartInput, PveBattleStartService } from "./pve-battle-start.js";
 import type { BattleRuntimeService } from "./runtime.js";
-import type { TurnWindowAggregate } from "./turn-window.js";
 import { parseSceneAction } from "./scene-action.js";
+import type { TurnWindowAggregate } from "./turn-window.js";
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
 class FunctionalHandler implements MessageRouteHandler {
@@ -77,6 +77,11 @@ export interface PveSceneDependencies {
   readonly captureBalls?: PveCaptureBallReader;
   readonly presentation: Pick<OperationalUxReadModel, "speciesDisplayName" | "moveDisplayNames">;
   readonly playerExternalRef?: (playerId: string) => Promise<string | null>;
+  readonly competitiveCapture?: {
+    resolveGuessCommand(
+      context: MessageHandlerContext,
+    ): Promise<Result<MessageHandlerResult | null>>;
+  };
   readonly admins: {
     resolvePrincipal(input: {
       readonly provider: string;
@@ -1938,13 +1943,29 @@ export function createPveSceneRoutes(
     return privateResult(context, ownMoves.value, null, null);
   };
 
+  const captureAwareHandle: Handler = async (context) => {
+    const originalText = context.originalMessageText ?? context.message.text ?? "";
+    if (!/^\s*\/capturar(?:\s|$)/iu.test(originalText)) return handle(context);
+    if (dependencies.competitiveCapture === undefined) return handle(context);
+
+    // Canonical PVE always gets first refusal. This preserves both an active battle
+    // and a standalone encounter; competitive identification is only the NOT_FOUND fallback.
+    const canonical = await handle(context);
+    if (canonical.ok || canonical.error.code !== "NOT_FOUND") return canonical;
+
+    const competitive = await dependencies.competitiveCapture.resolveGuessCommand(context);
+    if (!competitive.ok) return competitive;
+    return competitive.value === null ? canonical : ok(competitive.value);
+  };
+
   return [
     ...["movimento", "trocar", "capturar", "fugir", "desistir"].map((command) => ({
       command,
       allowEmbedded: true,
-      handler: new FunctionalHandler(handle),
+      handler: new FunctionalHandler(command === "capturar" ? captureAwareHandle : handle),
       policy: {
-        requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
+        requiredAnyGroupCapabilities:
+          command === "capturar" ? (["pve", "pvp", "world"] as const) : (["pve", "pvp"] as const),
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },

@@ -108,6 +108,13 @@ export interface CompetitiveSpawnRepository {
     input: CompetitiveSpawnOpenWrite,
     cooldownMs: number,
   ): Promise<CompetitiveSpawnRecord | null>;
+  consumeGuessBudget(input: {
+    readonly spawnId: string;
+    readonly playerId: string;
+    readonly now: Date;
+    readonly minIntervalMs: number;
+    readonly maxAttempts: number;
+  }): Promise<boolean>;
   recordWrongGuess(input: {
     readonly spawnId: string;
     readonly inboxMessageId: string;
