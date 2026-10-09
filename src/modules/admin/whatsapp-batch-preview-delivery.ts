@@ -53,7 +53,7 @@ export class AdminBatchWhatsAppPreviewDeliveryPreparation implements OutboxDeliv
     },
   ) {}
 
-  public async prepare(message: PendingOutboxMessage): Promise<void> {
+  public async prepare(message: PendingOutboxMessage): Promise<PendingOutboxMessage | undefined> {
     if (message.channel !== "whatsapp") return;
     const anchor = parseAnchor(message.payload.adminBatchPreview);
     if (anchor === null) return;

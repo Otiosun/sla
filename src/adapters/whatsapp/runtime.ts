@@ -12,6 +12,8 @@ export interface WhatsAppMessagingRuntimeOptions {
   readonly normalizeCommandLikeFreeform?: (
     message: IncomingMessage,
   ) => Promise<IncomingMessage | null> | IncomingMessage | null;
+  readonly observeIncoming?: (message: IncomingMessage) => Promise<void> | void;
+  readonly onIncomingObservationFailure?: (error: unknown) => void;
   readonly beforeOutboxFlush?: () => Promise<void>;
   readonly onIncomingProcessingFailure?: (input: {
     readonly stage: "COMPLETE_INCOMING";
@@ -30,6 +32,12 @@ export class WhatsAppMessagingRuntime {
 
   async start(): Promise<void> {
     await this.adapter.start(async (message) => {
+      try {
+        await this.options.observeIncoming?.(message);
+      } catch (error) {
+        this.options.onIncomingObservationFailure?.(error);
+      }
+
       const text = message.text?.trimStart();
       const prefix = text?.[0];
       const commandCandidate = prefix === "$" || prefix === "/";

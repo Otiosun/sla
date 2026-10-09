@@ -15,9 +15,9 @@ import { AdminDomainOperationService } from "../modules/admin/domain-service.js"
 import { registerReceptionAdminOperations } from "../modules/admin/reception-operation-definitions.js";
 import { AdminRewardCatalogService } from "../modules/admin/reward-catalog-service.js";
 import { AdminService } from "../modules/admin/service.js";
+import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { createAdminBatchWhatsAppRoutes } from "../modules/admin/whatsapp-batch-handlers.js";
 import { AdminBatchWhatsAppPreviewDeliveryPreparation } from "../modules/admin/whatsapp-batch-preview-delivery.js";
-import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import {
   createPveBattleFinishWhatsAppRoute,
@@ -31,16 +31,16 @@ import {
 import { CaptureService } from "../modules/capture/service.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
-  isReceptionCommandAllowed,
-  isReceptionPlayerCommand,
-  receptionAdminCapabilityFor,
-  ReceptionCommandScopeGate,
-  ReceptionScopedConversationResolver,
-} from "../modules/community/reception-message-scope.js";
-import {
   type ReceptionMembershipEvent,
   ReceptionMembershipService,
 } from "../modules/community/reception-membership.js";
+import {
+  isReceptionCommandAllowed,
+  isReceptionPlayerCommand,
+  ReceptionCommandScopeGate,
+  ReceptionScopedConversationResolver,
+  receptionAdminCapabilityFor,
+} from "../modules/community/reception-message-scope.js";
 import { isReception, ReceptionService } from "../modules/community/reception-service.js";
 import { RuntimeCommandPolicyGate } from "../modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../modules/community/service.js";
@@ -48,6 +48,13 @@ import {
   createWorldGroupSetupRoute,
   registerWorldGroupSetupOperation,
 } from "../modules/community/world-group-setup.js";
+import { CompetitiveSpawnRewardApplicationService } from "../modules/competitive-spawn/reward-application.js";
+import { CompetitiveSpawnRewardRecoveryWorker } from "../modules/competitive-spawn/reward-recovery.js";
+import {
+  CompetitiveSpawnService,
+  createCompetitiveSpawnAdminRoute,
+  createCompetitiveSpawnGuessRoute,
+} from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
@@ -103,26 +110,31 @@ import { PostgresAdminWhatsAppPokemonTargetResolver } from "../platform/admin/po
 import { PostgresAdminAutoBattleControl } from "../platform/battle/postgres-admin-auto-battle-control.js";
 import { PostgresAutoBattleTerminalWhatsAppProjector } from "../platform/battle/postgres-auto-battle-terminal-whatsapp-projector.js";
 import { PostgresBattleParticipantControllerRepository } from "../platform/battle/postgres-battle-participant-controller-repository.js";
+import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresNarratorBattleCleanup } from "../platform/battle/postgres-narrator-battle-cleanup.js";
 import { PostgresPveBattleStartRollback } from "../platform/battle/postgres-pve-battle-start-rollback.js";
-import { PostgresBattleRepository } from "../platform/battle/postgres-battle-repository.js";
 import { PostgresCaptureBallReader } from "../platform/capture/postgres-capture-ball-reader.js";
 import { PostgresCaptureRepository } from "../platform/capture/postgres-capture-repository.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresCommunityRepository } from "../platform/community/postgres-community-repository.js";
 import { PostgresReceptionPresenceRepository } from "../platform/community/postgres-reception-presence-repository.js";
 import { PostgresWorldGroupSetup } from "../platform/community/postgres-world-group-setup.js";
+import { CompetitiveSpawnImagePreparation } from "../platform/competitive-spawn/competitive-spawn-image-preparation.js";
+import { PostgresCompetitiveSpawnActivityRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-activity-repository.js";
+import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-repository.js";
+import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-reward-recovery.js";
+import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
-import { PostgresWhatsAppReplyResultContextResolver } from "../platform/messaging/postgres-whatsapp-reply-result-context.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
+import { PostgresWhatsAppReplyResultContextResolver } from "../platform/messaging/postgres-whatsapp-reply-result-context.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
-import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-pokedex-admin-seen-owner.js";
 import { PostgresHubLoginTicketStore } from "../platform/player-portal/postgres-hub-login-ticket-store.js";
+import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-pokedex-admin-seen-owner.js";
 import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
 import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
@@ -145,13 +157,14 @@ import { PostgresPokemonCenterHealingRepository } from "../platform/world-servic
 import { PostgresPokemonPcStorageRepository } from "../platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
+import { ok } from "../shared-kernel/result.js";
 import {
   createPveBattleRuntime,
   type PveBattleRuntimeConfig,
 } from "./compose-pve-battle-runtime.js";
 import { resolveNarratorEncounterEnvironment } from "./encounter-environment-runtime-config.js";
-import { filterActiveNarratorBattleIds } from "./narrator-battle-context.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
+import { filterActiveNarratorBattleIds } from "./narrator-battle-context.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
 
@@ -173,6 +186,7 @@ export interface OperationalMessagingComposition {
   readonly pveBattle: ReturnType<typeof createPveBattleRuntime> | null;
   readonly onMembership: (event: ReceptionMembershipEvent) => Promise<void>;
   readonly router: MessageRouter;
+  readonly observeIncoming: (message: IncomingMessage) => Promise<void>;
   readonly admitCommand: (message: IncomingMessage) => boolean;
   readonly admitFreeform: (message: IncomingMessage) => Promise<boolean>;
   readonly admitRuntimeCommand: (message: IncomingMessage) => Promise<boolean>;
@@ -300,6 +314,29 @@ export function createOperationalMessagingComposition(
   };
 
   const community = new CommunityService(new PostgresCommunityRepository(pool));
+  const competitiveSpawnRepository = new PostgresCompetitiveSpawnRepository(pool);
+  const competitiveSpawnActivity = new PostgresCompetitiveSpawnActivityRepository(pool);
+  const competitiveSpawnSettings = new PostgresCompetitiveSpawnSettingsRepository(pool);
+  const competitiveSpawnRewardApplication = new CompetitiveSpawnRewardApplicationService(
+    economy,
+    progression,
+  );
+  const competitiveSpawnRewardRecovery = new CompetitiveSpawnRewardRecoveryWorker(
+    new PostgresCompetitiveSpawnRewardRecoveryRepository(pool),
+    competitiveSpawnRewardApplication,
+  );
+  const competitiveSpawn = new CompetitiveSpawnService({
+    repository: competitiveSpawnRepository,
+    activity: competitiveSpawnActivity,
+    settings: competitiveSpawnSettings,
+    community,
+    players: playerRegistration,
+    builds: {
+      wildBuild: (contentReleaseId, formId) =>
+        encounterRepository.read((transaction) => transaction.wildBuild(contentReleaseId, formId)),
+    },
+    rng: new CryptoRandomSource(),
+  });
   const registrationRepository = new PostgresRegistrationRepository(pool);
   const registration = new RegistrationService(registrationRepository);
   const setup = new PostgresRegistrationSetupLoader(pool);
@@ -421,13 +458,44 @@ export function createOperationalMessagingComposition(
   });
   const nonReceptionConversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
+      const competitiveResult = await competitiveSpawn.resolve(context);
+      if (!competitiveResult.ok) return competitiveResult;
+
+      let downstream = null;
       if (pveScene !== null) {
         const sceneResult = await pveScene.resolve(context);
-        if (!sceneResult.ok || sceneResult.value !== null) return sceneResult;
+        if (!sceneResult.ok) return sceneResult;
+        downstream = sceneResult.value;
       }
-      const worldServiceResult = await worldServiceConversationResolver.resolve(context);
-      if (!worldServiceResult.ok || worldServiceResult.value !== null) return worldServiceResult;
-      return receptionConversationResolver.resolve(context);
+      if (downstream === null) {
+        const worldServiceResult = await worldServiceConversationResolver.resolve(context);
+        if (!worldServiceResult.ok) return worldServiceResult;
+        downstream = worldServiceResult.value;
+      }
+      if (downstream === null) {
+        const receptionResult = await receptionConversationResolver.resolve(context);
+        if (!receptionResult.ok) return receptionResult;
+        downstream = receptionResult.value;
+      }
+
+      if (competitiveResult.value === null) return ok(downstream);
+      if (downstream === null) return competitiveResult;
+
+      return ok({
+        resultRefType: downstream.resultRefType ?? competitiveResult.value.resultRefType,
+        resultRefId: downstream.resultRefId ?? competitiveResult.value.resultRefId,
+        outgoing: [...downstream.outgoing, ...competitiveResult.value.outgoing],
+        ...(downstream.mediaProcessing === undefined
+          ? competitiveResult.value.mediaProcessing === undefined
+            ? {}
+            : { mediaProcessing: competitiveResult.value.mediaProcessing }
+          : {
+              mediaProcessing: [
+                ...downstream.mediaProcessing,
+                ...(competitiveResult.value.mediaProcessing ?? []),
+              ],
+            }),
+      });
     },
   };
   const conversationResolver = new ReceptionScopedConversationResolver(
@@ -478,6 +546,7 @@ export function createOperationalMessagingComposition(
       ? null
       : createPveSceneConversationResolver({
           players: playerRegistration,
+          competitiveCapture: competitiveSpawn,
           activeBattleId: reads.activeBattleId.bind(reads),
           narratorBattleId,
           narratorBattleIds,
@@ -776,6 +845,8 @@ export function createOperationalMessagingComposition(
   const receptionCommandScope = new ReceptionCommandScopeGate(community);
   const router = new MessageRouter(
     [
+      createCompetitiveSpawnAdminRoute(competitiveSpawn),
+      createCompetitiveSpawnGuessRoute(competitiveSpawn),
       ...legacyRoutes,
       ...worldServiceRoutes,
       ...progressionRoutes,
@@ -786,6 +857,7 @@ export function createOperationalMessagingComposition(
         ? []
         : createPveSceneRoutes({
             players: playerRegistration,
+            competitiveCapture: competitiveSpawn,
             activeBattleId: reads.activeBattleId.bind(reads),
             narratorBattleId,
             narratorBattleIds,
@@ -869,9 +941,11 @@ export function createOperationalMessagingComposition(
   return {
     pveBattle,
     router,
+    observeIncoming: (message) => competitiveSpawn.observeActivity(message),
     onMembership: (event) => receptionMembership.handle(event),
     admitCommand: (message) => router.admitsCommand(message),
     admitFreeform: async (message) =>
+      (await competitiveSpawn.admits(message)) ||
       (await registrationConversationResolver.admits(message)) ||
       worldServiceConversationResolver.admits(message),
     admitRuntimeCommand: async (message) => {
@@ -913,6 +987,7 @@ export function createOperationalMessagingComposition(
         return receptionConversationResolver.admits(message);
       }
       return (
+        (await competitiveSpawn.admits(message)) ||
         (await registrationConversationResolver.admits(message)) ||
         worldServiceConversationResolver.admits(message)
       );
@@ -935,6 +1010,9 @@ export function createOperationalMessagingComposition(
     runMaintenance: async () => {
       await provisioningWorker.runOnce();
       await pveBattle?.runMaintenance();
+      await competitiveSpawn.reconcilePublication();
+      await competitiveSpawn.expireDue();
+      await competitiveSpawnRewardRecovery.runOnce();
       const maintenanceBatchSize = pveBattleConfig?.maintenanceBatchSize ?? 25;
       await battleRewardNotifications?.runOnce(maintenanceBatchSize);
       await autoBattleTerminalNotifications?.runOnce(maintenanceBatchSize);
@@ -964,11 +1042,13 @@ export function createOperationalOutboxWorker(
     refs: new PostgresAdminBatchWhatsAppPreviewRefRepository(pool),
     providerMessageIdFor: baileysOutboundMessageId,
   });
+  const competitiveSpawnImagePreparation = new CompetitiveSpawnImagePreparation();
   const deliveryPreparation: OutboxDeliveryPreparation = {
     prepare: async (message) => {
       await registrationReviewPreparation.prepare(message);
       await worldServicePromptPreparation.prepare(message);
       await adminBatchPreviewPreparation.prepare(message);
+      return (await competitiveSpawnImagePreparation.prepare(message)) ?? message;
     },
   };
 
@@ -1037,6 +1117,12 @@ export function createOperationalWhatsAppRuntime(
     admitCommand: composition.admitRuntimeCommand,
     admitFreeform: composition.admitRuntimeFreeform,
     normalizeCommandLikeFreeform: composition.normalizeRuntimeCommandLikeFreeform,
+    observeIncoming: composition.observeIncoming,
+    onIncomingObservationFailure: (error) => {
+      options.logger.log("WARN", "competitive-spawn.activity.observe_failed", {
+        errorKind: errorKind(error),
+      });
+    },
     beforeOutboxFlush: composition.runMaintenance,
     onIncomingProcessingFailure: ({ stage, errorCode, correlationId }) => {
       options.logger.log("ERROR", "whatsapp.inbound.processing_failed", {

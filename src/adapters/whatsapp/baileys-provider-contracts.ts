@@ -142,7 +142,7 @@ export interface BaileysTextOutboundContentLike {
 }
 
 export interface BaileysImageOutboundContentLike {
-  readonly image: { readonly url: string };
+  readonly image: { readonly url: string } | Uint8Array;
   readonly caption?: string;
   readonly mentions?: readonly string[];
 }
