@@ -2,8 +2,8 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
-import type { AuditedRegistrationReviewService } from "./admin-review-service.js";
 import { trainerProfessionDisplayName } from "../player/professions.js";
+import type { AuditedRegistrationReviewService } from "./admin-review-service.js";
 import type { RegistrationRevisionRecord, RegistrationRevisionStatus } from "./ports.js";
 
 interface RegistrationReviewMessageRef {
@@ -49,6 +49,12 @@ export interface RegistrationAdminWhatsAppDependencies {
     "getReview" | "requestChanges" | "approve" | "reject"
   >;
   readonly setup?: RegistrationReviewDisplaySetupLoader;
+  readonly reviewTargets?: {
+    findLatestSubmittedReviewByIdentity(input: {
+      readonly provider: string;
+      readonly externalId: string;
+    }): Promise<string | null>;
+  };
 }
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
@@ -158,6 +164,43 @@ function reviewText(
     "› _Responda diretamente a esta ficha._",
   ].join("\n");
 }
+async function resolveViewReviewId(
+  dependencies: RegistrationAdminWhatsAppDependencies,
+  context: MessageHandlerContext,
+): Promise<Result<string>> {
+  const mentions = context.message.mentions ?? [];
+  if (mentions.length > 1) {
+    return err(
+      appError("VALIDATION_FAILED", "Administrative registration review view accepts one mention", {
+        userMessage: "Mencione apenas uma pessoa ao usar `/verficha`.",
+      }),
+    );
+  }
+
+  const targetExternalId = mentions[0];
+  if (targetExternalId !== undefined) {
+    if (dependencies.reviewTargets === undefined) {
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Registration review mention lookup is unavailable"),
+      );
+    }
+    const reviewId = await dependencies.reviewTargets.findLatestSubmittedReviewByIdentity({
+      provider: context.message.provider,
+      externalId: targetExternalId,
+    });
+    return reviewId === null
+      ? err(
+          appError("NOT_FOUND", "Mentioned player has no submitted registration review", {
+            userMessage: "Essa pessoa não tem ficha pendente para revisão.",
+          }),
+        )
+      : ok(reviewId);
+  }
+
+  const reference = await resolveReplyRef(dependencies, context);
+  if (!reference.ok) return err(reference.error);
+  return ok(reference.value.reviewId);
+}
 async function resolveReplyRef(
   dependencies: RegistrationAdminWhatsAppDependencies,
   context: MessageHandlerContext,
@@ -263,13 +306,13 @@ export function createRegistrationAdminWhatsAppRoutes(
   dependencies: RegistrationAdminWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
   const view = new FunctionalHandler(async (context) => {
-    const reference = await resolveReplyRef(dependencies, context);
-    if (!reference.ok) return reference;
+    const reviewId = await resolveViewReviewId(dependencies, context);
+    if (!reviewId.ok) return reviewId;
     const principal = await resolveAdminPrincipal(dependencies, context);
     if (!principal.ok) return principal;
     const review = await dependencies.registration.getReview({
       principalId: principal.value,
-      reviewId: reference.value.reviewId,
+      reviewId: reviewId.value,
       sourceChannel: "WHATSAPP",
     });
     if (!review.ok) return review;

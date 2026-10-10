@@ -833,6 +833,23 @@ export function createOperationalMessagingComposition(
     admins: adminIdentity,
     registration: auditedRegistrationReview,
     setup,
+    reviewTargets: {
+      findLatestSubmittedReviewByIdentity: async ({ provider, externalId }) => {
+        const result = await pool.query<{ review_id: string }>(
+          `SELECT rr.id::text AS review_id
+           FROM player_identities identity
+           JOIN registration_revisions rr ON rr.player_id = identity.player_id
+           WHERE identity.provider = $1
+             AND identity.external_id = $2
+             AND identity.status = 'ACTIVE'
+             AND rr.status = 'SUBMITTED'
+           ORDER BY rr.sequence_no DESC
+           LIMIT 1`,
+          [provider, externalId],
+        );
+        return result.rows[0]?.review_id ?? null;
+      },
+    },
   });
   const uatBootstrapRoutes = createUatBootstrapRoutes({
     admins: adminIdentity,

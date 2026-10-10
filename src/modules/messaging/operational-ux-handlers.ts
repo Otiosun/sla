@@ -216,8 +216,11 @@ export function createOperationalUxRoutes(
   dependencies: OperationalUxDependencies,
 ): readonly CommandRouteDefinition[] {
   const menu: Handler = async (context) => {
-    const resolved = await dependencies.registration.resolveOrCreatePlayer(identity(context));
-    if (!resolved.ok) return resolved;
+    const resolved = await dependencies.registration.resolvePlayer(identity(context));
+    if (!resolved.ok) {
+      if (resolved.error.code !== "NOT_FOUND") return resolved;
+      return textResult(context, onboardingMenu("NEW"));
+    }
 
     if (resolved.value.state !== "COMPLETE") {
       return textResult(context, onboardingMenu(resolved.value.state), {
