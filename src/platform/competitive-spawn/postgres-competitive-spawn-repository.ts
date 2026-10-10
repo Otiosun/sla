@@ -244,7 +244,7 @@ async function resolveCompetitiveReward(
       amount,
       currencyId: null,
       itemId: null,
-      displayName: `Progressão +${amount}`,
+      displayName: `+${amount} Insígnias`,
     },
     pokemonBonus,
     bonusBasisPoints,

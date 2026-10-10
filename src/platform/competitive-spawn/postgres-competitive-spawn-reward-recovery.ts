@@ -219,11 +219,11 @@ export class PostgresCompetitiveSpawnRewardRecoveryRepository
           ? `Bônus Pokémon · \`${row.species_display_name}${row.shiny ? " ✨" : ""}\``
           : null;
         const text = [
-          "◇ *𝗜𝗗𝗘𝗡𝗧𝗜𝗙𝗜𝗖𝗔𝗗𝗢*",
+          "✅ *𝗜𝗗𝗘𝗡𝗧𝗜𝗙𝗜𝗖𝗔𝗗𝗢*",
           `　${display}`,
           "",
-          `*${row.species_display_name}* · \`+1 avistamento\``,
-          `Recompensa · \`${row.reward_display_name}\``,
+          `*👁️ ${row.species_display_name}* · \`+1 avistamento\``,
+          `🎁 *Recompensa* · \`${row.reward_display_name}\``,
           ...(bonusLine === null ? [] : [bonusLine]),
         ].join("\n");
         const payload = {
