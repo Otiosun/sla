@@ -6,6 +6,7 @@ import {
   type CompetitiveSpawnActivityRepository,
   competitiveActivityCreditMilli,
   competitiveActivityDecayedProgressMilli,
+  competitiveActivityIdleAssistRoll,
   competitiveActivityMonotoneTargetMilli,
   competitiveActivityTargetMilli,
   competitiveIncenseTargetMilli,
@@ -232,8 +233,11 @@ export class PostgresCompetitiveSpawnActivityRepository
         current.last_activity_at,
         input.now,
       );
-      const targetRoll =
-        decay.resetCycle || current.target_roll === null ? input.targetRoll : current.target_roll;
+      const targetRoll = decay.resetCycle
+        ? competitiveActivityIdleAssistRoll(input.targetRoll)
+        : current.target_roll === null
+          ? input.targetRoll
+          : current.target_roll;
       const cycleNo = BigInt(current.cycle_no) + (decay.resetCycle ? 1n : 0n);
 
       const sender = await client.query<ActivitySenderRow>(

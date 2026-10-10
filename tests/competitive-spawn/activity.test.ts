@@ -4,6 +4,7 @@ import {
   competitiveActivityBaseWeightMilli,
   competitiveActivityCreditMilli,
   competitiveActivityDecayedProgressMilli,
+  competitiveActivityIdleAssistRoll,
   competitiveActivityTargetMilli,
 } from "../../src/modules/competitive-spawn/activity.js";
 
@@ -21,26 +22,32 @@ const message = (
 });
 
 describe("competitive spawn activity", () => {
-  it("keeps solo play viable while making larger active groups reach a lower target band", () => {
-    expect(competitiveActivityBand(1)).toEqual({ minPoints: 11, maxPoints: 20 });
-    expect(competitiveActivityBand(2)).toEqual({ minPoints: 9, maxPoints: 18 });
-    expect(competitiveActivityBand(4)).toEqual({ minPoints: 8, maxPoints: 17 });
-    expect(competitiveActivityBand(8)).toEqual({ minPoints: 7, maxPoints: 16 });
-    expect(competitiveActivityTargetMilli(1, 0)).toBe(11_000);
-    expect(competitiveActivityTargetMilli(1, 9_999)).toBe(20_000);
-    expect(competitiveActivityTargetMilli(8, 0)).toBe(7_000);
-    expect(competitiveActivityTargetMilli(8, 9_999)).toBe(16_000);
+  it("keeps low-activity groups viable with compact participant-aware target bands", () => {
+    expect(competitiveActivityBand(1)).toEqual({ minPoints: 7, maxPoints: 11 });
+    expect(competitiveActivityBand(2)).toEqual({ minPoints: 6, maxPoints: 10 });
+    expect(competitiveActivityBand(4)).toEqual({ minPoints: 6, maxPoints: 9 });
+    expect(competitiveActivityBand(8)).toEqual({ minPoints: 5, maxPoints: 8 });
+    expect(competitiveActivityTargetMilli(1, 0)).toBe(7_000);
+    expect(competitiveActivityTargetMilli(1, 9_999)).toBe(11_000);
+    expect(competitiveActivityTargetMilli(8, 0)).toBe(5_000);
+    expect(competitiveActivityTargetMilli(8, 9_999)).toBe(8_000);
   });
 
   it("counts ordinary conversation most, media meaningfully, commands less, and catch aliases zero", () => {
     expect(competitiveActivityBaseWeightMilli(message("conversa normal"))).toBe(1_000);
-    expect(competitiveActivityBaseWeightMilli(message(null, ["IMAGE"]))).toBe(800);
-    expect(competitiveActivityBaseWeightMilli(message(null, ["AUDIO"]))).toBe(700);
-    expect(competitiveActivityBaseWeightMilli(message(null, ["STICKER"]))).toBe(250);
+    expect(competitiveActivityBaseWeightMilli(message(null, ["IMAGE"]))).toBe(1_000);
+    expect(competitiveActivityBaseWeightMilli(message(null, ["AUDIO"]))).toBe(800);
+    expect(competitiveActivityBaseWeightMilli(message(null, ["STICKER"]))).toBe(500);
     expect(competitiveActivityBaseWeightMilli(message("/pc"))).toBe(400);
     expect(competitiveActivityBaseWeightMilli(message("/c pikachu"))).toBe(0);
     expect(competitiveActivityBaseWeightMilli(message("/catch pikachu"))).toBe(0);
     expect(competitiveActivityBaseWeightMilli(message("/capturar pikachu"))).toBe(0);
+  });
+
+  it("biases a stale-cycle reset toward the lower half without spawning automatically", () => {
+    expect(competitiveActivityIdleAssistRoll(0)).toBe(0);
+    expect(competitiveActivityIdleAssistRoll(9_999)).toBe(4_999);
+    expect(competitiveActivityTargetMilli(1, competitiveActivityIdleAssistRoll(9_999))).toBe(8_999);
   });
 
   it("penalizes machine-like bursts harder in multiplayer without making solo rapid play impossible", () => {

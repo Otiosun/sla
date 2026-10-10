@@ -13,10 +13,10 @@ export interface CompetitiveActivityBand {
 }
 
 export function competitiveActivityBand(activeParticipants: number): CompetitiveActivityBand {
-  if (activeParticipants <= 1) return { minPoints: 11, maxPoints: 20 };
-  if (activeParticipants === 2) return { minPoints: 9, maxPoints: 18 };
-  if (activeParticipants <= 5) return { minPoints: 8, maxPoints: 17 };
-  return { minPoints: 7, maxPoints: 16 };
+  if (activeParticipants <= 1) return { minPoints: 7, maxPoints: 11 };
+  if (activeParticipants === 2) return { minPoints: 6, maxPoints: 10 };
+  if (activeParticipants <= 5) return { minPoints: 6, maxPoints: 9 };
+  return { minPoints: 5, maxPoints: 8 };
 }
 
 export function competitiveActivityTargetMilli(activeParticipants: number, roll: number): number {
@@ -28,6 +28,12 @@ export function competitiveActivityTargetMilli(activeParticipants: number, roll:
   const maximum = band.maxPoints * COMPETITIVE_ACTIVITY_SCALE;
   const span = maximum - minimum;
   return minimum + Math.floor((span * roll) / 9_999);
+}
+export function competitiveActivityIdleAssistRoll(roll: number): number {
+  if (!Number.isSafeInteger(roll) || roll < 0 || roll >= 10_000) {
+    throw new RangeError("Competitive activity idle-assist roll must be an integer from 0 to 9999");
+  }
+  return Math.floor(roll / 2);
 }
 export function competitiveIncenseTargetMilli(roll: number): number {
   if (!Number.isSafeInteger(roll) || roll < 0 || roll >= 10_000) {
@@ -83,11 +89,11 @@ export function competitiveActivityBaseWeightMilli(
   for (const media of message.mediaRefs) {
     const mediaWeight =
       media.kind === "STICKER"
-        ? 250
+        ? 500
         : media.kind === "AUDIO"
-          ? 700
+          ? 800
           : media.kind === "IMAGE" || media.kind === "VIDEO" || media.kind === "DOCUMENT"
-            ? 800
+            ? 1_000
             : 400;
     weight = Math.max(weight, mediaWeight);
   }
