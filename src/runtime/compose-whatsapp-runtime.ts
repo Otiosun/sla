@@ -1043,8 +1043,18 @@ export function createOperationalOutboxWorker(
     providerMessageIdFor: baileysOutboundMessageId,
   });
   const competitiveSpawnImagePreparation = new CompetitiveSpawnImagePreparation();
+  const internalCaptureResultAdapter: OutboundMessageAdapter = {
+    channel: "INTERNAL",
+    send: async (message) => {
+      if (message.messageType !== "CAPTURE_RESULT") {
+        throw new Error(`Unsupported INTERNAL outbox message type: ${message.messageType}`);
+      }
+      return { providerExternalMessageId: null };
+    },
+  };
   const deliveryPreparation: OutboxDeliveryPreparation = {
     prepare: async (message) => {
+      if (message.channel === "INTERNAL") return message;
       await registrationReviewPreparation.prepare(message);
       await worldServicePromptPreparation.prepare(message);
       await adminBatchPreviewPreparation.prepare(message);
@@ -1054,7 +1064,7 @@ export function createOperationalOutboxWorker(
 
   return new OutboxWorker(
     messagingRepository,
-    [adapter],
+    [adapter, internalCaptureResultAdapter],
     {
       batchSize: 50,
       staleAfterMs: 30_000,

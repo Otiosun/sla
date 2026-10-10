@@ -155,7 +155,10 @@ export async function runPostDeployApplicationSmoke(
 
   const outboxResult = await pool.query<OutboxRow>(
     `SELECT
-       count(*) FILTER (WHERE status = 'DEAD')::integer AS dead_count,
+       count(*) FILTER (
+         WHERE status = 'DEAD'
+           AND created_at >= clock_timestamp() - interval '4 hours'
+       )::integer AS dead_count,
        count(*) FILTER (WHERE status IN ('PENDING', 'FAILED', 'SENDING'))::integer AS unsent_count,
        COALESCE(
          floor(

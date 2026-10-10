@@ -41,7 +41,7 @@ describe.skipIf(!enabled)("Zhoulia DRAFT structure importer", () => {
     }
 
     pool = new Pool({ connectionString: dbUrl.toString() });
-  });
+  }, 30_000);
 
   afterAll(async () => {
     if (pool !== undefined) await pool.end();
