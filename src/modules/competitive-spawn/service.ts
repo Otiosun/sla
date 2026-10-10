@@ -451,6 +451,7 @@ export class CompetitiveSpawnService {
           messageType: "IMAGE",
           payload: {
             caption: "*✨ Um Pokémon selvagem apareceu!*",
+            replyToExternalMessageId: null,
             competitiveSpawnRender: created.renderSpec,
           },
           idempotencyKey: `competitive-spawn:${created.id}:image`,

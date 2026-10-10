@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 import { CompetitiveSpawnImagePreparation } from "../../src/platform/competitive-spawn/competitive-spawn-image-preparation.js";
 
-function message(): PendingOutboxMessage {
+function message(centerX = 500): PendingOutboxMessage {
   return {
     id: "outbox-render-test",
     channel: "whatsapp",
@@ -16,7 +16,7 @@ function message(): PendingOutboxMessage {
         backgroundUrl: "https://assets.test/background.png",
         spriteUrl: "https://assets.test/sprite.png",
         fallbackSpriteUrl: "https://assets.test/fallback.png",
-        centerX: 500,
+        centerX,
         groundY: 438,
         maxSize: 320,
         floatY: 0,
@@ -69,7 +69,7 @@ describe("competitive spawn renderer", () => {
 
     const preparation = new CompetitiveSpawnImagePreparation();
     const first = await preparation.prepare(message());
-    const second = await preparation.prepare(message());
+    const second = await preparation.prepare(message(520));
 
     expect(first).toBeDefined();
     expect(second).toBeDefined();

@@ -7,6 +7,8 @@ const WIDTH = 800;
 const HEIGHT = 500;
 const MAX_REMOTE_BYTES = 12 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 96;
+const MAX_REMOTE_ASSET_CACHE_ENTRIES = 192;
+const remoteAssetCache = new Map<string, Promise<Buffer>>();
 
 function renderSpec(value: unknown): CompetitiveSpawnRenderSpec | null {
   if (typeof value !== "object" || value === null) return null;
@@ -27,7 +29,7 @@ function renderSpec(value: unknown): CompetitiveSpawnRenderSpec | null {
   return input as unknown as CompetitiveSpawnRenderSpec;
 }
 
-async function fetchBuffer(url: string): Promise<Buffer> {
+async function fetchRemoteBuffer(url: string): Promise<Buffer> {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:") throw new Error("Competitive spawn asset URL must be HTTPS");
   const controller = new AbortController();
@@ -49,6 +51,23 @@ async function fetchBuffer(url: string): Promise<Buffer> {
   }
 }
 
+async function fetchBuffer(url: string): Promise<Buffer> {
+  const cached = remoteAssetCache.get(url);
+  if (cached !== undefined) return cached;
+
+  const pending = fetchRemoteBuffer(url).catch((error) => {
+    remoteAssetCache.delete(url);
+    throw error;
+  });
+  remoteAssetCache.set(url, pending);
+
+  if (remoteAssetCache.size > MAX_REMOTE_ASSET_CACHE_ENTRIES) {
+    const first = remoteAssetCache.keys().next().value as string | undefined;
+    if (first !== undefined && first !== url) remoteAssetCache.delete(first);
+  }
+
+  return pending;
+}
 async function fetchSprite(spec: CompetitiveSpawnRenderSpec): Promise<Buffer> {
   try {
     return await fetchBuffer(spec.spriteUrl);
