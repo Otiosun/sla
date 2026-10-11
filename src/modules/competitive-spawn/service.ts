@@ -29,7 +29,7 @@ import {
 
 export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
 export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
-export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 35;
+export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 70;
 export const COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS = 1_200;
 export const COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER = 50;
 export const COMPETITIVE_SPAWN_PUBLICATION_ORPHAN_GRACE_MS = 2 * 60_000;
@@ -127,9 +127,24 @@ export function competitiveSpawnBackgroundContextForTypes(
   }
   return "NEUTRAL";
 }
-const COMPETITIVE_SPAWN_COSMIC_SPECIES = new Set(["deoxys", "rayquaza"] as const);
-const COMPETITIVE_SPAWN_SKY_SPECIES = new Set(["pelipper", "wingull"] as const);
-const COMPETITIVE_SPAWN_WATER_SPECIES = new Set(["gyarados", "mantine"] as const);
+const COMPETITIVE_SPAWN_COSMIC_SPECIES: ReadonlySet<string> = new Set(["deoxys", "rayquaza"]);
+const COMPETITIVE_SPAWN_SKY_SPECIES: ReadonlySet<string> = new Set(["pelipper", "wingull"]);
+const COMPETITIVE_SPAWN_WATER_SPECIES: ReadonlySet<string> = new Set([
+  "gyarados",
+  "mantine",
+  "dratini",
+  "dragonair",
+]);
+const COMPETITIVE_SPAWN_RUGGED_SPECIES: ReadonlySet<string> = new Set([
+  "zubat",
+  "golbat",
+  "crobat",
+  "dunsparce",
+  "whismur",
+  "loudred",
+  "exploud",
+  "gligar",
+]);
 
 export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   speciesSlug: string | undefined,
@@ -138,15 +153,10 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
 ): CompetitiveSpawnBackgroundContext {
   const normalizedSpecies =
     typeof speciesSlug === "string" ? speciesSlug.toLocaleLowerCase("en-US") : "";
-  if (COMPETITIVE_SPAWN_COSMIC_SPECIES.has(normalizedSpecies as "deoxys" | "rayquaza")) {
-    return "COSMIC";
-  }
-  if (COMPETITIVE_SPAWN_SKY_SPECIES.has(normalizedSpecies as "pelipper" | "wingull")) {
-    return "SKY";
-  }
-  if (COMPETITIVE_SPAWN_WATER_SPECIES.has(normalizedSpecies as "gyarados" | "mantine")) {
-    return "WATER";
-  }
+  if (COMPETITIVE_SPAWN_COSMIC_SPECIES.has(normalizedSpecies)) return "COSMIC";
+  if (COMPETITIVE_SPAWN_SKY_SPECIES.has(normalizedSpecies)) return "SKY";
+  if (COMPETITIVE_SPAWN_WATER_SPECIES.has(normalizedSpecies)) return "WATER";
+  if (COMPETITIVE_SPAWN_RUGGED_SPECIES.has(normalizedSpecies)) return "RUGGED";
   return competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
 }
 export function competitiveSpawnCenterX(input: {

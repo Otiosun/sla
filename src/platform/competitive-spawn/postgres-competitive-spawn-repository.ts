@@ -206,7 +206,7 @@ async function resolveCompetitiveReward(
   if (kind === "MONEY") {
     const selected = currency.rows[0];
     if (selected === undefined) throw new Error("Competitive money reward currency disappeared");
-    const amount = competitiveSpawnMoneyAmount(input.rewardAmountRoll);
+    const amount = competitiveSpawnMoneyAmount(catchRate);
     return {
       descriptor: {
         kind,
@@ -360,6 +360,9 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       areaId = location.rows[0]?.area_id ?? null;
     }
 
+    // "Global" means regionally canonical: only species present in an active
+    // encounter table for this content release. It is deliberately broader
+    // than the player's current area, but never the whole Gen I-III Pokédex.
     const global = await this.pool.query<{
       form_id: string;
       species_id: string;
@@ -368,7 +371,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       display_name: string;
       type1_slug: string;
       type2_slug: string | null;
-      weight: number;
+      weight: string;
       min_level: number;
       max_level: number;
       area_id: null;
@@ -380,18 +383,24 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
               species_revision.display_name,
               type1.slug AS type1_slug,
               type2.slug AS type2_slug,
-              1 AS weight,
-              1 AS min_level,
-              50 AS max_level,
+              SUM(entry.weight)::text AS weight,
+              MIN(entry.min_level) AS min_level,
+              MAX(entry.max_level) AS max_level,
               NULL::uuid AS area_id
-       FROM pokemon_species species
+       FROM encounter_tables table_identity
+       JOIN encounter_table_revisions table_revision
+         ON table_revision.encounter_table_id = table_identity.id
+        AND table_revision.content_release_id = $1
+        AND table_revision.active = TRUE
+       JOIN encounter_entries entry
+         ON entry.encounter_table_revision_id = table_revision.id
+        AND entry.active = TRUE
+       JOIN pokemon_forms form ON form.id = entry.form_id
+       JOIN pokemon_species species ON species.id = form.species_id
        JOIN pokemon_species_revisions species_revision
          ON species_revision.species_id = species.id
         AND species_revision.content_release_id = $1
         AND species_revision.active = TRUE
-       JOIN pokemon_forms form
-         ON form.species_id = species.id
-        AND form.slug = species.slug
        JOIN pokemon_form_revisions form_revision
          ON form_revision.form_id = form.id
         AND form_revision.content_release_id = $1
@@ -399,6 +408,9 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
        JOIN pokemon_types type1 ON type1.id = form_revision.type1_id
        LEFT JOIN pokemon_types type2 ON type2.id = form_revision.type2_id
        WHERE species.national_dex BETWEEN 1 AND 386
+         AND form.slug = species.slug
+       GROUP BY form.id, species.id, species.national_dex, species.slug,
+                species_revision.display_name, type1.slug, type2.slug
        ORDER BY species.national_dex`,
       [activeRow.content_release_id],
     );

@@ -22,8 +22,13 @@ export function competitiveSpawnBaseRewardKind(value: number): CompetitiveSpawnB
   return "PROGRESSION";
 }
 
-export function competitiveSpawnMoneyAmount(value: number): number {
-  return 800 + (roll(value) % 2_201);
+export function competitiveSpawnMoneyAmount(catchRate: number | null): number {
+  if (catchRate === null || !Number.isFinite(catchRate) || catchRate < 0) return 400;
+  if (catchRate >= 190) return 250;
+  if (catchRate >= 120) return 325;
+  if (catchRate >= 60) return 450;
+  if (catchRate >= 30) return 650;
+  return 900;
 }
 
 export function competitiveSpawnItemQuantity(value: number): number {

@@ -15,8 +15,8 @@ describe("competitive spawn rewards", () => {
     expect(competitiveSpawnBaseRewardKind(4_500)).toBe("ITEM");
     expect(competitiveSpawnBaseRewardKind(7_999)).toBe("ITEM");
     expect(competitiveSpawnBaseRewardKind(8_000)).toBe("PROGRESSION");
-    expect(competitiveSpawnMoneyAmount(0)).toBe(800);
-    expect(competitiveSpawnMoneyAmount(2_200)).toBe(3_000);
+    expect(competitiveSpawnMoneyAmount(255)).toBe(250);
+    expect(competitiveSpawnMoneyAmount(0)).toBe(900);
     expect(competitiveSpawnItemQuantity(0)).toBe(1);
     expect(competitiveSpawnItemQuantity(3)).toBe(4);
     expect(competitiveSpawnProgressAmount(0)).toBe(5);
