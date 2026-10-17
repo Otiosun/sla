@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyAdminPlayerSearchQuery,
   normalizeAdminPlayerWhatsAppExternalId,
-} from "../../src/modules/player-portal/admin-player-search-query.js";
+} from "../../src/modules/admin/player-search-query.js";
 
 describe("admin player search query", () => {
   it("recognizes exact player UUIDs", () => {
