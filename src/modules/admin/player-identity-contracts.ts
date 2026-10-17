@@ -9,9 +9,7 @@ export const AdminPlayerWhatsAppChangeInputSchema = z
   })
   .strict();
 
-export type AdminPlayerWhatsAppChangeInput = z.infer<
-  typeof AdminPlayerWhatsAppChangeInputSchema
->;
+export type AdminPlayerWhatsAppChangeInput = z.infer<typeof AdminPlayerWhatsAppChangeInputSchema>;
 
 export const AdminPlayerWhatsAppChangeRequestSchema = z
   .object({
