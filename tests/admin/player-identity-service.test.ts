@@ -43,12 +43,12 @@ describe("AdminPlayerIdentityService", () => {
   it("never persists the raw phone number in the admin operation input", async () => {
     let preparedInput: Readonly<Record<string, unknown>> | null = null;
     const admin = {
-      prepareMutation: vi.fn(async (request: unknown) => {
+      prepareEphemeralSensitiveMutation: vi.fn(async (request: unknown) => {
         const parsed = request as { input: Readonly<Record<string, unknown>> };
         preparedInput = parsed.input;
         return { operation: operation(parsed.input), replayed: false };
       }),
-    } as Pick<AdminService, "prepareMutation">;
+    } as Pick<AdminService, "prepareEphemeralSensitiveMutation">;
     const owner: AdminPlayerIdentityChangeOwner = {
       changeWhatsAppIdentity: vi.fn(async ({ operation: prepared }) => ({
         ...prepared,
@@ -83,11 +83,11 @@ describe("AdminPlayerIdentityService", () => {
       newIdentityLast4: "1234",
     });
     const admin = {
-      prepareMutation: vi.fn(async () => ({
+      prepareEphemeralSensitiveMutation: vi.fn(async () => ({
         operation: { ...persisted, status: "APPLIED" as const },
         replayed: true,
       })),
-    } as Pick<AdminService, "prepareMutation">;
+    } as Pick<AdminService, "prepareEphemeralSensitiveMutation">;
     const owner: AdminPlayerIdentityChangeOwner = {
       changeWhatsAppIdentity: vi.fn(),
     };
