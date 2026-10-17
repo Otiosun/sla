@@ -24,6 +24,7 @@ export function registerPlayerIdentityAdminOperations(
       capabilityKey: "player.identity.change",
       riskTier: 4,
       authorizationMode: "SUBJECT",
+      executionMode: "EPHEMERAL_SENSITIVE",
       policy: playerIdentityChangePolicy,
       inputSchema: AdminPlayerWhatsAppChangeInputSchema,
       target: (input) => ({ type: "PLAYER", id: input.playerId }),
