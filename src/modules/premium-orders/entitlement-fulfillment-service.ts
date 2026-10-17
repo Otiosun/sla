@@ -7,12 +7,20 @@ const EntitlementPayloadSchema = z
   .object({
     entitlementKey: z.string().regex(/^[A-Z0-9][A-Z0-9_.:-]{1,127}$/),
     grantModel: z.literal("TIMED"),
-    durationSecondsPerUnit: z.number().int().positive().max(10 * 365 * 24 * 60 * 60),
+    durationSecondsPerUnit: z
+      .number()
+      .int()
+      .positive()
+      .max(10 * 365 * 24 * 60 * 60),
   })
   .strict();
 
 export type PremiumEntitlementFulfillmentResult =
-  | { readonly kind: "APPLIED"; readonly replayed: boolean; readonly fulfillment: PremiumFulfillmentResult }
+  | {
+      readonly kind: "APPLIED";
+      readonly replayed: boolean;
+      readonly fulfillment: PremiumFulfillmentResult;
+    }
   | { readonly kind: "ORDER_NOT_FOUND" }
   | { readonly kind: "ITEM_NOT_FOUND" }
   | { readonly kind: "ORDER_NOT_PAID"; readonly status: string }

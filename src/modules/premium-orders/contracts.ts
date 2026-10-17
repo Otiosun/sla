@@ -50,7 +50,10 @@ export const PremiumPaymentEventInputSchema = z
     eventType: z.enum(["PAID", "CANCELLED"]),
     amountCents: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     currency: z.string().regex(/^[A-Z]{3}$/),
-    payloadDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+    payloadDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .nullable(),
     correlationId: z.string().uuid().nullable(),
   })
   .strict();
@@ -67,9 +70,7 @@ export const RecordPremiumFulfillmentInputSchema = z
   })
   .strict();
 
-export type RecordPremiumFulfillmentInput = z.infer<
-  typeof RecordPremiumFulfillmentInputSchema
->;
+export type RecordPremiumFulfillmentInput = z.infer<typeof RecordPremiumFulfillmentInputSchema>;
 
 export interface PremiumOrderItemView {
   readonly id: string;

@@ -67,7 +67,9 @@ function normalize(value: unknown): unknown {
 }
 
 function fingerprint(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(normalize(value))).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify(normalize(value)))
+    .digest("hex");
 }
 
 function safeNumber(value: string | number, label: string): number {

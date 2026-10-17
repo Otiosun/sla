@@ -7,7 +7,8 @@ import { PostgresPremiumOrderRepository } from "../../src/platform/premium-order
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
-  if (value === undefined) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
+  if (value === undefined)
+    throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   return value;
 })();
 
@@ -148,7 +149,9 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
     expect(replay).toMatchObject({ kind: "CREATED", replayed: true });
     expect(conflict).toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
 
-    const count = await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM premium_orders");
+    const count = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM premium_orders",
+    );
     expect(count.rows[0]?.count).toBe("1");
   });
 
@@ -183,12 +186,16 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
       ),
     ).resolves.toEqual({ kind: "MIXED_CURRENCY" });
 
-    const count = await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM premium_orders");
+    const count = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM premium_orders",
+    );
     expect(count.rows[0]?.count).toBe("0");
   });
 
   it("applies a webhook-compatible paid event exactly once and rejects event-ID drift", async () => {
-    const created = await repository.createOrder(createInput(playerId, { idempotencyKey: "pay-order" }));
+    const created = await repository.createOrder(
+      createInput(playerId, { idempotencyKey: "pay-order" }),
+    );
     if (created.kind !== "CREATED") throw new Error("Order fixture failed");
     const event = {
       orderId: created.order.id,
@@ -222,7 +229,9 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
   });
 
   it("keeps payment mismatch pending and supports cancellation before fulfillment", async () => {
-    const created = await repository.createOrder(createInput(playerId, { idempotencyKey: "cancel-order" }));
+    const created = await repository.createOrder(
+      createInput(playerId, { idempotencyKey: "cancel-order" }),
+    );
     if (created.kind !== "CREATED") throw new Error("Order fixture failed");
 
     const mismatch = await repository.applyPaymentEvent({
@@ -288,7 +297,8 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
 
     const firstItem = paid.order.items[0];
     const secondItem = paid.order.items[1];
-    if (firstItem === undefined || secondItem === undefined) throw new Error("Order item fixture failed");
+    if (firstItem === undefined || secondItem === undefined)
+      throw new Error("Order item fixture failed");
 
     const first = await repository.recordFulfillment({
       orderId: paid.order.id,
@@ -300,8 +310,22 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
     expect(first).toMatchObject({
       kind: "APPLIED",
       replayed: false,
-      order: { status: "PAID", revision: "1", items: [expect.objectContaining({ fulfilled: true })] },
+      order: { status: "PAID", revision: "1" },
     });
+    if (first.kind === "APPLIED") {
+      expect(first.order.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: firstItem.id,
+            fulfilled: true,
+          }),
+          expect.objectContaining({
+            id: secondItem.id,
+            fulfilled: false,
+          }),
+        ]),
+      );
+    }
 
     const second = await repository.recordFulfillment({
       orderId: paid.order.id,
@@ -336,7 +360,9 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
   });
 
   it("blocks fulfillment while the order is unpaid", async () => {
-    const created = await repository.createOrder(createInput(playerId, { idempotencyKey: "unpaid-order" }));
+    const created = await repository.createOrder(
+      createInput(playerId, { idempotencyKey: "unpaid-order" }),
+    );
     if (created.kind !== "CREATED") throw new Error("Order fixture failed");
     const item = created.order.items[0];
     if (item === undefined) throw new Error("Order item fixture failed");
@@ -353,16 +379,19 @@ describe.sequential("PostgresPremiumOrderRepository", () => {
 
   it("serializes simultaneous duplicate order creation into one order plus one replay", async () => {
     const input = createInput(playerId, { idempotencyKey: "concurrent-create" });
-    const [left, right] = await Promise.all([repository.createOrder(input), repository.createOrder(input)]);
+    const [left, right] = await Promise.all([
+      repository.createOrder(input),
+      repository.createOrder(input),
+    ]);
     const created = [left, right].filter((result) => result.kind === "CREATED");
     expect(created).toHaveLength(2);
     expect(
-      created
-        .map((result) => (result.kind === "CREATED" ? result.replayed : null))
-        .sort(),
+      created.map((result) => (result.kind === "CREATED" ? result.replayed : null)).sort(),
     ).toEqual([false, true]);
 
-    const count = await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM premium_orders");
+    const count = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM premium_orders",
+    );
     expect(count.rows[0]?.count).toBe("1");
   });
 });

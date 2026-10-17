@@ -729,7 +729,19 @@ export class PostgresProgressionRepository implements ProgressionRepository {
             "Defeated species has no valid base EXP in pinned release",
           );
         }
-        const offeredXp = battlePokemonXp(baseExp, terminal.defeated.level);
+        const baseOfferedXp = battlePokemonXp(baseExp, terminal.defeated.level);
+        const multiplier = await client.query<{ multiplier: number }>(
+          `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
+          [terminal.playerId],
+        );
+        const pokemonXpMultiplier = multiplier.rows[0]?.multiplier ?? 1;
+        if (pokemonXpMultiplier !== 1 && pokemonXpMultiplier !== 2) {
+          throw new ProgressionStateViolation("Pokemon battle XP multiplier is invalid");
+        }
+        const offeredXp = baseOfferedXp * pokemonXpMultiplier;
+        if (!Number.isSafeInteger(offeredXp)) {
+          throw new ProgressionStateViolation("Pokemon battle XP offer overflow JS safe range");
+        }
         const pokemonResult = await this.applyPositivePokemonXp(client, {
           playerId: terminal.playerId,
           contentReleaseId: battleRow.content_release_id,
@@ -742,7 +754,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           source: {
             sourceType: "BATTLE_REWARD",
             sourceId: input.battleId,
-            reason: "Battle reward XP",
+            reason:
+              pokemonXpMultiplier === 2 ? "Battle reward XP · Premium 2×" : "Battle reward XP",
             actorType: "SYSTEM",
             actorId: null,
             idempotencyScope: "progression.battle-reward.xp",
