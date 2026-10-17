@@ -1,6 +1,6 @@
 import {
-  trainerProfessionDisplayName,
   type TrainerProfessionSelection,
+  trainerProfessionDisplayName,
 } from "../player/professions.js";
 import type { RegistrationConversationField } from "./conversation-session.js";
 

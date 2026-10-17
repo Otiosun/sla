@@ -4,8 +4,8 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
-import { parseSpawnCommand } from "./spawn-command.js";
 import type { EncounterService } from "./service.js";
+import { parseSpawnCommand } from "./spawn-command.js";
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;
 

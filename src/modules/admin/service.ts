@@ -13,6 +13,7 @@ import {
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 import {
   type AdminOperationDefinition,
+  type AdminOperationExecutionMode,
   type AdminOperationRegistry,
   adminRequestFingerprint,
 } from "./operation-registry.js";
@@ -95,14 +96,17 @@ export class AdminService {
   ) {}
 
   public listOperationDefinitions() {
-    return this.registry.list().map((definition) => ({
-      kind: definition.kind,
-      operationType: definition.operationType,
-      capabilityKey: definition.capabilityKey,
-      riskTier: definition.riskTier,
-      authorizationMode: definition.authorizationMode,
-      policy: { ...definition.policy },
-    }));
+    return this.registry
+      .list()
+      .filter((definition) => definition.executionMode === "STANDARD")
+      .map((definition) => ({
+        kind: definition.kind,
+        operationType: definition.operationType,
+        capabilityKey: definition.capabilityKey,
+        riskTier: definition.riskTier,
+        authorizationMode: definition.authorizationMode,
+        policy: { ...definition.policy },
+      }));
   }
 
   private async requireAuthorized(
@@ -163,7 +167,10 @@ export class AdminService {
     return target;
   }
 
-  public async prepareMutation(rawRequest: unknown): Promise<AdminPreparedOperation> {
+  private async prepareMutationForExecutionMode(
+    rawRequest: unknown,
+    executionMode: AdminOperationExecutionMode,
+  ): Promise<AdminPreparedOperation> {
     const parsed = AdminMutationRequestSchema.safeParse(rawRequest);
     if (!parsed.success) {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid admin mutation request");
@@ -173,6 +180,14 @@ export class AdminService {
       throw new AdminError(
         ADMIN_ERROR_CODES.OPERATION_KIND_MISMATCH,
         "Read operation cannot be prepared as a mutation",
+      );
+    }
+    if (definition.executionMode !== executionMode) {
+      throw new AdminError(
+        ADMIN_ERROR_CODES.OPERATION_KIND_MISMATCH,
+        executionMode === "STANDARD"
+          ? "Specialized sensitive mutation cannot be prepared through the generic admin surface"
+          : "Standard mutation cannot be prepared through the ephemeral-sensitive surface",
       );
     }
     const input = definition.parseInput(parsed.data.input);
@@ -228,6 +243,16 @@ export class AdminService {
       );
     }
     return { operation: created.operation, replayed: created.replayed };
+  }
+
+  public async prepareMutation(rawRequest: unknown): Promise<AdminPreparedOperation> {
+    return this.prepareMutationForExecutionMode(rawRequest, "STANDARD");
+  }
+
+  public async prepareEphemeralSensitiveMutation(
+    rawRequest: unknown,
+  ): Promise<AdminPreparedOperation> {
+    return this.prepareMutationForExecutionMode(rawRequest, "EPHEMERAL_SENSITIVE");
   }
 
   public async simulate(
@@ -315,6 +340,12 @@ export class AdminService {
     const operation = await this.requireOperation(operationId);
     if (operation.status === "APPLIED") return operation;
     const definition = this.registry.require(operation.operationType);
+    if (definition.executionMode !== "STANDARD") {
+      throw new AdminError(
+        ADMIN_ERROR_CODES.INVALID_OPERATION_STATE,
+        "Specialized sensitive mutation cannot be applied through the generic admin surface",
+      );
+    }
     const input = definition.parseInput(operation.input);
     const target = requireOperationDefinitionSnapshot(operation, definition, input);
     await this.requireAuthorized(actorPrincipalId, definition, target);

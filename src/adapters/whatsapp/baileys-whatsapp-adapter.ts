@@ -8,11 +8,11 @@ import type {
   WhatsAppIncomingHandler,
   WhatsAppProviderConnectionState,
 } from "./adapter.js";
-import { normalizeBaileysMessage } from "./baileys-normalizer.js";
 import {
   messageReceiptDiagnostics,
   messageUpdateDiagnostics,
 } from "./baileys-delivery-observability.js";
+import { normalizeBaileysMessage } from "./baileys-normalizer.js";
 import type {
   BaileysConnectionUpdateLike,
   BaileysEventSourceLike,

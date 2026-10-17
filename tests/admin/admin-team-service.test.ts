@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { AdminTeamService } from "../../src/modules/admin/team-service.js";
 import type { AdminTeamRepository } from "../../src/modules/admin/team-ports.js";
+import { AdminTeamService } from "../../src/modules/admin/team-service.js";
 
 function repository(overrides: Partial<AdminTeamRepository> = {}): AdminTeamRepository {
   return {

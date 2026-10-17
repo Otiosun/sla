@@ -1,10 +1,10 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { BattleRuntimeService } from "../battle/runtime.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
-import type { BattleRuntimeService } from "../battle/runtime.js";
 import type { PvpService } from "./service.js";
 
 type Handler = (context: MessageHandlerContext) => Promise<Result<MessageHandlerResult>>;

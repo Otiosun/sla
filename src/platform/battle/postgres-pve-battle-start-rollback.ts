@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
-import type { PlayerId } from "../../shared-kernel/ids.js";
 import type { PveBattleStartRollbackPort } from "../../modules/battle/pve-battle-start.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
 export class PostgresPveBattleStartRollback implements PveBattleStartRollbackPort {

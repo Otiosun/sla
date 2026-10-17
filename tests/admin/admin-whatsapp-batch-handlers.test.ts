@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import {
-  createAdminBatchWhatsAppRoutes,
   type AdminWhatsAppBatchDependencies,
+  createAdminBatchWhatsAppRoutes,
 } from "../../src/modules/admin/whatsapp-batch-handlers.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 
 const PRINCIPAL_ID = "00000000-0000-4000-8000-000000000001";
 const PLAYER_ID = "00000000-0000-4000-8000-000000000002";

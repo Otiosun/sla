@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { TRAINER_PROFESSIONS, type TrainerProfessionId } from "./professions.js";
 import type { CorrelationId, PlayerId, PokemonInstanceId } from "../../shared-kernel/ids.js";
+import { TRAINER_PROFESSIONS, type TrainerProfessionId } from "./professions.js";
 
 export const OnboardingStateSchema = z.enum([
   "NEW",

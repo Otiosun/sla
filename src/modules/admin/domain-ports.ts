@@ -8,9 +8,9 @@ import type {
   AdminPokemonEffectRemoveInput,
   AdminPokemonHpCorrectInput,
   AdminPokemonProgressCorrectInput,
-  AdminPokemonXpAdjustInput,
   AdminPokemonRosterMoveInput,
   AdminPokemonStatusCorrectInput,
+  AdminPokemonXpAdjustInput,
   AdminTrainerProgressAdjustInput,
   AdminWalletAdjustInput,
 } from "./domain-contracts.js";

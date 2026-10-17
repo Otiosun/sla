@@ -1,5 +1,4 @@
 import type { Pool, PoolClient } from "pg";
-import { BattleStateSchema } from "../../modules/battle/contracts.js";
 import {
   type Player360ActivityView,
   type Player360BattleView,
@@ -18,6 +17,7 @@ import type {
   Player360ReadRepository,
   Player360SearchQuery,
 } from "../../modules/admin/player360-ports.js";
+import { BattleStateSchema } from "../../modules/battle/contracts.js";
 import { withTransaction } from "../db/transaction.js";
 
 function iso(value: Date): string {

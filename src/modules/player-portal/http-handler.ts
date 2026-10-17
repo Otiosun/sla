@@ -1,14 +1,14 @@
+import type { AppError } from "../../shared-kernel/result.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
 import type { AdminTeamService } from "../admin/team-service.js";
-import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
+import type { ExternalIdentity } from "../player/contracts.js";
 import {
   AdminOperationApprovalRequestSchema,
   AdminOperationPrepareRequestSchema,
 } from "./admin-operation-contracts.js";
-import type { AppError } from "../../shared-kernel/result.js";
-import type { ExternalIdentity } from "../player/contracts.js";
+import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
 import type { PlayerPortalMoveChoiceService } from "./move-choice-service.js";
 import type { PlayerPortalProfileCustomizationService } from "./profile-customization-service.js";

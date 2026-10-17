@@ -1,6 +1,6 @@
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { isTrainerProfessionId, type TrainerProfessionId } from "../player/professions.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { isTrainerProfessionId, type TrainerProfessionId } from "../player/professions.js";
 import type { PlayerAccessRecord, PlayerAccessRepository } from "./player-access-ports.js";
 import type { RegistrationRepository, RegistrationRevisionRecord } from "./ports.js";
 import type { PlayerActivationAnnouncementPort } from "./provisioning-announcement.js";

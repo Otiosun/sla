@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { AdminAuditService } from "../../src/modules/admin/audit-service.js";
 import type { AdminAuditRepository } from "../../src/modules/admin/audit-ports.js";
+import { AdminAuditService } from "../../src/modules/admin/audit-service.js";
 
 function repository(): AdminAuditRepository {
   return {

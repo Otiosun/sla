@@ -1,6 +1,6 @@
-import type { AdminService } from "./service.js";
 import type { AdminRewardCatalogView } from "./reward-catalog-contracts.js";
 import type { AdminRewardCatalogRepository } from "./reward-catalog-ports.js";
+import type { AdminService } from "./service.js";
 
 export interface AdminRewardCatalogSections {
   readonly items: boolean;

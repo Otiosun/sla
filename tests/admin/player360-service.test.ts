@@ -80,6 +80,25 @@ describe("Player360Service", () => {
     expect(operations).toEqual([]);
   });
 
+  it("routes a formatted WhatsApp query through the sensitive identity filter while keeping returned identities masked", async () => {
+    const { operations, repository, service } = harness();
+
+    await service.search({
+      principalId,
+      trainerNamePrefix: "+55 (79) 99999-1234",
+      includeSensitive: false,
+      limit: 20,
+    });
+
+    expect(operations).toEqual(["player.search", "player.search_sensitive"]);
+    expect(repository.lastSearch).toMatchObject({
+      trainerNamePrefix: null,
+      identityProvider: "baileys",
+      externalId: "5579999991234@s.whatsapp.net",
+      includeSensitive: false,
+    });
+  });
+
   it("round-trips an opaque stable cursor without exposing raw SQL controls", async () => {
     const { operations, repository, service } = harness();
     const first = await service.search({ principalId, trainerNamePrefix: "Re", limit: 1 });

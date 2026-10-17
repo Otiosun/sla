@@ -1,16 +1,16 @@
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { AdminRewardCatalogService } from "./reward-catalog-service.js";
-import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
-import type { AdminService } from "./service.js";
-import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
-import type { MessageRouteHandler } from "../messaging/ports.js";
-import type { CommandRouteDefinition } from "../messaging/router.js";
+import type { AdminBatchWhatsAppPreviewRef } from "../../platform/admin/postgres-admin-batch-whatsapp-preview-ref-repository.js";
 import type {
   AdminWhatsAppNameResolution,
   AdminWhatsAppPlayerTarget,
 } from "../../platform/admin/postgres-admin-whatsapp-player-target-resolver.js";
 import type { AdminWhatsAppPokemonResolution } from "../../platform/admin/postgres-admin-whatsapp-pokemon-target-resolver.js";
-import type { AdminBatchWhatsAppPreviewRef } from "../../platform/admin/postgres-admin-batch-whatsapp-preview-ref-repository.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import type { MessageRouteHandler } from "../messaging/ports.js";
+import type { CommandRouteDefinition } from "../messaging/router.js";
+import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
+import type { AdminRewardCatalogService } from "./reward-catalog-service.js";
+import type { AdminService } from "./service.js";
 
 interface AdminIdentityResolver {
   resolvePrincipal(input: {

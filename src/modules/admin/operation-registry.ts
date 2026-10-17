@@ -11,6 +11,8 @@ import type {
 } from "./contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "./errors.js";
 
+export type AdminOperationExecutionMode = "STANDARD" | "EPHEMERAL_SENSITIVE";
+
 export interface AdminOperationApplyContext {
   readonly operation: AdminOperationRecord;
   readonly actorPrincipalId: string;
@@ -23,6 +25,7 @@ export interface AdminOperationDefinition {
   readonly riskTier: AdminRiskTier;
   readonly authorizationMode: AdminAuthorizationMode;
   readonly policy: AdminOperationPolicy;
+  readonly executionMode: AdminOperationExecutionMode;
   parseInput(raw: unknown): unknown;
   target(input: unknown): AdminTarget;
   simulate?: (input: unknown) => Promise<AdminSimulationResult>;
@@ -36,6 +39,7 @@ interface DefineAdminOperationInput<T> {
   readonly riskTier: AdminRiskTier;
   readonly authorizationMode: AdminAuthorizationMode;
   readonly policy: AdminOperationPolicy;
+  readonly executionMode?: AdminOperationExecutionMode;
   readonly inputSchema: z.ZodType<T>;
   readonly target: (input: T) => AdminTarget;
   readonly simulate?: (input: T) => Promise<AdminSimulationResult>;
@@ -45,6 +49,7 @@ interface DefineAdminOperationInput<T> {
 export function defineAdminOperation<T>(
   input: DefineAdminOperationInput<T>,
 ): AdminOperationDefinition {
+  const executionMode = input.executionMode ?? "STANDARD";
   if (input.kind === "READ") {
     if (
       input.policy.requiresReason ||
@@ -53,7 +58,8 @@ export function defineAdminOperation<T>(
       input.policy.requiresConfirmation ||
       input.policy.requiredApprovals !== 0 ||
       input.simulate !== undefined ||
-      input.apply !== undefined
+      input.apply !== undefined ||
+      executionMode !== "STANDARD"
     ) {
       throw new AdminError(
         ADMIN_ERROR_CODES.INVALID_INPUT,
@@ -67,6 +73,12 @@ export function defineAdminOperation<T>(
       `Only mutations can require approvals: ${input.operationType}`,
     );
   }
+  if (executionMode === "EPHEMERAL_SENSITIVE" && input.kind !== "MUTATION") {
+    throw new AdminError(
+      ADMIN_ERROR_CODES.INVALID_INPUT,
+      `Ephemeral-sensitive operation ${input.operationType} must be a mutation`,
+    );
+  }
   return {
     kind: input.kind,
     operationType: input.operationType,
@@ -74,6 +86,7 @@ export function defineAdminOperation<T>(
     riskTier: input.riskTier,
     authorizationMode: input.authorizationMode,
     policy: input.policy,
+    executionMode,
     parseInput(raw: unknown): T {
       const parsed = input.inputSchema.safeParse(raw);
       if (!parsed.success) {
