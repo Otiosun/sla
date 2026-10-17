@@ -33,7 +33,10 @@ export class PostgresAdminPlayerIdentityOwner implements AdminPlayerIdentityChan
   }): Promise<AdminOperationRecord> {
     const operationInput = AdminPlayerWhatsAppChangeInputSchema.safeParse(input.operation.input);
     if (!operationInput.success) {
-      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid persisted identity operation input");
+      throw new AdminError(
+        ADMIN_ERROR_CODES.INVALID_INPUT,
+        "Invalid persisted identity operation input",
+      );
     }
     if (
       input.operation.operationType !== "player.identity.whatsapp.change" ||
