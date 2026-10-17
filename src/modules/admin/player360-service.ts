@@ -8,6 +8,7 @@ import {
   type Player360View,
 } from "./player360-contracts.js";
 import type { Player360ReadRepository } from "./player360-ports.js";
+import { classifyAdminPlayerSearchQuery } from "./player-search-query.js";
 import type { AdminService } from "./service.js";
 
 const Player360SearchCursorSchema = z
@@ -74,12 +75,19 @@ export class Player360Service {
       throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid Player 360 search request");
     }
 
+    const classifiedQuery = classifyAdminPlayerSearchQuery(parsed.data.trainerNamePrefix ?? null);
+    const whatsappQuery = classifiedQuery.kind === "WHATSAPP" ? classifiedQuery : null;
+    const hasExplicitIdentityFilter =
+      parsed.data.identityProvider !== undefined || parsed.data.externalId !== undefined;
+    const requiresSensitiveSearch =
+      parsed.data.includeSensitive || whatsappQuery !== null || hasExplicitIdentityFilter;
+
     await this.authorizer.authorizeRead({
       principalId: parsed.data.principalId,
       operationType: "player.search",
       input: {},
     });
-    if (parsed.data.includeSensitive) {
+    if (requiresSensitiveSearch) {
       await this.authorizer.authorizeRead({
         principalId: parsed.data.principalId,
         operationType: "player.search_sensitive",
@@ -89,10 +97,10 @@ export class Player360Service {
 
     const result = await this.repository.searchPlayers({
       status: parsed.data.status ?? null,
-      trainerNamePrefix: parsed.data.trainerNamePrefix ?? null,
+      trainerNamePrefix: whatsappQuery === null ? (parsed.data.trainerNamePrefix ?? null) : null,
       originRegionId: parsed.data.originRegionId ?? null,
-      identityProvider: parsed.data.identityProvider ?? null,
-      externalId: parsed.data.externalId ?? null,
+      identityProvider: whatsappQuery?.identityProvider ?? parsed.data.identityProvider ?? null,
+      externalId: whatsappQuery?.externalId ?? parsed.data.externalId ?? null,
       includeSensitive: parsed.data.includeSensitive,
       limit: parsed.data.limit,
       cursor: decodeCursor(parsed.data.cursor),
