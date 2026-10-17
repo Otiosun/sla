@@ -74,17 +74,14 @@ function harness(owner = true) {
 }
 
 function changeRequest(token: string, body: Readonly<Record<string, unknown>>) {
-  return new Request(
-    `https://hub.example/v1/hub/admin/players/${playerId}/whatsapp-identity`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: `__Host-pokemon_hub_session=${token}`,
-      },
-      body: JSON.stringify(body),
+  return new Request(`https://hub.example/v1/hub/admin/players/${playerId}/whatsapp-identity`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: `__Host-pokemon_hub_session=${token}`,
     },
-  );
+    body: JSON.stringify(body),
+  });
 }
 
 const validBody = {
@@ -98,9 +95,9 @@ const validBody = {
 describe("AdminPlayerIdentityHttpHandler", () => {
   it("ignores unrelated routes", async () => {
     const { handler } = harness();
-    await expect(handler.handle(new Request("https://hub.example/v1/hub/player/self"))).resolves.toBe(
-      null,
-    );
+    await expect(
+      handler.handle(new Request("https://hub.example/v1/hub/player/self")),
+    ).resolves.toBe(null);
   });
 
   it("requires an authenticated session and the protected owner role", async () => {
@@ -112,9 +109,7 @@ describe("AdminPlayerIdentityHttpHandler", () => {
 
   it("requires explicit confirmation before the sensitive mutation", async () => {
     const { handler, token, changeWhatsApp } = harness();
-    const response = await handler.handle(
-      changeRequest(token, { ...validBody, confirmed: false }),
-    );
+    const response = await handler.handle(changeRequest(token, { ...validBody, confirmed: false }));
     expect(response?.status).toBe(400);
     expect(changeWhatsApp).not.toHaveBeenCalled();
   });
