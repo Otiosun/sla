@@ -17,7 +17,10 @@ export class AdminPlayerIdentityService {
   public async changeWhatsApp(rawRequest: unknown) {
     const parsed = AdminPlayerWhatsAppChangeRequestSchema.safeParse(rawRequest);
     if (!parsed.success) {
-      throw new AdminError(ADMIN_ERROR_CODES.INVALID_INPUT, "Invalid WhatsApp identity change request");
+      throw new AdminError(
+        ADMIN_ERROR_CODES.INVALID_INPUT,
+        "Invalid WhatsApp identity change request",
+      );
     }
 
     const request = parsed.data;
