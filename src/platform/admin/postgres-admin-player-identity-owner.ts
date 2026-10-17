@@ -48,7 +48,8 @@ export class PostgresAdminPlayerIdentityOwner implements AdminPlayerIdentityChan
         "Player identity operation target drift detected",
       );
     }
-    if (input.operation.expectedRevision === null) {
+    const expectedRevision = input.operation.expectedRevision;
+    if (expectedRevision === null) {
       throw new AdminError(
         ADMIN_ERROR_CODES.EXPECTED_REVISION_REQUIRED,
         "Player identity change requires expectedRevision",
@@ -104,9 +105,9 @@ export class PostgresAdminPlayerIdentityOwner implements AdminPlayerIdentityChan
         throw new AdminError(ADMIN_ERROR_CODES.TARGET_NOT_FOUND, "Player not found");
       }
       const currentRevision = BigInt(playerRow.revision);
-      if (currentRevision !== input.operation.expectedRevision) {
+      if (currentRevision !== expectedRevision) {
         throw new AdminError(ADMIN_ERROR_CODES.REVISION_CONFLICT, "Player revision changed", {
-          expectedRevision: input.operation.expectedRevision.toString(),
+          expectedRevision: expectedRevision.toString(),
           actualRevision: currentRevision.toString(),
         });
       }
