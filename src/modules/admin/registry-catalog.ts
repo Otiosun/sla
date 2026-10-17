@@ -58,6 +58,7 @@ export const ADMIN_CAPABILITIES = [
   ["batch.execute.low_risk", 3],
   ["admin_operation.compensate", 3],
   ["player.reset.full", 4],
+  ["player.identity.change", 4],
   ["content.publish", 4],
   ["content.rollback_release", 4],
   ["batch.execute.high_risk", 4],
@@ -79,11 +80,12 @@ const RECEPTION_REVIEW_CAPABILITIES = [
 
 const SENIOR_CAPABILITIES = ADMIN_CAPABILITIES.filter(([, risk]) => risk <= 3).map(([key]) => key);
 const OWNER_CAPABILITIES = ADMIN_CAPABILITIES.map(([key]) => key);
+const MASTER_CAPABILITIES = OWNER_CAPABILITIES.filter((key) => key !== "player.identity.change");
 
 export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapabilityKey[]>> = {
   RECEPTION_MOD: RECEPTION_REVIEW_CAPABILITIES,
   ADMIN: SENIOR_CAPABILITIES,
-  MASTER_ADMIN: OWNER_CAPABILITIES,
+  MASTER_ADMIN: MASTER_CAPABILITIES,
   SUPPORT: [
     "central.view",
     "player.read",
