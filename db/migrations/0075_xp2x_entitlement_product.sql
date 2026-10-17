@@ -63,5 +63,25 @@ SET title = EXCLUDED.title,
     metadata = EXCLUDED.metadata,
     updated_at = now();
 
+CREATE FUNCTION pokemon_battle_xp_multiplier_for(p_player_id UUID, p_at TIMESTAMPTZ)
+RETURNS SMALLINT
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE WHEN EXISTS (
+    SELECT 1
+    FROM player_entitlements entitlement
+    WHERE entitlement.player_id = p_player_id
+      AND entitlement.entitlement_key = 'XP_2X'
+      AND entitlement.grant_model = 'TIMED'
+      AND entitlement.administrative_status = 'ACTIVE'
+      AND entitlement.starts_at <= p_at
+      AND entitlement.expires_at IS NOT NULL
+      AND entitlement.expires_at > p_at
+  ) THEN 2::SMALLINT ELSE 1::SMALLINT END;
+$$;
+
 COMMENT ON COLUMN premium_product_definitions.max_quantity IS
   'Server-authoritative per-order SKU quantity limit. The client may display this value but may not override it.';
+COMMENT ON FUNCTION pokemon_battle_xp_multiplier_for(UUID, TIMESTAMPTZ) IS
+  'Returns exactly 2 only while XP_2X is active. Intended exclusively for automatic Pokémon battle XP calculation.';
