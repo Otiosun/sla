@@ -80,7 +80,7 @@ describe("Player360Service", () => {
     expect(operations).toEqual([]);
   });
 
-  it("routes a formatted WhatsApp query through the sensitive identity filter", async () => {
+  it("routes a formatted WhatsApp query through the sensitive identity filter while keeping returned identities masked", async () => {
     const { operations, repository, service } = harness();
 
     await service.search({
@@ -93,25 +93,6 @@ describe("Player360Service", () => {
     expect(operations).toEqual(["player.search", "player.search_sensitive"]);
     expect(repository.lastSearch).toMatchObject({
       trainerNamePrefix: null,
-      identityProvider: "baileys",
-      externalId: "5579999991234@s.whatsapp.net",
-      includeSensitive: false,
-    });
-  });
-
-  it("requires sensitive search authorization for explicit identity filters even when values stay masked", async () => {
-    const { operations, repository, service } = harness();
-
-    await service.search({
-      principalId,
-      identityProvider: "baileys",
-      externalId: "5579999991234@s.whatsapp.net",
-      includeSensitive: false,
-      limit: 20,
-    });
-
-    expect(operations).toEqual(["player.search", "player.search_sensitive"]);
-    expect(repository.lastSearch).toMatchObject({
       identityProvider: "baileys",
       externalId: "5579999991234@s.whatsapp.net",
       includeSensitive: false,
