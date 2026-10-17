@@ -134,7 +134,10 @@ export class PostgresEntitlementRepository implements EntitlementRepository {
       const player = await client.query(`SELECT 1 FROM players WHERE id = $1`, [input.playerId]);
       if (player.rowCount !== 1) return { kind: "PLAYER_NOT_FOUND" };
 
-      const definition = await client.query<{ grant_model: EntitlementGrantModel; active: boolean }>(
+      const definition = await client.query<{
+        grant_model: EntitlementGrantModel;
+        active: boolean;
+      }>(
         `SELECT grant_model, active
          FROM entitlement_definitions
          WHERE key = $1`,
@@ -179,7 +182,8 @@ export class PostgresEntitlementRepository implements EntitlementRepository {
           previous.expires_at !== null &&
           previous.expires_at > now;
         if (previousStillActive) resultingStartsAt = previous.starts_at;
-        const base = previousStillActive && previous.expires_at !== null ? previous.expires_at : now;
+        const base =
+          previousStillActive && previous.expires_at !== null ? previous.expires_at : now;
         resultingExpiresAt = new Date(base.getTime() + durationSeconds * 1000);
       }
 
