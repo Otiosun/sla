@@ -10,7 +10,7 @@ import type { AdminService } from "./service.js";
 
 export class AdminPlayerIdentityService {
   public constructor(
-    private readonly admin: Pick<AdminService, "prepareMutation">,
+    private readonly admin: Pick<AdminService, "prepareEphemeralSensitiveMutation">,
     private readonly owner: AdminPlayerIdentityChangeOwner,
   ) {}
 
@@ -31,7 +31,7 @@ export class AdminPlayerIdentityService {
       newIdentityDigest: adminPlayerIdentityDigest(request.playerId, externalId),
       newIdentityLast4: externalIdentityLast4(externalId),
     };
-    const prepared = await this.admin.prepareMutation({
+    const prepared = await this.admin.prepareEphemeralSensitiveMutation({
       principalId: request.principalId,
       operationType: "player.identity.whatsapp.change",
       input: sanitizedInput,
