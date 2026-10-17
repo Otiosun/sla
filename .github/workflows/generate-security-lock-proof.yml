@@ -1,0 +1,49 @@
+name: Generate Security Lock Proof
+
+on:
+  push:
+    branches:
+      - gate/site-premium-security-proof-v3-20261016
+    paths:
+      - .github/workflows/generate-security-lock-proof.yml
+
+permissions:
+  contents: write
+
+jobs:
+  generate-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout proof branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup exact Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+          check-latest: false
+
+      - name: Install exact pnpm
+        run: npm install --global pnpm@11.23.0
+
+      - name: Regenerate lockfile from patched dependency policy
+        run: pnpm install --lockfile-only
+
+      - name: Verify frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify production audit has no high or critical advisory
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Commit generated lockfile to proof branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            echo "Lockfile already canonical."
+            exit 0
+          fi
+          git commit -m "fix(security): refresh lockfile for sharp 0.35.5"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
