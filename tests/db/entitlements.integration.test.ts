@@ -74,10 +74,10 @@ describe.sequential("PostgresEntitlementRepository", () => {
     now = new Date("2026-10-16T12:00:00.000Z");
     playerId = randomUUID();
     secondPlayerId = randomUUID();
-    await pool.query(
-      `INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`,
-      [playerId, secondPlayerId],
-    );
+    await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE'), ($2, 'ACTIVE')`, [
+      playerId,
+      secondPlayerId,
+    ]);
     await pool.query(
       `INSERT INTO entitlement_definitions(key, grant_model, active, metadata) VALUES
        ('XP_2X', 'TIMED', TRUE, '{"family":"XP"}'::jsonb),
