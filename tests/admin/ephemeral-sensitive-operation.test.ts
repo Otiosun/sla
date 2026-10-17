@@ -48,9 +48,9 @@ function harness() {
   const repository: AdminOperationRepository = {
     getAuthorizationSnapshot: vi.fn(async () => ({
       principalId,
-      status: "ACTIVE",
-      capabilities: [{ key: "player.identity.change", riskTier: 4 }],
-      scopes: [{ scopeType: "GLOBAL", scopeId: null }],
+      status: "ACTIVE" as const,
+      capabilities: [{ key: "player.identity.change", riskTier: 4 as const }],
+      scopes: [{ scopeType: "GLOBAL" as const, scopeId: null }],
     })),
     createOrReplayOperation: vi.fn(async (input) => {
       stored = operationFrom(input);
