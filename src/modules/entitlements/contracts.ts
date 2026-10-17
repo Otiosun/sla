@@ -8,7 +8,12 @@ export const EntitlementGrantInputSchema = z
     playerId: z.string().uuid(),
     entitlementKey: z.string().regex(/^[A-Z0-9][A-Z0-9_.:-]{1,127}$/),
     grantModel: EntitlementGrantModelSchema,
-    durationSeconds: z.number().int().positive().max(10 * 365 * 24 * 60 * 60).nullable(),
+    durationSeconds: z
+      .number()
+      .int()
+      .positive()
+      .max(10 * 365 * 24 * 60 * 60)
+      .nullable(),
     sourceType: z.string().min(1).max(64),
     sourceId: z.string().min(1).max(256),
     actorType: z.enum(["SYSTEM", "ADMIN"]),
@@ -57,7 +62,11 @@ export interface PlayerEntitlementView {
 }
 
 export type EntitlementGrantResult =
-  | { readonly kind: "APPLIED"; readonly replayed: boolean; readonly entitlement: PlayerEntitlementView }
+  | {
+      readonly kind: "APPLIED";
+      readonly replayed: boolean;
+      readonly entitlement: PlayerEntitlementView;
+    }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "PLAYER_NOT_FOUND" }
   | { readonly kind: "DEFINITION_NOT_FOUND" }
