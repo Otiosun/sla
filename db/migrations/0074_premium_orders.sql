@@ -10,6 +10,7 @@ CREATE TABLE premium_product_definitions (
   title TEXT NOT NULL CHECK (char_length(title) BETWEEN 1 AND 160),
   currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
   unit_price_cents BIGINT NOT NULL CHECK (unit_price_cents > 0),
+  max_quantity SMALLINT NOT NULL DEFAULT 99 CHECK (max_quantity BETWEEN 1 AND 99),
   active BOOLEAN NOT NULL DEFAULT TRUE,
   fulfillment_kind TEXT NOT NULL
     CHECK (fulfillment_kind IN ('ENTITLEMENT', 'POKEMON_PACKAGE', 'MANUAL')),
@@ -108,7 +109,7 @@ CREATE INDEX idx_premium_fulfillment_events_order
   ON premium_fulfillment_events(order_id, created_at);
 
 COMMENT ON TABLE premium_product_definitions IS
-  'Server-authoritative premium product catalog. The client may request a SKU but never supplies authoritative price or fulfillment semantics.';
+  'Server-authoritative premium product catalog. Client requests a SKU/quantity; server owns price, quantity limit and fulfillment semantics.';
 COMMENT ON TABLE premium_orders IS
   'Premium order header with public human ID and technical UUID. Payment and fulfillment are independent state transitions.';
 COMMENT ON TABLE premium_order_items IS

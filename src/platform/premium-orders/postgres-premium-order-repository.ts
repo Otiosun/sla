@@ -20,6 +20,7 @@ interface ProductRow {
   title: string;
   currency: string;
   unit_price_cents: string;
+  max_quantity: number;
   active: boolean;
   fulfillment_kind: PremiumFulfillmentKind;
   fulfillment_payload: Record<string, unknown>;
@@ -71,7 +72,9 @@ function fingerprint(value: unknown): string {
 
 function safeNumber(value: string | number, label: string): number {
   const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isSafeInteger(parsed)) throw new Error(`${label} exceeds the JavaScript safe integer range`);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${label} exceeds the JavaScript safe integer range`);
+  }
   return parsed;
 }
 
@@ -193,7 +196,9 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
           return { kind: "IDEMPOTENCY_CONFLICT" };
         }
         const order = await loadOrder(client, replayRow.id);
-        if (order === null) throw new Error("Premium order disappeared during idempotent replay");
+        if (order === null) {
+          throw new Error("Premium order disappeared during idempotent replay");
+        }
         return { kind: "CREATED", replayed: true, order };
       }
 
@@ -205,7 +210,7 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
 
       const requestedSkus = input.items.map((item) => item.sku);
       const products = await client.query<ProductRow>(
-        `SELECT sku, title, currency, unit_price_cents::text, active,
+        `SELECT sku, title, currency, unit_price_cents::text, max_quantity, active,
                 fulfillment_kind, fulfillment_payload
          FROM premium_product_definitions
          WHERE sku = ANY($1::text[])`,
@@ -217,6 +222,13 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
         const product = productBySku.get(item.sku);
         if (product === undefined) return { kind: "PRODUCT_NOT_FOUND", sku: item.sku };
         if (!product.active) return { kind: "PRODUCT_INACTIVE", sku: item.sku };
+        if (item.quantity > product.max_quantity) {
+          return {
+            kind: "QUANTITY_LIMIT",
+            sku: item.sku,
+            maxQuantity: product.max_quantity,
+          };
+        }
       }
 
       const currencies = new Set(input.items.map((item) => productBySku.get(item.sku)?.currency));
@@ -227,12 +239,18 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
       let totalCents = 0;
       const snapshot = input.items.map((item, index) => {
         const product = productBySku.get(item.sku);
-        if (product === undefined) throw new Error("Premium product disappeared during snapshot");
+        if (product === undefined) {
+          throw new Error("Premium product disappeared during snapshot");
+        }
         const unitPriceCents = safeNumber(product.unit_price_cents, "Premium product price");
         const lineTotalCents = unitPriceCents * item.quantity;
-        if (!Number.isSafeInteger(lineTotalCents)) throw new Error("Premium order line total exceeds safe range");
+        if (!Number.isSafeInteger(lineTotalCents)) {
+          throw new Error("Premium order line total exceeds safe range");
+        }
         totalCents += lineTotalCents;
-        if (!Number.isSafeInteger(totalCents)) throw new Error("Premium order total exceeds safe range");
+        if (!Number.isSafeInteger(totalCents)) {
+          throw new Error("Premium order total exceeds safe range");
+        }
         return { item, product, lineNo: index + 1, unitPriceCents, lineTotalCents };
       });
 
@@ -240,7 +258,9 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
         `SELECT nextval('premium_order_human_seq')::text AS value`,
       );
       const sequenceValue = sequence.rows[0]?.value;
-      if (sequenceValue === undefined) throw new Error("Premium order sequence did not return a value");
+      if (sequenceValue === undefined) {
+        throw new Error("Premium order sequence did not return a value");
+      }
       const humanId = `PB-${sequenceValue.padStart(8, "0")}`;
       const orderId = randomUUID();
       const createdAt = this.now();
@@ -319,7 +339,9 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
           return { kind: "IDEMPOTENCY_CONFLICT" };
         }
         const order = await loadOrder(client, replayRow.order_id);
-        if (order === null) throw new Error("Premium order disappeared during payment replay");
+        if (order === null) {
+          throw new Error("Premium order disappeared during payment replay");
+        }
         return { kind: "APPLIED", replayed: true, order };
       }
 
@@ -332,7 +354,10 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
       const orderRow = locked.rows[0];
       if (orderRow === undefined) return { kind: "ORDER_NOT_FOUND" };
 
-      if (orderRow.currency !== input.currency || safeNumber(orderRow.total_cents, "Premium order total") !== input.amountCents) {
+      if (
+        orderRow.currency !== input.currency ||
+        safeNumber(orderRow.total_cents, "Premium order total") !== input.amountCents
+      ) {
         return { kind: "PAYMENT_MISMATCH" };
       }
 
@@ -416,7 +441,9 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
           return { kind: "IDEMPOTENCY_CONFLICT" };
         }
         const order = await loadOrder(client, replayRow.order_id);
-        if (order === null) throw new Error("Premium order disappeared during fulfillment replay");
+        if (order === null) {
+          throw new Error("Premium order disappeared during fulfillment replay");
+        }
         return { kind: "APPLIED", replayed: true, order };
       }
 
@@ -465,7 +492,9 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
         [input.orderId],
       );
       const countRow = counts.rows[0];
-      if (countRow === undefined) throw new Error("Premium fulfillment count query returned no row");
+      if (countRow === undefined) {
+        throw new Error("Premium fulfillment count query returned no row");
+      }
       if (countRow.total === countRow.fulfilled) {
         await client.query(
           `UPDATE premium_orders

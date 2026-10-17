@@ -105,6 +105,7 @@ export type CreatePremiumOrderResult =
   | { readonly kind: "PLAYER_NOT_FOUND" }
   | { readonly kind: "PRODUCT_NOT_FOUND"; readonly sku: string }
   | { readonly kind: "PRODUCT_INACTIVE"; readonly sku: string }
+  | { readonly kind: "QUANTITY_LIMIT"; readonly sku: string; readonly maxQuantity: number }
   | { readonly kind: "MIXED_CURRENCY" };
 
 export type PremiumPaymentEventResult =
