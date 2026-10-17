@@ -65,6 +65,7 @@ CREATE TABLE entitlement_grants (
   FOREIGN KEY (entitlement_key, grant_model)
     REFERENCES entitlement_definitions(key, grant_model),
   UNIQUE (idempotency_scope, idempotency_key),
+  CHECK (actor_type <> 'ADMIN' OR actor_id IS NOT NULL),
   CHECK (
     (grant_model = 'PERMANENT' AND duration_seconds IS NULL AND resulting_expires_at IS NULL)
     OR
