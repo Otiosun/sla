@@ -28,3 +28,7 @@ jobs:
         run: pnpm exec vitest run tests/narrative
       - name: Typecheck Narrative integration
         run: pnpm typecheck
+      - name: Premium owner-only HTTP regression tests
+        run: pnpm exec vitest run tests/player/player-portal-http-handler.test.ts
+      - name: Compile backend runtime
+        run: pnpm build
