@@ -86,6 +86,35 @@ function handler(
       items: [],
     },
   }));
+  const premiumOrder = {
+    id: "88888888-8888-4888-8888-888888888888",
+    humanId: "PB-00000001", playerId: profile.playerId,
+    status: "PENDING" as "PENDING" | "PAID" | "APPLIED" | "CANCELLED",
+    revision: "0", totalCents: 4000, currency: "BRL",
+    createdAt: "2026-10-18T04:00:00.000Z", paidAt: null,
+    appliedAt: null, cancelledAt: null,
+    items: [{
+      id: "66666666-6666-4666-8666-666666666666",
+      lineNo: 1, sku: "2XP", title: "XP em Dobro",
+      quantity: 1, unitPriceCents: 4000, lineTotalCents: 4000,
+      fulfillmentKind: "ENTITLEMENT" as const,
+      fulfillmentPayload: { entitlementKey: "XP_2X", grantModel: "TIMED",
+        durationSecondsPerUnit: 604800 },
+      fulfilled: false,
+    }],
+  };
+  const premiumOrderGet = vi.fn(async (_orderId: string) => premiumOrder);
+  const premiumPaymentApply = vi.fn(async (_input: unknown) => ({
+    kind: "APPLIED" as const, replayed: false,
+    order: { ...premiumOrder, status: "PAID" as const, revision: "1" },
+  }));
+  const premiumFulfill = vi.fn(async (_input: unknown) => ({
+    kind: "APPLIED" as const, replayed: false,
+    fulfillment: {
+      kind: "APPLIED" as const, replayed: false,
+      order: { ...premiumOrder, status: "APPLIED" as const, revision: "2" },
+    },
+  }));
   const premiumEntitlementsList = vi.fn(async () => []);
   const premiumSupportList = vi.fn(async () => []);
   const premiumSupportAppend = vi.fn(async (playerId: string, actorPrincipalId: string, input: {
@@ -239,7 +268,8 @@ function handler(
     ...(options.premiumRead
       ? {
           premiumRead: {
-            orders: { listPlayerOrders: premiumOrdersList, createOrder: premiumOrderCreate },
+            orders: { listPlayerOrders: premiumOrdersList, createOrder: premiumOrderCreate, getOrder: premiumOrderGet, applyPaymentEvent: premiumPaymentApply },
+            fulfillment: { fulfillOrderItem: premiumFulfill },
             entitlements: { listPlayerEntitlements: premiumEntitlementsList },
           },
         }
@@ -266,6 +296,10 @@ function handler(
     adminRewardCatalogGet,
     premiumOrdersList,
     premiumOrderCreate,
+    premiumOrder,
+    premiumOrderGet,
+    premiumPaymentApply,
+    premiumFulfill,
     premiumEntitlementsList,
     premiumSupportList,
     premiumSupportAppend,
@@ -900,5 +934,90 @@ describe("Owner-only Premium support ledger", () => {
     expect(actor.premiumSupportAppend).not.toHaveBeenCalled();
     const unconfigured = handler({ admin: true, owner: true });
     expect((await unconfigured.instance.handle(new Request(url, { headers }))).status).toBe(503);
+  });
+});
+
+describe("owner-approved Premium 2XP order actions", () => {
+  const orderId = "88888888-8888-4888-8888-888888888888";
+  const requestId = "99999999-9999-4999-8999-999999999999";
+  const body = {
+    requestId, humanId: "PB-00000001", expectedRevision: "0",
+    reason: "O administrador verificou manualmente a solicitação.",
+    confirmed: true,
+  };
+  const endpoint = (action: "approve" | "deliver") =>
+    `https://example.test/v1/hub/admin/premium/orders/${orderId}/${action}`;
+  const makeRequest = (action: "approve" | "deliver", payload: unknown = body, cookie = true) =>
+    new Request(endpoint(action), {
+      method: "POST",
+      headers: { "content-type": "application/json",
+        ...(cookie ? { cookie: "__Host-pokemon_hub_session=session-token" } : {}) },
+      body: JSON.stringify(payload),
+    });
+
+  it("never accepts anonymous, non-owner, or malformed payment decisions", async () => {
+    const owner = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    expect((await owner.instance.handle(makeRequest("approve", body, false))).status).toBe(401);
+    for (const options of [
+      { admin: false, owner: false, premiumRead: true, support: true },
+      { admin: true, owner: false, premiumRead: true, support: true },
+    ]) {
+      const actor = handler(options);
+      expect((await actor.instance.handle(makeRequest("approve"))).status).toBe(403);
+      expect(actor.premiumPaymentApply).not.toHaveBeenCalled();
+    }
+    for (const invalid of [
+      { ...body, confirmed: false },
+      { ...body, reason: "ok" },
+      { ...body, amountCents: 1 },
+      { ...body, playerId: orderId },
+      { ...body, provider: "FORGED" },
+    ]) {
+      expect((await owner.instance.handle(makeRequest("approve", invalid))).status).toBe(400);
+    }
+    expect(owner.premiumPaymentApply).not.toHaveBeenCalled();
+  });
+
+  it("records owner rationale and approves only official amount as PAID, not delivered", async () => {
+    const actor = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    const response = await actor.instance.handle(makeRequest("approve"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      operation: "PAYMENT_APPROVED", order: { status: "PAID" }, delivered: false,
+    });
+    expect(actor.premiumSupportAppend).toHaveBeenCalledTimes(1);
+    expect(actor.premiumPaymentApply).toHaveBeenCalledWith(expect.objectContaining({
+      orderId, eventType: "PAID", amountCents: 4000, currency: "BRL",
+      expectedRevision: "0", externalEventId: requestId,
+      provider: "MANUAL_ADMIN:77777777-7777-4777-8777-777777777777",
+    }));
+    expect(actor.premiumFulfill).not.toHaveBeenCalled();
+  });
+
+  it("rejects changed revisions and deliveries before payment", async () => {
+    const actor = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    expect((await actor.instance.handle(makeRequest("approve",
+      { ...body, expectedRevision: "3" }))).status).toBe(409);
+    expect((await actor.instance.handle(makeRequest("approve",
+      { ...body, humanId: "PB-00000002" }))).status).toBe(409);
+    expect((await actor.instance.handle(makeRequest("deliver"))).status).toBe(409);
+    expect(actor.premiumPaymentApply).not.toHaveBeenCalled();
+    expect(actor.premiumFulfill).not.toHaveBeenCalled();
+  });
+
+  it("delivers only a PAID order through a separate explicit action", async () => {
+    const actor = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    actor.premiumOrderGet.mockResolvedValue({
+      ...actor.premiumOrder, status: "PAID", revision: "1",
+    });
+    const response = await actor.instance.handle(makeRequest("deliver", {
+      ...body, expectedRevision: "1",
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ operation: "2XP_DELIVERED", delivered: true });
+    expect(actor.premiumFulfill).toHaveBeenCalledExactlyOnceWith({
+      orderId, orderItemId: actor.premiumOrder.items[0]?.id, correlationId: requestId,
+    });
+    expect(actor.premiumPaymentApply).not.toHaveBeenCalled();
   });
 });

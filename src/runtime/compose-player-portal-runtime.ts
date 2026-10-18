@@ -21,6 +21,7 @@ import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EntitlementService } from "../modules/entitlements/service.js";
 import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PremiumEntitlementFulfillmentService } from "../modules/premium-orders/entitlement-fulfillment-service.js";
 import { PremiumSupportService } from "../modules/premium-support/service.js";
 import { EncounterAdminOwnerService } from "../modules/encounter/admin-service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
@@ -211,9 +212,12 @@ export function composePlayerPortalRuntime(
     adminTeam,
     identity: adminPlayerIdentity,
   });
+  const premiumOrderRepository = new PostgresPremiumOrderRepository(options.pool);
+  const premiumEntitlements = new EntitlementService(new PostgresEntitlementRepository(options.pool));
   const premiumRead = {
-    orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
-    entitlements: new EntitlementService(new PostgresEntitlementRepository(options.pool)),
+    orders: new PremiumOrderService(premiumOrderRepository),
+    entitlements: premiumEntitlements,
+    fulfillment: new PremiumEntitlementFulfillmentService(premiumOrderRepository, premiumEntitlements),
   };
   const portal = new PlayerPortalHttpHandler({
     tickets,
