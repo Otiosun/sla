@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string; owner?: boolean; premiumRead?: boolean } = {},
+  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string; owner?: boolean; premiumRead?: boolean; support?: boolean } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -87,6 +87,24 @@ function handler(
     },
   }));
   const premiumEntitlementsList = vi.fn(async () => []);
+  const premiumSupportList = vi.fn(async () => []);
+  const premiumSupportAppend = vi.fn(async (playerId: string, actorPrincipalId: string, input: {
+    eventId: string;
+    orderId: string | null;
+    kind: "NOTE" | "REVIEW" | "RESOLVED";
+    body: string;
+  }) => ({
+    replayed: false,
+    event: {
+      id: input.eventId,
+      playerId,
+      orderId: input.orderId,
+      actorPrincipalId,
+      kind: input.kind,
+      body: input.body,
+      createdAt: "2026-10-18T04:00:00.000Z",
+    },
+  }));
   const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
   const adminPlayerGet = vi.fn(async () => {
     throw new Error("admin player get not used in this harness");
@@ -226,6 +244,9 @@ function handler(
           },
         }
       : {}),
+    ...(options.support
+      ? { premiumSupport: { list: premiumSupportList, append: premiumSupportAppend } }
+      : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -246,6 +267,8 @@ function handler(
     premiumOrdersList,
     premiumOrderCreate,
     premiumEntitlementsList,
+    premiumSupportList,
+    premiumSupportAppend,
     adminListOperationDefinitions,
     adminPrepareMutation,
     adminSimulateMutation,
@@ -801,5 +824,83 @@ describe("Authenticated player Premium pending orders", () => {
     for (const method of ["GET", "DELETE"]) {
       expect((await setup.instance.handle(new Request(endpoint, { method }))).status).toBe(404);
     }
+  });
+});
+
+describe("Owner-only Premium support ledger", () => {
+  const playerId = "11111111-1111-4111-8111-111111111111";
+  const eventId = "22222222-2222-4222-8222-222222222222";
+  const url = `https://api.example.test/v1/hub/admin/premium/players/${playerId}/support`;
+  const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+
+  it("rejects anonymous and non-owner access before any support reads", async () => {
+    const anonymous = handler({ admin: true, owner: true, support: true });
+    expect((await anonymous.instance.handle(new Request(url))).status).toBe(401);
+    expect(anonymous.premiumSupportList).not.toHaveBeenCalled();
+
+    for (const config of [
+      { admin: false, owner: false, support: true },
+      { admin: true, owner: false, support: true },
+    ]) {
+      const actor = handler(config);
+      expect((await actor.instance.handle(new Request(url, { headers }))).status).toBe(403);
+      expect(actor.premiumSupportList).not.toHaveBeenCalled();
+    }
+  });
+
+  it("lists support events for a selected player without reading other players", async () => {
+    const actor = handler({ admin: true, owner: true, support: true });
+    const result = await actor.instance.handle(new Request(url, { headers }));
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ events: [] });
+    expect(actor.premiumSupportList).toHaveBeenCalledExactlyOnceWith(playerId);
+  });
+
+  it("records only owner-authored support notes, never payment or grants", async () => {
+    const actor = handler({ admin: true, owner: true, support: true });
+    const payload = {
+      eventId,
+      orderId: null,
+      kind: "REVIEW",
+      body: "Solicitar verificação manual no atendimento.",
+    };
+    const result = await actor.instance.handle(new Request(url, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+    expect(result.status).toBe(201);
+    expect((await result.json()).event).toMatchObject({
+      id: eventId,
+      playerId,
+      kind: "REVIEW",
+    });
+    expect(actor.premiumSupportAppend).toHaveBeenCalledWith(
+      playerId,
+      "77777777-7777-4777-8777-777777777777",
+      payload,
+    );
+  });
+
+  it("rejects extra client actor fields, malformed notes and disabled support service", async () => {
+    const actor = handler({ admin: true, owner: true, support: true });
+    for (const payload of [
+      { eventId, orderId: null, kind: "PAID", body: "Pagamento confirmado fora do suporte." },
+      { eventId, orderId: null, kind: "NOTE", body: "Curto" },
+      {
+        eventId, orderId: null, kind: "NOTE", body: "Aguardando mais informações.",
+        actorPrincipalId: "33333333-3333-4333-8333-333333333333",
+      },
+    ]) {
+      const response = await actor.instance.handle(new Request(url, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }));
+      expect(response.status).toBe(400);
+    }
+    expect(actor.premiumSupportAppend).not.toHaveBeenCalled();
+    const unconfigured = handler({ admin: true, owner: true });
+    expect((await unconfigured.instance.handle(new Request(url, { headers }))).status).toBe(503);
   });
 });

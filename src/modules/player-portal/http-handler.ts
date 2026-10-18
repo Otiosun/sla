@@ -4,6 +4,7 @@ import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { EntitlementService } from "../entitlements/service.js";
 import type { PremiumOrderService } from "../premium-orders/service.js";
+import { PremiumSupportNoteSchema, type PremiumSupportService } from "../premium-support/service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
 import type { AdminTeamService } from "../admin/team-service.js";
 import type { ExternalIdentity } from "../player/contracts.js";
@@ -114,6 +115,7 @@ interface PlayerPortalHttpDependencies {
     "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
+  readonly premiumSupport?: Pick<PremiumSupportService, "list" | "append">;
   readonly premiumRead?: {
     readonly orders: Pick<PremiumOrderService, "listPlayerOrders" | "createOrder">;
     readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
@@ -147,6 +149,17 @@ export class PlayerPortalHttpHandler {
       if (playerId && (resource === "orders" || resource === "entitlements")) {
         return this.withSession(request, (identity) =>
           this.getAdminPremiumRead(identity, playerId, resource),
+        );
+      }
+    }
+    const supportMatch = url.pathname.match(
+      /^\\/v1\\/hub\\/admin\\/premium\\/players\\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\/support$/i,
+    );
+    if (supportMatch && (request.method === "GET" || request.method === "POST")) {
+      const playerId = supportMatch[1];
+      if (playerId) {
+        return this.withSession(request, (identity) =>
+          this.adminPremiumSupport(request, identity, playerId),
         );
       }
     }
@@ -359,6 +372,35 @@ export class PlayerPortalHttpHandler {
       return jsonResponse(409, { error: result.kind });
     } catch {
       return jsonResponse(500, { error: "PREMIUM_ORDER_CREATE_FAILED" });
+    }
+  }
+
+  private async adminPremiumSupport(
+    request: Request,
+    identity: ExternalIdentity,
+    playerId: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || await this.dependencies.adminTeam?.isOwner(admin.principalId) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    const service = this.dependencies.premiumSupport;
+    if (!service) return jsonResponse(503, { error: "SUPPORT_UNAVAILABLE" });
+    try {
+      if (request.method === "GET") {
+        return jsonResponse(200, { events: await service.list(playerId) });
+      }
+      const body = await readJsonBody(request);
+      const parsed = PremiumSupportNoteSchema.safeParse(body);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const record = await service.append(playerId, admin.principalId, parsed.data);
+      if (!record) return jsonResponse(404, { error: "SUPPORT_TARGET_NOT_FOUND" });
+      return jsonResponse(record.replayed ? 200 : 201, record);
+    } catch (error) {
+      if (error instanceof Error && error.message === "SUPPORT_IDEMPOTENCY_CONFLICT") {
+        return jsonResponse(409, { error: "IDEMPOTENCY_CONFLICT" });
+      }
+      return jsonResponse(503, { error: "SUPPORT_UNAVAILABLE" });
     }
   }
 

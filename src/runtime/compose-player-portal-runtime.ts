@@ -21,6 +21,7 @@ import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EntitlementService } from "../modules/entitlements/service.js";
 import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PremiumSupportService } from "../modules/premium-support/service.js";
 import { EncounterAdminOwnerService } from "../modules/encounter/admin-service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
@@ -228,6 +229,7 @@ export function composePlayerPortalRuntime(
     adminTeam,
     adminMutations: adminService,
     premiumRead,
+    premiumSupport: new PremiumSupportService(options.pool),
   });
 
   return {
