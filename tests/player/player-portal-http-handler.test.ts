@@ -691,7 +691,7 @@ describe("Premium owner-only read boundary", () => {
       { admin: true, owner: false, premiumRead: true },
     ]) {
       const setup = handler(options);
-      const result = await setup.instance.handle(new Request(uri("orders")));
+      const result = await setup.instance.handle(new Request(uri("orders"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }));
       expect(result.status).toBe(403);
       expect(setup.premiumOrdersList).not.toHaveBeenCalled();
     }
@@ -699,8 +699,8 @@ describe("Premium owner-only read boundary", () => {
 
   it("returns owner-only order and entitlement lists through the authenticated session", async () => {
     const setup = handler({ admin: true, owner: true, premiumRead: true });
-    const orders = await setup.instance.handle(new Request(uri("orders")));
-    const entitlements = await setup.instance.handle(new Request(uri("entitlements")));
+    const orders = await setup.instance.handle(new Request(uri("orders"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }));
+    const entitlements = await setup.instance.handle(new Request(uri("entitlements"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }));
     expect(orders.status).toBe(200);
     expect(entitlements.status).toBe(200);
     expect(await orders.json()).toEqual({ orders: [] });
@@ -709,9 +709,16 @@ describe("Premium owner-only read boundary", () => {
     expect(setup.premiumEntitlementsList).toHaveBeenCalledExactlyOnceWith(playerId);
   });
 
+  it("rejects requests that omit the authenticated session cookie", async () => {
+    const setup = handler({ admin: true, owner: true, premiumRead: true });
+    const response = await setup.instance.handle(new Request(uri("orders")));
+    expect(response.status).toBe(401);
+    expect(setup.premiumOrdersList).not.toHaveBeenCalled();
+  });
+
   it("does not expose writes or an unconfigured premium service", async () => {
     const setup = handler({ admin: true, owner: true });
-    expect((await setup.instance.handle(new Request(uri("orders")))).status).toBe(503);
+    expect((await setup.instance.handle(new Request(uri("orders"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }))).status).toBe(503);
     expect((await setup.instance.handle(new Request(uri("orders"), { method: "POST" }))).status).toBe(404);
     expect((await setup.instance.handle(new Request(
       "https://example.test/v1/hub/admin/premium/players/not-a-uuid/orders",
