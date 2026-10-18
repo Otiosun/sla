@@ -870,10 +870,8 @@ describe("Owner-only Premium support ledger", () => {
       body: JSON.stringify(payload),
     }));
     expect(result.status).toBe(201);
-    expect((await result.json()).event).toMatchObject({
-      id: eventId,
-      playerId,
-      kind: "REVIEW",
+    expect(await result.json()).toMatchObject({
+      event: { id: eventId, playerId, kind: "REVIEW" },
     });
     expect(actor.premiumSupportAppend).toHaveBeenCalledWith(
       playerId,
