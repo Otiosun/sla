@@ -1,4 +1,5 @@
 import type { AppError } from "../../shared-kernel/result.js";
+import { z } from "zod";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { EntitlementService } from "../entitlements/service.js";
@@ -17,6 +18,15 @@ import type { PlayerPortalProfileCustomizationService } from "./profile-customiz
 import type { PlayerPortalReadService } from "./read-service.js";
 import type { PlayerPortalRosterService } from "./roster-service.js";
 import type { HubSessionTokenService } from "./session-token-service.js";
+
+// Only 2XP is enabled in the authoritative backend catalog. Other store
+// products remain manual until a real fulfillment definition is provisioned.
+const Pending2XpOrderSchema = z.object({
+  requestId: z.string().uuid(),
+  items: z.array(
+    z.object({ sku: z.literal("2XP"), quantity: z.number().int().min(1).max(52) }).strict(),
+  ).length(1),
+}).strict();
 
 const SESSION_COOKIE_NAME = "__Host-pokemon_hub_session";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
@@ -105,7 +115,7 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
   readonly premiumRead?: {
-    readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
+    readonly orders: Pick<PremiumOrderService, "listPlayerOrders" | "createOrder">;
     readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
   };
 }
@@ -116,6 +126,9 @@ export class PlayerPortalHttpHandler {
   public async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    if (request.method === "POST" && url.pathname === "/v1/hub/player/premium/orders") {
+      return this.withSession(request, (identity) => this.createPending2XpOrder(request, identity));
+    }
     if (request.method === "POST" && url.pathname === "/v1/hub/auth/exchange") {
       return this.exchangeTicket(request);
     }
@@ -308,6 +321,45 @@ export class PlayerPortalHttpHandler {
         capabilities: [...admin.capabilities],
       },
     });
+  }
+
+  private async createPending2XpOrder(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const rawBody = await readJsonBody(request);
+    const parsed = Pending2XpOrderSchema.safeParse(rawBody);
+    if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+
+    const profile = await this.dependencies.player.getSelf(identity);
+    if (!profile.ok) return errorResponse(profile.error, "read");
+
+    const orders = this.dependencies.premiumRead?.orders;
+    if (!orders) return jsonResponse(503, { error: "PREMIUM_ORDERS_UNAVAILABLE" });
+
+    try {
+      const result = await orders.createOrder({
+        playerId: profile.value.playerId,
+        items: parsed.data.items,
+        idempotencyScope: `hub-player-premium:${profile.value.playerId}`,
+        idempotencyKey: parsed.data.requestId,
+        metadata: { channel: "HUB_SITE", payment: "MANUAL_PENDING" },
+        correlationId: parsed.data.requestId,
+      });
+      if (result.kind === "CREATED") {
+        return jsonResponse(result.replayed ? 200 : 201, {
+          order: result.order,
+          replayed: result.replayed,
+          paymentStatus: "PENDING",
+        });
+      }
+      if (result.kind === "PLAYER_NOT_FOUND") {
+        return jsonResponse(403, { error: "PLAYER_INELIGIBLE" });
+      }
+      return jsonResponse(409, { error: result.kind });
+    } catch {
+      return jsonResponse(500, { error: "PREMIUM_ORDER_CREATE_FAILED" });
+    }
   }
 
   private async getAdminPremiumRead(

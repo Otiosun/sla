@@ -68,6 +68,24 @@ function handler(
   );
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
   const premiumOrdersList = vi.fn(async () => []);
+  const premiumOrderCreate = vi.fn(async () => ({
+    kind: "CREATED" as const,
+    replayed: false,
+    order: {
+      id: "99999999-9999-4999-8999-999999999999",
+      humanId: "PB-00000001",
+      playerId: profile.playerId,
+      status: "PENDING" as const,
+      currency: "BRL",
+      totalCents: 4000,
+      revision: "0",
+      createdAt: new Date("2026-10-18T04:00:00Z").toISOString(),
+      paidAt: null,
+      appliedAt: null,
+      cancelledAt: null,
+      items: [],
+    },
+  }));
   const premiumEntitlementsList = vi.fn(async () => []);
   const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
   const adminPlayerGet = vi.fn(async () => {
@@ -203,7 +221,7 @@ function handler(
     ...(options.premiumRead
       ? {
           premiumRead: {
-            orders: { listPlayerOrders: premiumOrdersList },
+            orders: { listPlayerOrders: premiumOrdersList, createOrder: premiumOrderCreate },
             entitlements: { listPlayerEntitlements: premiumEntitlementsList },
           },
         }
@@ -226,6 +244,7 @@ function handler(
     adminPlayerGet,
     adminRewardCatalogGet,
     premiumOrdersList,
+    premiumOrderCreate,
     premiumEntitlementsList,
     adminListOperationDefinitions,
     adminPrepareMutation,
@@ -723,5 +742,64 @@ describe("Premium owner-only read boundary", () => {
     expect((await setup.instance.handle(new Request(
       "https://example.test/v1/hub/admin/premium/players/not-a-uuid/orders",
     ))).status).toBe(404);
+  });
+});
+
+describe("Authenticated player Premium pending orders", () => {
+  const endpoint = "https://example.test/v1/hub/player/premium/orders";
+  const requestId = "99999999-9999-4999-8999-999999999999";
+  const validPayload = { requestId, items: [{ sku: "2XP", quantity: 2 }] };
+  const issue = (body: unknown, session = true) =>
+    new Request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(session ? { cookie: "__Host-pokemon_hub_session=session-token" } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+  it("creates an unpaid order bound to the authenticated player, never client prices", async () => {
+    const setup = handler({ premiumRead: true });
+    const response = await setup.instance.handle(issue({
+      ...validPayload,
+    }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      order: { humanId: "PB-00000001", status: "PENDING", totalCents: 4000 },
+      paymentStatus: "PENDING",
+    });
+    expect(setup.premiumOrderCreate).toHaveBeenCalledWith({
+      playerId: profile.playerId,
+      items: [{ sku: "2XP", quantity: 2 }],
+      idempotencyScope: `hub-player-premium:${profile.playerId}`,
+      idempotencyKey: requestId,
+      metadata: { channel: "HUB_SITE", payment: "MANUAL_PENDING" },
+      correlationId: requestId,
+    });
+  });
+
+  it("rejects spoofed playerId, prices, invalid products and unauthenticated requests", async () => {
+    const setup = handler({ premiumRead: true });
+    expect((await setup.instance.handle(issue(validPayload, false))).status).toBe(401);
+    for (const invalid of [
+      { ...validPayload, playerId: "11111111-1111-4111-8111-111111111111" },
+      { ...validPayload, amountCents: 1 },
+      { ...validPayload, items: [{ sku: "LUCK", quantity: 1 }] },
+      { ...validPayload, items: [{ sku: "2XP", quantity: 53 }] },
+      { ...validPayload, items: [{ sku: "2XP", quantity: 1 }, { sku: "2XP", quantity: 1 }] },
+    ]) {
+      const response = await setup.instance.handle(issue(invalid));
+      expect(response.status).toBe(400);
+    }
+    expect(setup.premiumOrderCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 without service and rejects HTTP GET/DELETE", async () => {
+    const setup = handler();
+    expect((await setup.instance.handle(issue(validPayload))).status).toBe(503);
+    for (const method of ["GET", "DELETE"]) {
+      expect((await setup.instance.handle(new Request(endpoint, { method }))).status).toBe(404);
+    }
   });
 });
