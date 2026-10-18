@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string; owner?: boolean; premiumRead?: boolean; support?: boolean } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -67,6 +67,73 @@ function handler(
     }),
   );
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
+  const premiumOrdersList = vi.fn(async () => []);
+  const premiumOrderCreate = vi.fn(async () => ({
+    kind: "CREATED" as const,
+    replayed: false,
+    order: {
+      id: "99999999-9999-4999-8999-999999999999",
+      humanId: "PB-00000001",
+      playerId: profile.playerId,
+      status: "PENDING" as const,
+      currency: "BRL",
+      totalCents: 4000,
+      revision: "0",
+      createdAt: new Date("2026-10-18T04:00:00Z").toISOString(),
+      paidAt: null,
+      appliedAt: null,
+      cancelledAt: null,
+      items: [],
+    },
+  }));
+  const premiumOrder = {
+    id: "88888888-8888-4888-8888-888888888888",
+    humanId: "PB-00000001", playerId: profile.playerId,
+    status: "PENDING" as "PENDING" | "PAID" | "APPLIED" | "CANCELLED",
+    revision: "0", totalCents: 4000, currency: "BRL",
+    createdAt: "2026-10-18T04:00:00.000Z", paidAt: null,
+    appliedAt: null, cancelledAt: null,
+    items: [{
+      id: "66666666-6666-4666-8666-666666666666",
+      lineNo: 1, sku: "2XP", title: "XP em Dobro",
+      quantity: 1, unitPriceCents: 4000, lineTotalCents: 4000,
+      fulfillmentKind: "ENTITLEMENT" as const,
+      fulfillmentPayload: { entitlementKey: "XP_2X", grantModel: "TIMED",
+        durationSecondsPerUnit: 604800 },
+      fulfilled: false,
+    }],
+  };
+  const premiumOrderGet = vi.fn(async (_orderId: string) => premiumOrder);
+  const premiumPaymentApply = vi.fn(async (_input: unknown) => ({
+    kind: "APPLIED" as const, replayed: false,
+    order: { ...premiumOrder, status: "PAID" as const, revision: "1" },
+  }));
+  const premiumFulfill = vi.fn(async (_input: unknown) => ({
+    kind: "APPLIED" as const, replayed: false,
+    fulfillment: {
+      kind: "APPLIED" as const, replayed: false,
+      order: { ...premiumOrder, status: "APPLIED" as const, revision: "2" },
+    },
+  }));
+  const premiumEntitlementsList = vi.fn(async () => []);
+  const premiumSupportList = vi.fn(async () => []);
+  const premiumSupportAppend = vi.fn(async (playerId: string, actorPrincipalId: string, input: {
+    eventId: string;
+    orderId: string | null;
+    kind: "NOTE" | "REVIEW" | "RESOLVED";
+    body: string;
+  }) => ({
+    replayed: false,
+    event: {
+      id: input.eventId,
+      playerId,
+      orderId: input.orderId,
+      actorPrincipalId,
+      kind: input.kind,
+      body: input.body,
+      createdAt: "2026-10-18T04:00:00.000Z",
+    },
+  }));
   const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
   const adminPlayerGet = vi.fn(async () => {
     throw new Error("admin player get not used in this harness");
@@ -195,6 +262,21 @@ function handler(
     adminRewardCatalog: {
       get: adminRewardCatalogGet,
     },
+    ...(options.owner !== undefined
+      ? { adminTeam: { isOwner: async () => options.owner === true } as never }
+      : {}),
+    ...(options.premiumRead
+      ? {
+          premiumRead: {
+            orders: { listPlayerOrders: premiumOrdersList, createOrder: premiumOrderCreate, getOrder: premiumOrderGet, applyPaymentEvent: premiumPaymentApply },
+            fulfillment: { fulfillOrderItem: premiumFulfill },
+            entitlements: { listPlayerEntitlements: premiumEntitlementsList },
+          },
+        }
+      : {}),
+    ...(options.support
+      ? { premiumSupport: { list: premiumSupportList, append: premiumSupportAppend } }
+      : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -212,6 +294,15 @@ function handler(
     adminPlayerSearch,
     adminPlayerGet,
     adminRewardCatalogGet,
+    premiumOrdersList,
+    premiumOrderCreate,
+    premiumOrder,
+    premiumOrderGet,
+    premiumPaymentApply,
+    premiumFulfill,
+    premiumEntitlementsList,
+    premiumSupportList,
+    premiumSupportAppend,
     adminListOperationDefinitions,
     adminPrepareMutation,
     adminSimulateMutation,
@@ -662,5 +753,271 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       );
       expect(blocked.status).toBe(404);
     }
+  });
+});
+
+describe("Premium owner-only read boundary", () => {
+  const playerId = "11111111-1111-4111-8111-111111111111";
+  const uri = (resource: "orders" | "entitlements") =>
+    `https://example.test/v1/hub/admin/premium/players/${playerId}/${resource}`;
+
+  it("denies unauthenticated and non-owner sessions without querying premium data", async () => {
+    for (const options of [
+      { admin: false, owner: false, premiumRead: true },
+      { admin: true, owner: false, premiumRead: true },
+    ]) {
+      const setup = handler(options);
+      const result = await setup.instance.handle(new Request(uri("orders"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }));
+      expect(result.status).toBe(403);
+      expect(setup.premiumOrdersList).not.toHaveBeenCalled();
+    }
+  });
+
+  it("returns owner-only order and entitlement lists through the authenticated session", async () => {
+    const setup = handler({ admin: true, owner: true, premiumRead: true });
+    const orders = await setup.instance.handle(new Request(uri("orders"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }));
+    const entitlements = await setup.instance.handle(new Request(uri("entitlements"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }));
+    expect(orders.status).toBe(200);
+    expect(entitlements.status).toBe(200);
+    expect(await orders.json()).toEqual({ orders: [] });
+    expect(await entitlements.json()).toEqual({ entitlements: [] });
+    expect(setup.premiumOrdersList).toHaveBeenCalledExactlyOnceWith(playerId);
+    expect(setup.premiumEntitlementsList).toHaveBeenCalledExactlyOnceWith(playerId);
+  });
+
+  it("rejects requests that omit the authenticated session cookie", async () => {
+    const setup = handler({ admin: true, owner: true, premiumRead: true });
+    const response = await setup.instance.handle(new Request(uri("orders")));
+    expect(response.status).toBe(401);
+    expect(setup.premiumOrdersList).not.toHaveBeenCalled();
+  });
+
+  it("does not expose writes or an unconfigured premium service", async () => {
+    const setup = handler({ admin: true, owner: true });
+    expect((await setup.instance.handle(new Request(uri("orders"), { headers: { cookie: "__Host-pokemon_hub_session=session-token" } }))).status).toBe(503);
+    expect((await setup.instance.handle(new Request(uri("orders"), { method: "POST" }))).status).toBe(404);
+    expect((await setup.instance.handle(new Request(
+      "https://example.test/v1/hub/admin/premium/players/not-a-uuid/orders",
+    ))).status).toBe(404);
+  });
+});
+
+describe("Authenticated player Premium pending orders", () => {
+  const endpoint = "https://example.test/v1/hub/player/premium/orders";
+  const requestId = "99999999-9999-4999-8999-999999999999";
+  const validPayload = { requestId, items: [{ sku: "2XP", quantity: 2 }] };
+  const issue = (body: unknown, session = true) =>
+    new Request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(session ? { cookie: "__Host-pokemon_hub_session=session-token" } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+  it("creates an unpaid order bound to the authenticated player, never client prices", async () => {
+    const setup = handler({ premiumRead: true });
+    const response = await setup.instance.handle(issue({
+      ...validPayload,
+    }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      order: { humanId: "PB-00000001", status: "PENDING", totalCents: 4000 },
+      paymentStatus: "PENDING",
+    });
+    expect(setup.premiumOrderCreate).toHaveBeenCalledWith({
+      playerId: profile.playerId,
+      items: [{ sku: "2XP", quantity: 2 }],
+      idempotencyScope: `hub-player-premium:${profile.playerId}`,
+      idempotencyKey: requestId,
+      metadata: { channel: "HUB_SITE", payment: "MANUAL_PENDING" },
+      correlationId: requestId,
+    });
+  });
+
+  it("rejects spoofed playerId, prices, invalid products and unauthenticated requests", async () => {
+    const setup = handler({ premiumRead: true });
+    expect((await setup.instance.handle(issue(validPayload, false))).status).toBe(401);
+    for (const invalid of [
+      { ...validPayload, playerId: "11111111-1111-4111-8111-111111111111" },
+      { ...validPayload, amountCents: 1 },
+      { ...validPayload, items: [{ sku: "LUCK", quantity: 1 }] },
+      { ...validPayload, items: [{ sku: "2XP", quantity: 53 }] },
+      { ...validPayload, items: [{ sku: "2XP", quantity: 1 }, { sku: "2XP", quantity: 1 }] },
+    ]) {
+      const response = await setup.instance.handle(issue(invalid));
+      expect(response.status).toBe(400);
+    }
+    expect(setup.premiumOrderCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 without service and rejects HTTP GET/DELETE", async () => {
+    const setup = handler();
+    expect((await setup.instance.handle(issue(validPayload))).status).toBe(503);
+    for (const method of ["GET", "DELETE"]) {
+      expect((await setup.instance.handle(new Request(endpoint, { method }))).status).toBe(404);
+    }
+  });
+});
+
+describe("Owner-only Premium support ledger", () => {
+  const playerId = "11111111-1111-4111-8111-111111111111";
+  const eventId = "22222222-2222-4222-8222-222222222222";
+  const url = `https://api.example.test/v1/hub/admin/premium/players/${playerId}/support`;
+  const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+
+  it("rejects anonymous and non-owner access before any support reads", async () => {
+    const anonymous = handler({ admin: true, owner: true, support: true });
+    expect((await anonymous.instance.handle(new Request(url))).status).toBe(401);
+    expect(anonymous.premiumSupportList).not.toHaveBeenCalled();
+
+    for (const config of [
+      { admin: false, owner: false, support: true },
+      { admin: true, owner: false, support: true },
+    ]) {
+      const actor = handler(config);
+      expect((await actor.instance.handle(new Request(url, { headers }))).status).toBe(403);
+      expect(actor.premiumSupportList).not.toHaveBeenCalled();
+    }
+  });
+
+  it("lists support events for a selected player without reading other players", async () => {
+    const actor = handler({ admin: true, owner: true, support: true });
+    const result = await actor.instance.handle(new Request(url, { headers }));
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ events: [] });
+    expect(actor.premiumSupportList).toHaveBeenCalledExactlyOnceWith(playerId);
+  });
+
+  it("records only owner-authored support notes, never payment or grants", async () => {
+    const actor = handler({ admin: true, owner: true, support: true });
+    const payload = {
+      eventId,
+      orderId: null,
+      kind: "REVIEW",
+      body: "Solicitar verificação manual no atendimento.",
+    };
+    const result = await actor.instance.handle(new Request(url, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+    expect(result.status).toBe(201);
+    expect(await result.json()).toMatchObject({
+      event: { id: eventId, playerId, kind: "REVIEW" },
+    });
+    expect(actor.premiumSupportAppend).toHaveBeenCalledWith(
+      playerId,
+      "77777777-7777-4777-8777-777777777777",
+      payload,
+    );
+  });
+
+  it("rejects extra client actor fields, malformed notes and disabled support service", async () => {
+    const actor = handler({ admin: true, owner: true, support: true });
+    for (const payload of [
+      { eventId, orderId: null, kind: "PAID", body: "Pagamento confirmado fora do suporte." },
+      { eventId, orderId: null, kind: "NOTE", body: "Curto" },
+      {
+        eventId, orderId: null, kind: "NOTE", body: "Aguardando mais informações.",
+        actorPrincipalId: "33333333-3333-4333-8333-333333333333",
+      },
+    ]) {
+      const response = await actor.instance.handle(new Request(url, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }));
+      expect(response.status).toBe(400);
+    }
+    expect(actor.premiumSupportAppend).not.toHaveBeenCalled();
+    const unconfigured = handler({ admin: true, owner: true });
+    expect((await unconfigured.instance.handle(new Request(url, { headers }))).status).toBe(503);
+  });
+});
+
+describe("owner-approved Premium 2XP order actions", () => {
+  const orderId = "88888888-8888-4888-8888-888888888888";
+  const requestId = "99999999-9999-4999-8999-999999999999";
+  const body = {
+    requestId, humanId: "PB-00000001", expectedRevision: "0",
+    reason: "O administrador verificou manualmente a solicitação.",
+    confirmed: true,
+  };
+  const endpoint = (action: "approve" | "deliver") =>
+    `https://example.test/v1/hub/admin/premium/orders/${orderId}/${action}`;
+  const makeRequest = (action: "approve" | "deliver", payload: unknown = body, cookie = true) =>
+    new Request(endpoint(action), {
+      method: "POST",
+      headers: { "content-type": "application/json",
+        ...(cookie ? { cookie: "__Host-pokemon_hub_session=session-token" } : {}) },
+      body: JSON.stringify(payload),
+    });
+
+  it("never accepts anonymous, non-owner, or malformed payment decisions", async () => {
+    const owner = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    expect((await owner.instance.handle(makeRequest("approve", body, false))).status).toBe(401);
+    for (const options of [
+      { admin: false, owner: false, premiumRead: true, support: true },
+      { admin: true, owner: false, premiumRead: true, support: true },
+    ]) {
+      const actor = handler(options);
+      expect((await actor.instance.handle(makeRequest("approve"))).status).toBe(403);
+      expect(actor.premiumPaymentApply).not.toHaveBeenCalled();
+    }
+    for (const invalid of [
+      { ...body, confirmed: false },
+      { ...body, reason: "ok" },
+      { ...body, amountCents: 1 },
+      { ...body, playerId: orderId },
+      { ...body, provider: "FORGED" },
+    ]) {
+      expect((await owner.instance.handle(makeRequest("approve", invalid))).status).toBe(400);
+    }
+    expect(owner.premiumPaymentApply).not.toHaveBeenCalled();
+  });
+
+  it("records owner rationale and approves only official amount as PAID, not delivered", async () => {
+    const actor = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    const response = await actor.instance.handle(makeRequest("approve"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      operation: "PAYMENT_APPROVED", order: { status: "PAID" }, delivered: false,
+    });
+    expect(actor.premiumSupportAppend).toHaveBeenCalledTimes(1);
+    expect(actor.premiumPaymentApply).toHaveBeenCalledWith(expect.objectContaining({
+      orderId, eventType: "PAID", amountCents: 4000, currency: "BRL",
+      expectedRevision: "0", externalEventId: requestId,
+      provider: "MANUAL_ADMIN:77777777-7777-4777-8777-777777777777",
+    }));
+    expect(actor.premiumFulfill).not.toHaveBeenCalled();
+  });
+
+  it("rejects changed revisions and deliveries before payment", async () => {
+    const actor = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    expect((await actor.instance.handle(makeRequest("approve",
+      { ...body, expectedRevision: "3" }))).status).toBe(409);
+    expect((await actor.instance.handle(makeRequest("approve",
+      { ...body, humanId: "PB-00000002" }))).status).toBe(409);
+    expect((await actor.instance.handle(makeRequest("deliver"))).status).toBe(409);
+    expect(actor.premiumPaymentApply).not.toHaveBeenCalled();
+    expect(actor.premiumFulfill).not.toHaveBeenCalled();
+  });
+
+  it("delivers only a PAID order through a separate explicit action", async () => {
+    const actor = handler({ admin: true, owner: true, premiumRead: true, support: true });
+    actor.premiumOrderGet.mockResolvedValue({
+      ...actor.premiumOrder, status: "PAID", revision: "1",
+    });
+    const response = await actor.instance.handle(makeRequest("deliver", {
+      ...body, expectedRevision: "1",
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ operation: "2XP_DELIVERED", delivered: true });
+    expect(actor.premiumFulfill).toHaveBeenCalledExactlyOnceWith({
+      orderId, orderItemId: actor.premiumOrder.items[0]?.id, correlationId: requestId,
+    });
+    expect(actor.premiumPaymentApply).not.toHaveBeenCalled();
   });
 });

@@ -54,6 +54,8 @@ export const PremiumPaymentEventInputSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .nullable(),
+    // Optional compare-and-set constraint used by owner-approved manual events.
+    expectedRevision: z.string().regex(/^[0-9]{1,20}$/).optional(),
     correlationId: z.string().uuid().nullable(),
   })
   .strict();
