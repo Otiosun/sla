@@ -153,7 +153,10 @@ export class PlayerPortalHttpHandler {
       }
     }
     const supportMatch = url.pathname.match(
-      /^\\/v1\\/hub\\/admin\\/premium\\/players\\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\/support$/i,
+      new RegExp(
+        "^/v1/hub/admin/premium/players/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/support$",
+        "i",
+      ),
     );
     if (supportMatch && (request.method === "GET" || request.method === "POST")) {
       const playerId = supportMatch[1];
