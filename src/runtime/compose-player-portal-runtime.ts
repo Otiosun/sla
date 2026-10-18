@@ -19,6 +19,8 @@ import { AdminService } from "../modules/admin/service.js";
 import { AdminTeamService } from "../modules/admin/team-service.js";
 import { BattleAdminOwnerService } from "../modules/battle/admin-service.js";
 import { EconomyService } from "../modules/economy/service.js";
+import { EntitlementService } from "../modules/entitlements/service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
 import { EncounterAdminOwnerService } from "../modules/encounter/admin-service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
@@ -48,6 +50,8 @@ import { PostgresBattleAdminRepository } from "../platform/battle/postgres-battl
 import { PostgresBattleCancellation } from "../platform/battle/postgres-battle-cancellation.js";
 import { SystemClock } from "../platform/clock/index.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
+import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
 import { PostgresEncounterAdminRepository } from "../platform/encounter/postgres-encounter-admin-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../platform/player/postgres-player-onboarding-repository.js";
@@ -206,6 +210,10 @@ export function composePlayerPortalRuntime(
     adminTeam,
     identity: adminPlayerIdentity,
   });
+  const premiumRead = {
+    orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
+    entitlements: new EntitlementService(new PostgresEntitlementRepository(options.pool)),
+  };
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -219,6 +227,7 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
+    premiumRead,
   });
 
   return {

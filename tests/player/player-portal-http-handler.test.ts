@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string; owner?: boolean; premiumRead?: boolean } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -67,6 +67,8 @@ function handler(
     }),
   );
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
+  const premiumOrdersList = vi.fn(async () => []);
+  const premiumEntitlementsList = vi.fn(async () => []);
   const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
   const adminPlayerGet = vi.fn(async () => {
     throw new Error("admin player get not used in this harness");
@@ -195,6 +197,17 @@ function handler(
     adminRewardCatalog: {
       get: adminRewardCatalogGet,
     },
+    ...(options.owner !== undefined
+      ? { adminTeam: { isOwner: async () => options.owner === true } as never }
+      : {}),
+    ...(options.premiumRead
+      ? {
+          premiumRead: {
+            orders: { listPlayerOrders: premiumOrdersList },
+            entitlements: { listPlayerEntitlements: premiumEntitlementsList },
+          },
+        }
+      : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -212,6 +225,8 @@ function handler(
     adminPlayerSearch,
     adminPlayerGet,
     adminRewardCatalogGet,
+    premiumOrdersList,
+    premiumEntitlementsList,
     adminListOperationDefinitions,
     adminPrepareMutation,
     adminSimulateMutation,
@@ -662,5 +677,44 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       );
       expect(blocked.status).toBe(404);
     }
+  });
+});
+
+describe("Premium owner-only read boundary", () => {
+  const playerId = "11111111-1111-4111-8111-111111111111";
+  const uri = (resource: "orders" | "entitlements") =>
+    `https://example.test/v1/hub/admin/premium/players/${playerId}/${resource}`;
+
+  it("denies unauthenticated and non-owner sessions without querying premium data", async () => {
+    for (const options of [
+      { admin: false, owner: false, premiumRead: true },
+      { admin: true, owner: false, premiumRead: true },
+    ]) {
+      const setup = handler(options);
+      const result = await setup.instance.handle(new Request(uri("orders")));
+      expect(result.status).toBe(403);
+      expect(setup.premiumOrdersList).not.toHaveBeenCalled();
+    }
+  });
+
+  it("returns owner-only order and entitlement lists through the authenticated session", async () => {
+    const setup = handler({ admin: true, owner: true, premiumRead: true });
+    const orders = await setup.instance.handle(new Request(uri("orders")));
+    const entitlements = await setup.instance.handle(new Request(uri("entitlements")));
+    expect(orders.status).toBe(200);
+    expect(entitlements.status).toBe(200);
+    expect(await orders.json()).toEqual({ orders: [] });
+    expect(await entitlements.json()).toEqual({ entitlements: [] });
+    expect(setup.premiumOrdersList).toHaveBeenCalledExactlyOnceWith(playerId);
+    expect(setup.premiumEntitlementsList).toHaveBeenCalledExactlyOnceWith(playerId);
+  });
+
+  it("does not expose writes or an unconfigured premium service", async () => {
+    const setup = handler({ admin: true, owner: true });
+    expect((await setup.instance.handle(new Request(uri("orders")))).status).toBe(503);
+    expect((await setup.instance.handle(new Request(uri("orders"), { method: "POST" }))).status).toBe(404);
+    expect((await setup.instance.handle(new Request(
+      "https://example.test/v1/hub/admin/premium/players/not-a-uuid/orders",
+    ))).status).toBe(404);
   });
 });
