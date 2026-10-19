@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; owner?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; owner?: boolean; premiumEnabled?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -204,6 +204,15 @@ function handler(
             ConstructorParameters<typeof PlayerPortalHttpHandler>[0]["adminTeam"]
           >,
         }),
+    ...(options.premiumEnabled
+      ? {
+          premiumDelivery: {
+            catalog: async () => [],
+            history: async () => [],
+            deliver: async () => ({ kind: "PRODUCT_UNAVAILABLE" as const }),
+          },
+        }
+      : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -232,7 +241,7 @@ function handler(
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
   it("lets staging owner manually deliver a published item through audited inventory.adjust", async () => {
-    const api = handler({ admin: true, owner: true });
+    const api = handler({ admin: true, owner: true, premiumEnabled: true });
     const path = "https://api.example.test/v1/hub/admin/premium/delivery/items";
     const cookie = "__Host-pokemon_hub_session=session-token";
     const catalog = await api.instance.handle(new Request(path, { headers: { cookie } }));
@@ -267,6 +276,17 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     expect(api.adminApplyMutation).toHaveBeenCalledOnce();
   });
 
+  it("never activates inventory delivery in normal server runtime without Premium staging", async () => {
+    const api = handler({ admin: true, owner: true });
+    const response = await api.instance.handle(new Request(
+      "https://api.example.test/v1/hub/admin/premium/delivery/items",
+      { headers: { cookie: "__Host-pokemon_hub_session=session-token" } },
+    ));
+    expect(response.status).toBe(503);
+    expect(api.adminRewardCatalogGet).not.toHaveBeenCalled();
+    expect(api.adminPrepareMutation).not.toHaveBeenCalled();
+  });
+
   it("never delivers items to a non-owner, unpublished item or malformed payment-like request", async () => {
     const path = "https://api.example.test/v1/hub/admin/premium/delivery/items";
     const cookie = "__Host-pokemon_hub_session=session-token";
@@ -285,7 +305,7 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     expect(denied.status).toBe(403);
     expect(nonOwner.adminPrepareMutation).not.toHaveBeenCalled();
 
-    const owner = handler({ admin: true, owner: true });
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true });
     const unpublished = await owner.instance.handle(new Request(path, {
       method: "POST", headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ ...payload, itemId: "99999999-9999-4999-8999-999999999999" }),
