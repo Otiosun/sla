@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { EntitlementService } from "../../src/modules/entitlements/service.js";
@@ -298,5 +299,129 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     expect(row).toMatchObject({
       payments: "1", grants: "1", fulfillments: "1", support: "3", multiplier: 2,
     });
+  });
+  it("serves real loopback HTTP requests through an ephemeral Node server, without starting the bot", async () => {
+    // The server is local to this disposable CI process and cannot be contacted
+    // from outside the GitHub runner. It uses the real Premium DB-backed handler.
+    const server = createServer((incoming, outgoing) => {
+      void (async () => {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of incoming) chunks.push(chunk as Uint8Array);
+        const payload = Buffer.concat(chunks);
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(incoming.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) headers.append(key, item);
+          } else if (typeof value === "string") headers.set(key, value);
+        }
+        const forwarded = new Request(
+          `http://127.0.0.1${incoming.url ?? "/"}`,
+          {
+            method: incoming.method ?? "GET",
+            headers,
+            ...(payload.byteLength > 0 ? { body: new Uint8Array(payload) } : {}),
+          },
+        );
+        const handled = await handler.handle(forwarded);
+        outgoing.writeHead(handled.status, Object.fromEntries(handled.headers.entries()));
+        outgoing.end(Buffer.from(await handled.arrayBuffer()));
+      })().catch(() => {
+        if (!outgoing.headersSent) outgoing.writeHead(500);
+        outgoing.end();
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    try {
+      const socket = server.address();
+      if (!socket || typeof socket === "string") throw new Error("No local test listener");
+      const wire = (path: string, method: "GET" | "POST", body?: unknown, cookie?: string) =>
+        fetch(`http://127.0.0.1:${socket.port}${path}`, {
+          method,
+          headers: {
+            ...(cookie ? { cookie: `${COOKIE}=${cookie}` } : {}),
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+
+      const requestId = randomUUID();
+      const orderPath = "/v1/hub/player/premium/orders";
+      const payload = { requestId, items: [{ sku: "2XP", quantity: 1 }] };
+      expect((await wire(orderPath, "POST", payload)).status).toBe(401);
+      const placed = await wire(orderPath, "POST", payload, playerCookie);
+      expect(placed.status).toBe(201);
+      const creation = await placed.json() as {
+        order: { id: string; humanId: string; revision: string; totalCents: number };
+        paymentStatus: string;
+      };
+      expect(creation.paymentStatus).toBe("PENDING");
+      expect(creation.order.totalCents).toBe(4000);
+      const order = creation.order;
+      const same = await wire(orderPath, "POST", payload, playerCookie);
+      expect(same.status).toBe(200);
+      expect(await same.json()).toMatchObject({ replayed: true, order: { id: order.id } });
+
+      const approvePath = `/v1/hub/admin/premium/orders/${order.id}/approve`;
+      const deliverPath = `/v1/hub/admin/premium/orders/${order.id}/deliver`;
+      const adminInput = {
+        requestId: randomUUID(),
+        humanId: order.humanId,
+        expectedRevision: order.revision,
+        reason: "Pagamento examinado manualmente pela conta sintética do teste.",
+        confirmed: true,
+      };
+      expect((await wire(approvePath, "POST", adminInput, playerCookie)).status).toBe(403);
+      expect((await wire(approvePath, "POST", adminInput, nonOwnerCookie)).status).toBe(403);
+      expect((await wire(deliverPath, "POST", adminInput, ownerCookie)).status).toBe(409);
+      const approved = await wire(approvePath, "POST", adminInput, ownerCookie);
+      expect(approved.status).toBe(200);
+      expect(await approved.json()).toMatchObject({
+        operation: "PAYMENT_APPROVED", delivered: false, order: { status: "PAID" },
+      });
+      const deliveredInput = {
+        ...adminInput,
+        requestId: randomUUID(),
+        expectedRevision: "1",
+        reason: "Entrega separada confirmada em teste HTTP local efêmero.",
+      };
+      const delivered = await wire(deliverPath, "POST", deliveredInput, ownerCookie);
+      expect(delivered.status).toBe(200);
+      expect(await delivered.json()).toMatchObject({
+        operation: "2XP_DELIVERED", delivered: true, order: { status: "APPLIED" },
+      });
+      const replay = await wire(deliverPath, "POST", deliveredInput, ownerCookie);
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toMatchObject({ replayed: true, operation: "2XP_DELIVERED" });
+
+      const unauthorizedList = await wire(
+        `/v1/hub/admin/premium/players/${playerId}/entitlements`, "GET", undefined, nonOwnerCookie,
+      );
+      expect(unauthorizedList.status).toBe(403);
+      const ownerList = await wire(
+        `/v1/hub/admin/premium/players/${playerId}/entitlements`, "GET", undefined, ownerCookie,
+      );
+      expect(ownerList.status).toBe(200);
+      expect(await ownerList.json()).toMatchObject({
+        entitlements: [{ playerId, entitlementKey: "XP_2X" }],
+      });
+
+      const counts = await pool.query<{
+        orders: string; payments: string; grants: string; fulfillments: string;
+      }>(`SELECT
+          (SELECT count(*)::text FROM premium_orders) AS orders,
+          (SELECT count(*)::text FROM premium_payment_events) AS payments,
+          (SELECT count(*)::text FROM entitlement_grants) AS grants,
+          (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments`);
+      expect(counts.rows[0]).toEqual({
+        orders: "1", payments: "1", grants: "1", fulfillments: "1",
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 });
