@@ -73,7 +73,7 @@ export class ManualPremiumDeliveryService {
       .map((row) => ({
         sku: row.sku,
         title: row.title,
-        maxQuantity: row.max_quantity,
+        maxQuantity: row.grant_model === "PERMANENT" ? 1 : row.max_quantity,
         entitlementKey: row.entitlement_key,
         grantModel: row.grant_model,
         durationSecondsPerUnit: row.duration_seconds_per_unit,
