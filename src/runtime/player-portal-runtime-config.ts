@@ -8,6 +8,7 @@ const runtimeSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   DEPLOY_REVISION: fullRevisionSchema.optional(),
   RAILWAY_GIT_COMMIT_SHA: fullRevisionSchema.optional(),
+  PREMIUM_STAGING_ENABLED: z.enum(["0", "1"]).default("0"),
 });
 
 export interface PlayerPortalRuntimeConfig {
@@ -15,6 +16,8 @@ export interface PlayerPortalRuntimeConfig {
   readonly port: number;
   readonly sessionSigningKey: Buffer;
   readonly deploymentRevision: string | null;
+  /** Never enabled in production; needs explicit staging opt-in. */
+  readonly premiumStagingEnabled?: boolean;
 }
 
 export class PlayerPortalRuntimeConfigError extends Error {
@@ -71,5 +74,7 @@ export function loadPlayerPortalRuntimeConfig(
     port: parsed.data.PORT,
     sessionSigningKey: decodeSigningKey(parsed.data.PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64),
     deploymentRevision,
+    premiumStagingEnabled:
+      appConfig.appEnv === "staging" && parsed.data.PREMIUM_STAGING_ENABLED === "1",
   };
 }

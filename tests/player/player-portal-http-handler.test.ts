@@ -663,4 +663,71 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       expect(blocked.status).toBe(404);
     }
   });
+
+  it("keeps Premium purchase unavailable without staging services, while ordinary profile access works", async () => {
+    const { instance } = handler();
+    const orderBody = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      items: [{ sku: "2XP", quantity: 1 }],
+    };
+    const endpoint = "https://api.example.test/v1/hub/player/premium/orders";
+
+    const unauthenticated = await instance.handle(
+      new Request(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(orderBody),
+      }),
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const blocked = await instance.handle(
+      new Request(endpoint, {
+        method: "POST",
+        headers: {
+          cookie: "__Host-pokemon_hub_session=session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(orderBody),
+      }),
+    );
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toEqual({ error: "PREMIUM_ORDERS_UNAVAILABLE" });
+
+    const profileResponse = await instance.handle(
+      new Request("https://api.example.test/v1/hub/player/self", {
+        headers: { cookie: "__Host-pokemon_hub_session=session-token" },
+      }),
+    );
+    expect(profileResponse.status).toBe(200);
+  });
+
+  it("refuses Premium admin reads, support and manual fulfillment without an authorized owner", async () => {
+    const { instance } = handler({ admin: true });
+    const headers = {
+      cookie: "__Host-pokemon_hub_session=session-token",
+      "content-type": "application/json",
+    };
+    const playerId = "11111111-1111-4111-8111-111111111111";
+    const orderId = "22222222-2222-4222-8222-222222222222";
+    const paths = [
+      { path: `/v1/hub/admin/premium/players/${playerId}/orders`, method: "GET" },
+      { path: `/v1/hub/admin/premium/players/${playerId}/entitlements`, method: "GET" },
+      { path: `/v1/hub/admin/premium/players/${playerId}/support`, method: "GET" },
+      { path: `/v1/hub/admin/premium/orders/${orderId}/approve`, method: "POST" },
+      { path: `/v1/hub/admin/premium/orders/${orderId}/deliver`, method: "POST" },
+    ] as const;
+
+    for (const { path, method } of paths) {
+      const blocked = await instance.handle(
+        new Request(`https://api.example.test${path}`, {
+          method,
+          headers,
+          ...(method === "POST" ? { body: "{}" } : {}),
+        }),
+      );
+      expect(blocked.status).toBe(403);
+      expect(await blocked.json()).toEqual({ error: "FORBIDDEN" });
+    }
+  });
 });

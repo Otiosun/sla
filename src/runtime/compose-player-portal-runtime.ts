@@ -1,4 +1,11 @@
 import type { Pool } from "pg";
+import { EntitlementService } from "../modules/entitlements/service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PremiumEntitlementFulfillmentService } from "../modules/premium-orders/entitlement-fulfillment-service.js";
+import { PremiumSupportService } from "../modules/premium-support/service.js";
+import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
+
 import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
@@ -63,6 +70,7 @@ interface PlayerPortalRuntimeOptions {
   readonly pool: Pool;
   readonly sessionSigningKey: Uint8Array;
   readonly deploymentRevision: string | null;
+  readonly premiumStagingEnabled?: boolean;
 }
 
 interface PlayerPortalRequestHandler {
@@ -191,6 +199,22 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
+  // Off unless the runtime explicitly authenticated the staging-only opt-in.
+  // Importing this code or deploying its schema must NOT activate Premium.
+  const premiumRead =
+    options.premiumStagingEnabled === true
+      ? (() => {
+          const repository = new PostgresPremiumOrderRepository(options.pool);
+          const entitlements = new EntitlementService(
+            new PostgresEntitlementRepository(options.pool),
+          );
+          return {
+            orders: new PremiumOrderService(repository),
+            entitlements,
+            fulfillment: new PremiumEntitlementFulfillmentService(repository, entitlements),
+          };
+        })()
+      : undefined;
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -204,6 +228,12 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
+    ...(premiumRead === undefined
+      ? {}
+      : {
+          premiumRead,
+          premiumSupport: new PremiumSupportService(options.pool),
+        }),
   });
 
   return {
