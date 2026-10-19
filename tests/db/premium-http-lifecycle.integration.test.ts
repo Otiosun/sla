@@ -289,9 +289,21 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     expect(await payAgain.json()).toMatchObject({
       operation: "PAYMENT_APPROVED",
     });
-    expect((await handler.handle(request(approvePath, "POST", {
-      ...paymentInput, requestId: randomUUID(),
-    }, ownerCookie))).status).toBe(409);
+    expect(
+      (
+        await handler.handle(
+          request(
+            approvePath,
+            "POST",
+            {
+              ...paymentInput,
+              requestId: randomUUID(),
+            },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(409);
 
     const preDeliver = await pool.query<{ payments: string; grants: string; support: string }>(`
       SELECT (SELECT count(*)::text FROM premium_payment_events) AS payments,
@@ -307,47 +319,74 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       expectedRevision: "1",
       reason: "Entrega do XP aprovada e confirmada em ambiente descartável.",
     };
-    const delivered = await handler.handle(request(deliverPath, "POST", deliveryInput, ownerCookie));
+    const delivered = await handler.handle(
+      request(deliverPath, "POST", deliveryInput, ownerCookie),
+    );
     expect(delivered.status).toBe(200);
     expect(await delivered.json()).toMatchObject({
-      operation: "2XP_DELIVERED", delivered: true, replayed: false,
+      operation: "2XP_DELIVERED",
+      delivered: true,
+      replayed: false,
       order: { id: order.id, status: "APPLIED" },
     });
 
-    const reDelivered = await handler.handle(request(deliverPath, "POST", deliveryInput, ownerCookie));
+    const reDelivered = await handler.handle(
+      request(deliverPath, "POST", deliveryInput, ownerCookie),
+    );
     expect(reDelivered.status).toBe(200);
     expect(await reDelivered.json()).toMatchObject({
-      operation: "2XP_DELIVERED", replayed: true,
+      operation: "2XP_DELIVERED",
+      replayed: true,
     });
-    const read = await handler.handle(request(
-      `/v1/hub/admin/premium/players/${playerId}/orders`, "GET", undefined, ownerCookie,
-    ));
+    const read = await handler.handle(
+      request(`/v1/hub/admin/premium/players/${playerId}/orders`, "GET", undefined, ownerCookie),
+    );
     expect(read.status).toBe(200);
     expect(await read.json()).toMatchObject({
       orders: [{ id: order.id, status: "APPLIED" }],
     });
-    expect((await handler.handle(request(
-      `/v1/hub/admin/premium/players/${playerId}/entitlements`,
-      "GET", undefined, nonOwnerCookie,
-    ))).status).toBe(403);
+    expect(
+      (
+        await handler.handle(
+          request(
+            `/v1/hub/admin/premium/players/${playerId}/entitlements`,
+            "GET",
+            undefined,
+            nonOwnerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(403);
 
     const result = await pool.query<{
-      starts_at: Date; expires_at: Date; payments: string;
-      grants: string; fulfillments: string; support: string; multiplier: number;
-    }>(`SELECT e.starts_at, e.expires_at,
+      starts_at: Date;
+      expires_at: Date;
+      payments: string;
+      grants: string;
+      fulfillments: string;
+      support: string;
+      multiplier: number;
+    }>(
+      `SELECT e.starts_at, e.expires_at,
       (SELECT count(*)::text FROM premium_payment_events) AS payments,
       (SELECT count(*)::text FROM entitlement_grants) AS grants,
       (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments,
       (SELECT count(*)::text FROM premium_support_events) AS support,
       pokemon_battle_xp_multiplier_for($1::uuid, now()) AS multiplier
       FROM player_entitlements e
-      WHERE e.player_id = $1 AND e.entitlement_key = 'XP_2X'`, [playerId]);
+      WHERE e.player_id = $1 AND e.entitlement_key = 'XP_2X'`,
+      [playerId],
+    );
     expect(result.rows).toHaveLength(1);
     const row = result.rows[0];
     if (!row) throw new Error("Premium entitlement row disappeared");
     expect(row.expires_at.getTime() - row.starts_at.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
     expect(row).toMatchObject({
-      payments: "1", grants: "1", fulfillments: "1", support: "3", multiplier: 2,
+      payments: "1",
+      grants: "1",
+      fulfillments: "1",
+      support: "3",
+      multiplier: 2,
     });
   });
   it("serves real loopback HTTP requests through an ephemeral Node server, without starting the bot", async () => {
@@ -364,14 +403,11 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
             for (const item of value) headers.append(key, item);
           } else if (typeof value === "string") headers.set(key, value);
         }
-        const forwarded = new Request(
-          `http://127.0.0.1${incoming.url ?? "/"}`,
-          {
-            method: incoming.method ?? "GET",
-            headers,
-            ...(payload.byteLength > 0 ? { body: new Uint8Array(payload) } : {}),
-          },
-        );
+        const forwarded = new Request(`http://127.0.0.1${incoming.url ?? "/"}`, {
+          method: incoming.method ?? "GET",
+          headers,
+          ...(payload.byteLength > 0 ? { body: new Uint8Array(payload) } : {}),
+        });
         const handled = await handler.handle(forwarded);
         outgoing.writeHead(handled.status, Object.fromEntries(handled.headers.entries()));
         outgoing.end(Buffer.from(await handled.arrayBuffer()));
@@ -404,7 +440,7 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       expect((await wire(orderPath, "POST", payload)).status).toBe(401);
       const placed = await wire(orderPath, "POST", payload, playerCookie);
       expect(placed.status).toBe(201);
-      const creation = await placed.json() as {
+      const creation = (await placed.json()) as {
         order: { id: string; humanId: string; revision: string; totalCents: number };
         paymentStatus: string;
       };
@@ -430,7 +466,9 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       const approved = await wire(approvePath, "POST", adminInput, ownerCookie);
       expect(approved.status).toBe(200);
       expect(await approved.json()).toMatchObject({
-        operation: "PAYMENT_APPROVED", delivered: false, order: { status: "PAID" },
+        operation: "PAYMENT_APPROVED",
+        delivered: false,
+        order: { status: "PAID" },
       });
       const deliveredInput = {
         ...adminInput,
@@ -441,14 +479,16 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       const delivered = await wire(deliverPath, "POST", deliveredInput, ownerCookie);
       expect(delivered.status).toBe(200);
       expect(await delivered.json()).toMatchObject({
-        operation: "2XP_DELIVERED", delivered: true, order: { status: "APPLIED" },
+        operation: "2XP_DELIVERED",
+        delivered: true,
+        order: { status: "APPLIED" },
       });
       const replay = await wire(deliverPath, "POST", deliveredInput, ownerCookie);
       expect(replay.status).toBe(200);
       expect(await replay.json()).toMatchObject({ replayed: true, operation: "2XP_DELIVERED" });
 
       const unauthorizedList = await wire(
-        `/v1/hub/admin/premium/players/${playerId}/entitlements`, "GET", undefined, nonOwnerCookie,
+        `/v1/hub/admin/premium/players/${playerId}/entitlements`,
       );
       expect(unauthorizedList.status).toBe(403);
       const ownerList = await wire(
