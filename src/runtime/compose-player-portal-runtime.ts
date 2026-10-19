@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { EntitlementService } from "../modules/entitlements/service.js";
 import { PremiumOrderService } from "../modules/premium-orders/service.js";
 import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
 import { PremiumEntitlementFulfillmentService } from "../modules/premium-orders/entitlement-fulfillment-service.js";
 import { PremiumSupportService } from "../modules/premium-support/service.js";
 import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
@@ -235,6 +236,7 @@ export function composePlayerPortalRuntime(
           premiumRead,
           premiumSupport: new PremiumSupportService(options.pool),
           premiumDelivery: new ManualPremiumDeliveryService(options.pool, premiumRead.entitlements),
+          premiumCases: new PremiumDeliveryCaseService(options.pool),
         }),
   });
 
