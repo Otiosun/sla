@@ -223,7 +223,7 @@ export class PlayerPortalHttpHandler {
       );
     }
     const caseMatch=url.pathname.match(
-      /^\\/v1\\/hub\\/admin\\/premium\\/delivery\\/cases\\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\/(transition|events)$/i,
+      /^\/v1\/hub\/admin\/premium\/delivery\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(transition|events)$/i,
     );
     if (caseMatch?.[1] && !url.search &&
         ((caseMatch[2] === "transition" && request.method === "POST") ||
