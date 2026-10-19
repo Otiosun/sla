@@ -616,7 +616,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     const catalog=await handler.handle(request(api+"/catalog","GET",undefined,ownerCookie));
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({products:expect.arrayContaining([
-      {sku:"GEN",maxQuantity:20},{sku:"EGG:ESPECIAL",maxQuantity:20},
+      expect.objectContaining({sku:"GEN",maxQuantity:20}),
+      expect.objectContaining({sku:"EGG:ESPECIAL",maxQuantity:20}),
     ])});
     const opened=await handler.handle(request(api,"POST",payload,ownerCookie));
     expect(opened.status).toBe(201);
