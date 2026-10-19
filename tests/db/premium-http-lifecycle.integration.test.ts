@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { EntitlementService } from "../../src/modules/entitlements/service.js";
 import { PremiumEntitlementFulfillmentService } from "../../src/modules/premium-orders/entitlement-fulfillment-service.js";
 import { PremiumOrderService } from "../../src/modules/premium-orders/service.js";
+import { ManualPremiumDeliveryService } from "../../src/modules/premium-orders/manual-delivery-service.js";
 import { PremiumSupportService } from "../../src/modules/premium-support/service.js";
 import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
 import { HubSessionTokenService } from "../../src/modules/player-portal/session-token-service.js";
@@ -146,6 +147,7 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
         ),
       },
       premiumSupport: new PremiumSupportService(pool),
+      premiumDelivery: new ManualPremiumDeliveryService(pool, entitlements),
     } as unknown as ConstructorParameters<typeof PlayerPortalHttpHandler>[0];
     handler = new PlayerPortalHttpHandler(dependencies);
   });
@@ -527,4 +529,74 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       );
     }
   });
+  it("lets owner deliver XP 2x directly without payment, with catalog, history and safe replay", async () => {
+    const deliveryPath = "/v1/hub/admin/premium/delivery";
+    const catalogPath = "/v1/hub/admin/premium/delivery/catalog";
+    const requestId = randomUUID();
+    const input = {
+      requestId,
+      playerId,
+      sku: "2XP",
+      quantity: 2,
+      reason: "Entrega manual feita após confirmação externa pelo administrador.",
+    };
+    expect((await handler.handle(request(deliveryPath, "POST", input))).status).toBe(401);
+    expect((await handler.handle(request(deliveryPath, "POST", input, nonOwnerCookie))).status).toBe(403);
+    expect((await handler.handle(request(catalogPath, "GET", undefined, nonOwnerCookie))).status).toBe(403);
+
+    const catalog = await handler.handle(request(catalogPath, "GET", undefined, ownerCookie));
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({
+      products: [{ sku: "2XP", maxQuantity: 52, durationSecondsPerUnit: 604800 }],
+    });
+    const wrong = await handler.handle(request(deliveryPath, "POST", {
+      ...input, totalCents: 1,
+    }, ownerCookie));
+    expect(wrong.status).toBe(400);
+    expect((await handler.handle(request(deliveryPath, "POST", {
+      ...input, sku: "POKEMON_PACKAGE",
+    }, ownerCookie))).status).toBe(404);
+
+    const first = await handler.handle(request(deliveryPath, "POST", input, ownerCookie));
+    expect(first.status).toBe(201);
+    const firstBody = await first.json() as { entitlement: { expiresAt: string; startsAt: string } };
+    expect(firstBody).toMatchObject({
+      applied: true,
+      replayed: false,
+      requestId,
+      entitlement: { entitlementKey: "XP_2X", currentlyActive: true },
+    });
+    expect(new Date(firstBody.entitlement.expiresAt).getTime() -
+      new Date(firstBody.entitlement.startsAt).getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+
+    const repeat = await handler.handle(request(deliveryPath, "POST", input, ownerCookie));
+    expect(repeat.status).toBe(200);
+    expect(await repeat.json()).toMatchObject({ applied: true, replayed: true, requestId });
+    expect((await handler.handle(request(deliveryPath, "POST", {
+      ...input, quantity: 3,
+    }, ownerCookie))).status).toBe(409);
+
+    const history = await handler.handle(request(
+      `/v1/hub/admin/premium/players/${playerId}/deliveries`, "GET", undefined, ownerCookie,
+    ));
+    expect(history.status).toBe(200);
+    expect(await history.json()).toMatchObject({
+      deliveries: [{
+        requestId, sku: "2XP", quantity: 2, actorPrincipalId: ownerPrincipalId,
+        entitlementKey: "XP_2X",
+      }],
+    });
+
+    const counts = await pool.query<{
+      grants: string; orders: string; payments: string; fulfillments: string; multiplier: number;
+    }>(`SELECT (SELECT count(*)::text FROM entitlement_grants) AS grants,
+      (SELECT count(*)::text FROM premium_orders) AS orders,
+      (SELECT count(*)::text FROM premium_payment_events) AS payments,
+      (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments,
+      pokemon_battle_xp_multiplier_for($1::uuid, now()) AS multiplier`, [playerId]);
+    expect(counts.rows[0]).toEqual({
+      grants: "1", orders: "0", payments: "0", fulfillments: "0", multiplier: 2,
+    });
+  });
+
 });
