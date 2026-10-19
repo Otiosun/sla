@@ -197,7 +197,13 @@ function handler(
     },
     ...(options.owner === undefined
       ? {}
-      : { adminTeam: { isOwner: async () => options.owner === true } }),
+      : {
+          adminTeam: {
+            isOwner: async () => options.owner === true,
+          } as unknown as NonNullable<
+            ConstructorParameters<typeof PlayerPortalHttpHandler>[0]["adminTeam"]
+          >,
+        }),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
