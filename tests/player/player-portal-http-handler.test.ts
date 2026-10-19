@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; owner?: boolean; premiumEnabled?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; owner?: boolean; premiumEnabled?: boolean; pokemonCatalog?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -88,6 +88,17 @@ function handler(
         allowsNegative: false,
       },
     ],
+    forms: options.pokemonCatalog
+      ? [{
+          formId: "34343434-3434-4434-8434-343434343434",
+          speciesId: "35353535-3535-4535-8535-353535353535",
+          nationalDex: 25,
+          speciesSlug: "pikachu",
+          formSlug: "default",
+          displayName: "Pikachu",
+          abilityIds: [],
+        }]
+      : [],
   }));
   const adminListOperationDefinitions = vi.fn(() => [
     {
@@ -274,6 +285,74 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       correlationId: payload.requestId,
     });
     expect(api.adminApplyMutation).toHaveBeenCalledOnce();
+  });
+
+  it("creates one published Pokémon only after the owner confirmation step", async () => {
+    const api = handler({ admin: true, owner: true, premiumEnabled: true, pokemonCatalog: true });
+    const path = "https://api.example.test/v1/hub/admin/premium/delivery/pokemon";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const catalog = await api.instance.handle(new Request(path, { headers: { cookie } }));
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({
+      forms: [{ formId: "34343434-3434-4434-8434-343434343434", speciesSlug: "pikachu" }],
+    });
+    const input = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId,
+      formId: "34343434-3434-4434-8434-343434343434",
+      level: 20,
+      shiny: false,
+      reason: "Entrega manual individual aprovada pelo proprietário.",
+    };
+    const created = await api.instance.handle(new Request(path, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }));
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      applied: true, requestId: input.requestId, playerId: input.playerId,
+      formId: input.formId, level: 20,
+    });
+    expect(api.adminPrepareMutation).toHaveBeenCalledWith({
+      principalId: "77777777-7777-4777-8777-777777777777",
+      operationType: "pokemon.create",
+      input: { playerId: profile.playerId, formId: input.formId, level: 20, shiny: false },
+      reason: input.reason,
+      idempotencyKey: `premium-pokemon:${input.requestId}`,
+      correlationId: input.requestId,
+    });
+    expect(api.adminConfirmMutation).toHaveBeenCalledOnce();
+    expect(api.adminApplyMutation).toHaveBeenCalledOnce();
+  });
+
+  it("rejects Pokémon grants without published form, owner or staging approval", async () => {
+    const path = "https://api.example.test/v1/hub/admin/premium/delivery/pokemon";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const input = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId,
+      formId: "34343434-3434-4434-8434-343434343434",
+      level: 5,
+      shiny: false,
+      reason: "Entrega de teste com escopo protegido.",
+    };
+    const send = (api: ReturnType<typeof handler>, data: unknown) =>
+      api.instance.handle(new Request(path, {
+        method: "POST", headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(data),
+      }));
+    const nonOwner = handler({ admin: true, owner: false, premiumEnabled: true, pokemonCatalog: true });
+    expect((await send(nonOwner, input)).status).toBe(403);
+    expect(nonOwner.adminPrepareMutation).not.toHaveBeenCalled();
+    const disabled = handler({ admin: true, owner: true, pokemonCatalog: true });
+    expect((await send(disabled, input)).status).toBe(503);
+    expect(disabled.adminPrepareMutation).not.toHaveBeenCalled();
+    const unpublished = handler({ admin: true, owner: true, premiumEnabled: true });
+    expect((await send(unpublished, input)).status).toBe(404);
+    expect(unpublished.adminPrepareMutation).not.toHaveBeenCalled();
+    const valid = handler({ admin: true, owner: true, premiumEnabled: true, pokemonCatalog: true });
+    expect((await send(valid, { ...input, amountCents: 1000, paid: true })).status).toBe(400);
+    expect(valid.adminPrepareMutation).not.toHaveBeenCalled();
   });
 
   it("never activates inventory delivery in normal server runtime without Premium staging", async () => {
