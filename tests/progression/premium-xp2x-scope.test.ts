@@ -10,7 +10,7 @@ describe("Premium XP2x progression scope", () => {
   it("is wired only into automatic Pokemon battle XP", () => {
     const battleStart = source.indexOf("public async applyBattleReward");
 
-    const adjustmentStart = source.indexOf("public async adjustPokemonXp");
+    const adjustmentStart = source.indexOf("private async applyPokemonBattleReward", battleStart);
 
     expect(battleStart).toBeGreaterThanOrEqual(0);
     expect(adjustmentStart).toBeGreaterThan(battleStart);
@@ -25,6 +25,8 @@ describe("Premium XP2x progression scope", () => {
 
     expect(battleSection).toContain("const offeredXp = baseOfferedXp * pokemonXpMultiplier;");
 
+    expect(battleSection).toContain("const pokemonResult = await this.applyPokemonBattleReward");
+
     expect(battleSection).toContain("const trainerResult = await this.applyTrainerBattleReward");
 
     expect(adjustmentSection).not.toContain("pokemon_battle_xp_multiplier_for");
@@ -33,7 +35,7 @@ describe("Premium XP2x progression scope", () => {
   it("never expresses a stack above 2x", () => {
     const battleStart = source.indexOf("public async applyBattleReward");
 
-    const adjustmentStart = source.indexOf("public async adjustPokemonXp");
+    const adjustmentStart = source.indexOf("private async applyPokemonBattleReward", battleStart);
 
     const battleSection = source.slice(battleStart, adjustmentStart);
 
