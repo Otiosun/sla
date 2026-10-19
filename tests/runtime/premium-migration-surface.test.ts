@@ -60,6 +60,8 @@ describe("Premium migration side-effect boundary", () => {
     expect(sql).toContain('"durationSecondsPerUnit":604800');
     expect(sql).toContain('"multiplier":2');
     expect(sql).toContain("CREATE FUNCTION pokemon_battle_xp_multiplier_for");
-    expect(sql).not.toMatch(/\b(?:DELETE\s+FROM|TRUNCATE\s+TABLE)\s+(?:players|pokemon_instances|trainer_progression)\b/i);
+    expect(sql).not.toMatch(
+      /\b(?:DELETE\s+FROM|TRUNCATE\s+TABLE)\s+(?:players|pokemon_instances|trainer_progression)\b/i,
+    );
   });
 });
