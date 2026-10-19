@@ -284,7 +284,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       WHERE e.player_id = $1 AND e.entitlement_key = 'XP_2X'`, [playerId]);
     expect(result.rows).toHaveLength(1);
     const row = result.rows[0];
-    expect(row?.expires_at.getTime() - row?.starts_at.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+    if (!row) throw new Error("Premium entitlement row disappeared");
+    expect(row.expires_at.getTime() - row.starts_at.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
     expect(row).toMatchObject({
       payments: "1", grants: "1", fulfillments: "1", support: "2", multiplier: 2,
     });
