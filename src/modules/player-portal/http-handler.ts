@@ -5,6 +5,7 @@ import type { PremiumOrderService } from "../premium-orders/service.js";
 import { ManualPremiumDeliverySchema, type ManualPremiumDeliveryService } from "../premium-orders/manual-delivery-service.js";
 import { PremiumDeliveryCaseService, OpenPremiumDeliveryCaseSchema, AdvancePremiumDeliveryCaseSchema } from "../premium-orders/manual-delivery-case-service.js";
 import { ManualPremiumItemDeliverySchema } from "../premium-orders/manual-item-delivery-contracts.js";
+import { ManualMasterBallPackSchema, MASTER_BALL_ITEM_SLUG } from "../premium-orders/manual-master-ball-pack-contracts.js";
 import { ManualPremiumPokemonDeliverySchema } from "../premium-orders/manual-pokemon-delivery-contracts.js";
 import type { PremiumEntitlementFulfillmentService } from "../premium-orders/entitlement-fulfillment-service.js";
 import {
@@ -242,6 +243,12 @@ export class PlayerPortalHttpHandler {
         (request.method === "GET" || request.method === "POST")) {
       return this.withSession(request, (identity) =>
         this.manualPremiumPokemonDelivery(request, identity),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/packs/master" &&
+        (request.method === "GET" || request.method === "POST") && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualMasterBallPackDelivery(request, identity),
       );
     }
     if (url.pathname === "/v1/hub/admin/premium/delivery/items" &&
@@ -685,6 +692,83 @@ export class PlayerPortalHttpHandler {
         formId: input.formId,
         level: input.level,
         shiny: input.shiny,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async manualMasterBallPackDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    // Production must not gain a delivery API just because normal AdminService exists.
+    if (!this.dependencies.premiumDelivery) {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: true,
+        currencies: false,
+        species: false,
+        forms: false,
+        effects: false,
+        releases: false,
+      });
+      const masterBalls = catalog.items.filter((item) => item.slug === MASTER_BALL_ITEM_SLUG);
+      // Never fall back to similarly named items, nor guess UUIDs or inject a seed.
+      if (request.method === "GET") {
+        return jsonResponse(200, {
+          sku: "MASTER",
+          quantityPerUnit: 1,
+          maxQuantity: 20,
+          available: masterBalls.length === 1,
+          item: masterBalls.length === 1
+            ? { itemId: masterBalls[0]!.itemId, displayName: masterBalls[0]!.displayName }
+            : null,
+        });
+      }
+      const parsed = ManualMasterBallPackSchema.safeParse(await readJsonBody(request));
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      if (masterBalls.length !== 1) {
+        return jsonResponse(409, { error: "MASTER_BALL_NOT_PUBLISHED" });
+      }
+      const input = parsed.data;
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: admin.principalId,
+        operationType: "inventory.adjust",
+        input: {
+          playerId: input.playerId,
+          itemId: masterBalls[0]!.itemId,
+          delta: String(input.quantity),
+        },
+        reason: input.reason,
+        idempotencyKey: `premium-pack:MASTER:${input.requestId}`,
+        correlationId: input.requestId,
+      });
+      const applied = await this.dependencies.adminMutations.apply(
+        prepared.operation.id,
+        admin.principalId,
+      );
+      if (applied.status !== "APPLIED") {
+        return jsonResponse(409, {
+          error: "MASTER_BALL_DELIVERY_NOT_APPLIED",
+          operationId: applied.id,
+        });
+      }
+      return jsonResponse(prepared.replayed ? 200 : 201, {
+        applied: true,
+        replayed: prepared.replayed,
+        operationId: applied.id,
+        requestId: input.requestId,
+        playerId: input.playerId,
+        sku: "MASTER",
+        itemId: masterBalls[0]!.itemId,
+        quantity: input.quantity,
       });
     } catch (error) {
       return adminErrorResponse(error);
