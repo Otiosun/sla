@@ -4,6 +4,7 @@ import type { EntitlementService } from "../entitlements/service.js";
 import type { PremiumOrderService } from "../premium-orders/service.js";
 import { ManualPremiumDeliverySchema, type ManualPremiumDeliveryService } from "../premium-orders/manual-delivery-service.js";
 import { ManualPremiumItemDeliverySchema } from "../premium-orders/manual-item-delivery-contracts.js";
+import { ManualPremiumPokemonDeliverySchema } from "../premium-orders/manual-pokemon-delivery-contracts.js";
 import type { PremiumEntitlementFulfillmentService } from "../premium-orders/entitlement-fulfillment-service.js";
 import {
   PremiumSupportNoteSchema,
@@ -208,6 +209,12 @@ export class PlayerPortalHttpHandler {
     if (url.pathname === "/v1/hub/admin/premium/delivery/catalog" && request.method === "GET") {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "catalog"),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/pokemon" &&
+        (request.method === "GET" || request.method === "POST")) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumPokemonDelivery(request, identity),
       );
     }
     if (url.pathname === "/v1/hub/admin/premium/delivery/items" &&
@@ -573,6 +580,87 @@ export class PlayerPortalHttpHandler {
         return jsonResponse(409, { error: "IDEMPOTENCY_CONFLICT" });
       }
       return jsonResponse(503, { error: "PREMIUM_ACTION_FAILED" });
+    }
+  }
+
+  private async manualPremiumPokemonDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    if (!this.dependencies.premiumDelivery) {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: false,
+        currencies: false,
+        species: false,
+        forms: true,
+        effects: false,
+        releases: false,
+      });
+      if (request.method === "GET") {
+        return jsonResponse(200, {
+          forms: (catalog.forms ?? []).map((entry) => ({
+            formId: entry.formId,
+            speciesSlug: entry.speciesSlug,
+            formSlug: entry.formSlug,
+            displayName: entry.displayName,
+          })),
+        });
+      }
+      const parsed = ManualPremiumPokemonDeliverySchema.safeParse(await readJsonBody(request));
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const input = parsed.data;
+      if (!(catalog.forms ?? []).some((entry) => entry.formId === input.formId)) {
+        return jsonResponse(404, { error: "POKEMON_FORM_NOT_PUBLISHED" });
+      }
+
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: admin.principalId,
+        operationType: "pokemon.create",
+        input: {
+          playerId: input.playerId,
+          formId: input.formId,
+          level: input.level,
+          shiny: input.shiny,
+        },
+        reason: input.reason,
+        idempotencyKey: `premium-pokemon:${input.requestId}`,
+        correlationId: input.requestId,
+      });
+      let operation = prepared.operation;
+      if (operation.status === "PENDING_CONFIRMATION") {
+        operation = await this.dependencies.adminMutations.confirm(
+          operation.id,
+          admin.principalId,
+        );
+      }
+      if (operation.status === "READY") {
+        operation = await this.dependencies.adminMutations.apply(
+          operation.id,
+          admin.principalId,
+        );
+      }
+      if (operation.status !== "APPLIED") {
+        return jsonResponse(409, { error: "POKEMON_DELIVERY_NOT_APPLIED", operationId: operation.id });
+      }
+      return jsonResponse(prepared.replayed ? 200 : 201, {
+        applied: true,
+        replayed: prepared.replayed,
+        operationId: operation.id,
+        requestId: input.requestId,
+        playerId: input.playerId,
+        formId: input.formId,
+        level: input.level,
+        shiny: input.shiny,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
     }
   }
 
