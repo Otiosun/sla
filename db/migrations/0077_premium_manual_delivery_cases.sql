@@ -3,7 +3,7 @@
 CREATE TABLE premium_delivery_cases (
   id UUID PRIMARY KEY,
   player_id UUID NOT NULL REFERENCES players(id),
-  sku TEXT NOT NULL CHECK (sku ~ '^[A-Z0-9][A-Z0-9_.:-]{1,127}$'),
+  sku TEXT NOT NULL CHECK (sku ~ '^[A-Z0-9][A-Z0-9_.:+-]{1,127}$'),
   quantity SMALLINT NOT NULL CHECK (quantity BETWEEN 1 AND 99),
   state TEXT NOT NULL DEFAULT 'OPEN'
     CHECK (state IN ('OPEN', 'IN_PROGRESS', 'CLOSED', 'CANCELLED')),
