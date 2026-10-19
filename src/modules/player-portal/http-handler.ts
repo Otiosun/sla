@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { EntitlementService } from "../entitlements/service.js";
 import type { PremiumOrderService } from "../premium-orders/service.js";
 import { ManualPremiumDeliverySchema, type ManualPremiumDeliveryService } from "../premium-orders/manual-delivery-service.js";
+import { ManualPremiumItemDeliverySchema } from "../premium-orders/manual-item-delivery-contracts.js";
 import type { PremiumEntitlementFulfillmentService } from "../premium-orders/entitlement-fulfillment-service.js";
 import {
   PremiumSupportNoteSchema,
@@ -208,6 +209,10 @@ export class PlayerPortalHttpHandler {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "catalog"),
       );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/items" &&
+        (request.method === "GET" || request.method === "POST")) {
+      return this.withSession(request, (identity) => this.manualPremiumItemDelivery(request, identity));
     }
     if (url.pathname === "/v1/hub/admin/premium/delivery" && request.method === "POST") {
       return this.withSession(request, (identity) =>
@@ -568,6 +573,72 @@ export class PlayerPortalHttpHandler {
         return jsonResponse(409, { error: "IDEMPOTENCY_CONFLICT" });
       }
       return jsonResponse(503, { error: "PREMIUM_ACTION_FAILED" });
+    }
+  }
+
+  private async manualPremiumItemDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: true,
+        currencies: false,
+        species: false,
+        forms: false,
+        effects: false,
+        releases: false,
+      });
+      if (request.method === "GET") {
+        return jsonResponse(200, {
+          items: catalog.items.map((item) => ({
+            itemId: item.itemId,
+            displayName: item.displayName,
+            slug: item.slug,
+          })),
+        });
+      }
+
+      const input = ManualPremiumItemDeliverySchema.safeParse(await readJsonBody(request));
+      if (!input.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      // Only items in the currently published catalog can be granted.
+      if (!catalog.items.some((item) => item.itemId === input.data.itemId)) {
+        return jsonResponse(404, { error: "ITEM_NOT_PUBLISHED" });
+      }
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: admin.principalId,
+        operationType: "inventory.adjust",
+        input: {
+          playerId: input.data.playerId,
+          itemId: input.data.itemId,
+          delta: String(input.data.quantity),
+        },
+        reason: input.data.reason,
+        idempotencyKey: `premium-item:${input.data.requestId}`,
+        correlationId: input.data.requestId,
+      });
+      const applied = await this.dependencies.adminMutations.apply(
+        prepared.operation.id,
+        admin.principalId,
+      );
+      if (applied.status !== "APPLIED") {
+        return jsonResponse(409, { error: "DELIVERY_NOT_APPLIED", operationId: applied.id });
+      }
+      return jsonResponse(prepared.replayed ? 200 : 201, {
+        applied: true,
+        replayed: prepared.replayed,
+        operationId: applied.id,
+        requestId: input.data.requestId,
+        playerId: input.data.playerId,
+        itemId: input.data.itemId,
+        quantity: input.data.quantity,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
     }
   }
 
