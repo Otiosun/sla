@@ -1,12 +1,14 @@
 import type { Pool } from "pg";
 import { z } from "zod";
 
-export const PremiumSupportNoteSchema = z.object({
-  eventId: z.string().uuid(),
-  orderId: z.string().uuid().nullable(),
-  kind: z.enum(["NOTE", "REVIEW", "RESOLVED"]),
-  body: z.string().trim().min(8).max(1400),
-}).strict();
+export const PremiumSupportNoteSchema = z
+  .object({
+    eventId: z.string().uuid(),
+    orderId: z.string().uuid().nullable(),
+    kind: z.enum(["NOTE", "REVIEW", "RESOLVED"]),
+    body: z.string().trim().min(8).max(1400),
+  })
+  .strict();
 
 export type PremiumSupportNoteInput = z.infer<typeof PremiumSupportNoteSchema>;
 

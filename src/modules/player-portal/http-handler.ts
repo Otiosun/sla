@@ -3,7 +3,10 @@ import { z } from "zod";
 import type { EntitlementService } from "../entitlements/service.js";
 import type { PremiumOrderService } from "../premium-orders/service.js";
 import type { PremiumEntitlementFulfillmentService } from "../premium-orders/entitlement-fulfillment-service.js";
-import { PremiumSupportNoteSchema, type PremiumSupportService } from "../premium-support/service.js";
+import {
+  PremiumSupportNoteSchema,
+  type PremiumSupportService,
+} from "../premium-support/service.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
@@ -24,20 +27,26 @@ import type { HubSessionTokenService } from "./session-token-service.js";
 
 // Only 2XP is enabled in the authoritative backend catalog. Other store
 // products remain manual until a real fulfillment definition is provisioned.
-const Pending2XpOrderSchema = z.object({
-  requestId: z.string().uuid(),
-  items: z.array(
-    z.object({ sku: z.literal("2XP"), quantity: z.number().int().min(1).max(52) }).strict(),
-  ).length(1),
-}).strict();
+const Pending2XpOrderSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    items: z
+      .array(
+        z.object({ sku: z.literal("2XP"), quantity: z.number().int().min(1).max(52) }).strict(),
+      )
+      .length(1),
+  })
+  .strict();
 
-const ManualPremiumActionSchema = z.object({
-  requestId: z.string().uuid(),
-  humanId: z.string().regex(/^PB-[0-9]{8,20}$/),
-  expectedRevision: z.string().regex(/^[0-9]{1,20}$/),
-  reason: z.string().trim().min(8).max(400),
-  confirmed: z.literal(true),
-}).strict();
+const ManualPremiumActionSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    humanId: z.string().regex(/^PB-[0-9]{8,20}$/),
+    expectedRevision: z.string().regex(/^[0-9]{1,20}$/),
+    reason: z.string().trim().min(8).max(400),
+    confirmed: z.literal(true),
+  })
+  .strict();
 
 const SESSION_COOKIE_NAME = "__Host-pokemon_hub_session";
 const SESSION_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
@@ -127,7 +136,10 @@ interface PlayerPortalHttpDependencies {
   readonly adminMutations: PlayerPortalAdminMutationAccess;
   readonly premiumSupport?: Pick<PremiumSupportService, "list" | "append">;
   readonly premiumRead?: {
-    readonly orders: Pick<PremiumOrderService, "listPlayerOrders" | "createOrder" | "getOrder" | "applyPaymentEvent">;
+    readonly orders: Pick<
+      PremiumOrderService,
+      "listPlayerOrders" | "createOrder" | "getOrder" | "applyPaymentEvent"
+    >;
     readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
     readonly fulfillment?: Pick<PremiumEntitlementFulfillmentService, "fulfillOrderItem">;
   };
@@ -408,7 +420,7 @@ export class PlayerPortalHttpHandler {
     playerId: string,
   ): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
-    if (!admin || await this.dependencies.adminTeam?.isOwner(admin.principalId) !== true) {
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
       return jsonResponse(403, { error: "FORBIDDEN" });
     }
     const service = this.dependencies.premiumSupport;
@@ -438,7 +450,7 @@ export class PlayerPortalHttpHandler {
     action: "approve" | "deliver",
   ): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
-    if (!admin || await this.dependencies.adminTeam?.isOwner(admin.principalId) !== true) {
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
       return jsonResponse(403, { error: "FORBIDDEN" });
     }
     const services = this.dependencies.premiumRead;
@@ -453,17 +465,26 @@ export class PlayerPortalHttpHandler {
       const order = await services.orders.getOrder(orderId);
       if (!order) return jsonResponse(404, { error: "ORDER_NOT_FOUND" });
       const item = order.items[0];
-      if (order.humanId !== input.humanId || order.items.length !== 1 ||
-          item?.sku !== "2XP" || item.fulfilled && action === "approve" ||
-          item.fulfillmentKind !== "ENTITLEMENT" ||
-          item.fulfillmentPayload.entitlementKey !== "XP_2X" ||
-          item.fulfillmentPayload.grantModel !== "TIMED" ||
-          item.quantity < 1 || item.quantity > 52) {
+      if (
+        order.humanId !== input.humanId ||
+        order.items.length !== 1 ||
+        item?.sku !== "2XP" ||
+        (item.fulfilled && action === "approve") ||
+        item.fulfillmentKind !== "ENTITLEMENT" ||
+        item.fulfillmentPayload.entitlementKey !== "XP_2X" ||
+        item.fulfillmentPayload.grantModel !== "TIMED" ||
+        item.quantity < 1 ||
+        item.quantity > 52
+      ) {
         return jsonResponse(409, { error: "UNSUPPORTED_ORDER" });
       }
       if (order.status === "CANCELLED") return jsonResponse(409, { error: "ORDER_CANCELLED" });
-      if (action === "approve" && order.status !== "PAID" && order.status !== "APPLIED" &&
-          (order.status !== "PENDING" || order.revision !== input.expectedRevision)) {
+      if (
+        action === "approve" &&
+        order.status !== "PAID" &&
+        order.status !== "APPLIED" &&
+        (order.status !== "PENDING" || order.revision !== input.expectedRevision)
+      ) {
         return jsonResponse(409, { error: "ORDER_REVIEW_REQUIRED" });
       }
       if (action === "deliver") {
@@ -489,19 +510,29 @@ export class PlayerPortalHttpHandler {
           .update(JSON.stringify({ orderId, actor: admin.principalId, reason: input.reason }))
           .digest("hex");
         const payment = await services.orders.applyPaymentEvent({
-          orderId, provider: `MANUAL_ADMIN:${admin.principalId}`,
+          orderId,
+          provider: `MANUAL_ADMIN:${admin.principalId}`,
           externalEventId: input.requestId,
-          eventType: "PAID", amountCents: order.totalCents, currency: order.currency,
-          payloadDigest: digest, expectedRevision: input.expectedRevision,
+          eventType: "PAID",
+          amountCents: order.totalCents,
+          currency: order.currency,
+          payloadDigest: digest,
+          expectedRevision: input.expectedRevision,
           correlationId: input.requestId,
         });
         if (payment.kind !== "APPLIED") return jsonResponse(409, { error: payment.kind });
-        return jsonResponse(200, { order: payment.order, replayed: payment.replayed,
-          operation: "PAYMENT_APPROVED", delivered: false });
+        return jsonResponse(200, {
+          order: payment.order,
+          replayed: payment.replayed,
+          operation: "PAYMENT_APPROVED",
+          delivered: false,
+        });
       }
 
       const fulfillment = await services.fulfillment?.fulfillOrderItem({
-        orderId, orderItemId: item.id, correlationId: input.requestId,
+        orderId,
+        orderItemId: item.id,
+        correlationId: input.requestId,
       });
       if (!fulfillment || fulfillment.kind !== "APPLIED") {
         return jsonResponse(409, { error: fulfillment?.kind ?? "PREMIUM_ACTION_UNAVAILABLE" });

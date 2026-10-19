@@ -366,12 +366,13 @@ export class PostgresPremiumOrderRepository implements PremiumOrderRepository {
 
       // Owner approvals are one-time, revision-checked decisions. The exact
       // same request replays above; a new request cannot silently re-pay.
-      if (input.provider.startsWith("MANUAL_ADMIN:") && (
-        input.eventType !== "PAID" ||
-        input.expectedRevision === undefined ||
-        orderRow.status !== "PENDING" ||
-        orderRow.revision !== input.expectedRevision
-      )) {
+      if (
+        input.provider.startsWith("MANUAL_ADMIN:") &&
+        (input.eventType !== "PAID" ||
+          input.expectedRevision === undefined ||
+          orderRow.status !== "PENDING" ||
+          orderRow.revision !== input.expectedRevision)
+      ) {
         return { kind: "STATE_CONFLICT", status: orderRow.status };
       }
 

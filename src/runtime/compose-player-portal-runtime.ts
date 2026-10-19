@@ -201,17 +201,20 @@ export function composePlayerPortalRuntime(
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
   // Off unless the runtime explicitly authenticated the staging-only opt-in.
   // Importing this code or deploying its schema must NOT activate Premium.
-  const premiumRead = options.premiumStagingEnabled === true
-    ? (() => {
-        const repository = new PostgresPremiumOrderRepository(options.pool);
-        const entitlements = new EntitlementService(new PostgresEntitlementRepository(options.pool));
-        return {
-          orders: new PremiumOrderService(repository),
-          entitlements,
-          fulfillment: new PremiumEntitlementFulfillmentService(repository, entitlements),
-        };
-      })()
-    : undefined;
+  const premiumRead =
+    options.premiumStagingEnabled === true
+      ? (() => {
+          const repository = new PostgresPremiumOrderRepository(options.pool);
+          const entitlements = new EntitlementService(
+            new PostgresEntitlementRepository(options.pool),
+          );
+          return {
+            orders: new PremiumOrderService(repository),
+            entitlements,
+            fulfillment: new PremiumEntitlementFulfillmentService(repository, entitlements),
+          };
+        })()
+      : undefined;
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -225,10 +228,12 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
-    ...(premiumRead === undefined ? {} : {
-      premiumRead,
-      premiumSupport: new PremiumSupportService(options.pool),
-    }),
+    ...(premiumRead === undefined
+      ? {}
+      : {
+          premiumRead,
+          premiumSupport: new PremiumSupportService(options.pool),
+        }),
   });
 
   return {

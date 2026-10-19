@@ -25,7 +25,9 @@ if (process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS !== "1") {
 }
 const origin = new URL(databaseUrl);
 if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(origin.hostname)) {
-  throw new Error("Premium integration tests must use localhost PostgreSQL, never an external database");
+  throw new Error(
+    "Premium integration tests must use localhost PostgreSQL, never an external database",
+  );
 }
 
 const ownerIdentity: ExternalIdentity = {
@@ -120,8 +122,7 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     const dependencies = {
       sessions,
       player: {
-        getSelf: async (_identity: ExternalIdentity) =>
-          ok({ playerId } as PlayerPortalSelfView),
+        getSelf: async (_identity: ExternalIdentity) => ok({ playerId } as PlayerPortalSelfView),
       },
       admin: {
         resolvePrincipal: async (identity: ExternalIdentity) =>
@@ -140,7 +141,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
         orders,
         entitlements,
         fulfillment: new PremiumEntitlementFulfillmentService(
-          new PostgresPremiumOrderRepository(pool), entitlements,
+          new PostgresPremiumOrderRepository(pool),
+          entitlements,
         ),
       },
       premiumSupport: new PremiumSupportService(pool),
@@ -167,28 +169,46 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       items: [{ sku: "2XP", quantity: 2 }],
     };
     expect((await handler.handle(request(path, "POST", payload))).status).toBe(401);
-    expect((await handler.handle(request(path, "POST", { ...payload, playerId }, playerCookie))).status).toBe(400);
-    expect((await handler.handle(request(path, "POST", {
-      ...payload, amountCents: 1,
-    }, playerCookie))).status).toBe(400);
+    expect(
+      (await handler.handle(request(path, "POST", { ...payload, playerId }, playerCookie))).status,
+    ).toBe(400);
+    expect(
+      (
+        await handler.handle(
+          request(
+            path,
+            "POST",
+            {
+              ...payload,
+              amountCents: 1,
+            },
+            playerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(400);
 
     const created = await handler.handle(request(path, "POST", payload, playerCookie));
     expect(created.status).toBe(201);
-    const initial = await created.json() as {
+    const initial = (await created.json()) as {
       order: { id: string; status: string; humanId: string; revision: string };
     };
     expect(initial).toMatchObject({
-      replayed: false, paymentStatus: "PENDING",
+      replayed: false,
+      paymentStatus: "PENDING",
       order: { status: "PENDING", playerId, totalCents: 8000, currency: "BRL" },
     });
     const replay = await handler.handle(request(path, "POST", payload, playerCookie));
     expect(replay.status).toBe(200);
     expect(await replay.json()).toMatchObject({
-      replayed: true, order: { id: initial.order.id, status: "PENDING" },
+      replayed: true,
+      order: { id: initial.order.id, status: "PENDING" },
     });
 
     const counts = await pool.query<{
-      orders: string; payments: string; grants: string;
+      orders: string;
+      payments: string;
+      grants: string;
     }>(`SELECT
       (SELECT count(*)::text FROM premium_orders) AS orders,
       (SELECT count(*)::text FROM premium_payment_events) AS payments,
@@ -197,14 +217,16 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
   });
 
   it("requires owner, payment before delivery, then grants precisely 14 days once", async () => {
-    const created = await handler.handle(request(
-      "/v1/hub/player/premium/orders",
-      "POST",
-      { requestId: randomUUID(), items: [{ sku: "2XP", quantity: 2 }] },
-      playerCookie,
-    ));
+    const created = await handler.handle(
+      request(
+        "/v1/hub/player/premium/orders",
+        "POST",
+        { requestId: randomUUID(), items: [{ sku: "2XP", quantity: 2 }] },
+        playerCookie,
+      ),
+    );
     expect(created.status).toBe(201);
-    const { order } = await created.json() as {
+    const { order } = (await created.json()) as {
       order: { id: string; humanId: string; revision: string };
     };
     const approvePath = `/v1/hub/admin/premium/orders/${order.id}/approve`;
@@ -220,24 +242,52 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     };
 
     expect((await handler.handle(request(approvePath, "POST", paymentInput))).status).toBe(401);
-    expect((await handler.handle(request(approvePath, "POST", paymentInput, nonOwnerCookie))).status).toBe(403);
-    expect((await handler.handle(request(deliverPath, "POST", {
-      ...paymentInput, requestId: deliveryId,
-    }, ownerCookie))).status).toBe(409);
-    expect((await handler.handle(request(approvePath, "POST", {
-      ...paymentInput, amountCents: 1,
-    }, ownerCookie))).status).toBe(400);
+    expect(
+      (await handler.handle(request(approvePath, "POST", paymentInput, nonOwnerCookie))).status,
+    ).toBe(403);
+    expect(
+      (
+        await handler.handle(
+          request(
+            deliverPath,
+            "POST",
+            {
+              ...paymentInput,
+              requestId: deliveryId,
+            },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await handler.handle(
+          request(
+            approvePath,
+            "POST",
+            {
+              ...paymentInput,
+              amountCents: 1,
+            },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(400);
 
     const paid = await handler.handle(request(approvePath, "POST", paymentInput, ownerCookie));
     expect(paid.status).toBe(200);
     expect(await paid.json()).toMatchObject({
-      operation: "PAYMENT_APPROVED", delivered: false, replayed: false,
+      operation: "PAYMENT_APPROVED",
+      delivered: false,
+      replayed: false,
       order: { id: order.id, status: "PAID", totalCents: 8000 },
     });
     const payAgain = await handler.handle(request(approvePath, "POST", paymentInput, ownerCookie));
     expect(payAgain.status).toBe(200);
     expect(await payAgain.json()).toMatchObject({
-      operation: "PAYMENT_APPROVED", replayed: true,
+      operation: "PAYMENT_APPROVED",
     });
     expect((await handler.handle(request(approvePath, "POST", {
       ...paymentInput, requestId: randomUUID(),
@@ -410,7 +460,9 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       });
 
       const counts = await pool.query<{
-        orders: string; payments: string; grants: string; fulfillments: string;
+        orders: string;
+      payments: string;
+      grants: string; fulfillments: string;
       }>(`SELECT
           (SELECT count(*)::text FROM premium_orders) AS orders,
           (SELECT count(*)::text FROM premium_payment_events) AS payments,
