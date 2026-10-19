@@ -1,4 +1,11 @@
 import type { Pool } from "pg";
+import { EntitlementService } from "../modules/entitlements/service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PremiumEntitlementFulfillmentService } from "../modules/premium-orders/entitlement-fulfillment-service.js";
+import { PremiumSupportService } from "../modules/premium-support/service.js";
+import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
+
 import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
@@ -191,6 +198,13 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
+  const premiumOrderRepository = new PostgresPremiumOrderRepository(options.pool);
+  const premiumEntitlements = new EntitlementService(new PostgresEntitlementRepository(options.pool));
+  const premiumRead = {
+    orders: new PremiumOrderService(premiumOrderRepository),
+    entitlements: premiumEntitlements,
+    fulfillment: new PremiumEntitlementFulfillmentService(premiumOrderRepository, premiumEntitlements),
+  };
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -204,6 +218,8 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
+    premiumRead,
+    premiumSupport: new PremiumSupportService(options.pool),
   });
 
   return {

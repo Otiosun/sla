@@ -82,7 +82,9 @@ jobs:
             tests/db/entitlements.integration.test.ts \
             tests/db/premium-orders.integration.test.ts \
             tests/db/premium-orders-xp2x.integration.test.ts \
+            tests/db/premium-http-lifecycle.integration.test.ts \
             tests/db/xp2x-policy.integration.test.ts \
+            tests/player/player-portal-http-handler.test.ts \
             tests/progression/premium-xp2x-scope.test.ts
       - name: Typecheck backend
         run: pnpm typecheck
