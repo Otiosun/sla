@@ -70,6 +70,7 @@ interface PlayerPortalRuntimeOptions {
   readonly pool: Pool;
   readonly sessionSigningKey: Uint8Array;
   readonly deploymentRevision: string | null;
+  readonly premiumStagingEnabled?: boolean;
 }
 
 interface PlayerPortalRequestHandler {
@@ -198,13 +199,19 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
-  const premiumOrderRepository = new PostgresPremiumOrderRepository(options.pool);
-  const premiumEntitlements = new EntitlementService(new PostgresEntitlementRepository(options.pool));
-  const premiumRead = {
-    orders: new PremiumOrderService(premiumOrderRepository),
-    entitlements: premiumEntitlements,
-    fulfillment: new PremiumEntitlementFulfillmentService(premiumOrderRepository, premiumEntitlements),
-  };
+  // Off unless the runtime explicitly authenticated the staging-only opt-in.
+  // Importing this code or deploying its schema must NOT activate Premium.
+  const premiumRead = options.premiumStagingEnabled === true
+    ? (() => {
+        const repository = new PostgresPremiumOrderRepository(options.pool);
+        const entitlements = new EntitlementService(new PostgresEntitlementRepository(options.pool));
+        return {
+          orders: new PremiumOrderService(repository),
+          entitlements,
+          fulfillment: new PremiumEntitlementFulfillmentService(repository, entitlements),
+        };
+      })()
+    : undefined;
   const portal = new PlayerPortalHttpHandler({
     tickets,
     sessions,
@@ -218,8 +225,10 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
-    premiumRead,
-    premiumSupport: new PremiumSupportService(options.pool),
+    ...(premiumRead === undefined ? {} : {
+      premiumRead,
+      premiumSupport: new PremiumSupportService(options.pool),
+    }),
   });
 
   return {
