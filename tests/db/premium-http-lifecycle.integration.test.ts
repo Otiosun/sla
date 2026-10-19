@@ -14,8 +14,11 @@ import { PostgresEntitlementRepository } from "../../src/platform/entitlements/p
 import { PostgresPremiumOrderRepository } from "../../src/platform/premium-orders/postgres-premium-order-repository.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required for disposable PostgreSQL tests");
+const databaseUrl = (() => {
+  const value = process.env.DATABASE_URL;
+  if (!value) throw new Error("DATABASE_URL is required for disposable PostgreSQL tests");
+  return value;
+})();
 if (process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS !== "1") {
   throw new Error("Refusing Premium HTTP integration test without disposable DB authorization");
 }
@@ -170,7 +173,9 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
 
     const created = await handler.handle(request(path, "POST", payload, playerCookie));
     expect(created.status).toBe(201);
-    const initial = await created.json();
+    const initial = await created.json() as {
+      order: { id: string; status: string; humanId: string; revision: string };
+    };
     expect(initial).toMatchObject({
       replayed: false, paymentStatus: "PENDING",
       order: { status: "PENDING", playerId, totalCents: 8000, currency: "BRL" },
@@ -198,7 +203,9 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       playerCookie,
     ));
     expect(created.status).toBe(201);
-    const { order } = await created.json();
+    const { order } = await created.json() as {
+      order: { id: string; humanId: string; revision: string };
+    };
     const approvePath = `/v1/hub/admin/premium/orders/${order.id}/approve`;
     const deliverPath = `/v1/hub/admin/premium/orders/${order.id}/deliver`;
     const approvalId = randomUUID();
