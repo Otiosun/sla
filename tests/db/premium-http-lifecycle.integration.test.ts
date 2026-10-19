@@ -246,7 +246,9 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       SELECT (SELECT count(*)::text FROM premium_payment_events) AS payments,
         (SELECT count(*)::text FROM entitlement_grants) AS grants,
         (SELECT count(*)::text FROM premium_support_events) AS support`);
-    expect(preDeliver.rows[0]).toEqual({ payments: "1", grants: "0", support: "1" });
+    // The refused second approval has its own REVIEW audit event: it did not
+    // create another payment or grant and is not a replay of the first request.
+    expect(preDeliver.rows[0]).toEqual({ payments: "1", grants: "0", support: "2" });
 
     const deliveryInput = {
       ...paymentInput,
@@ -294,7 +296,7 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     if (!row) throw new Error("Premium entitlement row disappeared");
     expect(row.expires_at.getTime() - row.starts_at.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
     expect(row).toMatchObject({
-      payments: "1", grants: "1", fulfillments: "1", support: "2", multiplier: 2,
+      payments: "1", grants: "1", fulfillments: "1", support: "3", multiplier: 2,
     });
   });
 });
