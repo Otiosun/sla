@@ -584,6 +584,10 @@ export class PlayerPortalHttpHandler {
     if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
       return jsonResponse(403, { error: "FORBIDDEN" });
     }
+    // Staging feature boundary: this dependency is NEVER mounted in normal/live runtime.
+    if (!this.dependencies.premiumDelivery) {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
     try {
       const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
         items: true,
