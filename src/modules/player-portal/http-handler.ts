@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { EntitlementService } from "../entitlements/service.js";
 import type { PremiumOrderService } from "../premium-orders/service.js";
+import { ManualPremiumDeliverySchema, type ManualPremiumDeliveryService } from "../premium-orders/manual-delivery-service.js";
 import type { PremiumEntitlementFulfillmentService } from "../premium-orders/entitlement-fulfillment-service.js";
 import {
   PremiumSupportNoteSchema,
@@ -135,6 +136,7 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
   readonly premiumSupport?: Pick<PremiumSupportService, "list" | "append">;
+  readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
   readonly premiumRead?: {
     readonly orders: Pick<
       PremiumOrderService,
@@ -200,6 +202,24 @@ export class PlayerPortalHttpHandler {
     if (request.method === "POST" && orderId && (action === "approve" || action === "deliver")) {
       return this.withSession(request, (identity) =>
         this.manualPremiumAction(request, identity, orderId, action),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/catalog" && request.method === "GET") {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "catalog"),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery" && request.method === "POST") {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "deliver"),
+      );
+    }
+    const manualHistory = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/deliveries$/i,
+    );
+    if (request.method === "GET" && manualHistory?.[1]) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "history", manualHistory[1]),
       );
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
@@ -548,6 +568,48 @@ export class PlayerPortalHttpHandler {
         return jsonResponse(409, { error: "IDEMPOTENCY_CONFLICT" });
       }
       return jsonResponse(503, { error: "PREMIUM_ACTION_FAILED" });
+    }
+  }
+
+  private async manualPremiumDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+    operation: "catalog" | "history" | "deliver",
+    playerId?: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    const service = this.dependencies.premiumDelivery;
+    if (!service) return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    try {
+      if (operation === "catalog") {
+        return jsonResponse(200, { products: await service.catalog() });
+      }
+      if (operation === "history") {
+        if (!playerId) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        return jsonResponse(200, { deliveries: await service.history(playerId) });
+      }
+      const raw = await readJsonBody(request);
+      const parsed = ManualPremiumDeliverySchema.safeParse(raw);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const result = await service.deliver(parsed.data, admin.principalId);
+      if (result.kind === "APPLIED") {
+        return jsonResponse(result.replayed ? 200 : 201, {
+          applied: true, replayed: result.replayed,
+          entitlement: result.entitlement, requestId: parsed.data.requestId,
+        });
+      }
+      if (result.kind === "PRODUCT_UNAVAILABLE") {
+        return jsonResponse(404, { error: result.kind });
+      }
+      if (result.kind === "PLAYER_NOT_FOUND") {
+        return jsonResponse(404, { error: result.kind });
+      }
+      return jsonResponse(409, { error: result.kind });
+    } catch {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
     }
   }
 
