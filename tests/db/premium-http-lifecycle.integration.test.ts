@@ -489,10 +489,16 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
 
       const unauthorizedList = await wire(
         `/v1/hub/admin/premium/players/${playerId}/entitlements`,
+        "GET",
+        undefined,
+        nonOwnerCookie,
       );
       expect(unauthorizedList.status).toBe(403);
       const ownerList = await wire(
-        `/v1/hub/admin/premium/players/${playerId}/entitlements`, "GET", undefined, ownerCookie,
+        `/v1/hub/admin/premium/players/${playerId}/entitlements`,
+        "GET",
+        undefined,
+        ownerCookie,
       );
       expect(ownerList.status).toBe(200);
       expect(await ownerList.json()).toMatchObject({
@@ -501,19 +507,24 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
 
       const counts = await pool.query<{
         orders: string;
-      payments: string;
-      grants: string; fulfillments: string;
+        payments: string;
+        grants: string;
+        fulfillments: string;
       }>(`SELECT
           (SELECT count(*)::text FROM premium_orders) AS orders,
           (SELECT count(*)::text FROM premium_payment_events) AS payments,
           (SELECT count(*)::text FROM entitlement_grants) AS grants,
           (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments`);
       expect(counts.rows[0]).toEqual({
-        orders: "1", payments: "1", grants: "1", fulfillments: "1",
+        orders: "1",
+        payments: "1",
+        grants: "1",
+        fulfillments: "1",
       });
     } finally {
       await new Promise<void>((resolve, reject) =>
-        server.close((error) => error ? reject(error) : resolve()));
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
     }
   });
 });
