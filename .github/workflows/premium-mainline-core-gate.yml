@@ -12,10 +12,17 @@ on:
       - "src/platform/premium-orders/**"
       - "src/modules/player-portal/**"
       - "src/runtime/compose-player-portal-runtime.ts"
+      - "src/runtime/player-portal-runtime-config.ts"
+      - "src/runtime/start-player-portal-application.ts"
+      - "tests/runtime/player-portal-runtime-config.test.ts"
+      - "scripts/operations/premium-local-readiness.mjs"
+      - "src/runtime/premium-staging-database-target.ts"
+      - "tests/runtime/premium-staging-database-target.test.ts"
       - "src/modules/progression/**"
       - "src/platform/progression/**"
       - "tests/db/**"
       - "tests/player/player-portal-http-handler.test.ts"
+      - "tests/player/manual-master-ball-*.test.ts"
       - "tests/progression/premium-xp2x-scope.test.ts"
   workflow_dispatch:
 
@@ -83,9 +90,14 @@ jobs:
             tests/db/premium-orders.integration.test.ts \
             tests/db/premium-orders-xp2x.integration.test.ts \
             tests/db/premium-http-lifecycle.integration.test.ts \
+            tests/db/premium-master-ball.integration.test.ts \
             tests/db/xp2x-policy.integration.test.ts \
             tests/player/player-portal-http-handler.test.ts \
+            tests/player/manual-master-ball-contracts.test.ts \
+            tests/player/manual-master-ball-session.test.ts \
+            tests/player/manual-master-ball-pack-handler.test.ts \
             tests/runtime/player-portal-runtime-config.test.ts \
+            tests/runtime/premium-staging-database-target.test.ts \
             tests/runtime/premium-migration-surface.test.ts \
             tests/progression/premium-xp2x-scope.test.ts
       - name: Typecheck backend

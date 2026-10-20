@@ -5,6 +5,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { EntitlementService } from "../../src/modules/entitlements/service.js";
 import { PremiumEntitlementFulfillmentService } from "../../src/modules/premium-orders/entitlement-fulfillment-service.js";
 import { PremiumOrderService } from "../../src/modules/premium-orders/service.js";
+import { ManualPremiumDeliveryService } from "../../src/modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../../src/modules/premium-orders/manual-delivery-case-service.js";
 import { PremiumSupportService } from "../../src/modules/premium-support/service.js";
 import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
 import { HubSessionTokenService } from "../../src/modules/player-portal/session-token-service.js";
@@ -85,6 +87,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
 
   beforeEach(async () => {
     for (const table of [
+      "premium_delivery_case_events",
+      "premium_delivery_cases",
       "premium_support_events",
       "premium_fulfillment_events",
       "premium_payment_events",
@@ -137,6 +141,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       adminTeam: {
         isOwner: async (principalId: string) => principalId === ownerPrincipalId,
       },
+      // Archived workflow is exercised only in this disposable historical test.
+      allowLegacyPremiumOrders: true,
       premiumRead: {
         orders,
         entitlements,
@@ -146,6 +152,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
         ),
       },
       premiumSupport: new PremiumSupportService(pool),
+      premiumDelivery: new ManualPremiumDeliveryService(pool, entitlements),
+      premiumCases: new PremiumDeliveryCaseService(pool),
     } as unknown as ConstructorParameters<typeof PlayerPortalHttpHandler>[0];
     handler = new PlayerPortalHttpHandler(dependencies);
   });
@@ -527,4 +535,132 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       );
     }
   });
+  it("lets owner deliver XP 2x directly without payment, with catalog, history and safe replay", async () => {
+    const deliveryPath = "/v1/hub/admin/premium/delivery";
+    const catalogPath = "/v1/hub/admin/premium/delivery/catalog";
+    const requestId = randomUUID();
+    const input = {
+      requestId,
+      playerId,
+      sku: "2XP",
+      quantity: 2,
+      reason: "Entrega manual feita após confirmação externa pelo administrador.",
+    };
+    expect((await handler.handle(request(deliveryPath, "POST", input))).status).toBe(401);
+    expect((await handler.handle(request(deliveryPath, "POST", input, nonOwnerCookie))).status).toBe(403);
+    expect((await handler.handle(request(catalogPath, "GET", undefined, nonOwnerCookie))).status).toBe(403);
+
+    const catalog = await handler.handle(request(catalogPath, "GET", undefined, ownerCookie));
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({
+      products: [{ sku: "2XP", maxQuantity: 52, durationSecondsPerUnit: 604800 }],
+    });
+    const wrong = await handler.handle(request(deliveryPath, "POST", {
+      ...input, totalCents: 1,
+    }, ownerCookie));
+    expect(wrong.status).toBe(400);
+    expect((await handler.handle(request(deliveryPath, "POST", {
+      ...input, sku: "POKEMON_PACKAGE",
+    }, ownerCookie))).status).toBe(404);
+
+    const first = await handler.handle(request(deliveryPath, "POST", input, ownerCookie));
+    expect(first.status).toBe(201);
+    const firstBody = await first.json() as { entitlement: { expiresAt: string; startsAt: string } };
+    expect(firstBody).toMatchObject({
+      applied: true,
+      replayed: false,
+      requestId,
+      entitlement: { entitlementKey: "XP_2X", currentlyActive: true },
+    });
+    expect(new Date(firstBody.entitlement.expiresAt).getTime() -
+      new Date(firstBody.entitlement.startsAt).getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+
+    const repeat = await handler.handle(request(deliveryPath, "POST", input, ownerCookie));
+    expect(repeat.status).toBe(200);
+    expect(await repeat.json()).toMatchObject({ applied: true, replayed: true, requestId });
+    expect((await handler.handle(request(deliveryPath, "POST", {
+      ...input, quantity: 3,
+    }, ownerCookie))).status).toBe(409);
+
+    const history = await handler.handle(request(
+      `/v1/hub/admin/premium/players/${playerId}/deliveries`, "GET", undefined, ownerCookie,
+    ));
+    expect(history.status).toBe(200);
+    expect(await history.json()).toMatchObject({
+      deliveries: [{
+        requestId, sku: "2XP", quantity: 2, actorPrincipalId: ownerPrincipalId,
+        entitlementKey: "XP_2X",
+      }],
+    });
+
+    const counts = await pool.query<{
+      grants: string; orders: string; payments: string; fulfillments: string; multiplier: number;
+    }>(`SELECT (SELECT count(*)::text FROM entitlement_grants) AS grants,
+      (SELECT count(*)::text FROM premium_orders) AS orders,
+      (SELECT count(*)::text FROM premium_payment_events) AS payments,
+      (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments,
+      pokemon_battle_xp_multiplier_for($1::uuid, now()) AS multiplier`, [playerId]);
+    expect(counts.rows[0]).toEqual({
+      grants: "1", orders: "0", payments: "0", fulfillments: "0", multiplier: 2,
+    });
+  });
+
+  it("tracks an owner-only commercial gamepass case and its review without any grant or payment", async () => {
+    const caseId=randomUUID(),eventId=randomUUID(),changeId=randomUUID(),doneId=randomUUID();
+    const api="/v1/hub/admin/premium/delivery/cases";
+    const payload={
+      caseId,eventId,playerId,sku:"GEN",quantity:1,
+      note:"Direito de criar espécie original, aguarda análise da equipe e arte do jogador.",
+    };
+    expect((await handler.handle(request(api,"POST",payload))).status).toBe(401);
+    expect((await handler.handle(request(api,"POST",payload,nonOwnerCookie))).status).toBe(403);
+    expect((await handler.handle(request(api,"POST",{...payload,paid:true},ownerCookie))).status).toBe(400);
+    const catalog=await handler.handle(request(api+"/catalog","GET",undefined,ownerCookie));
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({products:expect.arrayContaining([
+      expect.objectContaining({sku:"GEN",maxQuantity:20}),
+      expect.objectContaining({sku:"EGG:ESPECIAL",maxQuantity:20}),
+    ])});
+    const opened=await handler.handle(request(api,"POST",payload,ownerCookie));
+    expect(opened.status).toBe(201);
+    expect(await opened.json()).toMatchObject({
+      replayed:false,case:{id:caseId,playerId,sku:"GEN",state:"OPEN",revision:0},
+    });
+    const repeat=await handler.handle(request(api,"POST",payload,ownerCookie));
+    expect(repeat.status).toBe(200);
+    expect(await repeat.json()).toMatchObject({replayed:true,case:{id:caseId}});
+    expect((await handler.handle(request(api,"POST",{...payload,quantity:2},ownerCookie))).status).toBe(409);
+    const review={caseId,eventId:changeId,expectedRevision:0,nextState:"IN_PROGRESS",
+      attested:false,note:"Projeto do Pokémon Gênesis sob análise de equilíbrio e publicação."};
+    const reviewRes=await handler.handle(request(api+"/"+caseId+"/transition","POST",review,ownerCookie));
+    expect(reviewRes.status).toBe(200);
+    expect(await reviewRes.json()).toMatchObject({case:{state:"IN_PROGRESS",revision:1}});
+    expect((await handler.handle(request(api+"/"+caseId+"/transition","POST",review,ownerCookie))).status).toBe(200);
+    expect((await handler.handle(request(api+"/"+caseId+"/transition","POST",
+      {...review,eventId:randomUUID()},ownerCookie))).status).toBe(409);
+    const close={caseId,eventId:doneId,expectedRevision:1,nextState:"CLOSED",
+      attested:true,note:"Entrega concluída manualmente e verificada pelo responsável; registros de publicação conferidos."};
+    expect((await handler.handle(request(api+"/"+caseId+"/transition","POST",
+      {...close,attested:false},ownerCookie))).status).toBe(400);
+    const finished=await handler.handle(request(api+"/"+caseId+"/transition","POST",close,ownerCookie));
+    expect(finished.status).toBe(200);
+    expect(await finished.json()).toMatchObject({case:{state:"CLOSED",revision:2}});
+    expect((await handler.handle(request(api+"/"+caseId+"/transition","POST",
+      {...review,eventId:randomUUID(),expectedRevision:2},ownerCookie))).status).toBe(409);
+    const timeline=await handler.handle(request(api+"/"+caseId+"/events","GET",undefined,ownerCookie));
+    expect(timeline.status).toBe(200);
+    const body=await timeline.json() as {events:{nextState:string}[]};
+    expect(body.events.map(e=>e.nextState)).toEqual(["OPEN","IN_PROGRESS","CLOSED"]);
+    const list=await handler.handle(request(api+"?playerId="+playerId,"GET",undefined,ownerCookie));
+    expect(list.status).toBe(200);
+    expect(await list.json()).toMatchObject({cases:[{id:caseId,sku:"GEN",state:"CLOSED"}]});
+    const state=await pool.query<{cases:string,events:string,payments:string,grants:string,orders:string}>(
+      `SELECT (SELECT count(*)::text FROM premium_delivery_cases) AS cases,
+              (SELECT count(*)::text FROM premium_delivery_case_events) AS events,
+              (SELECT count(*)::text FROM premium_payment_events) AS payments,
+              (SELECT count(*)::text FROM entitlement_grants) AS grants,
+              (SELECT count(*)::text FROM premium_orders) AS orders`);
+    expect(state.rows[0]).toEqual({cases:"1",events:"3",payments:"0",grants:"0",orders:"0"});
+  });
+
 });

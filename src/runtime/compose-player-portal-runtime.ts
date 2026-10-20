@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 import { EntitlementService } from "../modules/entitlements/service.js";
 import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
 import { PremiumEntitlementFulfillmentService } from "../modules/premium-orders/entitlement-fulfillment-service.js";
 import { PremiumSupportService } from "../modules/premium-support/service.js";
 import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
@@ -71,6 +73,7 @@ interface PlayerPortalRuntimeOptions {
   readonly sessionSigningKey: Uint8Array;
   readonly deploymentRevision: string | null;
   readonly premiumStagingEnabled?: boolean;
+  readonly premiumLocalEnabled?: boolean;
 }
 
 interface PlayerPortalRequestHandler {
@@ -199,10 +202,10 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
-  // Off unless the runtime explicitly authenticated the staging-only opt-in.
-  // Importing this code or deploying its schema must NOT activate Premium.
+  // Off unless explicitly opted in by stage or the PC's loopback-only local mode.
+  // Merely importing code or migrating schema must NOT activate Premium.
   const premiumRead =
-    options.premiumStagingEnabled === true
+    (options.premiumStagingEnabled === true || options.premiumLocalEnabled === true)
       ? (() => {
           const repository = new PostgresPremiumOrderRepository(options.pool);
           const entitlements = new EntitlementService(
@@ -233,6 +236,8 @@ export function composePlayerPortalRuntime(
       : {
           premiumRead,
           premiumSupport: new PremiumSupportService(options.pool),
+          premiumDelivery: new ManualPremiumDeliveryService(options.pool, premiumRead.entitlements),
+          premiumCases: new PremiumDeliveryCaseService(options.pool),
         }),
   });
 

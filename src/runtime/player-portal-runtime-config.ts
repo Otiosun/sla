@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AppConfig } from "../platform/config/env.js";
+import { isApprovedPremiumStagingDatabaseUrl } from "./premium-staging-database-target.js";
 
 const fullRevisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const runtimeSchema = z.object({
@@ -9,6 +10,7 @@ const runtimeSchema = z.object({
   DEPLOY_REVISION: fullRevisionSchema.optional(),
   RAILWAY_GIT_COMMIT_SHA: fullRevisionSchema.optional(),
   PREMIUM_STAGING_ENABLED: z.enum(["0", "1"]).default("0"),
+  PREMIUM_LOCAL_DELIVERY_ENABLED: z.enum(["0", "1"]).default("0"),
 });
 
 export interface PlayerPortalRuntimeConfig {
@@ -18,6 +20,8 @@ export interface PlayerPortalRuntimeConfig {
   readonly deploymentRevision: string | null;
   /** Never enabled in production; needs explicit staging opt-in. */
   readonly premiumStagingEnabled?: boolean;
+  /** Separate opt-in, bound to the PC loopback interface. No WhatsApp process is started. */
+  readonly premiumLocalEnabled?: boolean;
 }
 
 export class PlayerPortalRuntimeConfigError extends Error {
@@ -36,7 +40,7 @@ function decodeSigningKey(value: string): Buffer {
 }
 
 export function loadPlayerPortalRuntimeConfig(
-  appConfig: Pick<AppConfig, "appEnv">,
+  appConfig: Pick<AppConfig, "appEnv"> & Partial<Pick<AppConfig, "databaseUrl">>,
   env: NodeJS.ProcessEnv = process.env,
 ): PlayerPortalRuntimeConfig {
   const parsed = runtimeSchema.safeParse(env);
@@ -62,6 +66,29 @@ export function loadPlayerPortalRuntimeConfig(
   }
 
   const deploymentRevision = railwayRevision ?? explicitRevision ?? null;
+  const premiumOptIn = appConfig.appEnv === "staging" && parsed.data.PREMIUM_STAGING_ENABLED === "1";
+  if (premiumOptIn &&
+      (!appConfig.databaseUrl || !isApprovedPremiumStagingDatabaseUrl(appConfig.databaseUrl))) {
+    // No URL, username, password or connection metadata may appear in this error.
+    throw new PlayerPortalRuntimeConfigError(
+      "Premium staging requires the approved dedicated Supabase project, pokemon_runtime role, port 5432 and verified TLS",
+    );
+  }
+  const premiumLocalOptIn =
+    (appConfig.appEnv === "development" || appConfig.appEnv === "production") &&
+    parsed.data.PREMIUM_LOCAL_DELIVERY_ENABLED === "1";
+  if (premiumLocalOptIn && parsed.data.PLAYER_PORTAL_HOST !== "127.0.0.1" &&
+      parsed.data.PLAYER_PORTAL_HOST !== "::1") {
+    throw new PlayerPortalRuntimeConfigError(
+      "Premium local delivery requires PLAYER_PORTAL_HOST=127.0.0.1 or ::1",
+    );
+  }
+  if (parsed.data.PREMIUM_LOCAL_DELIVERY_ENABLED === "1" &&
+      (appConfig.appEnv === "staging" || appConfig.appEnv === "test")) {
+    throw new PlayerPortalRuntimeConfigError(
+      "PREMIUM_LOCAL_DELIVERY_ENABLED is restricted to development/production on this PC",
+    );
+  }
   const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
   if (requiresRevision && deploymentRevision === null) {
     throw new PlayerPortalRuntimeConfigError(
@@ -74,7 +101,7 @@ export function loadPlayerPortalRuntimeConfig(
     port: parsed.data.PORT,
     sessionSigningKey: decodeSigningKey(parsed.data.PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64),
     deploymentRevision,
-    premiumStagingEnabled:
-      appConfig.appEnv === "staging" && parsed.data.PREMIUM_STAGING_ENABLED === "1",
+    premiumStagingEnabled: premiumOptIn,
+    premiumLocalEnabled: premiumLocalOptIn,
   };
 }

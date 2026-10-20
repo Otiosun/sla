@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; owner?: boolean; premiumEnabled?: boolean; pokemonCatalog?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -88,6 +88,17 @@ function handler(
         allowsNegative: false,
       },
     ],
+    forms: options.pokemonCatalog
+      ? [{
+          formId: "34343434-3434-4434-8434-343434343434",
+          speciesId: "35353535-3535-4535-8535-353535353535",
+          nationalDex: 25,
+          speciesSlug: "pikachu",
+          formSlug: "default",
+          displayName: "Pikachu",
+          abilityIds: [],
+        }]
+      : [],
   }));
   const adminListOperationDefinitions = vi.fn(() => [
     {
@@ -195,6 +206,24 @@ function handler(
     adminRewardCatalog: {
       get: adminRewardCatalogGet,
     },
+    ...(options.owner === undefined
+      ? {}
+      : {
+          adminTeam: {
+            isOwner: async () => options.owner === true,
+          } as unknown as NonNullable<
+            ConstructorParameters<typeof PlayerPortalHttpHandler>[0]["adminTeam"]
+          >,
+        }),
+    ...(options.premiumEnabled
+      ? {
+          premiumDelivery: {
+            catalog: async () => [],
+            history: async () => [],
+            deliver: async () => ({ kind: "PRODUCT_UNAVAILABLE" as const }),
+          },
+        }
+      : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -222,6 +251,154 @@ function handler(
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
+  it("lets staging owner manually deliver a published item through audited inventory.adjust", async () => {
+    const api = handler({ admin: true, owner: true, premiumEnabled: true });
+    const path = "https://api.example.test/v1/hub/admin/premium/delivery/items";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const catalog = await api.instance.handle(new Request(path, { headers: { cookie } }));
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({
+      items: [{ itemId: "12121212-1212-4212-8212-121212121212", slug: "great-ball" }],
+    });
+    const payload = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId,
+      itemId: "12121212-1212-4212-8212-121212121212",
+      quantity: 4,
+      reason: "Entrega confirmada externamente pelo dono.",
+    };
+    const grant = await api.instance.handle(new Request(path, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+    expect(grant.status).toBe(201);
+    expect(await grant.json()).toMatchObject({
+      applied: true, quantity: 4, playerId: profile.playerId,
+      itemId: payload.itemId, requestId: payload.requestId,
+    });
+    expect(api.adminPrepareMutation).toHaveBeenCalledWith({
+      principalId: "77777777-7777-4777-8777-777777777777",
+      operationType: "inventory.adjust",
+      input: { playerId: profile.playerId, itemId: payload.itemId, delta: "4" },
+      reason: payload.reason,
+      idempotencyKey: `premium-item:${payload.requestId}`,
+      correlationId: payload.requestId,
+    });
+    expect(api.adminApplyMutation).toHaveBeenCalledOnce();
+  });
+
+  it("creates one published Pokémon only after the owner confirmation step", async () => {
+    const api = handler({ admin: true, owner: true, premiumEnabled: true, pokemonCatalog: true });
+    const path = "https://api.example.test/v1/hub/admin/premium/delivery/pokemon";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const catalog = await api.instance.handle(new Request(path, { headers: { cookie } }));
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({
+      forms: [{ formId: "34343434-3434-4434-8434-343434343434", speciesSlug: "pikachu" }],
+    });
+    const input = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId,
+      formId: "34343434-3434-4434-8434-343434343434",
+      level: 20,
+      shiny: false,
+      reason: "Entrega manual individual aprovada pelo proprietário.",
+    };
+    const created = await api.instance.handle(new Request(path, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }));
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      applied: true, requestId: input.requestId, playerId: input.playerId,
+      formId: input.formId, level: 20,
+    });
+    expect(api.adminPrepareMutation).toHaveBeenCalledWith({
+      principalId: "77777777-7777-4777-8777-777777777777",
+      operationType: "pokemon.create",
+      input: { playerId: profile.playerId, formId: input.formId, level: 20, shiny: false },
+      reason: input.reason,
+      idempotencyKey: `premium-pokemon:${input.requestId}`,
+      correlationId: input.requestId,
+    });
+    expect(api.adminConfirmMutation).toHaveBeenCalledOnce();
+    expect(api.adminApplyMutation).toHaveBeenCalledOnce();
+  });
+
+  it("rejects Pokémon grants without published form, owner or staging approval", async () => {
+    const path = "https://api.example.test/v1/hub/admin/premium/delivery/pokemon";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const input = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId,
+      formId: "34343434-3434-4434-8434-343434343434",
+      level: 5,
+      shiny: false,
+      reason: "Entrega de teste com escopo protegido.",
+    };
+    const send = (api: ReturnType<typeof handler>, data: unknown) =>
+      api.instance.handle(new Request(path, {
+        method: "POST", headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(data),
+      }));
+    const nonOwner = handler({ admin: true, owner: false, premiumEnabled: true, pokemonCatalog: true });
+    expect((await send(nonOwner, input)).status).toBe(403);
+    expect(nonOwner.adminPrepareMutation).not.toHaveBeenCalled();
+    const disabled = handler({ admin: true, owner: true, pokemonCatalog: true });
+    expect((await send(disabled, input)).status).toBe(503);
+    expect(disabled.adminPrepareMutation).not.toHaveBeenCalled();
+    const unpublished = handler({ admin: true, owner: true, premiumEnabled: true });
+    expect((await send(unpublished, input)).status).toBe(404);
+    expect(unpublished.adminPrepareMutation).not.toHaveBeenCalled();
+    const valid = handler({ admin: true, owner: true, premiumEnabled: true, pokemonCatalog: true });
+    expect((await send(valid, { ...input, amountCents: 1000, paid: true })).status).toBe(400);
+    expect(valid.adminPrepareMutation).not.toHaveBeenCalled();
+  });
+
+  it("never activates inventory delivery in normal server runtime without Premium staging", async () => {
+    const api = handler({ admin: true, owner: true });
+    const response = await api.instance.handle(new Request(
+      "https://api.example.test/v1/hub/admin/premium/delivery/items",
+      { headers: { cookie: "__Host-pokemon_hub_session=session-token" } },
+    ));
+    expect(response.status).toBe(503);
+    expect(api.adminRewardCatalogGet).not.toHaveBeenCalled();
+    expect(api.adminPrepareMutation).not.toHaveBeenCalled();
+  });
+
+  it("never delivers items to a non-owner, unpublished item or malformed payment-like request", async () => {
+    const path = "https://api.example.test/v1/hub/admin/premium/delivery/items";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const payload = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId,
+      itemId: "12121212-1212-4212-8212-121212121212",
+      quantity: 1,
+      reason: "Entrega manual com validação de escopo.",
+    };
+    const nonOwner = handler({ admin: true, owner: false });
+    const denied = await nonOwner.instance.handle(new Request(path, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+    expect(denied.status).toBe(403);
+    expect(nonOwner.adminPrepareMutation).not.toHaveBeenCalled();
+
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true });
+    const unpublished = await owner.instance.handle(new Request(path, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ ...payload, itemId: "99999999-9999-4999-8999-999999999999" }),
+    }));
+    expect(unpublished.status).toBe(404);
+    const amount = await owner.instance.handle(new Request(path, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ ...payload, paid: true, amountCents: 100 }),
+    }));
+    expect(amount.status).toBe(400);
+    expect(owner.adminPrepareMutation).not.toHaveBeenCalled();
+  });
+
+
   it("exchanges a one-shot ticket for a secure HttpOnly cookie", async () => {
     const response = await handler().instance.handle(
       new Request("https://api.example.test/v1/hub/auth/exchange", {
@@ -691,8 +868,8 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
         body: JSON.stringify(orderBody),
       }),
     );
-    expect(blocked.status).toBe(503);
-    expect(await blocked.json()).toEqual({ error: "PREMIUM_ORDERS_UNAVAILABLE" });
+    expect(blocked.status).toBe(404);
+    expect(await blocked.json()).toEqual({ error: "NOT_FOUND" });
 
     const profileResponse = await instance.handle(
       new Request("https://api.example.test/v1/hub/player/self", {
@@ -726,8 +903,9 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
           ...(method === "POST" ? { body: "{}" } : {}),
         }),
       );
-      expect(blocked.status).toBe(403);
-      expect(await blocked.json()).toEqual({ error: "FORBIDDEN" });
+      const deprecated = path.includes("/premium/orders/") && method === "POST";
+      expect(blocked.status).toBe(deprecated ? 404 : 403);
+      expect(await blocked.json()).toEqual({ error: deprecated ? "NOT_FOUND" : "FORBIDDEN" });
     }
   });
 });
