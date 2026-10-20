@@ -14,11 +14,14 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
-const dbUrl = process.env.DATABASE_URL;
-if (process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS !== "1" || !dbUrl ||
-    !["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(dbUrl).hostname)) {
-  throw new Error("MASTER integration is restricted to explicitly authorized local disposable PostgreSQL");
-}
+const dbUrl = (() => {
+  const value = process.env.DATABASE_URL;
+  if (process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS !== "1" || !value ||
+      !["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(value).hostname)) {
+    throw new Error("MASTER integration is restricted to explicitly authorized local disposable PostgreSQL");
+  }
+  return value;
+})();
 function dbConnection(name: string): string {
   const url = new URL(dbUrl);
   url.pathname = `/${name}`;
@@ -152,7 +155,7 @@ describe.sequential("MASTER commercial inventory grant with disposable PostgreSQ
     expect(counts.rows[0]).toEqual({operations:"1",orders:"0",payments:"0"});
   });
   it("refuses nonpublished catalog records without adjusting inventory", async () => {
-    await pool.query("UPDATE content_release_pointers SET content_release_id=NULL WHERE pointer_key='ACTIVE'");
+    await pool.query("DELETE FROM content_release_pointers WHERE pointer_key='ACTIVE'");
     const read = await catalog();
     expect(read.status).toBe(200);
     expect(await read.json()).toMatchObject({available:false,item:null});
