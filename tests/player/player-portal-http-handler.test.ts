@@ -868,8 +868,8 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
         body: JSON.stringify(orderBody),
       }),
     );
-    expect(blocked.status).toBe(503);
-    expect(await blocked.json()).toEqual({ error: "PREMIUM_ORDERS_UNAVAILABLE" });
+    expect(blocked.status).toBe(404);
+    expect(await blocked.json()).toEqual({ error: "NOT_FOUND" });
 
     const profileResponse = await instance.handle(
       new Request("https://api.example.test/v1/hub/player/self", {
@@ -903,8 +903,9 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
           ...(method === "POST" ? { body: "{}" } : {}),
         }),
       );
-      expect(blocked.status).toBe(403);
-      expect(await blocked.json()).toEqual({ error: "FORBIDDEN" });
+      const deprecated = path.includes("/premium/orders/") && method === "POST";
+      expect(blocked.status).toBe(deprecated ? 404 : 403);
+      expect(await blocked.json()).toEqual({ error: deprecated ? "NOT_FOUND" : "FORBIDDEN" });
     }
   });
 });
