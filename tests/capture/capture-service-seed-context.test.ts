@@ -117,7 +117,7 @@ describe("CaptureService RNG context", () => {
     const calls: string[] = [];
     const transaction = {
       captureLuckMultiplier: async () => 1 as const,
-    findAttempt: async () => null,
+      findAttempt: async () => null,
       loadContext: async () => value,
       beginResolving: async () => {
         calls.push("begin");
