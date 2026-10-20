@@ -49,7 +49,7 @@ const breakdownSchema = z
     ballMultiplierBasisPoints: z.number().int().min(1).max(100_000),
     status: z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]).nullable(),
     statusMultiplierBasisPoints: z.number().int().min(1).max(100_000),
-    explicitModifierBasisPoints: z.array(z.number().int().min(1).max(100_000)).max(16),
+    explicitModifierBasisPoints: z.array(z.number().int().min(1).max(100_000)).max(17),
     rawProbabilityBasisPoints: z.number().int().min(0).max(10_000),
     maxProbabilityBasisPoints: z.number().int().min(1).max(10_000),
     finalProbabilityBasisPoints: z.number().int().min(0).max(10_000),
@@ -94,6 +94,18 @@ class PostgresCaptureTransaction implements CaptureTransaction {
     private readonly client: PoolClient,
     private readonly turnWindowTtlMs?: number,
   ) {}
+
+  public async captureLuckMultiplier(player: PlayerId): Promise<1 | 2> {
+    const result = await this.client.query<{ multiplier: number }>(
+      `SELECT premium_capture_luck_multiplier_for($1, now())::int AS multiplier`,
+      [player],
+    );
+    const multiplier = result.rows[0]?.multiplier;
+    if (multiplier !== 1 && multiplier !== 2) {
+      throw new Error("Capture Luck entitlement returned an invalid multiplier");
+    }
+    return multiplier;
+  }
 
   public async findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null> {
     const result = await this.client.query<{
