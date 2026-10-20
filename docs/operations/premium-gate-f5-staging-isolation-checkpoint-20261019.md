@@ -14,6 +14,8 @@ Project: `wonderful-creativity`, staging environment `4c44d875-2018-4859-a7cc-20
 | `pokemon-rpg-player-api-rc-current` | FAILED, 23/09 | Offline |
 | `pokemon-rpg-whatsapp-staging` | No latest deployment | Offline |
 
+The canonical `Railway Staging Player Portal Deploy` workflow in this repository additionally requires an **exact** preconfigured Railway service named `pokemon-rpg-player-portal-staging`. The Railway staging environment currently lists four Player API services with **other names** (including `...-staging-v2` and `...-rc-current`), but **not** that canonical service name. Thus the canonical workflow is currently blocked even before DB verification; do not silently point it to a different legacy service or provision a new paid service.
+
 Four API services have a `DATABASE_URL` variable; the Railway OAuth connector returns **names only**, not URL destinations. No PostgreSQL service, volume, bucket or staging shared variable was listed inside this Railway environment. The Railway *production* environment in this project also lists no services. These observations **do not prove** where the existing database is hosted; it may be external. Never infer isolation from the environment name or variable name. Worker staging still has a parked/no-op start command and must not be activated.
 
 The backend Player Portal API already exists. The problem is secure staging, not constructing another API.
