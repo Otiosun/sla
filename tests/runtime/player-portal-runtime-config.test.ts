@@ -5,6 +5,7 @@ import {
 } from "../../src/runtime/player-portal-runtime-config.js";
 
 const KEY = Buffer.alloc(32, 9).toString("base64");
+const STAGE_DATABASE = "postgresql://pokemon_runtime.rfskcoaoppfrcdmqtvvj@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full";
 
 describe("Player Portal runtime config", () => {
   it("loads an exact 32-byte signing key", () => {
@@ -26,7 +27,7 @@ describe("Player Portal runtime config", () => {
     const revision = "a".repeat(40);
     const config = (appEnv: "development" | "test" | "staging" | "production", flag?: "0" | "1") =>
       loadPlayerPortalRuntimeConfig(
-        { appEnv },
+        { appEnv, databaseUrl: STAGE_DATABASE },
         {
           PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
           DEPLOY_REVISION: revision,
