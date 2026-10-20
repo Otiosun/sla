@@ -5,7 +5,6 @@
  * Usage: node --env-file-if-exists=.env scripts/operations/premium-local-readiness.mjs
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 
 function git(...args) {
   const result = spawnSync("git", args, { encoding: "utf8", timeout: 3000 });
