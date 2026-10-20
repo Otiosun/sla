@@ -142,6 +142,8 @@ interface PlayerPortalHttpDependencies {
   readonly premiumSupport?: Pick<PremiumSupportService, "list" | "append">;
   readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
   readonly premiumCases?: Pick<PremiumDeliveryCaseService, "catalog" | "list" | "timeline" | "open" | "advance">;
+  /** Historical paid-order API disabled by default. Never enabled by runtime composition. */
+  readonly allowLegacyPremiumOrders?: boolean;
   readonly premiumRead?: {
     readonly orders: Pick<
       PremiumOrderService,
@@ -159,7 +161,11 @@ export class PlayerPortalHttpHandler {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/v1/hub/player/premium/orders") {
-      return this.withSession(request, (identity) => this.createPending2XpOrder(request, identity));
+      return this.withSession(request, (identity) =>
+        this.dependencies.allowLegacyPremiumOrders === true
+          ? this.createPending2XpOrder(request, identity)
+          : jsonResponse(404, { error: "NOT_FOUND" }),
+      );
     }
     if (request.method === "POST" && url.pathname === "/v1/hub/auth/exchange") {
       return this.exchangeTicket(request);
@@ -206,7 +212,9 @@ export class PlayerPortalHttpHandler {
     const action = premiumAction?.[2]?.toLowerCase();
     if (request.method === "POST" && orderId && (action === "approve" || action === "deliver")) {
       return this.withSession(request, (identity) =>
-        this.manualPremiumAction(request, identity, orderId, action),
+        this.dependencies.allowLegacyPremiumOrders === true
+          ? this.manualPremiumAction(request, identity, orderId, action)
+          : jsonResponse(404, { error: "NOT_FOUND" }),
       );
     }
     if (url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
