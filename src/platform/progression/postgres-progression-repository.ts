@@ -40,6 +40,8 @@ import type {
 import {
   applyPokemonXp,
   battlePokemonXp,
+  eligibleEarnedTrainerAdjustment,
+  multiplyEarnedXp,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
 import { withTransaction } from "../db/transaction.js";
@@ -613,8 +615,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           );
         }
         const baseOfferedXp = battlePokemonXp(baseExp, terminal.defeated.level);
-        // Premium affects only this settled Pokemon battle reward. Trainer XP,
-        // manual adjustments and other systems never read this multiplier.
+        // XP_2X covers Pokemon and trainer XP earned by the same settled battle.
+        // Admin corrections do not reach this automatic reward path.
         const multiplier = await client.query<{ multiplier: number }>(
           `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
           [terminal.playerId],
@@ -623,10 +625,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         if (pokemonXpMultiplier !== 1 && pokemonXpMultiplier !== 2) {
           throw new ProgressionStateViolation("Pokemon battle XP multiplier is invalid");
         }
-        const offeredXp = baseOfferedXp * pokemonXpMultiplier;
-        if (!Number.isSafeInteger(offeredXp)) {
-          throw new ProgressionStateViolation("Pokemon battle XP offer overflow JS safe range");
-        }
+        const offeredXp = multiplyEarnedXp(baseOfferedXp, pokemonXpMultiplier);
         const pokemonResult = await this.applyPokemonBattleReward(client, {
           battleId: input.battleId,
           playerId: terminal.playerId,
@@ -642,6 +641,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           battleId: input.battleId,
           playerId: terminal.playerId,
           progression,
+          xpMultiplier: pokemonXpMultiplier,
           correlationId: input.correlationId,
         });
         await this.faultInjector.afterRewardMutationsBeforeClaim?.();
@@ -982,6 +982,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       readonly battleId: string;
       readonly playerId: string;
       readonly progression: ProgressionRules;
+      readonly xpMultiplier: 1 | 2;
       readonly correlationId: string;
     },
   ): Promise<TrainerProgressResult> {
@@ -998,7 +999,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     if (row === undefined)
       throw new ProgressionStateViolation("Trainer progression row is unavailable");
     const beforePoints = safeInteger(row.progression_points, "trainer progression_points");
-    const pointsGained = input.progression.trainer.pointsPerWonBattle;
+    const pointsGained = multiplyEarnedXp(
+      input.progression.trainer.pointsPerWonBattle, input.xpMultiplier,
+    );
     const afterPoints = beforePoints + pointsGained;
     if (!Number.isSafeInteger(afterPoints)) {
       throw new ProgressionStateViolation("Trainer progression points overflow JS safe range");
@@ -1085,9 +1088,15 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         );
         const replay = existing.rows[0];
         if (replay !== undefined) {
+          // Compare the original input even after a timed boost expires.
+          const replayParsed = TrainerProgressAdjustmentResultSchema.safeParse(replay.result);
+          if (!replayParsed.success) return {
+            kind: "STATE_INVALID", reason: "Trainer reward replay metadata is invalid",
+          };
           const compatible =
             replay.player_id === input.playerId &&
-            safeInteger(replay.delta, "trainer progress ledger delta") === input.delta &&
+            safeInteger(replay.delta, "trainer progress ledger delta") === replayParsed.data.delta &&
+            (replayParsed.data.requestedDelta ?? replayParsed.data.delta) === input.delta &&
             replay.source_type === input.metadata.sourceType &&
             replay.source_id === input.metadata.sourceId &&
             replay.reason === input.metadata.reason &&
@@ -1156,7 +1165,27 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           currentRow.progression_points,
           "trainer progression_points",
         );
-        const afterPoints = beforePoints + input.delta;
+        const qualifies = eligibleEarnedTrainerAdjustment({
+          delta: input.delta,
+          actorType: input.metadata.actorType,
+          sourceType: input.metadata.sourceType,
+        });
+        let appliedDelta = input.delta;
+        if (qualifies) {
+          const boost = await client.query<{ multiplier: number }>(
+            `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
+            [input.playerId],
+          );
+          const multiplier = boost.rows[0]?.multiplier ?? 1;
+          if (multiplier !== 1 && multiplier !== 2) {
+            return { kind: "STATE_INVALID", reason: "Earned XP multiplier is invalid" };
+          }
+          if (!Number.isSafeInteger(input.delta * multiplier)) {
+            return { kind: "STATE_INVALID", reason: "Trainer earned XP is outside safe range" };
+          }
+          appliedDelta = multiplyEarnedXp(input.delta, multiplier);
+        }
+        const afterPoints = beforePoints + appliedDelta;
         if (!Number.isSafeInteger(afterPoints)) {
           return {
             kind: "STATE_INVALID",
@@ -1221,7 +1250,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
 
         const result = TrainerProgressAdjustmentResultSchema.parse({
           playerId: input.playerId,
-          delta: input.delta,
+          delta: appliedDelta,
+          ...(appliedDelta !== input.delta ? { requestedDelta: input.delta } : {}),
           beforePoints,
           afterPoints,
           beforeLevel: currentRow.level,
@@ -1240,7 +1270,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           [
             randomUUID(),
             input.playerId,
-            input.delta,
+            appliedDelta,
             input.metadata.sourceType,
             input.metadata.sourceId,
             input.metadata.reason,
