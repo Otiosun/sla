@@ -99,7 +99,11 @@ jobs:
             tests/runtime/player-portal-runtime-config.test.ts \
             tests/runtime/premium-staging-database-target.test.ts \
             tests/runtime/premium-migration-surface.test.ts \
-            tests/progression/premium-xp2x-scope.test.ts
+            tests/progression/premium-xp2x-scope.test.ts \
+            tests/progression/premium-earned-xp-policy.test.ts \
+            tests/capture/capture-service-seed-context.test.ts \
+            tests/capture/capture-turn-reservation.test.ts \
+            tests/capture/capture-probability.test.ts
       - name: Typecheck backend
         run: pnpm typecheck
       - name: Build backend without starting services

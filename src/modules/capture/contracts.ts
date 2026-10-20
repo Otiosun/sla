@@ -24,7 +24,7 @@ export const CaptureProbabilityInputSchema = z
     maxHp: z.number().int().positive().max(999_999),
     ballMultiplierBasisPoints: basisPoints,
     status: z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]).nullable(),
-    explicitModifierBasisPoints: z.array(basisPoints).max(16),
+    explicitModifierBasisPoints: z.array(basisPoints).max(17),
     ruleset: z
       .object({
         model: z.literal("POKEMON_INSPIRED_V1"),

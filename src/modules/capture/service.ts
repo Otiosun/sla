@@ -307,13 +307,16 @@ export class CaptureService {
 
         const target = capturedState(context);
         if (!target.ok) return target;
+        // All legal capture entrypoints meet here, before the durable roll.
+        // The player cannot supply or spoof this server-side Premium effect.
+        const luckMultiplier = await transaction.captureLuckMultiplier(input.playerId);
         const probabilityInput = CaptureProbabilityInputSchema.safeParse({
           catchRate: context.catchRate,
           currentHp: target.value.currentHp,
           maxHp: context.encounterSnapshot.maxHp,
           ballMultiplierBasisPoints: ball.data.multiplierBasisPoints,
           status: target.value.majorStatus,
-          explicitModifierBasisPoints: context.explicitModifierBasisPoints,
+          explicitModifierBasisPoints: [...context.explicitModifierBasisPoints, ...(luckMultiplier === 2 ? [20_000] : [])],
           ruleset: {
             model: ruleset.data.capture.model,
             maxProbabilityBasisPoints: ruleset.data.capture.maxProbabilityBasisPoints,

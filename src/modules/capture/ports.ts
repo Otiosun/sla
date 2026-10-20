@@ -77,6 +77,8 @@ export type CaptureBattleTurnClaimResult =
     };
 
 export interface CaptureTransaction {
+  /** Server-computed permanent Luck 2x, read in the same transaction as the capture. */
+  captureLuckMultiplier(playerId: PlayerId): Promise<1 | 2>;
   findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null>;
   loadContext(
     playerId: PlayerId,

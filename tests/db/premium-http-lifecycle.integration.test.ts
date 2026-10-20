@@ -553,7 +553,10 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     const catalog = await handler.handle(request(catalogPath, "GET", undefined, ownerCookie));
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({
-      products: [{ sku: "2XP", maxQuantity: 52, durationSecondsPerUnit: 604800 }],
+      products: [
+        { sku: "2XP", maxQuantity: 52, durationSecondsPerUnit: 604800 },
+        { sku: "LUCK", maxQuantity: 1, grantModel: "PERMANENT", entitlementKey: "CAPTURE_LUCK_2X" },
+      ],
     });
     const wrong = await handler.handle(request(deliveryPath, "POST", {
       ...input, totalCents: 1,
@@ -603,6 +606,35 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     expect(counts.rows[0]).toEqual({
       grants: "1", orders: "0", payments: "0", fulfillments: "0", multiplier: 2,
     });
+  });
+
+  it("delivers permanent Luck 2x only by owner, with safe replay and no payment automation", async () => {
+    const deliveryPath = "/v1/hub/admin/premium/delivery";
+    const requestId = randomUUID();
+    const payload = {
+      requestId, playerId, sku: "LUCK", quantity: 1,
+      reason: "Benefício confirmado manualmente após pagamento externo.",
+    };
+    expect((await handler.handle(request(deliveryPath, "POST", payload, nonOwnerCookie))).status).toBe(403);
+    const applied = await handler.handle(request(deliveryPath, "POST", payload, ownerCookie));
+    expect(applied.status).toBe(201);
+    expect(await applied.json()).toMatchObject({
+      applied: true, replayed: false,
+      entitlement: { entitlementKey: "CAPTURE_LUCK_2X", grantModel: "PERMANENT", currentlyActive: true },
+    });
+    const replay = await handler.handle(request(deliveryPath, "POST", payload, ownerCookie));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ applied: true, replayed: true });
+    expect((await handler.handle(request(deliveryPath, "POST", {
+      ...payload, quantity: 2,
+    }, ownerCookie))).status).toBe(409);
+    const data = await pool.query<{
+      grants: string; orders: string; payments: string; multiplier: number;
+    }>(`SELECT (SELECT count(*)::text FROM entitlement_grants) AS grants,
+       (SELECT count(*)::text FROM premium_orders) AS orders,
+       (SELECT count(*)::text FROM premium_payment_events) AS payments,
+       premium_capture_luck_multiplier_for($1::uuid, now())::int AS multiplier`, [playerId]);
+    expect(data.rows[0]).toEqual({ grants: "1", orders: "0", payments: "0", multiplier: 2 });
   });
 
   it("tracks an owner-only commercial gamepass case and its review without any grant or payment", async () => {

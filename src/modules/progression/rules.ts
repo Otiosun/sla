@@ -1,3 +1,25 @@
+/** Shared reward arithmetic: never multiply corrections, never apply a multiplier twice. */
+export function multiplyEarnedXp(amount: number, multiplier: 1 | 2): number {
+  if (!Number.isSafeInteger(amount) || amount < 0 || (multiplier !== 1 && multiplier !== 2)) {
+    throw new RangeError("Earned XP or premium multiplier is invalid");
+  }
+  const awarded = amount * multiplier;
+  if (!Number.isSafeInteger(awarded)) throw new RangeError("Earned XP exceeds safe range");
+  return awarded;
+}
+
+/** Admin corrections are not rewards; system grants and explicit admin gifts are. */
+export function eligibleEarnedTrainerAdjustment(input: {
+  readonly delta: number;
+  readonly actorType: "SYSTEM" | "ADMIN";
+  readonly sourceType: string;
+}): boolean {
+  return input.delta > 0 && (
+    input.actorType === "SYSTEM" ||
+    (input.actorType === "ADMIN" && input.sourceType === "ADMIN_REWARD")
+  );
+}
+
 export const POKEMON_LEVEL_CAP = 100;
 export const TRAINER_LEVEL_CAP = 100;
 export type TrainerLevelCurve = "QUADRATIC_100_V1" | "LINEAR_100_V1";
