@@ -20,6 +20,7 @@ export async function startPlayerPortalApplication(
     sessionSigningKey: options.runtimeConfig.sessionSigningKey,
     deploymentRevision: options.runtimeConfig.deploymentRevision,
     premiumStagingEnabled: options.runtimeConfig.premiumStagingEnabled === true,
+    premiumLocalEnabled: options.runtimeConfig.premiumLocalEnabled === true,
   });
 
   return startPlayerPortalHttpServer({
