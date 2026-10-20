@@ -553,7 +553,10 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     const catalog = await handler.handle(request(catalogPath, "GET", undefined, ownerCookie));
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({
-      products: [{ sku: "2XP", maxQuantity: 52, durationSecondsPerUnit: 604800 }],
+      products: [
+        { sku: "2XP", maxQuantity: 52, durationSecondsPerUnit: 604800 },
+        { sku: "LUCK", maxQuantity: 1, grantModel: "PERMANENT", entitlementKey: "CAPTURE_LUCK_2X" },
+      ],
     });
     const wrong = await handler.handle(request(deliveryPath, "POST", {
       ...input, totalCents: 1,
