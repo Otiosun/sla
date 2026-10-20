@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AppConfig } from "../platform/config/env.js";
+import { isApprovedPremiumStagingDatabaseUrl } from "./premium-staging-database-target.js";
 
 const fullRevisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const runtimeSchema = z.object({
@@ -36,7 +37,7 @@ function decodeSigningKey(value: string): Buffer {
 }
 
 export function loadPlayerPortalRuntimeConfig(
-  appConfig: Pick<AppConfig, "appEnv">,
+  appConfig: Pick<AppConfig, "appEnv"> & Partial<Pick<AppConfig, "databaseUrl">>,
   env: NodeJS.ProcessEnv = process.env,
 ): PlayerPortalRuntimeConfig {
   const parsed = runtimeSchema.safeParse(env);
@@ -62,6 +63,14 @@ export function loadPlayerPortalRuntimeConfig(
   }
 
   const deploymentRevision = railwayRevision ?? explicitRevision ?? null;
+  const premiumOptIn = appConfig.appEnv === "staging" && parsed.data.PREMIUM_STAGING_ENABLED === "1";
+  if (premiumOptIn &&
+      (!appConfig.databaseUrl || !isApprovedPremiumStagingDatabaseUrl(appConfig.databaseUrl))) {
+    // No URL, username, password or connection metadata may appear in this error.
+    throw new PlayerPortalRuntimeConfigError(
+      "Premium staging requires the approved dedicated Supabase project, pokemon_runtime role, port 5432 and verified TLS",
+    );
+  }
   const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
   if (requiresRevision && deploymentRevision === null) {
     throw new PlayerPortalRuntimeConfigError(
@@ -74,7 +83,6 @@ export function loadPlayerPortalRuntimeConfig(
     port: parsed.data.PORT,
     sessionSigningKey: decodeSigningKey(parsed.data.PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64),
     deploymentRevision,
-    premiumStagingEnabled:
-      appConfig.appEnv === "staging" && parsed.data.PREMIUM_STAGING_ENABLED === "1",
+    premiumStagingEnabled: premiumOptIn,
   };
 }
