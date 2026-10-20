@@ -161,7 +161,7 @@ export class PlayerPortalHttpHandler {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/v1/hub/player/premium/orders") {
-      return this.withSession(request, (identity) =>
+      return this.withSession(request, async (identity) =>
         this.dependencies.allowLegacyPremiumOrders === true
           ? this.createPending2XpOrder(request, identity)
           : jsonResponse(404, { error: "NOT_FOUND" }),
@@ -211,7 +211,7 @@ export class PlayerPortalHttpHandler {
     const orderId = premiumAction?.[1];
     const action = premiumAction?.[2]?.toLowerCase();
     if (request.method === "POST" && orderId && (action === "approve" || action === "deliver")) {
-      return this.withSession(request, (identity) =>
+      return this.withSession(request, async (identity) =>
         this.dependencies.allowLegacyPremiumOrders === true
           ? this.manualPremiumAction(request, identity, orderId, action)
           : jsonResponse(404, { error: "NOT_FOUND" }),
