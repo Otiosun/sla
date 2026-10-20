@@ -16,6 +16,7 @@ on:
       - "src/platform/progression/**"
       - "tests/db/**"
       - "tests/player/player-portal-http-handler.test.ts"
+      - "tests/player/manual-master-ball-*.test.ts"
       - "tests/progression/premium-xp2x-scope.test.ts"
   workflow_dispatch:
 
@@ -85,6 +86,9 @@ jobs:
             tests/db/premium-http-lifecycle.integration.test.ts \
             tests/db/xp2x-policy.integration.test.ts \
             tests/player/player-portal-http-handler.test.ts \
+            tests/player/manual-master-ball-contracts.test.ts \
+            tests/player/manual-master-ball-session.test.ts \
+            tests/player/manual-master-ball-pack-handler.test.ts \
             tests/runtime/player-portal-runtime-config.test.ts \
             tests/runtime/premium-migration-surface.test.ts \
             tests/progression/premium-xp2x-scope.test.ts
