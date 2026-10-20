@@ -84,6 +84,7 @@ function context(): CaptureContext {
 
 function repository(value: CaptureContext): CaptureRepository {
   const transaction = {
+    captureLuckMultiplier: async () => 1 as const,
     findAttempt: async () => null,
     loadContext: async () => value,
     beginResolving: async () => {
@@ -115,7 +116,8 @@ describe("CaptureService RNG context", () => {
     const value = context();
     const calls: string[] = [];
     const transaction = {
-      findAttempt: async () => null,
+      captureLuckMultiplier: async () => 1 as const,
+    findAttempt: async () => null,
       loadContext: async () => value,
       beginResolving: async () => {
         calls.push("begin");
