@@ -141,6 +141,8 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
       adminTeam: {
         isOwner: async (principalId: string) => principalId === ownerPrincipalId,
       },
+      // Archived workflow is exercised only in this disposable historical test.
+      allowLegacyPremiumOrders: true,
       premiumRead: {
         orders,
         entitlements,
