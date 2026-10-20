@@ -141,7 +141,8 @@ describe("capture PVE turn reservation", () => {
       message: "already submitted",
     }));
     const transaction = {
-      findAttempt: async () => null,
+      captureLuckMultiplier: async () => 1 as const,
+    findAttempt: async () => null,
       loadContext: async () => setup.context,
       claimBattleTurn,
       beginResolving: async () => {
