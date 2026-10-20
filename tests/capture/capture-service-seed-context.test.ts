@@ -229,7 +229,13 @@ describe("CaptureService RNG context", () => {
   });
   it("applies permanent 2x Luck only to the server-owned capture chance before RNG", async () => {
     const inspect = async (multiplier: 1 | 2, catchRate: number) => {
-      const value = { ...context(), catchRate };
+      const base = context();
+      // Damaged wild Pokemon creates a genuine maximum-capture clamp case.
+      const value = {
+        ...base,
+        catchRate,
+        encounterSnapshot: { ...base.encounterSnapshot, currentHp: 1 },
+      };
       let probability = -1;
       let modifiers: readonly number[] = [];
       const transaction = {
