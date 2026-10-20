@@ -12,6 +12,9 @@ on:
       - "src/platform/premium-orders/**"
       - "src/modules/player-portal/**"
       - "src/runtime/compose-player-portal-runtime.ts"
+      - "src/runtime/player-portal-runtime-config.ts"
+      - "src/runtime/premium-staging-database-target.ts"
+      - "tests/runtime/premium-staging-database-target.test.ts"
       - "src/modules/progression/**"
       - "src/platform/progression/**"
       - "tests/db/**"
@@ -91,6 +94,7 @@ jobs:
             tests/player/manual-master-ball-session.test.ts \
             tests/player/manual-master-ball-pack-handler.test.ts \
             tests/runtime/player-portal-runtime-config.test.ts \
+            tests/runtime/premium-staging-database-target.test.ts \
             tests/runtime/premium-migration-surface.test.ts \
             tests/progression/premium-xp2x-scope.test.ts
       - name: Typecheck backend
