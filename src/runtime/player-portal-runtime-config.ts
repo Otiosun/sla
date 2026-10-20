@@ -10,6 +10,7 @@ const runtimeSchema = z.object({
   DEPLOY_REVISION: fullRevisionSchema.optional(),
   RAILWAY_GIT_COMMIT_SHA: fullRevisionSchema.optional(),
   PREMIUM_STAGING_ENABLED: z.enum(["0", "1"]).default("0"),
+  PREMIUM_LOCAL_DELIVERY_ENABLED: z.enum(["0", "1"]).default("0"),
 });
 
 export interface PlayerPortalRuntimeConfig {
@@ -19,6 +20,8 @@ export interface PlayerPortalRuntimeConfig {
   readonly deploymentRevision: string | null;
   /** Never enabled in production; needs explicit staging opt-in. */
   readonly premiumStagingEnabled?: boolean;
+  /** Separate opt-in, bound to the PC loopback interface. No WhatsApp process is started. */
+  readonly premiumLocalEnabled?: boolean;
 }
 
 export class PlayerPortalRuntimeConfigError extends Error {
@@ -71,6 +74,21 @@ export function loadPlayerPortalRuntimeConfig(
       "Premium staging requires the approved dedicated Supabase project, pokemon_runtime role, port 5432 and verified TLS",
     );
   }
+  const premiumLocalOptIn =
+    (appConfig.appEnv === "development" || appConfig.appEnv === "production") &&
+    parsed.data.PREMIUM_LOCAL_DELIVERY_ENABLED === "1";
+  if (premiumLocalOptIn && parsed.data.PLAYER_PORTAL_HOST !== "127.0.0.1" &&
+      parsed.data.PLAYER_PORTAL_HOST !== "::1") {
+    throw new PlayerPortalRuntimeConfigError(
+      "Premium local delivery requires PLAYER_PORTAL_HOST=127.0.0.1 or ::1",
+    );
+  }
+  if (parsed.data.PREMIUM_LOCAL_DELIVERY_ENABLED === "1" &&
+      (appConfig.appEnv === "staging" || appConfig.appEnv === "test")) {
+    throw new PlayerPortalRuntimeConfigError(
+      "PREMIUM_LOCAL_DELIVERY_ENABLED is restricted to development/production on this PC",
+    );
+  }
   const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
   if (requiresRevision && deploymentRevision === null) {
     throw new PlayerPortalRuntimeConfigError(
@@ -84,5 +102,6 @@ export function loadPlayerPortalRuntimeConfig(
     sessionSigningKey: decodeSigningKey(parsed.data.PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64),
     deploymentRevision,
     premiumStagingEnabled: premiumOptIn,
+    premiumLocalEnabled: premiumLocalOptIn,
   };
 }
