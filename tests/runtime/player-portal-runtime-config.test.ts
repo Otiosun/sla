@@ -43,6 +43,20 @@ describe("Player Portal runtime config", () => {
     }
   });
 
+  it("refuses Premium activation when the actual DB origin is absent or foreign", () => {
+    const env = {
+      PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
+      DEPLOY_REVISION: "b".repeat(40),
+      PREMIUM_STAGING_ENABLED: "1",
+    };
+    const foreignDb =
+      "postgresql://pokemon_runtime.aaaaaaaaaaaaaaaaaaaa@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=verify-full";
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "staging" }, env))
+      .toThrow(PlayerPortalRuntimeConfigError);
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "staging", databaseUrl: foreignDb }, env))
+      .toThrow("Premium staging requires the approved dedicated Supabase project");
+  });
+
   it("rejects malformed signing keys", () => {
     expect(() =>
       loadPlayerPortalRuntimeConfig(
