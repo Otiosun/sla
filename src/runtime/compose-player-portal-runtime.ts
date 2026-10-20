@@ -73,6 +73,7 @@ interface PlayerPortalRuntimeOptions {
   readonly sessionSigningKey: Uint8Array;
   readonly deploymentRevision: string | null;
   readonly premiumStagingEnabled?: boolean;
+  readonly premiumLocalEnabled?: boolean;
 }
 
 interface PlayerPortalRequestHandler {
@@ -201,10 +202,10 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
-  // Off unless the runtime explicitly authenticated the staging-only opt-in.
-  // Importing this code or deploying its schema must NOT activate Premium.
+  // Off unless explicitly opted in by stage or the PC's loopback-only local mode.
+  // Merely importing code or migrating schema must NOT activate Premium.
   const premiumRead =
-    options.premiumStagingEnabled === true
+    (options.premiumStagingEnabled === true || options.premiumLocalEnabled === true)
       ? (() => {
           const repository = new PostgresPremiumOrderRepository(options.pool);
           const entitlements = new EntitlementService(
