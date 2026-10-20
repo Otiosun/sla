@@ -56,6 +56,8 @@ export const TrainerProgressAdjustmentResultSchema = z
   .object({
     playerId: uuid,
     delta: signedSafeDelta,
+    /** Original request value, only set when an earned-XP entitlement scaled the grant. */
+    requestedDelta: signedSafeDelta.optional(),
     beforePoints: safeNonNegative,
     afterPoints: safeNonNegative,
     beforeLevel: z.number().int().min(1).max(100),
