@@ -7,7 +7,7 @@ const source = readFileSync(
 );
 
 describe("Premium XP2x progression scope", () => {
-  it("is wired only into automatic Pokemon battle XP", () => {
+  it("covers Pokemon XP, trainer battle XP and eligible system rewards", () => {
     const battleStart = source.indexOf("public async applyBattleReward");
 
     const adjustmentStart = source.indexOf("private async applyPokemonBattleReward", battleStart);
@@ -20,16 +20,14 @@ describe("Premium XP2x progression scope", () => {
     const adjustmentSection = source.slice(adjustmentStart);
 
     expect(battleSection.match(/pokemon_battle_xp_multiplier_for/g) ?? []).toHaveLength(1);
-
     expect(battleSection).toContain("const baseOfferedXp = battlePokemonXp");
-
-    expect(battleSection).toContain("const offeredXp = baseOfferedXp * pokemonXpMultiplier;");
-
+    expect(battleSection).toContain("const offeredXp = multiplyEarnedXp(baseOfferedXp, pokemonXpMultiplier);");
     expect(battleSection).toContain("const pokemonResult = await this.applyPokemonBattleReward");
-
     expect(battleSection).toContain("const trainerResult = await this.applyTrainerBattleReward");
-
-    expect(adjustmentSection).not.toContain("pokemon_battle_xp_multiplier_for");
+    expect(battleSection).toContain("xpMultiplier: pokemonXpMultiplier");
+    expect(adjustmentSection).toContain("eligibleEarnedTrainerAdjustment");
+    expect(adjustmentSection).toContain("pokemon_battle_xp_multiplier_for");
+    expect(adjustmentSection).toContain("requestedDelta: input.delta");
   });
 
   it("never expresses a stack above 2x", () => {
