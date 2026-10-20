@@ -18,6 +18,28 @@ Four API services have a `DATABASE_URL` variable; the Railway OAuth connector re
 
 The backend Player Portal API already exists. The problem is secure staging, not constructing another API.
 
+## Discovered Supabase project, read-only (19/10)
+
+Connected Supabase project metadata lists exactly one named Pokémon staging project:
+
+- Name: `pokemon-rpg-staging-rc`
+- Provider ref: `rfskcoaoppfrcdmqtvvj` (public instance identifier, **not** a password)
+- Region: `sa-east-1`
+- Status: **INACTIVE**; no database development branches listed
+- Organization plan: **free**. This does **not** guarantee that restarting the project has no side effects or that quotas will remain available.
+
+The other visible Supabase project is `reader-platform` and is unrelated. Neither provider listing nor the Railway OAuth connector exposed the **actual Railway DATABASE_URL destination**, so the identity of the Railway DB remains unproven. The GitHub staging environment variable/secret list was not accessible through the available GitHub repository connector; we did **not** request or print credentials.
+
+### Premium activation preflight in bot PR #229
+
+`src/runtime/premium-staging-database-target.ts` now pins the known Pokémon staging ref as a **pre-connection parser gate**. When `APP_ENV=staging` and `PREMIUM_STAGING_ENABLED=1`, the startup loader refuses Premium unless the **actual** app configuration has a PostgreSQL URL using:
+
+- Direct `db.<ref>.supabase.co:5432/postgres`, user `pokemon_runtime`; or
+- Shared Supabase **session** pooler `aws-<index>-sa-east-1.pooler.supabase.com:5432/postgres`, username `pokemon_runtime.<ref>`.
+- Exactly one `sslmode=verify-full` parameter. Rejects `postgres`, migrator or unrelated roles, another project ref, cross-region pooler, non-5432 ports (including transaction pooler), malformed connection URLs and absent app DB.
+
+The check deliberately never logs the URL. It protects the Premium opt-in but **cannot prove** real role grants, connection authenticity, data exclusivity, valid TLS certificates, or the identity of any preexisting external Railway endpoint. The provider DB is currently inactive; **do not wake it or provision passwords** just to satisfy this gate. The separate role/instance/grant audit and operator cost approval remain required.
+
 ## Current code evidence
 
 - Bot PR #229 (stacked above #227) has the commercial `MASTER` owner-only, stage-gated executor.
