@@ -57,6 +57,35 @@ describe("Player Portal runtime config", () => {
       .toThrow("Premium staging requires the approved dedicated Supabase project");
   });
 
+  it("permits manual deliveries only in a separately opted-in loopback process", () => {
+    const env = {
+      PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
+      PLAYER_PORTAL_HOST: "127.0.0.1",
+      DEPLOY_REVISION: "c".repeat(40),
+      PREMIUM_LOCAL_DELIVERY_ENABLED: "1",
+    };
+    for (const appEnv of ["development", "production"] as const) {
+      const result = loadPlayerPortalRuntimeConfig({ appEnv }, env);
+      expect(result.premiumLocalEnabled).toBe(true);
+      expect(result.premiumStagingEnabled).toBe(false);
+      expect(result.host).toBe("127.0.0.1");
+    }
+
+    const defaultMode = loadPlayerPortalRuntimeConfig({ appEnv: "development" }, {
+      ...env, PREMIUM_LOCAL_DELIVERY_ENABLED: "0",
+    });
+    expect(defaultMode.premiumLocalEnabled).toBe(false);
+    for (const host of ["0.0.0.0", "::", "192.168.1.50", "localhost"]) {
+      expect(() => loadPlayerPortalRuntimeConfig(
+        { appEnv: "development" }, { ...env, PLAYER_PORTAL_HOST: host },
+      )).toThrow("requires PLAYER_PORTAL_HOST");
+    }
+    for (const appEnv of ["staging", "test"] as const) {
+      expect(() => loadPlayerPortalRuntimeConfig({ appEnv, databaseUrl: STAGE_DATABASE }, env))
+        .toThrow("restricted to development/production");
+    }
+  });
+
   it("rejects malformed signing keys", () => {
     expect(() =>
       loadPlayerPortalRuntimeConfig(
