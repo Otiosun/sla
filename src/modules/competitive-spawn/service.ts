@@ -4,6 +4,7 @@ import { ok, type Result } from "../../shared-kernel/result.js";
 import type { CommunityChatContext } from "../community/contracts.js";
 import type { WildPokemonBuild } from "../encounter/contracts.js";
 import { generateWildPokemon } from "../encounter/generation.js";
+import { competitiveSpeciesEcology } from "./ecology-policy.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
@@ -151,6 +152,7 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   speciesSlug: string | undefined,
   type1Slug: string | undefined,
   type2Slug: string | null | undefined,
+  habitatId: number | null = null,
 ): CompetitiveSpawnBackgroundContext {
   const normalizedSpecies =
     typeof speciesSlug === "string" ? speciesSlug.toLocaleLowerCase("en-US") : "";
@@ -158,7 +160,17 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   if (COMPETITIVE_SPAWN_SKY_SPECIES.has(normalizedSpecies)) return "SKY";
   if (COMPETITIVE_SPAWN_WATER_SPECIES.has(normalizedSpecies)) return "WATER";
   if (COMPETITIVE_SPAWN_RUGGED_SPECIES.has(normalizedSpecies)) return "RUGGED";
-  return competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
+
+  // Elemental ice environments override general habitat classification.
+  const typeContext = competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
+  if (typeContext === "SNOW") return "SNOW";
+
+  // PokeAPI habitat ids: cave=1, forest=2, grassland=3, mountain=4,
+  // rare=5, rough-terrain=6, sea=7, urban=8, waters-edge=9.
+  if (habitatId === 1 || habitatId === 4 || habitatId === 6) return "RUGGED";
+  if (habitatId === 7 || habitatId === 9) return "WATER";
+  if (habitatId === 2 || habitatId === 3 || habitatId === 8) return "NEUTRAL";
+  return typeContext;
 }
 export function competitiveSpawnCenterX(input: {
   readonly rng: { randomInt(maxExclusive: number): number };
@@ -420,6 +432,7 @@ export class CompetitiveSpawnService {
         candidate.speciesSlug,
         candidate.type1Slug,
         candidate.type2Slug,
+        competitiveSpeciesEcology(candidate.nationalDex).habitatId,
       ),
       context.message.occurredAt,
       this.dependencies.rng,
