@@ -1,8 +1,11 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { competitiveSpeciesEcology } from "../../src/modules/competitive-spawn/ecology-policy.js";
 import {
   COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX,
+  competitiveCandidatesWithoutRecent,
   competitiveSpawnGlobalWeight,
+  competitiveSpawnLevelRange,
 } from "../../src/modules/competitive-spawn/variety-policy.js";
 import { COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT } from "../../src/modules/competitive-spawn/service.js";
 import { PostgresCompetitiveSpawnRepository } from "../../src/platform/competitive-spawn/postgres-competitive-spawn-repository.js";
@@ -24,6 +27,33 @@ describe("competitive group spawn diversity", () => {
     expect(COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX).toContain(251);
     expect(COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX).toContain(386);
     expect(COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT).toBe(25);
+  });
+
+  it("uses pinned Gen I-III evolution family and habitat metadata", () => {
+    expect(competitiveSpeciesEcology(1)).toEqual({ habitatId: 3, stage: 1 });
+    expect(competitiveSpeciesEcology(2)).toEqual({ habitatId: 3, stage: 2 });
+    expect(competitiveSpeciesEcology(3)).toEqual({ habitatId: 3, stage: 3 });
+    expect(competitiveSpeciesEcology(25)).toEqual({ habitatId: 2, stage: 2 });
+    expect(competitiveSpeciesEcology(133)).toEqual({ habitatId: 8, stage: 1 });
+    expect(competitiveSpeciesEcology(376)).toEqual({ habitatId: 6, stage: 3 });
+    expect(() => competitiveSpeciesEcology(387)).toThrow();
+  });
+
+  it("makes evolved forms rarer and gives them appropriate levels", () => {
+    expect(competitiveSpawnGlobalWeight(45, 1)).toBe(30);
+    expect(competitiveSpawnGlobalWeight(45, 2)).toBe(11);
+    expect(competitiveSpawnGlobalWeight(45, 3)).toBe(4);
+    expect(competitiveSpawnGlobalWeight(3, 3)).toBe(1);
+    expect(competitiveSpawnLevelRange(1, 5)).toEqual({ minLevel: 5, maxLevel: 23 });
+    expect(competitiveSpawnLevelRange(2, 1)).toEqual({ minLevel: 20, maxLevel: 38 });
+    expect(competitiveSpawnLevelRange(3, 1)).toEqual({ minLevel: 36, maxLevel: 55 });
+    expect(competitiveSpawnLevelRange(3, 60)).toEqual({ minLevel: 60, maxLevel: 60 });
+  });
+
+  it("avoids recent Pokemon unless the local pool has no alternative", () => {
+    const pool = [{ speciesId: "a" }, { speciesId: "b" }, { speciesId: "c" }];
+    expect(competitiveCandidatesWithoutRecent(pool, ["a", "b"])).toEqual([{ speciesId: "c" }]);
+    expect(competitiveCandidatesWithoutRecent(pool, ["a", "b", "c"])).toEqual(pool);
   });
 
   it("gets global species from battle-ready forms rather than encounter tables", async () => {
