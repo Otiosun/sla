@@ -1,4 +1,7 @@
 import { z } from "zod";
+import type { EntitlementService } from "../entitlements/service.js";
+import type { PremiumOrderService } from "../premium-orders/service.js";
+import { PremiumSupportNoteSchema, type PremiumSupportService } from "../premium-support/service.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import { ManualPremiumDeliverySchema, type ManualPremiumDeliveryService } from "../premium-orders/manual-delivery-service.js";
 import {
@@ -113,6 +116,11 @@ interface PlayerPortalHttpDependencies {
   /** Only mounted by separately opted-in Premium loopback API. */
   readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
   readonly premiumCases?: Pick<PremiumDeliveryCaseService, "catalog" | "list" | "timeline" | "open" | "advance">;
+  readonly premiumSupport?: Pick<PremiumSupportService, "list" | "append">;
+  readonly premiumRead?: {
+    readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
+    readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
+  };
 }
 
 export class PlayerPortalHttpHandler {
@@ -137,6 +145,26 @@ export class PlayerPortalHttpHandler {
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
     }
+    const premiumReadMatch = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(orders|entitlements)$/i,
+    );
+    if (request.method === "GET" && premiumReadMatch?.[1] && !url.search) {
+      const resource = premiumReadMatch[2]?.toLowerCase();
+      if (resource === "orders" || resource === "entitlements") {
+        return this.withSession(request, (identity) =>
+          this.getAdminPremiumRead(identity, premiumReadMatch[1]!, resource));
+      }
+    }
+
+    const premiumSupportMatch = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/support$/i,
+    );
+    if ((request.method === "GET" || request.method === "POST") &&
+        premiumSupportMatch?.[1] && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.adminPremiumSupport(request, identity, premiumSupportMatch[1]!));
+    }
+
     if (url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
         request.method === "GET" && !url.search) {
       return this.withSession(request, (identity) =>
@@ -679,6 +707,58 @@ export class PlayerPortalHttpHandler {
       return jsonResponse(409, { error: result.kind });
     } catch {
       return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+  }
+
+  private async adminPremiumSupport(
+    request: Request,
+    identity: ExternalIdentity,
+    playerId: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    const service = this.dependencies.premiumSupport;
+    if (!service) return jsonResponse(503, { error: "SUPPORT_UNAVAILABLE" });
+    try {
+      if (request.method === "GET") {
+        return jsonResponse(200, { events: await service.list(playerId) });
+      }
+      const body = await readJsonBody(request);
+      const parsed = PremiumSupportNoteSchema.safeParse(body);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const record = await service.append(playerId, admin.principalId, parsed.data);
+      if (!record) return jsonResponse(404, { error: "SUPPORT_TARGET_NOT_FOUND" });
+      return jsonResponse(record.replayed ? 200 : 201, record);
+    } catch (error) {
+      if (error instanceof Error && error.message === "SUPPORT_IDEMPOTENCY_CONFLICT") {
+        return jsonResponse(409, { error: "IDEMPOTENCY_CONFLICT" });
+      }
+      return jsonResponse(503, { error: "SUPPORT_UNAVAILABLE" });
+    }
+  }
+
+  private async getAdminPremiumRead(
+    identity: ExternalIdentity,
+    playerId: string,
+    resource: "orders" | "entitlements",
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const isOwner = await this.dependencies.adminTeam?.isOwner(admin.principalId);
+    if (isOwner !== true) return jsonResponse(403, { error: "FORBIDDEN" });
+    const services = this.dependencies.premiumRead;
+    if (!services) return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
+    try {
+      if (resource === "orders") {
+        return jsonResponse(200, { orders: await services.orders.listPlayerOrders(playerId) });
+      }
+      return jsonResponse(200, {
+        entitlements: await services.entitlements.listPlayerEntitlements(playerId),
+      });
+    } catch {
+      return jsonResponse(500, { error: "PREMIUM_READ_FAILED" });
     }
   }
 
