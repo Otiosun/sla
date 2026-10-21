@@ -415,7 +415,12 @@ export class CompetitiveSpawnService {
       candidateContext.localCandidates.length > 0 &&
       this.dependencies.rng.randomInt(100) < COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT;
     const pool = useLocal ? candidateContext.localCandidates : candidateContext.globalCandidates;
-    const candidate = chooseWeighted(pool, this.dependencies.rng);
+    const recentSpecies =
+      (await this.dependencies.repository.recentSpeciesForGroup?.(group.groupId, 5)) ?? [];
+    const recentIds = new Set(recentSpecies);
+    const notRecentlySeen = pool.filter((candidate) => !recentIds.has(candidate.speciesId));
+    const lottery = notRecentlySeen.length > 0 ? notRecentlySeen : pool;
+    const candidate = chooseWeighted(lottery, this.dependencies.rng);
     const build = await this.dependencies.builds.wildBuild(
       candidateContext.contentReleaseId,
       candidate.formId,
