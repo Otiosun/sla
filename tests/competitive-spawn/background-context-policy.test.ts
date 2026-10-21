@@ -24,6 +24,21 @@ describe("competitive spawn ecology policy", () => {
     );
   });
 
+  it("selects backgrounds by habitat, not just elemental type", () => {
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("pidgey", "normal", "flying", 3))
+      .toBe("NEUTRAL");
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("sandshrew", "ground", null, 6))
+      .toBe("RUGGED");
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("staryu", "water", null, 7))
+      .toBe("WATER");
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("eevee", "normal", null, 8))
+      .toBe("NEUTRAL");
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("wingull", "water", "flying", 9))
+      .toBe("SKY");
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("spheal", "ice", "water", 7))
+      .toBe("SNOW");
+  });
+
   it("keeps strong elemental and special contexts intact", () => {
     expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("piloswine", "ice", "ground")).toBe(
       "SNOW",
