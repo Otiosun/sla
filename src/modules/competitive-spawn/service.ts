@@ -5,6 +5,7 @@ import type { CommunityChatContext } from "../community/contracts.js";
 import type { WildPokemonBuild } from "../encounter/contracts.js";
 import { generateWildPokemon } from "../encounter/generation.js";
 import { competitiveSpeciesEcology } from "./ecology-policy.js";
+import { competitiveCandidatesWithoutRecent } from "./variety-policy.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
@@ -417,9 +418,7 @@ export class CompetitiveSpawnService {
     const pool = useLocal ? candidateContext.localCandidates : candidateContext.globalCandidates;
     const recentSpecies =
       (await this.dependencies.repository.recentSpeciesForGroup?.(group.groupId, 5)) ?? [];
-    const recentIds = new Set(recentSpecies);
-    const notRecentlySeen = pool.filter((candidate) => !recentIds.has(candidate.speciesId));
-    const lottery = notRecentlySeen.length > 0 ? notRecentlySeen : pool;
+    const lottery = competitiveCandidatesWithoutRecent(pool, recentSpecies);
     const candidate = chooseWeighted(lottery, this.dependencies.rng);
     const build = await this.dependencies.builds.wildBuild(
       candidateContext.contentReleaseId,
