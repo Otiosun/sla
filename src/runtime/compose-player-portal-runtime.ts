@@ -1,5 +1,8 @@
 import type { Pool } from "pg";
 import { EntitlementService } from "../modules/entitlements/service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PremiumSupportService } from "../modules/premium-support/service.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
 import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
 import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
 import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
@@ -208,13 +211,20 @@ export function composePlayerPortalRuntime(
   // No premium services are instantiated unless the loopback-only HTTP API
   // has been expressly enabled at startup. Never activates the WhatsApp worker.
   const premiumServices = options.premiumLocalEnabled === true
-    ? {
-        premiumDelivery: new ManualPremiumDeliveryService(
-          options.pool,
-          new EntitlementService(new PostgresEntitlementRepository(options.pool)),
-        ),
-        premiumCases: new PremiumDeliveryCaseService(options.pool),
-      }
+    ? (() => {
+        const entitlements = new EntitlementService(
+          new PostgresEntitlementRepository(options.pool),
+        );
+        return {
+          premiumDelivery: new ManualPremiumDeliveryService(options.pool, entitlements),
+          premiumCases: new PremiumDeliveryCaseService(options.pool),
+          premiumSupport: new PremiumSupportService(options.pool),
+          premiumRead: {
+            orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
+            entitlements,
+          },
+        };
+      })()
     : {};
 
   const adminPlayerIdentityHttp = new AdminPlayerIdentityHttpHandler({
