@@ -42,3 +42,12 @@ export function competitiveSpawnLevelRange(
   const minLevel = Math.max(minByStage, firstLearnableLevel);
   return { minLevel, maxLevel: Math.max(minLevel, maxByStage) };
 }
+
+export function competitiveCandidatesWithoutRecent<T extends { readonly speciesId: string }>(
+  candidates: readonly T[],
+  recentSpeciesIds: readonly string[],
+): readonly T[] {
+  const seen = new Set(recentSpeciesIds);
+  const fresh = candidates.filter((candidate) => !seen.has(candidate.speciesId));
+  return fresh.length > 0 ? fresh : candidates;
+}
