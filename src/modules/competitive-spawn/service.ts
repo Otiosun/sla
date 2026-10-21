@@ -162,9 +162,11 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   if (COMPETITIVE_SPAWN_WATER_SPECIES.has(normalizedSpecies)) return "WATER";
   if (COMPETITIVE_SPAWN_RUGGED_SPECIES.has(normalizedSpecies)) return "RUGGED";
 
-  // Elemental ice environments override general habitat classification.
+  // Ice takes precedence over water in dual-type species such as Spheal,
+  // regardless of whether Ice is the primary or secondary type.
+  const types = [type1Slug, type2Slug].map((type) => type?.toLocaleLowerCase("en-US"));
+  if (types.includes("ice")) return "SNOW";
   const typeContext = competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
-  if (typeContext === "SNOW") return "SNOW";
 
   // PokeAPI habitat ids: cave=1, forest=2, grassland=3, mountain=4,
   // rare=5, rough-terrain=6, sea=7, urban=8, waters-edge=9.
