@@ -107,6 +107,7 @@ export interface CompetitiveSpawnRepository {
   activeForGroup(groupId: string): Promise<CompetitiveSpawnRecord | null>;
   canOpen(groupId: string, now: Date, cooldownMs: number): Promise<boolean>;
   candidateContext(playerId: string | null): Promise<CompetitiveSpawnCandidateContext | null>;
+  recentSpeciesForGroup?(groupId: string, limit: number): Promise<readonly string[]>;
   createOpen(
     input: CompetitiveSpawnOpenWrite,
     cooldownMs: number,
