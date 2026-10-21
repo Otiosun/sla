@@ -345,6 +345,22 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
     return now.getTime() - row.cooldown_anchor.getTime() >= cooldownMs;
   }
 
+  public async recentSpeciesForGroup(groupId: string, limit: number): Promise<readonly string[]> {
+    const recent = await this.pool.query<{ species_id: string }>(
+      `SELECT DISTINCT species_id FROM (
+         SELECT species_id
+         FROM competitive_spawns
+         WHERE community_group_id = $1
+           AND published_at IS NOT NULL
+           AND species_id IS NOT NULL
+         ORDER BY opened_at DESC
+         LIMIT $2
+       ) last_spawns`,
+      [groupId, Math.min(20, Math.max(1, Math.floor(limit)))],
+    );
+    return recent.rows.map((row) => row.species_id);
+  }
+
   public async candidateContext(
     playerId: string | null,
   ): Promise<CompetitiveSpawnCandidateContext | null> {
