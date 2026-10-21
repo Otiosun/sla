@@ -29,7 +29,8 @@ import {
 
 export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
 export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
-export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 70;
+// Keep a meaningful regional flavor without crowding out the wider competitive pool.
+export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 25;
 export const COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS = 1_200;
 export const COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER = 50;
 export const COMPETITIVE_SPAWN_PUBLICATION_ORPHAN_GRACE_MS = 2 * 60_000;
