@@ -5,8 +5,8 @@ import {
 } from "../../src/modules/competitive-spawn/service.js";
 
 describe("competitive spawn ecology policy", () => {
-  it("prefers the current area while preserving a regional surprise pool", () => {
-    expect(COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT).toBe(70);
+  it("prioritizes the broad competitive pool while preserving local flavor", () => {
+    expect(COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT).toBe(25);
   });
 
   it("uses habitat overrides before broad type heuristics", () => {
