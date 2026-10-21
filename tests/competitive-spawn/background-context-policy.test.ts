@@ -37,6 +37,8 @@ describe("competitive spawn ecology policy", () => {
       .toBe("SKY");
     expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("spheal", "ice", "water", 7))
       .toBe("SNOW");
+    expect(competitiveSpawnBackgroundContextForSpeciesAndTypes("lapras", "water", "ice", 7))
+      .toBe("SNOW");
   });
 
   it("keeps strong elemental and special contexts intact", () => {
