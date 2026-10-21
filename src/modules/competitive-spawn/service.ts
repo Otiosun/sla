@@ -4,6 +4,8 @@ import { ok, type Result } from "../../shared-kernel/result.js";
 import type { CommunityChatContext } from "../community/contracts.js";
 import type { WildPokemonBuild } from "../encounter/contracts.js";
 import { generateWildPokemon } from "../encounter/generation.js";
+import { competitiveSpeciesEcology } from "./ecology-policy.js";
+import { competitiveCandidatesWithoutRecent } from "./variety-policy.js";
 import type {
   IncomingMessage,
   MessageHandlerContext,
@@ -29,7 +31,8 @@ import {
 
 export const COMPETITIVE_SPAWN_COOLDOWN_MS = 7 * 60_000;
 export const COMPETITIVE_SPAWN_TTL_MS = 5 * 60_000;
-export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 70;
+// Keep a meaningful regional flavor without crowding out the wider competitive pool.
+export const COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT = 25;
 export const COMPETITIVE_SPAWN_GUESS_MIN_INTERVAL_MS = 1_200;
 export const COMPETITIVE_SPAWN_GUESS_MAX_PER_PLAYER = 50;
 export const COMPETITIVE_SPAWN_PUBLICATION_ORPHAN_GRACE_MS = 2 * 60_000;
@@ -150,6 +153,7 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   speciesSlug: string | undefined,
   type1Slug: string | undefined,
   type2Slug: string | null | undefined,
+  habitatId: number | null = null,
 ): CompetitiveSpawnBackgroundContext {
   const normalizedSpecies =
     typeof speciesSlug === "string" ? speciesSlug.toLocaleLowerCase("en-US") : "";
@@ -157,7 +161,19 @@ export function competitiveSpawnBackgroundContextForSpeciesAndTypes(
   if (COMPETITIVE_SPAWN_SKY_SPECIES.has(normalizedSpecies)) return "SKY";
   if (COMPETITIVE_SPAWN_WATER_SPECIES.has(normalizedSpecies)) return "WATER";
   if (COMPETITIVE_SPAWN_RUGGED_SPECIES.has(normalizedSpecies)) return "RUGGED";
-  return competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
+
+  // Ice takes precedence over water in dual-type species such as Spheal,
+  // regardless of whether Ice is the primary or secondary type.
+  const types = [type1Slug, type2Slug].map((type) => type?.toLocaleLowerCase("en-US"));
+  if (types.includes("ice")) return "SNOW";
+  const typeContext = competitiveSpawnBackgroundContextForTypes(type1Slug, type2Slug);
+
+  // PokeAPI habitat ids: cave=1, forest=2, grassland=3, mountain=4,
+  // rare=5, rough-terrain=6, sea=7, urban=8, waters-edge=9.
+  if (habitatId === 1 || habitatId === 4 || habitatId === 6) return "RUGGED";
+  if (habitatId === 7 || habitatId === 9) return "WATER";
+  if (habitatId === 2 || habitatId === 3 || habitatId === 8) return "NEUTRAL";
+  return typeContext;
 }
 export function competitiveSpawnCenterX(input: {
   readonly rng: { randomInt(maxExclusive: number): number };
@@ -402,7 +418,10 @@ export class CompetitiveSpawnService {
       candidateContext.localCandidates.length > 0 &&
       this.dependencies.rng.randomInt(100) < COMPETITIVE_SPAWN_LOCAL_BIAS_PERCENT;
     const pool = useLocal ? candidateContext.localCandidates : candidateContext.globalCandidates;
-    const candidate = chooseWeighted(pool, this.dependencies.rng);
+    const recentSpecies =
+      (await this.dependencies.repository.recentSpeciesForGroup?.(group.groupId, 5)) ?? [];
+    const lottery = competitiveCandidatesWithoutRecent(pool, recentSpecies);
+    const candidate = chooseWeighted(lottery, this.dependencies.rng);
     const build = await this.dependencies.builds.wildBuild(
       candidateContext.contentReleaseId,
       candidate.formId,
@@ -419,6 +438,7 @@ export class CompetitiveSpawnService {
         candidate.speciesSlug,
         candidate.type1Slug,
         candidate.type2Slug,
+        competitiveSpeciesEcology(candidate.nationalDex).habitatId,
       ),
       context.message.occurredAt,
       this.dependencies.rng,

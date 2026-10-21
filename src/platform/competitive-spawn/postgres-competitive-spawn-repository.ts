@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { competitiveSpeciesEcology } from "../../modules/competitive-spawn/ecology-policy.js";
+import {
+  COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX,
+  competitiveSpawnGlobalWeight,
+  competitiveSpawnLevelRange,
+} from "../../modules/competitive-spawn/variety-policy.js";
 import type {
   CompetitiveSpawnCandidate,
   CompetitiveSpawnCandidateContext,
@@ -339,6 +345,22 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
     return now.getTime() - row.cooldown_anchor.getTime() >= cooldownMs;
   }
 
+  public async recentSpeciesForGroup(groupId: string, limit: number): Promise<readonly string[]> {
+    const recent = await this.pool.query<{ species_id: string }>(
+      `SELECT DISTINCT species_id FROM (
+         SELECT species_id
+         FROM competitive_spawns
+         WHERE community_group_id = $1
+           AND published_at IS NOT NULL
+           AND species_id IS NOT NULL
+         ORDER BY opened_at DESC
+         LIMIT $2
+       ) last_spawns`,
+      [groupId, Math.min(20, Math.max(1, Math.floor(limit)))],
+    );
+    return recent.rows.map((row) => row.species_id);
+  }
+
   public async candidateContext(
     playerId: string | null,
   ): Promise<CompetitiveSpawnCandidateContext | null> {
@@ -360,9 +382,10 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       areaId = location.rows[0]?.area_id ?? null;
     }
 
-    // "Global" means regionally canonical: only species present in an active
-    // encounter table for this content release. It is deliberately broader
-    // than the player's current area, but never the whole Gen I-III Pokédex.
+
+    // Competitive chat has its own broader species lottery. Regular overworld
+    // encounter tables remain unchanged and continue to enforce local ecology.
+    // Only published, battle-ready, non-legendary default forms can enter it.
     const global = await this.pool.query<{
       form_id: string;
       species_id: string;
@@ -371,7 +394,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       display_name: string;
       type1_slug: string;
       type2_slug: string | null;
-      weight: string;
+      catch_rate: number | null;
       min_level: number;
       max_level: number;
       area_id: null;
@@ -383,19 +406,11 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
               species_revision.display_name,
               type1.slug AS type1_slug,
               type2.slug AS type2_slug,
-              SUM(entry.weight)::text AS weight,
-              MIN(entry.min_level) AS min_level,
-              MAX(entry.max_level) AS max_level,
+              species_revision.catch_rate,
+              GREATEST(5, learnable.first_level)::int AS min_level,
+              GREATEST(15, learnable.first_level)::int AS max_level,
               NULL::uuid AS area_id
-       FROM encounter_tables table_identity
-       JOIN encounter_table_revisions table_revision
-         ON table_revision.encounter_table_id = table_identity.id
-        AND table_revision.content_release_id = $1
-        AND table_revision.active = TRUE
-       JOIN encounter_entries entry
-         ON entry.encounter_table_revision_id = table_revision.id
-        AND entry.active = TRUE
-       JOIN pokemon_forms form ON form.id = entry.form_id
+       FROM pokemon_forms form
        JOIN pokemon_species species ON species.id = form.species_id
        JOIN pokemon_species_revisions species_revision
          ON species_revision.species_id = species.id
@@ -407,13 +422,76 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
         AND form_revision.active = TRUE
        JOIN pokemon_types type1 ON type1.id = form_revision.type1_id
        LEFT JOIN pokemon_types type2 ON type2.id = form_revision.type2_id
+       JOIN LATERAL (
+         SELECT MIN(CASE
+                      WHEN learnset.learn_method = 'START' THEN 1
+                      ELSE learnset.learn_level
+                    END)::int AS first_level
+         FROM move_learnset_entries learnset
+         JOIN move_revisions move_revision
+           ON move_revision.move_id = learnset.move_id
+          AND move_revision.content_release_id = learnset.content_release_id
+          AND move_revision.active = TRUE
+          AND move_revision.max_pp > 0
+         WHERE learnset.content_release_id = $1
+           AND learnset.form_id = form.id
+           AND learnset.active = TRUE
+           AND (
+             learnset.learn_method = 'START'
+             OR (learnset.learn_method = 'LEVEL' AND learnset.learn_level BETWEEN 1 AND 100)
+           )
+       ) learnable ON learnable.first_level IS NOT NULL
        WHERE species.national_dex BETWEEN 1 AND 386
+         AND species.national_dex <> ALL($2::int[])
          AND form.slug = species.slug
-       GROUP BY form.id, species.id, species.national_dex, species.slug,
-                species_revision.display_name, type1.slug, type2.slug
+         AND form_revision.base_hp > 0
+         AND form_revision.base_attack > 0
+         AND form_revision.base_defense > 0
+         AND form_revision.base_sp_attack > 0
+         AND form_revision.base_sp_defense > 0
+         AND form_revision.base_speed > 0
+         AND NOT EXISTS (
+           SELECT 1
+           FROM move_learnset_entries invalid_learnset
+           JOIN move_revisions invalid_revision
+             ON invalid_revision.move_id = invalid_learnset.move_id
+            AND invalid_revision.content_release_id = invalid_learnset.content_release_id
+            AND invalid_revision.active = TRUE
+           WHERE invalid_learnset.content_release_id = $1
+             AND invalid_learnset.form_id = form.id
+             AND invalid_learnset.active = TRUE
+             AND invalid_learnset.learn_method IN ('START', 'LEVEL')
+             AND (invalid_revision.max_pp IS NULL OR invalid_revision.max_pp <= 0)
+         )
+         AND EXISTS (
+           SELECT 1
+           FROM pokemon_form_ability_options ability
+           JOIN ability_revisions ability_revision
+             ON ability_revision.ability_id = ability.ability_id
+            AND ability_revision.content_release_id = ability.content_release_id
+            AND ability_revision.active = TRUE
+           WHERE ability.content_release_id = $1
+             AND ability.form_id = form.id
+             AND ability.active = TRUE
+         )
+         AND EXISTS (
+           SELECT 1 FROM nature_revisions nature
+           WHERE nature.content_release_id = $1 AND nature.active = TRUE
+         )
        ORDER BY species.national_dex`,
-      [activeRow.content_release_id],
+      [activeRow.content_release_id, COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX],
     );
+
+    const globalCandidates = global.rows.map((row) => {
+      const ecology = competitiveSpeciesEcology(row.national_dex);
+      const levels = competitiveSpawnLevelRange(ecology.stage, row.min_level);
+      return mapCandidate({
+        ...row,
+        weight: competitiveSpawnGlobalWeight(row.catch_rate, ecology.stage),
+        min_level: levels.minLevel,
+        max_level: levels.maxLevel,
+      });
+    });
 
     let localCandidates: CompetitiveSpawnCandidate[] = [];
     if (areaId !== null) {
@@ -469,7 +547,15 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
          ORDER BY species.national_dex`,
         [activeRow.content_release_id, areaId],
       );
-      localCandidates = local.rows.map(mapCandidate);
+      // Apply the same eligibility, stage levels and species rarity in both
+      // local and global lotteries, retaining local encounter table proportions.
+      const globalByForm = new Map(globalCandidates.map((candidate) => [candidate.formId, candidate]));
+      localCandidates = local.rows.flatMap((row) => {
+        const canonical = globalByForm.get(row.form_id);
+        if (canonical === undefined) return [];
+        const localWeight = Math.max(1, Math.round((Number(row.weight) * canonical.weight) / 100));
+        return [{ ...canonical, areaId: row.area_id, weight: localWeight }];
+      });
     }
 
     return {
@@ -477,7 +563,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       rulesetId: activeRow.ruleset_id,
       playerAreaId: areaId,
       localCandidates,
-      globalCandidates: global.rows.map(mapCandidate),
+      globalCandidates,
     };
   }
 
