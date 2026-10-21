@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { competitiveSpeciesEcology } from "../../modules/competitive-spawn/ecology-policy.js";
 import {
   COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX,
   competitiveSpawnGlobalWeight,
+  competitiveSpawnLevelRange,
 } from "../../modules/competitive-spawn/variety-policy.js";
 import type {
   CompetitiveSpawnCandidate,
@@ -464,6 +466,17 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       [activeRow.content_release_id, COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX],
     );
 
+    const globalCandidates = global.rows.map((row) => {
+      const ecology = competitiveSpeciesEcology(row.national_dex);
+      const levels = competitiveSpawnLevelRange(ecology.stage, row.min_level);
+      return mapCandidate({
+        ...row,
+        weight: competitiveSpawnGlobalWeight(row.catch_rate, ecology.stage),
+        min_level: levels.minLevel,
+        max_level: levels.maxLevel,
+      });
+    });
+
     let localCandidates: CompetitiveSpawnCandidate[] = [];
     if (areaId !== null) {
       const local = await this.pool.query<{
@@ -518,7 +531,15 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
          ORDER BY species.national_dex`,
         [activeRow.content_release_id, areaId],
       );
-      localCandidates = local.rows.map(mapCandidate);
+      // Apply the same eligibility, stage levels and species rarity in both
+      // local and global lotteries, retaining local encounter table proportions.
+      const globalByForm = new Map(globalCandidates.map((candidate) => [candidate.formId, candidate]));
+      localCandidates = local.rows.flatMap((row) => {
+        const canonical = globalByForm.get(row.form_id);
+        if (canonical === undefined) return [];
+        const localWeight = Math.max(1, Math.round((Number(row.weight) * canonical.weight) / 100));
+        return [{ ...canonical, areaId: row.area_id, weight: localWeight }];
+      });
     }
 
     return {
@@ -526,9 +547,7 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
       rulesetId: activeRow.ruleset_id,
       playerAreaId: areaId,
       localCandidates,
-      globalCandidates: global.rows.map((row) =>
-        mapCandidate({ ...row, weight: competitiveSpawnGlobalWeight(row.catch_rate) }),
-      ),
+      globalCandidates,
     };
   }
 
