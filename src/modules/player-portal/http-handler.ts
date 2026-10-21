@@ -121,6 +121,16 @@ export class PlayerPortalHttpHandler {
   public async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    // Browser CSRF cannot bypass the authenticated owner boundary by calling
+    // the tunnel directly; the Vercel BFF makes server-side requests without Origin.
+    if (request.method === "POST" &&
+        url.pathname.startsWith("/v1/hub/admin/premium/") &&
+        ((request.headers.get("origin") !== null &&
+          request.headers.get("origin") !== url.origin) ||
+          request.headers.get("sec-fetch-site") === "cross-site")) {
+      return jsonResponse(403, { error: "CROSS_ORIGIN_PREMIUM_MUTATION" });
+    }
+
     if (request.method === "POST" && url.pathname === "/v1/hub/auth/exchange") {
       return this.exchangeTicket(request);
     }
@@ -152,12 +162,13 @@ export class PlayerPortalHttpHandler {
         this.manualPremiumCase(request, identity, caseMatch[2] === "events" ? "timeline" : "advance", caseId),
       );
     }
-    if (url.pathname === "/v1/hub/admin/premium/delivery/catalog" && request.method === "GET") {
+    if (url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
+        request.method === "GET" && !url.search) {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "catalog"),
       );
     }
-    if (url.pathname === "/v1/hub/admin/premium/delivery/pokemon" &&
+    if (url.pathname === "/v1/hub/admin/premium/delivery/pokemon" && !url.search &&
         (request.method === "GET" || request.method === "POST")) {
       return this.withSession(request, (identity) =>
         this.manualPremiumPokemonDelivery(request, identity),
@@ -169,11 +180,12 @@ export class PlayerPortalHttpHandler {
         this.manualMasterBallPackDelivery(request, identity),
       );
     }
-    if (url.pathname === "/v1/hub/admin/premium/delivery/items" &&
+    if (url.pathname === "/v1/hub/admin/premium/delivery/items" && !url.search &&
         (request.method === "GET" || request.method === "POST")) {
       return this.withSession(request, (identity) => this.manualPremiumItemDelivery(request, identity));
     }
-    if (url.pathname === "/v1/hub/admin/premium/delivery" && request.method === "POST") {
+    if (url.pathname === "/v1/hub/admin/premium/delivery" &&
+        request.method === "POST" && !url.search) {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "deliver"),
       );
@@ -181,7 +193,7 @@ export class PlayerPortalHttpHandler {
     const manualHistory = url.pathname.match(
       /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/deliveries$/i,
     );
-    if (request.method === "GET" && manualHistory?.[1]) {
+    if (request.method === "GET" && manualHistory?.[1] && !url.search) {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "history", manualHistory[1]),
       );
