@@ -1,4 +1,8 @@
 import type { Pool } from "pg";
+import { EntitlementService } from "../modules/entitlements/service.js";
+import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
+import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
 import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
@@ -67,6 +71,7 @@ interface PlayerPortalRuntimeOptions {
   readonly pool: Pool;
   readonly sessionSigningKey: Uint8Array;
   readonly deploymentRevision: string | null;
+  readonly premiumLocalEnabled?: boolean;
 }
 
 interface PlayerPortalRequestHandler {
@@ -200,6 +205,18 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
+  // No premium services are instantiated unless the loopback-only HTTP API
+  // has been expressly enabled at startup. Never activates the WhatsApp worker.
+  const premiumServices = options.premiumLocalEnabled === true
+    ? {
+        premiumDelivery: new ManualPremiumDeliveryService(
+          options.pool,
+          new EntitlementService(new PostgresEntitlementRepository(options.pool)),
+        ),
+        premiumCases: new PremiumDeliveryCaseService(options.pool),
+      }
+    : {};
+
   const adminPlayerIdentityHttp = new AdminPlayerIdentityHttpHandler({
     sessions,
     admin,
@@ -219,6 +236,7 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
+    ...premiumServices,
   });
 
   return {
