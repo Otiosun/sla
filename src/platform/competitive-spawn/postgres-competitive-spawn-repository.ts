@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX, competitiveSpawnGlobalWeight } from "../../modules/competitive-spawn/variety-policy.js";
+import {
+  COMPETITIVE_SPAWN_EXCLUDED_NATIONAL_DEX,
+  competitiveSpawnGlobalWeight,
+} from "../../modules/competitive-spawn/variety-policy.js";
 import type {
   CompetitiveSpawnCandidate,
   CompetitiveSpawnCandidateContext,
@@ -423,6 +426,25 @@ export class PostgresCompetitiveSpawnRepository implements CompetitiveSpawnRepos
        WHERE species.national_dex BETWEEN 1 AND 386
          AND species.national_dex <> ALL($2::int[])
          AND form.slug = species.slug
+         AND form_revision.base_hp > 0
+         AND form_revision.base_attack > 0
+         AND form_revision.base_defense > 0
+         AND form_revision.base_sp_attack > 0
+         AND form_revision.base_sp_defense > 0
+         AND form_revision.base_speed > 0
+         AND NOT EXISTS (
+           SELECT 1
+           FROM move_learnset_entries invalid_learnset
+           JOIN move_revisions invalid_revision
+             ON invalid_revision.move_id = invalid_learnset.move_id
+            AND invalid_revision.content_release_id = invalid_learnset.content_release_id
+            AND invalid_revision.active = TRUE
+           WHERE invalid_learnset.content_release_id = $1
+             AND invalid_learnset.form_id = form.id
+             AND invalid_learnset.active = TRUE
+             AND invalid_learnset.learn_method IN ('START', 'LEVEL')
+             AND (invalid_revision.max_pp IS NULL OR invalid_revision.max_pp <= 0)
+         )
          AND EXISTS (
            SELECT 1
            FROM pokemon_form_ability_options ability
