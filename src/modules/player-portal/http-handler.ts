@@ -145,6 +145,9 @@ export class PlayerPortalHttpHandler {
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
     }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/benefits" && !url.search) {
+      return this.withSession(request, (identity) => this.getOwnBenefits(identity));
+    }
     const premiumReadMatch = url.pathname.match(
       /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(orders|entitlements)$/i,
     );
@@ -368,6 +371,23 @@ export class PlayerPortalHttpHandler {
     return result.ok
       ? jsonResponse(200, { profile: result.value })
       : errorResponse(result.error, "read");
+  }
+
+  /** Only the player bound to the verified Hub cookie may read their own entitlements. */
+  private async getOwnBenefits(identity: ExternalIdentity): Promise<Response> {
+    const self = await this.dependencies.player.getSelf(identity);
+    if (!self.ok) return errorResponse(self.error, "read");
+
+    const entitlements = this.dependencies.premiumRead?.entitlements;
+    if (!entitlements) return jsonResponse(503, { error: "BENEFITS_UNAVAILABLE" });
+
+    try {
+      return jsonResponse(200, {
+        entitlements: await entitlements.listPlayerEntitlements(self.value.playerId),
+      });
+    } catch {
+      return jsonResponse(503, { error: "BENEFITS_UNAVAILABLE" });
+    }
   }
 
   private async resolvePortalAdmin(identity: ExternalIdentity): Promise<{
