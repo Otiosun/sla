@@ -11,6 +11,9 @@ on:
       - "db/migrations/0078_*"
       - "tests/player/manual-master*"
       - "tests/runtime/player-portal-runtime-config.test.ts"
+      - "tests/progression/premium-earned-xp-policy.test.ts"
+      - "tests/capture/capture-service-seed-context.test.ts"
+      - "tests/db/xp2x-policy.integration.test.ts"
       - ".github/workflows/premium-local-current-baseline-gate.yml"
 
 permissions:
@@ -43,6 +46,8 @@ jobs:
         run: pnpm typecheck
       - name: Manual delivery contracts and live portal regression
         run: pnpm exec vitest run tests/player/manual-master-ball-pack-handler.test.ts tests/player/manual-master-ball-session.test.ts tests/player/manual-master-ball-contracts.test.ts tests/player/player-portal-http-handler.test.ts tests/runtime/player-portal-runtime-config.test.ts
+      - name: XP and capture Luck unit regression
+        run: pnpm exec vitest run tests/progression/premium-earned-xp-policy.test.ts tests/capture/capture-service-seed-context.test.ts
       - name: Start disposable PostgreSQL (NOT the game database)
         run: |
           docker run -d --name premium-proof-db \
@@ -61,3 +66,5 @@ jobs:
         run: pnpm db:migrate
       - name: Verify full candidate schema
         run: pnpm db:verify
+      - name: Verify XP and Luck entitlements in disposable PostgreSQL
+        run: pnpm exec vitest run tests/db/xp2x-policy.integration.test.ts
