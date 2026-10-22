@@ -10,6 +10,7 @@ on:
       - "db/migrations/0077_*"
       - "db/migrations/0078_*"
       - "tests/player/manual-master*"
+      - "tests/player/player-portal-self-benefits-http.test.ts"
       - "tests/runtime/player-portal-runtime-config.test.ts"
       - "tests/progression/premium-earned-xp-policy.test.ts"
       - "tests/capture/capture-service-seed-context.test.ts"
@@ -46,7 +47,7 @@ jobs:
       - name: Typecheck candidate
         run: pnpm typecheck
       - name: Manual delivery contracts and live portal regression
-        run: pnpm exec vitest run tests/player/manual-master-ball-pack-handler.test.ts tests/player/manual-master-ball-session.test.ts tests/player/manual-master-ball-contracts.test.ts tests/player/player-portal-http-handler.test.ts tests/runtime/player-portal-runtime-config.test.ts
+        run: pnpm exec vitest run tests/player/manual-master-ball-pack-handler.test.ts tests/player/manual-master-ball-session.test.ts tests/player/manual-master-ball-contracts.test.ts tests/player/player-portal-http-handler.test.ts tests/player/player-portal-self-benefits-http.test.ts tests/runtime/player-portal-runtime-config.test.ts
       - name: XP and capture Luck unit regression
         run: pnpm exec vitest run tests/progression/premium-earned-xp-policy.test.ts tests/capture/capture-service-seed-context.test.ts
       - name: Start disposable PostgreSQL (NOT the game database)
