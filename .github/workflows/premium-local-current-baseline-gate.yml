@@ -14,6 +14,7 @@ on:
       - "tests/progression/premium-earned-xp-policy.test.ts"
       - "tests/capture/capture-service-seed-context.test.ts"
       - "tests/db/xp2x-policy.integration.test.ts"
+      - "tests/db/premium-master-ball.integration.test.ts"
       - ".github/workflows/premium-local-current-baseline-gate.yml"
 
 permissions:
@@ -66,5 +67,5 @@ jobs:
         run: pnpm db:migrate
       - name: Verify full candidate schema
         run: pnpm db:verify
-      - name: Verify XP and Luck entitlements in disposable PostgreSQL
-        run: pnpm exec vitest run tests/db/xp2x-policy.integration.test.ts
+      - name: Verify XP, Luck and Master Ball inventory grants in disposable PostgreSQL
+        run: pnpm exec vitest run tests/db/xp2x-policy.integration.test.ts tests/db/premium-master-ball.integration.test.ts
