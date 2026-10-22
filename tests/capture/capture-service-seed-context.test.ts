@@ -225,4 +225,65 @@ describe("CaptureService RNG context", () => {
     expect(contexts).toHaveLength(2);
     expect(contexts[0]).not.toBe(contexts[1]);
   });
+  it("applies permanent 2x Luck only to the server-owned capture chance before RNG", async () => {
+    const inspect = async (multiplier: 1 | 2, catchRate: number) => {
+      const base = context();
+      // Damaged wild Pokemon creates a genuine maximum-capture clamp case.
+      const value = {
+        ...base,
+        catchRate,
+        encounterSnapshot: { ...base.encounterSnapshot, currentHp: 1 },
+      };
+      let probability = -1;
+      let modifiers: readonly number[] = [];
+      const transaction = {
+        captureLuckMultiplier: async () => multiplier,
+        findAttempt: async () => null,
+        loadContext: async () => value,
+        beginResolving: async () => 8n,
+        insertPending: async (entry: { probabilityBasisPoints: number; breakdown: { explicitModifierBasisPoints: readonly number[] } }) => {
+          probability = entry.probabilityBasisPoints;
+          modifiers = entry.breakdown.explicitModifierBasisPoints;
+          return true;
+        },
+        consumeBall: async () => "CONSUMED" as const,
+        nextRosterPlacement: async () => ({ placementKind: "TEAM" as const, boxNo: null, slotNo: 1 }),
+        resolveFailure: async () => {},
+        resolveSuccess: async () => {},
+      } satisfies CaptureTransaction;
+      const capture = new CaptureService(
+        { transaction: (work) => work(transaction) },
+        {
+          create: () => ({
+            seed: Buffer.alloc(32),
+            envelope: {
+              ciphertext: Buffer.alloc(1), iv: Buffer.alloc(1),
+              authTag: Buffer.alloc(1), keyVersion: 1,
+            },
+          }),
+        },
+      );
+      const result = await capture.attempt({
+        playerId: value.playerId,
+        encounterId: value.encounterId,
+        expectedEncounterRevision: value.encounterRevision,
+        expectedBattleVersion: null,
+        ballItemId: value.ball.itemId,
+        idempotencyKey: "luck-roll",
+        correlationId: createCorrelationId(),
+        causationId: null,
+      });
+      expect(result.ok).toBe(true);
+      return { probability, modifiers };
+    };
+    const ordinary = await inspect(1, 40);
+    const premium = await inspect(2, 40);
+    expect(premium.probability).toBe(ordinary.probability * 2);
+    expect(ordinary.modifiers).toEqual([]);
+    expect(premium.modifiers).toEqual([20_000]);
+
+    const clamped = await inspect(2, 255);
+    expect(clamped.probability).toBe(9_500); // Pinned ruleset never exceeded.
+  });
+
 });
