@@ -8,6 +8,7 @@ on:
       - "src/runtime/**"
       - "db/migrations/0076_*"
       - "db/migrations/0077_*"
+      - "db/migrations/0078_*"
       - "tests/player/manual-master*"
       - "tests/runtime/player-portal-runtime-config.test.ts"
       - ".github/workflows/premium-local-current-baseline-gate.yml"
@@ -56,7 +57,7 @@ jobs:
           done
           docker logs premium-proof-db
           exit 1
-      - name: Apply candidate migrations to disposable database
+      - name: Apply all 78 migrations to disposable database
         run: pnpm db:migrate
       - name: Verify full candidate schema
         run: pnpm db:verify
