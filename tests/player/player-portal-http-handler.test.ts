@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PlayerEntitlementView } from "../../src/modules/entitlements/contracts.js";
 import type { ExternalIdentity } from "../../src/modules/player/contracts.js";
 import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
 import type {
@@ -53,7 +54,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string; benefits?: readonly PlayerEntitlementView[] } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -195,6 +196,16 @@ function handler(
     adminRewardCatalog: {
       get: adminRewardCatalogGet,
     },
+    ...(options.benefits
+      ? {
+          premiumRead: {
+            orders: { listPlayerOrders: async () => [] },
+            entitlements: {
+              listPlayerEntitlements: async (_playerId: string) => options.benefits ?? [],
+            },
+          },
+        }
+      : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -662,5 +673,47 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       );
       expect(blocked.status).toBe(404);
     }
+  });
+});
+
+
+describe("Hub personal benefits read boundary", () => {
+  const path = "https://api.example.test/v1/hub/player/benefits";
+  const cookie = "__Host-pokemon_hub_session=session-token";
+  const active: PlayerEntitlementView = {
+    playerId: profile.playerId,
+    entitlementKey: "XP_2X",
+    grantModel: "TIMED",
+    administrativeStatus: "ACTIVE",
+    startsAt: "2026-10-22T00:00:00.000Z",
+    expiresAt: "2026-10-29T00:00:00.000Z",
+    revision: "1",
+    currentlyActive: true,
+  };
+
+  it("requires a signed Hub session and rejects player-id substitution", async () => {
+    const { instance } = handler({ benefits: [active] });
+    const guest = await instance.handle(new Request(path));
+    expect(guest.status).toBe(401);
+    const altered = await instance.handle(
+      new Request(path + "?playerId=11111111-1111-4111-8111-111111111111", {
+        headers: { cookie },
+      }),
+    );
+    expect(altered.status).toBe(404);
+  });
+
+  it("only reads the player's own entitlement state, without admin permission", async () => {
+    const { instance } = handler({ benefits: [active] });
+    const response = await instance.handle(new Request(path, { headers: { cookie } }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ entitlements: [active] });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("reports unavailable rather than guessing the player has no benefits", async () => {
+    const response = await handler().instance.handle(new Request(path, { headers: { cookie } }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "BENEFITS_UNAVAILABLE" });
   });
 });

@@ -45,6 +45,8 @@ import {
   applyPokemonXp,
   battlePokemonXp,
   pokemonXpRequiredForNextLevel,
+  eligibleEarnedTrainerAdjustment,
+  multiplyEarnedXp,
   trainerLevelForPoints,
 } from "../../modules/progression/rules.js";
 import { withTransaction } from "../db/transaction.js";
@@ -738,10 +740,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         if (pokemonXpMultiplier !== 1 && pokemonXpMultiplier !== 2) {
           throw new ProgressionStateViolation("Pokemon battle XP multiplier is invalid");
         }
-        const offeredXp = baseOfferedXp * pokemonXpMultiplier;
-        if (!Number.isSafeInteger(offeredXp)) {
-          throw new ProgressionStateViolation("Pokemon battle XP offer overflow JS safe range");
-        }
+        const offeredXp = multiplyEarnedXp(baseOfferedXp, pokemonXpMultiplier);
         const pokemonResult = await this.applyPositivePokemonXp(client, {
           playerId: terminal.playerId,
           contentReleaseId: battleRow.content_release_id,
@@ -766,6 +765,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           battleId: input.battleId,
           playerId: terminal.playerId,
           progression,
+          xpMultiplier: pokemonXpMultiplier,
           correlationId: input.correlationId,
         });
         await this.faultInjector.afterRewardMutationsBeforeClaim?.();
@@ -1135,6 +1135,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       readonly battleId: string;
       readonly playerId: string;
       readonly progression: ProgressionRules;
+      readonly xpMultiplier: 1 | 2;
       readonly correlationId: string;
     },
   ): Promise<TrainerProgressResult> {
@@ -1151,7 +1152,9 @@ export class PostgresProgressionRepository implements ProgressionRepository {
     if (row === undefined)
       throw new ProgressionStateViolation("Trainer progression row is unavailable");
     const beforePoints = safeInteger(row.progression_points, "trainer progression_points");
-    const pointsGained = input.progression.trainer.pointsPerWonBattle;
+    const pointsGained = multiplyEarnedXp(
+      input.progression.trainer.pointsPerWonBattle, input.xpMultiplier,
+    );
     const afterPoints = beforePoints + pointsGained;
     if (!Number.isSafeInteger(afterPoints)) {
       throw new ProgressionStateViolation("Trainer progression points overflow JS safe range");
@@ -1601,15 +1604,6 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         );
         const replay = existing.rows[0];
         if (replay !== undefined) {
-          const compatible =
-            replay.player_id === input.playerId &&
-            safeInteger(replay.delta, "trainer progress ledger delta") === input.delta &&
-            replay.source_type === input.metadata.sourceType &&
-            replay.source_id === input.metadata.sourceId &&
-            replay.reason === input.metadata.reason &&
-            replay.actor_type === input.metadata.actorType &&
-            replay.actor_id === input.metadata.actorId;
-          if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
           if (replay.ruleset_id === null || replay.result === null) {
             return {
               kind: "STATE_INVALID",
@@ -1617,6 +1611,16 @@ export class PostgresProgressionRepository implements ProgressionRepository {
             };
           }
           const parsed = TrainerProgressAdjustmentResultSchema.parse(replay.result);
+          const compatible =
+            replay.player_id === input.playerId &&
+            safeInteger(replay.delta, "trainer progress ledger delta") === parsed.delta &&
+            (parsed.requestedDelta ?? parsed.delta) === input.delta &&
+            replay.source_type === input.metadata.sourceType &&
+            replay.source_id === input.metadata.sourceId &&
+            replay.reason === input.metadata.reason &&
+            replay.actor_type === input.metadata.actorType &&
+            replay.actor_id === input.metadata.actorId;
+          if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
           if (parsed.rulesetId !== replay.ruleset_id) {
             return {
               kind: "STATE_INVALID",
@@ -1672,7 +1676,26 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           currentRow.progression_points,
           "trainer progression_points",
         );
-        const afterPoints = beforePoints + input.delta;
+        let appliedDelta = input.delta;
+        if (eligibleEarnedTrainerAdjustment({
+          delta: input.delta,
+          actorType: input.metadata.actorType,
+          sourceType: input.metadata.sourceType,
+        })) {
+          const boost = await client.query<{ multiplier: number }>(
+            `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
+            [input.playerId],
+          );
+          const multiplier = boost.rows[0]?.multiplier ?? 1;
+          if (multiplier !== 1 && multiplier !== 2) {
+            return { kind: "STATE_INVALID", reason: "Earned XP multiplier is invalid" };
+          }
+          if (!Number.isSafeInteger(input.delta * multiplier)) {
+            return { kind: "STATE_INVALID", reason: "Earned XP exceeds safe range" };
+          }
+          appliedDelta = multiplyEarnedXp(input.delta, multiplier);
+        }
+        const afterPoints = beforePoints + appliedDelta;
         if (!Number.isSafeInteger(afterPoints)) {
           return {
             kind: "STATE_INVALID",
@@ -1737,7 +1760,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
 
         const result = TrainerProgressAdjustmentResultSchema.parse({
           playerId: input.playerId,
-          delta: input.delta,
+          delta: appliedDelta,
+          ...(appliedDelta === input.delta ? {} : { requestedDelta: input.delta }),
           beforePoints,
           afterPoints,
           beforeLevel: currentRow.level,
@@ -1756,7 +1780,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           [
             randomUUID(),
             input.playerId,
-            input.delta,
+            appliedDelta,
             input.metadata.sourceType,
             input.metadata.sourceId,
             input.metadata.reason,

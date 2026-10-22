@@ -8,6 +8,7 @@ const runtimeSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   DEPLOY_REVISION: fullRevisionSchema.optional(),
   RAILWAY_GIT_COMMIT_SHA: fullRevisionSchema.optional(),
+  PREMIUM_LOCAL_DELIVERY_ENABLED: z.enum(["0", "1"]).default("0"),
 });
 
 export interface PlayerPortalRuntimeConfig {
@@ -15,6 +16,8 @@ export interface PlayerPortalRuntimeConfig {
   readonly port: number;
   readonly sessionSigningKey: Buffer;
   readonly deploymentRevision: string | null;
+  /** Opt-in HTTP-only manual delivery; never starts a WhatsApp worker. */
+  readonly premiumLocalEnabled: boolean;
 }
 
 export class PlayerPortalRuntimeConfigError extends Error {
@@ -59,6 +62,17 @@ export function loadPlayerPortalRuntimeConfig(
   }
 
   const deploymentRevision = railwayRevision ?? explicitRevision ?? null;
+  const premiumLocalEnabled = parsed.data.PREMIUM_LOCAL_DELIVERY_ENABLED === "1";
+  if (premiumLocalEnabled &&
+      (appConfig.appEnv !== "development" && appConfig.appEnv !== "production")) {
+    throw new PlayerPortalRuntimeConfigError("Local Premium delivery is restricted to development/production");
+  }
+  if (premiumLocalEnabled &&
+      parsed.data.PLAYER_PORTAL_HOST !== "127.0.0.1" &&
+      parsed.data.PLAYER_PORTAL_HOST !== "::1") {
+    throw new PlayerPortalRuntimeConfigError(
+      "Premium local delivery requires an explicit 127.0.0.1 or ::1 bind");
+  }
   const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
   if (requiresRevision && deploymentRevision === null) {
     throw new PlayerPortalRuntimeConfigError(
@@ -71,5 +85,6 @@ export function loadPlayerPortalRuntimeConfig(
     port: parsed.data.PORT,
     sessionSigningKey: decodeSigningKey(parsed.data.PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64),
     deploymentRevision,
+    premiumLocalEnabled,
   };
 }

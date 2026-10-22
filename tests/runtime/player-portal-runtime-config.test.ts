@@ -22,6 +22,42 @@ describe("Player Portal runtime config", () => {
     expect(config.sessionSigningKey).toEqual(Buffer.alloc(32, 9));
   });
 
+  it("keeps Premium manual delivery disabled by default", () => {
+    const config = loadPlayerPortalRuntimeConfig(
+      { appEnv: "development" },
+      { PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY },
+    );
+    expect(config.premiumLocalEnabled).toBe(false);
+  });
+
+  it("allows explicit local delivery only for a loopback-bound portal", () => {
+    const config = loadPlayerPortalRuntimeConfig(
+      { appEnv: "development" },
+      {
+        PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
+        PLAYER_PORTAL_HOST: "127.0.0.1",
+        PREMIUM_LOCAL_DELIVERY_ENABLED: "1",
+      },
+    );
+    expect(config.premiumLocalEnabled).toBe(true);
+    expect(() => loadPlayerPortalRuntimeConfig(
+      { appEnv: "development" },
+      {
+        PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
+        PLAYER_PORTAL_HOST: "0.0.0.0",
+        PREMIUM_LOCAL_DELIVERY_ENABLED: "1",
+      },
+    )).toThrow(PlayerPortalRuntimeConfigError);
+    expect(() => loadPlayerPortalRuntimeConfig(
+      { appEnv: "staging" },
+      {
+        PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
+        PLAYER_PORTAL_HOST: "127.0.0.1",
+        PREMIUM_LOCAL_DELIVERY_ENABLED: "1",
+      },
+    )).toThrow(PlayerPortalRuntimeConfigError);
+  });
+
   it("rejects malformed signing keys", () => {
     expect(() =>
       loadPlayerPortalRuntimeConfig(

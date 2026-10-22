@@ -1,4 +1,11 @@
 import type { Pool } from "pg";
+import { EntitlementService } from "../modules/entitlements/service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PremiumSupportService } from "../modules/premium-support/service.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
+import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
+import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
 import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
@@ -67,6 +74,7 @@ interface PlayerPortalRuntimeOptions {
   readonly pool: Pool;
   readonly sessionSigningKey: Uint8Array;
   readonly deploymentRevision: string | null;
+  readonly premiumLocalEnabled?: boolean;
 }
 
 interface PlayerPortalRequestHandler {
@@ -200,6 +208,25 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
+  // No premium services are instantiated unless the loopback-only HTTP API
+  // has been expressly enabled at startup. Never activates the WhatsApp worker.
+  const premiumServices = options.premiumLocalEnabled === true
+    ? (() => {
+        const entitlements = new EntitlementService(
+          new PostgresEntitlementRepository(options.pool),
+        );
+        return {
+          premiumDelivery: new ManualPremiumDeliveryService(options.pool, entitlements),
+          premiumCases: new PremiumDeliveryCaseService(options.pool),
+          premiumSupport: new PremiumSupportService(options.pool),
+          premiumRead: {
+            orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
+            entitlements,
+          },
+        };
+      })()
+    : {};
+
   const adminPlayerIdentityHttp = new AdminPlayerIdentityHttpHandler({
     sessions,
     admin,
@@ -219,6 +246,7 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
+    ...premiumServices,
   });
 
   return {

@@ -1,4 +1,15 @@
+import { z } from "zod";
+import type { EntitlementService } from "../entitlements/service.js";
+import type { PremiumOrderService } from "../premium-orders/service.js";
+import { PremiumSupportNoteSchema, type PremiumSupportService } from "../premium-support/service.js";
 import type { AppError } from "../../shared-kernel/result.js";
+import { ManualPremiumDeliverySchema, type ManualPremiumDeliveryService } from "../premium-orders/manual-delivery-service.js";
+import {
+  type PremiumDeliveryCaseService, OpenPremiumDeliveryCaseSchema, AdvancePremiumDeliveryCaseSchema,
+} from "../premium-orders/manual-delivery-case-service.js";
+import { ManualPremiumItemDeliverySchema } from "../premium-orders/manual-item-delivery-contracts.js";
+import { ManualMasterBallPackSchema, MASTER_BALL_ITEM_SLUG } from "../premium-orders/manual-master-ball-pack-contracts.js";
+import { ManualPremiumPokemonDeliverySchema } from "../premium-orders/manual-pokemon-delivery-contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
@@ -102,6 +113,14 @@ interface PlayerPortalHttpDependencies {
     "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
+  /** Only mounted by separately opted-in Premium loopback API. */
+  readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
+  readonly premiumCases?: Pick<PremiumDeliveryCaseService, "catalog" | "list" | "timeline" | "open" | "advance">;
+  readonly premiumSupport?: Pick<PremiumSupportService, "list" | "append">;
+  readonly premiumRead?: {
+    readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
+    readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
+  };
 }
 
 export class PlayerPortalHttpHandler {
@@ -110,11 +129,105 @@ export class PlayerPortalHttpHandler {
   public async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    // Browser CSRF cannot bypass the authenticated owner boundary by calling
+    // the tunnel directly; the Vercel BFF makes server-side requests without Origin.
+    if (request.method === "POST" &&
+        url.pathname.startsWith("/v1/hub/admin/premium/") &&
+        ((request.headers.get("origin") !== null &&
+          request.headers.get("origin") !== url.origin) ||
+          request.headers.get("sec-fetch-site") === "cross-site")) {
+      return jsonResponse(403, { error: "CROSS_ORIGIN_PREMIUM_MUTATION" });
+    }
+
     if (request.method === "POST" && url.pathname === "/v1/hub/auth/exchange") {
       return this.exchangeTicket(request);
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/benefits" && !url.search) {
+      return this.withSession(request, (identity) => this.getOwnBenefits(identity));
+    }
+    const premiumReadMatch = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(orders|entitlements)$/i,
+    );
+    if (request.method === "GET" && premiumReadMatch?.[1] && !url.search) {
+      const resource = premiumReadMatch[2]?.toLowerCase();
+      if (resource === "orders" || resource === "entitlements") {
+        return this.withSession(request, (identity) =>
+          this.getAdminPremiumRead(identity, premiumReadMatch[1]!, resource));
+      }
+    }
+
+    const premiumSupportMatch = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/support$/i,
+    );
+    if ((request.method === "GET" || request.method === "POST") &&
+        premiumSupportMatch?.[1] && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.adminPremiumSupport(request, identity, premiumSupportMatch[1]!));
+    }
+
+    if (url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
+        request.method === "GET" && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, "catalog"),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/cases" &&
+        ((request.method === "POST" && !url.search) ||
+         (request.method === "GET" && url.searchParams.size === 1 && url.searchParams.has("playerId")))) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, request.method === "POST" ? "open" : "list",
+          url.searchParams.get("playerId") ?? undefined),
+      );
+    }
+    const caseMatch=url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/delivery\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(transition|events)$/i,
+    );
+    if (caseMatch?.[1] && !url.search &&
+        ((caseMatch[2] === "transition" && request.method === "POST") ||
+         (caseMatch[2] === "events" && request.method === "GET"))) {
+      const caseId=caseMatch[1];
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, caseMatch[2] === "events" ? "timeline" : "advance", caseId),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
+        request.method === "GET" && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "catalog"),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/pokemon" && !url.search &&
+        (request.method === "GET" || request.method === "POST")) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumPokemonDelivery(request, identity),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/packs/master" &&
+        (request.method === "GET" || request.method === "POST") && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualMasterBallPackDelivery(request, identity),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/items" && !url.search &&
+        (request.method === "GET" || request.method === "POST")) {
+      return this.withSession(request, (identity) => this.manualPremiumItemDelivery(request, identity));
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery" &&
+        request.method === "POST" && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "deliver"),
+      );
+    }
+    const manualHistory = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/deliveries$/i,
+    );
+    if (request.method === "GET" && manualHistory?.[1] && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "history", manualHistory[1]),
+      );
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
       return this.withSession(request, (identity) => this.getAdminSelf(identity));
@@ -260,6 +373,23 @@ export class PlayerPortalHttpHandler {
       : errorResponse(result.error, "read");
   }
 
+  /** Only the player bound to the verified Hub cookie may read their own entitlements. */
+  private async getOwnBenefits(identity: ExternalIdentity): Promise<Response> {
+    const self = await this.dependencies.player.getSelf(identity);
+    if (!self.ok) return errorResponse(self.error, "read");
+
+    const entitlements = this.dependencies.premiumRead?.entitlements;
+    if (!entitlements) return jsonResponse(503, { error: "BENEFITS_UNAVAILABLE" });
+
+    try {
+      return jsonResponse(200, {
+        entitlements: await entitlements.listPlayerEntitlements(self.value.playerId),
+      });
+    } catch {
+      return jsonResponse(503, { error: "BENEFITS_UNAVAILABLE" });
+    }
+  }
+
   private async resolvePortalAdmin(identity: ExternalIdentity): Promise<{
     readonly principalId: string;
     readonly capabilities: readonly string[];
@@ -287,6 +417,369 @@ export class PlayerPortalHttpHandler {
         capabilities: [...admin.capabilities],
       },
     });
+  }
+
+  private async manualPremiumPokemonDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    if (!this.dependencies.premiumDelivery) {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: false,
+        currencies: false,
+        species: false,
+        forms: true,
+        effects: false,
+        releases: false,
+      });
+      if (request.method === "GET") {
+        return jsonResponse(200, {
+          forms: (catalog.forms ?? []).map((entry) => ({
+            formId: entry.formId,
+            speciesSlug: entry.speciesSlug,
+            formSlug: entry.formSlug,
+            displayName: entry.displayName,
+          })),
+        });
+      }
+      const parsed = ManualPremiumPokemonDeliverySchema.safeParse(await readJsonBody(request));
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const input = parsed.data;
+      if (!(catalog.forms ?? []).some((entry) => entry.formId === input.formId)) {
+        return jsonResponse(404, { error: "POKEMON_FORM_NOT_PUBLISHED" });
+      }
+
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: admin.principalId,
+        operationType: "pokemon.create",
+        input: {
+          playerId: input.playerId,
+          formId: input.formId,
+          level: input.level,
+          shiny: input.shiny,
+        },
+        reason: input.reason,
+        idempotencyKey: `premium-pokemon:${input.requestId}`,
+        correlationId: input.requestId,
+      });
+      let operation = prepared.operation;
+      if (operation.status === "PENDING_CONFIRMATION") {
+        operation = await this.dependencies.adminMutations.confirm(
+          operation.id,
+          admin.principalId,
+        );
+      }
+      if (operation.status === "READY") {
+        operation = await this.dependencies.adminMutations.apply(
+          operation.id,
+          admin.principalId,
+        );
+      }
+      if (operation.status !== "APPLIED") {
+        return jsonResponse(409, { error: "POKEMON_DELIVERY_NOT_APPLIED", operationId: operation.id });
+      }
+      return jsonResponse(prepared.replayed ? 200 : 201, {
+        applied: true,
+        replayed: prepared.replayed,
+        operationId: operation.id,
+        requestId: input.requestId,
+        playerId: input.playerId,
+        formId: input.formId,
+        level: input.level,
+        shiny: input.shiny,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async manualMasterBallPackDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    // Production must not gain a delivery API just because normal AdminService exists.
+    if (!this.dependencies.premiumDelivery) {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: true,
+        currencies: false,
+        species: false,
+        forms: false,
+        effects: false,
+        releases: false,
+      });
+      const masterBalls = catalog.items.filter((item) => item.slug === MASTER_BALL_ITEM_SLUG);
+      // Never fall back to similarly named items, nor guess UUIDs or inject a seed.
+      if (request.method === "GET") {
+        return jsonResponse(200, {
+          sku: "MASTER",
+          quantityPerUnit: 1,
+          maxQuantity: 20,
+          available: masterBalls.length === 1,
+          item: masterBalls.length === 1
+            ? { itemId: masterBalls[0]!.itemId, displayName: masterBalls[0]!.displayName }
+            : null,
+        });
+      }
+      const parsed = ManualMasterBallPackSchema.safeParse(await readJsonBody(request));
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      if (masterBalls.length !== 1) {
+        return jsonResponse(409, { error: "MASTER_BALL_NOT_PUBLISHED" });
+      }
+      const input = parsed.data;
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: admin.principalId,
+        operationType: "inventory.adjust",
+        input: {
+          playerId: input.playerId,
+          itemId: masterBalls[0]!.itemId,
+          delta: String(input.quantity),
+        },
+        reason: input.reason,
+        idempotencyKey: `premium-pack:MASTER:${input.requestId}`,
+        correlationId: input.requestId,
+      });
+      const applied = await this.dependencies.adminMutations.apply(
+        prepared.operation.id,
+        admin.principalId,
+      );
+      if (applied.status !== "APPLIED") {
+        return jsonResponse(409, {
+          error: "MASTER_BALL_DELIVERY_NOT_APPLIED",
+          operationId: applied.id,
+        });
+      }
+      return jsonResponse(prepared.replayed ? 200 : 201, {
+        applied: true,
+        replayed: prepared.replayed,
+        operationId: applied.id,
+        requestId: input.requestId,
+        playerId: input.playerId,
+        sku: "MASTER",
+        itemId: masterBalls[0]!.itemId,
+        quantity: input.quantity,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async manualPremiumItemDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    // Staging feature boundary: this dependency is NEVER mounted in normal/live runtime.
+    if (!this.dependencies.premiumDelivery) {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+    try {
+      const catalog = await this.dependencies.adminRewardCatalog.get(admin.principalId, {
+        items: true,
+        currencies: false,
+        species: false,
+        forms: false,
+        effects: false,
+        releases: false,
+      });
+      if (request.method === "GET") {
+        return jsonResponse(200, {
+          items: catalog.items.map((item) => ({
+            itemId: item.itemId,
+            displayName: item.displayName,
+            slug: item.slug,
+          })),
+        });
+      }
+
+      const input = ManualPremiumItemDeliverySchema.safeParse(await readJsonBody(request));
+      if (!input.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      // Only items in the currently published catalog can be granted.
+      if (!catalog.items.some((item) => item.itemId === input.data.itemId)) {
+        return jsonResponse(404, { error: "ITEM_NOT_PUBLISHED" });
+      }
+      const prepared = await this.dependencies.adminMutations.prepareMutation({
+        principalId: admin.principalId,
+        operationType: "inventory.adjust",
+        input: {
+          playerId: input.data.playerId,
+          itemId: input.data.itemId,
+          delta: String(input.data.quantity),
+        },
+        reason: input.data.reason,
+        idempotencyKey: `premium-item:${input.data.requestId}`,
+        correlationId: input.data.requestId,
+      });
+      const applied = await this.dependencies.adminMutations.apply(
+        prepared.operation.id,
+        admin.principalId,
+      );
+      if (applied.status !== "APPLIED") {
+        return jsonResponse(409, { error: "DELIVERY_NOT_APPLIED", operationId: applied.id });
+      }
+      return jsonResponse(prepared.replayed ? 200 : 201, {
+        applied: true,
+        replayed: prepared.replayed,
+        operationId: applied.id,
+        requestId: input.data.requestId,
+        playerId: input.data.playerId,
+        itemId: input.data.itemId,
+        quantity: input.data.quantity,
+      });
+    } catch (error) {
+      return adminErrorResponse(error);
+    }
+  }
+
+  private async manualPremiumCase(
+    request: Request, identity: ExternalIdentity,
+    action: "catalog" | "list" | "open" | "advance" | "timeline",
+    targetId?: string,
+  ): Promise<Response> {
+    const admin=await this.resolvePortalAdmin(identity);
+    if(!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true)
+      return jsonResponse(403,{error:"FORBIDDEN"});
+    const cases=this.dependencies.premiumCases;
+    if(!cases || !this.dependencies.premiumDelivery)
+      return jsonResponse(503,{error:"PREMIUM_DELIVERY_UNAVAILABLE"});
+    try {
+      if(action==="catalog") return jsonResponse(200,{products:cases.catalog()});
+      if(action==="list") {
+        if(!targetId || !z.string().uuid().safeParse(targetId).success)
+          return jsonResponse(400,{error:"VALIDATION_FAILED"});
+        return jsonResponse(200,{cases:await cases.list(targetId)});
+      }
+      if(action==="timeline") {
+        if(!targetId) return jsonResponse(400,{error:"VALIDATION_FAILED"});
+        return jsonResponse(200,{events:await cases.timeline(targetId)});
+      }
+      const raw=await readJsonBody(request);
+      if(action==="open") {
+        const parsed=OpenPremiumDeliveryCaseSchema.safeParse(raw);
+        if(!parsed.success) return jsonResponse(400,{error:"VALIDATION_FAILED"});
+        const result=await cases.open(parsed.data,admin.principalId);
+        if(result.kind!=="APPLIED")
+          return jsonResponse(result.kind==="PLAYER_NOT_FOUND"||result.kind==="SKU_UNSUPPORTED" ? 404 : 409,{error:result.kind});
+        return jsonResponse(result.replayed?200:201,{replayed:result.replayed,case:result.case});
+      }
+      const parsed=AdvancePremiumDeliveryCaseSchema.safeParse(raw);
+      if(!parsed.success || parsed.data.caseId!==targetId)
+        return jsonResponse(400,{error:"VALIDATION_FAILED"});
+      const result=await cases.advance(parsed.data,admin.principalId);
+      if(result.kind!=="APPLIED")
+        return jsonResponse(result.kind==="NOT_FOUND" ? 404 : 409,{error:result.kind});
+      return jsonResponse(200,{replayed:result.replayed,case:result.case});
+    } catch(error) { return adminErrorResponse(error); }
+  }
+
+  private async manualPremiumDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+    operation: "catalog" | "history" | "deliver",
+    playerId?: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    const service = this.dependencies.premiumDelivery;
+    if (!service) return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    try {
+      if (operation === "catalog") {
+        return jsonResponse(200, { products: await service.catalog() });
+      }
+      if (operation === "history") {
+        if (!playerId) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        return jsonResponse(200, { deliveries: await service.history(playerId) });
+      }
+      const raw = await readJsonBody(request);
+      const parsed = ManualPremiumDeliverySchema.safeParse(raw);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const result = await service.deliver(parsed.data, admin.principalId);
+      if (result.kind === "APPLIED") {
+        return jsonResponse(result.replayed ? 200 : 201, {
+          applied: true, replayed: result.replayed,
+          entitlement: result.entitlement, requestId: parsed.data.requestId,
+        });
+      }
+      if (result.kind === "PRODUCT_UNAVAILABLE") {
+        return jsonResponse(404, { error: result.kind });
+      }
+      if (result.kind === "PLAYER_NOT_FOUND") {
+        return jsonResponse(404, { error: result.kind });
+      }
+      return jsonResponse(409, { error: result.kind });
+    } catch {
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+  }
+
+  private async adminPremiumSupport(
+    request: Request,
+    identity: ExternalIdentity,
+    playerId: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "FORBIDDEN" });
+    }
+    const service = this.dependencies.premiumSupport;
+    if (!service) return jsonResponse(503, { error: "SUPPORT_UNAVAILABLE" });
+    try {
+      if (request.method === "GET") {
+        return jsonResponse(200, { events: await service.list(playerId) });
+      }
+      const body = await readJsonBody(request);
+      const parsed = PremiumSupportNoteSchema.safeParse(body);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const record = await service.append(playerId, admin.principalId, parsed.data);
+      if (!record) return jsonResponse(404, { error: "SUPPORT_TARGET_NOT_FOUND" });
+      return jsonResponse(record.replayed ? 200 : 201, record);
+    } catch (error) {
+      if (error instanceof Error && error.message === "SUPPORT_IDEMPOTENCY_CONFLICT") {
+        return jsonResponse(409, { error: "IDEMPOTENCY_CONFLICT" });
+      }
+      return jsonResponse(503, { error: "SUPPORT_UNAVAILABLE" });
+    }
+  }
+
+  private async getAdminPremiumRead(
+    identity: ExternalIdentity,
+    playerId: string,
+    resource: "orders" | "entitlements",
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "FORBIDDEN" });
+    const isOwner = await this.dependencies.adminTeam?.isOwner(admin.principalId);
+    if (isOwner !== true) return jsonResponse(403, { error: "FORBIDDEN" });
+    const services = this.dependencies.premiumRead;
+    if (!services) return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
+    try {
+      if (resource === "orders") {
+        return jsonResponse(200, { orders: await services.orders.listPlayerOrders(playerId) });
+      }
+      return jsonResponse(200, {
+        entitlements: await services.entitlements.listPlayerEntitlements(playerId),
+      });
+    } catch {
+      return jsonResponse(500, { error: "PREMIUM_READ_FAILED" });
+    }
   }
 
   private async getAdminRewardCatalog(identity: ExternalIdentity): Promise<Response> {
