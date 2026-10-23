@@ -34,9 +34,11 @@ function invalid(message: string): Result<never> {
 
 function guard(expedition: ExpeditionSnapshot, expectedRevision: bigint): Result<void> {
   if (expectedRevision < 0n || expedition.revision !== expectedRevision) {
-    return err(appError("REVISION_CONFLICT", "Expedition revision has changed", {
-      userMessage: "Sua expedição foi atualizada. Consulte a RotomDex e tente novamente.",
-    }));
+    return err(
+      appError("REVISION_CONFLICT", "Expedition revision has changed", {
+        userMessage: "Sua expedição foi atualizada. Consulte a RotomDex e tente novamente.",
+      }),
+    );
   }
   if (
     !Number.isSafeInteger(expedition.elapsedMinutes) ||
@@ -80,9 +82,11 @@ function guard(expedition: ExpeditionSnapshot, expectedRevision: bigint): Result
 function mondayKey(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(value + "T00:00:00Z");
-  return !Number.isNaN(date.getTime()) &&
+  return (
+    !Number.isNaN(date.getTime()) &&
     date.toISOString().slice(0, 10) === value &&
-    date.getUTCDay() === 1;
+    date.getUTCDay() === 1
+  );
 }
 
 export function advanceExpedition(input: {
@@ -109,10 +113,12 @@ export function advanceExpedition(input: {
     return ok({ expedition: current, consumedWeeklySlot: false, changed: false });
   }
   if (input.minutes > EXPEDITION_DURATION_MINUTES - current.elapsedMinutes) {
-    return err(appError("FLOW_BLOCKED", "Not enough expedition time for this action", {
-      remainingMinutes: EXPEDITION_DURATION_MINUTES - current.elapsedMinutes,
-      userMessage: "Não há tempo suficiente nesta expedição para realizar essa ação.",
-    }));
+    return err(
+      appError("FLOW_BLOCKED", "Not enough expedition time for this action", {
+        remainingMinutes: EXPEDITION_DURATION_MINUTES - current.elapsedMinutes,
+        userMessage: "Não há tempo suficiente nesta expedição para realizar essa ação.",
+      }),
+    );
   }
 
   const firstAction = current.phase === "PREPARING";
@@ -122,9 +128,11 @@ export function advanceExpedition(input: {
     }
     const admission = expeditionWeeklyAdmission(input.consumedThisWeek, "PREPARING");
     if (!admission.canConsumeFirstAction) {
-      return err(appError("FLOW_BLOCKED", "Expedition weekly limit reached", {
-        userMessage: "Você já utilizou suas três expedições desta semana.",
-      }));
+      return err(
+        appError("FLOW_BLOCKED", "Expedition weekly limit reached", {
+          userMessage: "Você já utilizou suas três expedições desta semana.",
+        }),
+      );
     }
   }
   const elapsedMinutes = current.elapsedMinutes + input.minutes;
@@ -173,6 +181,8 @@ export function endExpedition(input: {
 }
 
 export function expeditionRequiresReport(expedition: ExpeditionSnapshot): boolean {
-  return expedition.phase === "ENDED" &&
-    (expedition.endReason === "VOLUNTARY" || expedition.endReason === "CLOCK");
+  return (
+    expedition.phase === "ENDED" &&
+    (expedition.endReason === "VOLUNTARY" || expedition.endReason === "CLOCK")
+  );
 }
