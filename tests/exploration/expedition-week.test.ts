@@ -30,31 +30,41 @@ describe("solo expedition calendar and weekly admission", () => {
     expect(() => expeditionWeekKey(new Date(), "not-a-timezone")).toThrow(RangeError);
   });
 
-  it("keeps preparation free, rejects the fourth expedition and allows resume", () => {
-    expect(expeditionWeeklyAdmission(0, false)).toEqual({
+  it("distinguishes preparing, first timed action, and continued active play", () => {
+    expect(expeditionWeeklyAdmission(0, "NONE")).toEqual({
       remaining: 3,
       canPrepare: true,
-      canConsumeFirstAction: true,
-      resumeExisting: false,
-    });
-    expect(expeditionWeeklyAdmission(2, false).remaining).toBe(1);
-    expect(expeditionWeeklyAdmission(3, false)).toEqual({
-      remaining: 0,
-      canPrepare: false,
       canConsumeFirstAction: false,
       resumeExisting: false,
+      canContinue: false,
     });
-    expect(expeditionWeeklyAdmission(3, true)).toEqual({
+    expect(expeditionWeeklyAdmission(0, "PREPARING")).toEqual({
+      remaining: 3,
+      canPrepare: false,
+      canConsumeFirstAction: true,
+      resumeExisting: true,
+      canContinue: false,
+    });
+    expect(expeditionWeeklyAdmission(2, "PREPARING").remaining).toBe(1);
+    expect(expeditionWeeklyAdmission(3, "PREPARING")).toEqual({
       remaining: 0,
       canPrepare: false,
       canConsumeFirstAction: false,
       resumeExisting: true,
+      canContinue: false,
+    });
+    expect(expeditionWeeklyAdmission(3, "ACTIVE")).toEqual({
+      remaining: 0,
+      canPrepare: false,
+      canConsumeFirstAction: false,
+      resumeExisting: true,
+      canContinue: true,
     });
   });
 
   it("refuses invalid or manipulated counters rather than silently clamping them", () => {
     for (const count of [-1, 4, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(() => expeditionWeeklyAdmission(count, false)).toThrow(RangeError);
+      expect(() => expeditionWeeklyAdmission(count, "NONE")).toThrow(RangeError);
     }
   });
 });
