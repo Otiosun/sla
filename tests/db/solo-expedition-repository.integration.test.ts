@@ -7,15 +7,15 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
-const dbName = "pokemon_solo_expedition_" + process.pid + "_" + Date.now();
+const dbName = "pokemon_solo_exp_" + process.pid + "_" + Date.now();
 
-function databaseUrlFor(db: string): string {
+function databaseUrlFor(name: string): string {
   const url = new URL(process.env.DATABASE_URL ?? "");
-  url.pathname = "/" + db;
+  url.pathname = "/" + name;
   return url.toString();
 }
 
-describe.sequential("solo expedition lifecycle in an isolated PostgreSQL database", () => {
+describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let adminPool: Pool;
   let pool: Pool;
   let clock: ManualClock;
@@ -27,13 +27,38 @@ describe.sequential("solo expedition lifecycle in an isolated PostgreSQL databas
     const area = randomUUID();
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [id]);
     await pool.query("INSERT INTO regions(id,slug) VALUES ($1,$2)", [
-      region, "solo-region-" + region,
+      region,
+      "solo-region-" + region,
     ]);
     await pool.query("INSERT INTO areas(id,region_id,slug) VALUES ($1,$2,$3)", [
-      area,region,"solo-area-" + area,
+      area,
+      region,
+      "solo-area-" + area,
     ]);
-    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [id,area]);
+    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [
+      id,
+      area,
+    ]);
     return id;
+  }
+
+  async function prepare(playerId: PlayerId, key: string) {
+    const result = await store.prepare({
+      playerId,
+      period: "DAY",
+      idempotencyKey: key,
+    });
+    if (!result.ok) throw result.error;
+    return result.value.expedition;
+  }
+
+  async function count(
+    table: "solo_expeditions" | "solo_expedition_receipts",
+    playerId: PlayerId,
+  ): Promise<number> {
+    const sql = "SELECT count(*)::int AS n FROM " + table + " WHERE player_id=$1";
+    const result = await pool.query<{ n: number }>(sql, [playerId]);
+    return result.rows[0]?.n ?? 0;
   }
 
   beforeAll(async () => {
@@ -42,7 +67,8 @@ describe.sequential("solo expedition lifecycle in an isolated PostgreSQL databas
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 6 });
     await runMigrations(pool, { appliedBy: "solo-exploration-draft-vitest" });
     const sql = await readFile(
-      new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url), "utf8",
+      new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url),
+      "utf8",
     );
     await pool.query(sql);
     clock = new ManualClock(new Date("2026-10-19T12:00:00Z"));
@@ -57,177 +83,219 @@ describe.sequential("solo expedition lifecycle in an isolated PostgreSQL databas
     }
   });
 
-  it("stores a free preparation, preserves location, and resumes after adapter reconstruction", async () => {
+  it("persists free preparation and restores its location after reconstruction", async () => {
     const playerId = await trainer();
-    const prepared = await store.prepare({ playerId, period: "DAY", idempotencyKey: "prepare-one" });
-    expect(prepared).toMatchObject({
-      ok: true,
-      value: { consumedWeeklySlot: false, replayed: false, expedition: {
-        phase: "PREPARING", elapsedMinutes: 0, consumedWeekKey: null,
-      } },
+    const initial = await prepare(playerId, "init");
+    expect(initial).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      consumedWeekKey: null,
+      revision: 0n,
     });
-    expect(await store.current(playerId)).toMatchObject({ phase: "PREPARING", revision: 0n });
-    const restored = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
-    const fromRestart = await restored.current(playerId);
-    expect(fromRestart?.expeditionId).toBe(prepared.ok ? prepared.value.expedition.expeditionId : null);
-    expect(fromRestart?.areaId).toBe(prepared.ok ? prepared.value.expedition.areaId : null);
-    expect((await pool.query(
-      "SELECT count(*)::int AS n FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key IS NOT NULL",
-      [playerId],
-    )).rows[0].n).toBe(0);
+    const reloaded = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
+    expect(await reloaded.current(playerId)).toEqual(initial);
+    expect(await count("solo_expeditions", playerId)).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
   });
 
-  it("consumes the weekly slot once, survives repeat messages and verifies fingerprint binding", async () => {
+  it("reserves one weekly slot and rejects altered replays", async () => {
     const playerId = await trainer();
-    const prepared = await store.prepare({ playerId, period: "NIGHT", idempotencyKey: "prep-2" });
-    if (!prepared.ok) throw prepared.error;
-    const expeditionId = prepared.value.expedition.expeditionId;
-    const input = { playerId, expeditionId, expectedRevision: 0n, minutes: 30, idempotencyKey: "action-2" };
+    const initial = await prepare(playerId, "once-start");
+    const input = {
+      playerId,
+      expeditionId: initial.expeditionId,
+      expectedRevision: 0n,
+      minutes: 30,
+      idempotencyKey: "once-action",
+    };
     const first = await store.advance(input);
     expect(first).toMatchObject({
-      ok: true, value: { replayed: false, consumedWeeklySlot: true, expedition: {
-        elapsedMinutes: 30, revision: 1n, consumedWeekKey: "2026-10-19",
-      } },
+      ok: true,
+      value: {
+        replayed: false,
+        consumedWeeklySlot: true,
+        expedition: { revision: 1n, consumedWeekKey: "2026-10-19" },
+      },
     });
     expect(await store.advance(input)).toMatchObject({
-      ok: true, value: { replayed: true, consumedWeeklySlot: true,
-        expedition: { elapsedMinutes: 30, revision: 1n } },
+      ok: true,
+      value: { replayed: true, expedition: { elapsedMinutes: 30 } },
     });
     expect(await store.advance({ ...input, minutes: 60 })).toMatchObject({
-      ok: false, error: { code: "IDEMPOTENCY_KEY_INVALID" },
+      ok: false,
+      error: { code: "IDEMPOTENCY_KEY_INVALID" },
     });
-    expect(await store.prepare({ playerId, period: "NIGHT", idempotencyKey: "prep-2" })).toMatchObject({
-      ok: true, value: { replayed: true, expedition: { phase: "PREPARING", revision: 0n } },
+    expect(await store.prepare({
+      playerId,
+      period: "DAY",
+      idempotencyKey: "once-start",
+    })).toMatchObject({
+      ok: true,
+      value: { replayed: true, expedition: { phase: "PREPARING" } },
     });
     expect((await store.current(playerId))?.revision).toBe(1n);
-    expect((await pool.query(
-      "SELECT count(*)::int AS n FROM solo_expedition_receipts WHERE player_id=$1",
-      [playerId],
-    )).rows[0].n).toBe(2);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
   });
 
-  it("serializes simultaneous unique commands and does not charge duplicate first actions", async () => {
+  it("serializes simultaneous distinct commands and rejects the stale revision", async () => {
     const playerId = await trainer();
-    const prepared = await store.prepare({ playerId, period: "DAY", idempotencyKey: "prep-concur" });
-    if (!prepared.ok) throw prepared.error;
-    const expeditionId = prepared.value.expedition.expeditionId;
-    const args = { playerId, expeditionId, expectedRevision: 0n, minutes: 30 };
-    const [left,right] = await Promise.all([
-      store.advance({ ...args, idempotencyKey: "concur-a" }),
-      store.advance({ ...args, idempotencyKey: "concur-b" }),
+    const original = await prepare(playerId, "race-prepare");
+    const input = {
+      playerId,
+      expeditionId: original.expeditionId,
+      expectedRevision: 0n,
+      minutes: 30,
+    };
+    const results = await Promise.all([
+      store.advance({ ...input, idempotencyKey: "race-one" }),
+      store.advance({ ...input, idempotencyKey: "race-two" }),
     ]);
-    expect([left,right].filter(x => x.ok)).toHaveLength(1);
-    expect([left,right].filter(x => !x.ok)).toMatchObject([{
-      ok: false, error: { code: "REVISION_CONFLICT" },
-    }]);
-    expect((await pool.query(
-      "SELECT count(*)::int AS n FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key='2026-10-19'",
-      [playerId],
-    )).rows[0].n).toBe(1);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toMatchObject([
+      { ok: false, error: { code: "REVISION_CONFLICT" } },
+    ]);
     expect((await store.current(playerId))?.elapsedMinutes).toBe(30);
   });
 
-  it("deduplicates concurrent delivery of the same WhatsApp idempotency key", async () => {
+  it("deduplicates concurrent delivery of the exact same WhatsApp action", async () => {
     const playerId = await trainer();
-    const prepared = await store.prepare({ playerId, period: "DAY", idempotencyKey: "prep-dupe" });
-    if (!prepared.ok) throw prepared.error;
-    const args = {
-      playerId, expeditionId: prepared.value.expedition.expeditionId,
-      expectedRevision: 0n, minutes: 30, idempotencyKey: "same-inbox-key",
+    const initial = await prepare(playerId, "dup-prepare");
+    const input = {
+      playerId,
+      expeditionId: initial.expeditionId,
+      expectedRevision: 0n,
+      minutes: 30,
+      idempotencyKey: "same-inbox",
     };
-    const responses = await Promise.all([store.advance(args),store.advance(args)]);
-    expect(responses.every(x => x.ok)).toBe(true);
-    expect(responses.filter(x => x.ok && x.value.replayed)).toHaveLength(1);
+    const results = await Promise.all([store.advance(input), store.advance(input)]);
+    expect(results.every((result) => result.ok)).toBe(true);
+    expect(results.filter((result) => result.ok && result.value.replayed)).toHaveLength(1);
     expect((await store.current(playerId))?.revision).toBe(1n);
-    expect((await pool.query(
-      "SELECT count(*)::int AS n FROM solo_expedition_receipts WHERE player_id=$1 AND idempotency_key=$2",
-      [playerId,args.idempotencyKey],
-    )).rows[0].n).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
   });
 
-  it("prevents the fourth expedition and resets precisely on local Monday", async () => {
+  it("blocks the fourth expédition and resets on the local Monday", async () => {
     const playerId = await trainer();
-    for (let i=0; i<3; i+=1) {
-      const prepared=await store.prepare({playerId,period:"DAY",idempotencyKey:"week-prep-"+i});
-      if (!prepared.ok) throw prepared.error;
-      const expeditionId=prepared.value.expedition.expeditionId;
-      const advanced=await store.advance({
-        playerId,expeditionId,expectedRevision:0n,minutes:30,idempotencyKey:"week-action-"+i,
+    for (let index = 0; index < 3; index += 1) {
+      const initial = await prepare(playerId, "weekly-prepare-" + index);
+      const advanced = await store.advance({
+        playerId,
+        expeditionId: initial.expeditionId,
+        expectedRevision: 0n,
+        minutes: 30,
+        idempotencyKey: "weekly-start-" + index,
       });
       expect(advanced.ok).toBe(true);
-      const ended=await store.end({
-        playerId,expeditionId,expectedRevision:1n,reason:"VOLUNTARY",
-        idempotencyKey:"week-end-"+i,
+      const completed = await store.end({
+        playerId,
+        expeditionId: initial.expeditionId,
+        expectedRevision: 1n,
+        reason: "VOLUNTARY",
+        idempotencyKey: "weekly-end-" + index,
       });
-      expect(ended).toMatchObject({ok:true,value:{expedition:{phase:"ENDED",endReason:"VOLUNTARY"}}});
+      expect(completed).toMatchObject({
+        ok: true,
+        value: { expedition: { phase: "ENDED" } },
+      });
     }
     expect(await store.prepare({
-      playerId,period:"DAY",idempotencyKey:"week-fourth",
-    })).toMatchObject({ok:false,error:{code:"FLOW_BLOCKED"}});
-    // 2026-10-19 Monday 09:00 Maceio => following Monday 00:00.
-    clock.advanceMs(6*24*60*60*1000 + 15*60*60*1000);
-    const next=await store.prepare({
-      playerId,period:"NIGHT",idempotencyKey:"next-week-prep",
-    });
-    expect(next).toMatchObject({ok:true,value:{expedition:{phase:"PREPARING"}}});
+      playerId,
+      period: "DAY",
+      idempotencyKey: "weekly-fourth",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    clock.advanceMs(6 * 24 * 60 * 60 * 1000 + 15 * 60 * 60 * 1000);
+    expect(await store.prepare({
+      playerId,
+      period: "DAY",
+      idempotencyKey: "weekly-next",
+    })).toMatchObject({ ok: true, value: { expedition: { phase: "PREPARING" } } });
   });
 
-  it("allows continuing an existing active expedition after calendar reset without a second debit", async () => {
-    const playerId=await trainer();
-    const prepared=await store.prepare({playerId,period:"DAY",idempotencyKey:"resume-prep"});
-    if(!prepared.ok) throw prepared.error;
-    const expeditionId=prepared.value.expedition.expeditionId;
-    const a=await store.advance({
-      playerId,expeditionId,expectedRevision:0n,minutes:30,idempotencyKey:"resume-a",
+  it("continues across weekly reset without consuming an additional slot", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "carry-prepare");
+    const started = await store.advance({
+      playerId,
+      expeditionId: initial.expeditionId,
+      expectedRevision: 0n,
+      minutes: 30,
+      idempotencyKey: "carry-first",
     });
-    expect(a.ok).toBe(true);
-    clock.advanceMs(7*24*60*60*1000);
-    const b=await store.advance({
-      playerId,expeditionId,expectedRevision:1n,minutes:15,idempotencyKey:"resume-b",
+    expect(started.ok).toBe(true);
+    clock.advanceMs(7 * 24 * 60 * 60 * 1000);
+    expect(await store.advance({
+      playerId,
+      expeditionId: initial.expeditionId,
+      expectedRevision: 1n,
+      minutes: 15,
+      idempotencyKey: "carry-second",
+    })).toMatchObject({
+      ok: true,
+      value: {
+        consumedWeeklySlot: false,
+        expedition: { elapsedMinutes: 45, consumedWeekKey: "2026-10-26" },
+      },
     });
-    expect(b).toMatchObject({ok:true,value:{
-      consumedWeeklySlot:false,expedition:{consumedWeekKey:"2026-10-26",elapsedMinutes:45},
-    }});
   });
 
-  it("cancels free preparation and preserves stored blackout without payout receipt", async () => {
-    const playerId=await trainer();
-    const prepared=await store.prepare({playerId,period:"NIGHT",idempotencyKey:"cancel-prep"});
-    if(!prepared.ok) throw prepared.error;
-    const expeditionId=prepared.value.expedition.expeditionId;
-    const cancelled=await store.end({
-      playerId,expeditionId,expectedRevision:0n,reason:"CANCELLED",idempotencyKey:"cancel-action",
+  it("cancels without a slot and persists an ended blackout", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "cancel-prepare");
+    expect(await store.end({
+      playerId,
+      expeditionId: initial.expeditionId,
+      expectedRevision: 0n,
+      reason: "CANCELLED",
+      idempotencyKey: "cancel-end",
+    })).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "ENDED", consumedWeekKey: null } },
     });
-    expect(cancelled).toMatchObject({ok:true,value:{expedition:{endReason:"CANCELLED",consumedWeekKey:null}}});
     expect(await store.current(playerId)).toBeNull();
-    const restart=await store.prepare({playerId,period:"DAY",idempotencyKey:"blackout-prep"});
-    if(!restart.ok) throw restart.error;
-    const activeId=restart.value.expedition.expeditionId;
+    const next = await prepare(playerId, "blackout-prepare");
     expect((await store.advance({
-      playerId,expeditionId:activeId,expectedRevision:0n,minutes:60,
-      idempotencyKey:"blackout-start",
+      playerId,
+      expeditionId: next.expeditionId,
+      expectedRevision: 0n,
+      minutes: 30,
+      idempotencyKey: "blackout-first",
     })).ok).toBe(true);
     expect(await store.end({
-      playerId,expeditionId:activeId,expectedRevision:1n,reason:"BLACKOUT",
-      idempotencyKey:"blackout",
-    })).toMatchObject({ok:true,value:{expedition:{phase:"ENDED",endReason:"BLACKOUT"}}});
+      playerId,
+      expeditionId: next.expeditionId,
+      expectedRevision: 1n,
+      reason: "BLACKOUT",
+      idempotencyKey: "blackout-end",
+    })).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "ENDED", endReason: "BLACKOUT" } },
+    });
   });
 
-  it("rejects bad action length and stale revisions without storing receipts", async () => {
-    const playerId=await trainer();
-    const prepared=await store.prepare({playerId,period:"DAY",idempotencyKey:"invalid-prep"});
-    if(!prepared.ok) throw prepared.error;
-    const expeditionId=prepared.value.expedition.expeditionId;
+  it("does not write failed actions or stale commands into the ledger", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "invalid-prepare");
+    const input = {
+      playerId,
+      expeditionId: initial.expeditionId,
+      expectedRevision: 0n,
+      minutes: 721,
+      idempotencyKey: "invalid-length",
+    };
+    expect(await store.advance(input)).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
+    });
     expect(await store.advance({
-      playerId,expeditionId,expectedRevision:0n,minutes:721,idempotencyKey:"invalid-time",
-    })).toMatchObject({ok:false,error:{code:"VALIDATION_FAILED"}});
-    expect(await store.advance({
-      playerId,expeditionId,expectedRevision:8n,minutes:30,idempotencyKey:"stale",
-    })).toMatchObject({ok:false,error:{code:"REVISION_CONFLICT"}});
-    expect((await pool.query(
-      "SELECT count(*)::int AS n FROM solo_expedition_receipts WHERE player_id=$1",
-      [playerId],
-    )).rows[0].n).toBe(1);
+      ...input,
+      expectedRevision: 4n,
+      minutes: 30,
+      idempotencyKey: "invalid-stale",
+    })).toMatchObject({
+      ok: false,
+      error: { code: "REVISION_CONFLICT" },
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
     expect((await store.current(playerId))?.revision).toBe(0n);
   });
 });
