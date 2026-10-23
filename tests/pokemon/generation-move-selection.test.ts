@@ -55,13 +55,20 @@ describe("generated Pokémon move selection", () => {
   });
 
   it("sorts unordered catalog input chronologically before selecting", () => {
-    const shuffled = [chronology[5], chronology[2], chronology[0], chronology[4], chronology[1], chronology[3]];
-    expect(movesAt(20, shuffled.filter((move): move is PokemonGenerationMoveCandidate => move !== undefined))).toEqual([
-      "second",
-      "third",
-      "fourth",
-      "fifth",
-    ]);
+    const shuffled = [
+      chronology[5],
+      chronology[2],
+      chronology[0],
+      chronology[4],
+      chronology[1],
+      chronology[3],
+    ];
+    expect(
+      movesAt(
+        20,
+        shuffled.filter((move): move is PokemonGenerationMoveCandidate => move !== undefined),
+      ),
+    ).toEqual(["second", "third", "fourth", "fifth"]);
   });
 
   it("does not mutate the source catalog and keeps the PP of chosen moves", () => {
