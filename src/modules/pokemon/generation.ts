@@ -45,11 +45,13 @@ function initialHp(baseHp: number, ivHp: number, level: number): number {
   return Math.floor(((2 * baseHp + ivHp) * level) / 100) + level + 10;
 }
 
-export function selectRecentLevelMoves<T extends {
-  readonly moveId: string;
-  readonly learnMethod: string;
-  readonly learnLevel: number | null;
-}>(candidates: readonly T[], level: number): readonly T[] {
+export function selectRecentLevelMoves<
+  T extends {
+    readonly moveId: string;
+    readonly learnMethod: string;
+    readonly learnLevel: number | null;
+  },
+>(candidates: readonly T[], level: number): readonly T[] {
   // Initial slots contain the four most recently learned eligible moves,
   // not the first four returned by the catalog's ascending-level query.
   // A move learned again at a later level replaces its earlier occurrence.
