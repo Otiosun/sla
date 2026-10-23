@@ -103,12 +103,25 @@ describe("battle reward WhatsApp evolution rendering", () => {
     expect(output).not.toContain(otherMoveId);
   });
 
+  it("uses the singular form when exactly one named move was learned", () => {
+    const moveId = "00000000-0000-4000-8000-000000000095";
+    const updated = withPokemon(reward(), { learnedMoveIds: [moveId] });
+    const output = renderBattleRewardWhatsAppText(
+      updated,
+      "player:test",
+      new Map(),
+      new Map([[moveId, "Golpe Único"]]),
+    );
+    expect(output).toContain("✨ Novo golpe aprendido: *Golpe Único*.");
+    expect(output).not.toContain(moveId);
+  });
+
   it("uses a factual fallback when old catalog metadata is unavailable", () => {
     const updated = withPokemon(reward(), {
       learnedMoveIds: ["00000000-0000-4000-8000-000000000095"],
     });
     const output = renderBattleRewardWhatsAppText(updated, "player:test");
-    expect(output).toContain("✨ 1 golpe(s) aprendido(s).");
+    expect(output).toContain("✨ 1 golpe aprendido.");
     expect(output).not.toContain(updated.pokemon[0]?.learnedMoveIds[0]);
   });
 
@@ -117,7 +130,7 @@ describe("battle reward WhatsApp evolution rendering", () => {
       pendingMoveChoiceIds: ["00000000-0000-4000-8000-000000000097"],
     });
     const output = renderBattleRewardWhatsAppText(updated, "player:test");
-    expect(output).toContain("1 golpe(s) aguardando escolha");
+    expect(output).toContain("1 golpe aguardando escolha");
     expect(output).toContain("`/golpes`");
     expect(output).toContain("`/aprender`");
     expect(output).not.toContain(updated.pokemon[0]?.pendingMoveChoiceIds[0]);
