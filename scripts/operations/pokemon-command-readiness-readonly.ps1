@@ -115,8 +115,8 @@ foreach ($app in $parsed) {
     $status = [string](Read-Key $meta 'status')
     $cwd = [string](Read-Key $meta 'pm_cwd')
     $same = [string]::Equals(
-        $cwd.TrimEnd('\', '/'),
-        $root.TrimEnd('\', '/'),
+        $cwd.TrimEnd([char[]] @([char] 92, [char] 47)),
+        $root.TrimEnd([char[]] @([char] 92, [char] 47)),
         [StringComparison]::OrdinalIgnoreCase
     )
     # Nao imprimir paths completos, PID, argv, env, tokens ou URLs.
