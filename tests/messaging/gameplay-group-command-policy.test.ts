@@ -100,6 +100,18 @@ describe("GAME group route admission for the reported WhatsApp commands", () => 
     }
     expect(ordinary.invoked).not.toHaveBeenCalled();
 
+    for (const command of ["/spawn", "/iniciarbatalha"]) {
+      const denied = await ordinary.router.dispatch(context(command));
+      expect(denied).toMatchObject({
+        ok: false,
+        error: {
+          details: {
+            userMessage: expect.stringContaining("exclusivo dos narradores autorizados"),
+          },
+        },
+      });
+    }
+
     const narrator = router({ admin: ["encounter.support"] });
     for (const command of ["/spawn", "/iniciarbatalha"]) {
       expect(await narrator.router.dispatch(context(command))).toMatchObject({ ok: true });
