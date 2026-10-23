@@ -315,8 +315,12 @@ describe.sequential("World group setup through the operational WhatsApp router",
         },
       });
       expect(
-        (await pool.query("SELECT role,revision::int AS revision FROM community_groups WHERE id=$1", [id]))
-          .rows,
+        (
+          await pool.query(
+            "SELECT role,revision::int AS revision FROM community_groups WHERE id=$1",
+            [id],
+          )
+        ).rows,
       ).toEqual(before.rows);
       expect(
         (
