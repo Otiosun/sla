@@ -50,17 +50,8 @@ describe("wild Pokémon initial moves use the canonical selector", () => {
       ...base.moves,
       { moveId: "start", learnMethod: "LEVEL", learnLevel: 18, maxPp: 25 },
     ];
-    const built = generateWildPokemon(
-      { ...base, moves },
-      20,
-      new DeterministicRandomSource(7),
-    );
-    expect(built.moves.map((move) => move.moveId)).toEqual([
-      "third",
-      "fourth",
-      "start",
-      "fifth",
-    ]);
+    const built = generateWildPokemon({ ...base, moves }, 20, new DeterministicRandomSource(7));
+    expect(built.moves.map((move) => move.moveId)).toEqual(["third", "fourth", "start", "fifth"]);
   });
 
   it("fails closed when no eligible START/LEVEL move exists", () => {
