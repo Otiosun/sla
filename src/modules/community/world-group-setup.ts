@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { CommunityCapability, CommunityGroupRole } from "./contracts.js";
 import { appError, err, ok } from "../../shared-kernel/result.js";
 import type { AdminOperationRecord } from "../admin/contracts.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
@@ -22,6 +23,26 @@ export const WorldGroupSetupResultSchema = z.object({
   displayName: z.string(),
 });
 export type WorldGroupSetupResult = z.infer<typeof WorldGroupSetupResultSchema>;
+
+/**
+ * A GAME group should support ordinary trainer world, PVE and PVP commands.
+ * Narrator-only actions still require their separate admin capability.
+ * Other group roles do not gain combat access through world setup.
+ */
+export function capabilitiesForWorldGroupSetup(
+  role: CommunityGroupRole,
+  existing: readonly CommunityCapability[],
+): readonly CommunityCapability[] {
+  if (role === "RECEPTION") return ["admin.review", "onboarding"];
+  return [
+    ...new Set<CommunityCapability>([
+      ...existing,
+      "player.basic",
+      "world",
+      ...(role === "GAME" ? (["pve", "pvp"] as const) : []),
+    ]),
+  ].sort();
+}
 
 export interface WorldGroupSetupPort {
   apply(operation: AdminOperationRecord): Promise<WorldGroupSetupResult>;
