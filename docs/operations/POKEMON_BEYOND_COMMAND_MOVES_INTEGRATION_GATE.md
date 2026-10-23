@@ -25,7 +25,9 @@ O script apenas consulta:
 - se o daemon PM2 já está em execução; somente nesse caso consulta `pm2 jlist`, não o inicia;
 - estado do processo e **presença/formato**, nunca o valor, de `PVE_TURN_WINDOW_TTL_MS` e `PVE_MAINTENANCE_BATCH_SIZE`.
 
-**Não** acessa DB, login, sessões, arquivos `.env`, variáveis sensíveis, conteúdo de arquivos ou argumentos de execução. `GIT_OPTIONAL_LOCKS=0` impede atualizações opcionais de índice durante a leitura Git. O SHA da pasta do processo é informação insuficiente para provar qual bundle JavaScript já carregado o PM2 executa.
+**Não** acessa DB, login, sessões, arquivos `.env`, conteúdo de arquivos ou argumentos de execução para exibição. **Observação de privacidade:** `pm2 jlist` retorna ao processo PowerShell metadados completos, inclusive valores de ambiente potencialmente sensíveis; o script inspeciona somente os dois flags de PvE e **nunca imprime nem salva esses valores**. Não compartilhe a saída bruta de `pm2 jlist`. `GIT_OPTIONAL_LOCKS=0` impede atualizações opcionais de índice durante a leitura Git. O SHA da pasta do processo é informação insuficiente para provar qual bundle JavaScript já carregado o PM2 executa.
+
+Os dois flags de PvE seguem o parser do runtime: se **ambos** estão ausentes, o motor de PvE não monta; se apenas um está ausente ou algum é inválido, a inicialização pode falhar. Ambos devem ser inteiros decimais positivos, sem zero à esquerda, e dentro do intervalo seguro de JavaScript. O script informa estados, não números.
 
 ## Etapa 2 — Garantias antes do cutover
 
