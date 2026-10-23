@@ -76,7 +76,12 @@ function setup(legacy = false) {
     },
     admins: { capabilitiesFor: async () => [] },
   });
-  return { router: new MessageRouter(definitions, gate), createChallenge, acceptChallenge, startEncounter };
+  return {
+    router: new MessageRouter(definitions, gate),
+    createChallenge,
+    acceptChallenge,
+    startEncounter,
+  };
 }
 
 describe("PvP through the live WhatsApp handlers and GAME policy", () => {
