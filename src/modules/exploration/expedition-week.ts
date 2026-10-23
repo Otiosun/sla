@@ -25,21 +25,25 @@ export function expeditionWeekKey(instant: Date, timeZone: string): string {
   return localDay.toISOString().slice(0, 10);
 }
 
+export type ExpeditionAdmissionState = "NONE" | "PREPARING" | "ACTIVE";
+
 export interface ExpeditionWeeklyAdmission {
   readonly remaining: number;
   readonly canPrepare: boolean;
   readonly canConsumeFirstAction: boolean;
   readonly resumeExisting: boolean;
+  readonly canContinue: boolean;
 }
 
 /**
- * Preparing an expedition does not spend a weekly use.
- * Its first time-consuming action must recheck this policy atomically
- * inside the future repository transaction.
+ * Preparing does not spend a slot. Only a PREPARING expedition may
+ * consume its first timed action, after rechecking the week's quota
+ * atomically. An ACTIVE expedition can always continue, even after
+ * a calendar reset or after the current week's slots are exhausted.
  */
 export function expeditionWeeklyAdmission(
   consumedThisWeek: number,
-  activeExpeditionExists: boolean,
+  state: ExpeditionAdmissionState,
 ): ExpeditionWeeklyAdmission {
   if (
     !Number.isSafeInteger(consumedThisWeek) ||
@@ -52,8 +56,9 @@ export function expeditionWeeklyAdmission(
   const remaining = EXPEDITION_WEEKLY_LIMIT - consumedThisWeek;
   return {
     remaining,
-    canPrepare: !activeExpeditionExists && remaining > 0,
-    canConsumeFirstAction: !activeExpeditionExists && remaining > 0,
-    resumeExisting: activeExpeditionExists,
+    canPrepare: state === "NONE" && remaining > 0,
+    canConsumeFirstAction: state === "PREPARING" && remaining > 0,
+    resumeExisting: state !== "NONE",
+    canContinue: state === "ACTIVE",
   };
 }
