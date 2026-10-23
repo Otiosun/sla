@@ -193,7 +193,8 @@ describe("FishingService", () => {
         details: {
           dailyLimit: 5,
           remainingAttempts: 0,
-          userMessage: "Você atingiu o limite de 5 pescarias de hoje. Tente novamente no próximo dia.",
+          userMessage:
+            "Você atingiu o limite de 5 pescarias de hoje. Tente novamente no próximo dia.",
         },
       },
     });
@@ -237,10 +238,7 @@ describe("FishingService", () => {
       "Player has an incompatible active encounter or battle",
       "Termine seu encontro ou batalha atual antes de pescar.",
     ],
-    [
-      "Player is not active",
-      "Seu cadastro precisa estar ativo para utilizar a pesca.",
-    ],
+    ["Player is not active", "Seu cadastro precisa estar ativo para utilizar a pesca."],
     [
       "Player location or active content is unavailable",
       "Não consegui confirmar sua localização. Use `/onde` e tente novamente.",
@@ -253,24 +251,26 @@ describe("FishingService", () => {
       "unexpected internal status",
       "Não foi possível pescar nesta área agora. Confira a localização e tente novamente.",
     ],
-  ])("returns actionable safe guidance for unavailable fishing: %s", async (reason, userMessage) => {
-    const reserveAttempt = vi.fn(async () => ({
-      kind: "FISHING_UNAVAILABLE" as const,
-      playerId: PLAYER_ID,
-      reason,
-    }));
-    const createOrReplay = vi.fn();
-    const service = new FishingService({ reserveAttempt }, { createOrReplay }, rng(16));
-    const result = await service.attempt({
-      playerId: PLAYER_ID,
-      idempotencyKey: "fishing-guidance",
-    });
+  ])(
+    "returns actionable safe guidance for unavailable fishing: %s",
+    async (reason, userMessage) => {
+      const reserveAttempt = vi.fn(async () => ({
+        kind: "FISHING_UNAVAILABLE" as const,
+        playerId: PLAYER_ID,
+        reason,
+      }));
+      const createOrReplay = vi.fn();
+      const service = new FishingService({ reserveAttempt }, { createOrReplay }, rng(16));
+      const result = await service.attempt({
+        playerId: PLAYER_ID,
+        idempotencyKey: "fishing-guidance",
+      });
 
-    expect(createOrReplay).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "ACTION_INVALID", details: { reason, userMessage } },
-    });
-  });
-
+      expect(createOrReplay).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_INVALID", details: { reason, userMessage } },
+      });
+    },
+  );
 });
