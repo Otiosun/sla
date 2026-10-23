@@ -266,6 +266,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
         message: expect.stringContaining("grupo próprio de jogadores"),
       },
     });
+    expect(await composition.router.dispatch(context("/grupo jogo Recusa", "120363900007@g.us", "5511888888888@s.whatsapp.net"))).toMatchObject({ok:false,error:{code:"PLAYER_INELIGIBLE"}});
     const group = (
       await pool.query(
         "SELECT id,role,display_name FROM community_groups WHERE chat_ref='120363900007@g.us'",
