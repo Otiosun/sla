@@ -12,9 +12,7 @@ describe("solo expedition calendar and weekly admission", () => {
     expect(expeditionWeekKey(new Date("2026-10-26T03:00:00Z"), "America/Maceio")).toBe(
       "2026-10-26",
     );
-    expect(expeditionWeekKey(new Date("2026-10-25T15:00:00Z"), "Asia/Tokyo")).toBe(
-      "2026-10-26",
-    );
+    expect(expeditionWeekKey(new Date("2026-10-25T15:00:00Z"), "Asia/Tokyo")).toBe("2026-10-26");
   });
 
   it("handles month/year changes and DST without deriving the week from UTC", () => {
