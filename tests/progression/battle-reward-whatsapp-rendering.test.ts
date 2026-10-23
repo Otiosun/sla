@@ -134,5 +134,4 @@ describe("battle reward WhatsApp evolution rendering", () => {
     expect(output).toContain("`/aprender`");
     expect(output).not.toContain(updated.pokemon[0]?.pendingMoveChoiceIds[0]);
   });
-
 });
