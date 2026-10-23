@@ -68,6 +68,17 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
           ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
           "A configuração do grupo mudou. Envie o comando novamente.",
         );
+      // A legacy RECEPTION/STAFF/PVP/COMMUNITY group cannot be silently
+      // re-labelled by /grupo jogo. Returning success while preserving the
+      // old role misleads trainers into expecting combat commands to work.
+      if (input.role !== "RECEPTION" && group !== null && group.role !== "GAME") {
+        throw new AdminError(
+          ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+          "Este grupo já está configurado como " +
+            group.role +
+            ". Para manter as permissões separadas, use /grupo jogo em um grupo próprio de jogadores.",
+        );
+      }
       const beforeCapabilities = group === null ? [] : await tx.listCapabilities(group.id);
       const before = group === null ? null : { ...group, capabilities: beforeCapabilities };
       if (group === null)
