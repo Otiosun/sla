@@ -5,6 +5,7 @@ import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/c
 import { parseMenuNumber } from "../messaging/human-input.js";
 import type {
   OperationalEvolutionOptionView,
+  OperationalPendingMoveChoiceView,
   OperationalUxReadModel,
 } from "../messaging/operational-ux-read-model.js";
 import { resolveOwnedPokemonReference } from "../messaging/owned-pokemon-reference.js";
@@ -165,6 +166,55 @@ async function ensureEvolutionMutationClear(
   }
   return ok(undefined);
 }
+export function renderPendingMoveChoices(
+  choices: readonly OperationalPendingMoveChoiceView[],
+): string {
+  if (choices.length === 0) {
+    return [
+      "✦ *MOVIMENTOS*",
+      "",
+      "　　　　〔 `SEM PENDÊNCIAS` 〕",
+      "",
+      "_Nenhum Pokémon está esperando uma decisão de aprendizado._",
+    ].join("\n");
+  }
+
+  const lines: string[] = ["✦ *MOVIMENTOS · APRENDIZADO*", ""];
+  choices.forEach((choice, index) => {
+    const known = choice.currentMoves.some((move) => move.moveId === choice.moveId);
+    lines.push(
+      "*" +
+        String(index + 1) +
+        ". " +
+        choice.pokemonDisplayName +
+        "* · Nv. " +
+        String(choice.learnLevel),
+      known
+        ? `　_já conhece_ *${choice.moveDisplayName}*`
+        : `　_quer aprender_ *${choice.moveDisplayName}*`,
+      "",
+    );
+    for (const move of choice.currentMoves) {
+      lines.push(`　\`${String(move.slotNo)}\`　${move.displayName}`);
+    }
+    if (known) {
+      lines.push(
+        "",
+        "_Este golpe já está entre os movimentos atuais. Não substitua outro por ele._",
+        `　→ \`/aprender ${String(index + 1)} pular\``,
+      );
+    } else {
+      lines.push(
+        "",
+        `　→ \`/aprender ${String(index + 1)} <1-4>\``,
+        `　→ \`/aprender ${String(index + 1)} pular\``,
+      );
+    }
+    if (index < choices.length - 1) lines.push("", "┄┄┄┄┄┄┄┄┄┄", "");
+  });
+  return lines.join("\n");
+}
+
 export function createProgressionWhatsAppRoutes(
   dependencies: ProgressionWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
@@ -172,43 +222,7 @@ export function createProgressionWhatsAppRoutes(
     const resolvedPlayer = await dependencies.players.resolvePlayer(identity(context));
     if (!resolvedPlayer.ok) return resolvedPlayer;
     const choices = await dependencies.reads.listPendingMoveChoices(resolvedPlayer.value.playerId);
-
-    if (choices.length === 0) {
-      return textResult(
-        context,
-        [
-          "✦ *MOVIMENTOS*",
-          "",
-          "　　　　〔 `SEM PENDÊNCIAS` 〕",
-          "",
-          "_Nenhum Pokémon está esperando uma decisão de aprendizado._",
-        ].join("\n"),
-      );
-    }
-
-    const lines: string[] = ["✦ *MOVIMENTOS · APRENDIZADO*", ""];
-    choices.forEach((choice, index) => {
-      lines.push(
-        "*" +
-          String(index + 1) +
-          ". " +
-          choice.pokemonDisplayName +
-          "* · Nv. " +
-          String(choice.learnLevel),
-        `　_quer aprender_ *${choice.moveDisplayName}*`,
-        "",
-      );
-      for (const move of choice.currentMoves) {
-        lines.push(`　\`${String(move.slotNo)}\`　${move.displayName}`);
-      }
-      lines.push(
-        "",
-        `　→ \`/aprender ${String(index + 1)} <1-4>\``,
-        `　→ \`/aprender ${String(index + 1)} pular\``,
-      );
-      if (index < choices.length - 1) lines.push("", "┄┄┄┄┄┄┄┄┄┄", "");
-    });
-    return textResult(context, lines.join("\n"));
+    return textResult(context, renderPendingMoveChoices(choices));
   };
 
   const resolvePendingMove: Handler = async (context) => {
