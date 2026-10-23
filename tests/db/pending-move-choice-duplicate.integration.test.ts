@@ -25,8 +25,10 @@ describe.sequential("pending move choices cannot duplicate already learned moves
   let adminPool: Pool;
   let pool: Pool;
   let repository: PostgresProgressionRepository;
+  let fixtureNumber = 0;
 
   async function fixture(): Promise<ChoiceFixture> {
+    fixtureNumber += 1;
     const playerId = randomUUID();
     const rulesetId = randomUUID();
     const releaseId = randomUUID();
@@ -47,11 +49,11 @@ describe.sequential("pending move choices cannot duplicate already learned moves
     );
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,$2,$3,'DRAFT',$4)",
-      [releaseId, Date.now() + Math.floor(Math.random() * 10000), "Move choice isolated test", rulesetId],
+      [releaseId, 29_000 + fixtureNumber, "Move choice isolated test", rulesetId],
     );
     await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES ($1,$2,$3)", [
       speciesId,
-      386,
+      300 + fixtureNumber,
       "choice-species-" + speciesId,
     ]);
     await pool.query("INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,$3)", [
