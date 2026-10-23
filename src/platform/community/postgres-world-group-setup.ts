@@ -7,6 +7,7 @@ import {
   type WorldGroupSetupPort,
   type WorldGroupSetupResult,
   WorldGroupSetupResultSchema,
+  capabilitiesForWorldGroupSetup,
 } from "../../modules/community/world-group-setup.js";
 import { withTransaction } from "../db/transaction.js";
 import { PostgresCommunityTransaction } from "./postgres-community-repository.js";
@@ -67,6 +68,17 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
           ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
           "A configuração do grupo mudou. Envie o comando novamente.",
         );
+      // A legacy RECEPTION/STAFF/PVP/COMMUNITY group cannot be silently
+      // re-labelled by /grupo jogo. Returning success while preserving the
+      // old role misleads trainers into expecting combat commands to work.
+      if (input.role !== "RECEPTION" && group !== null && group.role !== "GAME") {
+        throw new AdminError(
+          ADMIN_ERROR_CODES.DOMAIN_OPERATION_REJECTED,
+          "Este grupo já está configurado como " +
+            group.role +
+            ". Para manter as permissões separadas, use /grupo jogo em um grupo próprio de jogadores.",
+        );
+      }
       const beforeCapabilities = group === null ? [] : await tx.listCapabilities(group.id);
       const before = group === null ? null : { ...group, capabilities: beforeCapabilities };
       if (group === null)
@@ -90,10 +102,7 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
         if (reloaded === null) throw new Error("Configured group disappeared");
         group = reloaded;
       }
-      const capabilities =
-        group.role === "RECEPTION"
-          ? (["admin.review", "onboarding"] as const)
-          : [...new Set([...beforeCapabilities, "player.basic" as const, "world" as const])].sort();
+      const capabilities = capabilitiesForWorldGroupSetup(group.role, beforeCapabilities);
       const capabilitiesChanged =
         capabilities.length !== beforeCapabilities.length ||
         capabilities.some((capability) => !beforeCapabilities.includes(capability));

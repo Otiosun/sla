@@ -64,6 +64,13 @@ describe("strict Reception messaging scope", () => {
     expect(await gate.admits(context(`/${command}`), command)).toBe(true);
   });
 
+  it("lets /grupo reach its own global admin authorization boundary for an explicit answer", async () => {
+    const gate = new ReceptionCommandScopeGate(community("RECEPTION"));
+    expect(await gate.admits(context("/grupo jogo Outro grupo"), "grupo")).toBe(true);
+    expect(await gate.admits(context("/spawn"), "spawn")).toBe(false);
+    expect(await gate.admits(context("/iniciarbatalha"), "iniciarbatalha")).toBe(false);
+  });
+
   it.each(["menu", "hub", "ir", "batalha", "loja", "teste"])(
     "silently rejects non-Reception command %s",
     async (command) => {

@@ -37,6 +37,10 @@ export class ReceptionCommandScopeGate implements MessageRouteScopeGate {
       chatRef: context.message.chatRef,
     });
     if (!isReception(group)) return true;
+    // /grupo is a globally authorized bootstrap operation; allow it through
+    // only so the admin boundary can return a precise refusal instead of
+    // silently swallowing attempts to enable gameplay in a Reception.
+    if (canonicalCommand === "grupo") return true;
     return isReceptionCommandAllowed(canonicalCommand);
   }
 }
