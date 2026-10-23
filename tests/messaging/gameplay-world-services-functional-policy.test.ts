@@ -33,11 +33,7 @@ function context(text: string): MessageHandlerContext {
 function setup(input: { readonly mart?: boolean; readonly group?: boolean } = {}) {
   const resolvePlayer = vi.fn(async () => ok({ playerId: PLAYER, state: "COMPLETE" }));
   const loadActiveSession = vi.fn(async () =>
-    ok(
-      input.mart
-        ? { sessionId: SESSION, serviceKind: "POKEMART", revision: 3n }
-        : null,
-    ),
+    ok(input.mart ? { sessionId: SESSION, serviceKind: "POKEMART", revision: 3n } : null),
   );
   const attempt = vi.fn(async () =>
     ok({
