@@ -73,15 +73,18 @@ function fishingUnavailableUserMessage(reason: string): string {
     return "Seu cadastro precisa estar ativo para utilizar a pesca.";
   }
   if (reason === "Player location or active content is unavailable") {
-    return "Não consegui confirmar sua localização. Use \`/onde\` e tente novamente.";
+    return "Não consegui confirmar sua localização. Use `/onde` e tente novamente.";
   }
   if (reason === "Fishing is not configured for the current area") {
-    return "Não há um ponto de pesca disponível nesta área. Consulte \`/onde\` para escolher seu destino.";
+    return "Não há um ponto de pesca disponível nesta área. Consulte `/onde` para escolher seu destino.";
   }
   if (reason === "Player has an incompatible active encounter or battle") {
     return "Termine seu encontro ou batalha atual antes de pescar.";
   }
-  if (reason.startsWith("Fishing ") && reason.endsWith(" encounter pool is not configured for the current area")) {
+  if (
+    reason.startsWith("Fishing ") &&
+    reason.endsWith(" encounter pool is not configured for the current area")
+  ) {
     return "A pesca nesta área ainda não possui encontros disponíveis. Avise a equipe do RPG.";
   }
   return "Não foi possível pescar nesta área agora. Confira a localização e tente novamente.";
