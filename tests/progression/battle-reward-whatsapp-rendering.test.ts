@@ -49,6 +49,16 @@ function reward(): BattleRewardResult {
   };
 }
 
+
+function withPokemon(
+  result: BattleRewardResult,
+  update: Partial<BattleRewardResult["pokemon"][number]>,
+): BattleRewardResult {
+  const pokemon = result.pokemon[0];
+  if (pokemon === undefined) throw new Error("Battle reward test fixture has no Pokémon");
+  return { ...result, pokemon: [{ ...pokemon, ...update }] };
+}
+
 describe("battle reward WhatsApp evolution rendering", () => {
   it("names an automatic evolution without exposing form ids", () => {
     const output = renderBattleRewardWhatsAppText(
@@ -77,16 +87,9 @@ describe("battle reward WhatsApp evolution rendering", () => {
   it("confirms named moves learned when a battle reward crosses levels", () => {
     const learnedMoveId = "00000000-0000-4000-8000-000000000095";
     const otherMoveId = "00000000-0000-4000-8000-000000000096";
-    const result = reward();
-    const updated = {
-      ...result,
-      pokemon: [
-        {
-          ...result.pokemon[0],
-          learnedMoveIds: [learnedMoveId, otherMoveId],
-        },
-      ],
-    } as BattleRewardResult;
+    const updated = withPokemon(reward(), {
+      learnedMoveIds: [learnedMoveId, otherMoveId],
+    });
     const output = renderBattleRewardWhatsAppText(
       updated,
       "5511999999999@s.whatsapp.net",
@@ -102,32 +105,18 @@ describe("battle reward WhatsApp evolution rendering", () => {
   });
 
   it("uses a factual fallback when old catalog metadata is unavailable", () => {
-    const result = reward();
-    const updated: BattleRewardResult = {
-      ...result,
-      pokemon: [
-        {
-          ...result.pokemon[0],
-          learnedMoveIds: ["00000000-0000-4000-8000-000000000095"],
-        },
-      ],
-    };
+    const updated = withPokemon(reward(), {
+      learnedMoveIds: ["00000000-0000-4000-8000-000000000095"],
+    });
     const output = renderBattleRewardWhatsAppText(updated, "player:test");
     expect(output).toContain("✨ 1 golpe(s) aprendido(s).");
     expect(output).not.toContain(updated.pokemon[0]?.learnedMoveIds[0]);
   });
 
   it("guides players to /golpes and /aprender for full move slots", () => {
-    const result = reward();
-    const updated: BattleRewardResult = {
-      ...result,
-      pokemon: [
-        {
-          ...result.pokemon[0],
-          pendingMoveChoiceIds: ["00000000-0000-4000-8000-000000000097"],
-        },
-      ],
-    };
+    const updated = withPokemon(reward(), {
+      pendingMoveChoiceIds: ["00000000-0000-4000-8000-000000000097"],
+    });
     const output = renderBattleRewardWhatsAppText(updated, "player:test");
     expect(output).toContain("1 golpe(s) aguardando escolha");
     expect(output).toContain("`/golpes`");
