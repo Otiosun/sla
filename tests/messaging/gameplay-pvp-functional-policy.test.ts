@@ -37,9 +37,7 @@ function setup(legacy = false) {
   const resolvePlayer = vi.fn(async ({ externalId }: { externalId: string }) =>
     ok({ playerId: externalId === TARGET_REF ? TARGET : CHALLENGER, state: "COMPLETE" }),
   );
-  const createChallenge = vi.fn(async () =>
-    ok({ challenge: { id: CHALLENGE }, replayed: false }),
-  );
+  const createChallenge = vi.fn(async () => ok({ challenge: { id: CHALLENGE }, replayed: false }));
   const acceptChallenge = vi.fn(async () =>
     ok({ challenge: { challengerPlayerId: CHALLENGER, targetPlayerId: TARGET } }),
   );
