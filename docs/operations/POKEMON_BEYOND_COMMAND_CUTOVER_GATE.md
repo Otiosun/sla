@@ -59,3 +59,9 @@ Conferir o processo efetivo e sua revisão sem imprimir variáveis secretas. Se 
 Testes de roteador com handlers simulados verificam admissão/permissões, **não** transações reais de compra, pesca e PvP. CI verde verifica a branch, **não** a árvore local do PM2. Frontend e UX geral serão revisados após o gate de comandos e antes da publicação da Exploração Individual.
 
 A PR #232 Premium reserva migrações 0076–0078: **não** criar outra migração com número igual na Exploração V1.1. O relógio e a máquina de estados da #236 são independentes do banco e ainda não constituem /explorar funcional.
+
+## Revalidação de grupos previamente cadastrados
+
+A configuração `/grupo jogo` podia retornar sucesso mesmo quando o grupo antigo continuava classificado como RECEPTION, PVP, STAFF ou COMMUNITY. Agora a operação recusa essa situação com mensagem explícita, preservando papel e permissões anteriores. Criar um grupo de jogo separado ou usar o procedimento administrativo apropriado, sem converter automaticamente grupos protegidos.
+
+Os comandos `/spawn` e `/iniciarbatalha` exigem narrador autorizado; jogadores comuns recebem explicação. Os testes de PvP usam handlers reais com dependências sintéticas. A UAT final ainda precisa conferir grupo efetivo, flags de runtime, sessões, transações e idempotência em ambiente isolado.
