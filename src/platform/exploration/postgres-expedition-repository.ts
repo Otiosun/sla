@@ -226,9 +226,11 @@ export class PostgresExpeditionRepository {
         [input.playerId],
       );
       if (open.rows.length > 0) {
-        return err(appError("FLOW_BLOCKED", "Resume or cancel your existing expedition first", {
-          userMessage: "Você já tem uma expedição. Retome-a antes de iniciar outra.",
-        }));
+        return err(
+          appError("FLOW_BLOCKED", "Resume or cancel your existing expedition first", {
+            userMessage: "Você já tem uma expedição. Retome-a antes de iniciar outra.",
+          }),
+        );
       }
       const week = expeditionWeekKey(this.clock.now(), this.timeZone);
       const used = await client.query<{ count: string }>(
@@ -236,9 +238,11 @@ export class PostgresExpeditionRepository {
         [input.playerId, week],
       );
       if (Number(used.rows[0]?.count ?? "0") >= 3) {
-        return err(appError("FLOW_BLOCKED", "Expedition weekly limit reached", {
-          userMessage: "Você já utilizou suas três expedições desta semana.",
-        }));
+        return err(
+          appError("FLOW_BLOCKED", "Expedition weekly limit reached", {
+            userMessage: "Você já utilizou suas três expedições desta semana.",
+          }),
+        );
       }
 
       // World eligibility, unlocks and active-release content must be added
@@ -267,10 +271,21 @@ export class PostgresExpeditionRepository {
         endReason: null,
         revision: 0n,
       };
-      return ok(await writeReceipt(client, input.playerId, input.idempotencyKey, expeditionId,
-        "PREPARE", inputFingerprint, {
-          expedition, consumedWeeklySlot: false, changed: true,
-        }));
+      return ok(
+        await writeReceipt(
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          expeditionId,
+          "PREPARE",
+          inputFingerprint,
+          {
+            expedition,
+            consumedWeeklySlot: false,
+            changed: true,
+          },
+        ),
+      );
     });
   }
 
@@ -280,7 +295,10 @@ export class PostgresExpeditionRepository {
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([
-      "ADVANCE", input.expeditionId, input.expectedRevision.toString(), input.minutes,
+      "ADVANCE",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      input.minutes,
     ]);
     return withTransaction(this.pool, async (client) => {
       const player = await lockedPlayer(client, input.playerId);
@@ -306,10 +324,17 @@ export class PostgresExpeditionRepository {
       if (transition.value.changed) {
         await persistSnapshot(client, transition.value.expedition, original.revision);
       }
-      return ok(await writeReceipt(
-        client, input.playerId, input.idempotencyKey, input.expeditionId, "ADVANCE",
-        inputFingerprint, transition.value,
-      ));
+      return ok(
+        await writeReceipt(
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          input.expeditionId,
+          "ADVANCE",
+          inputFingerprint,
+          transition.value,
+        ),
+      );
     });
   }
 
@@ -317,7 +342,10 @@ export class PostgresExpeditionRepository {
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([
-      "END", input.expeditionId, input.expectedRevision.toString(), input.reason,
+      "END",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      input.reason,
     ]);
     return withTransaction(this.pool, async (client) => {
       const player = await lockedPlayer(client, input.playerId);
@@ -327,14 +355,23 @@ export class PostgresExpeditionRepository {
       const original = await lockedExpedition(client, input.playerId, input.expeditionId);
       if (original === null) return unavailable();
       const transition = endExpedition({
-        expedition: original, expectedRevision: input.expectedRevision, reason: input.reason,
+        expedition: original,
+        expectedRevision: input.expectedRevision,
+        reason: input.reason,
       });
       if (!transition.ok) return transition;
       await persistSnapshot(client, transition.value.expedition, original.revision);
-      return ok(await writeReceipt(
-        client, input.playerId, input.idempotencyKey, input.expeditionId, "END",
-        inputFingerprint, transition.value,
-      ));
+      return ok(
+        await writeReceipt(
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          input.expeditionId,
+          "END",
+          inputFingerprint,
+          transition.value,
+        ),
+      );
     });
   }
 }
