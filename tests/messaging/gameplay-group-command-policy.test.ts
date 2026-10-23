@@ -38,9 +38,7 @@ function router(input: {
   readonly known?: boolean;
 }) {
   const capabilities = input.capabilities ?? capabilitiesForWorldGroupSetup("GAME", []);
-  const invoked = vi.fn(async () =>
-    ok({ resultRefType: null, resultRefId: null, outgoing: [] }),
-  );
+  const invoked = vi.fn(async () => ok({ resultRefType: null, resultRefId: null, outgoing: [] }));
   const definitions = [
     createSpawnWhatsAppRoute({} as never),
     createPveBattleStartWhatsAppRoute({} as never),
