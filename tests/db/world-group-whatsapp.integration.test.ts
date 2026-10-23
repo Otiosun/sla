@@ -79,7 +79,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     }
   });
 
-  it("admits setup in an unknown group and persists one audited GAME group with world access", async () => {
+  it("admits setup in an unknown group and enables WORLD/PVE/PVP only for the GAME role", async () => {
     const composition = createOperationalMessagingComposition(pool);
     const input = context();
     expect(composition.admitCommand(input.message)).toBe(true);
@@ -102,7 +102,12 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [groups.rows[0].id],
         )
       ).rows,
-    ).toEqual([{ capability_key: "player.basic" }, { capability_key: "world" }]);
+    ).toEqual([
+      { capability_key: "player.basic" },
+      { capability_key: "pve" },
+      { capability_key: "pvp" },
+      { capability_key: "world" },
+    ]);
     expect(
       (
         await pool.query(
@@ -189,6 +194,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
   });
