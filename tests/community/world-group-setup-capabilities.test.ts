@@ -27,14 +27,8 @@ describe("explicit /grupo jogo capabilities", () => {
   });
 
   it("does not silently enable combat in COMMUNITY, STAFF or PVP roles", () => {
-    expect(capabilitiesForWorldGroupSetup("COMMUNITY", [])).toEqual([
-      "player.basic",
-      "world",
-    ]);
-    expect(capabilitiesForWorldGroupSetup("STAFF", [])).toEqual([
-      "player.basic",
-      "world",
-    ]);
+    expect(capabilitiesForWorldGroupSetup("COMMUNITY", [])).toEqual(["player.basic", "world"]);
+    expect(capabilitiesForWorldGroupSetup("STAFF", [])).toEqual(["player.basic", "world"]);
     expect(capabilitiesForWorldGroupSetup("PVP", ["pvp"])).toEqual([
       "player.basic",
       "pvp",
