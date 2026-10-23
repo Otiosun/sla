@@ -46,21 +46,27 @@ function initialHp(baseHp: number, ivHp: number, level: number): number {
 }
 
 function eligibleMoves(candidates: readonly PokemonGenerationMoveCandidate[], level: number) {
-  const seen = new Set<string>();
-  const selected: PokemonGenerationMoveCandidate[] = [];
-  for (const candidate of candidates) {
-    if (
-      candidate.learnMethod === "LEVEL" &&
-      (candidate.learnLevel === null || candidate.learnLevel > level)
-    ) {
-      continue;
-    }
-    if (seen.has(candidate.moveId)) continue;
-    seen.add(candidate.moveId);
-    selected.push(candidate);
-    if (selected.length === 4) break;
+  // Initial slots contain the four most recently learned eligible moves,
+  // not the first four returned by the catalog's ascending-level query.
+  // A move learned again at a later level replaces its earlier occurrence.
+  const timeline = candidates
+    .filter(
+      (candidate) =>
+        candidate.learnMethod === "START" ||
+        (candidate.learnLevel !== null && candidate.learnLevel <= level),
+    )
+    .sort(
+      (left, right) =>
+        (left.learnMethod === "START" ? 0 : (left.learnLevel ?? 0)) -
+          (right.learnMethod === "START" ? 0 : (right.learnLevel ?? 0)) ||
+        left.moveId.localeCompare(right.moveId),
+    );
+  const recent = new Map<string, PokemonGenerationMoveCandidate>();
+  for (const candidate of timeline) {
+    recent.delete(candidate.moveId);
+    recent.set(candidate.moveId, candidate);
   }
-  return selected;
+  return [...recent.values()].slice(-4);
 }
 
 export function generatePokemonBuild(
