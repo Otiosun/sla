@@ -53,3 +53,16 @@ Os dois flags de PvE seguem o parser do runtime: se **ambos** estão ausentes, o
 - **Publicação local:** só depois dos gates, backup, rollback e autorização; nunca presumida.
 
 Atualizar IDs **A05, A06, A07, B05, H02, H05, H06** no Drive a cada avanço comprovado.
+
+
+## Resultado real do preflight Windows (23/10/2026 às 18h27, BRT)
+
+**Recebido do usuário, coleta somente leitura:** branch local `main`, commit `667770e51ad28d48da43e852877ba05f1efcb41e`, **24 arquivos alterados ou novos** no diretório `C:\Users\natan\Documents\meu-bot-rpg`. O PM2 estava ativo, mas a ferramenta então usada não conseguiu interpretar o JSON. **Isso NÃO comprova que o PM2 esteja executando o mesmo commit da pasta.**
+
+A API GitHub para o repositório remoto `Otiosun/sla` não localizou esse SHA: **não assumir que a `main` local e a `main` publicada sejam equivalentes**; pode haver commits só locais ou um histórico divergente. Nenhuma tentativa de checkout, reset, pull, merge, instalação ou reinício foi realizada.
+
+**Bloqueio obrigatório:** proteger os 24 arquivos antes de qualquer aplicação, verificar histórico e origem por leituras locais, identificar o processo real. Nunca presumir que um PM2 “online” implica runtime atualizado ou configurado.
+
+O primeiro diagnóstico do usuário relatou “PM2 em execução, mas lista JSON indisponível”. Isso pode ser falha da versão de parser do PowerShell 5.1, não prova desligamento do aplicativo. A versão inicial do script rastreado no GitHub foi encontrada **corrompida** (trecho truncado e bloco duplicado); foi substituída integralmente e conferida por leitura de volta. Use apenas a versão nova dessa branch, **não as cópias anteriores**. O parser revisado usa `System.Web.Script.Serialization.JavaScriptSerializer` sensível a maiúsculas/minúsculas, em vez do `ConvertFrom-Json` que pode falhar com nomes de variáveis duplicados em caixas diferentes. **Ainda não foi executado nem homologado em Windows 5.1 real.**
+
+Se mesmo assim não for possível ler `pm2 jlist`, o script não imprime JSON bruto (que pode conter segredos) e orienta usar `pm2 status`, compartilhando somente nome do processo, status e tempo ativo. Nunca enviar a saída bruta de `pm2 jlist`, `pm2 env`, `pm2 show`, conteúdo de `.env` ou tokens.
