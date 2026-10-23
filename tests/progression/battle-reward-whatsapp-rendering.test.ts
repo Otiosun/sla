@@ -49,7 +49,6 @@ function reward(): BattleRewardResult {
   };
 }
 
-
 function withPokemon(
   result: BattleRewardResult,
   update: Partial<BattleRewardResult["pokemon"][number]>,
