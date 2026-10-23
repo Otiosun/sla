@@ -75,7 +75,9 @@ function progressionFailureResult(error: {
         ? "Essa evolução não está mais disponível para o Pokémon neste estado. Use `/evolucao` para conferir os requisitos atuais."
         : error.code === "EVOLUTION_NOT_FOUND"
           ? "Não encontrei esse Pokémon para evoluir."
-          : null;
+          : error.code === "MOVE_CHOICE_CONFLICT"
+            ? "Essa escolha de golpe não pode mais substituir um movimento. Use `/golpes` para atualizar a lista; se o Pokémon já conhece o golpe, selecione `pular`."
+            : null;
   return err(
     appError(code, error.message, {
       progressionCode: error.code,
