@@ -34,6 +34,7 @@ function trainerLine(result: BattleRewardResult): string {
 function pokemonLines(
   result: BattleRewardResult,
   evolutionFormNames: ReadonlyMap<string, string>,
+  learnedMoveNames: ReadonlyMap<string, string>,
 ): readonly string[] {
   return result.pokemon.flatMap((pokemon, index) => {
     const level =
@@ -41,9 +42,19 @@ function pokemonLines(
         ? ` · Nv. ${pokemon.beforeLevel} → ${pokemon.afterLevel}`
         : "";
     const lines = [`⚡ Pokémon ${index + 1}: +${pokemon.awardedXp} XP${level}`];
+    if (pokemon.learnedMoveIds.length > 0) {
+      const names = pokemon.learnedMoveIds
+        .map((moveId) => learnedMoveNames.get(moveId))
+        .filter((name): name is string => name !== undefined);
+      lines.push(
+        names.length === pokemon.learnedMoveIds.length
+          ? `✨ Golpes aprendidos: ${names.map((name) => `*${name}*`).join(", ")}.`
+          : `✨ ${pokemon.learnedMoveIds.length} golpe(s) aprendido(s).`,
+      );
+    }
     if (pokemon.pendingMoveChoiceIds.length > 0) {
       lines.push(
-        `⚠️ ${pokemon.pendingMoveChoiceIds.length} novo golpe aguarda escolha antes de substituir um slot.`,
+        `⚠️ ${pokemon.pendingMoveChoiceIds.length} golpe(s) aguardando escolha. Veja \`/golpes\` e escolha com \`/aprender\`.`,
       );
     }
     for (const evolution of pokemon.evolutions) {
@@ -63,6 +74,7 @@ export function renderBattleRewardWhatsAppText(
   result: BattleRewardResult,
   senderRef: string,
   evolutionFormNames: ReadonlyMap<string, string> = new Map(),
+  learnedMoveNames: ReadonlyMap<string, string> = new Map(),
 ): string {
   const handle = senderRef.endsWith("@s.whatsapp.net") ? senderRef.split("@")[0] : senderRef;
   return [
@@ -71,7 +83,7 @@ export function renderBattleRewardWhatsAppText(
     `@${handle}, a vitória foi registrada.`,
     "",
     trainerLine(result),
-    ...pokemonLines(result, evolutionFormNames),
+    ...pokemonLines(result, evolutionFormNames, learnedMoveNames),
     ...(result.trainer.unlockKeys.length === 0
       ? []
       : [`🔓 Desbloqueios: ${result.trainer.unlockKeys.join(", ")}`]),
@@ -105,6 +117,27 @@ async function resolveEvolutionFormNames(
     [reward.playerId, formIds],
   );
   return new Map(result.rows.map((row) => [row.form_id, row.display_name] as const));
+}
+
+async function resolveLearnedMoveNames(
+  client: PoolClient,
+  reward: BattleRewardResult,
+): Promise<ReadonlyMap<string, string>> {
+  const moveIds = [...new Set(reward.pokemon.flatMap((pokemon) => pokemon.learnedMoveIds))];
+  if (moveIds.length === 0) return new Map();
+  // The battle pins its own content release. A trainer's current active release
+  // may differ from the one used when the encounter was fought.
+  const rows = await client.query<{ move_id: string; display_name: string }>(
+    `SELECT revision.move_id, revision.display_name
+     FROM battles battle
+     JOIN move_revisions revision
+       ON revision.content_release_id = battle.content_release_id
+      AND revision.move_id = ANY($2::uuid[])
+      AND revision.active = TRUE
+     WHERE battle.id = $1`,
+    [reward.battleId, moveIds],
+  );
+  return new Map(rows.rows.map((row) => [row.move_id, row.display_name] as const));
 }
 
 async function resolveDestination(
@@ -166,8 +199,14 @@ export class PostgresBattleRewardWhatsAppProjector {
         }
 
         const evolutionFormNames = await resolveEvolutionFormNames(client, reward);
+        const learnedMoveNames = await resolveLearnedMoveNames(client, reward);
         const payload = {
-          text: renderBattleRewardWhatsAppText(reward, destination.external_id, evolutionFormNames),
+          text: renderBattleRewardWhatsAppText(
+            reward,
+            destination.external_id,
+            evolutionFormNames,
+            learnedMoveNames,
+          ),
           mentions: [destination.external_id],
           battleReward: {
             battleId: reward.battleId,
