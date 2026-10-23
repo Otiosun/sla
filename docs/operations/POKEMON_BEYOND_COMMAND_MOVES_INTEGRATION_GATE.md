@@ -66,3 +66,29 @@ A API GitHub para o repositório remoto `Otiosun/sla` não localizou esse SHA: *
 O primeiro diagnóstico do usuário relatou “PM2 em execução, mas lista JSON indisponível”. Isso pode ser falha da versão de parser do PowerShell 5.1, não prova desligamento do aplicativo. A versão inicial do script rastreado no GitHub foi encontrada **corrompida** (trecho truncado e bloco duplicado); foi substituída integralmente e conferida por leitura de volta. Use apenas a versão nova dessa branch, **não as cópias anteriores**. O parser revisado usa `System.Web.Script.Serialization.JavaScriptSerializer` sensível a maiúsculas/minúsculas, em vez do `ConvertFrom-Json` que pode falhar com nomes de variáveis duplicados em caixas diferentes. **Ainda não foi executado nem homologado em Windows 5.1 real.**
 
 Se mesmo assim não for possível ler `pm2 jlist`, o script não imprime JSON bruto (que pode conter segredos) e orienta usar `pm2 status`, compartilhando somente nome do processo, status e tempo ativo. Nunca enviar a saída bruta de `pm2 jlist`, `pm2 env`, `pm2 show`, conteúdo de `.env` ou tokens.
+
+
+## Segundo preflight recebido — PM2 online e HEAD == origin/main LOCAL
+
+O operador executou `pm2 status`, `git rev-parse --verify origin/main` e `git rev-list --left-right --count HEAD...origin/main` (somente leitura). Resultado:
+
+- Pokémon WhatsApp `pokemon-rpg-whatsapp-premium`: **online**, uptime 5h, 1 restart no momento da consulta.
+- Player Portal `pokemon-rpg-player-portal-premium`: **online**, uptime 20h.
+- Túnel Cloudflare `pokemon-rpg-cloudflare-named-tunnel`: **online**, uptime 20h.
+- Clover antigos (`clover-rpg`, `clover-rpg-canonical-v18`, `clover-rpg-core-v2-v20`) **stopped**, mas Clover v21 online. Não tocar em quaisquer desses processos.
+- O Git local `HEAD` e a referência **local** `origin/main` são ambos `667770e51ad28d48da43e852877ba05f1efcb41e`, com divergência `0 0`. A API GitHub do repositório esperado `Otiosun/sla` informa `main` publicada em **`3bec8388c1b1aa132b2fa8306a39b43f65ff31f8`** e não localiza o SHA 667770e. Portanto, a referência local pode estar desatualizada ou apontar para outro remote; **não presumir sincronização com GitHub**.
+- Os **24 arquivos modificados/untracked continuam protegidos**. Não executar checkout, pull, fetch, reset, clean, instalação de dependências, restart PM2 ou migrações até o plano de preservação.
+
+### Verificação curta da origem Git, sem expor URL com token
+
+Executar dentro do repositório local somente para exibir o identificador, nunca a URL crua:
+
+```powershell
+$origin = [string](& git remote get-url origin 2>$null)
+if ($origin -match '(?i)github\.com[:/](?<owner>[^/:?\s]+)/(?<repo>[^/:?\s]+)') {
+    $short = $Matches.repo -replace '\.git$', ''
+    Write-Output ('Origin GitHub: {0}/{1}' -f $Matches.owner, $short)
+} else { Write-Output 'Origin nao identificado como Github; nao envie URL crua.' }
+```
+
+Para versão carregada, pasta do aplicativo e estados dos flags, use a **versão nova** de `scripts/operations/pokemon-command-readiness-readonly.ps1`, nunca uma cópia antiga. O script usa `pm2 jlist` apenas com daemon já confirmado e **não divulga JSON cru/ambiente**. O parser novo ainda depende de confirmação no PowerShell real. Não confundir status `online` com build comprovado.
