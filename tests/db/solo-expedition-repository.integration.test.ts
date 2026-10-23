@@ -35,10 +35,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       region,
       "solo-area-" + area,
     ]);
-    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [
-      id,
-      area,
-    ]);
+    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [id, area]);
     return id;
   }
 
@@ -125,11 +122,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ok: false,
       error: { code: "IDEMPOTENCY_KEY_INVALID" },
     });
-    expect(await store.prepare({
-      playerId,
-      period: "DAY",
-      idempotencyKey: "once-start",
-    })).toMatchObject({
+    expect(
+      await store.prepare({
+        playerId,
+        period: "DAY",
+        idempotencyKey: "once-start",
+      }),
+    ).toMatchObject({
       ok: true,
       value: { replayed: true, expedition: { phase: "PREPARING" } },
     });
@@ -198,17 +197,21 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         value: { expedition: { phase: "ENDED" } },
       });
     }
-    expect(await store.prepare({
-      playerId,
-      period: "DAY",
-      idempotencyKey: "weekly-fourth",
-    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await store.prepare({
+        playerId,
+        period: "DAY",
+        idempotencyKey: "weekly-fourth",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     clock.advanceMs(6 * 24 * 60 * 60 * 1000 + 15 * 60 * 60 * 1000);
-    expect(await store.prepare({
-      playerId,
-      period: "DAY",
-      idempotencyKey: "weekly-next",
-    })).toMatchObject({ ok: true, value: { expedition: { phase: "PREPARING" } } });
+    expect(
+      await store.prepare({
+        playerId,
+        period: "DAY",
+        idempotencyKey: "weekly-next",
+      }),
+    ).toMatchObject({ ok: true, value: { expedition: { phase: "PREPARING" } } });
   });
 
   it("continues across weekly reset without consuming an additional slot", async () => {
@@ -223,13 +226,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(started.ok).toBe(true);
     clock.advanceMs(7 * 24 * 60 * 60 * 1000);
-    expect(await store.advance({
-      playerId,
-      expeditionId: initial.expeditionId,
-      expectedRevision: 1n,
-      minutes: 15,
-      idempotencyKey: "carry-second",
-    })).toMatchObject({
+    expect(
+      await store.advance({
+        playerId,
+        expeditionId: initial.expeditionId,
+        expectedRevision: 1n,
+        minutes: 15,
+        idempotencyKey: "carry-second",
+      }),
+    ).toMatchObject({
       ok: true,
       value: {
         consumedWeeklySlot: false,
@@ -241,32 +246,40 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   it("cancels without a slot and persists an ended blackout", async () => {
     const playerId = await trainer();
     const initial = await prepare(playerId, "cancel-prepare");
-    expect(await store.end({
-      playerId,
-      expeditionId: initial.expeditionId,
-      expectedRevision: 0n,
-      reason: "CANCELLED",
-      idempotencyKey: "cancel-end",
-    })).toMatchObject({
+    expect(
+      await store.end({
+        playerId,
+        expeditionId: initial.expeditionId,
+        expectedRevision: 0n,
+        reason: "CANCELLED",
+        idempotencyKey: "cancel-end",
+      }),
+    ).toMatchObject({
       ok: true,
       value: { expedition: { phase: "ENDED", consumedWeekKey: null } },
     });
     expect(await store.current(playerId)).toBeNull();
     const next = await prepare(playerId, "blackout-prepare");
-    expect((await store.advance({
-      playerId,
-      expeditionId: next.expeditionId,
-      expectedRevision: 0n,
-      minutes: 30,
-      idempotencyKey: "blackout-first",
-    })).ok).toBe(true);
-    expect(await store.end({
-      playerId,
-      expeditionId: next.expeditionId,
-      expectedRevision: 1n,
-      reason: "BLACKOUT",
-      idempotencyKey: "blackout-end",
-    })).toMatchObject({
+    expect(
+      (
+        await store.advance({
+          playerId,
+          expeditionId: next.expeditionId,
+          expectedRevision: 0n,
+          minutes: 30,
+          idempotencyKey: "blackout-first",
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      await store.end({
+        playerId,
+        expeditionId: next.expeditionId,
+        expectedRevision: 1n,
+        reason: "BLACKOUT",
+        idempotencyKey: "blackout-end",
+      }),
+    ).toMatchObject({
       ok: true,
       value: { expedition: { phase: "ENDED", endReason: "BLACKOUT" } },
     });
@@ -286,12 +299,14 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ok: false,
       error: { code: "VALIDATION_FAILED" },
     });
-    expect(await store.advance({
-      ...input,
-      expectedRevision: 4n,
-      minutes: 30,
-      idempotencyKey: "invalid-stale",
-    })).toMatchObject({
+    expect(
+      await store.advance({
+        ...input,
+        expectedRevision: 4n,
+        minutes: 30,
+        idempotencyKey: "invalid-stale",
+      }),
+    ).toMatchObject({
       ok: false,
       error: { code: "REVISION_CONFLICT" },
     });
