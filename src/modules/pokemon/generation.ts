@@ -45,7 +45,11 @@ function initialHp(baseHp: number, ivHp: number, level: number): number {
   return Math.floor(((2 * baseHp + ivHp) * level) / 100) + level + 10;
 }
 
-function eligibleMoves(candidates: readonly PokemonGenerationMoveCandidate[], level: number) {
+export function selectRecentLevelMoves<T extends {
+  readonly moveId: string;
+  readonly learnMethod: string;
+  readonly learnLevel: number | null;
+}>(candidates: readonly T[], level: number): readonly T[] {
   // Initial slots contain the four most recently learned eligible moves,
   // not the first four returned by the catalog's ascending-level query.
   // A move learned again at a later level replaces its earlier occurrence.
@@ -53,7 +57,9 @@ function eligibleMoves(candidates: readonly PokemonGenerationMoveCandidate[], le
     .filter(
       (candidate) =>
         candidate.learnMethod === "START" ||
-        (candidate.learnLevel !== null && candidate.learnLevel <= level),
+        (candidate.learnMethod === "LEVEL" &&
+          candidate.learnLevel !== null &&
+          candidate.learnLevel <= level),
     )
     .sort(
       (left, right) =>
@@ -61,7 +67,7 @@ function eligibleMoves(candidates: readonly PokemonGenerationMoveCandidate[], le
           (right.learnMethod === "START" ? 0 : (right.learnLevel ?? 0)) ||
         left.moveId.localeCompare(right.moveId),
     );
-  const recent = new Map<string, PokemonGenerationMoveCandidate>();
+  const recent = new Map<string, T>();
   for (const candidate of timeline) {
     recent.delete(candidate.moveId);
     recent.set(candidate.moveId, candidate);
@@ -90,7 +96,7 @@ export function generatePokemonBuild(
   } as const;
   const abilityId = chooseOne(build.abilityIds, rng, "ability");
   const natureId = chooseOne(build.natureIds, rng, "nature");
-  const moves = eligibleMoves(build.moves, build.level).map((move) => {
+  const moves = selectRecentLevelMoves(build.moves, build.level).map((move) => {
     if (!Number.isSafeInteger(move.maxPp) || move.maxPp <= 0) {
       throw new RangeError("Pokemon move max PP must be a positive safe integer");
     }
