@@ -6,31 +6,35 @@
 BEGIN TRANSACTION READ ONLY;
 
 -- A. Which exact content release and upstream source are ACTIVE?
+-- Separate indexed counts avoid multiplying large catalog tables together.
 SELECT release.id::text AS release_id,
        release.release_no,
        release.name AS release_name,
        release.status,
-       count(DISTINCT species.species_id) AS active_species,
-       count(DISTINCT form.form_id) AS active_forms,
-       count(DISTINCT move.move_id) AS active_moves,
-       count(DISTINCT learnset.id) AS active_learnset_entries,
-       string_agg(DISTINCT species.data->>'sourceProvider', ', ')
-         AS species_source_providers,
-       string_agg(DISTINCT species.data->>'sourceCommit', ', ')
-         AS species_source_commits
+       (SELECT count(*) FROM pokemon_species_revisions species
+         WHERE species.content_release_id = release.id AND species.active = TRUE
+       ) AS active_species,
+       (SELECT count(*) FROM pokemon_form_revisions form
+         WHERE form.content_release_id = release.id AND form.active = TRUE
+       ) AS active_forms,
+       (SELECT count(*) FROM move_revisions move
+         WHERE move.content_release_id = release.id AND move.active = TRUE
+       ) AS active_moves,
+       (SELECT count(*) FROM move_learnset_entries learnset
+         WHERE learnset.content_release_id = release.id AND learnset.active = TRUE
+       ) AS active_learnset_entries,
+       (SELECT string_agg(DISTINCT species.data->>'sourceProvider', ', ')
+        FROM pokemon_species_revisions species
+        WHERE species.content_release_id = release.id AND species.active = TRUE
+       ) AS species_source_providers,
+       (SELECT string_agg(DISTINCT species.data->>'sourceCommit', ', ')
+        FROM pokemon_species_revisions species
+        WHERE species.content_release_id = release.id AND species.active = TRUE
+       ) AS species_source_commits
 FROM content_release_pointers pointer
 JOIN content_releases release
   ON release.id = pointer.content_release_id
-LEFT JOIN pokemon_species_revisions species
-  ON species.content_release_id = release.id AND species.active = TRUE
-LEFT JOIN pokemon_form_revisions form
-  ON form.content_release_id = release.id AND form.active = TRUE
-LEFT JOIN move_revisions move
-  ON move.content_release_id = release.id AND move.active = TRUE
-LEFT JOIN move_learnset_entries learnset
-  ON learnset.content_release_id = release.id AND learnset.active = TRUE
-WHERE pointer.pointer_key = 'ACTIVE'
-GROUP BY release.id, release.release_no, release.name, release.status;
+WHERE pointer.pointer_key = 'ACTIVE';
 
 -- B. Coverage by active form, with START, LEVEL and other methods separated.
 -- Forms without an executable early move are especially important.
