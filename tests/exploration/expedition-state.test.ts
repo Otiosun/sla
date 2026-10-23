@@ -63,7 +63,9 @@ describe("expedition session state transitions", () => {
     });
     expect(original.elapsedMinutes).toBe(0);
     if (!result.ok) return;
-    expect(expeditionClock("DAY", result.value.expedition.elapsedMinutes).currentTime).toBe("06:30");
+    expect(expeditionClock("DAY", result.value.expedition.elapsedMinutes).currentTime).toBe(
+      "06:30",
+    );
   });
 
   it("continues an active expedition across weekly reset without charging again", () => {
@@ -143,7 +145,9 @@ describe("expedition session state transitions", () => {
       },
     });
     if (!last.ok) return;
-    expect(expeditionClock("NIGHT", last.value.expedition.elapsedMinutes).currentTime).toBe("06:00");
+    expect(expeditionClock("NIGHT", last.value.expedition.elapsedMinutes).currentTime).toBe(
+      "06:00",
+    );
     expect(expeditionRequiresReport(last.value.expedition)).toBe(true);
     expect(advance(last.value.expedition, 30)).toMatchObject({
       ok: false,
@@ -170,11 +174,13 @@ describe("expedition session state transitions", () => {
 
   it("requires time spent for voluntary closure and gives no report reward after blackout", () => {
     const unstarted = preparing();
-    expect(endExpedition({
-      expedition: unstarted,
-      expectedRevision: 0n,
-      reason: "BLACKOUT",
-    })).toMatchObject({ ok: false, error: { code: "INVALID_STATE_TRANSITION" } });
+    expect(
+      endExpedition({
+        expedition: unstarted,
+        expectedRevision: 0n,
+        reason: "BLACKOUT",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "INVALID_STATE_TRANSITION" } });
 
     const first = advance(unstarted, 30);
     expect(first.ok).toBe(true);
@@ -199,13 +205,15 @@ describe("expedition session state transitions", () => {
 
   it("rejects stale revisions and invalid durations without mutating the snapshot", () => {
     const original = preparing();
-    expect(advanceExpedition({
-      expedition: original,
-      expectedRevision: 1n,
-      weekKey: WEEK,
-      consumedThisWeek: 0,
-      minutes: 30,
-    })).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    expect(
+      advanceExpedition({
+        expedition: original,
+        expectedRevision: 1n,
+        weekKey: WEEK,
+        consumedThisWeek: 0,
+        minutes: 30,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
     for (const minutes of [-1, Number.NaN, 0.5, 721]) {
       expect(advance(original, minutes)).toMatchObject({
         ok: false,
@@ -217,13 +225,15 @@ describe("expedition session state transitions", () => {
 
   it("accepts only a real Monday as the first-debit calendar key", () => {
     for (const weekKey of ["2026-10-20", "2026-02-30", "week-1"]) {
-      expect(advanceExpedition({
-        expedition: preparing(),
-        expectedRevision: 0n,
-        minutes: 30,
-        weekKey,
-        consumedThisWeek: 0,
-      })).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      expect(
+        advanceExpedition({
+          expedition: preparing(),
+          expectedRevision: 0n,
+          minutes: 30,
+          weekKey,
+          consumedThisWeek: 0,
+        }),
+      ).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
     }
   });
 });
