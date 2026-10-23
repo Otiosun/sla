@@ -259,7 +259,13 @@ describe.sequential("World group setup through the operational WhatsApp router",
     expect(await composition.router.dispatch(input)).toMatchObject({ ok: true });
     expect(
       await composition.router.dispatch(context(undefined, "120363900007@g.us")),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: "ACTION_INVALID",
+        message: expect.stringContaining("grupo próprio de jogadores"),
+      },
+    });
     const group = (
       await pool.query(
         "SELECT id,role,display_name FROM community_groups WHERE chat_ref='120363900007@g.us'",
@@ -275,6 +281,53 @@ describe.sequential("World group setup through the operational WhatsApp router",
       ).rows,
     ).toEqual([{ capability_key: "admin.review" }, { capability_key: "onboarding" }]);
   });
+
+  it.each(["PVP", "STAFF", "COMMUNITY"] as const)(
+    "refuses misleading /grupo jogo for a preexisting %s group without changing permissions",
+    async (role) => {
+      const chatRef =
+        role === "PVP"
+          ? "120363900010@g.us"
+          : role === "STAFF"
+            ? "120363900011@g.us"
+            : "120363900012@g.us";
+      const id = randomUUID();
+      await pool.query(
+        "INSERT INTO community_groups(id,provider,chat_ref,role,display_name) VALUES ($1,'baileys',$2,$3,'Existing protected group')",
+        [id, chatRef, role],
+      );
+      await pool.query(
+        "INSERT INTO community_group_capabilities(group_id,capability_key) VALUES ($1,'observability')",
+        [id],
+      );
+      const before = await pool.query(
+        "SELECT role,revision::int AS revision FROM community_groups WHERE id=$1",
+        [id],
+      );
+      const result = await createOperationalMessagingComposition(pool).router.dispatch(
+        context("/grupo jogo Teste", chatRef),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: "ACTION_INVALID",
+          message: expect.stringContaining("grupo próprio de jogadores"),
+        },
+      });
+      expect(
+        (await pool.query("SELECT role,revision::int AS revision FROM community_groups WHERE id=$1", [id]))
+          .rows,
+      ).toEqual(before.rows);
+      expect(
+        (
+          await pool.query(
+            "SELECT capability_key FROM community_group_capabilities WHERE group_id=$1 AND active ORDER BY capability_key",
+            [id],
+          )
+        ).rows,
+      ).toEqual([{ capability_key: "observability" }]);
+    },
+  );
 
   it("silently ignores setup commands inside an existing Reception and never broadens gameplay", async () => {
     const id = randomUUID();
