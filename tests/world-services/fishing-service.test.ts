@@ -231,7 +231,7 @@ describe("FishingService", () => {
   it.each([
     [
       "Fishing is not configured for the current area",
-      "Não há um ponto de pesca disponível nesta área. Consulte \`/onde\` para escolher seu destino.",
+      "Não há um ponto de pesca disponível nesta área. Consulte `/onde` para escolher seu destino.",
     ],
     [
       "Player has an incompatible active encounter or battle",
@@ -243,7 +243,7 @@ describe("FishingService", () => {
     ],
     [
       "Player location or active content is unavailable",
-      "Não consegui confirmar sua localização. Use \`/onde\` e tente novamente.",
+      "Não consegui confirmar sua localização. Use `/onde` e tente novamente.",
     ],
     [
       "Fishing RARE encounter pool is not configured for the current area",
