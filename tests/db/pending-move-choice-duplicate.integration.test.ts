@@ -95,7 +95,15 @@ describe.sequential("pending move choices cannot duplicate already learned moves
            id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,
            source_id,correlation_id
          ) VALUES ($1,$2,$3,$4,$5,'BATTLE_REWARD',$6,$7)`,
-        [choiceId, pokemonId, releaseId, offeredMoveId, index === 0 ? 16 : 19, randomUUID(), randomUUID()],
+        [
+          choiceId,
+          pokemonId,
+          releaseId,
+          offeredMoveId,
+          index === 0 ? 16 : 19,
+          randomUUID(),
+          randomUUID(),
+        ],
       );
     }
     return {
