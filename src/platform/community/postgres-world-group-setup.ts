@@ -7,6 +7,7 @@ import {
   type WorldGroupSetupPort,
   type WorldGroupSetupResult,
   WorldGroupSetupResultSchema,
+  capabilitiesForWorldGroupSetup,
 } from "../../modules/community/world-group-setup.js";
 import { withTransaction } from "../db/transaction.js";
 import { PostgresCommunityTransaction } from "./postgres-community-repository.js";
@@ -90,10 +91,7 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
         if (reloaded === null) throw new Error("Configured group disappeared");
         group = reloaded;
       }
-      const capabilities =
-        group.role === "RECEPTION"
-          ? (["admin.review", "onboarding"] as const)
-          : [...new Set([...beforeCapabilities, "player.basic" as const, "world" as const])].sort();
+      const capabilities = capabilitiesForWorldGroupSetup(group.role, beforeCapabilities);
       const capabilitiesChanged =
         capabilities.length !== beforeCapabilities.length ||
         capabilities.some((capability) => !beforeCapabilities.includes(capability));
