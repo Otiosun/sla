@@ -92,3 +92,14 @@ if ($origin -match '(?i)github\.com[:/](?<owner>[^/:?\s]+)/(?<repo>[^/:?\s]+)') 
 ```
 
 Para versão carregada, pasta do aplicativo e estados dos flags, use a **versão nova** de `scripts/operations/pokemon-command-readiness-readonly.ps1`, nunca uma cópia antiga. O script usa `pm2 jlist` apenas com daemon já confirmado e **não divulga JSON cru/ambiente**. O parser novo ainda depende de confirmação no PowerShell real. Não confundir status `online` com build comprovado.
+
+
+## Retificação: o diretório inspecionado pertence a outro repositório
+
+**Nova evidência fornecida pelo operador:** `git remote get-url origin` sanitizado mostrou **`Otiosun/meu-bot-rpg`**, não `Otiosun/sla`. A API GitHub confirma que `Otiosun/meu-bot-rpg/main` está em **`667770e51ad28d48da43e852877ba05f1efcb41e`**, o mesmo SHA de `HEAD` e `origin/main` LOCAL (divergência `0 0`).
+
+Portanto, as referências anteriores a uma possível divergência da branch ou `origin/main` desatualizado dessa pasta estavam erradas: comparávamos **duas bases de código distintas**. A `main` remota **de `Otiosun/sla`** está em `3bec8388c1b1aa132b2fa8306a39b43f65ff31f8`. A referência `667770e…` não precisa existir no `sla`. Esta retificação prevalece sobre hipóteses de stale remote e commit local não enviado acima.
+
+**Estado operacional inalterado:** existem 24 arquivos locais modificados/novos em `meu-bot-rpg`, que não devem ser sobrescritos. PM2 indica `pokemon-rpg-whatsapp-premium`, `pokemon-rpg-player-portal-premium` e túnel Cloudflare online, mas ainda não sabemos suas pastas e scripts carregados. O repositório `sla` pode estar em outra pasta ou nem estar clonado no PC. Não aplicar patches de um projeto ao outro sem mapear integração, versionamento e runtime; não executar comandos que alterem Git ou PM2.
+
+**Próximo gate:** identificar eventual clone local de `Otiosun/sla` e conferir somente metadados sanitizados do PM2. Não publicar, migrar, instalar ou reiniciar.
