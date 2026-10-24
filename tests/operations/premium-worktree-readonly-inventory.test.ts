@@ -138,7 +138,9 @@ describe("Premium private worktree read-only inventory", () => {
   it("does not contain a filesystem write, PM2, database or provider implementation", () => {
     const source = readFileSync(inspector, "utf8");
     expect(source).not.toMatch(/\b(?:writeFile|appendFile|mkdir|rename|unlink|rmSync)\s*\(/);
-    expect(source).not.toMatch(/spawnSync\\(["\\x27](?:pm2|psql|pg_dump|pg_restore)/i);
+    for (const processName of ["pm2", "psql", "pg_dump", "pg_restore"]) {
+      expect(source).not.toContain(`spawnSync("${processName}"`);
+    }
     expect(source).not.toMatch(/from.*@whiskeysockets/);
     expect(source).not.toContain("git reset");
   });
