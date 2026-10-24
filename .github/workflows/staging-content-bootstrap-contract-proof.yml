@@ -14,6 +14,8 @@ on:
   push:
     branches:
       - "feat/staging-content-bootstrap-v1"
+      # Isolated contract gate for PR #242; no staging bootstrap dispatch.
+      - "gate/premium-staging-replay-pr242-20261023-r2"
     paths:
       - ".github/workflows/staging-content-bootstrap.yml"
       - ".github/workflows/staging-content-bootstrap-contract-proof.yml"
