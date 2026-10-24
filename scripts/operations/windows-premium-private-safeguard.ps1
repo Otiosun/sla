@@ -60,6 +60,15 @@ try {
   if ($destination -match '(?i)(^|[\\/])(OneDrive|Dropbox|Google Drive|iCloudDrive)([\\/]|$)') {
     Stop-Safely "SYNCED_BACKUP_PATH_NOT_ALLOWED"
   }
+  # Reject reparse/junction paths before creating sensitive backups; string checks
+  # alone cannot detect a backup directory redirected into a synced location.
+  $cursor = Get-Item -LiteralPath $destination -Force
+  while ($null -ne $cursor) {
+    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      Stop-Safely "BACKUP_PATH_REPARSE_POINT"
+    }
+    $cursor = $cursor.Parent
+  }
 
   [Environment]::SetEnvironmentVariable("GIT_OPTIONAL_LOCKS", "0", "Process")
   $reportedRoot = @(& git --no-optional-locks -C $source rev-parse --show-toplevel 2>$null)
