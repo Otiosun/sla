@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { SystemClock } from "../../platform/clock/index.js";
+import { JsonLineStdoutSink, StructuredLogger } from "../../platform/logging/index.js";
 import type { ReceptionMembershipEvent } from "../../modules/community/reception-membership.js";
 import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { OutboundMessageReceipt } from "../../modules/messaging/ports.js";
@@ -72,6 +74,8 @@ const silentLogger: BaileysLoggerLike = {
 };
 
 const productionSocketFactory: BaileysSocketFactory = (config) => makeSocket(config);
+
+const deliveryLogger = new StructuredLogger(new SystemClock(), new JsonLineStdoutSink());
 
 function statusCodeFromError(error: unknown): number | null {
   if (typeof error !== "object" || error === null) return null;
@@ -484,31 +488,27 @@ export class BaileysWhatsAppAdapter implements WhatsAppAdapter {
 
     socket.ev.on("message-receipt.update", (event) => {
       for (const context of messageReceiptDiagnostics(event)) {
-        process.stdout.write(
-          `${JSON.stringify({
-            timestamp: new Date().toISOString(),
-            level: "INFO",
-            event: "whatsapp.outgoing.receipt",
-            correlationId: null,
-            causationId: null,
-            context,
-          })}\n`,
-        );
+        deliveryLogger.log("INFO", "whatsapp.outgoing.receipt", {
+          source: context.source,
+          destinationHash: createHash("sha256").update(context.destinationRef).digest("hex"),
+          messageId: context.messageId,
+          ack: context.ack,
+          providerTimestamp: context.providerTimestamp,
+          status: context.status,
+        });
       }
     });
 
     socket.ev.on("messages.update", (event) => {
       for (const context of messageUpdateDiagnostics(event)) {
-        process.stdout.write(
-          `${JSON.stringify({
-            timestamp: new Date().toISOString(),
-            level: "INFO",
-            event: "whatsapp.outgoing.status",
-            correlationId: null,
-            causationId: null,
-            context,
-          })}\n`,
-        );
+        deliveryLogger.log("INFO", "whatsapp.outgoing.status", {
+          source: context.source,
+          destinationHash: createHash("sha256").update(context.destinationRef).digest("hex"),
+          messageId: context.messageId,
+          ack: context.ack,
+          providerTimestamp: context.providerTimestamp,
+          status: context.status,
+        });
       }
     });
 
