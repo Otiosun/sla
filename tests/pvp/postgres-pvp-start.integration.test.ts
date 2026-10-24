@@ -526,13 +526,9 @@ describe("PVP START PostgreSQL atomicity", () => {
     );
   }, 30_000);
 
-
   it("simulates two distinct trainers through messages, waiting, restart, resolution and surrender", async () => {
     const fixture = await seedAcceptedMatch(pool, catalog, [20, 18], [20, 17]);
-    const started = await new PostgresPvpStartRepository(
-      pool,
-      new CountingSeedProvider(),
-    ).start({
+    const started = await new PostgresPvpStartRepository(pool, new CountingSeedProvider()).start({
       challengeId: fixture.challengeId,
       actorPlayerId: fixture.targetPlayerId,
       startedAt: new Date("2026-10-24T18:00:00.000Z"),
@@ -676,16 +672,15 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(initial.rows[0]?.status).toBe("COMMITTED");
 
     await send("trainer-one@s.whatsapp.net", "/desistir", "pvp-surrender-a");
-    const ending = await pool.query<{ status: string }>(
-      "SELECT status FROM battles WHERE id=$1",
-      [battleId],
-    );
+    const ending = await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [
+      battleId,
+    ]);
     expect(ending.rows[0]?.status).toBe("LOST");
-    expect(await runtime.service.receive(incoming(
-      "trainer-one@s.whatsapp.net",
-      "/desistir",
-      "pvp-surrender-a",
-    ))).toMatchObject({ ok: true, value: { status: "REPLAYED" } });
+    expect(
+      await runtime.service.receive(
+        incoming("trainer-one@s.whatsapp.net", "/desistir", "pvp-surrender-a"),
+      ),
+    ).toMatchObject({ ok: true, value: { status: "REPLAYED" } });
     const battles = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM battles WHERE encounter_id=$1",
       [fixture.encounterId],
