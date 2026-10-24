@@ -23,8 +23,8 @@ describe("Premium XP2x scope", () => {
       "const offeredXp = multiplyEarnedXp(baseOfferedXp, pokemonXpMultiplier);",
     );
     expect(battleSection).toContain("xpMultiplier: pokemonXpMultiplier,");
-    expect(battleSection).toContain(
-      "input.progression.trainer.pointsPerWonBattle, input.xpMultiplier",
+    expect(battleSection).toMatch(
+      /input\.progression\.trainer\.pointsPerWonBattle,\s*input\.xpMultiplier/,
     );
     expect(battleSection).not.toContain("pokemonXpMultiplier * pokemonXpMultiplier");
   });
