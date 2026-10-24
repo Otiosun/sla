@@ -14,9 +14,10 @@ export function eligibleEarnedTrainerAdjustment(input: {
   readonly actorType: "SYSTEM" | "ADMIN";
   readonly sourceType: string;
 }): boolean {
-  return input.delta > 0 && (
-    input.actorType === "SYSTEM" ||
-    (input.actorType === "ADMIN" && input.sourceType === "ADMIN_REWARD")
+  return (
+    input.delta > 0 &&
+    (input.actorType === "SYSTEM" ||
+      (input.actorType === "ADMIN" && input.sourceType === "ADMIN_REWARD"))
   );
 }
 
