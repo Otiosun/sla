@@ -594,12 +594,12 @@ describe("PVP START PostgreSQL atomicity", () => {
         openChallengeIdForTarget: async (playerId: string) =>
           challengeRepo.read(async (t) => (await t.openChallengeForTarget(playerId))?.id ?? null),
         actionableChallengeIdForTarget: async (playerId: string) =>
-          challengeRepo.read(async (t) =>
-            (await t.actionableChallengeForTarget(playerId))?.id ?? null,
+          challengeRepo.read(
+            async (t) => (await t.actionableChallengeForTarget(playerId))?.id ?? null,
           ),
         openChallengeIdForChallenger: async (playerId: string) =>
-          challengeRepo.read(async (t) =>
-            (await t.openChallengeForChallenger(playerId))?.id ?? null,
+          challengeRepo.read(
+            async (t) => (await t.openChallengeForChallenger(playerId))?.id ?? null,
           ),
         externalRefForPlayer: async (playerId: string) =>
           [...refs.entries()].find(([, id]) => id === playerId)?.[0] ?? null,
@@ -693,12 +693,9 @@ describe("PVP START PostgreSQL atomicity", () => {
       ).rows[0]?.count;
 
     groupCapabilities = ["pve"];
-    const blocked = await send(
-      "policy-deny-group",
-      challengerRef,
-      "/desafiar @shadow-target",
-      [targetRef],
-    );
+    const blocked = await send("policy-deny-group", challengerRef, "/desafiar @shadow-target", [
+      targetRef,
+    ]);
     expect(String(blocked[0]?.payload.text)).toContain("não está habilitado");
     expect(await countChallenges()).toBe("0");
 
@@ -714,12 +711,9 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(await countChallenges()).toBe("0");
 
     ready = true;
-    const invited = await send(
-      "policy-challenge",
-      challengerRef,
-      "/desafiar @shadow-target",
-      [targetRef],
-    );
+    const invited = await send("policy-challenge", challengerRef, "/desafiar @shadow-target", [
+      targetRef,
+    ]);
     expect(String(invited[0]?.payload.text)).toContain("𝗗𝗘𝗦𝗔𝗙𝗜𝗢");
     expect(String(invited[0]?.payload.text)).toContain("`/aceitar`");
     expect(await countChallenges()).toBe("1");
@@ -759,10 +753,9 @@ describe("PVP START PostgreSQL atomicity", () => {
       [row?.encounter_id],
     );
     expect(battleCount.rows[0]?.count).toBe("1");
-    const stopped = await pool.query<{ status: string }>(
-      "SELECT status FROM battles WHERE id=$1",
-      [battleId],
-    );
+    const stopped = await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [
+      battleId,
+    ]);
     expect(stopped.rows[0]?.status).toBe("LOST");
   }, 45_000);
 
