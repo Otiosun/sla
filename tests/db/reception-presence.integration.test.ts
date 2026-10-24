@@ -32,10 +32,7 @@ describe.sequential("PostgresReceptionPresenceRepository", () => {
 
   afterAll(async () => {
     await pool.end();
-    await adminPool.query(
-      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-      [dbName],
-    );
+    // Drop only after the owned pool has closed; never force backend termination.
     await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }, 30_000);

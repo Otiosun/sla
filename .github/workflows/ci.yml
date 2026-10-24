@@ -105,7 +105,9 @@ jobs:
           fi
 
       - name: Unit and PostgreSQL integration tests
-        run: pnpm test
+        # Isolated disposable databases are created/dropped by file-level suites.
+        # Serialize files to prevent cross-suite PostgreSQL teardown races (57P01).
+        run: pnpm exec vitest run --no-file-parallelism
 
       - name: Run Phase 16 PostgreSQL transaction retry proof
         run: node --import tsx db/proofs/phase16_postgres_retry_e2e.ts

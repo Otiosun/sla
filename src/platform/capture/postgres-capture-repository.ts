@@ -95,6 +95,18 @@ class PostgresCaptureTransaction implements CaptureTransaction {
     private readonly turnWindowTtlMs?: number,
   ) {}
 
+  public async captureLuckMultiplier(player: PlayerId): Promise<1 | 2> {
+    const result = await this.client.query<{ multiplier: number }>(
+      `SELECT premium_capture_luck_multiplier_for($1, now())::int AS multiplier`,
+      [player],
+    );
+    const multiplier = result.rows[0]?.multiplier;
+    if (multiplier !== 1 && multiplier !== 2) {
+      throw new Error("Capture Luck entitlement returned an invalid multiplier");
+    }
+    return multiplier;
+  }
+
   public async findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null> {
     const result = await this.client.query<{
       id: string;

@@ -307,13 +307,19 @@ export class CaptureService {
 
         const target = capturedState(context);
         if (!target.ok) return target;
+        // Resolve the permanent entitlement within the durable capture transaction.
+        // Never accept a caller-controlled Luck multiplier.
+        const luckMultiplier = (await transaction.captureLuckMultiplier?.(input.playerId)) ?? 1;
         const probabilityInput = CaptureProbabilityInputSchema.safeParse({
           catchRate: context.catchRate,
           currentHp: target.value.currentHp,
           maxHp: context.encounterSnapshot.maxHp,
           ballMultiplierBasisPoints: ball.data.multiplierBasisPoints,
           status: target.value.majorStatus,
-          explicitModifierBasisPoints: context.explicitModifierBasisPoints,
+          explicitModifierBasisPoints: [
+            ...context.explicitModifierBasisPoints,
+            ...(luckMultiplier === 2 ? [20_000] : []),
+          ],
           ruleset: {
             model: ruleset.data.capture.model,
             maxProbabilityBasisPoints: ruleset.data.capture.maxProbabilityBasisPoints,

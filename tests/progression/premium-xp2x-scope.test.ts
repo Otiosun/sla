@@ -6,39 +6,40 @@ const source = readFileSync(
   "utf8",
 );
 
-describe("Premium XP2x progression scope", () => {
-  it("is wired only into automatic Pokemon battle XP", () => {
-    const battleStart = source.indexOf("public async applyBattleReward");
+describe("Premium XP2x scope", () => {
+  const battleStart = source.indexOf("public async applyBattleReward");
+  const pokemonAdjustStart = source.indexOf("public async adjustPokemonXp");
+  const trainerAdjustStart = source.indexOf("public async adjustTrainerProgress");
+  const battleSection = source.slice(battleStart, pokemonAdjustStart);
+  const pokemonCorrection = source.slice(pokemonAdjustStart, trainerAdjustStart);
+  const trainerAdjustment = source.slice(trainerAdjustStart);
 
-    const adjustmentStart = source.indexOf("public async adjustPokemonXp");
-
+  it("applies Premium multiplier once to earned Pokemon AND trainer battle progression", () => {
     expect(battleStart).toBeGreaterThanOrEqual(0);
-    expect(adjustmentStart).toBeGreaterThan(battleStart);
-
-    const battleSection = source.slice(battleStart, adjustmentStart);
-
-    const adjustmentSection = source.slice(adjustmentStart);
-
+    expect(pokemonAdjustStart).toBeGreaterThan(battleStart);
     expect(battleSection.match(/pokemon_battle_xp_multiplier_for/g) ?? []).toHaveLength(1);
-
     expect(battleSection).toContain("const baseOfferedXp = battlePokemonXp");
-
-    expect(battleSection).toContain("const offeredXp = baseOfferedXp * pokemonXpMultiplier;");
-
-    expect(battleSection).toContain("const trainerResult = await this.applyTrainerBattleReward");
-
-    expect(adjustmentSection).not.toContain("pokemon_battle_xp_multiplier_for");
+    expect(battleSection).toContain(
+      "const offeredXp = multiplyEarnedXp(baseOfferedXp, pokemonXpMultiplier);",
+    );
+    expect(battleSection).toContain("xpMultiplier: pokemonXpMultiplier,");
+    expect(battleSection).toMatch(
+      /input\.progression\.trainer\.pointsPerWonBattle,\s*input\.xpMultiplier/,
+    );
+    expect(battleSection).not.toContain("pokemonXpMultiplier * pokemonXpMultiplier");
   });
 
-  it("never expresses a stack above 2x", () => {
-    const battleStart = source.indexOf("public async applyBattleReward");
+  it("keeps corrective Pokemon XP edits outside Premium scaling", () => {
+    expect(pokemonAdjustStart).toBeGreaterThan(battleStart);
+    expect(trainerAdjustStart).toBeGreaterThan(pokemonAdjustStart);
+    expect(pokemonCorrection).not.toContain("pokemon_battle_xp_multiplier_for");
+  });
 
-    const adjustmentStart = source.indexOf("public async adjustPokemonXp");
-
-    const battleSection = source.slice(battleStart, adjustmentStart);
-
-    expect(battleSection).toContain("pokemonXpMultiplier !== 1 && pokemonXpMultiplier !== 2");
-
-    expect(battleSection).not.toContain("pokemonXpMultiplier * pokemonXpMultiplier");
+  it("separates earned trainer gifts from corrective admin adjustments", () => {
+    expect(trainerAdjustment).toContain("eligibleEarnedTrainerAdjustment");
+    expect(trainerAdjustment).toContain("input.metadata.actorType");
+    expect(trainerAdjustment).toContain("input.metadata.sourceType");
+    expect(trainerAdjustment).toContain("appliedDelta = multiplyEarnedXp(input.delta, multiplier)");
+    expect(trainerAdjustment).toContain("requestedDelta: input.delta");
   });
 });

@@ -112,7 +112,9 @@ FROM (VALUES
   ('competitive_spawn_attempts'),
   ('competitive_spawn_grants'),
   ('competitive_spawn_activity_receipts'),
-  ('competitive_spawn_reward_intents')
+  ('competitive_spawn_reward_intents'),
+  ('premium_support_events'),
+  ('premium_delivery_case_events')
 ) AS protected(protected_table)
 WHERE to_regclass('public.' || protected_table) IS NOT NULL
 \gexec
@@ -196,7 +198,9 @@ SELECT format(
         'competitive_spawn_attempts',
         'competitive_spawn_grants',
         'competitive_spawn_activity_receipts',
-        'competitive_spawn_reward_intents'
+        'competitive_spawn_reward_intents',
+        'premium_support_events',
+        'premium_delivery_case_events'
       ]) AS protected(table_name)
       WHERE to_regclass('public.' || table_name) IS NOT NULL
         AND (

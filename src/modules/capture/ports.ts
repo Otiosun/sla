@@ -77,6 +77,8 @@ export type CaptureBattleTurnClaimResult =
     };
 
 export interface CaptureTransaction {
+  /** Server-computed Luck 2x; optional for legacy synthetic repositories. */
+  captureLuckMultiplier?(playerId: PlayerId): Promise<1 | 2>;
   findAttempt(idempotencyStorageKey: string): Promise<CaptureAttemptRecord | null>;
   loadContext(
     playerId: PlayerId,
