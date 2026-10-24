@@ -1854,6 +1854,21 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         return { kind: "RESOLVED", result };
       }
 
+      // Do not replace a distinct occupied slot with a move already known.
+      // This transaction locks the Pokemon row across concurrent move choices.
+      const alreadyKnown = await client.query(
+        `SELECT 1 FROM pokemon_move_slots
+         WHERE pokemon_instance_id = $1 AND move_id = $2
+         LIMIT 1`,
+        [row.pokemon_instance_id, row.move_id],
+      );
+      if (alreadyKnown.rows.length > 0) {
+        return {
+          kind: "CONFLICT",
+          reason: "Pokemon already knows the move offered by this pending choice",
+        };
+      }
+
       const move = await client.query<{ max_pp: number | null }>(
         `SELECT max_pp FROM move_revisions
          WHERE content_release_id = $1 AND move_id = $2`,
