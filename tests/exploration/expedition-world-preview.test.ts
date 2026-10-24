@@ -54,9 +54,11 @@ describe("exploration World preview composition", () => {
   });
 
   it("does not query catalog if World denies the player", async () => {
-    const getLocation = vi.fn().mockResolvedValue(
-      err(appError("PLAYER_INELIGIBLE", "Player cannot read their current World location")),
-    );
+    const getLocation = vi
+      .fn()
+      .mockResolvedValue(
+        err(appError("PLAYER_INELIGIBLE", "Player cannot read their current World location")),
+      );
     const forActiveRelease = vi.fn();
     const preview = new ExpeditionWorldPreview({ getLocation }, { forActiveRelease });
     expect(await preview.inspect(playerId)).toMatchObject({
