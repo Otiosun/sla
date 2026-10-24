@@ -13,7 +13,10 @@ describe("Premium Pokémon starting move chronology", () => {
 
   it("selects the most recent four eligible moves", () => {
     expect(selectRecentLevelMoves(moves, 20).map((m) => m.moveId)).toEqual([
-      "second", "third", "fourth", "fifth",
+      "second",
+      "third",
+      "fourth",
+      "fifth",
     ]);
   });
 
@@ -30,7 +33,10 @@ describe("Premium Pokémon starting move chronology", () => {
     const result = selectRecentLevelMoves(unordered, 20);
     expect(result.map((m) => m.moveId)).toEqual(["third", "fourth", "start", "fifth"]);
     expect(selectRecentLevelMoves(unordered, 10).map((m) => m.moveId)).toEqual([
-      "start", "first", "second", "third",
+      "start",
+      "first",
+      "second",
+      "third",
     ]);
     expect(unordered[0]?.moveId).toBe("fifth");
   });
