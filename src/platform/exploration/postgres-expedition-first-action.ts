@@ -268,7 +268,10 @@ export class PostgresExpeditionFirstAction {
           [input.playerId, input.expeditionId],
         );
         const originalRow = rows.rows[0];
-        if (originalRow === undefined || originalRow.phase !== (firstAction ? "PREPARING" : "ACTIVE")) {
+        if (
+          originalRow === undefined ||
+          originalRow.phase !== (firstAction ? "PREPARING" : "ACTIVE")
+        ) {
           return blocked("Action requires the expected expedition phase");
         }
         const expedition = snapshot(originalRow);
@@ -311,7 +314,10 @@ export class PostgresExpeditionFirstAction {
           [input.playerId],
         );
         const afterLocation = after.rows[0];
-        if (afterLocation === undefined || !published.encounterReadyAreaIds.includes(afterLocation.area_id)) {
+        if (
+          afterLocation === undefined ||
+          !published.encounterReadyAreaIds.includes(afterLocation.area_id)
+        ) {
           throw new RollbackAction(
             appError("FLOW_BLOCKED", "Action left the trainer outside published exploration"),
           );
