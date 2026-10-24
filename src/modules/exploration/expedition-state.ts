@@ -14,7 +14,10 @@ export interface ExpeditionSnapshot {
   readonly expeditionId: string;
   readonly playerId: string;
   readonly period: ExpeditionPeriod;
+  /** Immutable expedition origin, never rewritten by travel. */
   readonly areaId: string;
+  /** Persisted World location cursor, updated atomically with travel. */
+  readonly currentAreaId: string;
   readonly phase: ExpeditionPhase;
   readonly elapsedMinutes: number;
   readonly consumedWeekKey: string | null;
