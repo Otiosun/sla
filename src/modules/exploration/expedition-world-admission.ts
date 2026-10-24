@@ -81,10 +81,7 @@ export function inspectExplorationWorld(input: {
     );
   }
 
-  if (
-    location.regionSlug !== "zhoulia" ||
-    !LAUNCH_AREA_SLUGS.has(location.areaSlug)
-  ) {
+  if (location.regionSlug !== "zhoulia" || !LAUNCH_AREA_SLUGS.has(location.areaSlug)) {
     return blocked(
       "Area is outside the initial individual-exploration scope",
       "Esta área ainda não foi liberada para exploração individual.",
