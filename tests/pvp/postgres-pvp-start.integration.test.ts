@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { EncounterSeedProvider, SeedMaterial } from "../../src/modules/encounter/ports.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../../src/platform/pvp/postgres-pvp-start-repository.js";
 
 const databaseUrl = (() => {
@@ -383,6 +384,10 @@ describe("PVP START PostgreSQL atomicity", () => {
       [fixture.challengeId],
     );
     expect(challenge.rows[0]).toEqual({ status: "STARTED", battle_id: battleId });
+    const pending = await new PostgresPvpChallengeRepository(pool).read((transaction) =>
+      transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+    );
+    expect(pending).toBeNull();
 
     const encounter = await pool.query<{ status: string }>(
       "SELECT status FROM encounters WHERE id = $1",
@@ -556,5 +561,39 @@ describe("PVP START PostgreSQL atomicity", () => {
       [fixture.encounterId],
     );
     expect(battleCount.rows[0]?.count).toBe("0");
+
+    // Retry the same accepted encounter after the failed transaction is gone.
+    const challenges = new PostgresPvpChallengeRepository(pool);
+    const resumable = await challenges.read((transaction) =>
+      transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+    );
+    expect(resumable?.id).toBe(fixture.challengeId);
+    expect(resumable?.status).toBe("ACCEPTED");
+    const resumed = await repository.start({
+      challengeId: fixture.challengeId,
+      actorPlayerId: fixture.targetPlayerId,
+      startedAt: new Date("2026-08-31T12:03:00.000Z"),
+      deadlineAt: new Date("2026-08-31T12:08:00.000Z"),
+    });
+    expect(resumed.ok).toBe(true);
+    if (!resumed.ok) return;
+    const restarted = await repository.start({
+      challengeId: fixture.challengeId,
+      actorPlayerId: fixture.targetPlayerId,
+      startedAt: new Date("2026-08-31T12:03:00.000Z"),
+      deadlineAt: new Date("2026-08-31T12:08:00.000Z"),
+    });
+    expect(restarted).toMatchObject({
+      ok: true,
+      value: { battleId: resumed.value.battleId, replayed: true },
+    });
+    expect(await challenges.read((transaction) =>
+      transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+    )).toBeNull();
+    const finalBattleCount = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM battles WHERE encounter_id = $1",
+      [fixture.encounterId],
+    );
+    expect(finalBattleCount.rows[0]?.count).toBe("1");
   }, 30_000);
 });
