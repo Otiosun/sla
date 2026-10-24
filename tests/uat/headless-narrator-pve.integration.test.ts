@@ -522,6 +522,30 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
       initialState?.combatants?.filter((entry) => entry.participantKind === "WILD_POKEMON"),
     ).toHaveLength(2);
 
+    // Read the actual routed WhatsApp /batalha message before the player's capture.
+    // The same disposable database, access policy and Outbox are used end to end.
+    const playerHud = normalizeBaileysMessage(
+      rawInbound({
+        id: "wamid-headless-battle-hud",
+        sender: PLAYER_LID,
+        text: "/batalha",
+      }) as never,
+      aliases,
+    );
+    expect(playerHud).not.toBeNull();
+    if (playerHud === null) return;
+    expect(await activeRuntime.messaging.receive(playerHud)).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED" },
+    });
+    expect(await activeRuntime.worker.runOnce()).toMatchObject({ failed: 0, sent: 1 });
+    const hudMessage = delivered
+      .map((message) => message.payload.text)
+      .find((text) => typeof text === "string" && text.includes("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*"));
+    expect(hudMessage).toContain("`/moves`");
+    expect(hudMessage).toContain("`/movimento <número>`");
+    expect(hudMessage).not.toContain("`/trocar <número>`");
+
     const capture = normalizeBaileysMessage(
       rawInbound({
         id: "wamid-headless-capture",
@@ -668,7 +692,7 @@ describe.sequential("headless narrator -> multi-spawn -> PVE -> capture/flee UAT
     );
     expect(outbox.rows).toEqual([
       { status: "PENDING", count: "1" },
-      { status: "SENT", count: "6" },
+      { status: "SENT", count: "7" },
     ]);
   }, 60_000);
 });
