@@ -15,12 +15,16 @@ import { appError, err, ok, type AppError, type Result } from "../../shared-kern
 const scope = parseIdempotencyScope("solo.exploration.first-action");
 if (!scope.ok) throw new Error("Invalid first-action scope");
 const firstActionScope = scope.value;
+const continuingScope = parseIdempotencyScope("solo.exploration.next-action");
+if (!continuingScope.ok) throw new Error("Invalid continuing-action scope");
+const nextActionScope = continuingScope.value;
 
 interface StoredExpeditionRow {
   readonly id: string;
   readonly player_id: string;
   readonly period: "DAY" | "NIGHT";
   readonly area_id: string;
+  readonly current_area_id: string;
   readonly phase: "PREPARING" | "ACTIVE" | "ENDED";
   readonly elapsed_minutes: number;
   readonly consumed_week_key: string | null;
@@ -30,7 +34,7 @@ interface StoredExpeditionRow {
 
 interface FirstActionStoredResult {
   readonly expedition: Omit<ExpeditionSnapshot, "revision"> & { readonly revision: string };
-  readonly consumedWeeklySlot: true;
+  readonly consumedWeeklySlot: boolean;
   readonly changed: true;
   readonly effectResult: unknown;
 }
@@ -82,7 +86,7 @@ export interface FirstActionInput {
 
 export interface FirstActionOutcome {
   readonly expedition: ExpeditionSnapshot;
-  readonly consumedWeeklySlot: true;
+  readonly consumedWeeklySlot: boolean;
   readonly changed: true;
   readonly effectResult: unknown;
   readonly replayed: boolean;
@@ -104,6 +108,7 @@ function snapshot(row: StoredExpeditionRow): ExpeditionSnapshot {
     playerId: row.player_id,
     period: row.period,
     areaId: row.area_id,
+    currentAreaId: row.current_area_id,
     phase: row.phase,
     elapsedMinutes: row.elapsed_minutes,
     consumedWeekKey: row.consumed_week_key,
@@ -141,8 +146,23 @@ export class PostgresExpeditionFirstAction {
   }
 
   public async execute(input: FirstActionInput): Promise<Result<FirstActionOutcome>> {
+    return this.executeAction(input, true);
+  }
+
+  /** Continue an ACTIVE expedition without spending another weekly slot. */
+  public async executeNext(input: FirstActionInput): Promise<Result<FirstActionOutcome>> {
+    return this.executeAction(input, false);
+  }
+
+  private async executeAction(
+    input: FirstActionInput,
+    firstAction: boolean,
+  ): Promise<Result<FirstActionOutcome>> {
     const { effect } = input;
-    const key = createIdempotencyKey(firstActionScope, input.idempotencyKey);
+    const key = createIdempotencyKey(
+      firstAction ? firstActionScope : nextActionScope,
+      input.idempotencyKey,
+    );
     if (!key.ok) return key;
     if (
       !/^[a-z][a-z0-9._:-]{1,95}$/.test(effect.actionKey) ||
@@ -156,7 +176,7 @@ export class PostgresExpeditionFirstAction {
       return err(appError("VALIDATION_FAILED", "Invalid canonical expedition action"));
     }
     const digest = fingerprint([
-      "WORLD_FIRST_ACTION",
+      firstAction ? "WORLD_FIRST_ACTION" : "WORLD_NEXT_ACTION",
       input.expeditionId,
       input.expectedRevision.toString(),
       input.expectedLocationRevision.toString(),
@@ -241,18 +261,19 @@ export class PostgresExpeditionFirstAction {
           return blocked("Trainer already has an encounter or battle");
 
         const rows = await client.query<StoredExpeditionRow>(
-          `SELECT id::text,player_id::text,period,area_id::text,phase,
+          `SELECT id::text,player_id::text,period,area_id::text,
+                  COALESCE(current_area_id,area_id)::text AS current_area_id,phase,
                   elapsed_minutes,consumed_week_key::text,end_reason,revision::text
              FROM solo_expeditions WHERE player_id=$1 AND id=$2 FOR UPDATE`,
           [input.playerId, input.expeditionId],
         );
         const originalRow = rows.rows[0];
-        if (originalRow === undefined || originalRow.phase !== "PREPARING") {
-          return blocked("First action requires a prepared expedition");
+        if (originalRow === undefined || originalRow.phase !== (firstAction ? "PREPARING" : "ACTIVE")) {
+          return blocked("Action requires the expected expedition phase");
         }
         const expedition = snapshot(originalRow);
-        if (expedition.areaId !== currentLocation.area_id) {
-          return blocked("World location and prepared expedition area differ");
+        if (expedition.currentAreaId !== currentLocation.area_id) {
+          return blocked("World location diverged from expedition's persisted cursor");
         }
 
         const weekKey = expeditionWeekKey(this.clock.now(), this.timeZone);
@@ -269,30 +290,8 @@ export class PostgresExpeditionFirstAction {
           consumedThisWeek: Number(used.rows[0]?.count ?? "0"),
         });
         if (!transition.ok) return transition;
-        if (!transition.value.changed || !transition.value.consumedWeeklySlot) {
-          return blocked("First expedition action must consume exactly one slot");
-        }
-
-        const update = await client.query(
-          `UPDATE solo_expeditions
-              SET phase=$3,elapsed_minutes=$4,consumed_week_key=$5::date,
-                  end_reason=$6,revision=$7::bigint,updated_at=now()
-            WHERE id=$1 AND player_id=$2 AND revision=$8::bigint`,
-          [
-            input.expeditionId,
-            input.playerId,
-            transition.value.expedition.phase,
-            transition.value.expedition.elapsedMinutes,
-            transition.value.expedition.consumedWeekKey,
-            transition.value.expedition.endReason,
-            transition.value.expedition.revision.toString(),
-            input.expectedRevision.toString(),
-          ],
-        );
-        if (update.rowCount !== 1) {
-          throw new RollbackAction(
-            appError("REVISION_CONFLICT", "Expedition update lost its revision"),
-          );
+        if (!transition.value.changed || transition.value.consumedWeeklySlot !== firstAction) {
+          return blocked("Expedition action quota transition is inconsistent");
         }
 
         const result = await effect.apply(client, {
@@ -305,12 +304,51 @@ export class PostgresExpeditionFirstAction {
         });
         if (!result.ok) throw new RollbackAction(result.error);
 
+        // World is authoritative for current position; retain original areaId
+        // separately as immutable expedition history.
+        const after = await client.query<WorldLocationRow>(
+          `SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1`,
+          [input.playerId],
+        );
+        const afterLocation = after.rows[0];
+        if (afterLocation === undefined || !published.encounterReadyAreaIds.includes(afterLocation.area_id)) {
+          throw new RollbackAction(
+            appError("FLOW_BLOCKED", "Action left the trainer outside published exploration"),
+          );
+        }
+        const nextSnapshot = {
+          ...transition.value.expedition,
+          currentAreaId: afterLocation.area_id,
+        };
+        const update = await client.query(
+          `UPDATE solo_expeditions
+              SET phase=$3,elapsed_minutes=$4,consumed_week_key=$5::date,
+                  end_reason=$6,revision=$7::bigint,current_area_id=$9::uuid,updated_at=now()
+            WHERE id=$1 AND player_id=$2 AND revision=$8::bigint`,
+          [
+            input.expeditionId,
+            input.playerId,
+            nextSnapshot.phase,
+            nextSnapshot.elapsedMinutes,
+            nextSnapshot.consumedWeekKey,
+            nextSnapshot.endReason,
+            nextSnapshot.revision.toString(),
+            input.expectedRevision.toString(),
+            nextSnapshot.currentAreaId,
+          ],
+        );
+        if (update.rowCount !== 1) {
+          throw new RollbackAction(
+            appError("REVISION_CONFLICT", "Expedition update lost its revision"),
+          );
+        }
+
         const stored: FirstActionStoredResult = {
           expedition: {
-            ...transition.value.expedition,
-            revision: transition.value.expedition.revision.toString(),
+            ...nextSnapshot,
+            revision: nextSnapshot.revision.toString(),
           },
-          consumedWeeklySlot: true,
+          consumedWeeklySlot: transition.value.consumedWeeklySlot,
           changed: true,
           effectResult: result.value,
         };
