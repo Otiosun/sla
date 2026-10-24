@@ -15,7 +15,14 @@ const CATEGORIES = ["src", "db", "tests", "docs", "scripts", "assets", "other"];
 function runGit(cwd, args) {
   const result = spawnSync(
     "git",
-    ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", ...args],
+    [
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
+      ...args,
+    ],
     {
       cwd,
       encoding: "utf8",
