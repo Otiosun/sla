@@ -57,10 +57,9 @@ function harness() {
     inspect: vi.fn().mockResolvedValue(ok(activeView)),
   };
   const authorize = vi.fn().mockResolvedValue(ok(undefined));
-  const router = new MessageRouter(
-    createExplorationRotomWhatsAppRoutes({ players, preview }),
-    { authorize },
-  );
+  const router = new MessageRouter(createExplorationRotomWhatsAppRoutes({ players, preview }), {
+    authorize,
+  });
   return { players, preview, authorize, router };
 }
 
