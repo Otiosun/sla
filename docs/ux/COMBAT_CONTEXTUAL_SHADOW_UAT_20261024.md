@@ -20,3 +20,14 @@ Turno já enviado: não repete comandos como se a pessoa ainda pudesse agir. Tro
 
 ## Modelo de publicação
 Produção permanece no seu PM2 atual. A versão invisível é a branch/PR candidata e seu banco **separado, descartável**, não um segundo cliente Baileys. Só integrar em runtime ativo após fechamento de checklist, UAT de sessão real em local apropriado, backup restaurável e autorização editorial.
+
+
+## PvP: recuperação de convite aceito antes de iniciar a batalha
+
+Fluxo: `/desafiar @treinador` → `/aceitar` → criação do Encounter ACCEPTED → inicialização da batalha STARTED. São duas transações distintas; a segunda pode falhar mesmo que a primeira já tenha sido confirmada. Antes, a busca do `/aceitar` filtrava somente `OPEN` e ocultava o `ACCEPTED`, bloqueando uma recuperação pelo próprio jogador.
+
+- `actionableChallengeForTarget` aceita `OPEN` ou `ACCEPTED` apenas quando `battle_id IS NULL`; privilegia ACCEPTED; **não** torna STARTED, DECLINED, CANCELLED ou EXPIRED elegíveis.
+- `/aceitar` usa a nova consulta, reaproveita o replay do `PvpService.acceptChallenge` e o start serializável do repositório. `/recusar` continua consultando apenas `OPEN`, e `/cancelar` depende da identidade do desafiante.
+- Em `REVISION_CONFLICT` após aceitação, a mensagem orienta usar `/aceitar` novamente; IDs e dados de outro treinador não são expostos.
+- Testes: lookup PostgreSQL OPEN/ACCEPTED, rollback artificial do START, recuperação com uma única batalha persistida, STARTED não oferecido novamente, conversas roteadas para aceita/recusa/cancelamento, política de grupo negada e sigilo dos IDs.
+- O conjunto ainda **não substitui** UAT real de sessão WhatsApp ou a prova de restore da instalação Windows.
