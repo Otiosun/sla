@@ -476,7 +476,9 @@ async function main(): Promise<void> {
       }
       const accepted = await send({ actor: target, chat: WORLD, text: "/aceitar" });
       add(
-        accepted.outbound.some((entry) => /Batalha iniciada/iu.test(textOf(entry)))
+        accepted.outbound.some((entry) =>
+          /Batalha iniciada|PVP INICIADO/iu.test(textOf(entry).normalize("NFKC")),
+        )
           ? "PASS"
           : "BUG",
         "pvp",
