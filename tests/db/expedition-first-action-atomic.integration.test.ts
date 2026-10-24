@@ -31,6 +31,7 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
   const areaId = randomUUID();
   const yunId = randomUUID();
   const connectionId = randomUUID();
+  const reverseConnectionId = randomUUID();
   const speciesId = randomUUID();
   const formId = randomUUID();
   const timestamp = new Date("2026-10-19T12:00:00Z");
@@ -110,7 +111,23 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
         randomUUID(),
         releaseId,
         connectionId,
-        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] }),
+        // Synthetic fixture value only: not the actual reviewed Vila/Yun cost.
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], explorationMinutes: 30 }),
+      ],
+    );
+    await pool.query(
+      "INSERT INTO area_connections(id,from_area_id,to_area_id,connection_key) VALUES($1,$2,$3,'yun-to-vila')",
+      [reverseConnectionId, yunId, areaId],
+    );
+    await pool.query(
+      `INSERT INTO area_connection_revisions(id,content_release_id,connection_id,active,access_rule)
+       VALUES($1,$2,$3,TRUE,$4::jsonb)`,
+      [
+        randomUUID(),
+        releaseId,
+        reverseConnectionId,
+        // Real-time cooldown is not an expedition-duration policy.
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], travelSeconds: 180 }),
       ],
     );
     await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,'normal')", [typeId]);
@@ -180,7 +197,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
   }
 
-  async function prepared(key: string): Promise<{
+  async function prepared(
+    key: string,
+    startAreaId = areaId,
+  ): Promise<{
     playerId: PlayerId;
     expeditionId: string;
   }> {
@@ -192,7 +212,7 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
     await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES($1,$2)", [
       playerId,
-      areaId,
+      startAreaId,
     ]);
     const start = await store.prepare({ playerId, period: "DAY", idempotencyKey: key });
     if (!start.ok) throw start.error;
@@ -424,6 +444,7 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
           fromAreaId: areaId,
           toAreaId: yunId,
           worldRevision: "1",
+          expeditionMinutes: 30,
         },
       },
     });
@@ -501,5 +522,44 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       error: { code: "FLOW_BLOCKED" },
     });
     expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+  });
+  it("rejects an arbitrary travel-minute charge even when World would permit the route", async () => {
+    const subject = await prepared("mismatched-route-minutes");
+    const effect = canonicalWorldTravelEffect({
+      destinationAreaId: yunId,
+      expectedLocationRevision: 0n,
+      worldFeature: { enabled: true, reason: null },
+      clock: new ManualClock(timestamp),
+    });
+    // The published test connection declares 30, not 29 minutes.
+    expect(
+      await action.execute({ ...input(subject, "wrong-minutes", effect), minutes: 29 }),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+    const world = await pool.query<{ area_id: string }>(
+      "SELECT area_id::text FROM player_locations WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(world.rows[0]?.area_id).toBe(areaId);
+  });
+
+  it("fails closed when connection has only travelSeconds but no explorationMinutes", async () => {
+    const subject = await prepared("cooldown-is-not-route-duration", yunId);
+    const effect = canonicalWorldTravelEffect({
+      destinationAreaId: areaId,
+      expectedLocationRevision: 0n,
+      worldFeature: { enabled: true, reason: null },
+      clock: new ManualClock(timestamp),
+    });
+    expect(await action.execute(input(subject, "missing-minutes", effect))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+    const world = await pool.query<{ area_id: string }>(
+      "SELECT area_id::text FROM player_locations WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(world.rows[0]?.area_id).toBe(yunId);
   });
 });
