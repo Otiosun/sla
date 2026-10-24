@@ -135,8 +135,11 @@ describe("PVP WhatsApp routes", () => {
     if (!result.ok) throw result.error;
     const outgoing = result.value.outgoing[0];
     expect(outgoing?.payload.text).toBe(
-      "✦ *𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢*\n　@111 × @222\n\n> _As ações ficam ocultas até os dois escolherem._\n\n› _Use `/moves` para consultar seus movimentos._",
+      "✦ *𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢*\n　@111 × @222\n\n◇ *𝗦𝗘𝗨 𝗣𝗥𝗜𝗠𝗘𝗜𝗥𝗢 𝗧𝗨𝗥𝗡𝗢*\n\n`/batalha` · Consultar o estado da luta\n`/moves` · Ver seus golpes e PP\n› _Use `/movimento <número>` quando houver golpe disponível._\n› _As escolhas ficam ocultas até a resolução do turno._",
     );
+    expect(outgoing?.payload.text).not.toContain("`/fugir`");
+    expect(outgoing?.payload.text).not.toContain("`/capturar`");
+    expect(outgoing?.payload.text).not.toContain("`/trocar`");
     expect(outgoing?.payload.mentions).toEqual(["111@s.whatsapp.net", "222@s.whatsapp.net"]);
     expect(JSON.stringify(result.value.outgoing)).not.toContain("33333333");
   });
