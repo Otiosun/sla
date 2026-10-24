@@ -94,6 +94,7 @@ export class FishingService {
         appError("ACTION_INVALID", "Daily fishing attempt limit reached", {
           dailyLimit: reservation.dailyLimit,
           remainingAttempts: reservation.remainingAttempts,
+          userMessage: `Você atingiu o limite de ${reservation.dailyLimit} pescarias de hoje. Tente novamente no próximo dia.`,
         }),
       );
     }
