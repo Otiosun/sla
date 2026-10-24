@@ -10,13 +10,19 @@ function run(reservation: object) {
     { createOrReplay },
     { randomFloat: () => 0, randomInt: () => 0 },
   );
-  return { result: service.attempt({ playerId, idempotencyKey: "fishing-safety" }), createOrReplay };
+  return {
+    result: service.attempt({ playerId, idempotencyKey: "fishing-safety" }),
+    createOrReplay,
+  };
 }
 
 describe("Premium fishing player guidance", () => {
   it("explains the daily limit without creating an encounter", async () => {
     const { result, createOrReplay } = run({
-      kind: "DAILY_LIMIT_REACHED", playerId, dailyLimit: 5, remainingAttempts: 0,
+      kind: "DAILY_LIMIT_REACHED",
+      playerId,
+      dailyLimit: 5,
+      remainingAttempts: 0,
     });
     expect(await result).toMatchObject({
       ok: false,
@@ -33,11 +39,16 @@ describe("Premium fishing player guidance", () => {
     ["Unexpected reason", "localização"],
   ])("explains unavailable fishing safely: %s", async (reason, guidance) => {
     const { result, createOrReplay } = run({
-      kind: "FISHING_UNAVAILABLE", playerId, reason,
+      kind: "FISHING_UNAVAILABLE",
+      playerId,
+      reason,
     });
     expect(await result).toMatchObject({
       ok: false,
-      error: { code: "ACTION_INVALID", details: { reason, userMessage: expect.stringContaining(guidance) } },
+      error: {
+        code: "ACTION_INVALID",
+        details: { reason, userMessage: expect.stringContaining(guidance) },
+      },
     });
     expect(createOrReplay).not.toHaveBeenCalled();
   });
