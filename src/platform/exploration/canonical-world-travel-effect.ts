@@ -54,12 +54,26 @@ export function canonicalWorldTravelEffect(input: CanonicalTravelEffectInput): F
         return err(appError("FLOW_BLOCKED", "Destination is outside published exploration areas"));
       }
 
-      // Reuse the entire canonical World mutation inside the OUTER SQL tx.
-      const world = new WorldService(
-        worldRepositoryForClient(client),
-        input.worldFeature,
-        input.clock,
+      // The published connection owns expedition minutes. Never treat the
+      // World real-time travelSeconds cooldown as in-game clock minutes.
+      const repository = worldRepositoryForClient(client);
+      const connection = await repository.read((tx) =>
+        tx.connectionBetween(
+          context.contentReleaseId,
+          context.areaId,
+          input.destinationAreaId,
+        ),
       );
+      const approvedMinutes = connection?.active ? connection.accessRule.explorationMinutes : undefined;
+      if (approvedMinutes === undefined) {
+        return err(appError("FLOW_BLOCKED", "Published World connection has no expedition travel duration"));
+      }
+      if (context.minutes !== approvedMinutes) {
+        return err(appError("ACTION_INVALID", "Expedition clock charge must match published route duration"));
+      }
+
+      // Reuse the entire canonical World mutation inside the OUTER SQL tx.
+      const world = new WorldService(repository, input.worldFeature, input.clock);
       const result = await world.travel({
         playerId: context.playerId,
         destinationAreaId: input.destinationAreaId,
@@ -84,6 +98,7 @@ export function canonicalWorldTravelEffect(input: CanonicalTravelEffectInput): F
         toAreaId: result.value.to.areaId,
         toAreaSlug: result.value.to.areaSlug,
         worldRevision: result.value.to.revision.toString(),
+        expeditionMinutes: approvedMinutes,
         firstVisit: result.value.arrival?.firstVisit ?? false,
       });
     },
