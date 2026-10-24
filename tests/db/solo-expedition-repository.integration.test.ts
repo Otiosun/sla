@@ -356,5 +356,4 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(twice).toEqual(after);
     expect(await count("solo_expedition_receipts", playerId)).toBe(2);
   });
-
 });
