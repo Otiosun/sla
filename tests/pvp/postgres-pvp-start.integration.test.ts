@@ -528,11 +528,12 @@ describe("PVP START PostgreSQL atomicity", () => {
 
   it("simulates two distinct trainers through messages, waiting, restart, resolution and surrender", async () => {
     const fixture = await seedAcceptedMatch(pool, catalog, [20, 18], [20, 17]);
+    const openedAt = new Date();
     const started = await new PostgresPvpStartRepository(pool, new CountingSeedProvider()).start({
       challengeId: fixture.challengeId,
       actorPlayerId: fixture.targetPlayerId,
-      startedAt: new Date("2026-10-24T18:00:00.000Z"),
-      deadlineAt: new Date("2026-10-24T18:05:00.000Z"),
+      startedAt: openedAt,
+      deadlineAt: new Date(openedAt.getTime() + 300_000),
     });
     expect(started.ok).toBe(true);
     if (!started.ok) return;
