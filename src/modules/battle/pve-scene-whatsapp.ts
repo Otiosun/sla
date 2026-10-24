@@ -679,7 +679,7 @@ async function hud(
     if (availableMoves) lines.push("`/movimento <número>` · Escolher um golpe");
     if (reserves.length > 0) {
       const slots = reserves.map(({ slot }) => String(slot).padStart(2, "0")).join(", ");
-      lines.push(``/trocar <número>` · Trocar (reservas: ${slots})`);
+      lines.push(`\`/trocar <número>\` · Trocar (reservas: ${slots})`);
     }
     if (state.battleType === "WILD") lines.push("`/fugir` · Tentar fugir do encontro");
     lines.push("", "› _Use `/combate` para consultar outras regras._");
