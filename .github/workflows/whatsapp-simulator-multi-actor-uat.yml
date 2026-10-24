@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "gate/whatsapp-simulator-v1"
+      # Isolated Premium UAT contract branch; does not connect to live WhatsApp.
+      - "gate/premium-pr243-profession-uat-20261023"
   pull_request:
     branches:
       - "integration/player-flow-zhoulia-final"
