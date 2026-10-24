@@ -3,7 +3,10 @@ import { ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
-import type { ExplorationRotomPreview, ExpeditionRotomPreviewService } from "./expedition-rotom-preview.js";
+import type {
+  ExplorationRotomPreview,
+  ExpeditionRotomPreviewService,
+} from "./expedition-rotom-preview.js";
 import { renderExplorationRotomPreview } from "./expedition-rotom-presentation.js";
 
 interface TrainerIdentity {
@@ -21,29 +24,31 @@ export interface ExplorationRotomWhatsAppDependencies {
   readonly preview: Pick<ExpeditionRotomPreviewService, "inspect">;
 }
 
-function reply(
-  context: MessageHandlerContext,
-  text: string,
-): Result<MessageHandlerResult> {
+function reply(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
   return ok({
     resultRefType: null,
     resultRefId: null,
-    outgoing: [{
-      channel: "whatsapp",
-      // Exploration state is private even when the request comes from a group.
-      destinationRef: context.message.senderRef,
-      messageType: "TEXT",
-      payload: { text },
-      // The existing Inbox/Outbox will deduplicate retransmitted provider IDs.
-      idempotencyKey: `${context.idempotencyKey}:exploration-preview`,
-    }],
+    outgoing: [
+      {
+        channel: "whatsapp",
+        // Exploration state is private even when the request comes from a group.
+        destinationRef: context.message.senderRef,
+        messageType: "TEXT",
+        payload: { text },
+        // The existing Inbox/Outbox will deduplicate retransmitted provider IDs.
+        idempotencyKey: `${context.idempotencyKey}:exploration-preview`,
+      },
+    ],
   });
 }
 
 function allowedQuery(message: string | null): boolean {
   const tokens = (message ?? "").normalize("NFKC").trim().toLocaleLowerCase("pt-BR").split(/\s+/);
-  return tokens[0] === "/explorar" &&
-    (tokens.length === 1 || (tokens.length === 2 && ["status", "retomar"].includes(tokens[1] ?? "")));
+  return (
+    tokens[0] === "/explorar" &&
+    (tokens.length === 1 ||
+      (tokens.length === 2 && ["status", "retomar"].includes(tokens[1] ?? "")))
+  );
 }
 
 class ExplorationRotomWhatsAppHandler implements MessageRouteHandler {
@@ -62,10 +67,15 @@ class ExplorationRotomWhatsAppHandler implements MessageRouteHandler {
     });
     if (!identity.ok) return identity;
     if (identity.value.state !== "COMPLETE") {
-      return reply(context, "📟 *ROTOM · EXPLORAÇÃO*\nConclua seu cadastro antes de consultar a exploração.");
+      return reply(
+        context,
+        "📟 *ROTOM · EXPLORAÇÃO*\nConclua seu cadastro antes de consultar a exploração.",
+      );
     }
 
-    const inspected: Result<ExplorationRotomPreview> = await this.dependencies.preview.inspect(identity.value.playerId);
+    const inspected: Result<ExplorationRotomPreview> = await this.dependencies.preview.inspect(
+      identity.value.playerId,
+    );
     if (!inspected.ok) return inspected;
     return reply(context, renderExplorationRotomPreview(inspected.value));
   }
@@ -79,13 +89,15 @@ class ExplorationRotomWhatsAppHandler implements MessageRouteHandler {
 export function createExplorationRotomWhatsAppRoutes(
   dependencies: ExplorationRotomWhatsAppDependencies,
 ): readonly CommandRouteDefinition[] {
-  return [{
-    command: "explorar",
-    handler: new ExplorationRotomWhatsAppHandler(dependencies),
-    rateLimitClass: "SENSITIVE",
-    policy: {
-      allowedPlayerAccess: ["ACTIVE"],
-      requiresMechanicalReady: true,
+  return [
+    {
+      command: "explorar",
+      handler: new ExplorationRotomWhatsAppHandler(dependencies),
+      rateLimitClass: "SENSITIVE",
+      policy: {
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
-  }];
+  ];
 }
