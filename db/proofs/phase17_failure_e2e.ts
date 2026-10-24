@@ -132,7 +132,9 @@ async function main(): Promise<void> {
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId !== null) {
       throw new Error(`Opening menu should remain read-only: ${JSON.stringify(menu)}`);
     }
-    const registeredResult = await service.receive(message("f17-register", "/registrar FailureProof"));
+    const registeredResult = await service.receive(
+      message("f17-register", "/registrar FailureProof"),
+    );
     if (
       !registeredResult.ok ||
       registeredResult.value.status !== "PROCESSED" ||
