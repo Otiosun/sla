@@ -661,7 +661,9 @@ async function hud(
     lines.push(
       "",
       "〔✓〕 Sua ação já foi definida.",
-      "› _Aguarde a resolução do turno. Use `/batalha` para conferir o estado._",
+      state.battleType === "PVP"
+        ? "› _Aguarde a resolução. A escolha do adversário permanece oculta._"
+        : "› _Aguarde a resolução do turno. Use `/batalha` para conferir o estado._",
     );
   } else if (own !== undefined && own.currentHp > 0) {
     const availableMoves = own.moves.some((move) => move.ppCurrent === null || move.ppCurrent > 0);
@@ -673,7 +675,11 @@ async function hud(
 
     lines.push("", "◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*", "");
     if (ownActionState === "PENDING") {
-      lines.push("› _Sua ação ainda não foi definida._", "");
+      lines.push("› _Sua ação ainda não foi definida._");
+      if (state.battleType === "PVP") {
+        lines.push("› _A escolha do rival fica oculta até a resolução._");
+      }
+      lines.push("");
     }
     lines.push("`/moves` · Consultar golpes e PP");
     if (availableMoves) lines.push("`/movimento <número>` · Escolher um golpe");
