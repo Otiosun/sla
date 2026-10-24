@@ -90,7 +90,7 @@ try {
   $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
   $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
              [Security.AccessControl.InheritanceFlags]::ObjectInherit
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
     $ownerSid,
     [Security.AccessControl.FileSystemRights]::FullControl,
     $inherit,
