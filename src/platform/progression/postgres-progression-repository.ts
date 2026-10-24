@@ -368,7 +368,7 @@ async function learnMovesAtLevel(
       `INSERT INTO pending_move_choices(
          id, pokemon_instance_id, content_release_id, move_id, learn_level,
          source_type, source_id, correlation_id
-       ) VALUES ($1, $2, $3, $4, $5, 'BATTLE_REWARD', $6, $7)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (pokemon_instance_id, content_release_id, move_id, learn_level)
        DO NOTHING
        RETURNING id`,
