@@ -1153,7 +1153,8 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       throw new ProgressionStateViolation("Trainer progression row is unavailable");
     const beforePoints = safeInteger(row.progression_points, "trainer progression_points");
     const pointsGained = multiplyEarnedXp(
-      input.progression.trainer.pointsPerWonBattle, input.xpMultiplier,
+      input.progression.trainer.pointsPerWonBattle,
+      input.xpMultiplier,
     );
     const afterPoints = beforePoints + pointsGained;
     if (!Number.isSafeInteger(afterPoints)) {
@@ -1676,11 +1677,13 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           "trainer progression_points",
         );
         let appliedDelta = input.delta;
-        if (eligibleEarnedTrainerAdjustment({
-          delta: input.delta,
-          actorType: input.metadata.actorType,
-          sourceType: input.metadata.sourceType,
-        })) {
+        if (
+          eligibleEarnedTrainerAdjustment({
+            delta: input.delta,
+            actorType: input.metadata.actorType,
+            sourceType: input.metadata.sourceType,
+          })
+        ) {
           const boost = await client.query<{ multiplier: number }>(
             `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
             [input.playerId],
