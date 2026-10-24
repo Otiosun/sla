@@ -14,6 +14,7 @@ import {
   createOperationalMessagingComposition,
   createOperationalOutboxWorker,
   type OperationalMessagingComposition,
+  type SoloExplorationPreviewOptIn,
 } from "./compose-whatsapp-runtime.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 
@@ -23,6 +24,7 @@ export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly hubPublicUrl?: string | null;
+  readonly soloExplorationPreview?: SoloExplorationPreviewOptIn;
   readonly now?: SimulatedWhatsAppAdapterOptions["now"];
   readonly onProviderConnectionState?: SimulatedWhatsAppAdapterOptions["onConnectionState"];
   readonly onIncomingProcessingFailure?: (input: {
@@ -47,6 +49,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.worldServiceMedia ?? null,
     options.pveBattleConfig ?? null,
     options.hubPublicUrl ?? null,
+    options.soloExplorationPreview ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
