@@ -129,12 +129,20 @@ async function main(): Promise<void> {
     const service = new MessagingService(messagingRepository, createRouter(), 30_000);
 
     const menu = await service.receive(message("f17-menu", "/menu"));
-    if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId === null) {
-      throw new Error(`Could not bootstrap proof player: ${JSON.stringify(menu)}`);
+    if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId !== null) {
+      throw new Error(`Opening menu should remain read-only: ${JSON.stringify(menu)}`);
     }
-    const playerId = menu.value.resultRefId;
-
-    await receiveProcessed(service, message("f17-register", "/registrar FailureProof"));
+    const registeredResult = await service.receive(
+      message("f17-register", "/registrar FailureProof"),
+    );
+    if (
+      !registeredResult.ok ||
+      registeredResult.value.status !== "PROCESSED" ||
+      registeredResult.value.resultRefId === null
+    ) {
+      throw new Error(`Could not register proof player: ${JSON.stringify(registeredResult)}`);
+    }
+    const playerId = registeredResult.value.resultRefId;
     await receiveProcessed(service, message("f17-regions", "/regioes"));
     await receiveProcessed(service, message("f17-region", "/regiao 1"));
     await receiveProcessed(service, message("f17-starters", "/starters"));

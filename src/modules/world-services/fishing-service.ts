@@ -68,6 +68,27 @@ export interface FishingAttemptResult {
 
 type EncounterCreator = Pick<EncounterService, "createOrReplay">;
 
+function fishingUnavailableUserMessage(reason: string): string {
+  switch (reason) {
+    case "Player is not active":
+      return "Seu cadastro precisa estar ativo para utilizar a pesca.";
+    case "Player location or active content is unavailable":
+      return "Não consegui confirmar sua localização. Use `/onde` e tente novamente.";
+    case "Fishing is not configured for the current area":
+      return "Não há um ponto de pesca disponível nesta área. Consulte `/onde` para escolher seu destino.";
+    case "Player has an incompatible active encounter or battle":
+      return "Termine seu encontro ou batalha atual antes de pescar.";
+    default:
+      if (
+        reason.startsWith("Fishing ") &&
+        reason.endsWith(" encounter pool is not configured for the current area")
+      ) {
+        return "A pesca nesta área ainda não possui encontros disponíveis. Avise a equipe do RPG.";
+      }
+      return "Não foi possível pescar nesta área agora. Confira a localização e tente novamente.";
+  }
+}
+
 export function fishingRarityForRoll(roll: number): FishingRarity | null {
   if (!Number.isSafeInteger(roll) || roll < 1 || roll > 20) {
     throw new RangeError("Fishing D20 roll must be an integer from 1 to 20");
@@ -94,6 +115,7 @@ export class FishingService {
         appError("ACTION_INVALID", "Daily fishing attempt limit reached", {
           dailyLimit: reservation.dailyLimit,
           remainingAttempts: reservation.remainingAttempts,
+          userMessage: `Você atingiu o limite de ${reservation.dailyLimit} pescarias de hoje. Tente novamente no próximo dia.`,
         }),
       );
     }
@@ -101,6 +123,7 @@ export class FishingService {
       return err(
         appError("ACTION_INVALID", "Fishing is unavailable here", {
           reason: reservation.reason,
+          userMessage: fishingUnavailableUserMessage(reservation.reason),
         }),
       );
     }

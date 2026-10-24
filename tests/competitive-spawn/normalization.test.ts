@@ -17,6 +17,7 @@ describe("competitive spawn normalization", () => {
     expect(competitiveSpawnTimeBucket("2026-10-08T06:00:00-03:00")).toBe("MORNING");
     expect(competitiveSpawnTimeBucket("2026-10-08T13:00:00-03:00")).toBe("DAY");
     expect(competitiveSpawnTimeBucket("2026-10-08T18:00:00-03:00")).toBe("EVENING");
+    expect(competitiveSpawnTimeBucket("2026-10-08T21:00:00Z")).toBe("EVENING");
     expect(competitiveSpawnTimeBucket("2026-10-08T23:00:00-03:00")).toBe("NIGHT");
   });
 });

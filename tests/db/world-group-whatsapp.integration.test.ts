@@ -109,6 +109,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
     expect(
@@ -197,6 +198,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
   });
@@ -258,6 +260,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
 
@@ -445,7 +448,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([{ capability_key: "admin.review" }, { capability_key: "onboarding" }]);
   });
 
-  it("silently ignores setup commands inside an existing Reception and never broadens gameplay", async () => {
+  it("keeps a reconfigured Reception isolated with only registration/admin-review permissions", async () => {
     const id = randomUUID();
     await pool.query(
       "INSERT INTO community_groups(id,provider,chat_ref,role,display_name) VALUES ($1,'baileys','120363900003@g.us','RECEPTION','Recepcao')",
@@ -470,6 +473,6 @@ describe.sequential("World group setup through the operational WhatsApp router",
           [id],
         )
       ).rows,
-    ).toEqual([{ capability_key: "onboarding" }]);
+    ).toEqual([{ capability_key: "admin.review" }, { capability_key: "onboarding" }]);
   });
 });

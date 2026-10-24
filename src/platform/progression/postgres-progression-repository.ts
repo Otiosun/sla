@@ -368,7 +368,7 @@ async function learnMovesAtLevel(
       `INSERT INTO pending_move_choices(
          id, pokemon_instance_id, content_release_id, move_id, learn_level,
          source_type, source_id, correlation_id
-       ) VALUES ($1, $2, $3, $4, $5, 'BATTLE_REWARD', $6, $7)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (pokemon_instance_id, content_release_id, move_id, learn_level)
        DO NOTHING
        RETURNING id`,
@@ -534,8 +534,8 @@ async function persistAutoEvolution(
        id, pokemon_instance_id, content_release_id, ruleset_id, evolution_rule_id,
        from_form_id, to_form_id, trigger_kind, source_type, source_id,
        idempotency_scope, idempotency_key, request_fingerprint, correlation_id, result
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'LEVEL', 'BATTLE_REWARD', $8,
-               'progression.auto-evolution', $9, $10, $11, $12::jsonb)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'LEVEL', $8, $9,
+               $10, $11, $12, $13, $14::jsonb)
      ON CONFLICT (idempotency_scope, idempotency_key) DO NOTHING`,
     [
       randomUUID(),
@@ -1852,6 +1852,21 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           payload: result,
         });
         return { kind: "RESOLVED", result };
+      }
+
+      // Do not replace a distinct occupied slot with a move already known.
+      // This transaction locks the Pokemon row across concurrent move choices.
+      const alreadyKnown = await client.query(
+        `SELECT 1 FROM pokemon_move_slots
+         WHERE pokemon_instance_id = $1 AND move_id = $2
+         LIMIT 1`,
+        [row.pokemon_instance_id, row.move_id],
+      );
+      if (alreadyKnown.rows.length > 0) {
+        return {
+          kind: "CONFLICT",
+          reason: "Pokemon already knows the move offered by this pending choice",
+        };
       }
 
       const move = await client.query<{ max_pp: number | null }>(

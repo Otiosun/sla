@@ -1,7 +1,7 @@
 import type { RandomSource } from "../../platform/rng/index.js";
+import { selectRecentLevelMoves } from "../pokemon/generation.js";
 import type {
   EncounterTableEntryRecord,
-  WildBuildMove,
   WildPokemonBuild,
   WildPokemonSnapshot,
 } from "./contracts.js";
@@ -54,18 +54,6 @@ export function chooseEncounterLevel(
   return entry.minLevel + rng.randomInt(entry.maxLevel - entry.minLevel + 1);
 }
 
-function eligibleMoves(moves: readonly WildBuildMove[], level: number): readonly WildBuildMove[] {
-  const seen = new Map<string, WildBuildMove>();
-  for (const move of moves) {
-    if (move.learnMethod === "LEVEL" && (move.learnLevel === null || move.learnLevel > level)) {
-      continue;
-    }
-    if (move.learnMethod !== "LEVEL" && move.learnMethod !== "START") continue;
-    seen.set(move.moveId, move);
-  }
-  return [...seen.values()].slice(-4);
-}
-
 function maxHp(baseHp: number, ivHp: number, level: number): number {
   return Math.floor(((2 * baseHp + ivHp) * level) / 100) + level + 10;
 }
@@ -112,7 +100,7 @@ export function generateWildPokemon(
   } as const;
   const abilityId = chooseOne(build.abilityIds, rng, "ability");
   const natureId = chooseOne(build.natureIds, rng, "nature");
-  const moves = eligibleMoves(build.moves, level).map((move) => {
+  const moves = selectRecentLevelMoves(build.moves, level).map((move) => {
     if (!Number.isSafeInteger(move.maxPp) || move.maxPp <= 0) {
       throw new RangeError("Wild Pokemon move max PP must be a positive safe integer");
     }

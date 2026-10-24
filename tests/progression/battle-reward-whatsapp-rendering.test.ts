@@ -76,4 +76,31 @@ describe("battle reward WhatsApp evolution rendering", () => {
     expect(output).not.toContain(FROM_FORM_ID);
     expect(output).not.toContain(TO_FORM_ID);
   });
+
+  it("announces newly learned moves and pending slot choices without losing Premium reward labels", () => {
+    const original = reward();
+    const enriched = {
+      ...original,
+      pokemon: original.pokemon.map((entry) => ({
+        ...entry,
+        learnedMoveIds: ["00000000-0000-4000-8000-000000000066"],
+        pendingMoveChoiceIds: ["00000000-0000-4000-8000-000000000077"],
+      })),
+    };
+    const output = renderBattleRewardWhatsAppText(
+      enriched,
+      "5511999999999@s.whatsapp.net",
+      new Map([
+        [FROM_FORM_ID, "Charmander"],
+        [TO_FORM_ID, "Charmeleon"],
+      ]),
+      new Map([[POKEMON_ID, "Charmander"]]),
+      new Map([["00000000-0000-4000-8000-000000000066", "Dragon Rage"]]),
+    );
+    expect(output).toContain("*Charmander* · `+120 XP`");
+    expect(output).toContain("Dragon Rage");
+    expect(output).toContain("/golpes");
+    expect(output).toContain("/aprender");
+    expect(output).toContain("✦ Evolução");
+  });
 });

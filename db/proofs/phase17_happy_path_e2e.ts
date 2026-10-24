@@ -341,14 +341,22 @@ async function main(): Promise<void> {
 
     // cadastro → starter
     const menu = await messaging.receive(message("f17-happy-menu", "/menu"));
-    if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId === null) {
-      throw new Error(`Happy-path initial menu failed: ${JSON.stringify(menu)}`);
+    if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId !== null) {
+      throw new Error(`Opening menu must not create a player: ${JSON.stringify(menu)}`);
     }
-    const parsedPlayerId = parsePlayerId(menu.value.resultRefId);
-    if (!parsedPlayerId.ok) throw new Error("Happy-path menu returned invalid PlayerId");
+    const registered = await messaging.receive(
+      message("f17-happy-register", "/registrar HappyPath", 1),
+    );
+    if (
+      !registered.ok ||
+      registered.value.status !== "PROCESSED" ||
+      registered.value.resultRefId === null
+    ) {
+      throw new Error(`Registration failed: ${JSON.stringify(registered)}`);
+    }
+    const parsedPlayerId = parsePlayerId(registered.value.resultRefId);
+    if (!parsedPlayerId.ok) throw new Error("Registration returned invalid PlayerId");
     const playerId = parsedPlayerId.value;
-
-    await receiveProcessed(messaging, "f17-happy-register", "/registrar HappyPath", 1);
     await receiveProcessed(messaging, "f17-happy-regions", "/regioes", 2);
     await receiveProcessed(messaging, "f17-happy-region", "/regiao 1", 3);
     await receiveProcessed(messaging, "f17-happy-starters", "/starters", 4);
