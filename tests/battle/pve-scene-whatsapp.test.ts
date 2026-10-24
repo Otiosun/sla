@@ -467,9 +467,10 @@ describe("PVE/PVP WhatsApp scene actions", () => {
 
   it("shows relevant normal PVE commands without inventing a capture or switch option", async () => {
     const setup = dependencies(false);
-    const result = await routeFor(createPveSceneRoutes(setup.dependencies), "batalha").handler.handle(
-      context("/batalha"),
-    );
+    const result = await routeFor(
+      createPveSceneRoutes(setup.dependencies),
+      "batalha",
+    ).handler.handle(context("/batalha"));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const text = String(result.value.outgoing[0]?.payload.text);
@@ -487,10 +488,7 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     const reserveId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     const rosterState = {
       ...state,
-      sides: [
-        { ...state.sides[0], participantIds: [participantId, reserveId] },
-        state.sides[1],
-      ],
+      sides: [{ ...state.sides[0], participantIds: [participantId, reserveId] }, state.sides[1]],
       combatants: [
         { ...state.combatants[0], rosterPosition: 1 },
         { ...state.combatants[0], participantId: reserveId, rosterPosition: 2, currentHp: 15 },
