@@ -8,7 +8,7 @@ const databaseName = `pokemon_move_choice_duplicate_${process.pid}_${Date.now()}
 
 function databaseUrl(name: string): string {
   const url = new URL(process.env.DATABASE_URL ?? "");
-  url.pathname = "/" + name;
+  url.pathname = `/${name}`;
   return url.toString();
 }
 
@@ -45,7 +45,7 @@ describe.sequential("pending move choices cannot duplicate already learned moves
     await pool.query(
       `INSERT INTO rulesets(id,key,version,engine_contract_version,config,status)
        VALUES ($1,$2,1,1,'{}'::jsonb,'DRAFT')`,
-      [rulesetId, "move-choice-" + rulesetId],
+      [rulesetId, `move-choice-${rulesetId}`],
     );
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,$2,$3,'DRAFT',$4)",
@@ -54,16 +54,16 @@ describe.sequential("pending move choices cannot duplicate already learned moves
     await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES ($1,$2,$3)", [
       speciesId,
       300 + fixtureNumber,
-      "choice-species-" + speciesId,
+      `choice-species-${speciesId}`,
     ]);
     await pool.query("INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,$3)", [
       formId,
       speciesId,
-      "choice-form-" + formId,
+      `choice-form-${formId}`,
     ]);
     await pool.query("INSERT INTO pokemon_types(id,slug) VALUES ($1,$2)", [
       typeId,
-      "choice-type-" + typeId,
+      `choice-type-${typeId}`,
     ]);
     await pool.query(
       `INSERT INTO pokemon_instances(
@@ -74,7 +74,7 @@ describe.sequential("pending move choices cannot duplicate already learned moves
     for (const [index, moveId] of [...existingMoveIds, offeredMoveId].entries()) {
       await pool.query("INSERT INTO moves(id,slug) VALUES ($1,$2)", [
         moveId,
-        "choice-move-" + moveId,
+        `choice-move-${moveId}`,
       ]);
       if (index < 4) {
         await pool.query(
@@ -118,7 +118,7 @@ describe.sequential("pending move choices cannot duplicate already learned moves
 
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: databaseUrl("postgres"), max: 1 });
-    await adminPool.query('CREATE DATABASE "' + databaseName + '"');
+    await adminPool.query(`CREATE DATABASE "${databaseName}"`);
     pool = new Pool({ connectionString: databaseUrl(databaseName), max: 6 });
     await runMigrations(pool, { appliedBy: "move-choice-duplicate-test" });
     repository = new PostgresProgressionRepository(pool);
@@ -127,7 +127,7 @@ describe.sequential("pending move choices cannot duplicate already learned moves
   afterAll(async () => {
     await pool?.end();
     if (adminPool) {
-      await adminPool.query('DROP DATABASE IF EXISTS "' + databaseName + '" WITH (FORCE)');
+      await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
       await adminPool.end();
     }
   });
