@@ -58,7 +58,20 @@ class ExplorationRotomWhatsAppHandler implements MessageRouteHandler {
     if (!allowedQuery(context.message.text)) {
       return reply(
         context,
-        "📟 *ROTOM · EXPLORAÇÃO*\nUse `/explorar` para consultar sua situação ou `/explorar retomar` para rever a expedição em andamento. Nenhuma ação será executada.",
+        [
+          "△ *𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢 · 𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔*",
+          "　RotomDex · Função indisponível",
+          "",
+          "> _Bip! Ainda não posso realizar ações de exploração._",
+          "",
+          "◇ *𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔𝗥 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*",
+          "",
+          "`/explorar` · Situação atual",
+          "`/explorar status` · Consultar novamente",
+          "`/explorar retomar` · Rever registro em andamento",
+          "",
+          "› _Nenhuma ação será executada._",
+        ].join("\n"),
       );
     }
     const identity = await this.dependencies.players.resolvePlayer({
@@ -69,7 +82,14 @@ class ExplorationRotomWhatsAppHandler implements MessageRouteHandler {
     if (identity.value.state !== "COMPLETE") {
       return reply(
         context,
-        "📟 *ROTOM · EXPLORAÇÃO*\nConclua seu cadastro antes de consultar a exploração.",
+        [
+          "△ *𝗖𝗔𝗗𝗔𝗦𝗧𝗥𝗢 𝗣𝗘𝗡𝗗𝗘𝗡𝗧𝗘*",
+          "　RotomDex · Exploração",
+          "",
+          "> _Bip-bip! Ainda faltam informações do treinador._",
+          "",
+          "› _Conclua seu cadastro antes de consultar a exploração._",
+        ].join("\n"),
       );
     }
 
