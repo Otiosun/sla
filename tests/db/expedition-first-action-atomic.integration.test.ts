@@ -84,10 +84,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       ) VALUES($1,$2,$3,'Atomic Form',$4,40,40,40,40,40,40,TRUE)`,
       [randomUUID(), releaseId, formId, typeId],
     );
-    await pool.query("INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'atomic-encounters')", [
-      tableId,
-      areaId,
-    ]);
+    await pool.query(
+      "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'atomic-encounters')",
+      [tableId, areaId],
+    );
     await pool.query(
       "INSERT INTO encounter_table_revisions(id,content_release_id,encounter_table_id,active) VALUES($1,$2,$3,TRUE)",
       [tableRevisionId, releaseId, tableId],
@@ -232,9 +232,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       [subject.playerId],
     );
     expect(receipt.rows[0]?.count).toBe(2);
-    expect(
-      await action.execute({ ...request, minutes: 60 }),
-    ).toMatchObject({ ok: false, error: { code: "FINGERPRINT_MISMATCH" } });
+    expect(await action.execute({ ...request, minutes: 60 })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
   });
 
   it("rolls back all writes if effect returns a domain failure, then permits a valid retry", async () => {
@@ -297,7 +298,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
 
   it("refuses stale World location or release without applying an effect", async () => {
     const subject = await prepared("world-prepare");
-    await pool.query("UPDATE player_locations SET revision=1 WHERE player_id=$1", [subject.playerId]);
+    await pool.query("UPDATE player_locations SET revision=1 WHERE player_id=$1", [
+      subject.playerId,
+    ]);
     expect(await action.execute(input(subject, "stale-world"))).toMatchObject({
       ok: false,
       error: { code: "REVISION_CONFLICT" },
