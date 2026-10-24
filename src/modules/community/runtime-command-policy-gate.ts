@@ -103,7 +103,10 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
     ) {
       return err(
         appError("PLAYER_INELIGIBLE", "Administrative capability is required", {
-          userMessage: "Este comando exige uma permissão administrativa do RPG.",
+          userMessage:
+            requirement.requiredAdminCapability === "encounter.support"
+              ? "Este comando é exclusivo dos narradores autorizados. Treinadores usam `/batalha` depois que o narrador inicia o combate."
+              : "Este comando exige uma permissão administrativa do RPG.",
         }),
       );
     }
