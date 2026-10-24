@@ -127,7 +127,7 @@ describe("Rotom individual exploration read-only overview", () => {
     if (result.ok) {
       const message = renderExplorationRotomPreview(result.value);
       expect(message).toContain("Seus preparativos estão guardados");
-      expect(message).toContain("ainda parado");
+      expect(message).toContain("continua parado");
       expect(message).toContain("12h");
       expect(message).not.toContain("`01` Viajar");
     }
