@@ -6,6 +6,7 @@ import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresExpeditionPreviewReader } from "../../src/platform/exploration/postgres-expedition-preview-reader.js";
+import { expeditionWeekKey } from "../../src/modules/exploration/expedition-week.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
 const dbName = "pokemon_solo_exp_" + process.pid + "_" + Date.now();
@@ -317,7 +318,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   it("reads current cursor and weekly consumption without writing a receipt or changing the revision", async () => {
     const playerId = await trainer();
     const original = await prepare(playerId, "preview-only-preparation");
-    const weekKey = "2026-10-26";
+    const weekKey = expeditionWeekKey(clock.now(), "America/Maceio");
     const reader = new PostgresExpeditionPreviewReader(pool);
     const before = await reader.read(playerId, weekKey);
     expect(before).toMatchObject({
