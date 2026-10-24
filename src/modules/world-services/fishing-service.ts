@@ -79,8 +79,10 @@ function fishingUnavailableUserMessage(reason: string): string {
     case "Player has an incompatible active encounter or battle":
       return "Termine seu encontro ou batalha atual antes de pescar.";
     default:
-      if (reason.startsWith("Fishing ") &&
-          reason.endsWith(" encounter pool is not configured for the current area")) {
+      if (
+        reason.startsWith("Fishing ") &&
+        reason.endsWith(" encounter pool is not configured for the current area")
+      ) {
         return "A pesca nesta área ainda não possui encontros disponíveis. Avise a equipe do RPG.";
       }
       return "Não foi possível pescar nesta área agora. Confira a localização e tente novamente.";
