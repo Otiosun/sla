@@ -630,7 +630,7 @@ describe("PVP START PostgreSQL atomicity", () => {
 
     const firstHud = await send("trainer-one@s.whatsapp.net", "/batalha", "pvp-hud-a");
     const secondHud = await send("trainer-two@s.whatsapp.net", "/batalha", "pvp-hud-b");
-    expect(firstHud[0]?.payload.text).toContain("PRÓXIMA"); // Unicode-decorated equivalent checked below
+    expect(firstHud[0]?.payload.text).toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
     expect(secondHud[0]?.payload.text).toContain("`/moves`");
     expect(firstHud[0]?.payload.text).not.toContain("`/fugir`");
     const moves = await send("trainer-one@s.whatsapp.net", "/moves", "pvp-moves-a");
