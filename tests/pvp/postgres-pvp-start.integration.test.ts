@@ -624,13 +624,16 @@ describe("PVP START PostgreSQL atomicity", () => {
       return outbox.slice(-flushed.sent);
     };
 
+    const textOf = (messages: readonly PendingOutboxMessage[]) =>
+      String(messages.find((message) => message.messageType === "TEXT")?.payload.text ?? "");
+
     const firstHud = await send("trainer-one@s.whatsapp.net", "/batalha", "pvp-hud-a");
     const secondHud = await send("trainer-two@s.whatsapp.net", "/batalha", "pvp-hud-b");
-    expect(firstHud[0]?.payload.text).toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
-    expect(secondHud[0]?.payload.text).toContain("`/moves`");
-    expect(firstHud[0]?.payload.text).not.toContain("`/fugir`");
+    expect(textOf(firstHud)).toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
+    expect(textOf(secondHud)).toContain("`/moves`");
+    expect(textOf(firstHud)).not.toContain("`/fugir`");
     const moves = await send("trainer-one@s.whatsapp.net", "/moves", "pvp-moves-a");
-    expect(moves[0]?.payload.text).toContain("Start Move");
+    expect(textOf(moves)).toContain("Start Move");
 
     const actionA = incoming("trainer-one@s.whatsapp.net", "/movimento 1", "pvp-move-a");
     expect(await runtime.service.receive(actionA)).toMatchObject({
@@ -645,11 +648,11 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(pendingState.rows[0]?.version).toBe("0");
 
     const waiting = await send("trainer-one@s.whatsapp.net", "/batalha", "pvp-hud-wait");
-    expect(waiting[0]?.payload.text).toContain("Sua ação já foi definida");
-    expect(waiting[0]?.payload.text).toContain("adversário permanece oculta");
+    expect(textOf(waiting)).toContain("Sua ação já foi definida");
+    expect(textOf(waiting)).toContain("adversário permanece oculta");
     const other = await send("trainer-two@s.whatsapp.net", "/batalha", "pvp-hud-other");
-    expect(other[0]?.payload.text).toContain("Sua ação ainda não foi definida");
-    expect(other[0]?.payload.text).not.toContain("Sua ação já foi definida");
+    expect(textOf(other)).toContain("Sua ação ainda não foi definida");
+    expect(textOf(other)).not.toContain("Sua ação já foi definida");
 
     // A logical restart must retain the pending submission and Outbox receipts.
     runtime = services();
