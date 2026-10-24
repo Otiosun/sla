@@ -92,16 +92,17 @@ export class ExpeditionRotomPreviewService {
       locationName: location.value.areaDisplayName,
       contentReleaseId: location.value.contentReleaseId,
       phase,
-      originMatchesCurrent: expedition === null ? null : expedition.areaId === location.value.areaId,
+      originMatchesCurrent:
+        expedition === null ? null : expedition.areaId === location.value.areaId,
       clock:
-        expedition === null
-          ? null
-          : expeditionClock(expedition.period, expedition.elapsedMinutes),
+        expedition === null ? null : expeditionClock(expedition.period, expedition.elapsedMinutes),
       usedThisWeek: facts.usedThisWeek,
       remainingThisWeek: weekly.remaining,
       canPrepareUnderPolicy: weekly.canPrepare,
       canContinueUnderPolicy: weekly.canContinue,
-      destinations: admission.value.availableDestinations.map((destination) => destination.displayName),
+      destinations: admission.value.availableDestinations.map(
+        (destination) => destination.displayName,
+      ),
       actionsEnabled: false,
     });
   }
