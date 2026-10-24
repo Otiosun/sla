@@ -542,6 +542,7 @@ describe("PVP START PostgreSQL atomicity", () => {
       ["trainer-one@s.whatsapp.net", fixture.challengerPlayerId],
       ["trainer-two@s.whatsapp.net", fixture.targetPlayerId],
     ]);
+    const battleFailures: unknown[] = [];
     const services = () => {
       const battle = new BattleService(new PostgresBattleRepository(pool), {
         decrypt: () => Buffer.alloc(32, 1),
@@ -559,7 +560,11 @@ describe("PVP START PostgreSQL atomicity", () => {
             [...playerRefs.values()].includes(playerId) ? battleId : null,
           battle: {
             currentState: battle.currentState.bind(battle),
-            resolvePlayerTurn: battle.resolvePlayerTurn.bind(battle),
+            resolvePlayerTurn: async (...args: Parameters<BattleService["resolvePlayerTurn"]>) => {
+              const result = await battle.resolvePlayerTurn(...args);
+              if (!result.ok) battleFailures.push(result.error);
+              return result;
+            },
             surrenderPvp: async (input: {
               battleId: string;
               playerId: string;
@@ -642,6 +647,7 @@ describe("PVP START PostgreSQL atomicity", () => {
     });
     const flushedAction = await runtime.worker.runOnce();
     expect(flushedAction.failed).toBe(0);
+    expect(battleFailures).toEqual([]);
     expect(
       outbox.slice(-flushedAction.sent).filter((message) => message.messageType === "TEXT"),
     ).toEqual([]);
