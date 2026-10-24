@@ -127,7 +127,8 @@ describe.sequential("pending move choices cannot duplicate already learned moves
   afterAll(async () => {
     await pool?.end();
     if (adminPool) {
-      await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      // The repository pool is already closed. Never terminate live test clients.
+      await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
       await adminPool.end();
     }
   });
