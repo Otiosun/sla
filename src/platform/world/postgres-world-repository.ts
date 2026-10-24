@@ -488,3 +488,16 @@ export class PostgresWorldRepository implements WorldRepository {
     );
   }
 }
+
+/**
+ * Adapt the canonical World transaction to an already-open SQL transaction.
+ * The outer caller owns BEGIN, COMMIT and ROLLBACK; no nested transaction is
+ * created. Use only from trusted transactional domain orchestration.
+ */
+export function worldRepositoryForClient(client: PoolClient): WorldRepository {
+  const transaction = new PostgresWorldTransaction(client);
+  return {
+    transaction: (work) => work(transaction),
+    read: (work) => work(transaction),
+  };
+}
