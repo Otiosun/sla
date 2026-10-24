@@ -110,3 +110,5 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $failedGeneration.FullName "CAPT
 
 # Only disposable fixtures and fake dump tools were exercised. No live database.
 [Console]::Out.WriteLine("WINDOWS_SAFEGUARD_FIXTURE_PASS (mock dump; restore unverified)")
+# The expected negative subprocess test leaves LASTEXITCODE=2; the test suite itself passed.
+exit 0
