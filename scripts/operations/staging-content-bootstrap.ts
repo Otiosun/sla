@@ -369,7 +369,6 @@ export async function bootstrapStagingContent(): Promise<{
       };
     }
 
-
     // For every mutating path, require explicitly approved Zhoulia starters *before*
     // seeding a Phase 4 baseline or importing source catalog data.
     // Product policy is deliberately fail-closed here. The Gen I-III importer
