@@ -104,17 +104,20 @@ async function main(): Promise<void> {
     if (
       !menuResult.ok ||
       menuResult.value.status !== "PROCESSED" ||
-      menuResult.value.resultRefId === null
+      menuResult.value.resultRefId !== null
     ) {
-      throw new Error(`Initial onboarding menu failed: ${JSON.stringify(menuResult)}`);
+      throw new Error(`Initial onboarding menu must be read-only: ${JSON.stringify(menuResult)}`);
     }
-    const playerId = menuResult.value.resultRefId;
     const newMenuText = await outgoingText(pool, menu.externalMessageId);
     if (!newMenuText.includes("RECEPÇÃO") || !newMenuText.includes("/registrar")) {
       throw new Error(`NEW onboarding menu is not actionable: ${newMenuText}`);
     }
 
-    await receiveProcessed(service, message("ux-register", "/registrar Red"));
+    const registered = await service.receive(message("ux-register", "/registrar Red"));
+    if (!registered.ok || registered.value.status !== "PROCESSED" || registered.value.resultRefId === null) {
+      throw new Error(`Initial registration failed: ${JSON.stringify(registered)}`);
+    }
+    const playerId = registered.value.resultRefId;
     await receiveProcessed(service, message("ux-regions", "/regioes"));
     const regionsText = await outgoingText(pool, "ux-regions");
     if (!regionsText.includes("REGIÕES") || !regionsText.includes("/regiao <número>")) {
