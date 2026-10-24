@@ -50,12 +50,7 @@ export function renderExplorationRotomPreview(view: ExplorationRotomPreview): st
     message.push("　↳ _Origem preservada no histórico; localização atual confirmada._");
   }
 
-  message.push(
-    "",
-    "◇ *𝗘𝗦𝗧𝗔𝗗𝗢 𝗗𝗔 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
-    "",
-    `◈ *Estado:* ${state}`,
-  );
+  message.push("", "◇ *𝗘𝗦𝗧𝗔𝗗𝗢 𝗗𝗔 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*", "", `◈ *Estado:* ${state}`);
 
   if (view.clock !== null) {
     message.push(
