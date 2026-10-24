@@ -121,6 +121,7 @@ export class FishingService {
       return err(
         appError("ACTION_INVALID", "Fishing is unavailable here", {
           reason: reservation.reason,
+          userMessage: fishingUnavailableUserMessage(reservation.reason),
         }),
       );
     }
