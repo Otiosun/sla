@@ -338,22 +338,8 @@ export async function bootstrapStagingContent(): Promise<{
     let state = await currentState(pool);
     let plan = planStagingContentBootstrap(state);
 
-    if (plan === "SEED_BASELINE_AND_PROMOTE") {
-      await runPhase4Seed();
-      state = await currentState(pool);
-      plan = planStagingContentBootstrap(state);
-      if (plan !== "PROMOTE_CANDIDATE") {
-        throw new Error(
-          `unexpected staging catalog state after Phase 4 seed: ${JSON.stringify(state)}`,
-        );
-      }
-    }
-
-    // Product policy is deliberately fail-closed here. The Gen I-III importer
-    // currently yields nine source starters, but that cardinality is not a Bell
-    // Zhoulia product decision and must never be promoted implicitly.
-    const canonicalStarterOptions = loadCanonicalZhouliaStarterOptions();
-
+    // Replay verification is read-only: it never needs to choose or import starters.
+    // Keep this path available even when a new Zhoulia starter policy is not approved.
     if (plan === "VERIFY_ACTIVE_CANDIDATE") {
       await assertZhouliaExclusiveRelease(pool, { releaseId: STAGING_GEN123_RELEASE_ID });
       const species = await activeSpeciesCount(pool);
@@ -381,6 +367,25 @@ export async function bootstrapStagingContent(): Promise<{
         replayed: true,
         species,
       };
+    }
+
+
+    // For every mutating path, require explicitly approved Zhoulia starters *before*
+    // seeding a Phase 4 baseline or importing source catalog data.
+    // Product policy is deliberately fail-closed here. The Gen I-III importer
+    // currently yields nine source starters, but that cardinality is not a Bell
+    // Zhoulia product decision and must never be promoted implicitly.
+    const canonicalStarterOptions = loadCanonicalZhouliaStarterOptions();
+
+    if (plan === "SEED_BASELINE_AND_PROMOTE") {
+      await runPhase4Seed();
+      state = await currentState(pool);
+      plan = planStagingContentBootstrap(state);
+      if (plan !== "PROMOTE_CANDIDATE") {
+        throw new Error(
+          `unexpected staging catalog state after Phase 4 seed: ${JSON.stringify(state)}`,
+        );
+      }
     }
 
     const candidateStatus = state.candidateRelease?.status ?? null;
