@@ -102,7 +102,10 @@ describe("Rotom individual exploration read-only overview", () => {
     expect(facts.read).toHaveBeenCalledWith(playerId, "2026-10-19");
     if (result.ok) {
       const message = renderExplorationRotomPreview(result.value);
-      expect(message).toContain("ROTOM · EXPLORAÇÃO");
+      expect(message.normalize("NFKC")).toContain("ROTOM · EXPLORAÇÃO");
+      expect(message).toContain("◇ *𝗟𝗢𝗖𝗔𝗟𝗜𝗭𝗔ÇÃ𝗢*");
+      expect(message).toContain("> _Bip-bip!");
+      expect(message).toContain("┄┄ ◇ *𝗔𝗩𝗜𝗦𝗢 𝗗𝗢 𝗥𝗢𝗧𝗢𝗠* ┄┄");
       expect(message).toContain("Consulta gratuita");
       expect(message).toContain("não foram liberadas");
       expect(message).not.toContain("\n1. Viajar");
@@ -121,6 +124,13 @@ describe("Rotom individual exploration read-only overview", () => {
         actionsEnabled: false,
       },
     });
+    if (result.ok) {
+      const message = renderExplorationRotomPreview(result.value);
+      expect(message).toContain("Seus preparativos estão guardados");
+      expect(message).toContain("ainda parado");
+      expect(message).toContain("12h");
+      expect(message).not.toContain("`01` Viajar");
+    }
   });
 
   it("resumes on Yun with historical village origin and no extra weekly debit", async () => {
