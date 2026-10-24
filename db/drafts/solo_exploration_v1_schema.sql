@@ -7,6 +7,8 @@ CREATE TABLE solo_expeditions (
   player_id UUID NOT NULL REFERENCES players(id),
   period TEXT NOT NULL CHECK (period IN ('DAY', 'NIGHT')),
   area_id UUID NOT NULL REFERENCES areas(id),
+  -- area_id is the immutable origin; current_area_id follows World travel.
+  current_area_id UUID NULL REFERENCES areas(id),
   phase TEXT NOT NULL CHECK (phase IN ('PREPARING', 'ACTIVE', 'ENDED')),
   elapsed_minutes INTEGER NOT NULL DEFAULT 0
     CHECK (elapsed_minutes BETWEEN 0 AND 720),
@@ -19,6 +21,10 @@ CREATE TABLE solo_expeditions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (
     consumed_week_key IS NULL OR EXTRACT(ISODOW FROM consumed_week_key) = 1
+  ),
+  -- Historical ENDED fixtures may omit a cursor, but open journeys require it.
+  CONSTRAINT solo_expedition_open_cursor CHECK (
+    current_area_id IS NOT NULL OR phase = 'ENDED'
   ),
   CONSTRAINT solo_expedition_phase_integrity CHECK (
     (phase = 'PREPARING' AND elapsed_minutes = 0
