@@ -134,6 +134,7 @@ export class PostgresWorldGroupSetup implements WorldGroupSetupPort {
                 "player.basic" as const,
                 "world" as const,
                 "pve" as const,
+                ...(group.role === "GAME" ? (["pvp"] as const) : []),
               ]),
             ].sort();
       const capabilitiesChanged =
