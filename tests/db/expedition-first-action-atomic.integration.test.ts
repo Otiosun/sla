@@ -502,5 +502,4 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     });
     expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
   });
-
 });
