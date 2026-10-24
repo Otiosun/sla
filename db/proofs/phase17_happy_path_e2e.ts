@@ -344,7 +344,9 @@ async function main(): Promise<void> {
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId !== null) {
       throw new Error(`Opening menu must not create a player: ${JSON.stringify(menu)}`);
     }
-    const registered = await messaging.receive(message("f17-happy-register", "/registrar HappyPath", 1));
+    const registered = await messaging.receive(
+      message("f17-happy-register", "/registrar HappyPath", 1),
+    );
     if (
       !registered.ok ||
       registered.value.status !== "PROCESSED" ||
