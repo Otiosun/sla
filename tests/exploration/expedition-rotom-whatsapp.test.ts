@@ -76,7 +76,9 @@ describe("Rotom WhatsApp read-only exploration command", () => {
       idempotencyKey: "inbox:baileys:rotom-message:exploration-preview",
     });
     const text = String(outbound?.payload.text);
-    expect(text).toContain("ROTOM · EXPLORAÇÃO");
+    expect(text.normalize("NFKC")).toContain("ROTOM · EXPLORAÇÃO");
+    expect(text).toContain("◇ *𝗘𝗦𝗧𝗔𝗗𝗢 𝗗𝗔 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*");
+    expect(text).toContain("⌛ *Tempo restante:* 11h15");
     expect(text).toContain("Campos de Yun");
     expect(text).toContain("Origem preservada");
     expect(text).toContain("0 restantes");
@@ -114,6 +116,7 @@ describe("Rotom WhatsApp read-only exploration command", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value?.outgoing[0]?.payload.text).toContain("Nenhuma ação será executada");
+      expect(result.value?.outgoing[0]?.payload.text).toContain("◇ *𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔𝗥 𝗥𝗘𝗚𝗜𝗦𝗧𝗥𝗢*");
     }
     expect(h.players.resolvePlayer).not.toHaveBeenCalled();
     expect(h.preview.inspect).not.toHaveBeenCalled();
