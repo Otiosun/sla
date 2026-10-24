@@ -656,6 +656,8 @@ describe("PVP START PostgreSQL atomicity", () => {
       baseBackoffMs: 1,
       maxBackoffMs: 10,
     });
+    // Provider replay uses the exact original envelope, including its timestamp.
+    const receivedAt = new Date().toISOString();
     const incoming = (
       id: string,
       senderRef: string,
@@ -666,7 +668,7 @@ describe("PVP START PostgreSQL atomicity", () => {
         externalMessageId: id,
         senderRef,
         chatRef: "pvp-policy-game@g.us",
-        occurredAt: new Date().toISOString(),
+        occurredAt: receivedAt,
         text,
         mentions,
       });
