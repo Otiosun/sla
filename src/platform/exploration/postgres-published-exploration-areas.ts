@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PublishedExplorationAreas } from "../../modules/exploration/expedition-world-admission.js";
 import { withTransaction } from "../db/transaction.js";
 
@@ -15,15 +15,11 @@ interface AreaIdRow {
  * This checks structural coverage, not a specific hour, surface, weather or
  * player's encounter unlocks. It is a preview, never write authorization.
  */
-export class PostgresPublishedExplorationAreas {
-  public constructor(private readonly pool: Pool) {}
-
-  public async forActiveRelease(
-    expectedContentReleaseId: string,
-  ): Promise<PublishedExplorationAreas | null> {
-    return withTransaction(
-      this.pool,
-      async (client) => {
+export async function publishedExplorationAreasInTransaction(
+  client: PoolClient,
+  expectedContentReleaseId: string,
+  lockActivePointer = false,
+): Promise<PublishedExplorationAreas | null> {
         const release = await client.query<{ content_release_id: string }>(
           `SELECT release.id::text AS content_release_id
              FROM content_release_pointers pointer
@@ -32,7 +28,8 @@ export class PostgresPublishedExplorationAreas {
             WHERE pointer.pointer_key='ACTIVE'
               AND release.status='PUBLISHED'
               AND ruleset.status='PUBLISHED'
-              AND release.id::text=$1`,
+              AND release.id::text=$1
+            ${lockActivePointer ? "FOR SHARE OF pointer" : ""}`,
           [expectedContentReleaseId],
         );
         const current = release.rows[0]?.content_release_id;
@@ -77,7 +74,17 @@ export class PostgresPublishedExplorationAreas {
           contentReleaseId: current,
           encounterReadyAreaIds: areas.rows.map((row) => row.area_id),
         };
-      },
+} 
+
+export class PostgresPublishedExplorationAreas {
+  public constructor(private readonly pool: Pool) {}
+
+  public async forActiveRelease(
+    expectedContentReleaseId: string,
+  ): Promise<PublishedExplorationAreas | null> {
+    return withTransaction(
+      this.pool,
+      (client) => publishedExplorationAreasInTransaction(client, expectedContentReleaseId),
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );
   }
