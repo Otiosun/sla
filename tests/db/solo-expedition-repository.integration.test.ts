@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionPreviewReader } from "../../src/platform/exploration/postgres-expedition-preview-reader.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
 const dbName = "pokemon_solo_exp_" + process.pid + "_" + Date.now();
@@ -313,4 +314,46 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
     expect((await store.current(playerId))?.revision).toBe(0n);
   });
+  it("reads current cursor and weekly consumption without writing a receipt or changing the revision", async () => {
+    const playerId = await trainer();
+    const original = await prepare(playerId, "preview-only-preparation");
+    const weekKey = "2026-10-26";
+    const reader = new PostgresExpeditionPreviewReader(pool);
+    const before = await reader.read(playerId, weekKey);
+    expect(before).toMatchObject({
+      usedThisWeek: 0,
+      expedition: {
+        phase: "PREPARING",
+        areaId: original.areaId,
+        currentAreaId: original.areaId,
+        elapsedMinutes: 0,
+        revision: 0n,
+      },
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+
+    const advance = await store.advance({
+      playerId,
+      expeditionId: original.expeditionId,
+      expectedRevision: 0n,
+      minutes: 30,
+      idempotencyKey: "preview-only-advance",
+    });
+    expect(advance.ok).toBe(true);
+    const after = await reader.read(playerId, weekKey);
+    expect(after).toMatchObject({
+      usedThisWeek: 1,
+      expedition: {
+        areaId: original.areaId,
+        currentAreaId: original.areaId,
+        phase: "ACTIVE",
+        elapsedMinutes: 30,
+        revision: 1n,
+      },
+    });
+    const twice = await reader.read(playerId, weekKey);
+    expect(twice).toEqual(after);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
 });
