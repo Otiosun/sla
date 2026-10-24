@@ -498,9 +498,11 @@ describe("PVE/PVP WhatsApp scene actions", () => {
       ],
     } as BattleState;
     const controllers = await setup.listByBattle();
+    const activeController = controllers[0];
+    if (activeController === undefined) throw new Error("Missing fixture controller");
     setup.listByBattle.mockResolvedValue([
-      ...controllers,
-      { ...controllers[0], participantId: reserveId },
+      activeController,
+      { ...activeController, participantId: reserveId },
     ]);
     const deps = {
       ...setup.dependencies,
