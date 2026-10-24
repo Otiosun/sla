@@ -10,7 +10,7 @@ const enabled =
 
 const dbName = `pokemon_exp_coverage_${process.pid}_${Date.now()}`;
 
-describe.skipIf(!enabled).sequential("published exploration area coverage (isolated PostgreSQL)", () => {
+describe.skipIf(!enabled)("published exploration area coverage (isolated PostgreSQL)", () => {
   let admin: Pool;
   let pool: Pool;
   let provider: PostgresPublishedExplorationAreas;
