@@ -579,6 +579,15 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
+  it("teaches combat commands without implying that a switch is always available", async () => {
+    const output = textOf(await router(dependencies()).dispatch(context("/combate")));
+    expect(output).toContain("`/moves` · Ver golpes e PP");
+    expect(output).toContain("`/movimento 2` · Usar um golpe pelo número");
+    expect(output).toContain("`/trocar <número>` · Trocar se houver uma reserva apta");
+    expect(output).toContain("`/fugir` · PVE");
+    expect(output).toContain("`/desistir` · PVP");
+  });
+
   it("renders compact battle state without dumping moves or legal actions", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("/batalha")));
     expect(output).toContain("Turno 3");
