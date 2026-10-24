@@ -706,5 +706,4 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       revision: 2n,
     });
   });
-
 });
