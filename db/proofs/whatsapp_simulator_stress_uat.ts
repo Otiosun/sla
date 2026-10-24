@@ -180,6 +180,7 @@ function fullFicha(index: number, starter: string): string {
     `Aparência: Viajante de Zhoulia número ${index + 1}, mochila e roupa de campo.`,
     `Personalidade: ${index % 3 === 0 ? "Impulsivo" : "Observador"}, curioso e cooperativo.`,
     `História / resumo: Entrou no RPG para explorar Zhoulia no cenário de stress ${index + 1}.`,
+    "Profissão: Explorador",
     `Pokémon inicial: ${starter}`,
   ].join("\n");
 }
