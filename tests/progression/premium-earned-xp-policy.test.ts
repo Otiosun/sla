@@ -15,11 +15,35 @@ describe("Premium 2XP shared earned-reward policy", () => {
   });
 
   it("scales legitimate positive system XP and explicit admin gifts, never corrections", () => {
-    expect(eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "SYSTEM", sourceType: "MISSION" })).toBe(true);
-    expect(eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "SYSTEM", sourceType: "EVENT" })).toBe(true);
-    expect(eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "ADMIN", sourceType: "ADMIN_REWARD" })).toBe(true);
-    expect(eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "ADMIN", sourceType: "ADMIN_CORRECTION" })).toBe(false);
-    expect(eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "ADMIN", sourceType: "ADMIN_ADJUSTMENT" })).toBe(false);
-    expect(eligibleEarnedTrainerAdjustment({ delta: -25, actorType: "SYSTEM", sourceType: "MISSION" })).toBe(false);
+    expect(
+      eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "SYSTEM", sourceType: "MISSION" }),
+    ).toBe(true);
+    expect(
+      eligibleEarnedTrainerAdjustment({ delta: 25, actorType: "SYSTEM", sourceType: "EVENT" }),
+    ).toBe(true);
+    expect(
+      eligibleEarnedTrainerAdjustment({
+        delta: 25,
+        actorType: "ADMIN",
+        sourceType: "ADMIN_REWARD",
+      }),
+    ).toBe(true);
+    expect(
+      eligibleEarnedTrainerAdjustment({
+        delta: 25,
+        actorType: "ADMIN",
+        sourceType: "ADMIN_CORRECTION",
+      }),
+    ).toBe(false);
+    expect(
+      eligibleEarnedTrainerAdjustment({
+        delta: 25,
+        actorType: "ADMIN",
+        sourceType: "ADMIN_ADJUSTMENT",
+      }),
+    ).toBe(false);
+    expect(
+      eligibleEarnedTrainerAdjustment({ delta: -25, actorType: "SYSTEM", sourceType: "MISSION" }),
+    ).toBe(false);
   });
 });
