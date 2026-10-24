@@ -207,3 +207,25 @@ jobs:
           POKECRYSTAL_DIR: ${{ github.workspace }}/.phase15-crystal
           POKEEMERALD_DIR: ${{ github.workspace }}/.phase15-emerald
         run: pnpm tsx db/proofs/phase15_final_release_e2e.ts
+
+      - name: Audit ACTIVE learnsets after disposable Gen I-III release (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_file="$RUNNER_TEMP/phase15-active-learnsets-audit.txt"
+          # SQL starts BEGIN TRANSACTION READ ONLY, and contains SELECT queries only.
+          docker exec --interactive pokemon-catalog-postgres psql \
+            --username pokemon \
+            --dbname pokemon_rpg_phase4_seed_test \
+            --no-psqlrc \
+            --set ON_ERROR_STOP=1 \
+            --no-align \
+            --field-separator='|' \
+            --file=- \
+            < db/audits/active_pokemon_learnsets_readonly.sql > "$audit_file"
+          test -s "$audit_file"
+          echo "ACTIVE Gen I-III audit SQL: executed with ON_ERROR_STOP=1 in disposable DB."
+          echo "Rows of audit output: $(wc -l < "$audit_file")"
+          echo "Early-move review rows: $(grep -c 'REVIEW: NO EARLY EXECUTABLE' "$audit_file" || true)"
+          echo "No-level-up review rows: $(grep -c 'REVIEW: NO LEVEL-UP' "$audit_file" || true)"
+          echo "These REVIEW rows are review candidates, not confirmed errors."
