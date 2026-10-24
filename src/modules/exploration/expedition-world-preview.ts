@@ -22,9 +22,7 @@ export class ExpeditionWorldPreview {
   public async inspect(playerId: PlayerId): Promise<Result<ExplorationWorldAdmission>> {
     const world = await this.world.getLocation(playerId);
     if (!world.ok) return world;
-    const publishedAreas = await this.publishedAreas.forActiveRelease(
-      world.value.contentReleaseId,
-    );
+    const publishedAreas = await this.publishedAreas.forActiveRelease(world.value.contentReleaseId);
     return inspectExplorationWorld({ playerId, location: world.value, publishedAreas });
   }
 }
