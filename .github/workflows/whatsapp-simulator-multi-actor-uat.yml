@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "gate/whatsapp-simulator-v1"
+      # Isolated stress-before-deep proof; capture test is not suppressed.
+      - "gate/premium-pr243-stress-before-deep-20261023-r2"
   pull_request:
     branches:
       - "integration/player-flow-zhoulia-final"
@@ -80,11 +82,11 @@ jobs:
       - name: Run autonomous multi-actor UAT
         run: pnpm uat:whatsapp:multi
 
-      - name: Run deep gameplay UAT
-        run: pnpm uat:whatsapp:deep
-
       - name: Run stress swarm UAT
         run: pnpm uat:whatsapp:stress
+
+      - name: Run deep gameplay UAT
+        run: pnpm uat:whatsapp:deep
 
 
   gen123-fidelity:
@@ -172,8 +174,8 @@ jobs:
       - name: Run multi-actor UAT on high-fidelity content
         run: pnpm uat:whatsapp:multi
 
-      - name: Run deep gameplay UAT on high-fidelity content
-        run: pnpm uat:whatsapp:deep
-
       - name: Run stress swarm UAT on high-fidelity content
         run: pnpm uat:whatsapp:stress
+
+      - name: Run deep gameplay UAT on high-fidelity content
+        run: pnpm uat:whatsapp:deep
