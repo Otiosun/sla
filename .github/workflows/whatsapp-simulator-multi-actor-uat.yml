@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "gate/whatsapp-simulator-v1"
+      # CI-only disposable simulator gate for Premium follow-up PR #242.
+      - "gate/premium-pr242-whatsapp-simulator-20261023"
   pull_request:
     branches:
       - "integration/player-flow-zhoulia-final"
