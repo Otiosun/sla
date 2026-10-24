@@ -15,6 +15,7 @@ function preparing(): ExpeditionSnapshot {
     playerId: "trainer-01",
     period: "DAY",
     areaId: "vila-dos-arrozais",
+    currentAreaId: "vila-dos-arrozais",
     phase: "PREPARING",
     elapsedMinutes: 0,
     consumedWeekKey: null,

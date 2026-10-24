@@ -29,6 +29,7 @@ interface ExpeditionRow {
   readonly player_id: string;
   readonly period: ExpeditionPeriod;
   readonly area_id: string;
+  readonly current_area_id: string;
   readonly phase: ExpeditionPhase;
   readonly elapsed_minutes: number;
   readonly consumed_week_key: string | null;
@@ -75,6 +76,7 @@ function snapshot(row: ExpeditionRow): ExpeditionSnapshot {
     playerId: row.player_id,
     period: row.period,
     areaId: row.area_id,
+    currentAreaId: row.current_area_id,
     phase: row.phase,
     elapsedMinutes: row.elapsed_minutes,
     consumedWeekKey: row.consumed_week_key,
@@ -158,7 +160,7 @@ async function lockedExpedition(
   expeditionId: string,
 ): Promise<ExpeditionSnapshot | null> {
   const rows = await client.query<ExpeditionRow>(
-    "SELECT id::text,player_id::text,period,area_id::text,phase,elapsed_minutes,consumed_week_key::text,end_reason,revision::text FROM solo_expeditions WHERE player_id=$1 AND id=$2 FOR UPDATE",
+    "SELECT id::text,player_id::text,period,area_id::text,COALESCE(current_area_id,area_id)::text AS current_area_id,phase,elapsed_minutes,consumed_week_key::text,end_reason,revision::text FROM solo_expeditions WHERE player_id=$1 AND id=$2 FOR UPDATE",
     [playerId, expeditionId],
   );
   return rows.rows[0] === undefined ? null : snapshot(rows.rows[0]);
@@ -170,7 +172,7 @@ async function persistSnapshot(
   expectedRevision: bigint,
 ): Promise<void> {
   const updated = await client.query(
-    "UPDATE solo_expeditions SET phase=$3,elapsed_minutes=$4,consumed_week_key=$5::date,end_reason=$6,revision=$7::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$8::bigint",
+    "UPDATE solo_expeditions SET phase=$3,elapsed_minutes=$4,consumed_week_key=$5::date,end_reason=$6,revision=$7::bigint,current_area_id=$9::uuid,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$8::bigint",
     [
       value.expeditionId,
       value.playerId,
@@ -180,6 +182,7 @@ async function persistSnapshot(
       value.endReason,
       value.revision.toString(),
       expectedRevision.toString(),
+      value.currentAreaId,
     ],
   );
   if (updated.rowCount !== 1) throw new Error("Expedition row was lost during locked transition");
@@ -201,7 +204,7 @@ export class PostgresExpeditionRepository {
 
   public async current(playerId: PlayerId): Promise<ExpeditionSnapshot | null> {
     const result = await this.pool.query<ExpeditionRow>(
-      "SELECT id::text,player_id::text,period,area_id::text,phase,elapsed_minutes,consumed_week_key::text,end_reason,revision::text FROM solo_expeditions WHERE player_id=$1 AND phase <> 'ENDED'",
+      "SELECT id::text,player_id::text,period,area_id::text,COALESCE(current_area_id,area_id)::text AS current_area_id,phase,elapsed_minutes,consumed_week_key::text,end_reason,revision::text FROM solo_expeditions WHERE player_id=$1 AND phase <> 'ENDED'",
       [playerId],
     );
     const row = result.rows[0];
@@ -257,7 +260,7 @@ export class PostgresExpeditionRepository {
       }
       const expeditionId = randomUUID();
       await client.query(
-        "INSERT INTO solo_expeditions(id,player_id,period,area_id,phase,elapsed_minutes,revision) VALUES ($1,$2,$3,$4,'PREPARING',0,0)",
+        "INSERT INTO solo_expeditions(id,player_id,period,area_id,current_area_id,phase,elapsed_minutes,revision) VALUES ($1,$2,$3,$4,$4,'PREPARING',0,0)",
         [expeditionId, input.playerId, input.period, areaId],
       );
       const expedition: ExpeditionSnapshot = {
@@ -265,6 +268,7 @@ export class PostgresExpeditionRepository {
         playerId: input.playerId,
         period: input.period,
         areaId,
+        currentAreaId: areaId,
         phase: "PREPARING",
         elapsedMinutes: 0,
         consumedWeekKey: null,
