@@ -562,4 +562,149 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
     expect(world.rows[0]?.area_id).toBe(yunId);
   });
+  it("resumes after canonical travel from World current area, preserving the immutable origin", async () => {
+    const subject = await prepared("resume-after-travel");
+    const firstRequest = input(
+      subject,
+      "resume-first",
+      canonicalWorldTravelEffect({
+        destinationAreaId: yunId,
+        expectedLocationRevision: 0n,
+        worldFeature: { enabled: true, reason: null },
+        clock: new ManualClock(timestamp),
+      }),
+    );
+    expect(await action.execute(firstRequest)).toMatchObject({
+      ok: true,
+      value: {
+        consumedWeeklySlot: true,
+        expedition: { areaId, currentAreaId: yunId, revision: 1n },
+      },
+    });
+
+    const nextRequest: FirstActionInput = {
+      ...input(subject, "resume-next", proofEffect()),
+      expectedRevision: 1n,
+      expectedLocationRevision: 1n,
+      minutes: 15,
+    };
+    const next = await action.executeNext(nextRequest);
+    expect(next).toMatchObject({
+      ok: true,
+      value: {
+        replayed: false,
+        consumedWeeklySlot: false,
+        expedition: {
+          areaId,
+          currentAreaId: yunId,
+          elapsedMinutes: 45,
+          phase: "ACTIVE",
+          revision: 2n,
+        },
+      },
+    });
+    expect(await action.executeNext(nextRequest)).toMatchObject({
+      ok: true,
+      value: {
+        replayed: true,
+        consumedWeeklySlot: false,
+        expedition: { areaId, currentAreaId: yunId, elapsedMinutes: 45 },
+      },
+    });
+    expect(await proofCount(subject.playerId)).toBe(1);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      areaId,
+      currentAreaId: yunId,
+      elapsedMinutes: 45,
+      revision: 2n,
+    });
+    const slots = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key IS NOT NULL",
+      [subject.playerId],
+    );
+    expect(slots.rows[0]?.count).toBe(1);
+  });
+
+  it("rejects an out-of-band World move even with a fresh World revision", async () => {
+    const subject = await prepared("out-of-band-move");
+    const travel = input(
+      subject,
+      "out-of-band-first",
+      canonicalWorldTravelEffect({
+        destinationAreaId: yunId,
+        expectedLocationRevision: 0n,
+        worldFeature: { enabled: true, reason: null },
+        clock: new ManualClock(timestamp),
+      }),
+    );
+    expect((await action.execute(travel)).ok).toBe(true);
+    await pool.query(
+      "UPDATE player_locations SET area_id=$2,revision=revision+1 WHERE player_id=$1",
+      [subject.playerId, areaId],
+    );
+    expect(
+      await action.executeNext({
+        ...input(subject, "out-of-band-next"),
+        expectedRevision: 1n,
+        expectedLocationRevision: 2n,
+        minutes: 15,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await proofCount(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      areaId,
+      currentAreaId: yunId,
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("rolls back a continuing action error without spending a second slot or losing World cursor", async () => {
+    const subject = await prepared("continuing-rollback");
+    const first = await action.execute(input(subject, "continuing-first"));
+    expect(first.ok).toBe(true);
+    const failing: FirstActionEffect = {
+      ...proofEffect(),
+      async apply(client, ctx) {
+        await client.query(
+          "INSERT INTO atomic_exploration_test_effects(id,player_id,expedition_id) VALUES($1,$2,$3)",
+          [randomUUID(), ctx.playerId, ctx.expeditionId],
+        );
+        return err(appError("ACTION_INVALID", "Synthetic failure on continuing action"));
+      },
+    };
+    expect(
+      await action.executeNext({
+        ...input(subject, "continuing-next", failing),
+        expectedRevision: 1n,
+        minutes: 15,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(await proofCount(subject.playerId)).toBe(1);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      areaId,
+      currentAreaId: areaId,
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("serializes competing continuing actions after travel: only one can commit", async () => {
+    const subject = await prepared("continuing-race");
+    expect((await action.execute(input(subject, "continuing-race-first"))).ok).toBe(true);
+    const a: FirstActionInput = {
+      ...input(subject, "continuing-race-a"),
+      expectedRevision: 1n,
+      minutes: 15,
+    };
+    const b: FirstActionInput = { ...a, idempotencyKey: "continuing-race-b" };
+    const results = await Promise.all([action.executeNext(a), action.executeNext(b)]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(await proofCount(subject.playerId)).toBe(2);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      elapsedMinutes: 45,
+      revision: 2n,
+    });
+  });
+
 });
