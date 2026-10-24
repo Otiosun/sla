@@ -57,6 +57,8 @@ import {
 } from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
+import { ExpeditionRotomPreviewService } from "../modules/exploration/expedition-rotom-preview.js";
+import { createExplorationRotomWhatsAppRoutes } from "../modules/exploration/expedition-rotom-whatsapp.js";
 import { EncounterService } from "../modules/encounter/service.js";
 import { createSpawnWhatsAppRoute } from "../modules/encounter/spawn-whatsapp.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
@@ -126,6 +128,8 @@ import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/co
 import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
+import { PostgresExpeditionPreviewReader } from "../platform/exploration/postgres-expedition-preview-reader.js";
+import { PostgresPublishedExplorationAreas } from "../platform/exploration/postgres-published-exploration-areas.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
@@ -168,6 +172,13 @@ import { filterActiveNarratorBattleIds } from "./narrator-battle-context.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
 
+export interface SoloExplorationPreviewOptIn {
+  /** Explicit staging-only opt-in. No production env flag is connected. */
+  readonly enabled: true;
+  /** Reviewed world calendar timezone. No implicit server timezone fallback. */
+  readonly timeZone: string;
+}
+
 export interface OperationalWhatsAppRuntimeOptions {
   readonly pool: Pool;
   readonly auth: BaileysAuthBinding;
@@ -176,6 +187,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly hubPublicUrl?: string | null;
+  readonly soloExplorationPreview?: SoloExplorationPreviewOptIn;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -207,6 +219,7 @@ export function createOperationalMessagingComposition(
   worldServiceMedia: WorldServiceMediaCatalog | null = null,
   pveBattleConfig: PveBattleRuntimeConfig | null = null,
   hubPublicUrl: string | null = null,
+  soloExplorationPreview: SoloExplorationPreviewOptIn | null = null,
 ): OperationalMessagingComposition {
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
@@ -859,6 +872,19 @@ export function createOperationalMessagingComposition(
     tickets: new HubLoginTicketService(new PostgresHubLoginTicketStore(pool)),
     publicUrl: hubPublicUrl,
   });
+  const explorationRoutes =
+    soloExplorationPreview?.enabled === true
+      ? createExplorationRotomWhatsAppRoutes({
+          players: playerRegistration,
+          preview: new ExpeditionRotomPreviewService(
+            world,
+            new PostgresPublishedExplorationAreas(pool),
+            new PostgresExpeditionPreviewReader(pool),
+            clock,
+            soloExplorationPreview.timeZone,
+          ),
+        })
+      : [];
   const receptionCommandScope = new ReceptionCommandScopeGate(community);
   const router = new MessageRouter(
     [
@@ -949,6 +975,7 @@ export function createOperationalMessagingComposition(
       }),
       ...uatBootstrapRoutes,
       ...hubRoutes,
+      ...explorationRoutes,
     ],
     policyGate,
     conversationResolver,
@@ -1102,6 +1129,7 @@ export function createOperationalWhatsAppRuntime(
     options.worldServiceMedia ?? null,
     options.pveBattleConfig ?? null,
     options.hubPublicUrl ?? null,
+    options.soloExplorationPreview ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
