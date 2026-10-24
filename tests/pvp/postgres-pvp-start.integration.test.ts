@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPveSceneRoutes } from "../../src/modules/battle/pve-scene-whatsapp.js";
+import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
+import { createPvpWhatsAppRoutes } from "../../src/modules/pvp/whatsapp-handlers.js";
+import { PvpService } from "../../src/modules/pvp/service.js";
+import { SystemClock } from "../../src/platform/clock/index.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 import type { OutboundMessageAdapter } from "../../src/modules/messaging/ports.js";
@@ -13,7 +17,7 @@ import { PostgresBattleRepository } from "../../src/platform/battle/postgres-bat
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { simulatedWhatsAppMessage } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 import type { EncounterSeedProvider, SeedMaterial } from "../../src/modules/encounter/ports.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
@@ -525,6 +529,242 @@ describe("PVP START PostgreSQL atomicity", () => {
       [fixture.challengerPlayerId, fixture.targetPlayerId].sort(),
     );
   }, 30_000);
+
+  it("routes challenge, acceptance and surrender through real PvP group and player admission", async () => {
+    const challenger = await seedPlayer(pool, catalog, [20, 18]);
+    const target = await seedPlayer(pool, catalog, [20, 17]);
+    await pool.query(
+      "INSERT INTO content_release_pointers(pointer_key, content_release_id) VALUES ('ACTIVE', $1) ON CONFLICT (pointer_key) DO UPDATE SET content_release_id=EXCLUDED.content_release_id",
+      [catalog.contentReleaseId],
+    );
+
+    const challengerRef = "shadow-challenger@s.whatsapp.net";
+    const targetRef = "shadow-target@s.whatsapp.net";
+    const refs = new Map([
+      [challengerRef, challenger.playerId],
+      [targetRef, target.playerId],
+    ]);
+    let groupCapabilities: readonly string[] = ["pvp", "pve"];
+    let ready = true;
+    const resolvePlayer = async ({ externalId }: { externalId: string }) => {
+      const playerId = refs.get(externalId);
+      return playerId === undefined
+        ? err(appError("NOT_FOUND", "Trainer is not registered"))
+        : ok({ playerId, state: ready ? "COMPLETE" : "NEW" });
+    };
+    const policy = new RuntimeCommandPolicyGate({
+      community: {
+        resolveChat: async () => ({
+          known: true,
+          groupId: randomUUID(),
+          role: "GAME",
+          capabilities: groupCapabilities,
+        }),
+      },
+      players: { resolvePlayer },
+      access: {
+        load: async (playerId: string) => ({
+          playerId,
+          status: "ACTIVE",
+          approvedReviewId: randomUUID(),
+          revision: 1,
+        }),
+      },
+      admins: { capabilitiesFor: async () => [] },
+    } as never);
+    const challengeRepo = new PostgresPvpChallengeRepository(pool);
+    const startRepo = new PostgresPvpStartRepository(pool, new CountingSeedProvider());
+    const pvp = new PvpService(
+      challengeRepo,
+      new CountingSeedProvider(),
+      new SystemClock(),
+      { enabled: true, reason: null },
+      { challengeTtlMs: 300_000, turnWindowTtlMs: 300_000 },
+      startRepo,
+    );
+    let battleId: string | null = null;
+    const battle = new BattleService(new PostgresBattleRepository(pool), {
+      decrypt: () => Buffer.alloc(32, 1),
+    });
+    const cancellation = new PostgresBattleCancellation(pool);
+    const routes = [
+      ...createPvpWhatsAppRoutes({
+        players: { resolvePlayer },
+        pvp,
+        openChallengeIdForTarget: async (playerId: string) =>
+          challengeRepo.read(async (t) => (await t.openChallengeForTarget(playerId))?.id ?? null),
+        actionableChallengeIdForTarget: async (playerId: string) =>
+          challengeRepo.read(async (t) =>
+            (await t.actionableChallengeForTarget(playerId))?.id ?? null,
+          ),
+        openChallengeIdForChallenger: async (playerId: string) =>
+          challengeRepo.read(async (t) =>
+            (await t.openChallengeForChallenger(playerId))?.id ?? null,
+          ),
+        externalRefForPlayer: async (playerId: string) =>
+          [...refs.entries()].find(([, id]) => id === playerId)?.[0] ?? null,
+        battle: { currentState: battle.currentState.bind(battle) },
+        presentation: { speciesDisplayName: async () => "Startmon" },
+      } as never),
+      ...createPveSceneRoutes({
+        players: { resolvePlayer },
+        activeBattleId: async (playerId: string) =>
+          [...refs.values()].includes(playerId) ? battleId : null,
+        battle: {
+          currentState: battle.currentState.bind(battle),
+          resolvePlayerTurn: battle.resolvePlayerTurn.bind(battle),
+          surrenderPvp: async (input: {
+            battleId: string;
+            playerId: string;
+            expectedVersion: number;
+          }) => {
+            const result = await cancellation.surrenderPvp(input);
+            return result.kind === "PERSISTED" || result.kind === "REPLAYED"
+              ? ok({ state: result.state })
+              : err(appError("FLOW_BLOCKED", "Battle is not active"));
+          },
+        },
+        controllers: new PostgresBattleParticipantControllerRepository(pool),
+        turnWindowForBattleVersion: async (id: string, version: number) => {
+          const result = await new PostgresBattleTurnWindowRepository(pool).loadByBattleVersion(
+            id,
+            version,
+          );
+          return result.ok ? result.value : null;
+        },
+        presentation: {
+          speciesDisplayName: async () => "Startmon",
+          moveDisplayNames: async () => new Map([[catalog.moveId, "Start Move"]]),
+        },
+        admins: { resolvePrincipal: async () => null },
+      } as never),
+    ];
+    const repository = new PostgresMessagingRepository(pool);
+    const delivered: PendingOutboxMessage[] = [];
+    const adapter: OutboundMessageAdapter = {
+      channel: "whatsapp",
+      async send(message) {
+        delivered.push(message);
+        return { providerExternalMessageId: `shadow:${message.id}` };
+      },
+    };
+    const messages = new MessagingService(repository, new MessageRouter(routes, policy));
+    const worker = new OutboxWorker(repository, [adapter], {
+      batchSize: 30,
+      staleAfterMs: 30_000,
+      maxAttempts: 3,
+      baseBackoffMs: 1,
+      maxBackoffMs: 10,
+    });
+    const incoming = (
+      id: string,
+      senderRef: string,
+      text: string,
+      mentions: readonly string[] = [],
+    ) =>
+      simulatedWhatsAppMessage({
+        externalMessageId: id,
+        senderRef,
+        chatRef: "pvp-policy-game@g.us",
+        occurredAt: new Date().toISOString(),
+        text,
+        mentions,
+      });
+    const send = async (
+      id: string,
+      sender: string,
+      command: string,
+      mentions: readonly string[] = [],
+    ) => {
+      expect(await messages.receive(incoming(id, sender, command, mentions))).toMatchObject({
+        ok: true,
+        value: { status: "PROCESSED" },
+      });
+      const outcome = await worker.runOnce();
+      expect(outcome.failed).toBe(0);
+      return delivered.slice(-outcome.sent).filter((message) => message.messageType === "TEXT");
+    };
+    const countChallenges = async () =>
+      (
+        await pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM pvp_challenges WHERE challenger_player_id=$1",
+          [challenger.playerId],
+        )
+      ).rows[0]?.count;
+
+    groupCapabilities = ["pve"];
+    const blocked = await send(
+      "policy-deny-group",
+      challengerRef,
+      "/desafiar @shadow-target",
+      [targetRef],
+    );
+    expect(String(blocked[0]?.payload.text)).toContain("não está habilitado");
+    expect(await countChallenges()).toBe("0");
+
+    groupCapabilities = ["pvp", "pve"];
+    ready = false;
+    const unready = await send(
+      "policy-deny-incomplete",
+      challengerRef,
+      "/desafiar @shadow-target",
+      [targetRef],
+    );
+    expect(String(unready[0]?.payload.text)).toContain("preparação mecânica");
+    expect(await countChallenges()).toBe("0");
+
+    ready = true;
+    const invited = await send(
+      "policy-challenge",
+      challengerRef,
+      "/desafiar @shadow-target",
+      [targetRef],
+    );
+    expect(String(invited[0]?.payload.text)).toContain("𝗗𝗘𝗦𝗔𝗙𝗜𝗢");
+    expect(String(invited[0]?.payload.text)).toContain("`/aceitar`");
+    expect(await countChallenges()).toBe("1");
+
+    // Only the target can accept; an unrelated /aceitar cannot move the challenge.
+    const wrongActor = await send("policy-wrong-accept", challengerRef, "/aceitar");
+    expect(String(wrongActor[0]?.payload.text)).not.toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
+    expect(await countChallenges()).toBe("1");
+
+    const accepted = await send("policy-accept", targetRef, "/aceitar");
+    expect(String(accepted[0]?.payload.text)).toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
+    const row = (
+      await pool.query<{ status: string; battle_id: string; encounter_id: string }>(
+        "SELECT status, battle_id, encounter_id FROM pvp_challenges WHERE challenger_player_id=$1",
+        [challenger.playerId],
+      )
+    ).rows[0];
+    expect(row?.status).toBe("STARTED");
+    expect(row?.battle_id).toEqual(expect.any(String));
+    battleId = row?.battle_id ?? null;
+
+    const stateA = await send("policy-hud-a", challengerRef, "/batalha");
+    const stateB = await send("policy-hud-b", targetRef, "/batalha");
+    expect(String(stateA[0]?.payload.text)).toContain("`/moves`");
+    expect(String(stateB[0]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔");
+
+    // Provider re-delivery never produces another match or Outbox message.
+    expect(await messages.receive(incoming("policy-accept", targetRef, "/aceitar"))).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED" },
+    });
+    expect((await worker.runOnce()).sent).toBe(0);
+    const conceded = await send("policy-surrender", targetRef, "/desistir");
+    expect(String(conceded[0]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔 𝗘𝗡𝗖𝗘𝗥𝗥𝗔𝗗𝗔");
+    const battleCount = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM battles WHERE encounter_id=$1",
+      [row?.encounter_id],
+    );
+    expect(battleCount.rows[0]?.count).toBe("1");
+    const stopped = await pool.query<{ status: string }>(
+      "SELECT status FROM battles WHERE id=$1",
+      [battleId],
+    );
+    expect(stopped.rows[0]?.status).toBe("LOST");
+  }, 45_000);
 
   it("simulates two distinct trainers through messages, waiting, restart, resolution and surrender", async () => {
     const fixture = await seedAcceptedMatch(pool, catalog, [20, 18], [20, 17]);
