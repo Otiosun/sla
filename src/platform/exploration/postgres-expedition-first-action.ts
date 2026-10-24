@@ -50,6 +50,8 @@ export interface FirstActionContext {
   readonly expeditionId: string;
   readonly areaId: string;
   readonly contentReleaseId: string;
+  /** The duration being atomically charged to the expedition clock. */
+  readonly minutes: number;
   readonly idempotencyKey: string;
 }
 
@@ -298,6 +300,7 @@ export class PostgresExpeditionFirstAction {
           expeditionId: input.expeditionId,
           areaId: currentLocation.area_id,
           contentReleaseId: input.expectedContentReleaseId,
+          minutes: input.minutes,
           idempotencyKey: key.value.storageKey,
         });
         if (!result.ok) throw new RollbackAction(result.error);
