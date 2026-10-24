@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "gate/whatsapp-simulator-v1"
+      # Private-data-free CI-only Premium registration fixture validation.
+      - "gate/premium-pr243-profession-uat-20261023-r2"
   pull_request:
     branches:
       - "integration/player-flow-zhoulia-final"
