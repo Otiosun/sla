@@ -587,9 +587,11 @@ describe("PVP START PostgreSQL atomicity", () => {
       ok: true,
       value: { battleId: resumed.value.battleId, replayed: true },
     });
-    expect(await challenges.read((transaction) =>
-      transaction.actionableChallengeForTarget(fixture.targetPlayerId),
-    )).toBeNull();
+    expect(
+      await challenges.read((transaction) =>
+        transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+      ),
+    ).toBeNull();
     const finalBattleCount = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM battles WHERE encounter_id = $1",
       [fixture.encounterId],
