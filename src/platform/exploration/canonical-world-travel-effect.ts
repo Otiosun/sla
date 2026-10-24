@@ -58,18 +58,20 @@ export function canonicalWorldTravelEffect(input: CanonicalTravelEffectInput): F
       // World real-time travelSeconds cooldown as in-game clock minutes.
       const repository = worldRepositoryForClient(client);
       const connection = await repository.read((tx) =>
-        tx.connectionBetween(
-          context.contentReleaseId,
-          context.areaId,
-          input.destinationAreaId,
-        ),
+        tx.connectionBetween(context.contentReleaseId, context.areaId, input.destinationAreaId),
       );
-      const approvedMinutes = connection?.active ? connection.accessRule.explorationMinutes : undefined;
+      const approvedMinutes = connection?.active
+        ? connection.accessRule.explorationMinutes
+        : undefined;
       if (approvedMinutes === undefined) {
-        return err(appError("FLOW_BLOCKED", "Published World connection has no expedition travel duration"));
+        return err(
+          appError("FLOW_BLOCKED", "Published World connection has no expedition travel duration"),
+        );
       }
       if (context.minutes !== approvedMinutes) {
-        return err(appError("ACTION_INVALID", "Expedition clock charge must match published route duration"));
+        return err(
+          appError("ACTION_INVALID", "Expedition clock charge must match published route duration"),
+        );
       }
 
       // Reuse the entire canonical World mutation inside the OUTER SQL tx.
