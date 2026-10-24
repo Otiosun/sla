@@ -28,6 +28,7 @@ export function renderExplorationRotomPreview(view: ExplorationRotomPreview): st
   ];
   if (view.clock !== null) {
     message.push(
+      `${view.clock.period === "DAY" ? "☀️" : "🌙"} Período: ${view.clock.period === "DAY" ? "Diurno" : "Noturno"}`,
       `🕒 Relógio interno: ${view.clock.currentTime} · ${view.clock.elapsedMinutes}/720 min`,
       `⌛ Tempo restante: ${view.clock.remainingMinutes} min (fim às ${view.clock.endTime})`,
     );
