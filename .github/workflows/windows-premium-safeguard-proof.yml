@@ -1,0 +1,29 @@
+name: Windows Premium Private Safeguard Proof
+
+on:
+  push:
+    branches:
+      - "fix/windows-premium-safeguard-gate-20261024"
+      - "gate/windows-premium-safeguard-*"
+    paths:
+      - "scripts/operations/windows-premium-private-safeguard.ps1"
+      - "tests/operations/windows-premium-safeguard.test.ps1"
+      - ".github/workflows/windows-premium-safeguard-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-safeguard-fixture:
+    name: Windows no-deploy source and DB backup fixture
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact code SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Test private Windows operator snapshot against synthetic fixtures only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./tests/operations/windows-premium-safeguard.test.ps1
