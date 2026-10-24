@@ -170,6 +170,7 @@ export function createPvpWhatsAppRoutes(
         `　${mentionTag(challengerRef)} × ${mentionTag(targetMention)}`,
         "",
         `› _${mentionTag(targetMention)} pode usar \`/aceitar\` ou \`/recusar\`._`,
+        "› _Quem enviou o desafio pode usar `/cancelar` enquanto ele estiver aberto._",
       ].join("\n"),
       created.value.challenge.id,
       [challengerRef, targetMention],
@@ -190,7 +191,18 @@ export function createPvpWhatsAppRoutes(
       challengeId,
       actorPlayerId: actor.value.playerId,
     });
-    if (!started.ok) return started;
+    if (!started.ok) {
+      if (started.error.code === "REVISION_CONFLICT") {
+        return err(
+          appError(started.error.code, started.error.message, {
+            ...started.error.details,
+            userMessage:
+              "O convite foi aceito, mas a batalha não iniciou. Use `/aceitar` novamente para retomar.",
+          }),
+        );
+      }
+      return started;
+    }
 
     const challenge = accepted.value.challenge;
     const refs =
@@ -220,7 +232,11 @@ export function createPvpWhatsAppRoutes(
       actorPlayerId: actor.value.playerId,
     });
     if (!declined.ok) return declined;
-    return reply(context, "〔×〕 *𝗗𝗘𝗦𝗔𝗙𝗜𝗢 𝗥𝗘𝗖𝗨𝗦𝗔𝗗𝗢*", challengeId);
+    return reply(
+      context,
+      "〔×〕 *𝗗𝗘𝗦𝗔𝗙𝗜𝗢 𝗥𝗘𝗖𝗨𝗦𝗔𝗗𝗢*\n\n› _Nenhuma batalha foi iniciada._",
+      challengeId,
+    );
   };
 
   const cancel: Handler = async (context) => {
@@ -235,7 +251,11 @@ export function createPvpWhatsAppRoutes(
       actorPlayerId: actor.value.playerId,
     });
     if (!cancelled.ok) return cancelled;
-    return reply(context, "〔‹〕 *𝗗𝗘𝗦𝗔𝗙𝗜𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢*", challengeId);
+    return reply(
+      context,
+      "〔‹〕 *𝗗𝗘𝗦𝗔𝗙𝗜𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢*\n\n› _O convite foi encerrado antes da batalha._",
+      challengeId,
+    );
   };
 
   return [
