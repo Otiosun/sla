@@ -86,7 +86,8 @@ export class ExpeditionRotomPreviewService {
       );
     }
 
-    const phase = expedition?.phase ?? "NONE";
+    const phase: ExplorationRotomPreview["phase"] =
+      expedition === null ? "NONE" : expedition.phase === "PREPARING" ? "PREPARING" : "ACTIVE";
     const weekly = expeditionWeeklyAdmission(facts.usedThisWeek, phase);
     return ok({
       locationName: location.value.areaDisplayName,
