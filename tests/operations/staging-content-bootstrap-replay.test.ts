@@ -67,7 +67,8 @@ function setCatalogState(mode: "ACTIVE_ZHOULIA" | "EMPTY" | "ONLY_PHASE4"): void
     }
     if (query.includes("FROM content_releases\n")) return { rows: [{ count: 0 }] };
     if (query.includes("FROM rulesets\n")) return { rows: [{ count: 0 }] };
-    if (query.includes("FROM pokemon_species_revisions revision")) return { rows: [{ count: 386 }] };
+    if (query.includes("FROM pokemon_species_revisions revision"))
+      return { rows: [{ count: 386 }] };
     throw new Error(`Unexpected query in isolated test: ${query}`);
   });
 }
