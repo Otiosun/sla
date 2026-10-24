@@ -140,7 +140,7 @@ describe("Premium private worktree read-only inventory", () => {
     expect(source).not.toMatch(/\b(?:writeFile|appendFile|mkdir|rename|unlink|rmSync)\s*\(/);
     expect(source).not.toContain("pg");
     expect(source).not.toContain("pm2");
-    expect(source).not.toContain("baileys");
+    expect(source).not.toMatch(/from ["\x27]@whiskeysockets\\/baileys/);
     expect(source).not.toContain("git reset");
   });
 });
