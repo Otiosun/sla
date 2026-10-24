@@ -75,7 +75,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   afterAll(async () => {
     await pool?.end();
     if (adminPool) {
-      await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
   });
