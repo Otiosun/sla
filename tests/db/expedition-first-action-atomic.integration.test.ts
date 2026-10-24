@@ -10,6 +10,7 @@ import {
   type FirstActionInput,
 } from "../../src/platform/exploration/postgres-expedition-first-action.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { canonicalWorldTravelEffect } from "../../src/platform/exploration/canonical-world-travel-effect.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -28,6 +29,8 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
   const rulesetId = randomUUID();
   const regionId = randomUUID();
   const areaId = randomUUID();
+  const yunId = randomUUID();
+  const connectionId = randomUUID();
   const speciesId = randomUUID();
   const formId = randomUUID();
   const timestamp = new Date("2026-10-19T12:00:00Z");
@@ -61,8 +64,49 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       regionId,
     ]);
     await pool.query(
-      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active) VALUES($1,$2,$3,'Vila dos Arrozais',TRUE)",
-      [randomUUID(), releaseId, areaId],
+      `INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data)
+       VALUES($1,$2,$3,'Vila dos Arrozais',TRUE,$4::jsonb)`,
+      [
+        randomUUID(),
+        releaseId,
+        areaId,
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: "TOWN",
+          safePoint: true,
+          startingArea: true,
+          relocationPriority: 0,
+        }),
+      ],
+    );
+    await pool.query("INSERT INTO areas(id,region_id,slug) VALUES($1,$2,'campos-de-yun')", [
+      yunId,
+      regionId,
+    ]);
+    await pool.query(
+      `INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data)
+       VALUES($1,$2,$3,'Campos de Yun',TRUE,$4::jsonb)`,
+      [
+        randomUUID(),
+        releaseId,
+        yunId,
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: "ROUTE",
+          safePoint: false,
+          startingArea: false,
+          relocationPriority: 100,
+        }),
+      ],
+    );
+    await pool.query(
+      "INSERT INTO area_connections(id,from_area_id,to_area_id,connection_key) VALUES($1,$2,$3,'vila-to-yun')",
+      [connectionId, areaId, yunId],
+    );
+    await pool.query(
+      `INSERT INTO area_connection_revisions(id,content_release_id,connection_id,active,access_rule)
+       VALUES($1,$2,$3,TRUE,$4::jsonb)`,
+      [randomUUID(), releaseId, connectionId, JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] })],
     );
     await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,'normal')", [typeId]);
     await pool.query(
@@ -95,6 +139,20 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     await pool.query(
       "INSERT INTO encounter_entries(id,encounter_table_revision_id,form_id,weight,min_level,max_level,active) VALUES($1,$2,$3,100,2,5,TRUE)",
       [randomUUID(), tableRevisionId, formId],
+    );
+    const yunTableId = randomUUID();
+    const yunRevisionId = randomUUID();
+    await pool.query("INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'yun-encounters')", [
+      yunTableId,
+      yunId,
+    ]);
+    await pool.query(
+      "INSERT INTO encounter_table_revisions(id,content_release_id,encounter_table_id,active) VALUES($1,$2,$3,TRUE)",
+      [yunRevisionId, releaseId, yunTableId],
+    );
+    await pool.query(
+      "INSERT INTO encounter_entries(id,encounter_table_revision_id,form_id,weight,min_level,max_level,active) VALUES($1,$2,$3,100,4,8,TRUE)",
+      [randomUUID(), yunRevisionId, formId],
     );
     await pool.query(
       "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report='{}'::jsonb,config_fingerprint=$2 WHERE id=$1",
@@ -335,4 +393,104 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     });
     expect(await proofCount(subject.playerId)).toBe(0);
   });
+  it("applies real World travel together with the first-action quota, clock and both receipts", async () => {
+    const subject = await prepared("world-travel-prepare");
+    const request = input(
+      subject,
+      "world-travel-first",
+      canonicalWorldTravelEffect({
+        destinationAreaId: yunId,
+        expectedLocationRevision: 0n,
+        worldFeature: { enabled: true, reason: null },
+        clock: new ManualClock(timestamp),
+      }),
+    );
+
+    // 30 is a synthetic TEST duration, not an approved Vila/Yun route cost.
+    const first = await action.execute(request);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        replayed: false,
+        consumedWeeklySlot: true,
+        expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+        effectResult: { kind: "WORLD_TRAVEL", fromAreaId: areaId, toAreaId: yunId, worldRevision: "1" },
+      },
+    });
+    const retry = await action.execute(request);
+    expect(retry).toMatchObject({
+      ok: true,
+      value: { replayed: true, effectResult: { toAreaId: yunId } },
+    });
+    const worldState = await pool.query<{ area_id: string; revision: string }>(
+      "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(worldState.rows[0]).toMatchObject({ area_id: yunId, revision: "1" });
+    const receipts = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM world_travel_receipts WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(receipts.rows[0]?.count).toBe(1);
+    const visited = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM player_area_visits WHERE player_id=$1 AND area_id=$2",
+      [subject.playerId, yunId],
+    );
+    expect(visited.rows[0]?.count).toBe(1);
+  });
+
+  it("rolls back canonical World movement and World receipt when a later effect fails", async () => {
+    const subject = await prepared("world-rollback-prepare");
+    const realEffect = canonicalWorldTravelEffect({
+      destinationAreaId: yunId,
+      expectedLocationRevision: 0n,
+      worldFeature: { enabled: true, reason: null },
+      clock: new ManualClock(timestamp),
+    });
+    const failure: FirstActionEffect = {
+      ...realEffect,
+      async apply(client, ctx) {
+        const moved = await realEffect.apply(client, ctx);
+        if (!moved.ok) return moved;
+        return err(appError("ACTION_INVALID", "Synthetic failure after World travel"));
+      },
+    };
+    expect(await action.execute(input(subject, "world-rollback-first", failure))).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+    const location = await pool.query<{ area_id: string; revision: string }>(
+      "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(location.rows[0]).toEqual({ area_id: areaId, revision: "0" });
+    expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+    const receipt = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM world_travel_receipts WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(receipt.rows[0]?.count).toBe(0);
+    const visits = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM player_area_visits WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(visits.rows[0]?.count).toBe(0);
+  });
+
+  it("refuses a destination that has no published exploration encounters", async () => {
+    const subject = await prepared("unpublished-destination-prepare");
+    const outside = randomUUID();
+    const effect = canonicalWorldTravelEffect({
+      destinationAreaId: outside,
+      expectedLocationRevision: 0n,
+      worldFeature: { enabled: true, reason: null },
+      clock: new ManualClock(timestamp),
+    });
+    expect(await action.execute(input(subject, "outside-destination", effect))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+  });
+
 });
