@@ -90,5 +90,23 @@ Assert ((Get-FileHash -LiteralPath (Join-Path $repo ".git/index") -Algorithm SHA
 $acl = Get-Acl -LiteralPath $gen
 Assert ($acl.AreAccessRulesProtected) "backup folder must have non-inherited private ACL"
 
+# A failed database dump leaves an explicit incomplete generation and never
+# produces a release-ready manifest or removes a previous successful snapshot.
+$failMock = Join-Path $mockBin "mock-pg-dump-fail.ps1"
+[IO.File]::WriteAllText($failMock, "exit 23" + [Environment]::NewLine)
+$failedOutput = @(& pwsh -NoProfile -NonInteractive -File $script -RepoPath $repo -BackupRoot $backupRoot -PgDumpCommand $failMock -PgRestoreCommand $restoreMock)
+$failedExit = $LASTEXITCODE
+$failure = ($failedOutput | Select-Object -Last 1) | ConvertFrom-Json
+Assert ($failedExit -eq 2) "failed database dump must yield a nonzero exit"
+Assert ($failure.reason -eq "POSTGRES_DUMP_FAILED") "failed dump must be categorized"
+Assert ($failure.releaseEligible -eq $false) "failed snapshot may never be release eligible"
+$remainingGenerations = @(Get-ChildItem -LiteralPath $backupRoot -Directory)
+Assert ($remainingGenerations.Count -eq 2) "failure must not overwrite or remove existing backup"
+$failedGeneration = $remainingGenerations | Where-Object { $_.Name -like "*$($failure.snapshotId)" }
+Assert ($null -ne $failedGeneration) "incomplete generation must remain private for operator review"
+Assert (Test-Path -LiteralPath (Join-Path $failedGeneration.FullName "INCOMPLETE.txt")) "failure must leave incomplete marker"
+Assert (-not (Test-Path -LiteralPath (Join-Path $failedGeneration.FullName "manifest.json"))) "failed dump must not create a completed manifest"
+Assert (-not (Test-Path -LiteralPath (Join-Path $failedGeneration.FullName "CAPTURED_NOT_RESTORED.txt"))) "failed dump must not be marked captured"
+
 # Only disposable fixtures and fake dump tools were exercised. No live database.
 [Console]::Out.WriteLine("WINDOWS_SAFEGUARD_FIXTURE_PASS (mock dump; restore unverified)")
