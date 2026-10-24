@@ -9,7 +9,11 @@ const targetId = "22222222-2222-4222-8222-222222222222";
 const challengerId = "33333333-3333-4333-8333-333333333333";
 const battleId = "44444444-4444-4444-8444-444444444444";
 
-function context(text: string, senderRef = "target@s.whatsapp.net", id = "pvp-inbound"): MessageHandlerContext {
+function context(
+  text: string,
+  senderRef = "target@s.whatsapp.net",
+  id = "pvp-inbound",
+): MessageHandlerContext {
   return {
     inboxMessageId: "inbox",
     correlationId: "correlation",
@@ -45,7 +49,8 @@ function dependencies() {
       replayed: true,
     }),
   );
-  const startEncounter = vi.fn()
+  const startEncounter = vi
+    .fn()
     .mockResolvedValueOnce(err(appError("REVISION_CONFLICT", "Transient start conflict")))
     .mockResolvedValue(ok({ battleId, challengeId, replayed: false }));
   const declineChallenge = vi.fn(async () =>
@@ -75,9 +80,16 @@ function dependencies() {
     { authorize },
   );
   return {
-    router, authorize, resolvePlayer, acceptChallenge, startEncounter,
-    declineChallenge, cancelChallenge, openChallengeIdForTarget,
-    actionableChallengeIdForTarget, openChallengeIdForChallenger,
+    router,
+    authorize,
+    resolvePlayer,
+    acceptChallenge,
+    startEncounter,
+    declineChallenge,
+    cancelChallenge,
+    openChallengeIdForTarget,
+    actionableChallengeIdForTarget,
+    openChallengeIdForChallenger,
   };
 }
 
@@ -92,7 +104,9 @@ describe("PVP WhatsApp lifecycle and interrupted-start recovery", () => {
         details: { userMessage: expect.stringContaining("Use `/aceitar` novamente") },
       },
     });
-    const second = await d.router.dispatch(context("/aceitar", "target@s.whatsapp.net", "accept-2"));
+    const second = await d.router.dispatch(
+      context("/aceitar", "target@s.whatsapp.net", "accept-2"),
+    );
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     const text = String(second.value?.outgoing[0]?.payload.text);
@@ -122,7 +136,9 @@ describe("PVP WhatsApp lifecycle and interrupted-start recovery", () => {
     expect(d.startEncounter).not.toHaveBeenCalled();
 
     d.openChallengeIdForTarget.mockResolvedValue(challengeId);
-    const declined = await d.router.dispatch(context("/recusar", "target@s.whatsapp.net", "decline-2"));
+    const declined = await d.router.dispatch(
+      context("/recusar", "target@s.whatsapp.net", "decline-2"),
+    );
     expect(declined.ok).toBe(true);
     if (declined.ok) {
       expect(declined.value?.outgoing[0]?.payload.text).toContain("Nenhuma batalha foi iniciada");
@@ -137,12 +153,14 @@ describe("PVP WhatsApp lifecycle and interrupted-start recovery", () => {
 
   it("cancels only through challenger identity without initiating a turn", async () => {
     const d = dependencies();
-    const cancelled = await d.router.dispatch(context(
-      "/cancelar", "challenger@s.whatsapp.net", "cancel-1",
-    ));
+    const cancelled = await d.router.dispatch(
+      context("/cancelar", "challenger@s.whatsapp.net", "cancel-1"),
+    );
     expect(cancelled.ok).toBe(true);
     if (cancelled.ok) {
-      expect(String(cancelled.value?.outgoing[0]?.payload.text).normalize("NFKC")).toContain("DESAFIO");
+      expect(String(cancelled.value?.outgoing[0]?.payload.text).normalize("NFKC")).toContain(
+        "DESAFIO",
+      );
       expect(cancelled.value?.outgoing[0]?.payload.text).toContain("encerrado antes da batalha");
     }
     expect(d.cancelChallenge).toHaveBeenCalledWith({
