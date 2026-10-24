@@ -132,15 +132,15 @@ async function main(): Promise<void> {
     if (!menu.ok || menu.value.status !== "PROCESSED" || menu.value.resultRefId !== null) {
       throw new Error(`Opening menu should remain read-only: ${JSON.stringify(menu)}`);
     }
-    const registration = await service.receive(message("f17-register", "/registrar FailureProof"));
+    const registeredResult = await service.receive(message("f17-register", "/registrar FailureProof"));
     if (
-      !registration.ok ||
-      registration.value.status !== "PROCESSED" ||
-      registration.value.resultRefId === null
+      !registeredResult.ok ||
+      registeredResult.value.status !== "PROCESSED" ||
+      registeredResult.value.resultRefId === null
     ) {
-      throw new Error(`Could not register proof player: ${JSON.stringify(registration)}`);
+      throw new Error(`Could not register proof player: ${JSON.stringify(registeredResult)}`);
     }
-    const playerId = registration.value.resultRefId;
+    const playerId = registeredResult.value.resultRefId;
     await receiveProcessed(service, message("f17-regions", "/regioes"));
     await receiveProcessed(service, message("f17-region", "/regiao 1"));
     await receiveProcessed(service, message("f17-starters", "/starters"));
