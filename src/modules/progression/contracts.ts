@@ -56,6 +56,8 @@ export const TrainerProgressAdjustmentResultSchema = z
   .object({
     playerId: uuid,
     delta: signedSafeDelta,
+    /** Original positive input when a Premium multiplier increased the awarded delta. */
+    requestedDelta: signedSafeDelta.optional(),
     beforePoints: safeNonNegative,
     afterPoints: safeNonNegative,
     beforeLevel: z.number().int().min(1).max(100),
