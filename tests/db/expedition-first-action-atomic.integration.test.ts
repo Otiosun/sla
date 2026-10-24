@@ -197,7 +197,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
   }
 
-  async function prepared(key: string, startAreaId = areaId): Promise<{
+  async function prepared(
+    key: string,
+    startAreaId = areaId,
+  ): Promise<{
     playerId: PlayerId;
     expeditionId: string;
   }> {
@@ -529,8 +532,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       clock: new ManualClock(timestamp),
     });
     // The published test connection declares 30, not 29 minutes.
-    expect(await action.execute({ ...input(subject, "wrong-minutes", effect), minutes: 29 }))
-      .toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(
+      await action.execute({ ...input(subject, "wrong-minutes", effect), minutes: 29 }),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
     expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
     const world = await pool.query<{ area_id: string }>(
       "SELECT area_id::text FROM player_locations WHERE player_id=$1",
@@ -558,5 +562,4 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
     expect(world.rows[0]?.area_id).toBe(yunId);
   });
-
 });
