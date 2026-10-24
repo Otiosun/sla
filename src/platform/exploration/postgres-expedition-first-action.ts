@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { advanceExpedition, type ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
+import {
+  advanceExpedition,
+  type ExpeditionSnapshot,
+} from "../../modules/exploration/expedition-state.js";
 import { expeditionWeekKey } from "../../modules/exploration/expedition-week.js";
 import type { Clock } from "../clock/index.js";
 import { withTransaction } from "../db/transaction.js";
@@ -11,6 +14,7 @@ import { appError, err, ok, type AppError, type Result } from "../../shared-kern
 
 const scope = parseIdempotencyScope("solo.exploration.first-action");
 if (!scope.ok) throw new Error("Invalid first-action scope");
+const firstActionScope = scope.value;
 
 interface StoredExpeditionRow {
   readonly id: string;
@@ -136,7 +140,7 @@ export class PostgresExpeditionFirstAction {
 
   public async execute(input: FirstActionInput): Promise<Result<FirstActionOutcome>> {
     const { effect } = input;
-    const key = createIdempotencyKey(scope.value, input.idempotencyKey);
+    const key = createIdempotencyKey(firstActionScope, input.idempotencyKey);
     if (!key.ok) return key;
     if (
       !/^[a-z][a-z0-9._:-]{1,95}$/.test(effect.actionKey) ||
@@ -178,8 +182,13 @@ export class PostgresExpeditionFirstAction {
             WHERE player.id=$1 FOR UPDATE OF player`,
           [input.playerId],
         );
-        if (player.rows[0]?.status !== "ACTIVE" || player.rows[0]?.onboarding_state !== "COMPLETE") {
-          return err(appError("PLAYER_INELIGIBLE", "Trainer must be active with completed onboarding"));
+        if (
+          player.rows[0]?.status !== "ACTIVE" ||
+          player.rows[0]?.onboarding_state !== "COMPLETE"
+        ) {
+          return err(
+            appError("PLAYER_INELIGIBLE", "Trainer must be active with completed onboarding"),
+          );
         }
 
         // Always test the receipt under the player lock before comparing the
@@ -226,7 +235,8 @@ export class PostgresExpeditionFirstAction {
              ) AS busy`,
           [input.playerId],
         );
-        if (flow.rows[0]?.busy !== false) return blocked("Trainer already has an encounter or battle");
+        if (flow.rows[0]?.busy !== false)
+          return blocked("Trainer already has an encounter or battle");
 
         const rows = await client.query<StoredExpeditionRow>(
           `SELECT id::text,player_id::text,period,area_id::text,phase,
@@ -278,7 +288,9 @@ export class PostgresExpeditionFirstAction {
           ],
         );
         if (update.rowCount !== 1) {
-          throw new RollbackAction(appError("REVISION_CONFLICT", "Expedition update lost its revision"));
+          throw new RollbackAction(
+            appError("REVISION_CONFLICT", "Expedition update lost its revision"),
+          );
         }
 
         const result = await effect.apply(client, {
