@@ -599,6 +599,63 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     );
   });
 
+  it("keeps the opponent's PvP action private in both waiting and committed views", async () => {
+    const setup = dependencies(false);
+    const pvp = { ...state, battleType: "PVP" } as BattleState;
+    const currentState = vi.fn(async () => ok(pvp));
+    const turnWindowForBattleVersion = vi.fn(async () => ({
+      window: {
+        requiredControllers: [{ participantId }],
+        requiredPlayers: [],
+      },
+      submissions: [] as {
+        status: "ACTIVE";
+        playerId: string;
+        action: { actorParticipantId: string };
+      }[],
+    }));
+    const deps = {
+      ...setup.dependencies,
+      battle: {
+        ...setup.dependencies.battle,
+        currentState,
+      },
+      turnWindowForBattleVersion,
+    } as unknown as PveSceneDependencies;
+    const route = routeFor(createPveSceneRoutes(deps), "batalha");
+
+    const pending = await route.handler.handle(context("/batalha"));
+    expect(pending.ok).toBe(true);
+    if (!pending.ok) return;
+    const pendingText = String(pending.value.outgoing[0]?.payload.text);
+    expect(pendingText).toContain("Sua ação ainda não foi definida");
+    expect(pendingText).toContain("A escolha do rival fica oculta");
+    expect(pendingText).toContain("`/movimento <número>`");
+    expect(pendingText).not.toContain("`/fugir`");
+
+    turnWindowForBattleVersion.mockResolvedValue({
+      window: {
+        requiredControllers: [{ participantId }],
+        requiredPlayers: [],
+      },
+      submissions: [
+        {
+          status: "ACTIVE",
+          playerId,
+          action: { actorParticipantId: participantId },
+        },
+      ],
+    });
+    const submitted = await route.handler.handle(context("/batalha"));
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) return;
+    const submittedText = String(submitted.value.outgoing[0]?.payload.text);
+    expect(submittedText).toContain("Sua ação já foi definida");
+    expect(submittedText).toContain("A escolha do adversário permanece oculta");
+    expect(submittedText).not.toContain("`/movimento <número>`");
+    expect(submittedText).not.toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
+  });
+
   it("does not let a player inspect another player's hidden PVP submission state by mentioning them", async () => {
     const setup = dependencies(false);
     const opponentPlayerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
