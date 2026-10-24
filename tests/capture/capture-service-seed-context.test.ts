@@ -294,5 +294,4 @@ describe("CaptureService RNG context", () => {
     const clamped = await inspect(2, 255);
     expect(clamped.probability).toBe(9_500); // Pinned ruleset never exceeded.
   });
-
 });
