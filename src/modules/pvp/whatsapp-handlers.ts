@@ -179,7 +179,7 @@ export function createPvpWhatsAppRoutes(
   const accept: Handler = async (context) => {
     const actor = await player(dependencies, context);
     if (!actor.ok) return actor;
-    const challengeId = await dependencies.openChallengeIdForTarget(actor.value.playerId);
+    const challengeId = await dependencies.actionableChallengeIdForTarget(actor.value.playerId);
     if (challengeId === null) return err(appError("NOT_FOUND", "Nenhum convite PVP pendente."));
     const accepted = await dependencies.pvp.acceptChallenge({
       challengeId,
