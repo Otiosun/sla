@@ -1,0 +1,92 @@
+name: Premium + Exploration V1.1 Focused Schema Proof
+
+on:
+  push:
+    branches:
+      - "gate/premium-exploration-universalxp-luck-ci-20261024-r7"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: premium-exploration-focused-schema-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-schema:
+    name: Premium 0076-0078 and isolated expedition DB proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      POSTGRES_INTEGRATION_TEST_URL: postgresql://pokemon:test-only-password@localhost:5432/postgres
+      ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
+      BELL_WORLD_TIME_OF_DAY: DAY
+    steps:
+      - name: Checkout immutable gate commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Node from lockfile
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install exact pnpm and dependencies
+        run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile
+      - name: Start disposable PostgreSQL 18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name pokemon-exp-focused-db \
+            --env POSTGRES_USER=pokemon \
+            --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test \
+            --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for attempt in {1..30}; do
+            if docker exec pokemon-exp-focused-db psql -U pokemon -d pokemon_rpg_test \
+              -tAc 'SELECT 1' >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          docker logs pokemon-exp-focused-db
+          exit 1
+      - name: Migrate and verify precisely 0076-0078 source chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            db/migrations/0076_premium_support_events.sql \
+            db/migrations/0077_premium_manual_delivery_cases.sql \
+            db/migrations/0078_premium_luck_capture_and_universal_xp.sql; do
+            test -f "$file"
+          done
+          test -f db/drafts/solo_exploration_v1_schema.sql
+          test ! -e db/migrations/0079_solo_exploration_v1_schema.sql
+          pnpm db:migrate
+          pnpm db:verify
+          docker exec pokemon-exp-focused-db psql -U pokemon -d pokemon_rpg_test \
+            --set ON_ERROR_STOP=1 -tAc "SELECT CASE WHEN
+              (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 76 AND 78)=3
+              AND to_regclass('public.solo_expeditions') IS NULL
+              AND to_regclass('public.premium_support_events') IS NOT NULL
+              AND to_regclass('public.premium_delivery_cases') IS NOT NULL
+              AND to_regprocedure('premium_capture_luck_multiplier_for(uuid,timestamp with time zone)') IS NOT NULL
+              THEN 'ok' ELSE 'bad' END" | grep -qx ok
+      - name: Typecheck Premium and exploration composition
+        run: pnpm typecheck
+      - name: Run focused Premium XP, Luck and expedition tests
+        run: |
+          pnpm exec vitest run --no-file-parallelism \
+            tests/exploration/expedition-clock.test.ts \
+            tests/exploration/expedition-state.test.ts \
+            tests/exploration/expedition-week.test.ts \
+            tests/db/solo-expedition-repository.integration.test.ts \
+            tests/db/xp2x-policy.integration.test.ts \
+            tests/progression/premium-earned-xp-policy.test.ts \
+            tests/progression/premium-xp2x-scope.test.ts \
+            tests/capture/capture-service-seed-context.test.ts
