@@ -95,18 +95,12 @@ async function pvpStartText(
       : []),
   ];
   if (dependencies.battle === undefined || dependencies.presentation === undefined) {
-    return [
-      ...heading,
-      ...pvpFirstTurnGuide(),
-    ].join("\n");
+    return [...heading, ...pvpFirstTurnGuide()].join("\n");
   }
 
   const state = await dependencies.battle.currentState(battleId);
   if (!state.ok) {
-    return [
-      ...heading,
-      ...pvpFirstTurnGuide(),
-    ].join("\n");
+    return [...heading, ...pvpFirstTurnGuide()].join("\n");
   }
 
   const active = state.value.sides
