@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { createPvpWhatsAppRoutes } from "../../src/modules/pvp/whatsapp-handlers.js";
-import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
 
 const challengeId = "11111111-1111-4111-8111-111111111111";
 const targetId = "22222222-2222-4222-8222-222222222222";
@@ -54,10 +54,10 @@ function dependencies() {
   const cancelChallenge = vi.fn(async () =>
     ok({ challenge: { id: challengeId }, replayed: false }),
   );
-  const openChallengeIdForTarget = vi.fn(async () => null);
+  const openChallengeIdForTarget = vi.fn(async (): Promise<string | null> => null);
   const actionableChallengeIdForTarget = vi.fn(async () => challengeId);
   const openChallengeIdForChallenger = vi.fn(async () => challengeId);
-  const authorize = vi.fn(async () => ok(undefined));
+  const authorize = vi.fn(async (): Promise<Result<void>> => ok(undefined));
   const router = new MessageRouter(
     createPvpWhatsAppRoutes({
       players: { resolvePlayer },
@@ -142,7 +142,7 @@ describe("PVP WhatsApp lifecycle and interrupted-start recovery", () => {
     ));
     expect(cancelled.ok).toBe(true);
     if (cancelled.ok) {
-      expect(cancelled.value?.outgoing[0]?.payload.text).toContain("DESAFIO");
+      expect(String(cancelled.value?.outgoing[0]?.payload.text).normalize("NFKC")).toContain("DESAFIO");
       expect(cancelled.value?.outgoing[0]?.payload.text).toContain("encerrado antes da batalha");
     }
     expect(d.cancelChallenge).toHaveBeenCalledWith({
