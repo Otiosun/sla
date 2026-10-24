@@ -180,6 +180,7 @@ function fullFicha(index: number, starter: string): string {
     `Aparência: Viajante de Zhoulia número ${index + 1}, mochila e roupa de campo.`,
     `Personalidade: ${index % 3 === 0 ? "Impulsivo" : "Observador"}, curioso e cooperativo.`,
     `História / resumo: Entrou no RPG para explorar Zhoulia no cenário de stress ${index + 1}.`,
+    "Profissão: Explorador",
     `Pokémon inicial: ${starter}`,
   ].join("\n");
 }
@@ -475,7 +476,9 @@ async function main(): Promise<void> {
       }
       const accepted = await send({ actor: target, chat: WORLD, text: "/aceitar" });
       add(
-        accepted.outbound.some((entry) => /Batalha iniciada/iu.test(textOf(entry)))
+        accepted.outbound.some((entry) =>
+          /Batalha iniciada|PVP INICIADO/iu.test(textOf(entry).normalize("NFKC")),
+        )
           ? "PASS"
           : "BUG",
         "pvp",

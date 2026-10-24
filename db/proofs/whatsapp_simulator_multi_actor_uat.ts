@@ -136,6 +136,7 @@ function fullFicha(name: string, starter: string, variant: string): string {
     `Aparência: Casaco de viagem, mochila leve e marcador ${variant}.`,
     `Personalidade: Curioso, prudente e competitivo; perfil ${variant}.`,
     `História / resumo: Saiu para explorar Zhoulia, registrar espécies e testar o sistema como ${variant}.`,
+    "Profissão: Explorador",
     `Pokémon inicial: ${starter}`,
   ].join("\n");
 }
@@ -438,6 +439,7 @@ async function main(): Promise<void> {
       "Cabelo curto, capa azul e mochila de campo.",
       "Paciente, observadora e competitiva.",
       "Quer mapear Zhoulia e compreender seus Pokémon selvagens.",
+      "Pesquisador",
       starterB,
     ]) {
       await replyLast(PLAYER_B, RECEPTION, value);
