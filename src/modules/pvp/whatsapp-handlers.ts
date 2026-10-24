@@ -27,6 +27,7 @@ export interface PvpWhatsAppDependencies {
     | "cancelChallenge"
   >;
   readonly openChallengeIdForTarget: (playerId: string) => Promise<string | null>;
+  readonly actionableChallengeIdForTarget: (playerId: string) => Promise<string | null>;
   readonly openChallengeIdForChallenger: (playerId: string) => Promise<string | null>;
   readonly externalRefForPlayer?: (playerId: string) => Promise<string | null>;
   readonly battle?: Pick<BattleRuntimeService, "currentState">;
