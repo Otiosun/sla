@@ -109,6 +109,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
     expect(
@@ -197,6 +198,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
   });
@@ -258,6 +260,7 @@ describe.sequential("World group setup through the operational WhatsApp router",
     ).toEqual([
       { capability_key: "player.basic" },
       { capability_key: "pve" },
+      { capability_key: "pvp" },
       { capability_key: "world" },
     ]);
 
