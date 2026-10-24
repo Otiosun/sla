@@ -174,9 +174,7 @@ describe("Rotom individual exploration read-only overview", () => {
 
   it("propagates World denial without probing expedition data", async () => {
     const h = harness(null, 0);
-    h.world.getLocation.mockResolvedValue(
-      err(appError("PLAYER_INELIGIBLE", "Inactive trainer")),
-    );
+    h.world.getLocation.mockResolvedValue(err(appError("PLAYER_INELIGIBLE", "Inactive trainer")));
     expect(await h.preview.inspect(playerId)).toMatchObject({
       ok: false,
       error: { code: "PLAYER_INELIGIBLE" },
