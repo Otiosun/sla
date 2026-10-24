@@ -2,7 +2,11 @@ import type { ExplorationRotomPreview } from "./expedition-rotom-preview.js";
 
 /** WhatsApp-safe plain labels from the published World catalog. */
 function safeLabel(label: string): string {
-  return label.replace(/[\r\n*_~`]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  return label
+    .replace(/[\r\n*_~`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
 }
 
 /**
@@ -34,9 +38,7 @@ export function renderExplorationRotomPreview(view: ExplorationRotomPreview): st
     message.push("🕒 Relógio interno: ainda não iniciado");
   }
   if (view.destinations.length > 0) {
-    message.push(
-      `🗺️ Rotas conhecidas: ${view.destinations.map(safeLabel).join(", ")}`,
-    );
+    message.push(`🗺️ Rotas conhecidas: ${view.destinations.map(safeLabel).join(", ")}`);
   } else {
     message.push("🗺️ Nenhuma rota elegível identificada nesta consulta.");
   }
