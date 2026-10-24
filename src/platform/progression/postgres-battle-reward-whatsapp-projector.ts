@@ -46,12 +46,16 @@ function pokemonLines(
     const lines = [`*${name}* · \`+${pokemon.awardedXp} XP\`${level}`];
     if (pokemon.learnedMoveIds.length > 0) {
       const learned = pokemon.learnedMoveIds.map((id) => learnedMoveNames.get(id));
-      lines.push(learned.every((value) => value !== undefined)
-        ? `✦ Golpes aprendidos · ${learned.map((value) => `*${value}*`).join(", ")}`
-        : `✦ ${pokemon.learnedMoveIds.length} golpe(s) aprendidos.`);
+      lines.push(
+        learned.every((value) => value !== undefined)
+          ? `✦ Golpes aprendidos · ${learned.map((value) => `*${value}*`).join(", ")}`
+          : `✦ ${pokemon.learnedMoveIds.length} golpe(s) aprendidos.`,
+      );
     }
     if (pokemon.pendingMoveChoiceIds.length > 0) {
-      lines.push(`〔!〕 ${pokemon.pendingMoveChoiceIds.length} golpe(s) aguardando escolha. Use \`/golpes\` e \`/aprender\`.`);
+      lines.push(
+        `〔!〕 ${pokemon.pendingMoveChoiceIds.length} golpe(s) aguardando escolha. Use \`/golpes\` e \`/aprender\`.`,
+      );
     }
     for (const evolution of pokemon.evolutions) {
       const fromName = evolutionFormNames.get(evolution.fromFormId);
