@@ -903,6 +903,7 @@ export function createOperationalMessagingComposition(
             players: playerRegistration,
             pvp: pvp.service,
             openChallengeIdForTarget: pvp.openChallengeIdForTarget,
+            actionableChallengeIdForTarget: pvp.actionableChallengeIdForTarget,
             openChallengeIdForChallenger: pvp.openChallengeIdForChallenger,
             externalRefForPlayer,
             ...(pveBattle === null ? {} : { battle: pveBattle.battle }),
