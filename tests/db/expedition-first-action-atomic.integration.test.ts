@@ -106,7 +106,12 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     await pool.query(
       `INSERT INTO area_connection_revisions(id,content_release_id,connection_id,active,access_rule)
        VALUES($1,$2,$3,TRUE,$4::jsonb)`,
-      [randomUUID(), releaseId, connectionId, JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] })],
+      [
+        randomUUID(),
+        releaseId,
+        connectionId,
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] }),
+      ],
     );
     await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,'normal')", [typeId]);
     await pool.query(
@@ -142,10 +147,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
     const yunTableId = randomUUID();
     const yunRevisionId = randomUUID();
-    await pool.query("INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'yun-encounters')", [
-      yunTableId,
-      yunId,
-    ]);
+    await pool.query(
+      "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'yun-encounters')",
+      [yunTableId, yunId],
+    );
     await pool.query(
       "INSERT INTO encounter_table_revisions(id,content_release_id,encounter_table_id,active) VALUES($1,$2,$3,TRUE)",
       [yunRevisionId, releaseId, yunTableId],
@@ -414,7 +419,12 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
         replayed: false,
         consumedWeeklySlot: true,
         expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
-        effectResult: { kind: "WORLD_TRAVEL", fromAreaId: areaId, toAreaId: yunId, worldRevision: "1" },
+        effectResult: {
+          kind: "WORLD_TRAVEL",
+          fromAreaId: areaId,
+          toAreaId: yunId,
+          worldRevision: "1",
+        },
       },
     });
     const retry = await action.execute(request);
