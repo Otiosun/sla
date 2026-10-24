@@ -640,7 +640,21 @@ describe("PVP START PostgreSQL atomicity", () => {
       ok: true,
       value: { status: "PROCESSED" },
     });
-    expect(await runtime.worker.runOnce()).toMatchObject({ failed: 0 });
+    const flushedAction = await runtime.worker.runOnce();
+    expect(flushedAction.failed).toBe(0);
+    expect(
+      outbox.slice(-flushedAction.sent).filter((message) => message.messageType === "TEXT"),
+    ).toEqual([]);
+    const turnWindow = await new PostgresBattleTurnWindowRepository(pool).loadByBattleVersion(
+      battleId,
+      0,
+    );
+    expect(turnWindow.ok).toBe(true);
+    if (turnWindow.ok) {
+      expect(turnWindow.value.submissions).toMatchObject([
+        { status: "ACTIVE", playerId: fixture.challengerPlayerId },
+      ]);
+    }
     const pendingState = await pool.query<{ version: string }>(
       "SELECT version::text FROM battles WHERE id=$1",
       [battleId],
