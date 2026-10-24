@@ -39,7 +39,10 @@ export interface PvpChallengeTransaction {
   challengeById(challengeId: string, lock?: boolean): Promise<PvpChallenge | null>;
   openChallengeForTarget(targetPlayerId: string, lock?: boolean): Promise<PvpChallenge | null>;
   /** Pending invitation or accepted encounter that still needs its battle started. */
-  actionableChallengeForTarget(targetPlayerId: string, lock?: boolean): Promise<PvpChallenge | null>;
+  actionableChallengeForTarget(
+    targetPlayerId: string,
+    lock?: boolean,
+  ): Promise<PvpChallenge | null>;
   openChallengeForChallenger(
     challengerPlayerId: string,
     lock?: boolean,
