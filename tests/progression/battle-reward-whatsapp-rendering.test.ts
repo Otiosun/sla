@@ -90,7 +90,10 @@ describe("battle reward WhatsApp evolution rendering", () => {
     const output = renderBattleRewardWhatsAppText(
       enriched,
       "5511999999999@s.whatsapp.net",
-      new Map([[FROM_FORM_ID, "Charmander"], [TO_FORM_ID, "Charmeleon"]]),
+      new Map([
+        [FROM_FORM_ID, "Charmander"],
+        [TO_FORM_ID, "Charmeleon"],
+      ]),
       new Map([[POKEMON_ID, "Charmander"]]),
       new Map([["00000000-0000-4000-8000-000000000066", "Dragon Rage"]]),
     );
@@ -100,5 +103,4 @@ describe("battle reward WhatsApp evolution rendering", () => {
     expect(output).toContain("/aprender");
     expect(output).toContain("✦ Evolução");
   });
-
 });
