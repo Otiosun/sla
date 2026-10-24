@@ -114,7 +114,11 @@ async function main(): Promise<void> {
     }
 
     const registered = await service.receive(message("ux-register", "/registrar Red"));
-    if (!registered.ok || registered.value.status !== "PROCESSED" || registered.value.resultRefId === null) {
+    if (
+      !registered.ok ||
+      registered.value.status !== "PROCESSED" ||
+      registered.value.resultRefId === null
+    ) {
       throw new Error(`Initial registration failed: ${JSON.stringify(registered)}`);
     }
     const playerId = registered.value.resultRefId;
