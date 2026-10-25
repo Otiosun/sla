@@ -640,6 +640,17 @@ export function createOperationalUxRoutes(
       if (!pokemonRef.ok) return pokemonRef;
       const pokemon = pokemonRef.value;
       const ref = pokemon.collectionNo;
+      if (action === "colocar" && explicitSlot === null && pokemon.placementKind === "TEAM") {
+        return textResult(
+          context,
+          [
+            "ℹ️ *Equipe sem mudanças.*",
+            "",
+            `#${String(ref)} já está no slot ${String(pokemon.slotNo)}.`,
+            `Para trocar de posição, use \`/equipe colocar #${String(ref)} <1-6>\`.`,
+          ].join("\n"),
+        );
+      }
       const clear = await ensureRosterMutationClear(player.value);
       if (!clear.ok) return clear;
       const storage = await dependencies.pcStorage.getStorage(player.value);
@@ -666,9 +677,31 @@ export function createOperationalUxRoutes(
           target: { placementKind: "TEAM", boxNo: null, slotNo },
         });
         if (!moved.ok) return moved;
+        const swappedId = moved.value.swappedPokemonInstanceId;
+        const displaced =
+          swappedId === null || swappedId === undefined
+            ? null
+            : owned.find((entry) => entry.pokemonInstanceId === swappedId);
+        const previousPlacement =
+          moved.value.fromPlacementKind === "TEAM"
+            ? `slot ${String(moved.value.fromSlotNo)}`
+            : `Box ${String(moved.value.fromBoxNo)}, slot ${String(moved.value.fromSlotNo)}`;
+        const swappedText =
+          swappedId === null || swappedId === undefined
+            ? null
+            : displaced === null || displaced === undefined
+              ? `🔁 O Pokémon que ocupava esse slot foi para ${previousPlacement}.`
+              : `🔁 #${String(displaced.collectionNo)} *${pokemonDisplayName(displaced.displayName, displaced.nickname)}* foi para ${previousPlacement}.`;
         return textResult(
           context,
-          `✅ *Equipe atualizada.*\n\n#${String(ref)} agora está no slot ${String(slotNo)}.\nUse \`/equipe\` para conferir.`,
+          [
+            "✅ *Equipe atualizada.*",
+            "",
+            `#${String(ref)} agora está no slot ${String(slotNo)}.`,
+            ...(swappedText === null ? [] : ["", swappedText]),
+            "",
+            "Use `/equipe` para conferir.",
+          ].join("\n"),
         );
       }
 
@@ -709,7 +742,9 @@ export function createOperationalUxRoutes(
     }
 
     if (owned !== null) {
-      const members = owned.filter((entry) => entry.placementKind === "TEAM");
+      const members = owned
+        .filter((entry) => entry.placementKind === "TEAM")
+        .sort((left, right) => left.slotNo - right.slotNo);
       const lines = members.map(
         (member) =>
           `#${String(member.collectionNo)}　*${pokemonDisplayName(member.displayName, member.nickname)}* · Nv. ${String(member.level)} · HP ${String(member.currentHp)} · slot ${String(member.slotNo)}`,
@@ -724,12 +759,19 @@ export function createOperationalUxRoutes(
           "`/colecao` · todos os seus Pokémon",
           "`/box` · armazenados",
           "`/pokemon <#>` · ficha individual",
+          ...(dependencies.pcStorage === undefined
+            ? []
+            : [
+                "",
+                "`/equipe colocar <#> [slot]` · adicionar ou trocar",
+                "`/equipe guardar <#>` · enviar para a Box",
+              ]),
         ].join("\n"),
       );
     }
 
     const members = await dependencies.reads.listTeam(player.value);
-    const lines = members.map(
+    const lines = [...members].sort((left, right) => left.slotNo - right.slotNo).map(
       (member) =>
         "`" +
         String(member.slotNo) +
