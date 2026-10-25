@@ -8,7 +8,7 @@ import { MessageRouter } from "../../src/modules/messaging/router.js";
 import type { PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
-const PLAYER_ID = "00000000-0000-4000-8000-000000000013";
+const PLAYER_ID = "00000000-0000-4000-8000-000000000013" as PlayerId;
 const POKEMON_ID = "00000000-0000-4000-8000-000000000025";
 
 function context(text: string, id = "message-1"): MessageHandlerContext {
