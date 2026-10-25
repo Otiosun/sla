@@ -14,6 +14,8 @@ export interface CommandRouteDefinition {
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass?: "STANDARD" | "SENSITIVE";
   readonly policy?: CommandPolicyRequirement;
+  /** Resolve additional command-specific requirements before the handler runs. */
+  readonly policyForContext?: (context: MessageHandlerContext) => CommandPolicyRequirement | undefined;
   readonly allowEmbedded?: boolean;
   readonly ackReaction?: string;
 }
@@ -38,6 +40,9 @@ interface RegisteredRoute {
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass: "STANDARD" | "SENSITIVE";
   readonly policy: CommandPolicyRequirement | undefined;
+  readonly policyForContext:
+    | ((context: MessageHandlerContext) => CommandPolicyRequirement | undefined)
+    | undefined;
   readonly allowEmbedded: boolean;
   readonly ackReaction: string | undefined;
 }
@@ -154,6 +159,7 @@ export class MessageRouter implements MessageRouterPort {
       handler: definition.handler,
       rateLimitClass: definition.rateLimitClass ?? "STANDARD",
       policy: definition.policy,
+      policyForContext: definition.policyForContext,
       allowEmbedded: definition.allowEmbedded ?? false,
       ackReaction: definition.ackReaction,
     };
@@ -256,7 +262,9 @@ export class MessageRouter implements MessageRouterPort {
       },
     };
 
-    if (route.policy !== undefined) {
+    const requirements = [route.policy, route.policyForContext?.(routedContext)];
+    for (const policy of requirements) {
+      if (policy === undefined) continue;
       if (this.policyGate === undefined) {
         return err(
           appError("ACTION_INVALID", "Protected messaging command has no policy gate", {
@@ -265,7 +273,7 @@ export class MessageRouter implements MessageRouterPort {
           }),
         );
       }
-      const authorized = await this.policyGate.authorize(routedContext, route.policy);
+      const authorized = await this.policyGate.authorize(routedContext, policy);
       if (!authorized.ok) return authorized;
     }
 
