@@ -595,7 +595,9 @@ describe("PVP START PostgreSQL atomicity", () => {
       );
       expect(active?.status).toBe("ACTIVE");
     }
-    const registration = new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool));
+    const registration = new PlayerRegistrationService(
+      new PostgresPlayerOnboardingRepository(pool),
+    );
     const resolvePlayer = registration.resolvePlayer.bind(registration);
     expect(await resolvePlayer({ provider: "baileys", externalId: challengerRef })).toMatchObject({
       ok: true,
@@ -843,9 +845,9 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(suspended?.status).toBe("SUSPENDED");
     const deniedSuspended = await send("policy-suspended-accept", targetRef, "/aceitar");
     expect(String(deniedSuspended[0]?.payload.text)).toContain("não permite usar");
-    expect((await challengeRepo.read((tx) => tx.openChallengeForTarget(target.playerId)))?.status).toBe(
-      "OPEN",
-    );
+    expect(
+      (await challengeRepo.read((tx) => tx.openChallengeForTarget(target.playerId)))?.status,
+    ).toBe("OPEN");
     if (suspended === null) return;
     const restoredAccess = await accessRepository.transaction((tx) =>
       tx.restore({
