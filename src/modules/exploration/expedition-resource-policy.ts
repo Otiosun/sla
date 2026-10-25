@@ -88,10 +88,7 @@ export function prepareExpeditionResourceTable(input: {
     }
 
     totalWeight += outcome.weightBasisPoints;
-    if (
-      !Number.isSafeInteger(totalWeight) ||
-      totalWeight > EXPEDITION_RESOURCE_ROLL_BASIS_POINTS
-    ) {
+    if (!Number.isSafeInteger(totalWeight) || totalWeight > EXPEDITION_RESOURCE_ROLL_BASIS_POINTS) {
       return invalidTable();
     }
   }
@@ -116,10 +113,7 @@ export function drawExpeditionResourceOutcome(input: {
   }
   let sum = 0;
   for (const outcome of input.table.outcomes) {
-    if (
-      !Number.isSafeInteger(outcome.weightBasisPoints) ||
-      outcome.weightBasisPoints <= 0
-    ) {
+    if (!Number.isSafeInteger(outcome.weightBasisPoints) || outcome.weightBasisPoints <= 0) {
       return invalidTable();
     }
     sum += outcome.weightBasisPoints;
@@ -127,11 +121,7 @@ export function drawExpeditionResourceOutcome(input: {
   if (sum !== EXPEDITION_RESOURCE_ROLL_BASIS_POINTS) return invalidTable();
 
   const roll = input.nextInt(EXPEDITION_RESOURCE_ROLL_BASIS_POINTS);
-  if (
-    !Number.isSafeInteger(roll) ||
-    roll < 0 ||
-    roll >= EXPEDITION_RESOURCE_ROLL_BASIS_POINTS
-  ) {
+  if (!Number.isSafeInteger(roll) || roll < 0 || roll >= EXPEDITION_RESOURCE_ROLL_BASIS_POINTS) {
     return err(appError("ACTION_INVALID", "Trusted resource RNG generated an invalid draw"));
   }
   let cumulative = 0;
