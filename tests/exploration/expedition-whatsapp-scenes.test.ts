@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { advanceExpedition, type ExpeditionSnapshot } from "../../src/modules/exploration/expedition-state.js";
+import {
+  advanceExpedition,
+  type ExpeditionSnapshot,
+} from "../../src/modules/exploration/expedition-state.js";
 import {
   renderExpeditionCaptureResolutionScene,
   renderExpeditionDirectEncounterScene,
   privateExpeditionSceneReply,
   type ExpeditionPresentedEncounter,
 } from "../../src/modules/exploration/expedition-whatsapp-scenes.js";
-import { selectExpeditionMenuChoice, type ExpeditionMenuChoice } from "../../src/modules/exploration/expedition-contextual-menu.js";
+import {
+  selectExpeditionMenuChoice,
+  type ExpeditionMenuChoice,
+} from "../../src/modules/exploration/expedition-contextual-menu.js";
 import type { FirstActionOutcome } from "../../src/platform/exploration/postgres-expedition-first-action.js";
 import type { CaptureAttemptResult } from "../../src/modules/capture/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
@@ -137,13 +143,15 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
   });
 
   it("refuses to present CREATED as already observed", () => {
-    expect(renderExpeditionDirectEncounterScene({
-      action: firstAction(),
-      observed: { ...observed(), status: "CREATED" },
-      speciesName: "Shroomish",
-      locationName: "Campos de Yun",
-      choices,
-    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      renderExpeditionDirectEncounterScene({
+        action: firstAction(),
+        observed: { ...observed(), status: "CREATED" },
+        speciesName: "Shroomish",
+        locationName: "Campos de Yun",
+        choices,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 
   it.each(["encounterId", "contentReleaseId", "areaId", "formId", "level"] as const)(
@@ -154,13 +162,15 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
         ...(action.effectResult as Record<string, unknown>),
         [property]: property === "level" ? 9 : "tampered",
       };
-      expect(renderExpeditionDirectEncounterScene({
-        action: { ...action, effectResult },
-        observed: observed(),
-        speciesName: "Shroomish",
-        locationName: "Campos de Yun",
-        choices,
-      })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+      expect(
+        renderExpeditionDirectEncounterScene({
+          action: { ...action, effectResult },
+          observed: observed(),
+          speciesName: "Shroomish",
+          locationName: "Campos de Yun",
+          choices,
+        }),
+      ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     },
   );
 
@@ -170,13 +180,15 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
       { ...observed(), playerId: "another-player" as ExpeditionPresentedEncounter["playerId"] },
       { ...observed(), areaId: "another-area" },
     ]) {
-      expect(renderExpeditionDirectEncounterScene({
-        action,
-        observed: mismatch,
-        speciesName: "Shroomish",
-        locationName: "Campos de Yun",
-        choices,
-      }).ok).toBe(false);
+      expect(
+        renderExpeditionDirectEncounterScene({
+          action,
+          observed: mismatch,
+          speciesName: "Shroomish",
+          locationName: "Campos de Yun",
+          choices,
+        }).ok,
+      ).toBe(false);
     }
   });
 
@@ -222,11 +234,13 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
       { ...captured(), placement: { placementKind: "BOX" as const, boxNo: 0, slotNo: 1 } },
       { ...captured(), status: "FAILED" as const },
     ]) {
-      expect(renderExpeditionCaptureResolutionScene({
-        encounter: observed(),
-        capture,
-        speciesName: "Shroomish",
-      }).ok).toBe(false);
+      expect(
+        renderExpeditionCaptureResolutionScene({
+          encounter: observed(),
+          capture,
+          speciesName: "Shroomish",
+        }).ok,
+      ).toBe(false);
     }
   });
 
@@ -245,13 +259,15 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
       expect(scene.value).not.toContain("\n/administrar");
       expect(scene.value).not.toContain("<>");
     }
-    expect(renderExpeditionDirectEncounterScene({
-      action,
-      observed: observed(),
-      speciesName: "Shroomish",
-      locationName: "Campos de Yun",
-      choices: [{ optionNo: 1, intent: "TRAVEL", label: "Teleportar", phrases: [] }],
-    }).ok).toBe(false);
+    expect(
+      renderExpeditionDirectEncounterScene({
+        action,
+        observed: observed(),
+        speciesName: "Shroomish",
+        locationName: "Campos de Yun",
+        choices: [{ optionNo: 1, intent: "TRAVEL", label: "Teleportar", phrases: [] }],
+      }).ok,
+    ).toBe(false);
   });
   it("routes the confirmed scene through the real MessageRouter contract privately and idempotently", async () => {
     const router = new MessageRouter(
