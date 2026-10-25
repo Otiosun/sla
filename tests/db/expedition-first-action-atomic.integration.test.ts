@@ -4,6 +4,8 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
+import { economyRepositoryForClient } from "../../src/platform/economy/postgres-economy-repository.js";
 import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { canonicalExpeditionDirectEncounterEffect } from "../../src/platform/exploration/canonical-expedition-direct-encounter-effect.js";
@@ -42,6 +44,7 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
   const abilityId = randomUUID();
   const natureId = randomUUID();
   const moveId = randomUUID();
+  const resourceTestItemId = randomUUID();
 
   function urlFor(name: string): string {
     const url = new URL(process.env.POSTGRES_INTEGRATION_TEST_URL ?? "");
@@ -159,6 +162,7 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     await pool.query("INSERT INTO abilities(id,slug) VALUES($1,'exp-keen-eye')", [abilityId]);
     await pool.query("INSERT INTO natures(id,slug) VALUES($1,'exp-hardy')", [natureId]);
     await pool.query("INSERT INTO moves(id,slug) VALUES($1,'exp-tackle')", [moveId]);
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,'exp-atomic-potion')", [resourceTestItemId]);
     await pool.query(
       "INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,986,'atomic-test-species')",
       [speciesId],
@@ -197,6 +201,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     await pool.query(
       "INSERT INTO move_learnset_entries(id,content_release_id,form_id,move_id,learn_method) VALUES($1,$2,$3,$4,'START')",
       [randomUUID(), releaseId, formId, moveId],
+    );
+    await pool.query(
+      "INSERT INTO item_revisions(id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config) VALUES($1,$2,$3,'Potion','MEDICINE','heal-hp',$4::jsonb)",
+      [randomUUID(), releaseId, resourceTestItemId, JSON.stringify({ amount: 20 })],
     );
     await pool.query(
       "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'atomic-encounters')",
@@ -1021,5 +1029,113 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       elapsedMinutes: 30,
       revision: 1n,
     });
+  });
+
+  function resourceLedgerProofEffect(): FirstActionEffect {
+    return {
+      actionKey: "test.expedition-resource-ledger",
+      actionFingerprint: "d".repeat(64),
+      async apply(client, context) {
+        if (context.minutes !== 60) {
+          return err(appError("ACTION_INVALID", "Fixture requires 60 expedition minutes"));
+        }
+        const economy = new EconomyService(economyRepositoryForClient(client));
+        const granted = await economy.addItem({
+          playerId: context.playerId,
+          itemId: resourceTestItemId,
+          quantity: 1n,
+          idempotencyKey: context.idempotencyKey,
+          metadata: {
+            sourceType: "EXPEDITION_RESOURCE_TEST",
+            sourceId: context.expeditionId,
+            reason: "Synthetic, published-item ledger transaction proof only",
+            actorType: "SYSTEM",
+            actorId: null,
+            correlationId: randomUUID(),
+          },
+        });
+        if (!granted.ok) return granted;
+        return ok({
+          kind: "RESOURCE_LEDGER_PROOF",
+          itemId: granted.value.itemId,
+          quantity: granted.value.quantity.toString(),
+          ledgerId: granted.value.ledgerId,
+        });
+      },
+    };
+  }
+
+  async function resourceBalance(playerId: PlayerId) {
+    const balance = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [playerId, resourceTestItemId],
+    );
+    const ledger = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM inventory_ledger WHERE player_id=$1 AND item_id=$2",
+      [playerId, resourceTestItemId],
+    );
+    return {
+      quantity: balance.rows[0]?.quantity ?? "0",
+      entries: ledger.rows[0]?.count ?? 0,
+    };
+  }
+
+  it("atomically writes a canonical Economy ledger with 60-minute expedition action and replay", async () => {
+    const subject = await prepared("resource-ledger-proof");
+    const request = {
+      ...input(subject, "resource-first", resourceLedgerProofEffect()),
+      minutes: 60,
+    };
+    const first = await action.execute(request);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        consumedWeeklySlot: true,
+        replayed: false,
+        expedition: { elapsedMinutes: 60, phase: "ACTIVE" },
+        effectResult: {
+          kind: "RESOURCE_LEDGER_PROOF",
+          itemId: resourceTestItemId,
+          quantity: "1",
+        },
+      },
+    });
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "1", entries: 1 });
+    const replay = await action.execute(request);
+    expect(replay).toMatchObject({ ok: true, value: { replayed: true } });
+    if (first.ok && replay.ok) expect(replay.value.effectResult).toEqual(first.value.effectResult);
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "1", entries: 1 });
+  });
+
+  it("rolls back a canonical inventory ledger if the expedition action rejects after the grant", async () => {
+    const subject = await prepared("resource-ledger-rollback");
+    const real = resourceLedgerProofEffect();
+    const rejected: FirstActionEffect = {
+      ...real,
+      async apply(client, context) {
+        const grant = await real.apply(client, context);
+        if (!grant.ok) return grant;
+        return err(appError("ACTION_INVALID", "Synthetic rollback after the ledger grant"));
+      },
+    };
+    const request = {
+      ...input(subject, "resource-rollback-first", rejected),
+      minutes: 60,
+    };
+    expect(await action.execute(request)).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "0", entries: 0 });
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      consumedWeekKey: null,
+    });
+    expect(await action.execute({ ...request, effect: real })).toMatchObject({
+      ok: true,
+      value: { consumedWeeklySlot: true, expedition: { elapsedMinutes: 60 } },
+    });
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "1", entries: 1 });
   });
 });
