@@ -32,3 +32,18 @@ Exemplos (somente matemática, não taxas de spawn por área): `p=5%` → `13,63
 - Apenas depois, integrar V1.3–V1.7, migração autorizada, backup restaurável, UAT WhatsApp e liberação explícita.
 
 **STATUS:** alicerce matemático V1.2 implementado, busca jogável **não implementada**.
+
+
+## Leitor de catálogo realmente publicado — implementação de 25/10
+
+`src/platform/exploration/postgres-eligible-expedition-pool.ts` adiciona um adaptador transacional **somente leitura**, e `tests/db/eligible-expedition-pool.integration.test.ts` testa esse caminho em PostgreSQL descartável (com `ALLOW_DISPOSABLE_POSTGRES_TESTS=1`).
+
+- Exige `content_release_pointers.ACTIVE`, release e ruleset **PUBLISHED** e revisões ativas de região, área, tabela, espécie e forma.
+- Limita o escopo à Vila dos Arrozais e Campos de Yun, à localização persistida **do próprio jogador**, conta ACTIVE e onboarding COMPLETE.
+- Exige `encounterTableSlug` explícito, com `timeOfDay` DAY/NIGHT e `surface` LAND/WATER provenientes do contexto de servidor. Não escolhe uma tabela arbitrariamente se houver várias.
+- Reutiliza `parseEncounterConditions` e `encounterConditionsAllow` do Encounter canônico, inclusive unlocks requeridos/bloqueados, tempo, superfície, raridade e clima, quando explicitamente presentes.
+- Lê somente Pokédex AVISTADA ou CAPTURADA *das espécies restantes no pool elegível*; em nenhuma hipótese lê Pokédex de outro treinador nem informa espécies ocultas na mensagem WhatsApp.
+- Retorna os dados tipados usados por `prepareExpeditionEncounterWeights`, sem sortear, gerar Pokémon, reservar turno, consumir tempo ou persistir.
+- Para a primeira ação mecânica V1.2, reutilizar `eligibleExpeditionPoolInTransaction` dentro da transação canônica **com** a guarda da release/cursor, o RNG determinístico e um recibo de ação; a interface read-only `PostgresEligibleExpeditionPoolReader` não basta para autorizar efeitos.
+
+**Observação:** um leitor de pool real melhora a integridade da prévia, mas ainda não implementa buscar Pokémon jogavelmente. A probabilidade de aparecerem rastros/nenhum sinal/encontro direto segue sem balanceamento homologado.
