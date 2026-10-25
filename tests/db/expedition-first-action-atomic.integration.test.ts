@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { canonicalExpeditionDirectEncounterEffect } from "../../src/platform/exploration/canonical-expedition-direct-encounter-effect.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import {
   PostgresExpeditionFirstAction,
@@ -35,6 +37,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
   const speciesId = randomUUID();
   const formId = randomUUID();
   const timestamp = new Date("2026-10-19T12:00:00Z");
+  const abilityId = randomUUID();
+  const natureId = randomUUID();
+  const moveId = randomUUID();
 
   function urlFor(name: string): string {
     const url = new URL(process.env.POSTGRES_INTEGRATION_TEST_URL ?? "");
@@ -47,9 +52,27 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     const typeId = randomUUID();
     const tableId = randomUUID();
     const tableRevisionId = randomUUID();
+    const rulesetConfig = {
+      schemaVersion: 1,
+      battle: {
+        statModel: "SIX_STATS",
+        physicalSpecialByMove: true,
+        ivEnabled: true,
+        evEnabled: false,
+        natureEnabled: true,
+        maxMoves: 4,
+        ppEnabled: true,
+        criticalMultiplierBasisPoints: 15_000,
+        accuracyEvasionEnabled: true,
+      },
+      capture: { model: "POKEMON_INSPIRED_V1", maxProbabilityBasisPoints: 9_500 },
+      encounter: { expirationSeconds: 60 },
+      defeat: { automaticMoneyLoss: false },
+      narrative: { authority: "N0_FLAVOR_ONLY" },
+    };
     await pool.query(
-      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES($1,$2,1,1,'{}'::jsonb,'DRAFT')",
-      [rulesetId, `atomic-exploration-${rulesetId}`],
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES($1,$2,1,1,$3::jsonb,'DRAFT')",
+      [rulesetId, `atomic-exploration-${rulesetId}`, JSON.stringify(rulesetConfig)],
     );
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES($1,941001,'Atomic exploration proof','DRAFT',$2)",
@@ -131,6 +154,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       ],
     );
     await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,'normal')", [typeId]);
+    await pool.query("INSERT INTO abilities(id,slug) VALUES($1,'exp-keen-eye')", [abilityId]);
+    await pool.query("INSERT INTO natures(id,slug) VALUES($1,'exp-hardy')", [natureId]);
+    await pool.query("INSERT INTO moves(id,slug) VALUES($1,'exp-tackle')", [moveId]);
     await pool.query(
       "INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,986,'atomic-test-species')",
       [speciesId],
@@ -149,6 +175,26 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
         base_hp,base_attack,base_defense,base_sp_attack,base_sp_defense,base_speed,active
       ) VALUES($1,$2,$3,'Atomic Form',$4,40,40,40,40,40,40,TRUE)`,
       [randomUUID(), releaseId, formId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO ability_revisions(id,content_release_id,ability_id,display_name) VALUES($1,$2,$3,'Keen Eye')",
+      [randomUUID(), releaseId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO nature_revisions(id,content_release_id,nature_id,display_name) VALUES($1,$2,$3,'Hardy')",
+      [randomUUID(), releaseId, natureId],
+    );
+    await pool.query(
+      "INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,priority,max_pp) VALUES($1,$2,$3,'Tackle',$4,'PHYSICAL',40,100,0,35)",
+      [randomUUID(), releaseId, moveId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_form_ability_options(id,content_release_id,form_id,ability_id,slot_kind) VALUES($1,$2,$3,$4,'PRIMARY')",
+      [randomUUID(), releaseId, formId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO move_learnset_entries(id,content_release_id,form_id,move_id,learn_method) VALUES($1,$2,$3,$4,'START')",
+      [randomUUID(), releaseId, formId, moveId],
     );
     await pool.query(
       "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'atomic-encounters')",
