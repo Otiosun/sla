@@ -162,7 +162,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     await pool.query("INSERT INTO abilities(id,slug) VALUES($1,'exp-keen-eye')", [abilityId]);
     await pool.query("INSERT INTO natures(id,slug) VALUES($1,'exp-hardy')", [natureId]);
     await pool.query("INSERT INTO moves(id,slug) VALUES($1,'exp-tackle')", [moveId]);
-    await pool.query("INSERT INTO items(id,slug) VALUES($1,'exp-atomic-potion')", [resourceTestItemId]);
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,'exp-atomic-potion')", [
+      resourceTestItemId,
+    ]);
     await pool.query(
       "INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,986,'atomic-test-species')",
       [speciesId],
