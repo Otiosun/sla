@@ -615,12 +615,28 @@ export function createOperationalUxRoutes(
         );
       }
 
-      const lastArg = args.at(-1) ?? "";
-      const explicitSlot =
-        action === "colocar" && args.length >= 3 ? parseMenuNumber(lastArg) : null;
-      const hasExplicitSlot = explicitSlot !== null && explicitSlot <= 6;
-      const referenceParts = hasExplicitSlot ? args.slice(1, -1) : args.slice(1);
-      const pokemonRef = resolveOwnedPokemonReference(owned, referenceParts.join(" "));
+      const fullReference = resolveOwnedPokemonReference(owned, args.slice(1).join(" "));
+      let pokemonRef = fullReference;
+      let explicitSlot: number | null = null;
+
+      if (action === "colocar" && args.length >= 3) {
+        const withoutSlot = resolveOwnedPokemonReference(owned, args.slice(1, -1).join(" "));
+        if (withoutSlot.ok) {
+          const requestedSlot = parseMenuNumber(args.at(-1) ?? "");
+          if (requestedSlot !== null && requestedSlot <= 6) {
+            explicitSlot = requestedSlot;
+            pokemonRef = withoutSlot;
+          } else if (!fullReference.ok) {
+            return err(
+              appError(
+                "VALIDATION_FAILED",
+                "Slot inválido. Escolha um número de 1 a 6. Ex.: `/equipe colocar #13 2`.",
+              ),
+            );
+          }
+        }
+      }
+
       if (!pokemonRef.ok) return pokemonRef;
       const pokemon = pokemonRef.value;
       const ref = pokemon.collectionNo;
@@ -630,7 +646,7 @@ export function createOperationalUxRoutes(
       if (!storage.ok) return storage;
 
       if (action === "colocar") {
-        let slotNo = hasExplicitSlot ? explicitSlot : null;
+        let slotNo = explicitSlot;
         if (slotNo === null) {
           const occupied = new Set(storage.value.team.map((entry) => entry.slotNo));
           const free = [1, 2, 3, 4, 5, 6].find((slot) => !occupied.has(slot));
