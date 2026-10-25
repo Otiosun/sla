@@ -154,7 +154,7 @@ function textOf(result: Awaited<ReturnType<MessageRouter["dispatch"]>>): string 
 describe("progression WhatsApp evolution UX", () => {
   it("shows real item evolution requirements by human Pokemon name without internal ids", async () => {
     const d = deps();
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d));
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
 
     const output = textOf(await router.dispatch(context("/evolucao Eevee", "evolution-info")));
 
@@ -180,7 +180,7 @@ describe("progression WhatsApp evolution UX", () => {
       },
     ];
     const d = deps({ evolutionOptions: levelOption, pokemonName: "Charmander" });
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d));
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
 
     const info = textOf(await router.dispatch(context("/evolucao Charmander", "level-info")));
     expect(info).toContain("Nível 16 · evolução automática");
@@ -194,7 +194,7 @@ describe("progression WhatsApp evolution UX", () => {
 
   it("evolves with the selected item through ProgressionService", async () => {
     const d = deps();
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d));
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
 
     const output = textOf(await router.dispatch(context("/evoluir Eevee 1", "item-evolution")));
 
@@ -213,7 +213,7 @@ describe("progression WhatsApp evolution UX", () => {
 
   it("does not call the domain mutation when the required item is absent", async () => {
     const d = deps({ evolutionOptions: itemEvolution(0n) });
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d));
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
 
     const result = await router.dispatch(context("/evoluir #13 1", "missing-item"));
 
@@ -230,7 +230,7 @@ describe("progression WhatsApp evolution UX", () => {
     ["viagem", { travel: true }, "Aguarde o fim da viagem"],
   ] as const)("blocks item evolution during %s", async (_label, state, expectedMessage) => {
     const d = deps(state);
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d));
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
 
     const result = await router.dispatch(context("/evoluir #13 1", `blocked-${_label}`));
 
