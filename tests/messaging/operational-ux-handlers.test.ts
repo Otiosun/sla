@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { presentMessagingError } from "../../src/modules/messaging/errors.js";
 import {
   createOperationalUxRoutes,
   type OperationalUxDependencies,
@@ -756,6 +757,87 @@ describe("Phase 13 operational WhatsApp UX", () => {
         idempotencyKey: "inbox:test:travel",
       }),
     );
+  });
+
+  it.each([
+    "/ir",
+    "/ir 1 extra",
+    "/ir 1e0",
+    "/ir 0x1",
+    "/ir 1.0",
+    "/ir -1",
+    "/ir 0",
+    "/ir abc",
+  ] as const)("rejects malformed travel selection %s before inspecting the world", async (command) => {
+    const deps = dependencies();
+    const result = await router(deps).dispatch(context(command, `travel-invalid-${command}`));
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (result.ok) return;
+    const presented = presentMessagingError(context(command), result.error);
+    expect(presented.outgoing[0]?.payload.text).toContain("Use apenas o número");
+    expect(presented.outgoing[0]?.payload.text).toContain("`/ir 1`");
+    expect(deps.world.getLocation).not.toHaveBeenCalled();
+    expect(deps.world.travel).not.toHaveBeenCalled();
+  });
+
+  it("shows blocked routes without exposing hidden requirements or offering a blocked move", async () => {
+    const deps = dependencies();
+    const current = await deps.world.getLocation(PLAYER_ID);
+    if (!current.ok) throw new Error("No world fixture");
+    const getLocation = deps.world.getLocation as ReturnType<typeof vi.fn>;
+    getLocation.mockResolvedValue(
+      ok({
+        ...current.value,
+        connections: [
+          {
+            connectionId: "locked-route",
+            destinationAreaId: "area-locked",
+            destinationSlug: "secret-path",
+            destinationDisplayName: "Passagem Misteriosa",
+            available: false,
+            blockedReason: "private-unlock-key",
+          },
+        ],
+      }),
+    );
+    const app = new MessageRouter(createOperationalUxRoutes(deps));
+    const where = textOf(await app.dispatch(context("/onde", "where-locked")));
+    expect(where).toContain("1. 🔒 *Passagem Misteriosa*");
+    expect(where).not.toContain("`/ir 1`");
+    expect(where).not.toContain("private-unlock-key");
+    expect(where).not.toContain("secret-path");
+    expect(where).toContain("`/menu` · voltar ao menu do Rotom");
+    const attempted = await router(deps).dispatch(context("/ir 1", "travel-locked"));
+    expect(attempted).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(deps.world.travel).not.toHaveBeenCalled();
+  });
+
+  it("reports a changed route with actionable WhatsApp guidance and no extra move", async () => {
+    const deps = dependencies();
+    const travel = deps.world.travel as ReturnType<typeof vi.fn>;
+    travel.mockResolvedValue(err(appError("REVISION_CONFLICT", "Revision changed")));
+    const command = context("/ir 1", "travel-stale");
+    const result = await router(deps).dispatch(command);
+    expect(result).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    if (result.ok) return;
+    expect(presentMessagingError(command, result.error).outgoing[0]?.payload.text).toContain(
+      "Use `/onde` novamente.",
+    );
+    expect(travel).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps /onde read-only without an ACTIVE-only policy gate", async () => {
+    const deps = dependencies();
+    const route = createOperationalUxRoutes(deps).find((entry) => entry.command === "onde");
+    expect(route?.policy).toBeUndefined();
+    const where = textOf(
+      await new MessageRouter(createOperationalUxRoutes(deps)).dispatch(
+        context("/onde", "where-read-only"),
+      ),
+    );
+    expect(where).toContain("*Rotas:*");
+    expect(where).toContain("`/menu`");
+    expect(deps.world.travel).not.toHaveBeenCalled();
   });
 
   it("teaches combat commands without implying that a switch is always available", async () => {
