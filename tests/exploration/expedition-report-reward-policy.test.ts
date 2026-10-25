@@ -91,9 +91,7 @@ describe("V1.6 report settlement proposal (pure, no payout)", () => {
     { roll: 95, kind: "TRAINER_PROGRESS", quantity: 25 },
     { roll: 99, kind: "TRAINER_PROGRESS", quantity: 25 },
   ])("adds exactly one independent highlight roll for $roll", ({ roll, kind, quantity }) => {
-    const rng = vi.fn()
-      .mockReturnValueOnce(45)
-      .mockReturnValueOnce(roll);
+    const rng = vi.fn().mockReturnValueOnce(45).mockReturnValueOnce(roll);
     const result = proposeExpeditionReportSettlement({
       expedition: ended(),
       approvalKind: "HIGHLIGHT",
@@ -215,11 +213,11 @@ describe("V1.6 report settlement proposal (pure, no payout)", () => {
 
   it("preserves the approved expectation values without promising XP or items from battles", () => {
     const expectedMoney = 300 + 200 * 0.45;
-    const expectedBall = 1 * 0.30;
+    const expectedBall = 1 * 0.3;
     const expectedPotion = 1 * 0.15;
-    const expectedProgress = 50 * 0.10;
+    const expectedProgress = 50 * 0.1;
     expect(expectedMoney).toBe(390);
-    expect(expectedBall).toBe(0.30);
+    expect(expectedBall).toBe(0.3);
     expect(expectedPotion).toBe(0.15);
     expect(expectedProgress).toBe(5);
     const result = proposeExpeditionReportSettlement({
