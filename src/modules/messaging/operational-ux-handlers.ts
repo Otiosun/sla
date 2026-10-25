@@ -545,10 +545,7 @@ export function createOperationalUxRoutes(
     }
     const stored = owned
       .filter((pokemon) => pokemon.placementKind === "BOX")
-      .sort(
-        (left, right) =>
-          (left.boxNo ?? 1) - (right.boxNo ?? 1) || left.slotNo - right.slotNo,
-      );
+      .sort((left, right) => (left.boxNo ?? 1) - (right.boxNo ?? 1) || left.slotNo - right.slotNo);
     const slice = pageSlice(stored, page.value);
     if (!pageExists(stored.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da Box não existe."));
@@ -866,7 +863,8 @@ export function createOperationalUxRoutes(
       }
       return err(
         appError("NOT_FOUND", "Não foi possível localizar essa ficha.", {
-          userMessage: "Não foi possível localizar essa ficha. Use `/colecao` e tente novamente.",
+          userMessage:
+            "Não foi possível localizar essa ficha. Use `/colecao` e tente novamente.",
         }),
       );
     }
@@ -879,8 +877,7 @@ export function createOperationalUxRoutes(
           "REVISION_CONFLICT",
           "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
           {
-            userMessage:
-              "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
+            userMessage: "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
           },
         ),
       );
