@@ -97,7 +97,11 @@ describe("WhatsApp /hub command", () => {
   it("never acknowledges or exposes a ticket in a group if issuing fails", async () => {
     const issue = vi.fn(async () => ({
       ok: false as const,
-      error: { code: "FEATURE_UNAVAILABLE" as const, message: "Unable to issue ticket", details: {} },
+      error: {
+        code: "FEATURE_UNAVAILABLE" as const,
+        message: "Unable to issue ticket",
+        details: {},
+      },
     }));
     const result = await routerFor(
       createHubWhatsAppRoutes({
