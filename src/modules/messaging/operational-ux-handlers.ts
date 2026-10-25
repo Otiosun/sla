@@ -1175,6 +1175,7 @@ export function createOperationalUxRoutes(
     {
       command: "ir",
       allowEmbedded: true,
+      policy: { allowedPlayerAccess: ["ACTIVE"], requiresMechanicalReady: true },
       handler: new FunctionalHandler(travel),
       rateLimitClass: "SENSITIVE",
     },
