@@ -127,7 +127,12 @@ function pageNumber(args: readonly string[], command: string): Result<number> {
   if (args.length === 0) return ok(1);
   const page = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
   return page === null
-    ? err(appError("VALIDATION_FAILED", `Página inválida. Use apenas o número. Ex.: \`${command} 2\`.`))
+    ? err(
+        appError(
+          "VALIDATION_FAILED",
+          `Página inválida. Use apenas o número. Ex.: \`${command} 2\`.`,
+        ),
+      )
     : ok(page);
 }
 
@@ -150,9 +155,7 @@ function pageFooter(total: number, page: number, command: string): string {
 }
 
 function pokemonDisplayName(displayName: string, nickname: string | null): string {
-  return nickname === null || nickname.trim().length === 0
-    ? displayName
-    : nickname.trim();
+  return nickname === null || nickname.trim().length === 0 ? displayName : nickname.trim();
 }
 
 function isOwnedPokemonDetail(
