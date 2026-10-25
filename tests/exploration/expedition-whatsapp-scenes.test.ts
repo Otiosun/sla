@@ -3,11 +3,18 @@ import { advanceExpedition, type ExpeditionSnapshot } from "../../src/modules/ex
 import {
   renderExpeditionCaptureResolutionScene,
   renderExpeditionDirectEncounterScene,
+  privateExpeditionSceneReply,
   type ExpeditionPresentedEncounter,
 } from "../../src/modules/exploration/expedition-whatsapp-scenes.js";
 import { selectExpeditionMenuChoice, type ExpeditionMenuChoice } from "../../src/modules/exploration/expedition-contextual-menu.js";
 import type { FirstActionOutcome } from "../../src/platform/exploration/postgres-expedition-first-action.js";
 import type { CaptureAttemptResult } from "../../src/modules/capture/contracts.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
+import {
+  IncomingMessageSchema,
+  incomingMessageIdempotencyKey,
+} from "../../src/modules/messaging/contracts.js";
+import { ok } from "../../src/shared-kernel/result.js";
 
 const playerId = "00000000-0000-4000-8000-000000000001";
 const areaId = "00000000-0000-4000-8000-000000000002";
@@ -245,5 +252,70 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
       locationName: "Campos de Yun",
       choices: [{ optionNo: 1, intent: "TRAVEL", label: "Teleportar", phrases: [] }],
     }).ok).toBe(false);
+  });
+  it("routes the confirmed scene through the real MessageRouter contract privately and idempotently", async () => {
+    const router = new MessageRouter(
+      [
+        {
+          command: "explorar",
+          policy: { allowedPlayerAccess: ["ACTIVE"], requiresMechanicalReady: true },
+          handler: {
+            async handle(context) {
+              const scene = renderExpeditionDirectEncounterScene({
+                action: firstAction(),
+                observed: observed(),
+                speciesName: "Shroomish",
+                locationName: "Campos de Yun",
+                choices,
+              });
+              return privateExpeditionSceneReply(context, "encounter", scene);
+            },
+          },
+        },
+      ],
+      { authorize: async () => ok(undefined) },
+    );
+    const message = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: "shadow-encounter-message",
+      senderRef: "trainer-private-jid",
+      chatRef: "game-group-jid",
+      occurredAt: "2026-10-25T17:00:00-03:00",
+      text: "/explorar",
+    });
+    const context = {
+      inboxMessageId: "00000000-0000-4000-8000-000000000011",
+      correlationId: "00000000-0000-4000-8000-000000000012",
+      causationId: "00000000-0000-4000-8000-000000000011",
+      idempotencyKey: incomingMessageIdempotencyKey(message),
+      message,
+    };
+    const first = await router.dispatch(context);
+    const retry = await router.dispatch(context);
+    expect(first.ok && retry.ok).toBe(true);
+    if (!first.ok || !retry.ok) return;
+    const outbound = first.value?.outgoing[0];
+    expect(outbound).toMatchObject({
+      channel: "whatsapp",
+      destinationRef: "trainer-private-jid",
+      messageType: "TEXT",
+      idempotencyKey: "inbox:baileys:shadow-encounter-message:expedition-encounter",
+    });
+    expect(outbound?.payload.text).toContain("Shroomish");
+    expect(first.value?.outgoing).toEqual(retry.value?.outgoing);
+    expect(JSON.stringify(first.value)).not.toContain(encounterId);
+
+    const failed = privateExpeditionSceneReply(
+      context,
+      "encounter",
+      renderExpeditionDirectEncounterScene({
+        action: firstAction(),
+        observed: { ...observed(), status: "CREATED" },
+        speciesName: "Shroomish",
+        locationName: "Campos de Yun",
+        choices,
+      }),
+    );
+    expect(failed).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
   });
 });
