@@ -139,7 +139,7 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
     for (const secret of [encounterId, areaId, playerId, releaseId, formId, pokemonInstanceId]) {
       expect(transcript).not.toContain(secret);
     }
-    expect(transcript).not.toMatch(/(?:XP|Pokédollars|ganhou.*Ball)/iu);
+    expect(transcript).not.toMatch(/(?:\bXP\b|Pokédollars|ganhou.*Ball)/iu);
   });
 
   it("refuses to present CREATED as already observed", () => {
