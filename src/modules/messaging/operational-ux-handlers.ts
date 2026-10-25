@@ -1119,14 +1119,9 @@ export function createOperationalUxRoutes(
     const current = await dependencies.world.getLocation(player.value);
     if (!current.ok) return current;
 
-    if (
-      routeNumber > current.value.connections.length
-    ) {
+    if (routeNumber > current.value.connections.length) {
       return err(
-        appError(
-          "VALIDATION_FAILED",
-          "Rota inválida. Use `/onde` e escolha pelo número mostrado.",
-        ),
+        appError("VALIDATION_FAILED", "Rota inválida. Use `/onde` e escolha pelo número mostrado."),
       );
     }
 
