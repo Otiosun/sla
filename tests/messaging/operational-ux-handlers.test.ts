@@ -5,6 +5,7 @@ import {
   type OperationalUxDependencies,
 } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
+import type { PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const PLAYER_ID = "00000000-0000-4000-8000-000000000013";
@@ -439,7 +440,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
     const deps = dependencies();
     const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
     if (baseDetail === null) throw new Error("Missing fixture detail");
-    const teamDetail = vi.fn(async (_playerId: string, slotNo: number) => ({
+    const teamDetail = vi.fn(async (_playerId: PlayerId, slotNo: number) => ({
       ...baseDetail,
       slotNo,
     }));
