@@ -1,8 +1,5 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import {
-  expeditionRequiresReport,
-  type ExpeditionSnapshot,
-} from "./expedition-state.js";
+import { expeditionRequiresReport, type ExpeditionSnapshot } from "./expedition-state.js";
 
 /** A proposal, never a wallet, item, XP or progression mutation. */
 export type ReportBonusKind = "MONEY" | "POKE_BALL" | "POTION" | "TRAINER_PROGRESS";
@@ -89,10 +86,7 @@ export function proposeExpeditionReportSettlement(input: {
     highlightBonus = bonusForHighlightRoll(highlightRoll.value);
   }
 
-  const allBonuses = [
-    normalBonus,
-    ...(highlightBonus === null ? [] : [highlightBonus]),
-  ];
+  const allBonuses = [normalBonus, ...(highlightBonus === null ? [] : [highlightBonus])];
   const sumByKind = (kind: ReportBonusKind): number =>
     allBonuses
       .filter((bonus) => bonus.kind === kind)
