@@ -44,7 +44,7 @@ export interface EligibleExpeditionPoolEntry extends EligibleExpeditionEncounter
   readonly maxLevel: number;
 }
 export interface EligibleExpeditionPoolRead {
-  readonly pool: PinnedEligibleExpeditionEncounterPool & {
+  readonly pool: Omit<PinnedEligibleExpeditionEncounterPool, "entries"> & {
     readonly entries: readonly EligibleExpeditionPoolEntry[];
   };
   /** Only seen or caught species in the eligible filtered pool, never all Pokédex entries. */
