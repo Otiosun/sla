@@ -181,18 +181,21 @@ describe("legacy onboarding command permissions", () => {
     "/regiao 1.0",
     "/regiao 0",
     "/regiao -1",
-  ] as const)("rejects invalid region choice %s before reading the region list", async (command) => {
-    const f = fixture("PENDING", "PROFILE_CREATED");
-    const result = await f.router.dispatch(context(command));
-    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
-    if (result.ok) return;
-    expect(presentMessagingError(context(command), result.error).outgoing[0]?.payload.text).toContain(
-      "/regioes",
-    );
-    expect(f.handlerResolve).not.toHaveBeenCalled();
-    expect(f.listRegionOptions).not.toHaveBeenCalled();
-    expect(f.selectRegion).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    "rejects invalid region choice %s before reading the region list",
+    async (command) => {
+      const f = fixture("PENDING", "PROFILE_CREATED");
+      const result = await f.router.dispatch(context(command));
+      expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      if (result.ok) return;
+      expect(
+        presentMessagingError(context(command), result.error).outgoing[0]?.payload.text,
+      ).toContain("/regioes");
+      expect(f.handlerResolve).not.toHaveBeenCalled();
+      expect(f.listRegionOptions).not.toHaveBeenCalled();
+      expect(f.selectRegion).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     "/starter",
@@ -207,9 +210,9 @@ describe("legacy onboarding command permissions", () => {
     const result = await f.router.dispatch(context(command));
     expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
     if (result.ok) return;
-    expect(presentMessagingError(context(command), result.error).outgoing[0]?.payload.text).toContain(
-      "/starters",
-    );
+    expect(
+      presentMessagingError(context(command), result.error).outgoing[0]?.payload.text,
+    ).toContain("/starters");
     expect(f.handlerResolve).not.toHaveBeenCalled();
     expect(f.prepareStarterSelection).not.toHaveBeenCalled();
     expect(f.completeOnboarding).not.toHaveBeenCalled();
