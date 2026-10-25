@@ -82,7 +82,9 @@ function textOf(result: Awaited<ReturnType<MessageRouter["dispatch"]>>): string 
 describe("progression WhatsApp move choices", () => {
   it("renders pending move choices with WhatsApp hierarchy and no UUIDs", async () => {
     const d = deps();
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), {
+      authorize: async () => ok(undefined),
+    });
     const output = textOf(await router.dispatch(context("/golpes")));
     expect(output).toContain("*MOVIMENTOS · APRENDIZADO*");
     expect(output).toContain("*1. Charmander* · Nv. 13");
@@ -95,7 +97,9 @@ describe("progression WhatsApp move choices", () => {
 
   it("replaces a selected slot through ProgressionService", async () => {
     const d = deps();
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), {
+      authorize: async () => ok(undefined),
+    });
     const output = textOf(await router.dispatch(context("/aprender 1 3", "replace")));
     expect(d.progression.resolveMoveChoice).toHaveBeenCalledWith({
       choiceId: CHOICE_ID,
@@ -109,7 +113,9 @@ describe("progression WhatsApp move choices", () => {
 
   it("allows the player to skip a pending move", async () => {
     const d = deps();
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), {
+      authorize: async () => ok(undefined),
+    });
     const output = textOf(await router.dispatch(context("/aprender 1 pular", "skip")));
     expect(d.progression.resolveMoveChoice).toHaveBeenCalledWith(
       expect.objectContaining({ replaceSlotNo: null }),
@@ -119,7 +125,9 @@ describe("progression WhatsApp move choices", () => {
 
   it("blocks loadout changes during an active battle", async () => {
     const d = deps("battle-active");
-    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), { authorize: async () => ok(undefined) });
+    const router = new MessageRouter(createProgressionWhatsAppRoutes(d), {
+      authorize: async () => ok(undefined),
+    });
     const result = await router.dispatch(context("/aprender 1 2", "battle"));
     expect(result.ok).toBe(false);
     if (result.ok) return;
