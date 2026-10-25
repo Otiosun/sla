@@ -215,6 +215,31 @@ describe("V1.3 resource catalog policy (pure draft, no inventory effect)", () =>
     expect(rng).not.toHaveBeenCalled();
   });
 
+  it("snapshots catalog inputs and returns a detached reward proposal", () => {
+    const outcomes = exampleTable().outcomes.map((entry) => ({
+      ...entry,
+      reward: entry.reward === null ? null : { ...entry.reward },
+    }));
+    const prepared = prepare({ table: { ...exampleTable(), outcomes } });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    outcomes[1]!.reward = { itemId: BALL_ID, quantity: 99 };
+    expect(prepared.value.outcomes[1]?.reward).toEqual({ itemId: BALL_ID, quantity: 1 });
+    const drawn = drawExpeditionResourceOutcome({
+      table: prepared.value,
+      nextInt: () => 7500,
+    });
+    expect(drawn).toMatchObject({
+      ok: true,
+      value: { outcomeId: "ball-1", reward: { itemId: BALL_ID, quantity: 1 } },
+    });
+    if (!drawn.ok || drawn.value.reward === null) return;
+    const mutableCopy = drawn.value.reward as { quantity: number };
+    mutableCopy.quantity = 500;
+    expect(prepared.value.outcomes[1]?.reward).toEqual({ itemId: BALL_ID, quantity: 1 });
+  });
+
   it("returns a proposal, not an inventory credit, clock mutation or idempotency receipt", () => {
     const prepared = prepare();
     expect(prepared.ok).toBe(true);
