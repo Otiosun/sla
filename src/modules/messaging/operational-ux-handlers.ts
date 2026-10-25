@@ -621,9 +621,20 @@ export function createOperationalUxRoutes(
 
       if (action === "colocar" && args.length >= 3) {
         const withoutSlot = resolveOwnedPokemonReference(owned, args.slice(1, -1).join(" "));
+        const requestedSlot = parseMenuNumber(args.at(-1) ?? "");
         if (withoutSlot.ok) {
-          const requestedSlot = parseMenuNumber(args.at(-1) ?? "");
           if (requestedSlot !== null && requestedSlot <= 6) {
+            if (
+              fullReference.ok &&
+              fullReference.value.pokemonInstanceId !== withoutSlot.value.pokemonInstanceId
+            ) {
+              return err(
+                appError(
+                  "VALIDATION_FAILED",
+                  `Nome e slot ambíguos. Para mover #${String(withoutSlot.value.collectionNo)}, use \`/equipe colocar #${String(withoutSlot.value.collectionNo)} ${String(requestedSlot)}\`. Para escolher #${String(fullReference.value.collectionNo)} pelo nome completo, use \`/equipe colocar #${String(fullReference.value.collectionNo)}\`.`,
+                ),
+              );
+            }
             explicitSlot = requestedSlot;
             pokemonRef = withoutSlot;
           } else if (!fullReference.ok) {
@@ -634,6 +645,12 @@ export function createOperationalUxRoutes(
               ),
             );
           }
+        } else if (
+          !fullReference.ok &&
+          withoutSlot.error.code === "VALIDATION_FAILED" &&
+          withoutSlot.error.message.startsWith("Há mais de um Pokémon com esse nome")
+        ) {
+          return withoutSlot;
         }
       }
 
