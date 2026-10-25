@@ -461,3 +461,17 @@ export class PostgresEconomyRepository implements EconomyRepository {
     );
   }
 }
+
+/**
+ * Use the canonical EconomyService ledger and balance mutations under the
+ * SAME already-held expedition transaction. The expedition caller owns
+ * BEGIN/COMMIT/ROLLBACK, locks and receipt. Do not open a second Pool here.
+ *
+ * This adapter does not authorize an exploration loot table or grant by itself.
+ */
+export function economyRepositoryForClient(client: PoolClient): EconomyRepository {
+  return {
+    transaction: (work) => work(new PostgresEconomyTransaction(client)),
+    read: (work) => work(new PostgresEconomyTransaction(client)),
+  };
+}
