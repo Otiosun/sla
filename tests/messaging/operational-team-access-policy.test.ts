@@ -45,7 +45,7 @@ function fixture(
       collectionNo: 13,
       pokemonInstanceId: POKEMON_ID,
       displayName: "Charmander",
-      nickname: null,
+      nickname: null as string | null,
       level: 5,
       xp: 0n,
       currentHp: 19,
