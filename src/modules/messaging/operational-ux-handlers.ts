@@ -1057,6 +1057,8 @@ export function createOperationalUxRoutes(
         routes.length === 0 ? "Nenhuma saída disponível." : routes.join("\n"),
         "",
         "_Os requisitos bloqueados permanecem ocultos até fazerem sentido na história._",
+        "",
+        "`/menu` · voltar ao menu do Rotom",
       ].join("\n"),
     );
   };
@@ -1081,6 +1083,17 @@ export function createOperationalUxRoutes(
       }
     }
 
+    const routeArgs = commandArgs(context);
+    const routeNumber = routeArgs.length === 1 ? parseMenuNumber(routeArgs[0] ?? "") : null;
+    if (routeNumber === null) {
+      return err(
+        appError(
+          "VALIDATION_FAILED",
+          "Rota inválida. Use apenas o número mostrado em `/onde`. Ex.: `/ir 1`.",
+        ),
+      );
+    }
+
     if (dependencies.sessions !== undefined) {
       const activeSession = await dependencies.sessions.loadActiveSession(player.value);
       if (!activeSession.ok) return activeSession;
@@ -1088,6 +1101,7 @@ export function createOperationalUxRoutes(
         return err(
           appError("FLOW_BLOCKED", "Saia da instalação com `/sair` antes de viajar.", {
             activeServiceKind: activeSession.value.serviceKind,
+            userMessage: "Saia da instalação com `/sair` antes de viajar.",
           }),
         );
       }
@@ -1102,17 +1116,17 @@ export function createOperationalUxRoutes(
       return textResult(context, travelInProgressText());
     }
 
-    const routeNumber = Number(commandArgs(context)[0]);
     const current = await dependencies.world.getLocation(player.value);
     if (!current.ok) return current;
 
     if (
-      !Number.isSafeInteger(routeNumber) ||
-      routeNumber < 1 ||
       routeNumber > current.value.connections.length
     ) {
       return err(
-        appError("VALIDATION_FAILED", "Rota inválida. Use `/onde` e escolha pelo número mostrado."),
+        appError(
+          "VALIDATION_FAILED",
+          "Rota inválida. Use `/onde` e escolha pelo número mostrado.",
+        ),
       );
     }
 
@@ -1154,6 +1168,7 @@ export function createOperationalUxRoutes(
             appError(
               "REVISION_CONFLICT",
               "O caminho mudou antes da viagem. Use `/onde` novamente.",
+              { userMessage: "O caminho mudou antes da viagem. Use `/onde` novamente." },
             ),
           )
         : moved;
