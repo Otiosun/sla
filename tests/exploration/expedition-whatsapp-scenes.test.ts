@@ -25,7 +25,7 @@ const choices: readonly ExpeditionMenuChoice[] = [
 function firstAction(): FirstActionOutcome {
   const initial: ExpeditionSnapshot = {
     expeditionId: "expedition-synthetic",
-    playerId,
+    playerId: playerId as ExpeditionSnapshot["playerId"],
     areaId,
     currentAreaId: areaId,
     period: "DAY",
@@ -62,7 +62,7 @@ function firstAction(): FirstActionOutcome {
 
 function observed(): ExpeditionPresentedEncounter {
   return {
-    encounterId,
+    encounterId: encounterId as ExpeditionPresentedEncounter["encounterId"],
     playerId: playerId as ExpeditionPresentedEncounter["playerId"],
     areaId,
     contentReleaseId: releaseId,
