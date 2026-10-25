@@ -54,3 +54,20 @@ Exemplos (somente matemática, não taxas de spawn por área): `p=5%` → `13,63
 `prepareExpeditionHunt` em `src/modules/exploration/expedition-hunt-preflight.ts` integra, em memória e **sem efeito**, o relógio/snapshot V1.1, a admissão World e o pool elegível de V1.2. Exige que jogador, local atual e período DAY/NIGHT coincidam, respeita PREPARING na primeira busca e ACTIVE nas seguintes, proíbe busca com batalha/encontro concomitante, e recusa iniciar busca de 30 minutos quando restarem apenas 29. Uma caça livre mantém pesos naturais; a caça direcionada passa pela validação Pokédex + regra ×3 antes de retornar o plano.
 
 O resultado apenas informa `actionMinutes=30`, `requiresFirstAction` e pool ponderado. **Não** persiste relógio, quota, horário, descoberta, encounter, Ball, XP, seed de RNG ou recibo de idempotência. `PostgresExpeditionFirstAction` deverá repetir os fatos mutáveis dentro do lock transacional antes de qualquer ação.
+
+
+## Resultado DIRETO: efeito Encounter no mesmo commit SQL (incremento Draft 25/10)
+
+`src/platform/exploration/canonical-expedition-direct-encounter-effect.ts` passa a reutilizar `EncounterService` e `PostgresEncounterTransaction` sob o mesmo `PoolClient` de `PostgresExpeditionFirstAction`. O adaptador `encounterRepositoryForClient` **não** abre uma segunda transação. A gravação do Encounter, seed cifrada, wild snapshot, relógio, consumo de quota e recibo de ação ficam na mesma transação e sofrem rollback conjunto.
+
+O efeito:
+- só aceita o resultado **DIRECT_ENCOUNTER** já autorizado pelo servidor, por `FirstActionEffect`. **Não é um sorteador de outcomes** e não está registrado no WhatsApp;
+- revalida tempo exatamente 30 min, fase/período da expedição, identidade/área/release, tabela de encontro publicada, espécie conhecida quando direcionada, condições e unlocks;
+- consome somente uma rolagem para escolher entrada segundo pesos canônicos ×3, mais a rolagem canônica de nível da entrada publicada; usa `CounterRandomSource` e seed do servidor, não mensagem;
+- força ao `EncounterService` apenas a forma/nível **recém-selecionados do catálogo filtrado**; o serviço valida Player ACTIVE, cadastro COMPLETE, encontro/batalha incompatível, solo versus grupo, release ativa, wild build e snapshots;
+- retorna recibo JSON seguro com `encounterId`, entry/form e nível. O novo encontro fica em **CREATED**. A apresentação e o primeiro registro de visto são responsabilidade do `EncounterService.observe` e da UX WhatsApp canônica, não da criação;
+- conserva identificadores da instância e estado em replay, não cria dupla Pokédex, dinheiro, item ou XP.
+
+`tests/db/expedition-first-action-atomic.integration.test.ts` verifica criação atômica, replay, alvo oculto, feature desabilitada, tempo/horário/tabela errados, colisão com encontro, concorrência, rollback **após** insert e a fronteira de `CREATED` versus `PRESENTED`.
+
+**Limitação bloqueadora:** o produto V1.2 ainda não definiu e publicou a probabilidade relativa de nenhum sinal, rastros, encontro incidental e encontro direto; falta um seletor de outcomes legítimo com seed e persistência. Este efeito não torna buscar Pokémon sempre bem-sucedido. Capturas e batalhas continuam pelos serviços canônicos; `/explorar` permanece apenas consulta Draft não registrada no bot ativo.
