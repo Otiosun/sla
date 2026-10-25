@@ -114,8 +114,10 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
     const mechanicalReadyBypassed =
       requirement.mechanicalReadyAdminBypassCapability !== undefined &&
       adminCapabilities.includes(requirement.mechanicalReadyAdminBypassCapability);
+    // Privileged encounter supporters can inspect/drive controller-backed battles
+    // without owning a player account; everyone else needs eligible access.
     const needsPlayer =
-      requirement.allowedPlayerAccess !== undefined ||
+      (requirement.allowedPlayerAccess !== undefined && !mechanicalReadyBypassed) ||
       (requirement.requiresMechanicalReady === true && !mechanicalReadyBypassed);
     if (!needsPlayer) return ok(undefined);
 
