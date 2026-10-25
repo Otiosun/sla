@@ -18,9 +18,7 @@ export interface CommittedExpeditionEncounterPresentation {
 }
 
 function blocked(): Result<never> {
-  return err(
-    appError("FLOW_BLOCKED", "Committed expedition encounter cannot be presented safely"),
-  );
+  return err(appError("FLOW_BLOCKED", "Committed expedition encounter cannot be presented safely"));
 }
 
 /**
