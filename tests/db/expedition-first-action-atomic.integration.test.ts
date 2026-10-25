@@ -959,8 +959,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
 
   it("does not count an unpresented wild as Pokédex seen before its canonical observe transition", async () => {
     const subject = await prepared("direct-seen-boundary");
-    expect((await action.execute(input(subject, "direct-seen-boundary", directEncounterEffect()))).ok)
-      .toBe(true);
+    const created = await action.execute(
+      input(subject, "direct-seen-boundary", directEncounterEffect()),
+    );
+    expect(created.ok).toBe(true);
     const seen = await pool.query<{ count: number }>(
       "SELECT COUNT(*)::int AS count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
       [subject.playerId, speciesId],
@@ -972,5 +974,4 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
     expect(status.rows[0]?.status).toBe("CREATED");
   });
-
 });
