@@ -351,12 +351,17 @@ export function createOperationalUxRoutes(
   };
 
   const register: Handler = async (context) => {
+    const trainerName = commandArgs(context).join(" ").trim();
+    if (trainerName.length === 0 || trainerName.length > 40) {
+      return err(
+        appError(
+          "VALIDATION_FAILED",
+          "Informe um nome de treinador com até 40 caracteres. Ex.: `/registrar Ash`.",
+        ),
+      );
+    }
     const resolved = await dependencies.registration.resolveOrCreatePlayer(identity(context));
     if (!resolved.ok) return resolved;
-    const trainerName = commandArgs(context).join(" ").trim();
-    if (trainerName.length === 0) {
-      return err(appError("VALIDATION_FAILED", "Informe o nome: /registrar Seu Nome"));
-    }
     const created = await dependencies.registration.createProfile(resolved.value.playerId, {
       trainerName,
       locale: "pt-BR",
@@ -386,11 +391,17 @@ export function createOperationalUxRoutes(
   };
 
   const selectRegion: Handler = async (context) => {
+    const args = commandArgs(context);
+    const index = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
+    if (index === null) {
+      return err(
+        appError("VALIDATION_FAILED", "Região inválida. Escolha apenas um número de `/regioes`."),
+      );
+    }
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const index = Number(commandArgs(context)[0]);
     const options = await dependencies.reads.listRegionOptions(player.value);
-    if (!Number.isSafeInteger(index) || index < 1 || index > options.length) {
+    if (index > options.length) {
       return err(appError("VALIDATION_FAILED", "Região inválida. Veja as opções com /regioes."));
     }
     const selected = options[index - 1];
@@ -425,13 +436,19 @@ export function createOperationalUxRoutes(
   };
 
   const chooseStarter: Handler = async (context) => {
+    const args = commandArgs(context);
+    const index = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
+    if (index === null) {
+      return err(
+        appError("VALIDATION_FAILED", "Inicial inválido. Escolha apenas um número de `/starters`."),
+      );
+    }
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const index = Number(commandArgs(context)[0]);
     const prepared = await dependencies.starter.prepareStarterSelection(player.value);
     if (!prepared.ok) return prepared;
     const selected = prepared.value.options[index - 1];
-    if (!Number.isSafeInteger(index) || index < 1 || selected === undefined) {
+    if (selected === undefined) {
       return err(appError("VALIDATION_FAILED", "Inicial inválido. Veja as opções com /starters."));
     }
     const correlationId = parseCorrelationId(context.correlationId);
