@@ -863,8 +863,7 @@ export function createOperationalUxRoutes(
       }
       return err(
         appError("NOT_FOUND", "Não foi possível localizar essa ficha.", {
-          userMessage:
-            "Não foi possível localizar essa ficha. Use `/colecao` e tente novamente.",
+          userMessage: "Não foi possível localizar essa ficha. Use `/colecao` e tente novamente.",
         }),
       );
     }
