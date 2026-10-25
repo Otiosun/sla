@@ -338,9 +338,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
       // This intentionally has no policy gate: profile consultation remains available during
       // suspension, archive and support conversations.
       const readOnlyRouter = new MessageRouter(createOperationalUxRoutes(deps));
-      const output = textOf(
-        await readOnlyRouter.dispatch(context("/perfil", `profile-${status}`)),
-      );
+      const output = textOf(await readOnlyRouter.dispatch(context("/perfil", `profile-${status}`)));
 
       expect(output).toContain("Treinador: *Red*");
       expect(output).toContain("Nível do treinador: `3`");
