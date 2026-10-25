@@ -1,4 +1,5 @@
 import type { CaptureAttemptResult } from "../capture/contracts.js";
+import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { EncounterView } from "../encounter/contracts.js";
 import type { FirstActionOutcome } from "../../platform/exploration/postgres-expedition-first-action.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
@@ -179,4 +180,31 @@ export function renderExpeditionCaptureResolutionScene(input: {
       "› _Captura confirmada. Consulte /equipe ou /box para conferir._",
     ].join("\n"),
   );
+}
+
+/**
+ * Adapter to the existing Messaging Outbox contract, not a direct Baileys send.
+ * Distinct semantic stages get different Inbox-derived keys; the delivery
+ * worker, never this presenter, owns retry/deduplication after commit.
+ */
+export function privateExpeditionSceneReply(
+  context: MessageHandlerContext,
+  stage: "encounter" | "capture",
+  scene: Result<string>,
+): Result<MessageHandlerResult> {
+  if (!scene.ok) return scene;
+  if (scene.value.length === 0 || !context.message.senderRef.trim()) return blocked();
+  return ok({
+    resultRefType: null,
+    resultRefId: null,
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.senderRef,
+        messageType: "TEXT",
+        payload: { text: scene.value },
+        idempotencyKey: `${context.idempotencyKey}:expedition-${stage}`,
+      },
+    ],
+  });
 }
