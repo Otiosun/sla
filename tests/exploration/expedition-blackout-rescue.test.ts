@@ -148,7 +148,7 @@ describe("V1.5 blackout safe-point resolution (pure, no teleport)", () => {
     expect(first).toEqual(reversed);
     expect(first).toMatchObject({
       ok: true,
-      value: { safeAreaId: VILLAGE },
+      value: { safeAreaId: SAFE_NORTH },
     });
   });
 
