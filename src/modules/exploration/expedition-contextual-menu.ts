@@ -48,7 +48,7 @@ function allowedAlias(value: string): boolean {
     value.length > 0 &&
     value.length <= 80 &&
     !/[\r\n*/~\x00-\x1f<>]/u.test(value) &&
-    !value.startsWith("/")
+    !value.trim().startsWith("/")
   );
 }
 
@@ -134,7 +134,11 @@ export function renderExpeditionMenuChoices(choices: readonly ExpeditionMenuChoi
         choice.optionNo <= MAX_OPTION_NO,
     )
     .map((choice) => {
-      const label = choice.label.replace(/[\r\n*_~\x00-\x1f<>]/gu, " ").trim().slice(0, 80);
+      const label = choice.label
+        .replace(/[\r\n*_~`/\x00-\x1f<>]/gu, " ")
+        .replace(/\s+/gu, " ")
+        .trim()
+        .slice(0, 80);
       return `${choice.optionNo}. ${label}`;
     });
   return ["◇ *𝗘𝗦𝗖𝗢𝗟𝗛𝗔 𝗨𝗠𝗔 𝗢𝗣ÇÃ𝗢*", "", ...lines, "", "› _Responda apenas com o número da opção._"].join(
