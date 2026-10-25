@@ -27,7 +27,10 @@ function context(command: string): MessageHandlerContext {
   };
 }
 
-function fixture(status: "ACTIVE" | "SUSPENDED" | "PENDING", state: "COMPLETE" | "NEW" = "COMPLETE") {
+function fixture(
+  status: "ACTIVE" | "SUSPENDED" | "PENDING",
+  state: "COMPLETE" | "NEW" = "COMPLETE",
+) {
   const readChoices = vi.fn(async () => []);
   const readOwned = vi.fn(async () => []);
   const readEvolution = vi.fn(async () => []);
