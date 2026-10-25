@@ -119,5 +119,4 @@ describe("legacy operational route access policy", () => {
     expect(f.getLocation).not.toHaveBeenCalled();
     expect(f.travel).not.toHaveBeenCalled();
   });
-
 });
