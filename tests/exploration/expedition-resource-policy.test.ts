@@ -109,13 +109,17 @@ describe("V1.3 resource catalog policy (pure draft, no inventory effect)", () =>
     const ballPerSearch =
       table.outcomes
         .filter((outcome) => outcome.reward?.itemId === BALL_ID)
-        .reduce((sum, outcome) => sum + outcome.weightBasisPoints * (outcome.reward?.quantity ?? 0), 0) /
-      10_000;
+        .reduce(
+          (sum, outcome) => sum + outcome.weightBasisPoints * (outcome.reward?.quantity ?? 0),
+          0,
+        ) / 10_000;
     const potionPerSearch =
       table.outcomes
         .filter((outcome) => outcome.reward?.itemId === POTION_ID)
-        .reduce((sum, outcome) => sum + outcome.weightBasisPoints * (outcome.reward?.quantity ?? 0), 0) /
-      10_000;
+        .reduce(
+          (sum, outcome) => sum + outcome.weightBasisPoints * (outcome.reward?.quantity ?? 0),
+          0,
+        ) / 10_000;
     expect(ballPerSearch).toBeCloseTo(0.19, 12);
     expect(potionPerSearch).toBeCloseTo(0.09, 12);
     expect(ballPerSearch * 200 + potionPerSearch * 300).toBeCloseTo(65, 12);
@@ -204,9 +208,10 @@ describe("V1.3 resource catalog policy (pure draft, no inventory effect)", () =>
       outcomes: prepared.value.outcomes.slice(0, -1),
     };
     const rng = vi.fn(() => 0);
-    expect(
-      drawExpeditionResourceOutcome({ table: tampered, nextInt: rng }),
-    ).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    expect(drawExpeditionResourceOutcome({ table: tampered, nextInt: rng })).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
+    });
     expect(rng).not.toHaveBeenCalled();
   });
 
