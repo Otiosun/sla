@@ -137,6 +137,56 @@ describe("operational read-only page UX", () => {
     expect(collection).not.toContain("**");
   });
 
+  it("orders boxed Pokémon by Box and slot and shows the path into individual details", async () => {
+    const f = fixture();
+    f.listOwnedPokemon.mockResolvedValue([
+      {
+        collectionNo: 11,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Charmeleon",
+        nickname: null,
+        level: 16,
+        xp: 300n,
+        currentHp: 32,
+        placementKind: "BOX",
+        boxNo: 2,
+        slotNo: 1,
+      },
+      {
+        collectionNo: 12,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Squirtle",
+        nickname: null,
+        level: 5,
+        xp: 10n,
+        currentHp: 19,
+        placementKind: "BOX",
+        boxNo: 1,
+        slotNo: 4,
+      },
+      {
+        collectionNo: 13,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Bulbasaur",
+        nickname: null,
+        level: 5,
+        xp: 11n,
+        currentHp: 20,
+        placementKind: "BOX",
+        boxNo: 1,
+        slotNo: 1,
+      },
+    ]);
+
+    const output = rendered(await f.router.dispatch(context("/box")));
+    expect(output.indexOf("#13")).toBeLessThan(output.indexOf("#12"));
+    expect(output.indexOf("#12")).toBeLessThan(output.indexOf("#11"));
+    expect(output).toContain("Abra uma ficha com `/pokemon <#>`.");
+    expect(output).toContain("`/colecao` · todos os Pokémon");
+    expect(output).toContain("`/equipe` · formação atual");
+    expect(f.policyGate.authorize).not.toHaveBeenCalled();
+  });
+
   it("keeps suspended players' read-only projections accessible", async () => {
     const f = fixture();
     for (const command of ["/colecao", "/box", "/inventario", "/pokedex"]) {
