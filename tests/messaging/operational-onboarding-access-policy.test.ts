@@ -113,12 +113,7 @@ describe("legacy onboarding command permissions", () => {
 
   it("rejects SUSPENDED access before any onboarding mutation runs", async () => {
     const f = fixture("SUSPENDED");
-    for (const command of [
-      "/registrar Ash",
-      "/regiao 1",
-      "/starter 1",
-      "/concluir",
-    ]) {
+    for (const command of ["/registrar Ash", "/regiao 1", "/starter 1", "/concluir"]) {
       const result = await f.router.dispatch(context(command));
       expect(result).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
     }
