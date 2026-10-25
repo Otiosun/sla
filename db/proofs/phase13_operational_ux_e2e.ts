@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
+import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import {
   type IncomingMessage,
@@ -18,8 +20,10 @@ import { PostgresEncounterRepository } from "../../src/platform/encounter/postgr
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../../src/platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) {
@@ -95,7 +99,17 @@ async function main(): Promise<void> {
       battle,
       reads,
     });
-    const canonicalRouter = new MessageRouter(routes);
+    const accessRepository = new PostgresPlayerAccessRepository(pool);
+    const policyGate = new RuntimeCommandPolicyGate({
+      // Group admission is not part of this world E2E; access status uses real PostgreSQL.
+      community: {
+        resolveChat: async () => ({ known: false, groupId: null, role: null, capabilities: [] }),
+      },
+      players: { resolvePlayer: registration.resolvePlayer.bind(registration) },
+      access: { load: (playerId) => accessRepository.read((tx) => tx.load(playerId)) },
+      admins: { capabilitiesFor: async () => [] },
+    });
+    const canonicalRouter = new MessageRouter(routes, policyGate);
     const messagingRepository = new PostgresMessagingRepository(pool);
     const service = new MessagingService(messagingRepository, canonicalRouter, 30_000);
 
@@ -143,6 +157,39 @@ async function main(): Promise<void> {
       throw new Error(
         `WhatsApp onboarding did not reach COMPLETE: ${JSON.stringify(onboarding.rows[0])}`,
       );
+    }
+
+    // An approved registration transitions through PROVISIONING before gameplay access.
+    const typedPlayerId = parsePlayerId(playerId);
+    if (!typedPlayerId.ok) throw new Error("Operational UX proof received an invalid PlayerId");
+    const reviewId = randomUUID();
+    const adminPrincipalId = randomUUID();
+    await pool.query(
+      "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
+      [adminPrincipalId, `phase13-review:${adminPrincipalId}`],
+    );
+    await pool.query(
+      `INSERT INTO registration_revisions(
+         id, player_id, sequence_no, status, schema_version, snapshot_json,
+         revision, decided_by_admin_principal_id, decided_at
+       ) VALUES ($1, $2, 1, 'APPROVED', 1, '{}'::jsonb, 1, $3, now())`,
+      [reviewId, typedPlayerId.value, adminPrincipalId],
+    );
+    const provisioning = await accessRepository.transaction((tx) =>
+      tx.beginProvisioning({ playerId: typedPlayerId.value, reviewId, expectedRevision: 0 }),
+    );
+    if (provisioning?.status !== "PROVISIONING") {
+      throw new Error("Phase13 registration did not enter PROVISIONING");
+    }
+    const activated = await accessRepository.transaction((tx) =>
+      tx.activate({
+        playerId: typedPlayerId.value,
+        reviewId,
+        expectedRevision: provisioning.revision,
+      }),
+    );
+    if (activated?.status !== "ACTIVE") {
+      throw new Error("Phase13 registration did not enter ACTIVE");
     }
 
     await receiveProcessed(service, message("ux-menu-complete", "/menu"));
@@ -251,6 +298,7 @@ async function main(): Promise<void> {
       new PostgresMessagingRepository(pool),
       new MessageRouter(
         createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads }),
+        policyGate,
       ),
       30_000,
     );
