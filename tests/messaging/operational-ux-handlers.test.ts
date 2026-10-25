@@ -435,6 +435,148 @@ describe("Phase 13 operational WhatsApp UX", () => {
     expect(detail).not.toHaveBeenCalled();
   });
 
+  it("uses the real team slot, not the collection number, in the legacy detail fallback", async () => {
+    const deps = dependencies();
+    const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
+    if (baseDetail === null) throw new Error("Missing fixture detail");
+    const teamDetail = vi.fn(async (_playerId: string, slotNo: number) => ({
+      ...baseDetail,
+      slotNo,
+    }));
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 12n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 4,
+        },
+      ]),
+      teamPokemonDetail: teamDetail,
+    });
+
+    const output = textOf(await router(deps).dispatch(context("/pokemon #13", "fallback-slot")));
+    expect(teamDetail).toHaveBeenCalledExactlyOnceWith(PLAYER_ID, 4);
+    expect(output).toContain("#13");
+    expect(output).toContain("Equipe · slot 4");
+    expect(output).toContain("`/colecao`");
+    expect(output).not.toContain(POKEMON_ID);
+  });
+
+  it("does not expose a different team member when the collection projection goes stale", async () => {
+    const deps = dependencies();
+    const otherId = "00000000-0000-4000-8000-000000000026";
+    const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
+    if (baseDetail === null) throw new Error("Missing fixture detail");
+    const teamDetail = vi.fn(async () => ({
+      ...baseDetail,
+      pokemonInstanceId: otherId,
+      slotNo: 4,
+    }));
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 12n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 4,
+        },
+      ]),
+      teamPokemonDetail: teamDetail,
+    });
+
+    const result = await router(deps).dispatch(context("/pokemon #13", "stale-slot"));
+    expect(result).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    if (result.ok) return;
+    expect(result.error.details?.userMessage).toContain("/colecao");
+    expect(result.error.message).not.toContain(otherId);
+    expect(teamDetail).toHaveBeenCalledExactlyOnceWith(PLAYER_ID, 4);
+  });
+
+  it("never labels a boxed Pokémon as a team member when full-detail reads are unavailable", async () => {
+    const deps = dependencies();
+    const teamDetail = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 12n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+      ]),
+      teamPokemonDetail: teamDetail,
+    });
+
+    const result = await router(deps).dispatch(context("/pokemon #13", "fallback-box"));
+    expect(result).toMatchObject({ ok: false, error: { code: "FEATURE_UNAVAILABLE" } });
+    if (result.ok) return;
+    expect(result.error.details?.userMessage).toContain("/box");
+    expect(teamDetail).not.toHaveBeenCalled();
+  });
+
+  it("opens boxed Pokémon by collection reference and provides safe return paths", async () => {
+    const deps = dependencies();
+    const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
+    if (baseDetail === null) throw new Error("Missing fixture detail");
+    const detail = vi.fn(async () => ({
+      ...baseDetail,
+      collectionNo: 13,
+      xp: 345n,
+      placementKind: "BOX" as const,
+      boxNo: 2,
+      slotNo: 4,
+      nickname: "  Foguinho  ",
+    }));
+    const legacyDetail = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: "  Foguinho  ",
+          level: 5,
+          xp: 345n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 2,
+          slotNo: 4,
+        },
+      ]),
+      teamPokemonDetail: legacyDetail,
+      ownedPokemonDetail: detail,
+    });
+
+    const output = textOf(await router(deps).dispatch(context("/pokemon #13", "box-detail")));
+    expect(detail).toHaveBeenCalledExactlyOnceWith(PLAYER_ID, 13);
+    expect(legacyDetail).not.toHaveBeenCalled();
+    expect(output).toContain("#13 · _Foguinho · Charmander_");
+    expect(output).toContain("Box 2 · slot 4");
+    expect(output).toContain("XP　`345`");
+    expect(output).toContain("`/colecao`");
+    expect(output).toContain("`/box`");
+    expect(output).not.toContain(POKEMON_ID);
+  });
+
   it("moves a boxed Pokemon into the team by human name reference", async () => {
     const deps = dependencies();
     (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
