@@ -284,7 +284,7 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
                 locationName: "Campos de Yun",
                 choices,
               });
-              return privateExpeditionSceneReply(context, "encounter", scene);
+              return privateExpeditionSceneReply(context, "encounter", observed().encounterId, scene);
             },
           },
         },
@@ -319,11 +319,14 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
     });
     expect(outbound?.payload.text).toContain("Shroomish");
     expect(first.value?.outgoing).toEqual(retry.value?.outgoing);
-    expect(JSON.stringify(first.value)).not.toContain(encounterId);
+    expect(JSON.stringify(outbound?.payload)).not.toContain(encounterId);
+    expect(first.value?.resultRefType).toBe("ENCOUNTER");
+    expect(first.value?.resultRefId).toBe(encounterId);
 
     const failed = privateExpeditionSceneReply(
       context,
       "encounter",
+      observed().encounterId,
       renderExpeditionDirectEncounterScene({
         action: firstAction(),
         observed: { ...observed(), status: "CREATED" },
