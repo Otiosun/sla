@@ -3,6 +3,12 @@ import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
+import { EncounterService } from "../../src/modules/encounter/service.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
+import { economyRepositoryForClient } from "../../src/platform/economy/postgres-economy-repository.js";
+import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { canonicalExpeditionDirectEncounterEffect } from "../../src/platform/exploration/canonical-expedition-direct-encounter-effect.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import {
   PostgresExpeditionFirstAction,
@@ -11,7 +17,7 @@ import {
 } from "../../src/platform/exploration/postgres-expedition-first-action.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { canonicalWorldTravelEffect } from "../../src/platform/exploration/canonical-world-travel-effect.js";
-import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { createPlayerId, parseEncounterId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const enabled =
@@ -35,6 +41,10 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
   const speciesId = randomUUID();
   const formId = randomUUID();
   const timestamp = new Date("2026-10-19T12:00:00Z");
+  const abilityId = randomUUID();
+  const natureId = randomUUID();
+  const moveId = randomUUID();
+  const resourceTestItemId = randomUUID();
 
   function urlFor(name: string): string {
     const url = new URL(process.env.POSTGRES_INTEGRATION_TEST_URL ?? "");
@@ -47,9 +57,27 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     const typeId = randomUUID();
     const tableId = randomUUID();
     const tableRevisionId = randomUUID();
+    const rulesetConfig = {
+      schemaVersion: 1,
+      battle: {
+        statModel: "SIX_STATS",
+        physicalSpecialByMove: true,
+        ivEnabled: true,
+        evEnabled: false,
+        natureEnabled: true,
+        maxMoves: 4,
+        ppEnabled: true,
+        criticalMultiplierBasisPoints: 15_000,
+        accuracyEvasionEnabled: true,
+      },
+      capture: { model: "POKEMON_INSPIRED_V1", maxProbabilityBasisPoints: 9_500 },
+      encounter: { expirationSeconds: 60 },
+      defeat: { automaticMoneyLoss: false },
+      narrative: { authority: "N0_FLAVOR_ONLY" },
+    };
     await pool.query(
-      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES($1,$2,1,1,'{}'::jsonb,'DRAFT')",
-      [rulesetId, `atomic-exploration-${rulesetId}`],
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES($1,$2,1,1,$3::jsonb,'DRAFT')",
+      [rulesetId, `atomic-exploration-${rulesetId}`, JSON.stringify(rulesetConfig)],
     );
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES($1,941001,'Atomic exploration proof','DRAFT',$2)",
@@ -131,6 +159,12 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       ],
     );
     await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,'normal')", [typeId]);
+    await pool.query("INSERT INTO abilities(id,slug) VALUES($1,'exp-keen-eye')", [abilityId]);
+    await pool.query("INSERT INTO natures(id,slug) VALUES($1,'exp-hardy')", [natureId]);
+    await pool.query("INSERT INTO moves(id,slug) VALUES($1,'exp-tackle')", [moveId]);
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,'exp-atomic-potion')", [
+      resourceTestItemId,
+    ]);
     await pool.query(
       "INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,986,'atomic-test-species')",
       [speciesId],
@@ -149,6 +183,30 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
         base_hp,base_attack,base_defense,base_sp_attack,base_sp_defense,base_speed,active
       ) VALUES($1,$2,$3,'Atomic Form',$4,40,40,40,40,40,40,TRUE)`,
       [randomUUID(), releaseId, formId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO ability_revisions(id,content_release_id,ability_id,display_name) VALUES($1,$2,$3,'Keen Eye')",
+      [randomUUID(), releaseId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO nature_revisions(id,content_release_id,nature_id,display_name) VALUES($1,$2,$3,'Hardy')",
+      [randomUUID(), releaseId, natureId],
+    );
+    await pool.query(
+      "INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,priority,max_pp) VALUES($1,$2,$3,'Tackle',$4,'PHYSICAL',40,100,0,35)",
+      [randomUUID(), releaseId, moveId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_form_ability_options(id,content_release_id,form_id,ability_id,slot_kind) VALUES($1,$2,$3,$4,'PRIMARY')",
+      [randomUUID(), releaseId, formId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO move_learnset_entries(id,content_release_id,form_id,move_id,learn_method) VALUES($1,$2,$3,$4,'START')",
+      [randomUUID(), releaseId, formId, moveId],
+    );
+    await pool.query(
+      "INSERT INTO item_revisions(id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config) VALUES($1,$2,$3,'Potion','MEDICINE','heal-hp',$4::jsonb)",
+      [randomUUID(), releaseId, resourceTestItemId, JSON.stringify({ amount: 20 })],
     );
     await pool.query(
       "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'atomic-encounters')",
@@ -705,5 +763,381 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       elapsedMinutes: 45,
       revision: 2n,
     });
+  });
+
+  function directEncounterEffect(targetSpeciesId: string | null = null, featureEnabled = true) {
+    return canonicalExpeditionDirectEncounterEffect({
+      encounterTableSlug: "atomic-encounters",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
+      targetSpeciesId,
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
+        Buffer.alloc(32, 0x4c),
+      ),
+      clock: new ManualClock(timestamp),
+      encounterFeature: { enabled: featureEnabled, reason: featureEnabled ? null : "Disabled" },
+    });
+  }
+
+  async function countEncounters(playerId: PlayerId): Promise<number> {
+    const count = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM encounters WHERE player_id=$1",
+      [playerId],
+    );
+    return count.rows[0]?.count ?? 0;
+  }
+
+  it("atomically creates ONE canonical direct encounter, advances clock/quota and replays receipt", async () => {
+    const subject = await prepared("direct-first");
+    const request = input(subject, "direct-first-action", directEncounterEffect());
+    const first = await action.execute(request);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        replayed: false,
+        consumedWeeklySlot: true,
+        expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+        effectResult: {
+          kind: "EXPEDITION_DIRECT_ENCOUNTER",
+          formId,
+          areaId,
+          level: expect.any(Number),
+          encounterStatus: "CREATED",
+        },
+      },
+    });
+    const replay = await action.execute(request);
+    expect(replay).toMatchObject({ ok: true, value: { replayed: true } });
+    if (first.ok && replay.ok) {
+      expect(replay.value.effectResult).toEqual(first.value.effectResult);
+    }
+    expect(await countEncounters(subject.playerId)).toBe(1);
+    const persisted = await pool.query<{ pokemon_snapshot: { formId: string; level: number } }>(
+      `SELECT snapshot.pokemon_snapshot
+       FROM encounter_snapshots snapshot
+       JOIN encounters encounter ON encounter.id=snapshot.encounter_id
+       WHERE encounter.player_id=$1`,
+      [subject.playerId],
+    );
+    expect(persisted.rows[0]?.pokemon_snapshot).toMatchObject({
+      formId,
+      level: expect.any(Number),
+    });
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("keeps direct-hunt time, quota and Encounter absent when target was never seen", async () => {
+    const subject = await prepared("direct-hidden-target");
+    const request = input(subject, "hidden-target", directEncounterEffect(speciesId));
+    expect(await action.execute(request)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      revision: 0n,
+    });
+    await pool.query(
+      "INSERT INTO player_pokedex_species(player_id,species_id,seen_count,first_seen_at,last_seen_at) VALUES($1,$2,1,now(),now())",
+      [subject.playerId, speciesId],
+    );
+    const eligible = await action.execute(request);
+    expect(eligible).toMatchObject({
+      ok: true,
+      value: { effectResult: { formId }, consumedWeeklySlot: true },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(1);
+  });
+
+  it("rolls back direct Encounter and quota when canonical Encounter feature is disabled", async () => {
+    const subject = await prepared("direct-disabled");
+    const failed = await action.execute(
+      input(subject, "direct-disabled-first", directEncounterEffect(null, false)),
+    );
+    expect(failed).toMatchObject({ ok: false, error: { code: "FEATURE_UNAVAILABLE" } });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      consumedWeekKey: null,
+    });
+  });
+
+  it("rejects mismatched hunt minutes, table and period without spawning anything", async () => {
+    const subject = await prepared("direct-bad-action");
+    const valid = directEncounterEffect();
+    expect(
+      await action.execute({ ...input(subject, "direct-bad-minutes", valid), minutes: 60 }),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    const wrongTable: FirstActionEffect = canonicalExpeditionDirectEncounterEffect({
+      encounterTableSlug: "not-published",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
+      targetSpeciesId: null,
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1),
+      clock: new ManualClock(timestamp),
+      encounterFeature: { enabled: true, reason: null },
+    });
+    expect(await action.execute(input(subject, "direct-bad-table", wrongTable))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const night = canonicalExpeditionDirectEncounterEffect({
+      encounterTableSlug: "atomic-encounters",
+      environment: { timeOfDay: "NIGHT", surface: "LAND" },
+      targetSpeciesId: null,
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1),
+      clock: new ManualClock(timestamp),
+      encounterFeature: { enabled: true, reason: null },
+    });
+    expect(await action.execute(input(subject, "direct-bad-period", night))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+  });
+
+  it("refuses a second direct encounter while the first is unresolved", async () => {
+    const subject = await prepared("direct-active-conflict");
+    const first = await action.execute(
+      input(subject, "direct-active-first", directEncounterEffect()),
+    );
+    expect(first.ok).toBe(true);
+    const next: FirstActionInput = {
+      ...input(subject, "direct-active-second", directEncounterEffect()),
+      expectedRevision: 1n,
+    };
+    expect(await action.executeNext(next)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(1);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("rolls back a canonical Encounter if a later stage of the expedition action rejects", async () => {
+    const subject = await prepared("direct-late-rollback");
+    const real = directEncounterEffect();
+    const effect: FirstActionEffect = {
+      ...real,
+      async apply(client, context) {
+        const created = await real.apply(client, context);
+        if (!created.ok) return created;
+        return err(appError("ACTION_INVALID", "Synthetic failure after Encounter insertion"));
+      },
+    };
+    expect(await action.execute(input(subject, "direct-late-failure", effect))).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      consumedWeekKey: null,
+      revision: 0n,
+    });
+    expect(await action.execute(input(subject, "direct-late-failure", real))).toMatchObject({
+      ok: true,
+      value: { replayed: false, consumedWeeklySlot: true },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(1);
+  });
+
+  it("serializes competing direct spawns so one message creates at most one Encounter", async () => {
+    const subject = await prepared("direct-race");
+    const requests = [
+      input(subject, "direct-race-a", directEncounterEffect()),
+      input(subject, "direct-race-b", directEncounterEffect()),
+    ];
+    const results = await Promise.all(requests.map((request) => action.execute(request)));
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toMatchObject([
+      { ok: false, error: { code: "FLOW_BLOCKED" } },
+    ]);
+    expect(await countEncounters(subject.playerId)).toBe(1);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("does not count an unpresented wild as Pokédex seen before its canonical observe transition", async () => {
+    const subject = await prepared("direct-seen-boundary");
+    const created = await action.execute(
+      input(subject, "direct-seen-boundary", directEncounterEffect()),
+    );
+    expect(created.ok).toBe(true);
+    const seen = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
+      [subject.playerId, speciesId],
+    );
+    expect(seen.rows[0]?.count).toBe(0);
+    const status = await pool.query<{ status: string }>(
+      "SELECT status FROM encounters WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(status.rows[0]?.status).toBe("CREATED");
+  });
+
+  it("presents a generated encounter through the existing EncounterService and records Pokédex once", async () => {
+    const subject = await prepared("direct-observe-canonical");
+    const result = await action.execute(
+      input(subject, "direct-observe-first", directEncounterEffect()),
+    );
+    expect(result.ok).toBe(true);
+    const row = await pool.query<{ id: string }>(
+      "SELECT id::text FROM encounters WHERE player_id=$1",
+      [subject.playerId],
+    );
+    const parsed = parseEncounterId(row.rows[0]?.id ?? "");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const encounter = new EncounterService(
+      new PostgresEncounterRepository(pool),
+      new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1),
+      new ManualClock(timestamp),
+      { enabled: true, reason: null },
+    );
+    const observed = await encounter.observe({
+      playerId: subject.playerId,
+      encounterId: parsed.value,
+      expectedRevision: 0n,
+    });
+    expect(observed).toMatchObject({
+      ok: true,
+      value: { status: "PRESENTED", revision: 1n },
+    });
+    const replay = await encounter.observe({
+      playerId: subject.playerId,
+      encounterId: parsed.value,
+      expectedRevision: 0n,
+    });
+    expect(replay).toMatchObject({ ok: true, value: { status: "PRESENTED" } });
+    const seen = await pool.query<{ seen_count: string }>(
+      "SELECT seen_count::text FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
+      [subject.playerId, speciesId],
+    );
+    expect(seen.rows[0]?.seen_count).toBe("1");
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  function resourceLedgerProofEffect(): FirstActionEffect {
+    return {
+      actionKey: "test.expedition.resource.ledger",
+      actionFingerprint: "d".repeat(64),
+      async apply(client, context) {
+        if (context.minutes !== 60) {
+          return err(appError("ACTION_INVALID", "Fixture requires 60 expedition minutes"));
+        }
+        const economy = new EconomyService(economyRepositoryForClient(client));
+        const granted = await economy.addItem({
+          playerId: context.playerId,
+          itemId: resourceTestItemId,
+          quantity: 1n,
+          idempotencyKey: context.idempotencyKey,
+          metadata: {
+            sourceType: "EXPEDITION_RESOURCE_TEST",
+            sourceId: context.expeditionId,
+            reason: "Synthetic, published-item ledger transaction proof only",
+            actorType: "SYSTEM",
+            actorId: null,
+            correlationId: randomUUID(),
+          },
+        });
+        if (!granted.ok) return granted;
+        return ok({
+          kind: "RESOURCE_LEDGER_PROOF",
+          itemId: granted.value.itemId,
+          quantity: granted.value.quantity.toString(),
+          ledgerId: granted.value.ledgerId,
+        });
+      },
+    };
+  }
+
+  async function resourceBalance(playerId: PlayerId) {
+    const balance = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [playerId, resourceTestItemId],
+    );
+    const ledger = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM inventory_ledger WHERE player_id=$1 AND item_id=$2",
+      [playerId, resourceTestItemId],
+    );
+    return {
+      quantity: balance.rows[0]?.quantity ?? "0",
+      entries: ledger.rows[0]?.count ?? 0,
+    };
+  }
+
+  it("atomically writes a canonical Economy ledger with 60-minute expedition action and replay", async () => {
+    const subject = await prepared("resource-ledger-proof");
+    const request = {
+      ...input(subject, "resource-first", resourceLedgerProofEffect()),
+      minutes: 60,
+    };
+    const first = await action.execute(request);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        consumedWeeklySlot: true,
+        replayed: false,
+        expedition: { elapsedMinutes: 60, phase: "ACTIVE" },
+        effectResult: {
+          kind: "RESOURCE_LEDGER_PROOF",
+          itemId: resourceTestItemId,
+          quantity: "1",
+        },
+      },
+    });
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "1", entries: 1 });
+    const replay = await action.execute(request);
+    expect(replay).toMatchObject({ ok: true, value: { replayed: true } });
+    if (first.ok && replay.ok) expect(replay.value.effectResult).toEqual(first.value.effectResult);
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "1", entries: 1 });
+  });
+
+  it("rolls back a canonical inventory ledger if the expedition action rejects after the grant", async () => {
+    const subject = await prepared("resource-ledger-rollback");
+    const real = resourceLedgerProofEffect();
+    const rejected: FirstActionEffect = {
+      ...real,
+      async apply(client, context) {
+        const grant = await real.apply(client, context);
+        if (!grant.ok) return grant;
+        return err(appError("ACTION_INVALID", "Synthetic rollback after the ledger grant"));
+      },
+    };
+    const request = {
+      ...input(subject, "resource-rollback-first", rejected),
+      minutes: 60,
+    };
+    expect(await action.execute(request)).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "0", entries: 0 });
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      consumedWeekKey: null,
+    });
+    expect(await action.execute({ ...request, effect: real })).toMatchObject({
+      ok: true,
+      value: { consumedWeeklySlot: true, expedition: { elapsedMinutes: 60 } },
+    });
+    expect(await resourceBalance(subject.playerId)).toEqual({ quantity: "1", entries: 1 });
   });
 });
