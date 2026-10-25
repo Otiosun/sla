@@ -193,13 +193,14 @@ export function renderExpeditionCaptureResolutionScene(input: {
 export function privateExpeditionSceneReply(
   context: MessageHandlerContext,
   stage: "encounter" | "capture",
+  encounterId: ExpeditionPresentedEncounter["encounterId"],
   scene: Result<string>,
 ): Result<MessageHandlerResult> {
   if (!scene.ok) return scene;
   if (scene.value.length === 0 || !context.message.senderRef.trim()) return blocked();
   return ok({
-    resultRefType: null,
-    resultRefId: null,
+    resultRefType: "ENCOUNTER",
+    resultRefId: encounterId,
     outgoing: [
       {
         channel: "whatsapp",
