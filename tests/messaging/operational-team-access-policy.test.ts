@@ -287,7 +287,8 @@ describe("legacy team read vs mutation access policy", () => {
     const result = await f.router.dispatch(context("/equipe"));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const shown = result.value?.outgoing[0]?.payload.text ?? "";
+    const text = result.value?.outgoing[0]?.payload.text;
+    const shown = typeof text === "string" ? text : "";
     expect(shown.indexOf("*Bulbasaur*")).toBeLessThan(shown.indexOf("*Charmander*"));
     expect(shown).toContain("slot 1");
     expect(shown).toContain("slot 3");
@@ -354,7 +355,8 @@ describe("legacy team read vs mutation access policy", () => {
     const result = await f.router.dispatch(context("/equipe colocar #13 2"));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const shown = result.value?.outgoing[0]?.payload.text ?? "";
+    const text = result.value?.outgoing[0]?.payload.text;
+    const shown = typeof text === "string" ? text : "";
     expect(shown).toContain("#13 agora está no slot 2");
     expect(shown).toContain("#14 *Verde* foi para Box 1, slot 7");
     expect(shown).not.toContain(POKEMON_ID);
