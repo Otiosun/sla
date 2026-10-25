@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { presentMessagingError } from "../../src/modules/messaging/errors.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
@@ -177,6 +178,82 @@ describe("legacy team read vs mutation access policy", () => {
       target: { placementKind: "BOX", boxNo: 1, slotNo: 1 },
     });
     expect(f.groupLookup).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "7", "99", "1.5", "-1", "2e1", "abc"] as const)(
+    "explains invalid team slot %s before any storage or gameplay calls",
+    async (slot) => {
+      const f = fixture("ACTIVE");
+      const command = `/equipe colocar #13 ${slot}`;
+      const result = await f.router.dispatch(context(command));
+      expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      if (result.ok) return;
+      expect(result.error.message).toContain("Slot inválido");
+      expect(result.error.message).toContain("1 a 6");
+      const shown = presentMessagingError(context(command), result.error);
+      expect(shown.outgoing[0]?.payload.text).toContain("Slot inválido");
+      expect(shown.outgoing[0]?.payload.text).toContain("/equipe colocar #13 2");
+      expect(f.authResolve).toHaveBeenCalledTimes(1);
+      expect(f.listOwnedPokemon).toHaveBeenCalledTimes(1);
+      expect(f.activeBattleId).not.toHaveBeenCalled();
+      expect(f.activeForPlayer).not.toHaveBeenCalled();
+      expect(f.getStorage).not.toHaveBeenCalled();
+      expect(f.move).not.toHaveBeenCalled();
+    },
+  );
+
+  it("explains invalid slots after a species name rather than reporting a missing Pokémon", async () => {
+    const f = fixture("ACTIVE");
+    const result = await f.router.dispatch(context("/equipe colocar Charmander 7"));
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (result.ok) return;
+    expect(result.error.message).toContain("Slot inválido");
+    expect(f.move).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 6] as const)("accepts explicit team slot %s", async (slot) => {
+    const f = fixture("ACTIVE");
+    const result = await f.router.dispatch(context(`/equipe colocar #13 ${slot}`));
+    expect(result.ok).toBe(true);
+    expect(f.move).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: POKEMON_ID,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: slot },
+    });
+    expect(f.groupLookup).not.toHaveBeenCalled();
+  });
+
+  it("treats an exact nickname ending in a number as a Pokémon reference", async () => {
+    const f = fixture("ACTIVE");
+    f.listOwnedPokemon.mockResolvedValue([
+      {
+        collectionNo: 13,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Charmander",
+        nickname: "Rex 7",
+        level: 5,
+        xp: 0n,
+        currentHp: 19,
+        placementKind: "TEAM" as const,
+        boxNo: null,
+        slotNo: 1,
+      },
+    ]);
+    const result = await f.router.dispatch(context("/equipe colocar Rex 7"));
+    expect(result.ok).toBe(true);
+    expect(f.move).toHaveBeenCalledWith({
+      playerId: PLAYER_ID,
+      pokemonInstanceId: POKEMON_ID,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: 2 },
+    });
+  });
+
+  it("keeps the suspension gate ahead of invalid slot input and collection reads", async () => {
+    const f = fixture("SUSPENDED");
+    const result = await f.router.dispatch(context("/equipe colocar #13 7"));
+    expect(result).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
+    expect(f.listOwnedPokemon).not.toHaveBeenCalled();
+    expect(f.move).not.toHaveBeenCalled();
   });
 
   it("fails closed without a policy gate only for the modifying variant", async () => {
