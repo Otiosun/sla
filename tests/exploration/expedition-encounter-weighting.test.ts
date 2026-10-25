@@ -11,10 +11,7 @@ const AREA_ID = "area-yun";
 const KNOWN_ID = "species-shroomish";
 const OTHER_ID = "species-zigzagoon";
 
-function pool(
-  targetWeight = 5,
-  otherWeight = 95,
-): PinnedEligibleExpeditionEncounterPool {
+function pool(targetWeight = 5, otherWeight = 95): PinnedEligibleExpeditionEncounterPool {
   return {
     contentReleaseId: RELEASE_ID,
     areaId: AREA_ID,
@@ -64,10 +61,9 @@ describe("V1.2 directed expedition encounters (pure, not playable)", () => {
     expect(result.value.entries.map((entry) => entry.effectiveWeight)).toEqual([15, 95]);
     expect(result.value.totalEffectiveWeight).toBe(110);
     // Base: 5/100. Directed: 15/110 ≈ 13.64%, NOT 15% or capped.
-    expect((result.value.entries[0]?.effectiveWeight ?? 0) / result.value.totalEffectiveWeight).toBeCloseTo(
-      3 * 0.05 / (1 + 2 * 0.05),
-      12,
-    );
+    expect(
+      (result.value.entries[0]?.effectiveWeight ?? 0) / result.value.totalEffectiveWeight,
+    ).toBeCloseTo((3 * 0.05) / (1 + 2 * 0.05), 12);
   });
 
   it.each([
@@ -89,7 +85,9 @@ describe("V1.2 directed expedition encounters (pure, not playable)", () => {
     const result = prepare({ pool: pool(30, 70) });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect((result.value.entries[0]?.effectiveWeight ?? 0) / result.value.totalEffectiveWeight).toBeGreaterThan(0.5);
+    expect(
+      (result.value.entries[0]?.effectiveWeight ?? 0) / result.value.totalEffectiveWeight,
+    ).toBeGreaterThan(0.5);
   });
 
   it("leaves free searching weights untouched", () => {
@@ -128,7 +126,10 @@ describe("V1.2 directed expedition encounters (pure, not playable)", () => {
 
   it("uses the same non-spoiler failure for unseen and currently unavailable targets", () => {
     const unseen = prepare({ targetSpeciesId: "species-secret", knownSpeciesIds: [] });
-    const knownButNotHere = prepare({ targetSpeciesId: "species-secret", knownSpeciesIds: ["species-secret"] });
+    const knownButNotHere = prepare({
+      targetSpeciesId: "species-secret",
+      knownSpeciesIds: ["species-secret"],
+    });
     expect(unseen).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(knownButNotHere).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     if (unseen.ok || knownButNotHere.ok) return;
@@ -137,13 +138,13 @@ describe("V1.2 directed expedition encounters (pure, not playable)", () => {
     expect(unseen.error.details?.userMessage).toContain("RotomDex");
   });
 
-  it.each([
-    { contentReleaseId: "other-release" },
-    { currentAreaId: "area-vila" },
-  ])("rejects a pool outside the pinned World cursor %o", (overrides) => {
-    const result = prepare(overrides);
-    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
-  });
+  it.each([{ contentReleaseId: "other-release" }, { currentAreaId: "area-vila" }])(
+    "rejects a pool outside the pinned World cursor %o",
+    (overrides) => {
+      const result = prepare(overrides);
+      expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    },
+  );
 
   it("rejects empty pools without a draw or inventing an encounter", () => {
     const original = pool();
@@ -167,7 +168,10 @@ describe("V1.2 directed expedition encounters (pure, not playable)", () => {
     const duplicated = prepare({
       pool: {
         ...original,
-        entries: [original.entries[0]!, { ...original.entries[1]!, entryId: "encounter-shroomish" }],
+        entries: [
+          original.entries[0]!,
+          { ...original.entries[1]!, entryId: "encounter-shroomish" },
+        ],
       },
     });
     expect(duplicated).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
@@ -236,6 +240,7 @@ describe("V1.2 directed expedition encounters (pure, not playable)", () => {
     expect(rng).toHaveBeenCalledTimes(1);
     // Only a pure value is returned, not a persistence service, action receipt
     // or any side effect. Integration into EncounterService remains a separate gate.
-    if (draw.ok) expect(Object.keys(draw.value).sort()).toEqual(["entryId", "formId", "speciesId", "weight"]);
+    if (draw.ok)
+      expect(Object.keys(draw.value).sort()).toEqual(["entryId", "formId", "speciesId", "weight"]);
   });
 });
