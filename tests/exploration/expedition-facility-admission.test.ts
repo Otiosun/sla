@@ -121,6 +121,28 @@ describe("V1.4 autonomous facility admission (pure, not a Journey policy replace
     });
   });
 
+  it("denies a World location whose optional facilities field is absent", () => {
+    const result = inspectAutonomousFacilityAction({
+      expedition: {
+        playerId: PLAYER_ID,
+        currentAreaId: AREA_ID,
+        phase: "ACTIVE",
+        endReason: null,
+        elapsedMinutes: 30,
+      },
+      location: {
+        playerId: PLAYER_ID,
+        areaId: AREA_ID,
+        contentReleaseId: RELEASE_ID,
+        requiresRelocation: false,
+      },
+      pinnedContentReleaseId: RELEASE_ID,
+      action: "HEAL",
+      hasActiveBattle: false,
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
   it("respects the remaining expedition clock without charging anything in this preflight", () => {
     const notEnough = admission({ elapsedMinutes: 691, action: "HEAL" });
     expect(notEnough).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
