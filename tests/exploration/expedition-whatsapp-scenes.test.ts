@@ -285,11 +285,11 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
                 choices,
               });
               return privateExpeditionSceneReply(
-                  context,
-                  "encounter",
-                  observed().encounterId,
-                  scene,
-                );
+                context,
+                "encounter",
+                observed().encounterId,
+                scene,
+              );
             },
           },
         },
