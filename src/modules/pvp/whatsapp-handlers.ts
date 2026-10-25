@@ -262,22 +262,38 @@ export function createPvpWhatsAppRoutes(
     {
       command: "desafiar",
       handler: new FunctionalHandler(challenge),
-      policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
+      policy: {
+        requiredGroupCapabilities: ["pvp"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
     {
       command: "aceitar",
       handler: new FunctionalHandler(accept),
-      policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
+      policy: {
+        requiredGroupCapabilities: ["pvp"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
     {
       command: "recusar",
       handler: new FunctionalHandler(decline),
-      policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
+      policy: {
+        requiredGroupCapabilities: ["pvp"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
     {
       command: "cancelar",
       handler: new FunctionalHandler(cancel),
-      policy: { requiredGroupCapabilities: ["pvp"], requiresMechanicalReady: true },
+      policy: {
+        requiredGroupCapabilities: ["pvp"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
   ];
 }
