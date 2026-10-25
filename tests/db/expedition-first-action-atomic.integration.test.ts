@@ -758,10 +758,8 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       encounterTableSlug: "atomic-encounters",
       environment: { timeOfDay: "DAY", surface: "LAND" },
       targetSpeciesId,
-      seedProvider: new AesEncounterSeedProvider(
-        Buffer.alloc(32, 0xa5),
-        1,
-        () => Buffer.alloc(32, 0x4c),
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
+        Buffer.alloc(32, 0x4c),
       ),
       clock: new ManualClock(timestamp),
       encounterFeature: { enabled: featureEnabled, reason: featureEnabled ? null : "Disabled" },
@@ -861,8 +859,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
   it("rejects mismatched hunt minutes, table and period without spawning anything", async () => {
     const subject = await prepared("direct-bad-action");
     const valid = directEncounterEffect();
-    expect(await action.execute({ ...input(subject, "direct-bad-minutes", valid), minutes: 60 }))
-      .toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(
+      await action.execute({ ...input(subject, "direct-bad-minutes", valid), minutes: 60 }),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
     const wrongTable: FirstActionEffect = canonicalExpeditionDirectEncounterEffect({
       encounterTableSlug: "not-published",
       environment: { timeOfDay: "DAY", surface: "LAND" },
@@ -893,7 +892,9 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
 
   it("refuses a second direct encounter while the first is unresolved", async () => {
     const subject = await prepared("direct-active-conflict");
-    const first = await action.execute(input(subject, "direct-active-first", directEncounterEffect()));
+    const first = await action.execute(
+      input(subject, "direct-active-first", directEncounterEffect()),
+    );
     expect(first.ok).toBe(true);
     const next: FirstActionInput = {
       ...input(subject, "direct-active-second", directEncounterEffect()),
@@ -909,5 +910,4 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       revision: 1n,
     });
   });
-
 });
