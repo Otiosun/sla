@@ -758,7 +758,16 @@ describe("PVP START PostgreSQL atomicity", () => {
     const stopped = await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [
       battleId,
     ]);
-    expect(stopped.rows[0]?.status).toBe("LOST");
+    // Global result reflects the challenger (side 1), not the conceding target.
+    expect(stopped.rows[0]?.status).toBe("WON");
+    const sideResults = await pool.query<{ side_no: number; result: string }>(
+      "SELECT side_no, result FROM battle_sides WHERE battle_id=$1 ORDER BY side_no",
+      [battleId],
+    );
+    expect(sideResults.rows).toEqual([
+      { side_no: 1, result: "WON" },
+      { side_no: 2, result: "LOST" },
+    ]);
   }, 45_000);
 
   it("simulates two distinct trainers through messages, waiting, restart, resolution and surrender", async () => {
