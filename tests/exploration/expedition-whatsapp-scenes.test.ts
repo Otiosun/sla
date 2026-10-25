@@ -284,7 +284,12 @@ describe("Rotom WhatsApp presentation from canonical, observed outcome (shadow o
                 locationName: "Campos de Yun",
                 choices,
               });
-              return privateExpeditionSceneReply(context, "encounter", observed().encounterId, scene);
+              return privateExpeditionSceneReply(
+                  context,
+                  "encounter",
+                  observed().encounterId,
+                  scene,
+                );
             },
           },
         },
