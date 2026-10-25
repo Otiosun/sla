@@ -47,7 +47,8 @@ function allowedAlias(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= 80 &&
-    !/[\r\n*/~\x00-\x1f<>]/u.test(value) &&
+    !/[*/~<>]/u.test(value) &&
+    !/\p{Cc}/u.test(value) &&
     !value.trim().startsWith("/")
   );
 }
@@ -135,7 +136,8 @@ export function renderExpeditionMenuChoices(choices: readonly ExpeditionMenuChoi
     )
     .map((choice) => {
       const label = choice.label
-        .replace(/[\r\n*_~`/\x00-\x1f<>]/gu, " ")
+        .replace(/[*_~`/<>]/gu, " ")
+        .replace(/\p{Cc}/gu, " ")
         .replace(/\s+/gu, " ")
         .trim()
         .slice(0, 80);
