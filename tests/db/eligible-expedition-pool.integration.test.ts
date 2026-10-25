@@ -82,14 +82,15 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
       [knownSpeciesId, knownFormId, 987, "exp-known"],
       [unknownSpeciesId, unknownFormId, 988, "exp-unknown"],
     ] as const) {
-      await pool.query(
-        "INSERT INTO pokemon_species(id,national_dex,slug) VALUES ($1,$2,$3)",
-        [id, dex, slug],
-      );
-      await pool.query(
-        "INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,'default')",
-        [formId, id],
-      );
+      await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES ($1,$2,$3)", [
+        id,
+        dex,
+        slug,
+      ]);
+      await pool.query("INSERT INTO pokemon_forms(id,species_id,slug) VALUES ($1,$2,'default')", [
+        formId,
+        id,
+      ]);
       await pool.query(
         "INSERT INTO pokemon_species_revisions(id,content_release_id,species_id,display_name,active) VALUES ($1,$2,$3,'Fixture Species',TRUE)",
         [randomUUID(), releaseId, id],
@@ -119,10 +120,10 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
       "INSERT INTO player_pokedex_species(player_id,species_id,seen_count,caught_count,first_seen_at,last_seen_at) VALUES ($1,$2,1,0,now(),now())",
       [playerId, knownSpeciesId],
     );
-    await pool.query(
-      "INSERT INTO encounter_tables(id,area_id,slug) VALUES ($1,$2,'day-land')",
-      [tableId, villageId],
-    );
+    await pool.query("INSERT INTO encounter_tables(id,area_id,slug) VALUES ($1,$2,'day-land')", [
+      tableId,
+      villageId,
+    ]);
     await pool.query(
       "INSERT INTO encounter_table_revisions(id,content_release_id,encounter_table_id,active,conditions) VALUES ($1,$2,$3,TRUE,$4::jsonb)",
       [revisionId, releaseId, tableId, conditions({ timeOfDay: "DAY", surface: "LAND" })],
@@ -204,7 +205,11 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
     expect(result.pool.entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ entryId: entries.known, speciesId: knownSpeciesId, weight: 10 }),
-        expect.objectContaining({ entryId: entries.unknown, speciesId: unknownSpeciesId, weight: 90 }),
+        expect.objectContaining({
+          entryId: entries.unknown,
+          speciesId: unknownSpeciesId,
+          weight: 90,
+        }),
       ]),
     );
     expect(result.pool.entries).toHaveLength(2);
@@ -215,7 +220,9 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
     });
     expect(weighted).toMatchObject({ ok: true, value: { totalEffectiveWeight: 120 } });
     if (!weighted.ok) return;
-    expect(weighted.value.entries.map((entry) => entry.effectiveWeight).sort((a, b) => a - b)).toEqual([30, 90]);
+    expect(
+      weighted.value.entries.map((entry) => entry.effectiveWeight).sort((a, b) => a - b),
+    ).toEqual([30, 90]);
   });
 
   it("rejects wrong area, unread Pokédex, invalid conditions and absent table without leakage", async () => {
@@ -223,8 +230,12 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
     expect(await reader.read(query({ contentReleaseId: randomUUID() }))).toBeNull();
     expect(await reader.read(query({ encounterTableSlug: "unknown" }))).toBeNull();
     expect(await reader.read(query({ encounterTableSlug: "../day-land" }))).toBeNull();
-    expect(await reader.read(query({ environment: { timeOfDay: "NIGHT", surface: "LAND" } }))).toBeNull();
-    expect(await reader.read(query({ environment: { timeOfDay: "DAY", surface: "WATER" } }))).toBeNull();
+    expect(
+      await reader.read(query({ environment: { timeOfDay: "NIGHT", surface: "LAND" } })),
+    ).toBeNull();
+    expect(
+      await reader.read(query({ environment: { timeOfDay: "DAY", surface: "WATER" } })),
+    ).toBeNull();
     const other = await reader.read(query({ playerId: otherPlayerId }));
     expect(other?.knownSpeciesIds).toEqual([]);
     expect(other?.pool.entries).toHaveLength(2);
@@ -237,11 +248,9 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
       [playerId],
     );
     const unlocked = await reader.read(query());
-    expect(unlocked?.pool.entries.map((entry) => entry.entryId)).toEqual([
-      entries.known,
-      entries.unknown,
-      entries.locked,
-    ].sort());
+    expect(unlocked?.pool.entries.map((entry) => entry.entryId)).toEqual(
+      [entries.known, entries.unknown, entries.locked].sort(),
+    );
   });
 
   it("denies suspended and mechanically incomplete players, even with matching location", async () => {
