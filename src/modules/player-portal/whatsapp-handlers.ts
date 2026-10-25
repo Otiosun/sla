@@ -31,7 +31,7 @@ class HubLoginHandler implements MessageRouteHandler {
       issued.value.ticket,
       issued.value.expiresAt,
     );
-    return textResult(
+    const privateReply = textResult(
       context,
       [
         "📟 *ROTOM · HUB*",
@@ -42,6 +42,24 @@ class HubLoginHandler implements MessageRouteHandler {
         "_Este link expira em 5 minutos e só pode ser usado uma vez._",
       ].join("\n"),
     );
+    if (!privateReply.ok || context.message.chatRef === context.message.senderRef) {
+      return privateReply;
+    }
+    return ok({
+      ...privateReply.value,
+      outgoing: [
+        ...privateReply.value.outgoing,
+        {
+          channel: "whatsapp",
+          destinationRef: context.message.chatRef,
+          messageType: "TEXT",
+          payload: {
+            text: "📟 *ROTOM · HUB*\n\nEnviei o acesso pessoal no seu privado. 🔒",
+          },
+          idempotencyKey: `${context.idempotencyKey}:group-ack`,
+        },
+      ],
+    });
   }
 }
 
