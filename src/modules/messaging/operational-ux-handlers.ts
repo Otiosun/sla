@@ -969,10 +969,16 @@ export function createOperationalUxRoutes(
     if (!player.ok) return player;
     const page = pageNumber(commandArgs(context), "/pokedex");
     if (!page.ok) return page;
-    const entries = await dependencies.reads.listPokedex(player.value);
-    const slice = pageSlice(entries, page.value);
+    const entries = [...(await dependencies.reads.listPokedex(player.value))]
+      .filter((entry) => entry.seenCount > 0n)
+      .sort(
+        (left, right) =>
+          left.nationalDex - right.nationalDex || left.speciesId.localeCompare(right.speciesId),
+      );
     if (!pageExists(entries.length, page.value))
       return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
+    const capturedSpecies = entries.filter((entry) => entry.caughtCount > 0n).length;
+    const slice = pageSlice(entries, page.value);
     const lines = slice.map(
       (entry) =>
         "#" +
@@ -990,8 +996,13 @@ export function createOperationalUxRoutes(
         "📕 *POKÉDEX*",
         "　_Registros de campo_",
         "",
+        `Espécies vistas: *${String(entries.length)}* · capturadas: *${String(capturedSpecies)}*`,
+        "",
         lines.length === 0 ? "_Nenhum registro ainda._" : lines.join("\n"),
         pageFooter(entries.length, page.value, "/pokedex"),
+        "",
+        "_Os números acima são da Pokédex Nacional, não da sua coleção._",
+        "`/colecao` · Pokémon que você possui",
       ].join("\n"),
     );
   };
