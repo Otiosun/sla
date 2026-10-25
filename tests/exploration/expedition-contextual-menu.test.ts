@@ -143,7 +143,7 @@ describe("V1.7 contextual Rotom interpreter (pure, no gameplay action)", () => {
     ];
     const result = renderExpeditionMenuChoices(menu);
     expect(result).toContain("1. Ver RotomDex");
-    expect(result).toContain("2.  Campo   /transferir  uuid ");
+    expect(result).toContain("2. Campo transferir uuid");
     expect(result).toContain("Responda apenas com o número");
     expect(result).not.toContain("*Campo*");
     expect(result).not.toContain("<uuid>");
