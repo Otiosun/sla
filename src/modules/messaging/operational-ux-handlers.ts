@@ -125,19 +125,34 @@ function cooldownText(availableAt: string, now: Date): string {
 
 function pageNumber(args: readonly string[]): Result<number> {
   if (args.length === 0) return ok(1);
-  const page = Number(args[0]);
-  return Number.isSafeInteger(page) && page > 0
-    ? ok(page)
-    : err(appError("VALIDATION_FAILED", "Página inválida. Use um número inteiro maior que zero."));
+  const page = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
+  return page === null
+    ? err(appError("VALIDATION_FAILED", "Página inválida. Use apenas o número. Ex.: `/pokedex 2`."))
+    : ok(page);
 }
 
 function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
   return values.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 }
 
+function pageExists(total: number, page: number): boolean {
+  return page <= Math.max(1, Math.ceil(total / PAGE_SIZE));
+}
+
 function pageFooter(total: number, page: number, command: string): string {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
+  if (totalPages <= 1) return "";
+  return [
+    `📄 Página ${page}/${totalPages}`,
+    ...(page > 1 ? [`⬅️ Anterior: \`${command} ${page - 1}\``] : []),
+    ...(page < totalPages ? [`➡️ Próxima: \`${command} ${page + 1}\``] : []),
+  ].join("\n");
+}
+
+function pokemonDisplayName(displayName: string, nickname: string | null): string {
+  return nickname === null || nickname.trim().length === 0
+    ? displayName
+    : nickname;
 }
 
 function isOwnedPokemonDetail(
@@ -487,14 +502,15 @@ export function createOperationalUxRoutes(
       return err(appError("FEATURE_UNAVAILABLE", "Coleção Pokémon ainda não está disponível."));
     }
     const slice = pageSlice(owned, page.value);
-    if (owned.length > 0 && slice.length === 0) {
+    if (!pageExists(owned.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da coleção não existe."));
     }
     const lines = slice.map((pokemon) => {
+      const nickname = pokemonDisplayName(pokemon.displayName, pokemon.nickname);
       const name =
-        pokemon.nickname === null || pokemon.nickname.trim().length === 0
+        nickname === pokemon.displayName
           ? pokemon.displayName
-          : `${pokemon.nickname} · ${pokemon.displayName}`;
+          : `${nickname} · ${pokemon.displayName}`;
       const placement =
         pokemon.placementKind === "TEAM"
           ? `Equipe ${String(pokemon.slotNo)}`
@@ -507,8 +523,8 @@ export function createOperationalUxRoutes(
         "◈ *COLEÇÃO POKÉMON*",
         "",
         lines.length === 0 ? "_Nenhum Pokémon ainda._" : lines.join("\n"),
-        pageFooter(owned.length, page.value, "/colecao"),
         "",
+        pageFooter(owned.length, page.value, "/colecao"),
         "Abra com `/pokemon <#>`.",
       ].join("\n"),
     );
@@ -525,12 +541,12 @@ export function createOperationalUxRoutes(
     }
     const stored = owned.filter((pokemon) => pokemon.placementKind === "BOX");
     const slice = pageSlice(stored, page.value);
-    if (stored.length > 0 && slice.length === 0) {
+    if (!pageExists(stored.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da Box não existe."));
     }
     const lines = slice.map(
       (pokemon) =>
-        `#${String(pokemon.collectionNo)}　*${pokemon.nickname ?? pokemon.displayName}* · Nv. ${String(pokemon.level)} · Box ${String(pokemon.boxNo ?? 1)}/${String(pokemon.slotNo)}`,
+        `#${String(pokemon.collectionNo)}　*${pokemonDisplayName(pokemon.displayName, pokemon.nickname)}* · Nv. ${String(pokemon.level)} · Box ${String(pokemon.boxNo ?? 1)}/${String(pokemon.slotNo)}`,
     );
     return textResult(
       context,
@@ -677,7 +693,7 @@ export function createOperationalUxRoutes(
       const members = owned.filter((entry) => entry.placementKind === "TEAM");
       const lines = members.map(
         (member) =>
-          `#${String(member.collectionNo)}　*${member.nickname ?? member.displayName}* · Nv. ${String(member.level)} · HP ${String(member.currentHp)} · slot ${String(member.slotNo)}`,
+          `#${String(member.collectionNo)}　*${pokemonDisplayName(member.displayName, member.nickname)}* · Nv. ${String(member.level)} · HP ${String(member.currentHp)} · slot ${String(member.slotNo)}`,
       );
       return textResult(
         context,
@@ -808,7 +824,7 @@ export function createOperationalUxRoutes(
     if (!page.ok) return page;
     const items = await dependencies.reads.listInventory(player.value);
     const slice = pageSlice(items, page.value);
-    if (items.length > 0 && slice.length === 0)
+    if (!pageExists(items.length, page.value))
       return err(appError("VALIDATION_FAILED", "Essa página do inventário não existe."));
     const lines = slice.map((item) => `• ${item.displayName} ×${String(item.quantity)}`);
     return textResult(
@@ -829,7 +845,7 @@ export function createOperationalUxRoutes(
     if (!page.ok) return page;
     const entries = await dependencies.reads.listPokedex(player.value);
     const slice = pageSlice(entries, page.value);
-    if (entries.length > 0 && slice.length === 0)
+    if (!pageExists(entries.length, page.value))
       return err(appError("VALIDATION_FAILED", "Essa página da Pokédex não existe."));
     const lines = slice.map(
       (entry) =>
