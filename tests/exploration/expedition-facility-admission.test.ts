@@ -105,14 +105,11 @@ describe("V1.4 autonomous facility admission (pure, not a Journey policy replace
     });
   });
 
-  it.each(["HEAL", "SHOP"] as const)(
-    "refuses %s while a canonical battle is active",
-    (action) => {
-      const result = admission({ action, hasActiveBattle: true });
-      expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
-      if (!result.ok) expect(result.error.details?.userMessage).toContain("batalha");
-    },
-  );
+  it.each(["HEAL", "SHOP"] as const)("refuses %s while a canonical battle is active", (action) => {
+    const result = admission({ action, hasActiveBattle: true });
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    if (!result.ok) expect(result.error.details?.userMessage).toContain("batalha");
+  });
 
   it.each([
     { action: "HEAL" as const, facilities: ["POKEMART" as const] },
