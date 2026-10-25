@@ -143,7 +143,11 @@ export function renderExpeditionMenuChoices(choices: readonly ExpeditionMenuChoi
         .slice(0, 80);
       return `${choice.optionNo}. ${label}`;
     });
-  return ["◇ *𝗘𝗦𝗖𝗢𝗟𝗛𝗔 𝗨𝗠𝗔 𝗢𝗣ÇÃ𝗢*", "", ...lines, "", "› _Responda apenas com o número da opção._"].join(
-    "\n",
-  );
+  return [
+    "◇ *𝗘𝗦𝗖𝗢𝗟𝗛𝗔 𝗨𝗠𝗔 𝗢𝗣ÇÃ𝗢*",
+    "",
+    ...lines,
+    "",
+    "› _Responda apenas com o número da opção._",
+  ].join("\n");
 }
