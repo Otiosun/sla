@@ -47,9 +47,7 @@ function fixture(
     ok({ playerId: PLAYER_ID, state: "NEW", created: true }),
   );
   const createProfile = vi.fn(async () => ok({ playerId: PLAYER_ID, state: "PROFILE_CREATED" }));
-  const listRegionOptions = vi.fn(async () => [
-    { regionId: "region-kanto", displayName: "Kanto" },
-  ]);
+  const listRegionOptions = vi.fn(async () => [{ regionId: "region-kanto", displayName: "Kanto" }]);
   const selectRegion = vi.fn(async () => ok({ playerId: PLAYER_ID, state: "REGION_SELECTED" }));
   const prepareStarterSelection = vi.fn(async () =>
     err(appError("FEATURE_UNAVAILABLE", "Fixture stopped after eligibility check")),
