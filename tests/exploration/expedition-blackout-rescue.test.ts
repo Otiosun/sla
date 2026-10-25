@@ -71,9 +71,9 @@ describe("V1.5 blackout safe-point resolution (pure, no teleport)", () => {
     const original = topology();
     const disconnected = {
       ...original,
-      connections: original.connections.filter((edge) => edge.toAreaId !== VILLAGE).map((edge) =>
-        edge.toAreaId === SAFE_NORTH ? { ...edge, available: false } : edge,
-      ),
+      connections: original.connections
+        .filter((edge) => edge.toAreaId !== VILLAGE)
+        .map((edge) => (edge.toAreaId === SAFE_NORTH ? { ...edge, available: false } : edge)),
     };
     expect(plan({ topology: disconnected })).toMatchObject({
       ok: false,
@@ -152,15 +152,15 @@ describe("V1.5 blackout safe-point resolution (pure, no teleport)", () => {
     });
   });
 
-  it.each([
-    { expectedContentReleaseId: "wrong-release" },
-    { currentAreaId: "unrelated-place" },
-  ])("blocks mismatched release or current World cursor %o", (overrides) => {
-    expect(plan(overrides)).toMatchObject({
-      ok: false,
-      error: { code: "FLOW_BLOCKED" },
-    });
-  });
+  it.each([{ expectedContentReleaseId: "wrong-release" }, { currentAreaId: "unrelated-place" }])(
+    "blocks mismatched release or current World cursor %o",
+    (overrides) => {
+      expect(plan(overrides)).toMatchObject({
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      });
+    },
+  );
 
   it("rejects an invalid graph instead of ignoring references to noncanonical areas", () => {
     const original = topology();
