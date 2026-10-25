@@ -234,9 +234,9 @@ describe("legacy team read vs mutation access policy", () => {
         level: 5,
         xp: 0n,
         currentHp: 19,
-        placementKind: "TEAM" as const,
-        boxNo: null,
-        slotNo: 1,
+        placementKind: "BOX" as const,
+        boxNo: 1,
+        slotNo: 7,
       },
     ]);
     const result = await f.router.dispatch(context("/equipe colocar Rex 7"));
