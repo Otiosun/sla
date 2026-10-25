@@ -320,6 +320,42 @@ describe("Phase 13 operational WhatsApp UX", () => {
     );
   });
 
+  it.each([
+    { status: "ACTIVE", visible: "Ativo" },
+    { status: "SUSPENDED", visible: "Suspenso" },
+    { status: "ARCHIVED", visible: "Arquivado" },
+  ] as const)(
+    "shows accurate progress and localized $status access without requiring a gameplay policy gate",
+    async ({ status, visible }) => {
+      const deps = dependencies();
+      const getProfile = deps.starter.getProfile as ReturnType<typeof vi.fn>;
+      const initial = await getProfile(PLAYER_ID);
+      expect(initial.ok).toBe(true);
+      if (!initial.ok) return;
+      getProfile.mockResolvedValue(
+        ok({ ...initial.value, playerStatus: status, progressionPoints: 240n }),
+      );
+      // This intentionally has no policy gate: profile consultation remains available during
+      // suspension, archive and support conversations.
+      const readOnlyRouter = new MessageRouter(createOperationalUxRoutes(deps));
+      const output = textOf(
+        await readOnlyRouter.dispatch(context("/perfil", `profile-${status}`)),
+      );
+
+      expect(output).toContain("Treinador: *Red*");
+      expect(output).toContain("Nível do treinador: `3`");
+      expect(output).toContain("Pontos de progressão: `240`");
+      expect(output).toContain(`Status: *${visible}*`);
+      expect(output).not.toContain("Insígnias:");
+      expect(output).not.toContain(`Status: \`${status}\``);
+      expect(output).not.toContain(POKEMON_ID);
+      expect(output).toContain("`/equipe` · formação atual");
+      expect(output).toContain("`/colecao` · Pokémon que você possui");
+      expect(output).toContain("`/pokedex` · espécies registradas");
+      expect(getProfile).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("shows persisted Pokemon mechanics without exposing internal ids", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("/pokemon 1", "pokemon")));
     expect(output).toContain("*POKÉMON*");
