@@ -329,7 +329,7 @@ describe("Phase 13 operational WhatsApp UX", () => {
     async ({ status, visible }) => {
       const deps = dependencies();
       const getProfile = deps.starter.getProfile as ReturnType<typeof vi.fn>;
-      const initial = await getProfile(PLAYER_ID);
+      const initial = await deps.starter.getProfile(PLAYER_ID);
       expect(initial.ok).toBe(true);
       if (!initial.ok) return;
       getProfile.mockResolvedValue(
