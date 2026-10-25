@@ -76,6 +76,7 @@ function fixture(
     registration: { resolvePlayer: handlerResolve },
     reads: { listOwnedPokemon, activeBattleId },
     encounter: { activeForPlayer },
+    world: {},
     pcStorage: { getStorage, move },
   } as never);
   const groupLookup = vi.fn(async () => ({
