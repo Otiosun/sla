@@ -26,7 +26,10 @@ function context(command: string): MessageHandlerContext {
   };
 }
 
-function fixture(status: "ACTIVE" | "SUSPENDED" | "PENDING", state: "COMPLETE" | "NEW" = "COMPLETE") {
+function fixture(
+  status: "ACTIVE" | "SUSPENDED" | "PENDING",
+  state: "COMPLETE" | "NEW" = "COMPLETE",
+) {
   const handlerResolve = vi.fn(async () => ok({ playerId: PLAYER_ID, state, created: false }));
   const authResolve = vi.fn(async () => ok({ playerId: PLAYER_ID, state, created: false }));
   const accessLoad = vi.fn(async () => ({
