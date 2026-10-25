@@ -4,7 +4,10 @@ import {
   parseEncounterConditions,
   type EncounterEnvironmentContext,
 } from "../../modules/catalog/encounter-contracts.js";
-import type { PinnedEligibleExpeditionEncounterPool } from "../../modules/exploration/expedition-encounter-weighting.js";
+import type {
+  EligibleExpeditionEncounterEntry,
+  PinnedEligibleExpeditionEncounterPool,
+} from "../../modules/exploration/expedition-encounter-weighting.js";
 import { withTransaction } from "../db/transaction.js";
 
 interface TableRow {
@@ -16,6 +19,8 @@ interface EligibleEntryRow {
   readonly species_id: string;
   readonly form_id: string;
   readonly weight: string;
+  readonly min_level: number;
+  readonly max_level: number;
   readonly conditions: unknown;
 }
 interface SpeciesRow {
@@ -34,8 +39,14 @@ export interface ReadEligibleExpeditionPoolInput {
     readonly surface: "LAND" | "WATER";
   };
 }
+export interface EligibleExpeditionPoolEntry extends EligibleExpeditionEncounterEntry {
+  readonly minLevel: number;
+  readonly maxLevel: number;
+}
 export interface EligibleExpeditionPoolRead {
-  readonly pool: PinnedEligibleExpeditionEncounterPool;
+  readonly pool: PinnedEligibleExpeditionEncounterPool & {
+    readonly entries: readonly EligibleExpeditionPoolEntry[];
+  };
   /** Only seen or caught species in the eligible filtered pool, never all Pokédex entries. */
   readonly knownSpeciesIds: readonly string[];
 }
@@ -126,6 +137,7 @@ export async function eligibleExpeditionPoolInTransaction(
             form.species_id::text AS species_id,
             entry.form_id::text AS form_id,
             entry.weight::text AS weight,
+            entry.min_level, entry.max_level,
             entry.conditions
        FROM encounter_entries entry
        JOIN pokemon_forms form ON form.id = entry.form_id
@@ -142,16 +154,20 @@ export async function eligibleExpeditionPoolInTransaction(
       ORDER BY entry.id`,
     [table.revision_id, input.contentReleaseId],
   );
-  const entries: {
-    entryId: string;
-    speciesId: string;
-    formId: string;
-    weight: number;
-  }[] = [];
+  const entries: EligibleExpeditionPoolEntry[] = [];
   for (const row of rows.rows) {
     const conditions = parseEncounterConditions(row.conditions);
     const weight = Number(row.weight);
-    if (!conditions.success || !Number.isSafeInteger(weight) || weight <= 0) {
+    if (
+      !conditions.success ||
+      !Number.isSafeInteger(weight) ||
+      weight <= 0 ||
+      !Number.isSafeInteger(row.min_level) ||
+      !Number.isSafeInteger(row.max_level) ||
+      row.min_level < 1 ||
+      row.min_level > row.max_level ||
+      row.max_level > 100
+    ) {
       throw new Error("Published expedition entry has invalid conditions or weight");
     }
     if (!encounterConditionsAllow(conditions.data, unlockedKeys, input.environment)) continue;
@@ -160,6 +176,8 @@ export async function eligibleExpeditionPoolInTransaction(
       speciesId: row.species_id,
       formId: row.form_id,
       weight,
+      minLevel: row.min_level,
+      maxLevel: row.max_level,
     });
   }
   if (entries.length === 0) return null;
