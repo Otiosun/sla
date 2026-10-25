@@ -4,9 +4,7 @@ import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
 import type { EncounterEnvironmentContext } from "../../modules/catalog/encounter-contracts.js";
 import { EncounterService } from "../../modules/encounter/service.js";
 import { chooseEncounterLevel } from "../../modules/encounter/generation.js";
-import {
-  drawExpeditionEncounterEntry,
-} from "../../modules/exploration/expedition-encounter-weighting.js";
+import { drawExpeditionEncounterEntry } from "../../modules/exploration/expedition-encounter-weighting.js";
 import {
   EXPEDITION_HUNT_SEARCH_MINUTES,
   prepareExpeditionHunt,
@@ -70,7 +68,9 @@ export function canonicalExpeditionDirectEncounterEffect(
     actionFingerprint,
     async apply(client, context) {
       if (context.minutes !== EXPEDITION_HUNT_SEARCH_MINUTES) {
-        return err(appError("ACTION_INVALID", "Direct encounter requires exactly 30 expedition minutes"));
+        return err(
+          appError("ACTION_INVALID", "Direct encounter requires exactly 30 expedition minutes"),
+        );
       }
       const state = await client.query<{
         period: "DAY" | "NIGHT";
