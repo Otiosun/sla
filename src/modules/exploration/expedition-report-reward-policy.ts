@@ -66,7 +66,7 @@ export function proposeExpeditionReportSettlement(input: {
   readonly approvalKind: "NORMAL" | "HIGHLIGHT" | "REJECTED";
   readonly nextInt: (upperExclusive: number) => number;
 }): Result<ExpeditionSettlementProposal | null> {
-  if (!expeditionRequiresReport(input.expedition as ExpeditionSnapshot)) {
+  if (!expeditionRequiresReport(input.expedition)) {
     return err(
       appError("FLOW_BLOCKED", "Expedition did not end with a report-eligible outcome", {
         userMessage: "Esta expedição não dá direito à recompensa de conclusão.",
