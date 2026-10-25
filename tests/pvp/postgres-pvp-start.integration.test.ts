@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPveSceneRoutes } from "../../src/modules/battle/pve-scene-whatsapp.js";
 import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import { CommunityService } from "../../src/modules/community/service.js";
+import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { createPvpWhatsAppRoutes } from "../../src/modules/pvp/whatsapp-handlers.js";
 import { PvpService } from "../../src/modules/pvp/service.js";
 import { SystemClock } from "../../src/platform/clock/index.js";
@@ -17,6 +18,8 @@ import { PostgresBattleParticipantControllerRepository } from "../../src/platfor
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { PostgresCommunityRepository } from "../../src/platform/community/postgres-community-repository.js";
+import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { simulatedWhatsAppMessage } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
@@ -542,10 +545,58 @@ describe("PVP START PostgreSQL atomicity", () => {
 
     const challengerRef = "shadow-challenger@s.whatsapp.net";
     const targetRef = "shadow-target@s.whatsapp.net";
-    const refs = new Map([
-      [challengerRef, challenger.playerId],
-      [targetRef, target.playerId],
-    ]);
+    // Persist the actual inbound provider identities and onboarding context.
+    const players = [
+      { playerId: challenger.playerId, senderRef: challengerRef },
+      { playerId: target.playerId, senderRef: targetRef },
+    ];
+    const adminPrincipalId = randomUUID();
+    await pool.query(
+      "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
+      [adminPrincipalId, `shadow:pvp:${adminPrincipalId}`],
+    );
+    const accessRepository = new PostgresPlayerAccessRepository(pool);
+    for (const player of players) {
+      await pool.query(
+        "UPDATE player_identities SET provider = 'baileys', external_id = $2 WHERE player_id = $1",
+        [player.playerId, player.senderRef],
+      );
+      await pool.query(
+        "INSERT INTO player_onboarding_context(player_id, content_release_id, ruleset_id) VALUES ($1, $2, $3)",
+        [player.playerId, catalog.contentReleaseId, catalog.rulesetId],
+      );
+      const reviewId = randomUUID();
+      await pool.query(
+        `INSERT INTO registration_revisions(
+           id, player_id, sequence_no, status, schema_version, snapshot_json,
+           revision, decided_by_admin_principal_id, decided_at
+         ) VALUES ($1, $2, 1, 'APPROVED', 1, '{}'::jsonb, 1, $3, now())`,
+        [reviewId, player.playerId, adminPrincipalId],
+      );
+      const provisioning = await accessRepository.transaction((tx) =>
+        tx.beginProvisioning({
+          playerId: player.playerId,
+          reviewId,
+          expectedRevision: 0,
+        }),
+      );
+      expect(provisioning?.status).toBe("PROVISIONING");
+      if (provisioning === null) return;
+      const active = await accessRepository.transaction((tx) =>
+        tx.activate({
+          playerId: player.playerId,
+          reviewId,
+          expectedRevision: provisioning.revision,
+        }),
+      );
+      expect(active?.status).toBe("ACTIVE");
+    }
+    const registration = new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool));
+    const resolvePlayer = registration.resolvePlayer.bind(registration);
+    expect(await resolvePlayer({ provider: "baileys", externalId: challengerRef })).toMatchObject({
+      ok: true,
+      value: { playerId: challenger.playerId, state: "COMPLETE" },
+    });
     const groupChatRef = "120363987654321000@g.us";
     const community = new CommunityService(new PostgresCommunityRepository(pool));
     const registered = await community.registerGroup({
@@ -564,23 +615,11 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(configured.ok).toBe(true);
     if (!configured.ok) return;
     let groupRevision = configured.value.revision;
-    let ready = true;
-    const resolvePlayer = async ({ externalId }: { externalId: string }) => {
-      const playerId = refs.get(externalId);
-      return playerId === undefined
-        ? err(appError("NOT_FOUND", "Trainer is not registered"))
-        : ok({ playerId, state: ready ? "COMPLETE" : "NEW" });
-    };
     const policy = new RuntimeCommandPolicyGate({
       community,
       players: { resolvePlayer },
       access: {
-        load: async (playerId: string) => ({
-          playerId,
-          status: "ACTIVE",
-          approvedReviewId: randomUUID(),
-          revision: 1,
-        }),
+        load: async (playerId: string) => accessRepository.read((tx) => tx.load(playerId)),
       },
       admins: { capabilitiesFor: async () => [] },
     } as never);
@@ -614,14 +653,14 @@ describe("PVP START PostgreSQL atomicity", () => {
             async (t) => (await t.openChallengeForChallenger(playerId))?.id ?? null,
           ),
         externalRefForPlayer: async (playerId: string) =>
-          [...refs.entries()].find(([, id]) => id === playerId)?.[0] ?? null,
+          players.find((player) => player.playerId === playerId)?.senderRef ?? null,
         battle: { currentState: battle.currentState.bind(battle) },
         presentation: { speciesDisplayName: async () => "Startmon" },
       } as never),
       ...createPveSceneRoutes({
         players: { resolvePlayer },
         activeBattleId: async (playerId: string) =>
-          [...refs.values()].includes(playerId) ? battleId : null,
+          players.some((player) => player.playerId === playerId) ? battleId : null,
         battle: {
           currentState: battle.currentState.bind(battle),
           resolvePlayerTurn: battle.resolvePlayerTurn.bind(battle),
@@ -728,7 +767,14 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(enabled.ok).toBe(true);
     if (!enabled.ok) return;
     groupRevision = enabled.value.revision;
-    ready = false;
+    await pool.query(
+      "UPDATE onboarding_states SET state = 'NEW', starter_claim_key = NULL, completed_at = NULL WHERE player_id = $1",
+      [challenger.playerId],
+    );
+    expect(await resolvePlayer({ provider: "baileys", externalId: challengerRef })).toMatchObject({
+      ok: true,
+      value: { state: "NEW" },
+    });
     const unready = await send(
       "policy-deny-incomplete",
       challengerRef,
@@ -738,7 +784,10 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(String(unready[0]?.payload.text)).toContain("preparação mecânica");
     expect(await countChallenges()).toBe("0");
 
-    ready = true;
+    await pool.query(
+      "UPDATE onboarding_states SET state = 'COMPLETE', starter_claim_key = $2, completed_at = now() WHERE player_id = $1",
+      [challenger.playerId, `pvp-start-starter-${challenger.playerId}`],
+    );
     const invited = await send("policy-challenge", challengerRef, "/desafiar @shadow-target", [
       targetRef,
     ]);
