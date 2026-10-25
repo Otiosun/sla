@@ -23,6 +23,7 @@ import { PostgresPlayerAccessRepository } from "../../src/platform/registration/
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { simulatedWhatsAppMessage } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 import type { EncounterSeedProvider, SeedMaterial } from "../../src/modules/encounter/ports.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
@@ -557,6 +558,9 @@ describe("PVP START PostgreSQL atomicity", () => {
     );
     const accessRepository = new PostgresPlayerAccessRepository(pool);
     for (const player of players) {
+      const parsedPlayerId = parsePlayerId(player.playerId);
+      if (!parsedPlayerId.ok) throw parsedPlayerId.error;
+      const typedPlayerId = parsedPlayerId.value;
       await pool.query(
         "UPDATE player_identities SET provider = 'baileys', external_id = $2 WHERE player_id = $1",
         [player.playerId, player.senderRef],
@@ -575,7 +579,7 @@ describe("PVP START PostgreSQL atomicity", () => {
       );
       const provisioning = await accessRepository.transaction((tx) =>
         tx.beginProvisioning({
-          playerId: player.playerId,
+          playerId: typedPlayerId,
           reviewId,
           expectedRevision: 0,
         }),
@@ -584,7 +588,7 @@ describe("PVP START PostgreSQL atomicity", () => {
       if (provisioning === null) return;
       const active = await accessRepository.transaction((tx) =>
         tx.activate({
-          playerId: player.playerId,
+          playerId: typedPlayerId,
           reviewId,
           expectedRevision: provisioning.revision,
         }),
@@ -619,7 +623,11 @@ describe("PVP START PostgreSQL atomicity", () => {
       community,
       players: { resolvePlayer },
       access: {
-        load: async (playerId: string) => accessRepository.read((tx) => tx.load(playerId)),
+        load: async (playerId: string) => {
+          const parsed = parsePlayerId(playerId);
+          if (!parsed.ok) throw parsed.error;
+          return accessRepository.read((tx) => tx.load(parsed.value));
+        },
       },
       admins: { capabilitiesFor: async () => [] },
     } as never);
@@ -823,6 +831,29 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(restored.ok).toBe(true);
     if (!restored.ok) return;
     groupRevision = restored.value.revision;
+    const typedTargetId = parsePlayerId(target.playerId);
+    if (!typedTargetId.ok) throw typedTargetId.error;
+    const targetAccess = await accessRepository.read((tx) => tx.load(typedTargetId.value));
+    const suspended = await accessRepository.transaction((tx) =>
+      tx.suspend({
+        playerId: typedTargetId.value,
+        expectedRevision: targetAccess.revision,
+      }),
+    );
+    expect(suspended?.status).toBe("SUSPENDED");
+    const deniedSuspended = await send("policy-suspended-accept", targetRef, "/aceitar");
+    expect(String(deniedSuspended[0]?.payload.text)).toContain("não permite usar");
+    expect((await challengeRepo.read((tx) => tx.openChallengeForTarget(target.playerId)))?.status).toBe(
+      "OPEN",
+    );
+    if (suspended === null) return;
+    const restoredAccess = await accessRepository.transaction((tx) =>
+      tx.restore({
+        playerId: typedTargetId.value,
+        expectedRevision: suspended.revision,
+      }),
+    );
+    expect(restoredAccess?.status).toBe("ACTIVE");
     const accepted = await send("policy-accept", targetRef, "/aceitar");
     expect(String(accepted[0]?.payload.text)).toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
     const row = (
