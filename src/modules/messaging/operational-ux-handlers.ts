@@ -14,6 +14,7 @@ import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js
 import { normalizeHumanText, parseCollectionNumber, parseMenuNumber } from "./human-input.js";
 import type {
   OperationalOwnedPokemonDetailView,
+  OperationalOwnedPokemonView,
   OperationalPokemonDetailView,
   OperationalUxReadModel,
 } from "./operational-ux-read-model.js";
@@ -542,7 +543,12 @@ export function createOperationalUxRoutes(
     if (owned === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Boxes ainda não estão disponíveis."));
     }
-    const stored = owned.filter((pokemon) => pokemon.placementKind === "BOX");
+    const stored = owned
+      .filter((pokemon) => pokemon.placementKind === "BOX")
+      .sort(
+        (left, right) =>
+          (left.boxNo ?? 1) - (right.boxNo ?? 1) || left.slotNo - right.slotNo,
+      );
     const slice = pageSlice(stored, page.value);
     if (!pageExists(stored.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da Box não existe."));
@@ -558,6 +564,10 @@ export function createOperationalUxRoutes(
         "",
         lines.length === 0 ? "_Nenhum Pokémon armazenado._" : lines.join("\n"),
         pageFooter(stored.length, page.value, "/box"),
+        "",
+        "Abra uma ficha com `/pokemon <#>`.",
+        "`/colecao` · todos os Pokémon",
+        "`/equipe` · formação atual",
       ].join("\n"),
     );
   };
@@ -817,6 +827,7 @@ export function createOperationalUxRoutes(
     const rawReference = commandArgs(context).join(" ");
     const owned = await listOwned(player.value);
     let ref: number;
+    let selectedPokemon: OperationalOwnedPokemonView | null = null;
     if (owned === null) {
       const numericFallback = parseCollectionNumber(rawReference);
       if (numericFallback === null) {
@@ -828,21 +839,54 @@ export function createOperationalUxRoutes(
     } else {
       const resolvedReference = resolveOwnedPokemonReference(owned, rawReference);
       if (!resolvedReference.ok) return resolvedReference;
-      ref = resolvedReference.value.collectionNo;
+      selectedPokemon = resolvedReference.value;
+      ref = selectedPokemon.collectionNo;
     }
 
+    // Collection numbers and team slots are independent identifiers.
     const detail =
-      dependencies.reads.ownedPokemonDetail === undefined
-        ? await dependencies.reads.teamPokemonDetail(player.value, ref)
-        : await dependencies.reads.ownedPokemonDetail(player.value, ref);
+      dependencies.reads.ownedPokemonDetail !== undefined
+        ? await dependencies.reads.ownedPokemonDetail(player.value, ref)
+        : selectedPokemon === null
+          ? await dependencies.reads.teamPokemonDetail(player.value, ref)
+          : selectedPokemon.placementKind === "TEAM"
+            ? await dependencies.reads.teamPokemonDetail(player.value, selectedPokemon.slotNo)
+            : null;
     if (detail === null) {
-      return err(appError("NOT_FOUND", "Não existe um Pokémon com esse número na sua coleção."));
+      if (
+        dependencies.reads.ownedPokemonDetail === undefined &&
+        selectedPokemon?.placementKind === "BOX"
+      ) {
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Ficha de Pokémon da Box indisponível.", {
+            userMessage:
+              "A ficha de Pokémon na Box não está disponível agora. Use `/box` para consultar seus Pokémon.",
+          }),
+        );
+      }
+      return err(
+        appError("NOT_FOUND", "Não foi possível localizar essa ficha. Use `/colecao` e tente novamente."),
+      );
+    }
+    if (
+      selectedPokemon !== null &&
+      detail.pokemonInstanceId !== selectedPokemon.pokemonInstanceId
+    ) {
+      return err(
+        appError(
+          "REVISION_CONFLICT",
+          "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
+          {
+            userMessage:
+              "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
+          },
+        ),
+      );
     }
 
+    const nickname = pokemonDisplayName(detail.displayName, detail.nickname);
     const displayName =
-      detail.nickname === null || detail.nickname.trim().length === 0
-        ? detail.displayName
-        : `${detail.nickname} · ${detail.displayName}`;
+      nickname === detail.displayName ? detail.displayName : `${nickname} · ${detail.displayName}`;
     const gender = detail.gender === "MALE" ? "♂" : detail.gender === "FEMALE" ? "♀" : "—";
     const statuses =
       detail.statuses.length === 0
@@ -893,6 +937,10 @@ export function createOperationalUxRoutes(
         "`/golpes` · decisões de aprendizado",
         `\`/evolucao #${String(ref)}\` · evolução e requisitos`,
         "`/equipe` · administrar formação",
+        "`/colecao` · todos os Pokémon",
+        ...(ownedDetail?.placementKind === "BOX" || selectedPokemon?.placementKind === "BOX"
+          ? ["`/box` · voltar às Boxes"]
+          : []),
       ].join("\n"),
     );
   };
