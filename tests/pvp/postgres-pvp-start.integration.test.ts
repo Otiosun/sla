@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPveSceneRoutes } from "../../src/modules/battle/pve-scene-whatsapp.js";
 import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
+import { CommunityService } from "../../src/modules/community/service.js";
 import { createPvpWhatsAppRoutes } from "../../src/modules/pvp/whatsapp-handlers.js";
 import { PvpService } from "../../src/modules/pvp/service.js";
 import { SystemClock } from "../../src/platform/clock/index.js";
@@ -15,6 +16,7 @@ import { PostgresBattleCancellation } from "../../src/platform/battle/postgres-b
 import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
+import { PostgresCommunityRepository } from "../../src/platform/community/postgres-community-repository.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { simulatedWhatsAppMessage } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
@@ -544,7 +546,24 @@ describe("PVP START PostgreSQL atomicity", () => {
       [challengerRef, challenger.playerId],
       [targetRef, target.playerId],
     ]);
-    let groupCapabilities: readonly string[] = ["pvp", "pve"];
+    const groupChatRef = "120363987654321000@g.us";
+    const community = new CommunityService(new PostgresCommunityRepository(pool));
+    const registered = await community.registerGroup({
+      provider: "baileys",
+      chatRef: groupChatRef,
+      role: "GAME",
+      displayName: "PvP Shadow Group",
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok) return;
+    const configured = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: registered.value.revision,
+      capabilities: ["pve"],
+    });
+    expect(configured.ok).toBe(true);
+    if (!configured.ok) return;
+    let groupRevision = configured.value.revision;
     let ready = true;
     const resolvePlayer = async ({ externalId }: { externalId: string }) => {
       const playerId = refs.get(externalId);
@@ -553,14 +572,7 @@ describe("PVP START PostgreSQL atomicity", () => {
         : ok({ playerId, state: ready ? "COMPLETE" : "NEW" });
     };
     const policy = new RuntimeCommandPolicyGate({
-      community: {
-        resolveChat: async () => ({
-          known: true,
-          groupId: randomUUID(),
-          role: "GAME",
-          capabilities: groupCapabilities,
-        }),
-      },
+      community,
       players: { resolvePlayer },
       access: {
         load: async (playerId: string) => ({
@@ -667,7 +679,7 @@ describe("PVP START PostgreSQL atomicity", () => {
       simulatedWhatsAppMessage({
         externalMessageId: id,
         senderRef,
-        chatRef: "pvp-policy-game@g.us",
+        chatRef: groupChatRef,
         occurredAt: receivedAt,
         text,
         mentions,
@@ -694,14 +706,26 @@ describe("PVP START PostgreSQL atomicity", () => {
         )
       ).rows[0]?.count;
 
-    groupCapabilities = ["pve"];
+    expect(await community.resolveChat({ provider: "baileys", chatRef: groupChatRef })).toMatchObject({
+      known: true,
+      groupId: registered.value.id,
+      role: "GAME",
+      capabilities: ["pve"],
+    });
     const blocked = await send("policy-deny-group", challengerRef, "/desafiar @shadow-target", [
       targetRef,
     ]);
     expect(String(blocked[0]?.payload.text)).toContain("não está habilitado");
     expect(await countChallenges()).toBe("0");
 
-    groupCapabilities = ["pvp", "pve"];
+    const enabled = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+      capabilities: ["pvp", "pve"],
+    });
+    expect(enabled.ok).toBe(true);
+    if (!enabled.ok) return;
+    groupRevision = enabled.value.revision;
     ready = false;
     const unready = await send(
       "policy-deny-incomplete",
@@ -725,6 +749,27 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(String(wrongActor[0]?.payload.text)).not.toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
     expect(await countChallenges()).toBe("1");
 
+    const revoked = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+      capabilities: ["pve"],
+    });
+    expect(revoked.ok).toBe(true);
+    if (!revoked.ok) return;
+    groupRevision = revoked.value.revision;
+    const deniedAccept = await send("policy-revoked-accept", targetRef, "/aceitar");
+    expect(String(deniedAccept[0]?.payload.text)).toContain("não está habilitado");
+    const openChallenge = await challengeRepo.read((tx) => tx.openChallengeForTarget(target.playerId));
+    expect(openChallenge?.status).toBe("OPEN");
+
+    const restored = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+      capabilities: ["pvp", "pve"],
+    });
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    groupRevision = restored.value.revision;
     const accepted = await send("policy-accept", targetRef, "/aceitar");
     expect(String(accepted[0]?.payload.text)).toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
     const row = (
@@ -768,6 +813,23 @@ describe("PVP START PostgreSQL atomicity", () => {
       { side_no: 1, result: "WON" },
       { side_no: 2, result: "LOST" },
     ]);
+
+    const retired = await community.retireGroup({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+    });
+    expect(retired.ok).toBe(true);
+    expect(await community.resolveChat({ provider: "baileys", chatRef: groupChatRef })).toEqual({
+      known: false,
+      groupId: null,
+      role: null,
+      capabilities: [],
+    });
+    const deniedRetired = await send("policy-retired-group", challengerRef, "/desafiar @shadow-target", [
+      targetRef,
+    ]);
+    expect(String(deniedRetired[0]?.payload.text)).toContain("ainda não está habilitado");
+    expect(await countChallenges()).toBe("1");
   }, 45_000);
 
   it("simulates two distinct trainers through messages, waiting, restart, resolution and surrender", async () => {
