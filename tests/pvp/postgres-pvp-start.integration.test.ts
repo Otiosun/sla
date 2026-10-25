@@ -873,6 +873,34 @@ describe("PVP START PostgreSQL atomicity", () => {
     expect(String(stateA[0]?.payload.text)).toContain("`/moves`");
     expect(String(stateB[0]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔");
 
+    // Access suspension must also block live combat commands, not just /aceitar.
+    const resumedTargetAccess = await accessRepository.read((tx) => tx.load(typedTargetId.value));
+    const suspendedDuringBattle = await accessRepository.transaction((tx) =>
+      tx.suspend({
+        playerId: typedTargetId.value,
+        expectedRevision: resumedTargetAccess.revision,
+      }),
+    );
+    expect(suspendedDuringBattle?.status).toBe("SUSPENDED");
+    const deniedAttack = await send("policy-suspended-move", targetRef, "/movimento 1");
+    expect(String(deniedAttack[0]?.payload.text)).toContain("não permite usar");
+    const unchangedBattle = await pool.query<{ version: string }>(
+      "SELECT version::text FROM battles WHERE id = $1",
+      [battleId],
+    );
+    expect(unchangedBattle.rows[0]?.version).toBe("0");
+    if (suspendedDuringBattle === null) return;
+    expect(
+      (
+        await accessRepository.transaction((tx) =>
+          tx.restore({
+            playerId: typedTargetId.value,
+            expectedRevision: suspendedDuringBattle.revision,
+          }),
+        )
+      )?.status,
+    ).toBe("ACTIVE");
+
     // Provider re-delivery never produces another match or Outbox message.
     expect(await messages.receive(incoming("policy-accept", targetRef, "/aceitar"))).toMatchObject({
       ok: true,
