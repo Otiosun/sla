@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { presentMessagingError } from "../../src/modules/messaging/errors.js";
 import { createOperationalUxRoutes } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
@@ -156,6 +157,74 @@ describe("legacy onboarding command permissions", () => {
       expect(f.groupLookup).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["/registrar", "/registrar   ", `/registrar ${"A".repeat(41)}`] as const)(
+    "does not create a player foundation for invalid trainer names: %s",
+    async (command) => {
+      const f = fixture("PENDING", "NEW", true);
+      const result = await f.router.dispatch(context(command));
+      expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      if (result.ok) return;
+      const presented = presentMessagingError(context(command), result.error);
+      expect(presented.outgoing[0]?.payload.text).toContain("/registrar Ash");
+      expect(f.resolveOrCreatePlayer).not.toHaveBeenCalled();
+      expect(f.createProfile).not.toHaveBeenCalled();
+      expect(f.accessLoad).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "/regiao",
+    "/regiao 1 extra",
+    "/regiao 1e0",
+    "/regiao 0x1",
+    "/regiao 1.0",
+    "/regiao 0",
+    "/regiao -1",
+  ] as const)("rejects invalid region choice %s before reading the region list", async (command) => {
+    const f = fixture("PENDING", "PROFILE_CREATED");
+    const result = await f.router.dispatch(context(command));
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (result.ok) return;
+    expect(presentMessagingError(context(command), result.error).outgoing[0]?.payload.text).toContain(
+      "/regioes",
+    );
+    expect(f.handlerResolve).not.toHaveBeenCalled();
+    expect(f.listRegionOptions).not.toHaveBeenCalled();
+    expect(f.selectRegion).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/starter",
+    "/starter 1 extra",
+    "/starter 1e0",
+    "/starter 0x1",
+    "/starter 1.0",
+    "/starter 0",
+    "/starter -1",
+  ] as const)("rejects invalid starter choice %s before preparing any grant", async (command) => {
+    const f = fixture("PENDING", "PROFILE_CREATED");
+    const result = await f.router.dispatch(context(command));
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (result.ok) return;
+    expect(presentMessagingError(context(command), result.error).outgoing[0]?.payload.text).toContain(
+      "/starters",
+    );
+    expect(f.handlerResolve).not.toHaveBeenCalled();
+    expect(f.prepareStarterSelection).not.toHaveBeenCalled();
+    expect(f.completeOnboarding).not.toHaveBeenCalled();
+  });
+
+  it("keeps explicit numeric choices and full-length valid names available to new registrants", async () => {
+    const f = fixture("PENDING", "NEW", true);
+    const validName = "A".repeat(40);
+    expect((await f.router.dispatch(context(`/registrar ${validName}`))).ok).toBe(true);
+    expect(f.resolveOrCreatePlayer).toHaveBeenCalledTimes(1);
+    expect(f.createProfile).toHaveBeenCalledWith(PLAYER_ID, {
+      trainerName: validName,
+      locale: "pt-BR",
+    });
+  });
 
   it("leaves read-only registration help visible to suspended identities", async () => {
     const f = fixture("SUSPENDED", "COMPLETE");
