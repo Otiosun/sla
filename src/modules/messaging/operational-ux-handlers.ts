@@ -788,17 +788,19 @@ export function createOperationalUxRoutes(
     }
 
     const members = await dependencies.reads.listTeam(player.value);
-    const lines = [...members].sort((left, right) => left.slotNo - right.slotNo).map(
-      (member) =>
-        "`" +
-        String(member.slotNo) +
-        "`　*" +
-        member.displayName +
-        "* · Nv. " +
-        String(member.level) +
-        " · HP " +
-        String(member.currentHp),
-    );
+    const lines = [...members]
+      .sort((left, right) => left.slotNo - right.slotNo)
+      .map(
+        (member) =>
+          "`" +
+          String(member.slotNo) +
+          "`　*" +
+          member.displayName +
+          "* · Nv. " +
+          String(member.level) +
+          " · HP " +
+          String(member.currentHp),
+      );
     return textResult(
       context,
       [
