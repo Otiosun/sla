@@ -65,6 +65,7 @@ export function prepareExpeditionResourceTable(input: {
 
   const acceptedItemIds = new Set(input.approvedItemIds);
   const seenOutcomes = new Set<string>();
+  const safeOutcomes: ExpeditionResourceOutcome[] = [];
   let totalWeight = 0;
   for (const outcome of table.outcomes) {
     if (
@@ -131,7 +132,7 @@ export function drawExpeditionResourceOutcome(input: {
       return ok({
         outcomeId: outcome.outcomeId,
         weightBasisPoints: outcome.weightBasisPoints,
-        reward: outcome.reward,
+        reward: outcome.reward === null ? null : { ...outcome.reward },
       });
     }
   }
