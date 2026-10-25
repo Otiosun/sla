@@ -92,9 +92,19 @@ export function prepareExpeditionResourceTable(input: {
     if (!Number.isSafeInteger(totalWeight) || totalWeight > EXPEDITION_RESOURCE_ROLL_BASIS_POINTS) {
       return invalidTable();
     }
+    safeOutcomes.push({
+      outcomeId: outcome.outcomeId,
+      weightBasisPoints: outcome.weightBasisPoints,
+      reward: reward === null ? null : { itemId: reward.itemId, quantity: reward.quantity },
+    });
   }
   if (totalWeight !== EXPEDITION_RESOURCE_ROLL_BASIS_POINTS) return invalidTable();
-  return ok({ ...table, totalWeightBasisPoints: EXPEDITION_RESOURCE_ROLL_BASIS_POINTS });
+  return ok({
+    contentReleaseId: table.contentReleaseId,
+    areaId: table.areaId,
+    outcomes: safeOutcomes,
+    totalWeightBasisPoints: EXPEDITION_RESOURCE_ROLL_BASIS_POINTS,
+  });
 }
 
 /**
