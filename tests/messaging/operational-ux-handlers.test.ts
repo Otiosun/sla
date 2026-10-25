@@ -768,17 +768,20 @@ describe("Phase 13 operational WhatsApp UX", () => {
     "/ir -1",
     "/ir 0",
     "/ir abc",
-  ] as const)("rejects malformed travel selection %s before inspecting the world", async (command) => {
-    const deps = dependencies();
-    const result = await router(deps).dispatch(context(command, `travel-invalid-${command}`));
-    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
-    if (result.ok) return;
-    const presented = presentMessagingError(context(command), result.error);
-    expect(presented.outgoing[0]?.payload.text).toContain("Use apenas o número");
-    expect(presented.outgoing[0]?.payload.text).toContain("`/ir 1`");
-    expect(deps.world.getLocation).not.toHaveBeenCalled();
-    expect(deps.world.travel).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    "rejects malformed travel selection %s before inspecting the world",
+    async (command) => {
+      const deps = dependencies();
+      const result = await router(deps).dispatch(context(command, `travel-invalid-${command}`));
+      expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      if (result.ok) return;
+      const presented = presentMessagingError(context(command), result.error);
+      expect(presented.outgoing[0]?.payload.text).toContain("Use apenas o número");
+      expect(presented.outgoing[0]?.payload.text).toContain("`/ir 1`");
+      expect(deps.world.getLocation).not.toHaveBeenCalled();
+      expect(deps.world.travel).not.toHaveBeenCalled();
+    },
+  );
 
   it("shows blocked routes without exposing hidden requirements or offering a blocked move", async () => {
     const deps = dependencies();
