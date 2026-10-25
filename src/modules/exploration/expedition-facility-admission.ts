@@ -74,7 +74,7 @@ export function inspectAutonomousFacilityAction(input: {
   }
 
   const requiredFacility = input.action === "HEAL" ? "POKEMON_CENTER" : "POKEMART";
-  if (!location.facilities.includes(requiredFacility)) {
+  if (!location.facilities?.includes(requiredFacility)) {
     return err(
       appError("FLOW_BLOCKED", "Requested facility is absent from the active World area", {
         userMessage: "Este serviço não está disponível na área atual.",
