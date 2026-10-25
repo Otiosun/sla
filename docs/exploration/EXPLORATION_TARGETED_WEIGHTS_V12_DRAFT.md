@@ -47,3 +47,10 @@ Exemplos (somente matemática, não taxas de spawn por área): `p=5%` → `13,63
 - Para a primeira ação mecânica V1.2, reutilizar `eligibleExpeditionPoolInTransaction` dentro da transação canônica **com** a guarda da release/cursor, o RNG determinístico e um recibo de ação; a interface read-only `PostgresEligibleExpeditionPoolReader` não basta para autorizar efeitos.
 
 **Observação:** um leitor de pool real melhora a integridade da prévia, mas ainda não implementa buscar Pokémon jogavelmente. A probabilidade de aparecerem rastros/nenhum sinal/encontro direto segue sem balanceamento homologado.
+
+
+## Ponte de pré-admissão V1.2 ↔ V1.1 (25/10)
+
+`prepareExpeditionHunt` em `src/modules/exploration/expedition-hunt-preflight.ts` integra, em memória e **sem efeito**, o relógio/snapshot V1.1, a admissão World e o pool elegível de V1.2. Exige que jogador, local atual e período DAY/NIGHT coincidam, respeita PREPARING na primeira busca e ACTIVE nas seguintes, proíbe busca com batalha/encontro concomitante, e recusa iniciar busca de 30 minutos quando restarem apenas 29. Uma caça livre mantém pesos naturais; a caça direcionada passa pela validação Pokédex + regra ×3 antes de retornar o plano.
+
+O resultado apenas informa `actionMinutes=30`, `requiresFirstAction` e pool ponderado. **Não** persiste relógio, quota, horário, descoberta, encounter, Ball, XP, seed de RNG ou recibo de idempotência. `PostgresExpeditionFirstAction` deverá repetir os fatos mutáveis dentro do lock transacional antes de qualquer ação.
