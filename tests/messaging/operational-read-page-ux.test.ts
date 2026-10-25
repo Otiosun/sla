@@ -187,6 +187,80 @@ describe("operational read-only page UX", () => {
     expect(f.policyGate.authorize).not.toHaveBeenCalled();
   });
 
+  it("distinguishes National Pokédex numbers from collection references", async () => {
+    const f = fixture();
+    f.listPokedex.mockResolvedValue([
+      {
+        speciesId: "species-25",
+        nationalDex: 25,
+        speciesSlug: "pikachu",
+        displayName: "Pikachu",
+        seenCount: 4n,
+        caughtCount: 0n,
+      },
+      {
+        speciesId: "species-7",
+        nationalDex: 7,
+        speciesSlug: "squirtle",
+        displayName: "Squirtle",
+        seenCount: 0n,
+        caughtCount: 0n,
+      },
+      {
+        speciesId: "species-4",
+        nationalDex: 4,
+        speciesSlug: "charmander",
+        displayName: "Charmander",
+        seenCount: 3n,
+        caughtCount: 2n,
+      },
+    ]);
+
+    const output = rendered(await f.router.dispatch(context("/pokedex")));
+    expect(output).toContain("Espécies vistas: *2* · capturadas: *1*");
+    expect(output.indexOf("#0004 Charmander")).toBeLessThan(output.indexOf("#0025 Pikachu"));
+    expect(output).not.toContain("Squirtle");
+    expect(output).not.toContain("species-25");
+    expect(output).toContain("Pokédex Nacional, não da sua coleção");
+    expect(output).toContain("`/colecao` · Pokémon que você possui");
+    expect(f.policyGate.authorize).not.toHaveBeenCalled();
+  });
+
+  it("keeps National Pokédex order and totals stable across pages", async () => {
+    const f = fixture();
+    f.listPokedex.mockResolvedValue(
+      Array.from({ length: 16 }, (_, index) => ({
+        speciesId: `species-${index + 1}`,
+        nationalDex: index + 1,
+        speciesSlug: `species-${index + 1}`,
+        displayName: `Species ${index + 1}`,
+        seenCount: 2n,
+        caughtCount: index < 4 ? 1n : 0n,
+      })).reverse(),
+    );
+
+    const first = rendered(await f.router.dispatch(context("/pokedex")));
+    const second = rendered(await f.router.dispatch(context("/pokedex 2")));
+    expect(first).toContain("Espécies vistas: *16* · capturadas: *4*");
+    expect(second).toContain("Espécies vistas: *16* · capturadas: *4*");
+    expect(first.indexOf("#0001 Species 1")).toBeLessThan(first.indexOf("#0015 Species 15"));
+    expect(first).not.toContain("#0016 Species 16");
+    expect(second).toContain("#0016 Species 16");
+    expect(second).not.toContain("#0001 Species 1");
+    expect(first).toContain("➡️ Próxima: `/pokedex 2`");
+    expect(second).toContain("⬅️ Anterior: `/pokedex 1`");
+    expect(f.policyGate.authorize).not.toHaveBeenCalled();
+  });
+
+  it("keeps the empty National Pokédex informative and read-only", async () => {
+    const f = fixture({ empty: true });
+    const output = rendered(await f.router.dispatch(context("/pokedex")));
+    expect(output).toContain("Espécies vistas: *0* · capturadas: *0*");
+    expect(output).toContain("_Nenhum registro ainda._");
+    expect(output).toContain("`/colecao`");
+    expect(f.policyGate.authorize).not.toHaveBeenCalled();
+  });
+
   it("keeps suspended players' read-only projections accessible", async () => {
     const f = fixture();
     for (const command of ["/colecao", "/box", "/inventario", "/pokedex"]) {
