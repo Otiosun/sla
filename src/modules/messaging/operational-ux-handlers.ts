@@ -1160,7 +1160,15 @@ export function createOperationalUxRoutes(
     },
     { command: "concluir", handler: new FunctionalHandler(conclude), rateLimitClass: "SENSITIVE" },
     { command: "perfil", allowEmbedded: true, handler: new FunctionalHandler(profile) },
-    { command: "equipe", allowEmbedded: true, handler: new FunctionalHandler(team) },
+    {
+      command: "equipe",
+      allowEmbedded: true,
+      policyForContext: (context) =>
+        commandArgs(context).length === 0
+          ? undefined
+          : { allowedPlayerAccess: ["ACTIVE"], requiresMechanicalReady: true },
+      handler: new FunctionalHandler(team),
+    },
     { command: "colecao", aliases: ["pokemonbox"], handler: new FunctionalHandler(collection) },
     { command: "box", aliases: ["boxes"], handler: new FunctionalHandler(box) },
     {
