@@ -477,6 +477,12 @@ export function createOperationalUxRoutes(
     const profileView = await dependencies.starter.getProfile(player.value);
     if (!profileView.ok) return profileView;
     const value = profileView.value;
+    const accessStatus =
+      value.playerStatus === "ACTIVE"
+        ? "Ativo"
+        : value.playerStatus === "SUSPENDED"
+          ? "Suspenso"
+          : "Arquivado";
     return textResult(
       context,
       [
@@ -486,7 +492,7 @@ export function createOperationalUxRoutes(
         `Treinador: *${value.trainerName ?? "—"}*`,
         `Nível do treinador: \`${String(value.trainerLevel)}\``,
         `Pontos de progressão: \`${String(value.progressionPoints)}\``,
-        `Status: *${value.playerStatus === "ACTIVE" ? "Ativo" : value.playerStatus === "SUSPENDED" ? "Suspenso" : "Arquivado"}*`,
+        `Status: *${accessStatus}*`,
         "",
         "`/equipe` · formação atual",
         "`/colecao` · Pokémon que você possui",
