@@ -109,10 +109,7 @@ describe("post-commit isolated Expedition → Encounter observe → private What
       encounterId,
       expectedRevision: 0n,
     });
-    expect(deps.labels.species).toHaveBeenCalledWith(
-      releaseId,
-      "synthetic-shroomish-species",
-    );
+    expect(deps.labels.species).toHaveBeenCalledWith(releaseId, "synthetic-shroomish-species");
     expect(deps.labels.area).toHaveBeenCalledWith(releaseId, areaId);
     expect(response.value).toMatchObject({
       resultRefType: "ENCOUNTER",
@@ -121,8 +118,7 @@ describe("post-commit isolated Expedition → Encounter observe → private What
         {
           destinationRef: "trainer-private-jid",
           messageType: "TEXT",
-          idempotencyKey:
-            "inbox:baileys:shadow-hunt-message:expedition-encounter",
+          idempotencyKey: "inbox:baileys:shadow-hunt-message:expedition-encounter",
         },
       ],
     });
@@ -192,25 +188,11 @@ describe("post-commit isolated Expedition → Encounter observe → private What
     const noLabel = harness();
     noLabel.labels.species.mockResolvedValue(null);
     expect(
-      (
-        await presentCommittedExpeditionDirectEncounter(
-          context(),
-          trainer,
-          action(),
-          noLabel,
-        )
-      ).ok,
+      (await presentCommittedExpeditionDirectEncounter(context(), trainer, action(), noLabel)).ok,
     ).toBe(false);
     const terminal = harness("CAPTURED");
     expect(
-      (
-        await presentCommittedExpeditionDirectEncounter(
-          context(),
-          trainer,
-          action(),
-          terminal,
-        )
-      ).ok,
+      (await presentCommittedExpeditionDirectEncounter(context(), trainer, action(), terminal)).ok,
     ).toBe(false);
     expect(terminal.encounter.observe).not.toHaveBeenCalled();
   });
