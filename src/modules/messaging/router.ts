@@ -15,7 +15,9 @@ export interface CommandRouteDefinition {
   readonly rateLimitClass?: "STANDARD" | "SENSITIVE";
   readonly policy?: CommandPolicyRequirement;
   /** Resolve additional command-specific requirements before the handler runs. */
-  readonly policyForContext?: (context: MessageHandlerContext) => CommandPolicyRequirement | undefined;
+  readonly policyForContext?: (
+    context: MessageHandlerContext,
+  ) => CommandPolicyRequirement | undefined;
   readonly allowEmbedded?: boolean;
   readonly ackReaction?: string;
 }
