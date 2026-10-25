@@ -1033,7 +1033,7 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
 
   function resourceLedgerProofEffect(): FirstActionEffect {
     return {
-      actionKey: "test.expedition-resource-ledger",
+      actionKey: "test.expedition.resource.ledger",
       actionFingerprint: "d".repeat(64),
       async apply(client, context) {
         if (context.minutes !== 60) {
