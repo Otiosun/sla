@@ -23,3 +23,15 @@ O resultado do sorteio é **apenas uma proposta**. Para torná-la jogável ainda
 5. Não ativar `/explorar recursos` sem integração V1.1–V1.7, UAT e aprovação.
 
 **STATUS: política de probabilidades e validação V1.3 em Draft; não existe recurso jogável.**
+
+
+## Ledger canônico atômico — prova de integração Draft (25/10)
+
+`economyRepositoryForClient(client)` reutiliza o `PostgresEconomyTransaction` existente com a **mesma conexão** de `PostgresExpeditionFirstAction`. A suíte PostgreSQL `tests/db/expedition-first-action-atomic.integration.test.ts` cria um item sintético/legítimo em release publicada e exercita `EconomyService.addItem` dentro de um efeito **apenas de prova**:
+- custo interno exatamente 60 minutos na fixture;
+- 1 entrada de `inventory_ledger` e +1 `inventory_balances` sob recibo idempotente;
+- retransmissão não grava outro item/ledger;
+- falha após `addItem` desfaz inventário, ledger, cota, tempo e recibo em rollback único;
+- `BigInt` da Economy é convertido para strings no recibo JSON, sem coerção insegura.
+
+**Não é a busca de recursos jogável.** Não existe ainda provedor de tabela de loot por área publicado no banco e validado sob lock; esta suíte injeta um item sintético explicitamente. O orquestrador V1.3 somente poderá escolher recompensa de tabela autorada PUBLISHED, aplicar `prepareExpeditionResourceTable` + `drawExpeditionResourceOutcome` sob World/release autorizados e então usar este mesmo ledger canônico. Não aceitar itemId, quantidade, probabilidade ou roll fornecidos pelo usuário. Não habilitar rotas WhatsApp até essa fonte existir e passar integração/UAT.
