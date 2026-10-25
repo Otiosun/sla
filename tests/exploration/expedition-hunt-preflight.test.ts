@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import {
   EXPEDITION_HUNT_SEARCH_MINUTES,
   prepareExpeditionHunt,
 } from "../../src/modules/exploration/expedition-hunt-preflight.js";
 
-const PLAYER = "00000000-0000-4000-8000-000000000013";
+const PLAYER = createPlayerId();
 const EXPEDITION = "00000000-0000-4000-8000-000000000022";
 const RELEASE = "release-01";
 const AREA = "yun-area";
@@ -15,7 +16,7 @@ function prepare(
   overrides: {
     currentAreaId?: string;
     admissionAreaId?: string;
-    admissionPlayerId?: string;
+    admissionPlayerId?: PlayerId;
     phase?: "PREPARING" | "ACTIVE" | "ENDED";
     period?: "DAY" | "NIGHT";
     timeOfDay?: "DAY" | "NIGHT";
@@ -127,7 +128,7 @@ describe("V1.2 hunt preflight bridging V1.1 World and clock", () => {
   it.each([
     { currentAreaId: "other-area" },
     { admissionAreaId: "other-area" },
-    { admissionPlayerId: "another-trainer" },
+    { admissionPlayerId: createPlayerId() },
     { poolAreaId: "another-area" },
     { poolReleaseId: "another-release" },
     { period: "NIGHT" as const },
