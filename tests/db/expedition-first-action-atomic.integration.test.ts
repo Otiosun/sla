@@ -910,4 +910,67 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       revision: 1n,
     });
   });
+
+  it("rolls back a canonical Encounter if a later stage of the expedition action rejects", async () => {
+    const subject = await prepared("direct-late-rollback");
+    const real = directEncounterEffect();
+    const effect: FirstActionEffect = {
+      ...real,
+      async apply(client, context) {
+        const created = await real.apply(client, context);
+        if (!created.ok) return created;
+        return err(appError("ACTION_INVALID", "Synthetic failure after Encounter insertion"));
+      },
+    };
+    expect(await action.execute(input(subject, "direct-late-failure", effect))).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      consumedWeekKey: null,
+      revision: 0n,
+    });
+    expect(await action.execute(input(subject, "direct-late-failure", real))).toMatchObject({
+      ok: true,
+      value: { replayed: false, consumedWeeklySlot: true },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(1);
+  });
+
+  it("serializes competing direct spawns so one message creates at most one Encounter", async () => {
+    const subject = await prepared("direct-race");
+    const requests = [
+      input(subject, "direct-race-a", directEncounterEffect()),
+      input(subject, "direct-race-b", directEncounterEffect()),
+    ];
+    const results = await Promise.all(requests.map((request) => action.execute(request)));
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toMatchObject([
+      { ok: false, error: { code: "FLOW_BLOCKED" } },
+    ]);
+    expect(await countEncounters(subject.playerId)).toBe(1);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("does not count an unpresented wild as Pokédex seen before its canonical observe transition", async () => {
+    const subject = await prepared("direct-seen-boundary");
+    expect((await action.execute(input(subject, "direct-seen-boundary", directEncounterEffect()))).ok)
+      .toBe(true);
+    const seen = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
+      [subject.playerId, speciesId],
+    );
+    expect(seen.rows[0]?.count).toBe(0);
+    const status = await pool.query<{ status: string }>(
+      "SELECT status FROM encounters WHERE player_id=$1",
+      [subject.playerId],
+    );
+    expect(status.rows[0]?.status).toBe("CREATED");
+  });
+
 });
