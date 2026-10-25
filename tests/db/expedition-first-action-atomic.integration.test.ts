@@ -752,4 +752,162 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
       revision: 2n,
     });
   });
+
+  function directEncounterEffect(targetSpeciesId: string | null = null, featureEnabled = true) {
+    return canonicalExpeditionDirectEncounterEffect({
+      encounterTableSlug: "atomic-encounters",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
+      targetSpeciesId,
+      seedProvider: new AesEncounterSeedProvider(
+        Buffer.alloc(32, 0xa5),
+        1,
+        () => Buffer.alloc(32, 0x4c),
+      ),
+      clock: new ManualClock(timestamp),
+      encounterFeature: { enabled: featureEnabled, reason: featureEnabled ? null : "Disabled" },
+    });
+  }
+
+  async function countEncounters(playerId: PlayerId): Promise<number> {
+    const count = await pool.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM encounters WHERE player_id=$1",
+      [playerId],
+    );
+    return count.rows[0]?.count ?? 0;
+  }
+
+  it("atomically creates ONE canonical direct encounter, advances clock/quota and replays receipt", async () => {
+    const subject = await prepared("direct-first");
+    const request = input(subject, "direct-first-action", directEncounterEffect());
+    const first = await action.execute(request);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        replayed: false,
+        consumedWeeklySlot: true,
+        expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+        effectResult: {
+          kind: "EXPEDITION_DIRECT_ENCOUNTER",
+          formId,
+          areaId,
+          level: expect.any(Number),
+          encounterStatus: "CREATED",
+        },
+      },
+    });
+    const replay = await action.execute(request);
+    expect(replay).toMatchObject({ ok: true, value: { replayed: true } });
+    if (first.ok && replay.ok) {
+      expect(replay.value.effectResult).toEqual(first.value.effectResult);
+    }
+    expect(await countEncounters(subject.playerId)).toBe(1);
+    const persisted = await pool.query<{ pokemon_snapshot: { formId: string; level: number } }>(
+      `SELECT snapshot.pokemon_snapshot
+       FROM encounter_snapshots snapshot
+       JOIN encounters encounter ON encounter.id=snapshot.encounter_id
+       WHERE encounter.player_id=$1`,
+      [subject.playerId],
+    );
+    expect(persisted.rows[0]?.pokemon_snapshot).toMatchObject({
+      formId,
+      level: expect.any(Number),
+    });
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
+  it("keeps direct-hunt time, quota and Encounter absent when target was never seen", async () => {
+    const subject = await prepared("direct-hidden-target");
+    const request = input(subject, "hidden-target", directEncounterEffect(speciesId));
+    expect(await action.execute(request)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      revision: 0n,
+    });
+    await pool.query(
+      "INSERT INTO player_pokedex_species(player_id,species_id,seen_count,first_seen_at,last_seen_at) VALUES($1,$2,1,now(),now())",
+      [subject.playerId, speciesId],
+    );
+    const eligible = await action.execute(request);
+    expect(eligible).toMatchObject({
+      ok: true,
+      value: { effectResult: { formId }, consumedWeeklySlot: true },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(1);
+  });
+
+  it("rolls back direct Encounter and quota when canonical Encounter feature is disabled", async () => {
+    const subject = await prepared("direct-disabled");
+    const failed = await action.execute(
+      input(subject, "direct-disabled-first", directEncounterEffect(null, false)),
+    );
+    expect(failed).toMatchObject({ ok: false, error: { code: "FEATURE_UNAVAILABLE" } });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      consumedWeekKey: null,
+    });
+  });
+
+  it("rejects mismatched hunt minutes, table and period without spawning anything", async () => {
+    const subject = await prepared("direct-bad-action");
+    const valid = directEncounterEffect();
+    expect(await action.execute({ ...input(subject, "direct-bad-minutes", valid), minutes: 60 }))
+      .toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    const wrongTable: FirstActionEffect = canonicalExpeditionDirectEncounterEffect({
+      encounterTableSlug: "not-published",
+      environment: { timeOfDay: "DAY", surface: "LAND" },
+      targetSpeciesId: null,
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1),
+      clock: new ManualClock(timestamp),
+      encounterFeature: { enabled: true, reason: null },
+    });
+    expect(await action.execute(input(subject, "direct-bad-table", wrongTable))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const night = canonicalExpeditionDirectEncounterEffect({
+      encounterTableSlug: "atomic-encounters",
+      environment: { timeOfDay: "NIGHT", surface: "LAND" },
+      targetSpeciesId: null,
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1),
+      clock: new ManualClock(timestamp),
+      encounterFeature: { enabled: true, reason: null },
+    });
+    expect(await action.execute(input(subject, "direct-bad-period", night))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(0);
+    expect((await store.current(subject.playerId))?.phase).toBe("PREPARING");
+  });
+
+  it("refuses a second direct encounter while the first is unresolved", async () => {
+    const subject = await prepared("direct-active-conflict");
+    const first = await action.execute(input(subject, "direct-active-first", directEncounterEffect()));
+    expect(first.ok).toBe(true);
+    const next: FirstActionInput = {
+      ...input(subject, "direct-active-second", directEncounterEffect()),
+      expectedRevision: 1n,
+    };
+    expect(await action.executeNext(next)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await countEncounters(subject.playerId)).toBe(1);
+    expect(await store.current(subject.playerId)).toMatchObject({
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
 });
