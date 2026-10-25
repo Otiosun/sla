@@ -8,10 +8,10 @@ import type { BattleAction, BattleState } from "../../src/modules/battle/contrac
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
+import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
-import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import {
   type IncomingMessage,
   IncomingMessageSchema,
@@ -33,8 +33,8 @@ import { PostgresEncounterRepository } from "../../src/platform/encounter/postgr
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../../src/platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
-import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
+import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
 import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
