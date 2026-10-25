@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
+import { EncounterService } from "../../src/modules/encounter/service.js";
+import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { canonicalExpeditionDirectEncounterEffect } from "../../src/platform/exploration/canonical-expedition-direct-encounter-effect.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -13,7 +15,7 @@ import {
 } from "../../src/platform/exploration/postgres-expedition-first-action.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { canonicalWorldTravelEffect } from "../../src/platform/exploration/canonical-world-travel-effect.js";
-import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { createPlayerId, parseEncounterId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const enabled =
@@ -974,4 +976,51 @@ describe.skipIf(!enabled)("first expedition action: shared atomic PostgreSQL tra
     );
     expect(status.rows[0]?.status).toBe("CREATED");
   });
+
+  it("presents a generated encounter through the existing EncounterService and records Pokédex once", async () => {
+    const subject = await prepared("direct-observe-canonical");
+    const result = await action.execute(
+      input(subject, "direct-observe-first", directEncounterEffect()),
+    );
+    expect(result.ok).toBe(true);
+    const row = await pool.query<{ id: string }>(
+      "SELECT id::text FROM encounters WHERE player_id=$1",
+      [subject.playerId],
+    );
+    const parsed = parseEncounterId(row.rows[0]?.id ?? "");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const encounter = new EncounterService(
+      new PostgresEncounterRepository(pool),
+      new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1),
+      new ManualClock(timestamp),
+      { enabled: true, reason: null },
+    );
+    const observed = await encounter.observe({
+      playerId: subject.playerId,
+      encounterId: parsed.value,
+      expectedRevision: 0n,
+    });
+    expect(observed).toMatchObject({
+      ok: true,
+      value: { status: "PRESENTED", revision: 1n },
+    });
+    const replay = await encounter.observe({
+      playerId: subject.playerId,
+      encounterId: parsed.value,
+      expectedRevision: 0n,
+    });
+    expect(replay).toMatchObject({ ok: true, value: { status: "PRESENTED" } });
+    const seen = await pool.query<{ seen_count: string }>(
+      "SELECT seen_count::text FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
+      [subject.playerId, speciesId],
+    );
+    expect(seen.rows[0]?.seen_count).toBe("1");
+    expect(await store.current(subject.playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+  });
+
 });
