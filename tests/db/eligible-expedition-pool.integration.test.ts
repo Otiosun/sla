@@ -10,7 +10,7 @@ const enabled =
   typeof process.env.POSTGRES_INTEGRATION_TEST_URL === "string";
 const dbName = `pokemon_exp_eligible_${process.pid}_${Date.now()}`;
 
-describe.skipIf(!enabled)("V1.2 eligible encounter and Pokédex pool (disposable PostgreSQL)", () => {
+describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
   let admin: Pool;
   let pool: Pool;
   let reader: PostgresEligibleExpeditionPoolReader;
