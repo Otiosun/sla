@@ -29,7 +29,10 @@ const AVAILABLE_ENCOUNTER_INTENTS = new Set(["BATTLE", "CAPTURE", "IGNORE_ENCOUN
 
 function blocked(): Result<never> {
   return err(
-    appError("FLOW_BLOCKED", "Expedition WhatsApp scene is not backed by a consistent canonical result"),
+    appError(
+      "FLOW_BLOCKED",
+      "Expedition WhatsApp scene is not backed by a consistent canonical result",
+    ),
   );
 }
 
