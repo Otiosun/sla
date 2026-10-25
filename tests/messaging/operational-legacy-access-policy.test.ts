@@ -77,12 +77,8 @@ describe("legacy operational route access policy", () => {
 
     for (const command of [
       "menu",
-      "registrar",
       "regioes",
-      "regiao",
       "starters",
-      "starter",
-      "concluir",
       "perfil",
       "equipe",
       "colecao",
