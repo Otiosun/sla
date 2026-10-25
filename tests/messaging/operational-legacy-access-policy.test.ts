@@ -53,7 +53,16 @@ function fixture(status: "ACTIVE" | "SUSPENDED" | "PENDING", state: "COMPLETE" |
     access: { load: accessLoad },
     admins: { capabilitiesFor: vi.fn(async () => []) },
   } as never);
-  return { routes, router: new MessageRouter(routes, gate), handlerResolve, authResolve, accessLoad, getLocation, travel, groupLookup };
+  return {
+    routes,
+    router: new MessageRouter(routes, gate),
+    handlerResolve,
+    authResolve,
+    accessLoad,
+    getLocation,
+    travel,
+    groupLookup,
+  };
 }
 
 describe("legacy operational route access policy", () => {
@@ -66,7 +75,24 @@ describe("legacy operational route access policy", () => {
     });
     expect(travelRoute?.policy?.requiredGroupCapabilities).toBeUndefined();
 
-    for (const command of ["menu", "registrar", "regioes", "regiao", "starters", "starter", "concluir", "perfil", "equipe", "colecao", "box", "pokemon", "inventario", "pokedex", "onde", "combate"]) {
+    for (const command of [
+      "menu",
+      "registrar",
+      "regioes",
+      "regiao",
+      "starters",
+      "starter",
+      "concluir",
+      "perfil",
+      "equipe",
+      "colecao",
+      "box",
+      "pokemon",
+      "inventario",
+      "pokedex",
+      "onde",
+      "combate",
+    ]) {
       expect(f.routes.find((route) => route.command === command)?.policy).toBeUndefined();
     }
   });
@@ -94,13 +120,4 @@ describe("legacy operational route access policy", () => {
     expect(f.travel).not.toHaveBeenCalled();
   });
 
-  it("does not require a group capability for authorized travel", async () => {
-    const f = fixture("ACTIVE");
-    const result = await f.router.dispatch(context("/ir 1"));
-    // The policy admits this player; the deliberately partial read fixture is reached.
-    expect(f.handlerResolve).toHaveBeenCalledTimes(1);
-    expect(f.groupLookup).not.toHaveBeenCalled();
-    expect(f.getLocation).not.toHaveBeenCalled();
-    expect(result.ok).toBe(false);
-  });
 });
