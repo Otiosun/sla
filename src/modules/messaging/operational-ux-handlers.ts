@@ -22,6 +22,7 @@ import type { MessageRouteHandler } from "./ports.js";
 import type { CommandRouteDefinition } from "./router.js";
 
 const PAGE_SIZE = 15;
+const ONBOARDING_ACCESS = ["PENDING", "PROVISIONING", "ACTIVE"] as const;
 
 export interface OperationalUxDependencies {
   readonly registration: Pick<
@@ -1145,20 +1146,32 @@ export function createOperationalUxRoutes(
 
   return [
     { command: "menu", handler: new FunctionalHandler(menu) },
-    { command: "registrar", handler: new FunctionalHandler(register), rateLimitClass: "SENSITIVE" },
+    {
+      command: "registrar",
+      handler: new FunctionalHandler(register),
+      rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
+    },
     { command: "regioes", handler: new FunctionalHandler(regions) },
     {
       command: "regiao",
       handler: new FunctionalHandler(selectRegion),
       rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
     },
     { command: "starters", handler: new FunctionalHandler(starters) },
     {
       command: "starter",
       handler: new FunctionalHandler(chooseStarter),
       rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
     },
-    { command: "concluir", handler: new FunctionalHandler(conclude), rateLimitClass: "SENSITIVE" },
+    {
+      command: "concluir",
+      handler: new FunctionalHandler(conclude),
+      rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
+    },
     { command: "perfil", allowEmbedded: true, handler: new FunctionalHandler(profile) },
     {
       command: "equipe",
