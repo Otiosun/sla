@@ -108,7 +108,7 @@ describe.skipIf(!enabled)("V1.2 published encounter eligibility", () => {
       otherPlayerId,
     ]);
     await pool.query(
-      "INSERT INTO onboarding_states(player_id,state,completed_at) VALUES ($1,'COMPLETE',now()),($2,'COMPLETE',now())",
+      "INSERT INTO onboarding_states(player_id,state,completed_at,starter_claim_key) VALUES ($1,'COMPLETE',now(),'exp-fixture-1'),($2,'COMPLETE',now(),'exp-fixture-2')",
       [playerId, otherPlayerId],
     );
     await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2),($3,$2)", [
