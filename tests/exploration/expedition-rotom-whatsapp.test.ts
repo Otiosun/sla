@@ -182,19 +182,22 @@ describe("Rotom WhatsApp read-only exploration command", () => {
     "/explorar batalhar",
     "/explorar capturar",
     "/explorar resultados",
-  ])("never represents %s as an executable WhatsApp action before the release gate", async (command) => {
-    const h = harness();
-    const result = await h.router.dispatch(
-      context(incoming(command, `blocked-${command.split(" ").at(-1)}`)),
-    );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const outgoing = result.value?.outgoing;
-    expect(outgoing).toHaveLength(1);
-    expect(outgoing?.[0]?.destinationRef).toBe("trainer-private-jid");
-    expect(String(outgoing?.[0]?.payload.text)).toContain("Nenhuma ação será executada");
-    expect(String(outgoing?.[0]?.payload.text)).toContain("Função indisponível");
-    expect(h.players.resolvePlayer).not.toHaveBeenCalled();
-    expect(h.preview.inspect).not.toHaveBeenCalled();
-  });
+  ])(
+    "never represents %s as an executable WhatsApp action before the release gate",
+    async (command) => {
+      const h = harness();
+      const result = await h.router.dispatch(
+        context(incoming(command, `blocked-${command.split(" ").at(-1)}`)),
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const outgoing = result.value?.outgoing;
+      expect(outgoing).toHaveLength(1);
+      expect(outgoing?.[0]?.destinationRef).toBe("trainer-private-jid");
+      expect(String(outgoing?.[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      expect(String(outgoing?.[0]?.payload.text)).toContain("Função indisponível");
+      expect(h.players.resolvePlayer).not.toHaveBeenCalled();
+      expect(h.preview.inspect).not.toHaveBeenCalled();
+    },
+  );
 });
