@@ -2002,6 +2002,7 @@ export function createPveSceneRoutes(
       policy: {
         requiredAnyGroupCapabilities:
           command === "capturar" ? (["pve", "pvp", "world"] as const) : (["pve", "pvp"] as const),
+        allowedPlayerAccess: ["ACTIVE"] as const,
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },
@@ -2027,6 +2028,7 @@ export function createPveSceneRoutes(
       handler: new FunctionalHandler(moves),
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
+        allowedPlayerAccess: ["ACTIVE"] as const,
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },
@@ -2036,6 +2038,7 @@ export function createPveSceneRoutes(
       handler: new FunctionalHandler(battleHud),
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
+        allowedPlayerAccess: ["ACTIVE"] as const,
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },
