@@ -183,7 +183,9 @@ export function endExpedition(input: {
   });
 }
 
-export function expeditionRequiresReport(expedition: ExpeditionSnapshot): boolean {
+export function expeditionRequiresReport(
+  expedition: Pick<ExpeditionSnapshot, "phase" | "endReason">,
+): boolean {
   return (
     expedition.phase === "ENDED" &&
     (expedition.endReason === "VOLUNTARY" || expedition.endReason === "CLOCK")
