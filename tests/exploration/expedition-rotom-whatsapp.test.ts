@@ -184,7 +184,9 @@ describe("Rotom WhatsApp read-only exploration command", () => {
     "/explorar resultados",
   ])("never represents %s as an executable WhatsApp action before the release gate", async (command) => {
     const h = harness();
-    const result = await h.router.dispatch(context(incoming(command, `blocked-${command.split(" ").at(-1)}`)));
+    const result = await h.router.dispatch(
+      context(incoming(command, `blocked-${command.split(" ").at(-1)}`)),
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const outgoing = result.value?.outgoing;
@@ -195,5 +197,4 @@ describe("Rotom WhatsApp read-only exploration command", () => {
     expect(h.players.resolvePlayer).not.toHaveBeenCalled();
     expect(h.preview.inspect).not.toHaveBeenCalled();
   });
-
 });
