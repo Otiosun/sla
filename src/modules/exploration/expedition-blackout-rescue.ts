@@ -105,7 +105,8 @@ export function planExpeditionBlackoutRescue(input: {
   const visited = new Set([currentAreaId]);
   for (let index = 0; index < queue.length; index++) {
     const path = queue[index];
-    const areaId = path?.at(-1);
+    if (path === undefined) continue;
+    const areaId = path.at(-1);
     if (areaId === undefined) continue;
     const area = areaMap.get(areaId);
     if (area?.safePoint) {
