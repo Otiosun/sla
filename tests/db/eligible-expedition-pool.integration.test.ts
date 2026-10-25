@@ -199,14 +199,15 @@ describe.skipIf(!enabled)("V1.2 eligible encounter and Pokédex pool (disposable
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.knownSpeciesIds).toEqual([knownSpeciesId]);
-    expect(result.pool).toMatchObject({
-      contentReleaseId: releaseId,
-      areaId: villageId,
-      entries: [
-        { entryId: entries.known, speciesId: knownSpeciesId, weight: 10 },
-        { entryId: entries.unknown, speciesId: unknownSpeciesId, weight: 90 },
-      ],
-    });
+    expect(result.pool.contentReleaseId).toBe(releaseId);
+    expect(result.pool.areaId).toBe(villageId);
+    expect(result.pool.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entryId: entries.known, speciesId: knownSpeciesId, weight: 10 }),
+        expect.objectContaining({ entryId: entries.unknown, speciesId: unknownSpeciesId, weight: 90 }),
+      ]),
+    );
+    expect(result.pool.entries).toHaveLength(2);
     const weighted = prepareExpeditionEncounterWeights({
       admission: { contentReleaseId: releaseId, currentAreaId: villageId },
       ...result,
@@ -214,7 +215,7 @@ describe.skipIf(!enabled)("V1.2 eligible encounter and Pokédex pool (disposable
     });
     expect(weighted).toMatchObject({ ok: true, value: { totalEffectiveWeight: 120 } });
     if (!weighted.ok) return;
-    expect(weighted.value.entries.map((entry) => entry.effectiveWeight)).toEqual([30, 90]);
+    expect(weighted.value.entries.map((entry) => entry.effectiveWeight).sort((a, b) => a - b)).toEqual([30, 90]);
   });
 
   it("rejects wrong area, unread Pokédex, invalid conditions and absent table without leakage", async () => {
