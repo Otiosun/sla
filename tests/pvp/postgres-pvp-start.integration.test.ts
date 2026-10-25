@@ -706,7 +706,9 @@ describe("PVP START PostgreSQL atomicity", () => {
         )
       ).rows[0]?.count;
 
-    expect(await community.resolveChat({ provider: "baileys", chatRef: groupChatRef })).toMatchObject({
+    expect(
+      await community.resolveChat({ provider: "baileys", chatRef: groupChatRef }),
+    ).toMatchObject({
       known: true,
       groupId: registered.value.id,
       role: "GAME",
@@ -759,7 +761,9 @@ describe("PVP START PostgreSQL atomicity", () => {
     groupRevision = revoked.value.revision;
     const deniedAccept = await send("policy-revoked-accept", targetRef, "/aceitar");
     expect(String(deniedAccept[0]?.payload.text)).toContain("não está habilitado");
-    const openChallenge = await challengeRepo.read((tx) => tx.openChallengeForTarget(target.playerId));
+    const openChallenge = await challengeRepo.read((tx) =>
+      tx.openChallengeForTarget(target.playerId),
+    );
     expect(openChallenge?.status).toBe("OPEN");
 
     const restored = await community.replaceCapabilities({
@@ -825,9 +829,12 @@ describe("PVP START PostgreSQL atomicity", () => {
       role: null,
       capabilities: [],
     });
-    const deniedRetired = await send("policy-retired-group", challengerRef, "/desafiar @shadow-target", [
-      targetRef,
-    ]);
+    const deniedRetired = await send(
+      "policy-retired-group",
+      challengerRef,
+      "/desafiar @shadow-target",
+      [targetRef],
+    );
     expect(String(deniedRetired[0]?.payload.text)).toContain("ainda não está habilitado");
     expect(await countChallenges()).toBe("1");
   }, 45_000);
