@@ -49,8 +49,8 @@ function fixture(
       level: 5,
       xp: 0n,
       currentHp: 19,
-      placementKind: "TEAM" as const,
-      boxNo: null,
+      placementKind: "TEAM" as "TEAM" | "BOX",
+      boxNo: null as number | null,
       slotNo: 1,
     },
   ]);
@@ -253,6 +253,189 @@ describe("legacy team read vs mutation access policy", () => {
     const result = await f.router.dispatch(context("/equipe colocar #13 7"));
     expect(result).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
     expect(f.listOwnedPokemon).not.toHaveBeenCalled();
+    expect(f.move).not.toHaveBeenCalled();
+  });
+
+  it("renders the team in real slot order and keeps the panel read-only", async () => {
+    const f = fixture("SUSPENDED");
+    f.listOwnedPokemon.mockResolvedValue([
+      {
+        collectionNo: 13,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Charmander",
+        nickname: null,
+        level: 5,
+        xp: 0n,
+        currentHp: 19,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 3,
+      },
+      {
+        collectionNo: 14,
+        pokemonInstanceId: "00000000-0000-4000-8000-000000000026",
+        displayName: "Bulbasaur",
+        nickname: null,
+        level: 5,
+        xp: 0n,
+        currentHp: 20,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 1,
+      },
+    ]);
+    const result = await f.router.dispatch(context("/equipe"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const shown = result.value?.outgoing[0]?.payload.text ?? "";
+    expect(shown.indexOf("*Bulbasaur*")).toBeLessThan(shown.indexOf("*Charmander*"));
+    expect(shown).toContain("slot 1");
+    expect(shown).toContain("slot 3");
+    expect(f.authResolve).not.toHaveBeenCalled();
+    expect(f.getStorage).not.toHaveBeenCalled();
+    expect(f.move).not.toHaveBeenCalled();
+  });
+
+  it("does not reorganize a Pokémon that is already on the team without a target slot", async () => {
+    const f = fixture("ACTIVE");
+    const result = await f.router.dispatch(context("/equipe colocar #13"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value?.outgoing[0]?.payload.text).toContain("Equipe sem mudanças");
+    expect(result.value?.outgoing[0]?.payload.text).toContain("já está no slot 1");
+    expect(f.activeBattleId).not.toHaveBeenCalled();
+    expect(f.activeForPlayer).not.toHaveBeenCalled();
+    expect(f.getStorage).not.toHaveBeenCalled();
+    expect(f.move).not.toHaveBeenCalled();
+  });
+
+  it("explains the displaced Pokémon and its destination after a confirmed slot swap", async () => {
+    const f = fixture("ACTIVE");
+    const otherId = "00000000-0000-4000-8000-000000000026";
+    f.listOwnedPokemon.mockResolvedValue([
+      {
+        collectionNo: 13,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Charmander",
+        nickname: null,
+        level: 5,
+        xp: 0n,
+        currentHp: 19,
+        placementKind: "BOX",
+        boxNo: 1,
+        slotNo: 7,
+      },
+      {
+        collectionNo: 14,
+        pokemonInstanceId: otherId,
+        displayName: "Bulbasaur",
+        nickname: "Verde",
+        level: 6,
+        xp: 0n,
+        currentHp: 20,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 2,
+      },
+    ]);
+    f.move.mockResolvedValue(
+      ok({
+        kind: "APPLIED",
+        pokemonInstanceId: POKEMON_ID,
+        fromPlacementKind: "BOX",
+        fromBoxNo: 1,
+        fromSlotNo: 7,
+        toPlacementKind: "TEAM",
+        toBoxNo: null,
+        toSlotNo: 2,
+        swappedPokemonInstanceId: otherId,
+      }),
+    );
+    const result = await f.router.dispatch(context("/equipe colocar #13 2"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const shown = result.value?.outgoing[0]?.payload.text ?? "";
+    expect(shown).toContain("#13 agora está no slot 2");
+    expect(shown).toContain("#14 *Verde* foi para Box 1, slot 7");
+    expect(shown).not.toContain(POKEMON_ID);
+    expect(shown).not.toContain(otherId);
+    expect(f.move).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows collection numbers when the Pokémon species name is ambiguous before a requested slot", async () => {
+    const f = fixture("ACTIVE");
+    f.listOwnedPokemon.mockResolvedValue([
+      {
+        collectionNo: 13,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Charmander",
+        nickname: null,
+        level: 5,
+        xp: 0n,
+        currentHp: 19,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 1,
+      },
+      {
+        collectionNo: 14,
+        pokemonInstanceId: "00000000-0000-4000-8000-000000000026",
+        displayName: "Charmander",
+        nickname: null,
+        level: 6,
+        xp: 0n,
+        currentHp: 20,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 2,
+      },
+    ]);
+    const result = await f.router.dispatch(context("/equipe colocar Charmander 2"));
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (result.ok) return;
+    const shown = presentMessagingError(context("/equipe colocar Charmander 2"), result.error);
+    expect(shown.outgoing[0]?.payload.text).toContain("#13");
+    expect(shown.outgoing[0]?.payload.text).toContain("#14");
+    expect(f.getStorage).not.toHaveBeenCalled();
+    expect(f.move).not.toHaveBeenCalled();
+  });
+
+  it("rejects a name that can also be parsed as a different Pokémon plus a valid slot", async () => {
+    const f = fixture("ACTIVE");
+    const otherId = "00000000-0000-4000-8000-000000000026";
+    f.listOwnedPokemon.mockResolvedValue([
+      {
+        collectionNo: 13,
+        pokemonInstanceId: POKEMON_ID,
+        displayName: "Rex",
+        nickname: null,
+        level: 5,
+        xp: 0n,
+        currentHp: 19,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 1,
+      },
+      {
+        collectionNo: 14,
+        pokemonInstanceId: otherId,
+        displayName: "Rex 2",
+        nickname: null,
+        level: 6,
+        xp: 0n,
+        currentHp: 20,
+        placementKind: "TEAM",
+        boxNo: null,
+        slotNo: 2,
+      },
+    ]);
+    const result = await f.router.dispatch(context("/equipe colocar Rex 2"));
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (result.ok) return;
+    expect(result.error.message).toContain("Nome e slot ambíguos");
+    expect(result.error.message).toContain("/equipe colocar #13 2");
+    expect(result.error.message).toContain("/equipe colocar #14");
+    expect(f.getStorage).not.toHaveBeenCalled();
     expect(f.move).not.toHaveBeenCalled();
   });
 
