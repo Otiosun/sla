@@ -123,11 +123,11 @@ function cooldownText(availableAt: string, now: Date): string {
   return `⏳ Você acabou de chegar a *Vila dos Arrozais*.\nAguarde *${minutes}min ${seconds % 60}s* antes de seguir por outra rota.`;
 }
 
-function pageNumber(args: readonly string[]): Result<number> {
+function pageNumber(args: readonly string[], command: string): Result<number> {
   if (args.length === 0) return ok(1);
   const page = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
   return page === null
-    ? err(appError("VALIDATION_FAILED", "Página inválida. Use apenas o número. Ex.: `/pokedex 2`."))
+    ? err(appError("VALIDATION_FAILED", `Página inválida. Use apenas o número. Ex.: \`${command} 2\`.`))
     : ok(page);
 }
 
@@ -152,7 +152,7 @@ function pageFooter(total: number, page: number, command: string): string {
 function pokemonDisplayName(displayName: string, nickname: string | null): string {
   return nickname === null || nickname.trim().length === 0
     ? displayName
-    : nickname;
+    : nickname.trim();
 }
 
 function isOwnedPokemonDetail(
@@ -495,7 +495,7 @@ export function createOperationalUxRoutes(
   const collection: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/colecao");
     if (!page.ok) return page;
     const owned = await listOwned(player.value);
     if (owned === null) {
@@ -533,7 +533,7 @@ export function createOperationalUxRoutes(
   const box: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/box");
     if (!page.ok) return page;
     const owned = await listOwned(player.value);
     if (owned === null) {
@@ -820,7 +820,7 @@ export function createOperationalUxRoutes(
   const inventory: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/inventario");
     if (!page.ok) return page;
     const items = await dependencies.reads.listInventory(player.value);
     const slice = pageSlice(items, page.value);
@@ -841,7 +841,7 @@ export function createOperationalUxRoutes(
   const pokedex: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/pokedex");
     if (!page.ok) return page;
     const entries = await dependencies.reads.listPokedex(player.value);
     const slice = pageSlice(entries, page.value);
