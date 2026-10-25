@@ -697,3 +697,17 @@ export class PostgresEncounterRepository implements EncounterRepository {
     );
   }
 }
+
+
+/**
+ * Borrow the EXISTING Encounter transaction under an already-held expedition
+ * PoolClient. The caller owns BEGIN/COMMIT/ROLLBACK and player/World locks.
+ * Never use PostgresEncounterRepository(pool) inside a FirstActionEffect:
+ * a nested independent transaction could commit an Encounter without time.
+ */
+export function encounterRepositoryForClient(client: PoolClient): EncounterRepository {
+  return {
+    transaction: (work) => work(new PostgresEncounterTransaction(client)),
+    read: (work) => work(new PostgresEncounterTransaction(client)),
+  };
+}
