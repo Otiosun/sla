@@ -269,8 +269,8 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       capabilities: ["premium.delivery.grant", "player.read"] });
     const catalog = await delegate.instance.handle(new Request(base + "/catalog", { headers }));
     expect(catalog.status).toBe(200);
-    expect((await catalog.json()).products.map((x: { sku: string }) => x.sku))
-      .toEqual(["2XP", "LUCK"]);
+    const catalogResponse = (await catalog.json()) as { products: Array<{ sku: string }> };
+    expect(catalogResponse.products.map((product) => product.sku)).toEqual(["2XP", "LUCK"]);
 
     const payload = {
       requestId: "11111111-1111-4111-8111-111111111111",
