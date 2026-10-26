@@ -112,10 +112,11 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
     const view = await service.history(playerId);
     expect(view).toHaveLength(1);
     expect(view[0]).toMatchObject({ sku: "LUCK", requestId, actorPrincipalId });
-    const rows = await pool.query<{ count: string }>(
-      "SELECT count(*)::text FROM premium_payment_events WHERE 1=0",
+    const rows = await pool.query<{ payments: string; orders: string }>(
+      "SELECT (SELECT count(*)::text FROM premium_payment_events) AS payments, " +
+        "(SELECT count(*)::text FROM premium_orders) AS orders",
     );
-    expect(rows.rows[0]?.count).toBe("0");
+    expect(rows.rows[0]).toEqual({ payments: "0", orders: "0" });
   });
 
   it("refuses to issue an unpublished gamepass or quantity beyond backend limits", async () => {
