@@ -5,6 +5,10 @@ import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.
 import type { AdminTeamService } from "../admin/team-service.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import {
+  ManualPremiumDeliverySchema,
+  type ManualPremiumDeliveryService,
+} from "../premium-orders/manual-delivery-service.js";
+import {
   AdminOperationApprovalRequestSchema,
   AdminOperationPrepareRequestSchema,
 } from "./admin-operation-contracts.js";
@@ -102,6 +106,7 @@ interface PlayerPortalHttpDependencies {
     "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
+  readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
 }
 
 export class PlayerPortalHttpHandler {
@@ -115,6 +120,28 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
+    }
+    // Commerce grants are independent of payment approvals; never infer a paid order.
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
+        !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "catalog"),
+      );
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/admin/premium/delivery" &&
+        !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "deliver"),
+      );
+    }
+    const premiumHistory = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/deliveries$/i,
+    );
+    if (request.method === "GET" && premiumHistory?.[1] && !url.search) {
+      const targetPlayerId = premiumHistory[1];
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "history", targetPlayerId),
+      );
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
       return this.withSession(request, (identity) => this.getAdminSelf(identity));
@@ -269,6 +296,51 @@ export class PlayerPortalHttpHandler {
     const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
     if (!capabilities.includes("central.view")) return null;
     return { principalId: principal.principalId, capabilities };
+  }
+
+  private async manualPremiumDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+    operation: "catalog" | "deliver" | "history",
+    playerId?: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "PREMIUM_DELIVERY_FORBIDDEN" });
+    const isOwner = await this.dependencies.adminTeam?.isOwner(admin.principalId);
+    if (isOwner !== true && !admin.capabilities.includes("premium.delivery.grant")) {
+      return jsonResponse(403, { error: "PREMIUM_DELIVERY_FORBIDDEN" });
+    }
+    const delivery = this.dependencies.premiumDelivery;
+    if (!delivery) return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+
+    try {
+      if (operation === "catalog") {
+        return jsonResponse(200, { products: await delivery.catalog() });
+      }
+      if (operation === "history") {
+        if (!playerId) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        return jsonResponse(200, { deliveries: await delivery.history(playerId) });
+      }
+      const body = await readJsonBody(request);
+      const parsed = ManualPremiumDeliverySchema.safeParse(body);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const result = await delivery.deliver(parsed.data, admin.principalId);
+      if (result.kind === "APPLIED") {
+        return jsonResponse(result.replayed ? 200 : 201, {
+          applied: true,
+          replayed: result.replayed,
+          requestId: parsed.data.requestId,
+          entitlement: result.entitlement,
+        });
+      }
+      if (result.kind === "PLAYER_NOT_FOUND" || result.kind === "PRODUCT_UNAVAILABLE") {
+        return jsonResponse(404, { error: result.kind });
+      }
+      return jsonResponse(409, { error: result.kind });
+    } catch {
+      // Fail closed: an exception never becomes a success notification.
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
   }
 
   private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {
