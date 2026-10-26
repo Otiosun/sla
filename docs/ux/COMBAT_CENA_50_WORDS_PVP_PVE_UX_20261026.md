@@ -31,3 +31,10 @@
 4. Prova headless em runtime isolado, CI, UAT WhatsApp e autorização de publicação. **Nenhuma dessas etapas é declarada pronta aqui.**
 
 **Observação:** As cenas exemplificativas e os valores de batalha dos chats são simulações de UX, não resultados canônicos.
+
+## Prazo PvP confirmado pelo usuário em 26/10/2026
+- **12 horas por turno como padrão**, com alteração permitida somente a administradores autorizados do grupo PvP de origem; a alteração não afeta outros grupos.
+- Comandos propostos (NÃO implementados): `/pvp prazo`, `/pvp prazo 6h` e `/pvp prazo padrão`. Configuração persistida e auditável por grupo, validada na camada de autorização.
+- A duração efetiva de cada turno é imutável depois de aberto; mudança administrativa só afeta **o próximo turno**. Não reescrever deadlines de turnos ativos. Separar TTL do PvP da configuração atual de PvE (hoje ambos usam `pveBattleConfig.turnWindowTtlMs`, cujo default é 7 dias).
+- A expiração, avisos e W.O. precisam ser implementados/testados de forma atômica; uma falha técnica de mensagens não deve ser interpretada como abandono do jogador.
+- Limites mínimo/máximo de duração e antecedência do aviso ainda são decisões de política pendentes. Ver `docs/ux/COMBAT_CENA_PENDING_GATES_POLICY_PROPOSAL_20261026.md`.
