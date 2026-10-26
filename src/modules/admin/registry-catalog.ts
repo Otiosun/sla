@@ -33,6 +33,9 @@ export const ADMIN_CAPABILITIES = [
   ["wallet.adjust", 2],
   ["pokedex.seen.grant", 2],
   ["reward.grant", 2],
+  // Paid benefits are owner-only unless individually delegated; regular ADM
+  // roles receive no premium delivery rights by default.
+  ["premium.delivery.grant", 4],
   ["effect.apply", 2],
   ["effect.remove", 2],
   ["player.access.suspend", 3],
