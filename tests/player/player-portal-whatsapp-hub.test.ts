@@ -77,13 +77,40 @@ describe("WhatsApp /hub command", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value?.outgoing).toHaveLength(1);
-    expect(result.value?.outgoing[0]?.destinationRef).toBe(SENDER);
-    expect(result.value?.outgoing[0]?.destinationRef).not.toBe(groupRef);
-    const text = String(result.value?.outgoing[0]?.payload.text ?? "");
+    expect(result.value?.outgoing).toHaveLength(2);
+    const [privateReply, groupAcknowledgement] = result.value?.outgoing ?? [];
+    expect(privateReply?.destinationRef).toBe(SENDER);
+    expect(groupAcknowledgement?.destinationRef).toBe(groupRef);
+    expect(privateReply?.idempotencyKey).toBe("inbox:test:hub-1:reply");
+    expect(groupAcknowledgement?.idempotencyKey).toBe("inbox:test:hub-1:group-ack");
+    const text = String(privateReply?.payload.text ?? "");
+    const groupText = String(groupAcknowledgement?.payload.text ?? "");
     expect(text).toContain("https://hub.example.test/?hub_open=");
     expect(text).toContain(`#hub_ticket=${TICKET}`);
     expect(text).not.toContain(`hub_ticket=${TICKET}&`);
+    expect(groupText).toContain("Enviei o acesso pessoal no seu privado");
+    expect(groupText).not.toContain("hub.example.test");
+    expect(groupText).not.toContain(TICKET);
+    expect(groupText).not.toContain(SENDER);
+  });
+
+  it("never acknowledges or exposes a ticket in a group if issuing fails", async () => {
+    const issue = vi.fn(async () => ({
+      ok: false as const,
+      error: {
+        code: "FEATURE_UNAVAILABLE" as const,
+        message: "Unable to issue ticket",
+        details: {},
+      },
+    }));
+    const result = await routerFor(
+      createHubWhatsAppRoutes({
+        tickets: { issue },
+        publicUrl: "https://hub.example.test/",
+      }),
+    ).dispatch(context("/hub", "120363999999999999@g.us"));
+    expect(result).toMatchObject({ ok: false, error: { code: "FEATURE_UNAVAILABLE" } });
+    expect(issue).toHaveBeenCalledTimes(1);
   });
 
   it("is sensitive, active-only and mechanically-ready", () => {

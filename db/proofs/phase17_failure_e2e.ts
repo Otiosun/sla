@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { FakeWhatsAppAdapter } from "../../src/adapters/whatsapp/fake-whatsapp-adapter.js";
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
+import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import {
   type IncomingMessage,
@@ -19,8 +21,10 @@ import { PostgresEncounterRepository } from "../../src/platform/encounter/postgr
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../../src/platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
 import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) {
@@ -119,10 +123,21 @@ async function main(): Promise<void> {
     const encounter = new EncounterOperationalReadService(new PostgresEncounterRepository(pool));
     const battle = new BattleOperationalReadService(new PostgresBattleRepository(pool));
     const reads = new PostgresOperationalUxReadModel(pool);
+    const accessRepository = new PostgresPlayerAccessRepository(pool);
+    const policyGate = new RuntimeCommandPolicyGate({
+      // Real player access; group admission is not part of this failure-mode proof.
+      community: {
+        resolveChat: async () => ({ known: false, groupId: null, role: null, capabilities: [] }),
+      },
+      players: { resolvePlayer: registration.resolvePlayer.bind(registration) },
+      access: { load: (playerId) => accessRepository.read((tx) => tx.load(playerId)) },
+      admins: { capabilitiesFor: async () => [] },
+    });
 
     const createRouter = (): MessageRouter =>
       new MessageRouter(
         createOperationalUxRoutes({ registration, starter, world, encounter, battle, reads }),
+        policyGate,
       );
 
     const messagingRepository = new PostgresMessagingRepository(pool);
@@ -147,6 +162,40 @@ async function main(): Promise<void> {
     await receiveProcessed(service, message("f17-region", "/regiao 1"));
     await receiveProcessed(service, message("f17-starters", "/starters"));
     await receiveProcessed(service, message("f17-starter", "/starter 1"));
+
+    // Approve this synthetic player before testing gameplay-only travel and replay.
+    const typedPlayerId = parsePlayerId(playerId);
+    if (!typedPlayerId.ok) throw new Error("Phase17 failure proof received an invalid PlayerId");
+    const adminPrincipalId = randomUUID();
+    const reviewId = randomUUID();
+    await pool.query(
+      "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
+      [adminPrincipalId, `phase17-failure-review:${adminPrincipalId}`],
+    );
+    await pool.query(
+      `INSERT INTO registration_revisions(
+         id, player_id, sequence_no, status, schema_version, snapshot_json,
+         revision, decided_by_admin_principal_id, decided_at
+       ) VALUES ($1, $2, 1, 'APPROVED', 1, '{}'::jsonb, 1, $3, now())`,
+      [reviewId, typedPlayerId.value, adminPrincipalId],
+    );
+    const provisioning = await accessRepository.transaction((tx) =>
+      tx.beginProvisioning({ playerId: typedPlayerId.value, reviewId, expectedRevision: 0 }),
+    );
+    if (provisioning?.status !== "PROVISIONING") {
+      throw new Error("Phase17 failure proof did not enter PROVISIONING");
+    }
+    const activated = await accessRepository.transaction((tx) =>
+      tx.activate({
+        playerId: typedPlayerId.value,
+        reviewId,
+        expectedRevision: provisioning.revision,
+      }),
+    );
+    if (activated?.status !== "ACTIVE") {
+      throw new Error("Phase17 failure proof did not enter ACTIVE");
+    }
+
     await receiveProcessed(service, message("f17-where", "/onde"));
 
     const whereText = await outgoingText(pool, "f17-where");

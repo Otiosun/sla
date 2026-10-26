@@ -60,7 +60,7 @@ describe("PVP WhatsApp routes", () => {
     if (!result.ok) throw result.error;
     const outgoing = result.value.outgoing[0];
     expect(outgoing?.payload.text).toBe(
-      "◇ *𝗗𝗘𝗦𝗔𝗙𝗜𝗢*\n　@sender × @target\n\n› _@target pode usar `/aceitar` ou `/recusar`._",
+      "◇ *𝗗𝗘𝗦𝗔𝗙𝗜𝗢*\n　@sender × @target\n\n› _@target pode usar `/aceitar` ou `/recusar`._\n› _Quem enviou o desafio pode usar `/cancelar` enquanto ele estiver aberto._",
     );
     expect(outgoing?.payload.mentions).toEqual(["sender@s.whatsapp.net", "target@s.whatsapp.net"]);
     expect(JSON.stringify(result.value.outgoing)).not.toContain("11111111");
@@ -101,6 +101,7 @@ describe("PVP WhatsApp routes", () => {
         cancelChallenge: vi.fn(),
       },
       openChallengeIdForTarget: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
+      actionableChallengeIdForTarget: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
       openChallengeIdForChallenger: vi.fn(),
       externalRefForPlayer,
     } as never);
@@ -135,8 +136,11 @@ describe("PVP WhatsApp routes", () => {
     if (!result.ok) throw result.error;
     const outgoing = result.value.outgoing[0];
     expect(outgoing?.payload.text).toBe(
-      "✦ *𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢*\n　@111 × @222\n\n> _As ações ficam ocultas até os dois escolherem._\n\n› _Use `/moves` para consultar seus movimentos._",
+      "✦ *𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢*\n　@111 × @222\n\n◇ *𝗦𝗘𝗨 𝗣𝗥𝗜𝗠𝗘𝗜𝗥𝗢 𝗧𝗨𝗥𝗡𝗢*\n\n`/batalha` · Consultar o estado da luta\n`/moves` · Ver seus golpes e PP\n› _Use `/movimento <número>` quando houver golpe disponível._\n› _As escolhas ficam ocultas até a resolução do turno._",
     );
+    expect(outgoing?.payload.text).not.toContain("`/fugir`");
+    expect(outgoing?.payload.text).not.toContain("`/capturar`");
+    expect(outgoing?.payload.text).not.toContain("`/trocar`");
     expect(outgoing?.payload.mentions).toEqual(["111@s.whatsapp.net", "222@s.whatsapp.net"]);
     expect(JSON.stringify(result.value.outgoing)).not.toContain("33333333");
   });

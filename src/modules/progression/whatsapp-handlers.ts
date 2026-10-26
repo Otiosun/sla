@@ -479,22 +479,35 @@ export function createProgressionWhatsAppRoutes(
     );
   };
 
+  const playerProgressionPolicy = {
+    allowedPlayerAccess: ["ACTIVE"],
+    requiresMechanicalReady: true,
+  } as const;
+
   return [
-    { command: "golpes", aliases: ["movimentos"], handler: new FunctionalHandler(pendingMoves) },
+    {
+      command: "golpes",
+      aliases: ["movimentos"],
+      handler: new FunctionalHandler(pendingMoves),
+      policy: playerProgressionPolicy,
+    },
     {
       command: "aprender",
       handler: new FunctionalHandler(resolvePendingMove),
       rateLimitClass: "SENSITIVE",
+      policy: playerProgressionPolicy,
     },
     {
       command: "evolucao",
       aliases: ["evolucoes"],
       handler: new FunctionalHandler(evolutionInfo),
+      policy: playerProgressionPolicy,
     },
     {
       command: "evoluir",
       handler: new FunctionalHandler(evolve),
       rateLimitClass: "SENSITIVE",
+      policy: playerProgressionPolicy,
     },
   ];
 }

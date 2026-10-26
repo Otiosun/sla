@@ -240,6 +240,11 @@ export function createOperationalMessagingComposition(
         challenges.read(
           async (transaction) => (await transaction.openChallengeForTarget(playerId))?.id ?? null,
         ),
+      actionableChallengeIdForTarget: async (playerId: string) =>
+        challenges.read(
+          async (transaction) =>
+            (await transaction.actionableChallengeForTarget(playerId))?.id ?? null,
+        ),
       openChallengeIdForChallenger: async (playerId: string) =>
         challenges.read(
           async (transaction) =>
@@ -898,6 +903,7 @@ export function createOperationalMessagingComposition(
             players: playerRegistration,
             pvp: pvp.service,
             openChallengeIdForTarget: pvp.openChallengeIdForTarget,
+            actionableChallengeIdForTarget: pvp.actionableChallengeIdForTarget,
             openChallengeIdForChallenger: pvp.openChallengeIdForChallenger,
             externalRefForPlayer,
             ...(pveBattle === null ? {} : { battle: pveBattle.battle }),

@@ -29,7 +29,7 @@ function context(
 
 function dependencies(
   input: {
-    readonly player?: "MISSING" | "PENDING" | "ACTIVE_COMPLETE" | "ACTIVE_INCOMPLETE";
+    readonly player?: "MISSING" | "PENDING" | "ACTIVE_COMPLETE" | "ACTIVE_INCOMPLETE" | "SUSPENDED";
     readonly group?: "RECEPTION" | "WORLD" | "UNKNOWN";
     readonly adminCapabilities?: readonly string[];
   } = {},
@@ -64,7 +64,7 @@ function dependencies(
           : ok({
               playerId: PLAYER_ID,
               state:
-                player === "ACTIVE_COMPLETE"
+                player === "ACTIVE_COMPLETE" || player === "SUSPENDED"
                   ? "COMPLETE"
                   : player === "ACTIVE_INCOMPLETE"
                     ? "STARTER_GRANTED"
@@ -76,7 +76,11 @@ function dependencies(
         ({
           playerId: PLAYER_ID,
           status:
-            player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE" ? "ACTIVE" : "PENDING",
+            player === "SUSPENDED"
+              ? "SUSPENDED"
+              : player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE"
+                ? "ACTIVE"
+                : "PENDING",
           approvedReviewId:
             player === "ACTIVE_COMPLETE" || player === "ACTIVE_INCOMPLETE"
               ? "00000000-0000-4000-8000-000000000713"
@@ -142,6 +146,36 @@ describe("RuntimeCommandPolicyGate", () => {
         requiresMechanicalReady: true,
       }),
     ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
+  it("denies suspended players even with COMPLETE mechanics while preserving narrator controller bypass", async () => {
+    const suspended = new RuntimeCommandPolicyGate(
+      dependencies({ player: "SUSPENDED", group: "WORLD" }),
+    );
+    expect(
+      await suspended.authorize(context({ chatRef: "world@g.us" }), {
+        requiredGroupCapabilities: ["world"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
+
+    const narrator = new RuntimeCommandPolicyGate(
+      dependencies({
+        player: "MISSING",
+        group: "WORLD",
+        adminCapabilities: ["encounter.support"],
+      }),
+    );
+    expect(
+      await narrator.authorize(context({ chatRef: "world@g.us" }), {
+        requiredGroupCapabilities: ["world"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+        mechanicalReadyAdminBypassCapability: "encounter.support",
+      }),
+    ).toEqual(ok(undefined));
   });
 
   it("admits an authorized narrator without a player account for controller-backed battle commands", async () => {

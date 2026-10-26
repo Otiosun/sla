@@ -649,13 +649,49 @@ async function hud(
   }
 
   if (controller.kind === "NARRATOR") {
-    lines.push("", "> _O selvagem está sob seu controle._");
+    lines.push(
+      "",
+      "> _O selvagem está sob seu controle._",
+      "",
+      "› _Use `/moves` para consultar os movimentos._",
+    );
+  } else if (controller.kind === "AUTO") {
+    lines.push("", "> _Este Pokémon está sob controle automático._");
   } else if (ownActionState === "SUBMITTED") {
-    lines.push("", "〔✓〕 Sua ação já foi definida.");
-  } else if (ownActionState === "PENDING") {
-    lines.push("", "› _Sua ação ainda não foi definida._");
+    lines.push(
+      "",
+      "〔✓〕 Sua ação já foi definida.",
+      state.battleType === "PVP"
+        ? "› _Aguarde a resolução. A escolha do adversário permanece oculta._"
+        : "› _Aguarde a resolução do turno. Use `/batalha` para conferir o estado._",
+    );
+  } else if (own !== undefined && own.currentHp > 0) {
+    const availableMoves = own.moves.some((move) => move.ppCurrent === null || move.ppCurrent > 0);
+    const reserves = controlledRoster(state, controller, controllers)
+      .map((combatant, index) => ({ combatant, slot: index + 1 }))
+      .filter(
+        ({ combatant }) => combatant.participantId !== own.participantId && combatant.currentHp > 0,
+      );
+
+    lines.push("", "◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*", "");
+    if (ownActionState === "PENDING") {
+      lines.push("› _Sua ação ainda não foi definida._");
+      if (state.battleType === "PVP") {
+        lines.push("› _A escolha do rival fica oculta até a resolução._");
+      }
+      lines.push("");
+    }
+    lines.push("`/moves` · Consultar golpes e PP");
+    if (availableMoves) lines.push("`/movimento <número>` · Escolher um golpe");
+    if (reserves.length > 0) {
+      const slots = reserves.map(({ slot }) => String(slot).padStart(2, "0")).join(", ");
+      lines.push(`\`/trocar <número>\` · Trocar (reservas: ${slots})`);
+    }
+    if (state.battleType === "WILD") lines.push("`/fugir` · Tentar fugir do encontro");
+    lines.push("", "› _Use `/combate` para consultar outras regras._");
+  } else {
+    lines.push("", "〔!〕 _Nenhuma ação disponível para este Pokémon agora._");
   }
-  lines.push("", "› _Use `/moves` para consultar os movimentos._");
   return lines.filter((line, index, all) => !(line === "" && all[index - 1] === "")).join("\n");
 }
 
@@ -1966,6 +2002,7 @@ export function createPveSceneRoutes(
       policy: {
         requiredAnyGroupCapabilities:
           command === "capturar" ? (["pve", "pvp", "world"] as const) : (["pve", "pvp"] as const),
+        allowedPlayerAccess: ["ACTIVE"] as const,
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },
@@ -1991,6 +2028,7 @@ export function createPveSceneRoutes(
       handler: new FunctionalHandler(moves),
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
+        allowedPlayerAccess: ["ACTIVE"] as const,
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },
@@ -2000,6 +2038,7 @@ export function createPveSceneRoutes(
       handler: new FunctionalHandler(battleHud),
       policy: {
         requiredAnyGroupCapabilities: ["pve", "pvp"] as const,
+        allowedPlayerAccess: ["ACTIVE"] as const,
         requiresMechanicalReady: true,
         mechanicalReadyAdminBypassCapability: "encounter.support",
       },

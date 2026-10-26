@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { presentMessagingError } from "../../src/modules/messaging/errors.js";
 import {
   createOperationalUxRoutes,
   type OperationalUxDependencies,
 } from "../../src/modules/messaging/operational-ux-handlers.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
+import type { PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
-const PLAYER_ID = "00000000-0000-4000-8000-000000000013";
+const PLAYER_ID = "00000000-0000-4000-8000-000000000013" as PlayerId;
 const POKEMON_ID = "00000000-0000-4000-8000-000000000025";
 
 function context(text: string, id = "message-1"): MessageHandlerContext {
@@ -255,7 +257,9 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
 }
 
 function router(deps: OperationalUxDependencies): MessageRouter {
-  return new MessageRouter(createOperationalUxRoutes(deps));
+  return new MessageRouter(createOperationalUxRoutes(deps), {
+    authorize: async () => ok(undefined),
+  });
 }
 
 describe("Phase 13 operational WhatsApp UX", () => {
@@ -316,6 +320,40 @@ describe("Phase 13 operational WhatsApp UX", () => {
       "#0004 Charmander · vistos 2 · capturados 1",
     );
   });
+
+  it.each([
+    { status: "ACTIVE", visible: "Ativo" },
+    { status: "SUSPENDED", visible: "Suspenso" },
+    { status: "ARCHIVED", visible: "Arquivado" },
+  ] as const)(
+    "shows accurate progress and localized $status access without requiring a gameplay policy gate",
+    async ({ status, visible }) => {
+      const deps = dependencies();
+      const getProfile = deps.starter.getProfile as ReturnType<typeof vi.fn>;
+      const initial = await deps.starter.getProfile(PLAYER_ID);
+      expect(initial.ok).toBe(true);
+      if (!initial.ok) return;
+      getProfile.mockResolvedValue(
+        ok({ ...initial.value, playerStatus: status, progressionPoints: 240n }),
+      );
+      // This intentionally has no policy gate: profile consultation remains available during
+      // suspension, archive and support conversations.
+      const readOnlyRouter = new MessageRouter(createOperationalUxRoutes(deps));
+      const output = textOf(await readOnlyRouter.dispatch(context("/perfil", `profile-${status}`)));
+
+      expect(output).toContain("Treinador: *Red*");
+      expect(output).toContain("Nível do treinador: `3`");
+      expect(output).toContain("Pontos de progressão: `240`");
+      expect(output).toContain(`Status: *${visible}*`);
+      expect(output).not.toContain("Insígnias:");
+      expect(output).not.toContain(`Status: \`${status}\``);
+      expect(output).not.toContain(POKEMON_ID);
+      expect(output).toContain("`/equipe` · formação atual");
+      expect(output).toContain("`/colecao` · Pokémon que você possui");
+      expect(output).toContain("`/pokedex` · espécies registradas");
+      expect(getProfile).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("shows persisted Pokemon mechanics without exposing internal ids", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("/pokemon 1", "pokemon")));
@@ -431,6 +469,148 @@ describe("Phase 13 operational WhatsApp UX", () => {
     expect(result.error.message).toContain("#13");
     expect(result.error.message).toContain("#14");
     expect(detail).not.toHaveBeenCalled();
+  });
+
+  it("uses the real team slot, not the collection number, in the legacy detail fallback", async () => {
+    const deps = dependencies();
+    const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
+    if (baseDetail === null) throw new Error("Missing fixture detail");
+    const teamDetail = vi.fn(async (_playerId: PlayerId, slotNo: number) => ({
+      ...baseDetail,
+      slotNo,
+    }));
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 12n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 4,
+        },
+      ]),
+      teamPokemonDetail: teamDetail,
+    });
+
+    const output = textOf(await router(deps).dispatch(context("/pokemon #13", "fallback-slot")));
+    expect(teamDetail).toHaveBeenCalledExactlyOnceWith(PLAYER_ID, 4);
+    expect(output).toContain("#13");
+    expect(output).toContain("Equipe · slot 4");
+    expect(output).toContain("`/colecao`");
+    expect(output).not.toContain(POKEMON_ID);
+  });
+
+  it("does not expose a different team member when the collection projection goes stale", async () => {
+    const deps = dependencies();
+    const otherId = "00000000-0000-4000-8000-000000000026";
+    const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
+    if (baseDetail === null) throw new Error("Missing fixture detail");
+    const teamDetail = vi.fn(async () => ({
+      ...baseDetail,
+      pokemonInstanceId: otherId,
+      slotNo: 4,
+    }));
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 12n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 4,
+        },
+      ]),
+      teamPokemonDetail: teamDetail,
+    });
+
+    const result = await router(deps).dispatch(context("/pokemon #13", "stale-slot"));
+    expect(result).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    if (result.ok) return;
+    expect(result.error.details?.userMessage).toContain("/colecao");
+    expect(result.error.message).not.toContain(otherId);
+    expect(teamDetail).toHaveBeenCalledExactlyOnceWith(PLAYER_ID, 4);
+  });
+
+  it("never labels a boxed Pokémon as a team member when full-detail reads are unavailable", async () => {
+    const deps = dependencies();
+    const teamDetail = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 12n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+      ]),
+      teamPokemonDetail: teamDetail,
+    });
+
+    const result = await router(deps).dispatch(context("/pokemon #13", "fallback-box"));
+    expect(result).toMatchObject({ ok: false, error: { code: "FEATURE_UNAVAILABLE" } });
+    if (result.ok) return;
+    expect(result.error.details?.userMessage).toContain("/box");
+    expect(teamDetail).not.toHaveBeenCalled();
+  });
+
+  it("opens boxed Pokémon by collection reference and provides safe return paths", async () => {
+    const deps = dependencies();
+    const baseDetail = await deps.reads.teamPokemonDetail(PLAYER_ID, 1);
+    if (baseDetail === null) throw new Error("Missing fixture detail");
+    const detail = vi.fn(async () => ({
+      ...baseDetail,
+      collectionNo: 13,
+      xp: 345n,
+      placementKind: "BOX" as const,
+      boxNo: 2,
+      slotNo: 4,
+      nickname: "  Foguinho  ",
+    }));
+    const legacyDetail = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: "  Foguinho  ",
+          level: 5,
+          xp: 345n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 2,
+          slotNo: 4,
+        },
+      ]),
+      teamPokemonDetail: legacyDetail,
+      ownedPokemonDetail: detail,
+    });
+
+    const output = textOf(await router(deps).dispatch(context("/pokemon #13", "box-detail")));
+    expect(detail).toHaveBeenCalledExactlyOnceWith(PLAYER_ID, 13);
+    expect(legacyDetail).not.toHaveBeenCalled();
+    expect(output).toContain("#13 · _Foguinho · Charmander_");
+    expect(output).toContain("Box 2 · slot 4");
+    expect(output).toContain("XP　`345`");
+    expect(output).toContain("`/colecao`");
+    expect(output).toContain("`/box`");
+    expect(output).not.toContain(POKEMON_ID);
   });
 
   it("moves a boxed Pokemon into the team by human name reference", async () => {
@@ -577,6 +757,99 @@ describe("Phase 13 operational WhatsApp UX", () => {
         idempotencyKey: "inbox:test:travel",
       }),
     );
+  });
+
+  it.each([
+    "/ir",
+    "/ir 1 extra",
+    "/ir 1e0",
+    "/ir 0x1",
+    "/ir 1.0",
+    "/ir -1",
+    "/ir 0",
+    "/ir abc",
+  ] as const)(
+    "rejects malformed travel selection %s before inspecting the world",
+    async (command) => {
+      const deps = dependencies();
+      const result = await router(deps).dispatch(context(command, `travel-invalid-${command}`));
+      expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      if (result.ok) return;
+      const presented = presentMessagingError(context(command), result.error);
+      expect(presented.outgoing[0]?.payload.text).toContain("Use apenas o número");
+      expect(presented.outgoing[0]?.payload.text).toContain("`/ir 1`");
+      expect(deps.world.getLocation).not.toHaveBeenCalled();
+      expect(deps.world.travel).not.toHaveBeenCalled();
+    },
+  );
+
+  it("shows blocked routes without exposing hidden requirements or offering a blocked move", async () => {
+    const deps = dependencies();
+    const current = await deps.world.getLocation(PLAYER_ID);
+    if (!current.ok) throw new Error("No world fixture");
+    const getLocation = deps.world.getLocation as ReturnType<typeof vi.fn>;
+    getLocation.mockResolvedValue(
+      ok({
+        ...current.value,
+        connections: [
+          {
+            connectionId: "locked-route",
+            destinationAreaId: "area-locked",
+            destinationSlug: "secret-path",
+            destinationDisplayName: "Passagem Misteriosa",
+            available: false,
+            blockedReason: "private-unlock-key",
+          },
+        ],
+      }),
+    );
+    const app = new MessageRouter(createOperationalUxRoutes(deps));
+    const where = textOf(await app.dispatch(context("/onde", "where-locked")));
+    expect(where).toContain("1. 🔒 *Passagem Misteriosa*");
+    expect(where).not.toContain("`/ir 1`");
+    expect(where).not.toContain("private-unlock-key");
+    expect(where).not.toContain("secret-path");
+    expect(where).toContain("`/menu` · voltar ao menu do Rotom");
+    const attempted = await router(deps).dispatch(context("/ir 1", "travel-locked"));
+    expect(attempted).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(deps.world.travel).not.toHaveBeenCalled();
+  });
+
+  it("reports a changed route with actionable WhatsApp guidance and no extra move", async () => {
+    const deps = dependencies();
+    const travel = deps.world.travel as ReturnType<typeof vi.fn>;
+    travel.mockResolvedValue(err(appError("REVISION_CONFLICT", "Revision changed")));
+    const command = context("/ir 1", "travel-stale");
+    const result = await router(deps).dispatch(command);
+    expect(result).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    if (result.ok) return;
+    expect(presentMessagingError(command, result.error).outgoing[0]?.payload.text).toContain(
+      "Use `/onde` novamente.",
+    );
+    expect(travel).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps /onde read-only without an ACTIVE-only policy gate", async () => {
+    const deps = dependencies();
+    const route = createOperationalUxRoutes(deps).find((entry) => entry.command === "onde");
+    expect(route?.policy).toBeUndefined();
+    const where = textOf(
+      await new MessageRouter(createOperationalUxRoutes(deps)).dispatch(
+        context("/onde", "where-read-only"),
+      ),
+    );
+    expect(where).toContain("*Rotas:*");
+    expect(where).toContain("`/menu`");
+    expect(deps.world.travel).not.toHaveBeenCalled();
+  });
+
+  it("teaches combat commands without implying that a switch is always available", async () => {
+    const output = textOf(await router(dependencies()).dispatch(context("/combate")));
+    expect(output).toContain("`/moves` · Ver golpes e PP");
+    expect(output).toContain("`/movimento 2` · Usar um golpe pelo número");
+    expect(output).toContain("`/trocar <número>` · Trocar se houver uma reserva apta");
+    expect(output).toContain("`/fugir` · PVE");
+    expect(output).toContain("`/desistir` · PVP");
   });
 
   it("renders compact battle state without dumping moves or legal actions", async () => {

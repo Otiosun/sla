@@ -1,9 +1,55 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createPveSceneRoutes } from "../../src/modules/battle/pve-scene-whatsapp.js";
+import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
+import { CommunityService } from "../../src/modules/community/service.js";
+import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
+import { createPvpWhatsAppRoutes } from "../../src/modules/pvp/whatsapp-handlers.js";
+import { PvpService } from "../../src/modules/pvp/service.js";
+import { SystemClock } from "../../src/platform/clock/index.js";
+import { BattleService } from "../../src/modules/battle/service.js";
+import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
+import type { OutboundMessageAdapter } from "../../src/modules/messaging/ports.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
+import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
+import { PostgresBattleCancellation } from "../../src/platform/battle/postgres-battle-cancellation.js";
+import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
+import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
+import { PostgresCommunityRepository } from "../../src/platform/community/postgres-community-repository.js";
+import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
+import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
+import { simulatedWhatsAppMessage } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { parsePlayerId } from "../../src/shared-kernel/ids.js";
 import type { EncounterSeedProvider, SeedMaterial } from "../../src/modules/encounter/ports.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import { PostgresPvpChallengeRepository } from "../../src/platform/pvp/postgres-pvp-challenge-repository.js";
 import { PostgresPvpStartRepository } from "../../src/platform/pvp/postgres-pvp-start-repository.js";
+
+const VALID_BATTLE_RULESET = {
+  schemaVersion: 1,
+  battle: {
+    statModel: "SIX_STATS",
+    physicalSpecialByMove: true,
+    ivEnabled: true,
+    evEnabled: false,
+    natureEnabled: true,
+    maxMoves: 4,
+    ppEnabled: true,
+    criticalMultiplierBasisPoints: 15_000,
+    accuracyEvasionEnabled: true,
+    stabMultiplierBasisPoints: 15_000,
+    damageRandomMinBasisPoints: 10_000,
+    damageRandomMaxBasisPoints: 10_000,
+    switchConsumesTurn: true,
+  },
+  capture: { model: "POKEMON_INSPIRED_V1", maxProbabilityBasisPoints: 10_000 },
+  defeat: { automaticMoneyLoss: false },
+  narrative: { authority: "N0_FLAVOR_ONLY" },
+} as const;
 
 const databaseUrl = (() => {
   const value = process.env.DATABASE_URL;
@@ -71,8 +117,8 @@ async function seedCatalog(pool: Pool): Promise<CatalogFixture> {
   await pool.query(
     `INSERT INTO rulesets(
        id, key, version, engine_contract_version, config, status
-     ) VALUES ($1, $2, 1, 1, '{}'::jsonb, 'DRAFT')`,
-    [rulesetId, `pvp-start-ruleset-${rulesetId}`],
+     ) VALUES ($1, $2, 1, 1, $3::jsonb, 'DRAFT')`,
+    [rulesetId, `pvp-start-ruleset-${rulesetId}`, JSON.stringify(VALID_BATTLE_RULESET)],
   );
   await pool.query(
     `INSERT INTO content_releases(
@@ -383,6 +429,10 @@ describe("PVP START PostgreSQL atomicity", () => {
       [fixture.challengeId],
     );
     expect(challenge.rows[0]).toEqual({ status: "STARTED", battle_id: battleId });
+    const pending = await new PostgresPvpChallengeRepository(pool).read((transaction) =>
+      transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+    );
+    expect(pending).toBeNull();
 
     const encounter = await pool.query<{ status: string }>(
       "SELECT status FROM encounters WHERE id = $1",
@@ -486,6 +536,605 @@ describe("PVP START PostgreSQL atomicity", () => {
     );
   }, 30_000);
 
+  it("routes challenge, acceptance and surrender through real PvP group and player admission", async () => {
+    const challenger = await seedPlayer(pool, catalog, [20, 18]);
+    const target = await seedPlayer(pool, catalog, [20, 17]);
+    await pool.query(
+      "INSERT INTO content_release_pointers(pointer_key, content_release_id) VALUES ('ACTIVE', $1) ON CONFLICT (pointer_key) DO UPDATE SET content_release_id=EXCLUDED.content_release_id",
+      [catalog.contentReleaseId],
+    );
+
+    const challengerRef = "shadow-challenger@s.whatsapp.net";
+    const targetRef = "shadow-target@s.whatsapp.net";
+    // Persist the actual inbound provider identities and onboarding context.
+    const players = [
+      { playerId: challenger.playerId, senderRef: challengerRef },
+      { playerId: target.playerId, senderRef: targetRef },
+    ];
+    const adminPrincipalId = randomUUID();
+    await pool.query(
+      "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
+      [adminPrincipalId, `shadow:pvp:${adminPrincipalId}`],
+    );
+    const accessRepository = new PostgresPlayerAccessRepository(pool);
+    for (const player of players) {
+      const parsedPlayerId = parsePlayerId(player.playerId);
+      if (!parsedPlayerId.ok) throw parsedPlayerId.error;
+      const typedPlayerId = parsedPlayerId.value;
+      await pool.query(
+        "UPDATE player_identities SET provider = 'baileys', external_id = $2 WHERE player_id = $1",
+        [player.playerId, player.senderRef],
+      );
+      await pool.query(
+        "INSERT INTO player_onboarding_context(player_id, content_release_id, ruleset_id) VALUES ($1, $2, $3)",
+        [player.playerId, catalog.contentReleaseId, catalog.rulesetId],
+      );
+      const reviewId = randomUUID();
+      await pool.query(
+        `INSERT INTO registration_revisions(
+           id, player_id, sequence_no, status, schema_version, snapshot_json,
+           revision, decided_by_admin_principal_id, decided_at
+         ) VALUES ($1, $2, 1, 'APPROVED', 1, '{}'::jsonb, 1, $3, now())`,
+        [reviewId, player.playerId, adminPrincipalId],
+      );
+      const provisioning = await accessRepository.transaction((tx) =>
+        tx.beginProvisioning({
+          playerId: typedPlayerId,
+          reviewId,
+          expectedRevision: 0,
+        }),
+      );
+      expect(provisioning?.status).toBe("PROVISIONING");
+      if (provisioning === null) return;
+      const active = await accessRepository.transaction((tx) =>
+        tx.activate({
+          playerId: typedPlayerId,
+          reviewId,
+          expectedRevision: provisioning.revision,
+        }),
+      );
+      expect(active?.status).toBe("ACTIVE");
+    }
+    const registration = new PlayerRegistrationService(
+      new PostgresPlayerOnboardingRepository(pool),
+    );
+    const resolvePlayer = registration.resolvePlayer.bind(registration);
+    expect(await resolvePlayer({ provider: "baileys", externalId: challengerRef })).toMatchObject({
+      ok: true,
+      value: { playerId: challenger.playerId, state: "COMPLETE" },
+    });
+    const groupChatRef = "120363987654321000@g.us";
+    const community = new CommunityService(new PostgresCommunityRepository(pool));
+    const registered = await community.registerGroup({
+      provider: "baileys",
+      chatRef: groupChatRef,
+      role: "GAME",
+      displayName: "PvP Shadow Group",
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok) return;
+    const configured = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: registered.value.revision,
+      capabilities: ["pve"],
+    });
+    expect(configured.ok).toBe(true);
+    if (!configured.ok) return;
+    let groupRevision = configured.value.revision;
+    const policy = new RuntimeCommandPolicyGate({
+      community,
+      players: { resolvePlayer },
+      access: {
+        load: async (playerId: string) => {
+          const parsed = parsePlayerId(playerId);
+          if (!parsed.ok) throw parsed.error;
+          return accessRepository.read((tx) => tx.load(parsed.value));
+        },
+      },
+      admins: { capabilitiesFor: async () => [] },
+    } as never);
+    const challengeRepo = new PostgresPvpChallengeRepository(pool);
+    const startRepo = new PostgresPvpStartRepository(pool, new CountingSeedProvider());
+    const pvp = new PvpService(
+      challengeRepo,
+      new CountingSeedProvider(),
+      new SystemClock(),
+      { enabled: true, reason: null },
+      { challengeTtlMs: 300_000, turnWindowTtlMs: 300_000 },
+      startRepo,
+    );
+    let battleId: string | null = null;
+    const battle = new BattleService(new PostgresBattleRepository(pool), {
+      decrypt: () => Buffer.alloc(32, 1),
+    });
+    const cancellation = new PostgresBattleCancellation(pool);
+    const routes = [
+      ...createPvpWhatsAppRoutes({
+        players: { resolvePlayer },
+        pvp,
+        openChallengeIdForTarget: async (playerId: string) =>
+          challengeRepo.read(async (t) => (await t.openChallengeForTarget(playerId))?.id ?? null),
+        actionableChallengeIdForTarget: async (playerId: string) =>
+          challengeRepo.read(
+            async (t) => (await t.actionableChallengeForTarget(playerId))?.id ?? null,
+          ),
+        openChallengeIdForChallenger: async (playerId: string) =>
+          challengeRepo.read(
+            async (t) => (await t.openChallengeForChallenger(playerId))?.id ?? null,
+          ),
+        externalRefForPlayer: async (playerId: string) =>
+          players.find((player) => player.playerId === playerId)?.senderRef ?? null,
+        battle: { currentState: battle.currentState.bind(battle) },
+        presentation: { speciesDisplayName: async () => "Startmon" },
+      } as never),
+      ...createPveSceneRoutes({
+        players: { resolvePlayer },
+        activeBattleId: async (playerId: string) =>
+          players.some((player) => player.playerId === playerId) ? battleId : null,
+        battle: {
+          currentState: battle.currentState.bind(battle),
+          resolvePlayerTurn: battle.resolvePlayerTurn.bind(battle),
+          surrenderPvp: async (input: {
+            battleId: string;
+            playerId: string;
+            expectedVersion: number;
+          }) => {
+            const result = await cancellation.surrenderPvp(input);
+            return result.kind === "PERSISTED" || result.kind === "REPLAYED"
+              ? ok({ state: result.state })
+              : err(appError("FLOW_BLOCKED", "Battle is not active"));
+          },
+        },
+        controllers: new PostgresBattleParticipantControllerRepository(pool),
+        turnWindowForBattleVersion: async (id: string, version: number) => {
+          const result = await new PostgresBattleTurnWindowRepository(pool).loadByBattleVersion(
+            id,
+            version,
+          );
+          return result.ok ? result.value : null;
+        },
+        presentation: {
+          speciesDisplayName: async () => "Startmon",
+          moveDisplayNames: async () => new Map([[catalog.moveId, "Start Move"]]),
+        },
+        admins: { resolvePrincipal: async () => null },
+      } as never),
+    ];
+    const repository = new PostgresMessagingRepository(pool);
+    const delivered: PendingOutboxMessage[] = [];
+    const adapter: OutboundMessageAdapter = {
+      channel: "whatsapp",
+      async send(message) {
+        delivered.push(message);
+        return { providerExternalMessageId: `shadow:${message.id}` };
+      },
+    };
+    const messages = new MessagingService(repository, new MessageRouter(routes, policy));
+    const worker = new OutboxWorker(repository, [adapter], {
+      batchSize: 30,
+      staleAfterMs: 30_000,
+      maxAttempts: 3,
+      baseBackoffMs: 1,
+      maxBackoffMs: 10,
+    });
+    // Provider replay uses the exact original envelope, including its timestamp.
+    const receivedAt = new Date().toISOString();
+    const incoming = (
+      id: string,
+      senderRef: string,
+      text: string,
+      mentions: readonly string[] = [],
+    ) =>
+      simulatedWhatsAppMessage({
+        externalMessageId: id,
+        senderRef,
+        chatRef: groupChatRef,
+        occurredAt: receivedAt,
+        text,
+        mentions,
+      });
+    const send = async (
+      id: string,
+      sender: string,
+      command: string,
+      mentions: readonly string[] = [],
+    ) => {
+      expect(await messages.receive(incoming(id, sender, command, mentions))).toMatchObject({
+        ok: true,
+        value: { status: "PROCESSED" },
+      });
+      const outcome = await worker.runOnce();
+      expect(outcome.failed).toBe(0);
+      return delivered.slice(-outcome.sent).filter((message) => message.messageType === "TEXT");
+    };
+    const countChallenges = async () =>
+      (
+        await pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM pvp_challenges WHERE challenger_player_id=$1",
+          [challenger.playerId],
+        )
+      ).rows[0]?.count;
+
+    expect(
+      await community.resolveChat({ provider: "baileys", chatRef: groupChatRef }),
+    ).toMatchObject({
+      known: true,
+      groupId: registered.value.id,
+      role: "GAME",
+      capabilities: ["pve"],
+    });
+    const blocked = await send("policy-deny-group", challengerRef, "/desafiar @shadow-target", [
+      targetRef,
+    ]);
+    expect(String(blocked[0]?.payload.text)).toContain("não está habilitado");
+    expect(await countChallenges()).toBe("0");
+
+    const enabled = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+      capabilities: ["pvp", "pve"],
+    });
+    expect(enabled.ok).toBe(true);
+    if (!enabled.ok) return;
+    groupRevision = enabled.value.revision;
+    await pool.query(
+      "UPDATE onboarding_states SET state = 'NEW', starter_claim_key = NULL, completed_at = NULL WHERE player_id = $1",
+      [challenger.playerId],
+    );
+    expect(await resolvePlayer({ provider: "baileys", externalId: challengerRef })).toMatchObject({
+      ok: true,
+      value: { state: "NEW" },
+    });
+    const unready = await send(
+      "policy-deny-incomplete",
+      challengerRef,
+      "/desafiar @shadow-target",
+      [targetRef],
+    );
+    expect(String(unready[0]?.payload.text)).toContain("preparação mecânica");
+    expect(await countChallenges()).toBe("0");
+
+    await pool.query(
+      "UPDATE onboarding_states SET state = 'COMPLETE', starter_claim_key = $2, completed_at = now() WHERE player_id = $1",
+      [challenger.playerId, `pvp-start-starter-${challenger.playerId}`],
+    );
+    const invited = await send("policy-challenge", challengerRef, "/desafiar @shadow-target", [
+      targetRef,
+    ]);
+    expect(String(invited[0]?.payload.text)).toContain("𝗗𝗘𝗦𝗔𝗙𝗜𝗢");
+    expect(String(invited[0]?.payload.text)).toContain("`/aceitar`");
+    expect(await countChallenges()).toBe("1");
+
+    // Only the target can accept; an unrelated /aceitar cannot move the challenge.
+    const wrongActor = await send("policy-wrong-accept", challengerRef, "/aceitar");
+    expect(String(wrongActor[0]?.payload.text)).not.toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
+    expect(await countChallenges()).toBe("1");
+
+    const revoked = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+      capabilities: ["pve"],
+    });
+    expect(revoked.ok).toBe(true);
+    if (!revoked.ok) return;
+    groupRevision = revoked.value.revision;
+    const deniedAccept = await send("policy-revoked-accept", targetRef, "/aceitar");
+    expect(String(deniedAccept[0]?.payload.text)).toContain("não está habilitado");
+    const openChallenge = await challengeRepo.read((tx) =>
+      tx.openChallengeForTarget(target.playerId),
+    );
+    expect(openChallenge?.status).toBe("OPEN");
+
+    const restored = await community.replaceCapabilities({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+      capabilities: ["pvp", "pve"],
+    });
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    groupRevision = restored.value.revision;
+    const typedTargetId = parsePlayerId(target.playerId);
+    if (!typedTargetId.ok) throw typedTargetId.error;
+    const targetAccess = await accessRepository.read((tx) => tx.load(typedTargetId.value));
+    const suspended = await accessRepository.transaction((tx) =>
+      tx.suspend({
+        playerId: typedTargetId.value,
+        expectedRevision: targetAccess.revision,
+      }),
+    );
+    expect(suspended?.status).toBe("SUSPENDED");
+    const deniedSuspended = await send("policy-suspended-accept", targetRef, "/aceitar");
+    expect(String(deniedSuspended[0]?.payload.text)).toContain("não permite usar");
+    expect(
+      (await challengeRepo.read((tx) => tx.openChallengeForTarget(target.playerId)))?.status,
+    ).toBe("OPEN");
+    if (suspended === null) return;
+    const restoredAccess = await accessRepository.transaction((tx) =>
+      tx.restore({
+        playerId: typedTargetId.value,
+        expectedRevision: suspended.revision,
+      }),
+    );
+    expect(restoredAccess?.status).toBe("ACTIVE");
+    const accepted = await send("policy-accept", targetRef, "/aceitar");
+    expect(String(accepted[0]?.payload.text)).toContain("𝗣𝗩𝗣 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
+    const row = (
+      await pool.query<{ status: string; battle_id: string; encounter_id: string }>(
+        "SELECT status, battle_id, encounter_id FROM pvp_challenges WHERE challenger_player_id=$1",
+        [challenger.playerId],
+      )
+    ).rows[0];
+    expect(row?.status).toBe("STARTED");
+    expect(row?.battle_id).toEqual(expect.any(String));
+    battleId = row?.battle_id ?? null;
+
+    const stateA = await send("policy-hud-a", challengerRef, "/batalha");
+    const stateB = await send("policy-hud-b", targetRef, "/batalha");
+    expect(String(stateA[0]?.payload.text)).toContain("`/moves`");
+    expect(String(stateB[0]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔");
+
+    // Access suspension must also block live combat commands, not just /aceitar.
+    const resumedTargetAccess = await accessRepository.read((tx) => tx.load(typedTargetId.value));
+    const suspendedDuringBattle = await accessRepository.transaction((tx) =>
+      tx.suspend({
+        playerId: typedTargetId.value,
+        expectedRevision: resumedTargetAccess.revision,
+      }),
+    );
+    expect(suspendedDuringBattle?.status).toBe("SUSPENDED");
+    const deniedAttack = await send("policy-suspended-move", targetRef, "/movimento 1");
+    expect(String(deniedAttack[0]?.payload.text)).toContain("não permite usar");
+    const unchangedBattle = await pool.query<{ version: string }>(
+      "SELECT version::text FROM battles WHERE id = $1",
+      [battleId],
+    );
+    expect(unchangedBattle.rows[0]?.version).toBe("0");
+    if (suspendedDuringBattle === null) return;
+    expect(
+      (
+        await accessRepository.transaction((tx) =>
+          tx.restore({
+            playerId: typedTargetId.value,
+            expectedRevision: suspendedDuringBattle.revision,
+          }),
+        )
+      )?.status,
+    ).toBe("ACTIVE");
+
+    // Provider re-delivery never produces another match or Outbox message.
+    expect(await messages.receive(incoming("policy-accept", targetRef, "/aceitar"))).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED" },
+    });
+    expect((await worker.runOnce()).sent).toBe(0);
+    const conceded = await send("policy-surrender", targetRef, "/desistir");
+    expect(String(conceded[0]?.payload.text)).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔 𝗘𝗡𝗖𝗘𝗥𝗥𝗔𝗗𝗔");
+    const battleCount = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM battles WHERE encounter_id=$1",
+      [row?.encounter_id],
+    );
+    expect(battleCount.rows[0]?.count).toBe("1");
+    const stopped = await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [
+      battleId,
+    ]);
+    // Global result reflects the challenger (side 1), not the conceding target.
+    expect(stopped.rows[0]?.status).toBe("WON");
+    const sideResults = await pool.query<{ side_no: number; result: string }>(
+      "SELECT side_no, result FROM battle_sides WHERE battle_id=$1 ORDER BY side_no",
+      [battleId],
+    );
+    expect(sideResults.rows).toEqual([
+      { side_no: 1, result: "WON" },
+      { side_no: 2, result: "LOST" },
+    ]);
+
+    const retired = await community.retireGroup({
+      groupId: registered.value.id,
+      expectedRevision: groupRevision,
+    });
+    expect(retired.ok).toBe(true);
+    expect(await community.resolveChat({ provider: "baileys", chatRef: groupChatRef })).toEqual({
+      known: false,
+      groupId: null,
+      role: null,
+      capabilities: [],
+    });
+    const deniedRetired = await send(
+      "policy-retired-group",
+      challengerRef,
+      "/desafiar @shadow-target",
+      [targetRef],
+    );
+    expect(String(deniedRetired[0]?.payload.text)).toContain("ainda não está habilitado");
+    expect(await countChallenges()).toBe("1");
+  }, 45_000);
+
+  it("simulates two distinct trainers through messages, waiting, restart, resolution and surrender", async () => {
+    const fixture = await seedAcceptedMatch(pool, catalog, [20, 18], [20, 17]);
+    const openedAt = new Date();
+    const started = await new PostgresPvpStartRepository(pool, new CountingSeedProvider()).start({
+      challengeId: fixture.challengeId,
+      actorPlayerId: fixture.targetPlayerId,
+      startedAt: openedAt,
+      deadlineAt: new Date(openedAt.getTime() + 300_000),
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const battleId = started.value.battleId;
+    const playerRefs = new Map([
+      ["trainer-one@s.whatsapp.net", fixture.challengerPlayerId],
+      ["trainer-two@s.whatsapp.net", fixture.targetPlayerId],
+    ]);
+    const battleFailures: unknown[] = [];
+    const services = () => {
+      const battle = new BattleService(new PostgresBattleRepository(pool), {
+        decrypt: () => Buffer.alloc(32, 1),
+      });
+      const cancellation = new PostgresBattleCancellation(pool);
+      const controllers = new PostgresBattleParticipantControllerRepository(pool);
+      const windows = new PostgresBattleTurnWindowRepository(pool);
+      const router = new MessageRouter(
+        createPveSceneRoutes({
+          players: {
+            resolvePlayer: async ({ externalId }: { externalId: string }) =>
+              ok({ playerId: playerRefs.get(externalId) }),
+          },
+          activeBattleId: async (playerId: string) =>
+            [...playerRefs.values()].includes(playerId) ? battleId : null,
+          battle: {
+            currentState: battle.currentState.bind(battle),
+            resolvePlayerTurn: async (...args: Parameters<BattleService["resolvePlayerTurn"]>) => {
+              const result = await battle.resolvePlayerTurn(...args);
+              if (!result.ok) battleFailures.push(result.error);
+              return result;
+            },
+            surrenderPvp: async (input: {
+              battleId: string;
+              playerId: string;
+              expectedVersion: number;
+            }) => {
+              const result = await cancellation.surrenderPvp(input);
+              return result.kind === "PERSISTED" || result.kind === "REPLAYED"
+                ? ok({ state: result.state })
+                : { ok: false, error: { code: "BATTLE_STATE_INVALID", message: result.kind } };
+            },
+          },
+          controllers,
+          turnWindowForBattleVersion: async (id: string, version: number) => {
+            const value = await windows.loadByBattleVersion(id, version);
+            return value.ok ? value.value : null;
+          },
+          presentation: {
+            speciesDisplayName: async () => "Startmon",
+            moveDisplayNames: async () => new Map([[catalog.moveId, "Start Move"]]),
+          },
+          playerExternalRef: async (id: string) =>
+            [...playerRefs.entries()].find(([, value]) => value === id)?.[0] ?? null,
+          admins: { resolvePrincipal: async () => null },
+        } as never),
+        { authorize: async () => ok(undefined) },
+      );
+      const messages = new PostgresMessagingRepository(pool);
+      return {
+        service: new MessagingService(messages, router),
+        worker: new OutboxWorker(messages, [adapter], {
+          batchSize: 20,
+          staleAfterMs: 30_000,
+          maxAttempts: 3,
+          baseBackoffMs: 1,
+          maxBackoffMs: 10,
+        }),
+      };
+    };
+
+    const outbox: PendingOutboxMessage[] = [];
+    const adapter: OutboundMessageAdapter = {
+      channel: "whatsapp",
+      async send(message) {
+        outbox.push(message);
+        return { providerExternalMessageId: `simulated:${message.id}` };
+      },
+    };
+    let runtime = services();
+    const incoming = (senderRef: string, text: string, externalMessageId: string) =>
+      simulatedWhatsAppMessage({
+        senderRef,
+        chatRef: "pvp-shadow-test@g.us",
+        text,
+        externalMessageId,
+        occurredAt: "2026-10-24T18:01:00.000Z",
+      });
+    const send = async (senderRef: string, text: string, id: string) => {
+      const result = await runtime.service.receive(incoming(senderRef, text, id));
+      expect(result).toMatchObject({ ok: true, value: { status: "PROCESSED" } });
+      const flushed = await runtime.worker.runOnce();
+      expect(flushed.failed).toBe(0);
+      return outbox.slice(-flushed.sent);
+    };
+
+    const textOf = (messages: readonly PendingOutboxMessage[]) =>
+      String(messages.find((message) => message.messageType === "TEXT")?.payload.text ?? "");
+
+    const firstHud = await send("trainer-one@s.whatsapp.net", "/batalha", "pvp-hud-a");
+    const secondHud = await send("trainer-two@s.whatsapp.net", "/batalha", "pvp-hud-b");
+    expect(textOf(firstHud)).toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
+    expect(textOf(secondHud)).toContain("`/moves`");
+    expect(textOf(firstHud)).not.toContain("`/fugir`");
+    const moves = await send("trainer-one@s.whatsapp.net", "/moves", "pvp-moves-a");
+    expect(textOf(moves)).toContain("Start Move");
+
+    const actionA = incoming("trainer-one@s.whatsapp.net", "/movimento 1", "pvp-move-a");
+    expect(await runtime.service.receive(actionA)).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED" },
+    });
+    const flushedAction = await runtime.worker.runOnce();
+    expect(flushedAction.failed).toBe(0);
+    expect(battleFailures).toEqual([]);
+    expect(
+      outbox.slice(-flushedAction.sent).filter((message) => message.messageType === "TEXT"),
+    ).toEqual([]);
+    const turnWindow = await new PostgresBattleTurnWindowRepository(pool).loadByBattleVersion(
+      battleId,
+      0,
+    );
+    expect(turnWindow.ok).toBe(true);
+    if (turnWindow.ok) {
+      expect(turnWindow.value.submissions).toMatchObject([
+        { status: "ACTIVE", playerId: fixture.challengerPlayerId },
+      ]);
+    }
+    const pendingState = await pool.query<{ version: string }>(
+      "SELECT version::text FROM battles WHERE id=$1",
+      [battleId],
+    );
+    expect(pendingState.rows[0]?.version).toBe("0");
+
+    const waiting = await send("trainer-one@s.whatsapp.net", "/batalha", "pvp-hud-wait");
+    expect(textOf(waiting)).toContain("Sua ação já foi definida");
+    expect(textOf(waiting)).toContain("adversário permanece oculta");
+    const other = await send("trainer-two@s.whatsapp.net", "/batalha", "pvp-hud-other");
+    expect(textOf(other)).toContain("Sua ação ainda não foi definida");
+    expect(textOf(other)).not.toContain("Sua ação já foi definida");
+
+    // A logical restart must retain the pending submission and Outbox receipts.
+    runtime = services();
+    expect(await runtime.service.receive(actionA)).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED" },
+    });
+    expect(await runtime.worker.runOnce()).toMatchObject({ failed: 0, sent: 0 });
+    const resolved = await send("trainer-two@s.whatsapp.net", "/movimento 1", "pvp-move-b");
+    expect(resolved.some((message) => message.messageType === "TEXT")).toBe(true);
+    const after = await pool.query<{ version: string; status: string }>(
+      "SELECT version::text, status FROM battles WHERE id=$1",
+      [battleId],
+    );
+    expect(after.rows[0]).toMatchObject({ version: "1", status: "ACTIVE" });
+    const initial = await pool.query<{ status: string }>(
+      "SELECT status FROM battle_turn_windows WHERE id=$1",
+      [started.value.turnWindowId],
+    );
+    expect(initial.rows[0]?.status).toBe("COMMITTED");
+
+    await send("trainer-one@s.whatsapp.net", "/desistir", "pvp-surrender-a");
+    const ending = await pool.query<{ status: string }>("SELECT status FROM battles WHERE id=$1", [
+      battleId,
+    ]);
+    expect(ending.rows[0]?.status).toBe("LOST");
+    expect(
+      await runtime.service.receive(
+        incoming("trainer-one@s.whatsapp.net", "/desistir", "pvp-surrender-a"),
+      ),
+    ).toMatchObject({ ok: true, value: { status: "REPLAYED" } });
+    const battles = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM battles WHERE encounter_id=$1",
+      [fixture.encounterId],
+    );
+    expect(battles.rows[0]?.count).toBe("1");
+  }, 45_000);
+
   it("rejects START when either player has no living eligible TEAM Pokemon", async () => {
     const fixture = await seedAcceptedMatch(pool, catalog, [20], [0]);
     const seedProvider = new CountingSeedProvider();
@@ -556,5 +1205,41 @@ describe("PVP START PostgreSQL atomicity", () => {
       [fixture.encounterId],
     );
     expect(battleCount.rows[0]?.count).toBe("0");
+
+    // Retry the same accepted encounter after the failed transaction is gone.
+    const challenges = new PostgresPvpChallengeRepository(pool);
+    const resumable = await challenges.read((transaction) =>
+      transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+    );
+    expect(resumable?.id).toBe(fixture.challengeId);
+    expect(resumable?.status).toBe("ACCEPTED");
+    const resumed = await repository.start({
+      challengeId: fixture.challengeId,
+      actorPlayerId: fixture.targetPlayerId,
+      startedAt: new Date("2026-08-31T12:03:00.000Z"),
+      deadlineAt: new Date("2026-08-31T12:08:00.000Z"),
+    });
+    expect(resumed.ok).toBe(true);
+    if (!resumed.ok) return;
+    const restarted = await repository.start({
+      challengeId: fixture.challengeId,
+      actorPlayerId: fixture.targetPlayerId,
+      startedAt: new Date("2026-08-31T12:03:00.000Z"),
+      deadlineAt: new Date("2026-08-31T12:08:00.000Z"),
+    });
+    expect(restarted).toMatchObject({
+      ok: true,
+      value: { battleId: resumed.value.battleId, replayed: true },
+    });
+    expect(
+      await challenges.read((transaction) =>
+        transaction.actionableChallengeForTarget(fixture.targetPlayerId),
+      ),
+    ).toBeNull();
+    const finalBattleCount = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM battles WHERE encounter_id = $1",
+      [fixture.encounterId],
+    );
+    expect(finalBattleCount.rows[0]?.count).toBe("1");
   }, 30_000);
 });

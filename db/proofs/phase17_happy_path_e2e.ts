@@ -8,6 +8,7 @@ import type { BattleAction, BattleState } from "../../src/modules/battle/contrac
 import { BattleOperationalReadService } from "../../src/modules/battle/operational-read-service.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
+import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-command-policy-gate.js";
 import { EconomyService } from "../../src/modules/economy/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
@@ -33,6 +34,7 @@ import { PostgresMessagingRepository } from "../../src/platform/messaging/postgr
 import { PostgresOperationalUxReadModel } from "../../src/platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
+import { PostgresPlayerAccessRepository } from "../../src/platform/registration/postgres-player-access-repository.js";
 import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { DeterministicRandomSource } from "../../src/platform/rng/index.js";
@@ -324,6 +326,16 @@ async function main(): Promise<void> {
       turnWindowTtlMs: 300_000,
     });
     const reads = new PostgresOperationalUxReadModel(pool);
+    const accessRepository = new PostgresPlayerAccessRepository(pool);
+    const policyGate = new RuntimeCommandPolicyGate({
+      // This E2E has no group admission dependency; player access is real PostgreSQL.
+      community: {
+        resolveChat: async () => ({ known: false, groupId: null, role: null, capabilities: [] }),
+      },
+      players: { resolvePlayer: registration.resolvePlayer.bind(registration) },
+      access: { load: (playerId) => accessRepository.read((tx) => tx.load(playerId)) },
+      admins: { capabilitiesFor: async () => [] },
+    });
     const messaging = new MessagingService(
       new PostgresMessagingRepository(pool),
       new MessageRouter(
@@ -335,6 +347,7 @@ async function main(): Promise<void> {
           battle: new BattleOperationalReadService(battleRepository),
           reads,
         }),
+        policyGate,
       ),
       30_000,
     );
@@ -370,6 +383,33 @@ async function main(): Promise<void> {
       throw new Error(
         `Happy-path onboarding did not complete: ${JSON.stringify(onboarding.rows[0])}`,
       );
+    }
+
+    // Finish the real registration access lifecycle before gameplay-only commands.
+    const adminPrincipalId = randomUUID();
+    const reviewId = randomUUID();
+    await pool.query(
+      "INSERT INTO admin_principals(id, identity_ref, status) VALUES ($1, $2, 'ACTIVE')",
+      [adminPrincipalId, `phase17-review:${adminPrincipalId}`],
+    );
+    await pool.query(
+      `INSERT INTO registration_revisions(
+         id, player_id, sequence_no, status, schema_version, snapshot_json,
+         revision, decided_by_admin_principal_id, decided_at
+       ) VALUES ($1, $2, 1, 'APPROVED', 1, '{}'::jsonb, 1, $3, now())`,
+      [reviewId, playerId, adminPrincipalId],
+    );
+    const provisioning = await accessRepository.transaction((tx) =>
+      tx.beginProvisioning({ playerId, reviewId, expectedRevision: 0 }),
+    );
+    if (provisioning?.status !== "PROVISIONING") {
+      throw new Error("Phase17 registration did not enter PROVISIONING");
+    }
+    const activated = await accessRepository.transaction((tx) =>
+      tx.activate({ playerId, reviewId, expectedRevision: provisioning.revision }),
+    );
+    if (activated?.status !== "ACTIVE") {
+      throw new Error("Phase17 registration did not enter ACTIVE");
     }
 
     // perfil: prove the post-starter user-facing projection, not a second profile mutation.

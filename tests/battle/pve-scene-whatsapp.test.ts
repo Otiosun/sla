@@ -465,6 +465,93 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(hud.ok && hud.value.outgoing[0]?.payload.mentions).toEqual(["sender"]);
   });
 
+  it("shows relevant normal PVE commands without inventing a capture or switch option", async () => {
+    const setup = dependencies(false);
+    const result = await routeFor(
+      createPveSceneRoutes(setup.dependencies),
+      "batalha",
+    ).handler.handle(context("/batalha"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
+    expect(text).toContain("`/moves` · Consultar golpes e PP");
+    expect(text).toContain("`/movimento <número>` · Escolher um golpe");
+    expect(text).toContain("`/fugir` · Tentar fugir do encontro");
+    expect(text).not.toContain("`/trocar <número>`");
+    expect(text).not.toContain("`/capturar`");
+    expect(text).not.toContain("Quick Attack");
+  });
+
+  it("offers switch only when a controlled living reserve exists and uses real roster slots", async () => {
+    const setup = dependencies(false);
+    const reserveId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const rosterState = {
+      ...state,
+      sides: [{ ...state.sides[0], participantIds: [participantId, reserveId] }, state.sides[1]],
+      combatants: [
+        { ...state.combatants[0], rosterPosition: 1 },
+        { ...state.combatants[0], participantId: reserveId, rosterPosition: 2, currentHp: 15 },
+        state.combatants[1],
+      ],
+    } as BattleState;
+    const controllers = await setup.listByBattle();
+    const activeController = controllers[0];
+    if (activeController === undefined) throw new Error("Missing fixture controller");
+    setup.listByBattle.mockResolvedValue([
+      activeController,
+      { ...activeController, participantId: reserveId },
+    ]);
+    const deps = {
+      ...setup.dependencies,
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(rosterState)),
+      },
+    } as PveSceneDependencies;
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha"),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("`/trocar <número>` · Trocar (reservas: 02)");
+    expect(text).not.toContain("reservas: 01");
+  });
+
+  it("does not offer illegal or unusable actions for PVP with exhausted moves", async () => {
+    const setup = dependencies(false);
+    const pvpState = {
+      ...state,
+      battleType: "PVP",
+      combatants: [
+        {
+          ...state.combatants[0],
+          moves: [{ slotNo: 1, moveId: quickAttackId, ppCurrent: 0, maxPp: 30 }],
+        },
+        state.combatants[1],
+      ],
+    } as BattleState;
+    const deps = {
+      ...setup.dependencies,
+      battle: {
+        ...setup.dependencies.battle,
+        currentState: vi.fn(async () => ok(pvpState)),
+      },
+    } as PveSceneDependencies;
+    const result = await routeFor(createPveSceneRoutes(deps), "batalha").handler.handle(
+      context("/batalha"),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("`/moves` · Consultar golpes e PP");
+    expect(text).not.toContain("`/movimento <número>`");
+    expect(text).not.toContain("`/fugir`");
+    expect(text).not.toContain("`/capturar`");
+    expect(text).not.toContain("`/trocar <número>`");
+  });
+
   it("shows only the caller's own turn submission state in /batalha", async () => {
     const setup = dependencies(false);
     const submittedDeps = {
@@ -489,6 +576,10 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(submitted.ok && String(submitted.value.outgoing[0]?.payload.text)).toContain(
       "〔✓〕 Sua ação já foi definida.",
     );
+    const submittedText = String(submitted.ok ? submitted.value.outgoing[0]?.payload.text : "");
+    expect(submittedText).toContain("Aguarde a resolução do turno");
+    expect(submittedText).not.toContain("`/movimento <número>`");
+    expect(submittedText).not.toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
 
     const pendingDeps = {
       ...setup.dependencies,
@@ -506,6 +597,63 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(pending.ok && String(pending.value.outgoing[0]?.payload.text)).toContain(
       "Sua ação ainda não foi definida.",
     );
+  });
+
+  it("keeps the opponent's PvP action private in both waiting and committed views", async () => {
+    const setup = dependencies(false);
+    const pvp = { ...state, battleType: "PVP" } as BattleState;
+    const currentState = vi.fn(async () => ok(pvp));
+    const turnWindowForBattleVersion = vi.fn(async () => ({
+      window: {
+        requiredControllers: [{ participantId }],
+        requiredPlayers: [],
+      },
+      submissions: [] as {
+        status: "ACTIVE";
+        playerId: string;
+        action: { actorParticipantId: string };
+      }[],
+    }));
+    const deps = {
+      ...setup.dependencies,
+      battle: {
+        ...setup.dependencies.battle,
+        currentState,
+      },
+      turnWindowForBattleVersion,
+    } as unknown as PveSceneDependencies;
+    const route = routeFor(createPveSceneRoutes(deps), "batalha");
+
+    const pending = await route.handler.handle(context("/batalha"));
+    expect(pending.ok).toBe(true);
+    if (!pending.ok) return;
+    const pendingText = String(pending.value.outgoing[0]?.payload.text);
+    expect(pendingText).toContain("Sua ação ainda não foi definida");
+    expect(pendingText).toContain("A escolha do rival fica oculta");
+    expect(pendingText).toContain("`/movimento <número>`");
+    expect(pendingText).not.toContain("`/fugir`");
+
+    turnWindowForBattleVersion.mockResolvedValue({
+      window: {
+        requiredControllers: [{ participantId }],
+        requiredPlayers: [],
+      },
+      submissions: [
+        {
+          status: "ACTIVE",
+          playerId,
+          action: { actorParticipantId: participantId },
+        },
+      ],
+    });
+    const submitted = await route.handler.handle(context("/batalha"));
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) return;
+    const submittedText = String(submitted.value.outgoing[0]?.payload.text);
+    expect(submittedText).toContain("Sua ação já foi definida");
+    expect(submittedText).toContain("A escolha do adversário permanece oculta");
+    expect(submittedText).not.toContain("`/movimento <número>`");
+    expect(submittedText).not.toContain("◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗔 𝗔ÇÃ𝗢*");
   });
 
   it("does not let a player inspect another player's hidden PVP submission state by mentioning them", async () => {
