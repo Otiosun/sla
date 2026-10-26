@@ -9,6 +9,7 @@ on:
       - "src/runtime/compose-player-portal-runtime.ts"
       - "src/modules/admin/registry-catalog.ts"
       - "tests/player/player-portal-http-handler.test.ts"
+      - "tests/db/manual-premium-delivery.integration.test.ts"
   workflow_dispatch:
 
 permissions:
@@ -71,6 +72,7 @@ jobs:
         run: |
           pnpm exec vitest run \
             tests/player/player-portal-http-handler.test.ts \
+            tests/db/manual-premium-delivery.integration.test.ts \
             tests/db/entitlements.integration.test.ts \
             tests/db/premium-orders.integration.test.ts \
             tests/db/premium-orders-xp2x.integration.test.ts
