@@ -213,7 +213,7 @@ function handler(
             durationSecondsPerUnit: null },
         ],
         history: async () => [],
-        deliver: async (input: unknown, actor: string) => ({
+        deliver: async (input: unknown, _actor: string) => ({
           kind: "APPLIED" as const, replayed: false,
           entitlement: {
             playerId: (input as { playerId: string }).playerId,
