@@ -1,48 +1,37 @@
-# Pokémon Beyond — Jornada Narrada: UX end-to-end candidata (26/10/2026)
+# Pokémon Beyond — Jornada Narrada: direção simplificada (26/10/2026)
 
-**Status:** proposta de UX da etapa 4 (Jornada e Narrativa), **não** implementação, aprovação final, deploy nem alteração do bot ativo. Vinculada à PR #255 Draft sem mesclar #257 Exploração Individual. Vocabulário: **Cenar / Cena**.
+**DECISÃO EDITORIAL MAIS RECENTE, QUE SUBSTITUI A PROPOSTA ANTERIOR.**
+Status: UX corrigida por feedback do usuário. O texto anterior que defendia sessões formais, novos comandos para gerenciar Jornada e registros de participação fica **revogado**. Nada foi implementado ou publicado.
 
-## Fatos auditados
-- `src/modules/world-services/scene-proof.ts` já define `MIN_SCENE_PROOF_WORDS = 50` e contador estrutural para serviços da Jornada, com janela temporal de 15 min. Isso NÃO significa que existe prova coletiva generalizada de Cena por etapa da Jornada, nem que sessão narrada tenha TTL 15 min. Reutilizar/aperfeiçoar o contador sem reaproveitar indevidamente os prazos/escopos.
-- `src/modules/encounter/spawn-whatsapp.ts` expõe `/spawn` autorizado por `encounter.support` e capability `pve`, exige menção real e checa co-localização do grupo, situação SPLIT e TRAVELLING. A chamada observada de `createOrReplay` passa `participantPlayerIds: []`: o simples fato de a party compartilhar local NÃO garante inserção dos aliados no mesmo combate. Portanto demonstrar spawn singular como fato e **não** prometer batalha coletiva automaticamente.
-- `src/platform/encounter/postgres-narrator-spawn-context.ts` resolve os integrantes de `player_party_members`, área e bloqueio de deslocamento; WhatsApp group chat != co-localização canônica.
-- `src/modules/narrative/service.ts` (`DEFAULT_NARRATIVE_N0_POLICY.enabled=false`), `src/modules/narrative/README.md`: IA narrativa N0 não pode alterar estado mecânico, acertar golpes, XP, recompensas ou posse. Narrador humano conduz prosa; bot executa apenas ações estruturadas/canônicas.
-- `src/modules/battle/pve-scene-whatsapp.ts` reconhece comandos em prosa com parser existente, mas gate de 50 palavras por turno, `/cena` e contexto narrado coletivo NÃO estão implementados.
-- `docs/exploration/EXPLORACAO_AUTONOMA_V1_BASELINE.md`: Jornada Narrada é distinta da Exploração Individual (relógio/cotas de expedição não entram automaticamente na Jornada); nenhuma reprodução mecânica do jogador por texto não autorizado.
-- `docs/integration/FRONTEND_WHATSAPP_STYLE.md`: prosa em itálico, dados críticos sem itálico, narrativa antes do painel, comandos em monoespaçado; responder/reply não prova Cena.
+## Regra-mãe
+**Narrador conduz a ficção; jogadores Cenam; bot aparece apenas quando há mecânica real necessária.**
+- Jornada Narrada é fundamentalmente RPG de interpretação humana, sem gerenciador de sessões automático.
+- Descartar comandos propostos /jornada iniciar, /jornada pausar, /jornada retomar, /jornada encerrar e painéis de abertura/fechamento para toda Jornada; não criar check-ins, marcadores automáticos de capítulo nem missões automáticas pela prosa.
+- Não exigir /cena para conversa e Cenas livres. Jogadores e narrador interagem normalmente, sem bot reagindo a cada fala. Reply não transforma comentário em comando.
+- Regra de **50 palavras** permanece para Cenas **formais exigidas por mecânicas**: PvE/PvP e comprovantes de Cena de serviços específicos. Não exigir 50 palavras para cada diálogo ou mensagem casual na Jornada.
+- Jornada Narrada não herda relógio e cotas da Exploração Individual. Narrador determina história, NPCs, pistas, ritmo e episódios. Texto não cria XP, loot, Pokémon, captura ou teleporte mecanicamente.
+- Nunca criar estado mecânico por interpretação automática de texto livre ou inventar recompensa.
 
-## Princípio de produto
-**Narrador conduz a ficção; jogador CENA e toma decisões; bot só atua onde há contrato mecânico.** A conversa continua livre; não exigir que narrador responda por meio de painel a cada fala. Interpretar texto em linguagem natural não fornece efeitos, progresso, pistas ocultas, loot nem bônus. Cenário/horário só afetam sorteio quando sincronizados com localização, ambiente, catálogo e estado canônico.
+## Principal ferramenta: /spawn já existente
+Preservar e lapidar o /spawn do narrador (código em src/modules/encounter/spawn-whatsapp.ts).
+- A rota existente exige capacidade administrativa encounter.support em grupo PvE, menção real ao alvo, verificação de co-localização/party e bloqueios quando grupo dividido ou em deslocamento. O parser existente permite modificadores como espécie, nível, quantidade, shiny, ataque de abertura e automático, sob os limites reais do sistema.
+- Comando simples do narrador: /spawn @treinador. Bot apresenta encontro canônico e oferece os comandos mecânicos adequados; não substituir por lobby ou interface de sessão.
+- Limitação auditada: a criação atual envia participantPlayerIds: [] — colegas da party não entram automaticamente em um combate conjunto. Futuro aperfeiçoamento cooperativo é um trabalho da mecânica do encounter/battle, não um gerenciador de Jornada.
+- Atenção: parseSpawnCommand exige /spawn no início da primeira linha mesmo com allowEmbedded, logo não prometer que /spawn em qualquer trecho narrativo já funciona. A decisão de comando em qualquer posição deve ser auditada por rota, não presumida universal.
+- Melhorias pontuais úteis: aparência contextual do encontro, mensagens compactas e bem escritas, argumentos flexíveis sem ambiguidade, erros seguros, permissões e idempotência.
 
-## Fluxo ideal ilustrativo
-1. Narrador abre sessão por comando administrativo futuro opcional `/jornada iniciar @Jogador1 @Jogador2` com identidade, área e participantes verificados. **NÃO EXISTE** esse comando. Se não for criado, abertura manual do narrador segue sem automação; bot pode gerir mecânicas separadas.
-2. Bot emite no máximo um painel de abertura contendo área válida, presentes, estado da Cena e instruções `/cena` (quando registro for necessário) e `/jornada` (consulta proposta). Nunca publica equipe privada, inventário, espécie secreta ou recompensa.
-3. Narrador envia Cena ambiental em mensagem humana comum, sem reação automática do bot.
-4. Jogadores enviam Cenas próprias de pelo menos 50 palavras quando a etapa **requer registro de participação/efeito mecânico**. `/cena` propõe registro explícito; sem reply obrigatório. Apenas uma resposta discreta/reação após persistência. Fala breve/diálogo casual continua permitido e não vira Cena validada. **Não** impor 50 palavras a cada interjeição do grupo nem reinterpretar citações.
-5. Narrador gerencia a passagem entre marcos de história; bot não decide sozinho que uma pista foi encontrada porque alguém escreveu “encontrei”.
-6. Quando há encontro real, narrador usa `/spawn @jogador` com elegibilidade de co-localização e regras de encounter. O próprio narrador não cria Pokémon extra apenas escrevendo ficção. O bot registra o encounter e envia uma mensagem curta; imagem de spawn contextual é trabalho visual futuro sujeito a curadoria/licenças.
-7. Um jogador entra em combate PvE; Cena de 50 palavras + comando único em qualquer ponto da mensagem. Companheiro que só CENA apoio não recebe bônus e NÃO ingressa automaticamente na batalha. Cooperação genuína depende contrato explícito com participantPlayerIds/controle/autorização/recompensas; não prometer até desenvolver/testar.
-8. Bot resolve combat/capture pelo motor, registra evento e publica resumo único; narrador pode interpretar suas consequências, jamais reescrever HP/captura por texto.
-9. Narrador encerra o arco por prosa humana. Encerramento mecânico/summary auditável exigiria comando administrativo **futuro**, p.ex. `/jornada encerrar`, com checagem de encounter/battle ativos e snapshot canônico. Nenhum loot/XP/moeda automático por narrativa sem política e settlement reais.
+## Simulação realista mínima
+1. Narrador posta cena da mata, NPCs e mistério. Bot silencioso.
+2. Jogadores Cenam, interagem e investigam; conversa normal no grupo. Bot silencioso.
+3. Narrador decide aparecer um selvagem: /spawn @treinador. Bot cria/mostra encontro permitido.
+4. Jogador inicia batalha ou captura, com Cena formal >=50 palavras + ação mecânica, conforme regras já fixadas para PvE. Bot resolve e apresenta resultado verdadeiro.
+5. Narrador interpreta consequências e continua a história. Bot silencioso.
+6. Narrador conclui a Jornada com mensagem humana, sem novo comando de encerrar sessão.
 
-## Política anti-spam e segurança
-- Resposta/quote ao bot é contexto opcional, não registro de Cena. Mensagens comuns, provocação e conversa de participantes/espectadores não disparam bot; sem NLP criativo.
-- /cena com texto 50+ palavras valida ator, grupo, sessão, etapa, autoria, cronologia; deduplicação por mensagem, e impedimento de duas participações válidas para a mesma obrigação. Falar depois continua livre.
-- Mensagem <50 tem feedback gentil discreto `Sua Cena tem X/50 palavras; faltam Y`; não consome ação nem avança; nenhuma penalidade mecânica por fala informal.
-- Narrador pode solicitar novas Cenas livremente, mas **novo marco administrativo do bot** só quando realmente precisa validar participação. Não numerar cada fala no WhatsApp.
-- Pausa/retomada de sessão narrada: persistir estado/etapa; sem inventar W.O. PvP nem TTL de Expedição Individual; recupera após restart com `/jornada` proposto e valida co-localização novamente antes de novos atos mecânicos. Pessoas podem entrar/sair de Cenas por decisão do narrador, mas adicionar a uma batalha exige controle técnico e estado elegível.
-- Se grupo dividido ou alguém viajando, o /spawn existente bloqueia. Nunca mover jogador automaticamente para coincidir com Cena do narrador. Múltiplas sessões elegíveis => falha fechada e seleção explícita, sem inferir.
-- Narrador e admins devem ter permissionamento explícito; chat não confere poderes. Substituição de narrador requer auditoria; espectadores sem comando de mutação.
-- Não republicar cenas privadas na mensagem de resultado, não inventar rewards; publicações/Outbox idempotentes e uma só vez.
-- Time-of-day e ambientes não podem ser selecionados livremente pela aparência da imagem; usar catálogo/área/microhabitat/contexto real; a decoração não é fonte de regra.
+## Ferramentas adicionais — somente se houver necessidade comprovada
+- Comandos canônicos de combate, captura, fuga, consulta de estado, eventual limpeza administrativa de um encontro travado.
+- Cooperação PvE de verdade quando houver autorização e modelo de participante/controle para mais de um jogador, mas sem inventar que já funciona.
+- Sem automação de objetivos narrativos, NPCs, recompensas fictícias ou seguimento de Cena por IA.
 
-## Gates técnicos
-A. UX e política de sessão: escolher se `/jornada iniciar|status|pausar|retomar|encerrar` realmente é necessário, e escopo de `/cena` além de combate; evitar burocracia e spoilers. Definir mínimo de 50 palavras nas Cenas **formais** da Jornada; comando de gameplay só quando houver efeito canônico.
-B. Persistência: narrator session/step/members/roles, autorização por grupo e área, SceneProof reutilizado/adaptado sem janela de instalação de 15min, receipts por ator/etapa/version, histórico, recuperação.
-C. Encounters: resolver integração multi-player de fato; atualmente `participantPlayerIds: []` no comando do narrador, mesmo se party válida. Envolvimento só narrativo de aliados não implica combate cooperativo.
-D. Encerramento: eventual quest state/objetivos/recompensas apenas quando existirem regras canônicas claras e transações seguras.
-E. Testes: abertura, registro 49/50/51, turnos antigos, citações, 2+ jogadores, espectador, ausência, split/travel, troca de narrador, spam, crash/replay, spawn uma vez, PvE, nenhuma recompensa/XP indevida; simulação WhatsApp + PG descartável.
-F. UX UAT e deploy só após aprovação explícita, CI e ambiente isolado. PR/Drive é design, não código vivo.
-
-## Exemplo principal
-Narrador: ambientação; Jogador1: `/cena` + tentativa longa de examinar pegadas; Jogador2: `/cena` + proteção do colega; narrador decide narrativa, sem bot responder; narrador: `/spawn @Jogador1`; bot mostra encounter canônico; jogador1: Cena 50+ /movimento 1; bot resolve; narrador interpreta aftermath; resumo somente fatos reais e nenhum loot inventado.
+## Estado
+O design anterior de sessões automatizadas da Jornada deve ser ignorado. UX atual prioriza liberdade narrativa e /spawn. Mudança apenas em docs/ux da branch PR #255 Draft. Bot ativo, banco, PM2 e Baileys inalterados.
