@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; owner?: boolean; premiumEnabled?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -195,6 +195,41 @@ function handler(
     adminRewardCatalog: {
       get: adminRewardCatalogGet,
     },
+    ...(options.owner === undefined ? {} : {
+      adminTeam: {
+        isOwner: async () => options.owner === true,
+      } as unknown as NonNullable<
+        ConstructorParameters<typeof PlayerPortalHttpHandler>[0]["adminTeam"]
+      >,
+    }),
+    ...(options.premiumEnabled ? {
+      premiumDelivery: {
+        catalog: async () => [
+          { sku: "2XP", title: "XP em Dobro", maxQuantity: 52,
+            entitlementKey: "XP_2X", grantModel: "TIMED" as const,
+            durationSecondsPerUnit: 604800 },
+          { sku: "LUCK", title: "Bênção da Sorte", maxQuantity: 1,
+            entitlementKey: "CAPTURE_LUCK_2X", grantModel: "PERMANENT" as const,
+            durationSecondsPerUnit: null },
+        ],
+        history: async () => [],
+        deliver: async (input: unknown, actor: string) => ({
+          kind: "APPLIED" as const, replayed: false,
+          entitlement: {
+            playerId: (input as { playerId: string }).playerId,
+            entitlementKey: (input as { sku: string }).sku === "LUCK"
+              ? "CAPTURE_LUCK_2X" : "XP_2X",
+            grantModel: (input as { sku: string }).sku === "LUCK"
+              ? "PERMANENT" as const : "TIMED" as const,
+            administrativeStatus: "ACTIVE" as const,
+            startsAt: "2026-10-26T00:00:00.000Z",
+            expiresAt: null,
+            revision: "1",
+            currentlyActive: true,
+          },
+        }),
+      },
+    } : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -222,6 +257,44 @@ function handler(
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
+  it("fails closed for ordinary ADM while allowing owner and explicit delegated Premium grants", async () => {
+    const base = "https://api.example.test/v1/hub/admin/premium/delivery";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const headers = { cookie };
+    const ordinary = handler({ admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["reward.grant", "player.read"] });
+    expect((await ordinary.instance.handle(new Request(base + "/catalog", { headers }))).status).toBe(403);
+
+    const delegate = handler({ admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["premium.delivery.grant", "player.read"] });
+    const catalog = await delegate.instance.handle(new Request(base + "/catalog", { headers }));
+    expect(catalog.status).toBe(200);
+    expect((await catalog.json()).products.map((x: { sku: string }) => x.sku))
+      .toEqual(["2XP", "LUCK"]);
+
+    const payload = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId, sku: "LUCK", quantity: 1,
+      reason: "Pagamento conferido pelo administrador autorizado.",
+    };
+    const delivery = await delegate.instance.handle(new Request(base, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+    expect(delivery.status).toBe(201);
+    expect(await delivery.json()).toMatchObject({
+      applied: true, requestId: payload.requestId,
+      entitlement: { playerId: profile.playerId, entitlementKey: "CAPTURE_LUCK_2X" },
+    });
+
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true,
+      capabilities: ["player.read"] });
+    expect((await owner.instance.handle(new Request(base + "/catalog", { headers }))).status).toBe(200);
+
+    const unavailable = handler({ admin: true, owner: true, premiumEnabled: false });
+    expect((await unavailable.instance.handle(new Request(base + "/catalog", { headers }))).status).toBe(503);
+  });
+
   it("exchanges a one-shot ticket for a secure HttpOnly cookie", async () => {
     const response = await handler().instance.handle(
       new Request("https://api.example.test/v1/hub/auth/exchange", {
