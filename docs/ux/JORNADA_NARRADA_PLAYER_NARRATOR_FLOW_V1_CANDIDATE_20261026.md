@@ -17,7 +17,7 @@ Preservar e lapidar o /spawn do narrador (código em src/modules/encounter/spawn
 - A rota existente exige capacidade administrativa encounter.support em grupo PvE, menção real ao alvo, verificação de co-localização/party e bloqueios quando grupo dividido ou em deslocamento. O parser existente permite modificadores como espécie, nível, quantidade, shiny, ataque de abertura e automático, sob os limites reais do sistema.
 - Comando simples do narrador: /spawn @treinador. Bot apresenta encontro canônico e oferece os comandos mecânicos adequados; não substituir por lobby ou interface de sessão.
 - Limitação auditada: a criação atual envia participantPlayerIds: [] — colegas da party não entram automaticamente em um combate conjunto. Futuro aperfeiçoamento cooperativo é um trabalho da mecânica do encounter/battle, não um gerenciador de Jornada.
-- Atenção: parseSpawnCommand exige /spawn no início da primeira linha mesmo com allowEmbedded, logo não prometer que /spawn em qualquer trecho narrativo já funciona. A decisão de comando em qualquer posição deve ser auditada por rota, não presumida universal.
+- Atenção técnica corrigida: parseSpawnCommand exige /spawn no começo do **texto de comando entregue pelo roteador**, mas src/modules/messaging/router.ts extrai a diretiva de uma mensagem maior, preserva originalMessageText, e o teste tests/messaging/pve-spawn-whatsapp.test.ts confirma /spawn ao final da Cena do narrador. Não confundir o parser isolado com a rota pública; a capacidade de colocar comandos em linha com prosa e argumentos compostos ainda exige auditoria de casos ambíguos.
 - Melhorias pontuais úteis: aparência contextual do encontro, mensagens compactas e bem escritas, argumentos flexíveis sem ambiguidade, erros seguros, permissões e idempotência.
 
 ## Simulação realista mínima
@@ -32,6 +32,14 @@ Preservar e lapidar o /spawn do narrador (código em src/modules/encounter/spawn
 - Comandos canônicos de combate, captura, fuga, consulta de estado, eventual limpeza administrativa de um encontro travado.
 - Cooperação PvE de verdade quando houver autorização e modelo de participante/controle para mais de um jogador, mas sem inventar que já funciona.
 - Sem automação de objetivos narrativos, NPCs, recompensas fictícias ou seguimento de Cena por IA.
+
+## Auditoria pontual da transição /spawn → PvE (26/10/2026)
+- /spawn simples cria Encounter canônico e o apresenta; ainda **não começa necessariamente uma batalha**. O jogador pode acionar uma ação de batalha válida e o serviço PveBattleStartService.startCanonical engaja e inicializa o mesmo motor PvE.
+- /spawn com modificador "ataque" usa narratorOpening.start e inicia diretamente o PvE já registrando a ação inicial do selvagem, quando o estado e dependências permitem. Fast path aceita somente um selvagem; "ataque" e "auto" são mutuamente exclusivos.
+- /spawn com "auto" usa autoBattle.start/automatePlayers/kick, entrando no mesmo motor com controle automático e apresentação compacta.
+- Modificadores existentes: nível 1..100, quantidade 1..6, shiny, iniciativa jogador/selvagem, espécie referenciada e ataque de abertura elegível. O narrador também dispõe das rotas administrativas /iniciarbatalha e /finalizarbatalha para controlar/recuperar encontros elegíveis.
+- /spawn ao final de Cena já possui teste no MessageRouter. Conferir cenas com comando no começo/meio/fim, múltiplas diretivas, citações, parâmetros compostos, replay, recuperação de erro e consistência visual; não lançar segundo motor.
+- **Próximo foco:** auditoria UX pontual do /spawn manual → encontro → PvE com jogador/ narrador, visual e feedback contextual, incluindo erro e encerramento. Não reabrir gerenciador de Jornada.
 
 ## Estado
 O design anterior de sessões automatizadas da Jornada deve ser ignorado. UX atual prioriza liberdade narrativa e /spawn. Mudança apenas em docs/ux da branch PR #255 Draft. Bot ativo, banco, PM2 e Baileys inalterados.
