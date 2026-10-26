@@ -86,7 +86,8 @@ const OWNER_CAPABILITIES = ADMIN_CAPABILITIES.map(([key]) => key);
 export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapabilityKey[]>> = {
   RECEPTION_MOD: RECEPTION_REVIEW_CAPABILITIES,
   ADMIN: SENIOR_CAPABILITIES,
-  MASTER_ADMIN: OWNER_CAPABILITIES,
+  // Commercial grants do not come with the generic MASTER_ADMIN role.
+  MASTER_ADMIN: OWNER_CAPABILITIES.filter((key) => key !== "premium.delivery.grant"),
   SUPPORT: [
     "central.view",
     "player.read",
