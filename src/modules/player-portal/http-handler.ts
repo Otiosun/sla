@@ -901,9 +901,14 @@ export class PlayerPortalHttpHandler {
     playerId?: string,
   ): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
-    if (!admin || (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
-      return jsonResponse(403, { error: "FORBIDDEN" });
-    }
+    // Only an owner or a principal explicitly delegated this one paid-benefit
+    // capability may use the grant endpoint. Other Premium administration
+    // endpoints retain their owner-only guards.
+    const allowed = admin !== null && (
+      admin.capabilities.includes("premium.delivery.grant") ||
+      (await this.dependencies.adminTeam?.isOwner(admin.principalId)) === true
+    );
+    if (!allowed) return jsonResponse(403, { error: "PREMIUM_DELIVERY_FORBIDDEN" });
     const service = this.dependencies.premiumDelivery;
     if (!service) return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
     try {

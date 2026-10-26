@@ -251,6 +251,50 @@ function handler(
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
+  it("blocks ordinary ADM and accepts only explicitly delegated Premium grant rights", async () => {
+    const catalogPath = "https://api.example.test/v1/hub/admin/premium/delivery/catalog";
+    const grantPath = "https://api.example.test/v1/hub/admin/premium/delivery";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const headers = { cookie };
+    const ordinary = handler({
+      admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["player.read", "reward.grant"],
+    });
+    const denied = await ordinary.instance.handle(new Request(catalogPath, { headers }));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ error: "PREMIUM_DELIVERY_FORBIDDEN" });
+
+    const delegate = handler({
+      admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["player.read", "premium.delivery.grant"],
+    });
+    const allowed = await delegate.instance.handle(new Request(catalogPath, { headers }));
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({ products: [] });
+
+    const grant = await delegate.instance.handle(new Request(grantPath, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: "11111111-1111-4111-8111-111111111111",
+        playerId: profile.playerId,
+        sku: "2XP",
+        quantity: 1,
+        reason: "Verificado externamente pelo administrador.",
+      }),
+    }));
+    // The delegate reached the service, but cannot grant an unknown SKU.
+    expect(grant.status).toBe(404);
+    expect(await grant.json()).toEqual({ error: "PRODUCT_UNAVAILABLE" });
+
+    // Delegation does not grant access to commercial payments or support.
+    const support = await delegate.instance.handle(new Request(
+      `https://api.example.test/v1/hub/admin/premium/players/${profile.playerId}/support`,
+      { headers },
+    ));
+    expect(support.status).toBe(403);
+  });
+
   it("lets staging owner manually deliver a published item through audited inventory.adjust", async () => {
     const api = handler({ admin: true, owner: true, premiumEnabled: true });
     const path = "https://api.example.test/v1/hub/admin/premium/delivery/items";
