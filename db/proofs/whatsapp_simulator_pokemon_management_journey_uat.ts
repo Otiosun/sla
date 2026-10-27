@@ -216,7 +216,7 @@ async function main() {
     await pool.query(`INSERT INTO pending_move_choices
       (id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,source_id,correlation_id)
       VALUES($1,$2,$3,$4,$5,'BATTLE_REWARD',$6,$7)`,
-      [duplicateChoiceId,pokemonId,release,moveId,first.level,randomUUID(),randomUUID()]);
+      [duplicateChoiceId,pokemonId,release,moveId,Math.max(1,first.level-1),randomUUID(),randomUUID()]);
     const duplicateOffer=await send(actor,"/golpes");
     check("moves",actor,"/golpes duplicate reward",
       "warns the move is already learned instead of suggesting a damaging replacement",
