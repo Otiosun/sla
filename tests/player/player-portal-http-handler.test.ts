@@ -203,6 +203,10 @@ function handler(
       >,
     }),
     ...(options.premiumEnabled ? {
+      premiumRead: {
+        orders: { listPlayerOrders: async () => [{ id: "order-for-test" }] },
+        entitlements: { listPlayerEntitlements: async () => [{ entitlementKey: "XP_2X" }] },
+      },
       premiumDelivery: {
         catalog: async () => [
           { sku: "2XP", title: "XP em Dobro", maxQuantity: 52,
@@ -257,6 +261,31 @@ function handler(
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
+  it("returns premium entitlements and orders only to the owner, never a delivery delegate", async () => {
+    const url = `https://api.example.test/v1/hub/admin/premium/players/${profile.playerId}`;
+    const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true });
+    const products = await owner.instance.handle(new Request(url + "/entitlements", { headers }));
+    expect(products.status).toBe(200);
+    expect(await products.json()).toEqual({
+      entitlements: [{ entitlementKey: "XP_2X" }],
+    });
+    const orders = await owner.instance.handle(new Request(url + "/orders", { headers }));
+    expect(orders.status).toBe(200);
+    expect(await orders.json()).toEqual({ orders: [{ id: "order-for-test" }] });
+
+    const delegate = handler({ admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["player.read", "premium.delivery.grant"] });
+    for (const suffix of ["/orders", "/entitlements"]) {
+      const res = await delegate.instance.handle(new Request(url + suffix, { headers }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "PREMIUM_READ_FORBIDDEN" });
+    }
+    const unavailable = handler({ admin: true, owner: true, premiumEnabled: false });
+    expect((await unavailable.instance.handle(new Request(url + "/entitlements", { headers }))).status)
+      .toBe(503);
+  });
+
   it("fails closed for ordinary ADM while allowing owner and explicit delegated Premium grants", async () => {
     const base = "https://api.example.test/v1/hub/admin/premium/delivery";
     const cookie = "__Host-pokemon_hub_session=session-token";
