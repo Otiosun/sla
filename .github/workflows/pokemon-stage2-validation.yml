@@ -32,6 +32,6 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
       - name: Focused service unit tests
-        run: pnpm exec vitest run tests/player/player-portal-evolution-service.test.ts tests/player/player-portal-move-choice-service.test.ts tests/player/player-portal-roster-service.test.ts
+        run: pnpm exec vitest run tests/player/player-portal-evolution-service.test.ts tests/player/player-portal-http-handler.test.ts tests/player/player-portal-move-choice-service.test.ts tests/player/player-portal-roster-service.test.ts
       - name: Build runtime
         run: pnpm build
