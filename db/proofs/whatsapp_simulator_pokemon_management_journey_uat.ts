@@ -4,7 +4,7 @@
  * Reports commands AND committed state. Absolutely never point at production.
  */
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
 import { UatBootstrapService } from "../../src/modules/admin/uat-bootstrap.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
@@ -25,6 +25,39 @@ if (process.env.APP_ENV !== "test" || !url.includes("localhost") || !url.include
   throw new Error("Player journey only runs against explicit disposable local test PostgreSQL");
 }
 const pool = new Pool({ connectionString: url, max: 8 });
+/**
+ * Published releases are immutable, correctly! Only the isolated fixture
+ * constructor temporarily suspends a particular draft guard, within ONE
+ * transaction, then re-enables it before commit. All other triggers, FKs,
+ * inventory ledgers and gameplay mutation guards remain untouched.
+ * The guard at the start of this script forbids any nonlocal/non-test DB.
+ */
+const catalogGuard = {
+  move_revisions: "trg_move_revisions_draft_only",
+  item_revisions: "trg_item_revisions_draft_only",
+  evolution_rules: "trg_evolution_rules_draft_only",
+} as const;
+async function insertSyntheticPublishedFixture(
+  table: keyof typeof catalogGuard,
+  query: string,
+  values: readonly unknown[],
+) {
+  const client: PoolClient = await pool.connect();
+  const trigger = catalogGuard[table];
+  try {
+    await client.query("BEGIN");
+    await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
+    const inserted = await client.query(query, [...values]);
+    if (inserted.rowCount !== 1) throw new Error(`Synthetic fixture ${table} did not insert exactly one row`);
+    await client.query(`ALTER TABLE ${table} ENABLE TRIGGER ${trigger}`);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 const PLAYER_A = "5599999999101@s.whatsapp.net";
 const PLAYER_B = "5599999999102@s.whatsapp.net";
 const WORLD = "120363900000000002@g.us";
@@ -134,7 +167,7 @@ async function main() {
     if (!typeId) throw new Error("Missing type in published release");
     const moveId = randomUUID(), choiceId = randomUUID();
     await pool.query("INSERT INTO moves(id,slug) VALUES($1,$2)", [moveId, `stage2-jornada-${moveId}`]);
-    await pool.query(`INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
+    await insertSyntheticPublishedFixture("move_revisions", `INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
       VALUES($1,$2,$3,'Eco da Jornada',$4,'PHYSICAL',40,100,20,TRUE)`, [randomUUID(), release, moveId, typeId]);
     await pool.query(`INSERT INTO pending_move_choices
       (id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,source_id,correlation_id)
@@ -186,14 +219,14 @@ async function main() {
     const targetForm = target.rows[0]?.form_id;
     if (!targetForm) throw new Error("No second evolution target in synthetic catalog");
     await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [stoneId,`pedra-jornada-${stoneId}`]);
-    await pool.query(`INSERT INTO item_revisions
+    await insertSyntheticPublishedFixture("item_revisions", `INSERT INTO item_revisions
       (id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active)
       SELECT $1,$2,$3,'Pedra da Jornada',item_kind,effect_key,effect_config,TRUE
       FROM item_revisions WHERE content_release_id=$2 LIMIT 1`,
       [randomUUID(),release,stoneId]);
     await pool.query(`INSERT INTO inventory_balances(player_id,item_id,quantity)
        VALUES($1,$2,2)`, [owner,stoneId]);
-    await pool.query(`INSERT INTO evolution_rules(id,content_release_id,from_form_id,to_form_id,trigger_kind,trigger_config,active)
+    await insertSyntheticPublishedFixture("evolution_rules", `INSERT INTO evolution_rules(id,content_release_id,from_form_id,to_form_id,trigger_kind,trigger_config,active)
       VALUES($1,$2,$3,$4,'ITEM',$5::jsonb,TRUE)`,
       [randomUUID(),release,first.form_id,targetForm,JSON.stringify({itemId:stoneId})]);
     const options = await send(actor, "/evolucao #1");
