@@ -24,7 +24,7 @@ function fixture(options: { activeBattle?: boolean; status?: PlayerProfileView["
   const evolvePokemon = vi.fn<ProgressionService["evolvePokemon"]>(async () =>
     ok({
       pokemonInstanceId, fromFormId: formId, toFormId: newFormId,
-      triggerKind: "LEVEL", beforeLevel: 16, afterLevel: 16, replayed: false,
+      triggerKind: "ITEM", beforeLevel: 16, afterLevel: 16, replayed: false,
     }),
   );
   return {
@@ -39,7 +39,7 @@ function fixture(options: { activeBattle?: boolean; status?: PlayerProfileView["
     }),
   };
 }
-const request = { pokemonInstanceId, requestId, trigger: { kind: "LEVEL" } };
+const request = { pokemonInstanceId, requestId, trigger: { kind: "ITEM", itemId: formId } };
 
 describe("PlayerPortalEvolutionService", () => {
   it("lists only owned Pokémon evolution rules with serialized item quantities", async () => {
@@ -89,7 +89,7 @@ describe("PlayerPortalEvolutionService", () => {
     expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({
       playerId, pokemonInstanceId,
       idempotencyKey: `hub.evolution:${playerId}:${requestId}`,
-      trigger: { kind: "LEVEL" },
+      trigger: { kind: "ITEM", itemId: formId },
     });
   });
 
