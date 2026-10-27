@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { EntitlementService } from "../../src/modules/entitlements/service.js";
 import { ManualPremiumDeliveryService } from "../../src/modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../../src/modules/premium-orders/manual-delivery-case-service.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresEntitlementRepository } from "../../src/platform/entitlements/postgres-entitlement-repository.js";
 
@@ -34,6 +35,8 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
   }, 30_000);
 
   beforeEach(async () => {
+    await pool.query("DELETE FROM premium_delivery_case_events");
+    await pool.query("DELETE FROM premium_delivery_cases");
     await pool.query("DELETE FROM entitlement_grants");
     await pool.query("DELETE FROM player_entitlements");
     await pool.query("DELETE FROM player_identities");
@@ -117,6 +120,61 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
         "(SELECT count(*)::text FROM premium_orders) AS orders",
     );
     expect(rows.rows[0]).toEqual({ payments: "0", orders: "0" });
+  });
+
+
+  it("tracks a human-operated GEN Gamepass case without granting Pokémon, items or entitlements", async () => {
+    const cases = new PremiumDeliveryCaseService(pool);
+    expect(cases.catalog().some((p) => p.sku === "GEN")).toBe(true);
+    const caseId = randomUUID();
+    const eventId = randomUUID();
+    const opening = {
+      caseId, eventId, playerId, sku: "GEN", quantity: 1,
+      note: "Aguardando conceito e aprovação de espécie pelo proprietário.",
+    };
+    const first = await cases.open(opening, actorPrincipalId);
+    expect(first).toMatchObject({
+      kind: "APPLIED", replayed: false,
+      case: { id: caseId, state: "OPEN", revision: 0, sku: "GEN" },
+    });
+    expect(await cases.open(opening, actorPrincipalId)).toMatchObject({
+      kind: "APPLIED", replayed: true,
+    });
+    expect(await cases.open({ ...opening, quantity: 2 }, actorPrincipalId)).toMatchObject({
+      kind: "CONFLICT", code: "IDEMPOTENCY_CONFLICT",
+    });
+    expect(await cases.list(playerId)).toHaveLength(1);
+    expect(await cases.timeline(caseId)).toHaveLength(1);
+
+    const transition = {
+      caseId, eventId: randomUUID(), expectedRevision: 0,
+      nextState: "IN_PROGRESS" as const,
+      note: "Documentação recebida para revisão.", attested: false,
+    };
+    expect(await cases.advance(transition, actorPrincipalId)).toMatchObject({
+      kind: "APPLIED", case: { state: "IN_PROGRESS", revision: 1 },
+    });
+    expect(await cases.advance({ ...transition, eventId: randomUUID() }, actorPrincipalId))
+      .toMatchObject({ kind: "CONFLICT", code: "REVISION_CONFLICT" });
+
+    const closed = {
+      caseId, eventId: randomUUID(), expectedRevision: 1,
+      nextState: "CLOSED" as const, note: "Acompanhei e confirmei manualmente este atendimento.",
+      attested: true,
+    };
+    expect(await cases.advance(closed, actorPrincipalId)).toMatchObject({
+      kind: "APPLIED", case: { state: "CLOSED", revision: 2 },
+    });
+    const events = await cases.timeline(caseId);
+    expect(events).toHaveLength(3);
+    const rows = await pool.query<{
+      grants: string; paymentEvents: string; orders: string;
+    }>(
+      "SELECT (SELECT count(*)::text FROM entitlement_grants) AS grants, " +
+      "(SELECT count(*)::text FROM premium_payment_events) AS \"paymentEvents\", " +
+      "(SELECT count(*)::text FROM premium_orders) AS orders",
+    );
+    expect(rows.rows[0]).toEqual({ grants: "0", paymentEvents: "0", orders: "0" });
   });
 
   it("refuses to issue an unpublished gamepass or quantity beyond backend limits", async () => {
