@@ -1,3 +1,4 @@
+import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
@@ -910,6 +911,9 @@ export class PlayerPortalHttpHandler {
     pokemonInstanceId: string | null,
     identity: ExternalIdentity,
   ): Promise<Response> {
+    if (pokemonInstanceId === null || !parsePokemonInstanceId(pokemonInstanceId).ok) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
     if (!this.dependencies.evolutions) {
       return jsonResponse(503, { error: "FEATURE_UNAVAILABLE" });
     }
