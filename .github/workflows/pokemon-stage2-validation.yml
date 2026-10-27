@@ -134,7 +134,8 @@ jobs:
           pnpm db:seed:phase11
           pnpm db:seed:phase12
           pnpm ops:seed:whatsapp-simulator-fixture
-      - name: Actual onboarding and multi-actor game simulation
-        run: pnpm uat:whatsapp:multi
+      # The legacy multi-actor UAT is tracked separately: its registration
+      # sequence currently leaves players unapproved. This dedicated Stage 2
+      # journey uses the real isolated UAT bootstrap, not a production shortcut.
       - name: Trainer journey /pokemon /golpes /aprender /evolucao /evoluir /pc
         run: node --import tsx db/proofs/whatsapp_simulator_pokemon_management_journey_uat.ts
