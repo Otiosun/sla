@@ -302,7 +302,7 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
       grants: string; paymentEvents: string; orders: string;
     }>(
       "SELECT (SELECT count(*)::text FROM entitlement_grants) AS grants, " +
-      "(SELECT count(*)::text FROM premium_payment_events) AS \\"paymentEvents\\", " +
+      "(SELECT count(*)::text FROM premium_payment_events) AS \"paymentEvents\", " +
       "(SELECT count(*)::text FROM premium_orders) AS orders",
     );
     expect(counts.rows[0]).toEqual({ grants: "2", paymentEvents: "0", orders: "0" });
