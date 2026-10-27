@@ -118,6 +118,7 @@ export function composePlayerPortalRuntime(
     players,
     profiles,
     storage: pcStorage,
+    reads: presentation,
   });
   const progression = new ProgressionService(new PostgresProgressionRepository(options.pool));
   const moveChoices = new PlayerPortalMoveChoiceService({
