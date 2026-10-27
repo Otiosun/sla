@@ -1,0 +1,37 @@
+name: Pokemon Management Stage 2 (isolated draft)
+
+on:
+  push:
+    branches:
+      - feat/pokemon-management-stage2-20261027
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pokemon-stage2-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evolution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout isolated Stage 2 branch
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.23.0 --activate
+      - name: Install dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Focused service unit tests
+        run: pnpm exec vitest run tests/player/player-portal-evolution-service.test.ts tests/player/player-portal-move-choice-service.test.ts tests/player/player-portal-roster-service.test.ts
+      - name: Build runtime
+        run: pnpm build
