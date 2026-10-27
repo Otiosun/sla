@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { EntitlementService } from "../modules/entitlements/service.js";
 import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
 import { PremiumOrderService } from "../modules/premium-orders/service.js";
 import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
 import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
@@ -229,6 +230,7 @@ export function composePlayerPortalRuntime(
     adminTeam,
     adminMutations: adminService,
     premiumDelivery,
+    premiumCases: new PremiumDeliveryCaseService(options.pool),
     premiumRead: {
       orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
       entitlements,
