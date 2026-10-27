@@ -107,6 +107,16 @@ describe("PlayerPortalEvolutionService", () => {
     }
   });
 
+  it("never manually evolves a level-triggered form: level changes are owned by XP awards", async () => {
+    const { subject, evolvePokemon } = fixture();
+    const result = await subject.evolve(identity, {
+      ...request,
+      trigger: { kind: "LEVEL" },
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(evolvePokemon).not.toHaveBeenCalled();
+  });
+
   it("does not disguise item failure or conflicting replay as a successful evolution", async () => {
     const { subject, evolvePokemon } = fixture();
     evolvePokemon.mockResolvedValueOnce(err(appError("ACTION_INVALID", "item missing", {
