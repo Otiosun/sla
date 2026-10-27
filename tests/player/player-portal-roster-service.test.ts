@@ -44,6 +44,7 @@ describe("PlayerPortalRosterService", () => {
       },
       profiles: { getProfile: async () => ok(profile) },
       storage: { move },
+      reads: { activeBattleId: async () => null },
     });
 
     const result = await service.move(identity, {
@@ -59,6 +60,24 @@ describe("PlayerPortalRosterService", () => {
     });
   });
 
+  it("rejects a team swap during active combat before touching the storage service", async () => {
+    const move = vi.fn();
+    const service = new PlayerPortalRosterService({
+      players: {
+        resolvePlayer: async () => ok({ playerId, state: "COMPLETE", created: false }),
+      },
+      profiles: { getProfile: async () => ok(profile) },
+      reads: { activeBattleId: async () => "active-battle" },
+      storage: { move },
+    });
+    const blocked = await service.move(identity, {
+      pokemonInstanceId,
+      target: { placementKind: "BOX", boxNo: 1, slotNo: 1 },
+    });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(move).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid box capacity before reaching storage", async () => {
     const move = vi.fn();
     const service = new PlayerPortalRosterService({
@@ -67,6 +86,7 @@ describe("PlayerPortalRosterService", () => {
       },
       profiles: { getProfile: async () => ok(profile) },
       storage: { move },
+      reads: { activeBattleId: async () => null },
     });
 
     const result = await service.move(identity, {
