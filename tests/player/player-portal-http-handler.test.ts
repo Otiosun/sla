@@ -352,7 +352,7 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     for (const [url, method] of [
       [base + "/catalog", "GET"], [base, "POST"],
       [caseUrl + "/events", "GET"], [caseUrl + "/transition", "POST"],
-    ]) {
+    ] as const) {
       const denied = await delegate.instance.handle(new Request(url, {
         method, headers: { ...headers, "content-type": "application/json" },
         ...(method === "POST" ? { body: JSON.stringify(opening) } : {}),
