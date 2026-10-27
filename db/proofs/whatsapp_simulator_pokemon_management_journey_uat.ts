@@ -154,7 +154,15 @@ async function main() {
 
     await operational.runtime.start();
     check("journey", actor, "login", "synthetic approved trainer", { playerId: owner, pokemonId, release }, true);
-    await send(actor, "/perfil");
+    const profileView = await send(actor, "/perfil");
+    check("profile", actor, "/perfil", "trainer identity and ACTIVE status",
+      profileView.replies.join(" | "),profileView.replies.some(s=>s.includes("UAT Trainer") && s.includes("ACTIVE")));
+    const partyView = await send(actor, "/equipe");
+    check("team",actor,"/equipe","starter Pokémon visible",
+      partyView.replies.join(" | "),partyView.replies.some(s=>/Bulbasaur|Pokémon/iu.test(s)));
+    const sheetView = await send(actor, "/pokemon #1");
+    check("pokemon",actor,"/pokemon #1","starter species and move details",
+      sheetView.replies.join(" | "),sheetView.replies.some(s=>/Bulbasaur/iu.test(s)));
     const before = await send(actor, "/golpes");
     check("moves", actor, "/golpes", "pending choice list or empty state",
       before.replies.join(" | "), before.inbox !== "FAILED" && before.replies.some(s => /MOVIMENTOS|PENDÊNCIAS/iu.test(s)));
@@ -203,17 +211,41 @@ async function main() {
     const noPending = await send(actor, "/golpes");
     check("moves", actor, "/golpes", "no remaining pending choice for trainer",
       noPending.replies.join(" | "), noPending.replies.some(s=>/SEM PENDÊNCIAS/iu.test(s)));
+    // Another reward offers the same learned move; the player must safely skip.
+    const duplicateChoiceId = randomUUID();
+    await pool.query(`INSERT INTO pending_move_choices
+      (id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,source_id,correlation_id)
+      VALUES($1,$2,$3,$4,$5,'BATTLE_REWARD',$6,$7)`,
+      [duplicateChoiceId,pokemonId,release,moveId,first.level,randomUUID(),randomUUID()]);
+    const duplicateOffer=await send(actor,"/golpes");
+    check("moves",actor,"/golpes duplicate reward",
+      "warns the move is already learned instead of suggesting a damaging replacement",
+      duplicateOffer.replies.join(" | "),duplicateOffer.replies.some(s=>/já conhece|não substitua/iu.test(s)));
+    const skipped=await send(actor,"/aprender 1 pular");
+    const skippedRow=(await pool.query<{status:string}>("SELECT status FROM pending_move_choices WHERE id=$1",
+      [duplicateChoiceId])).rows[0]?.status;
+    const stillKnown=(await pool.query<{move_id:string}>(
+      "SELECT move_id::text FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND slot_no=$2",
+      [pokemonId,slot])).rows[0]?.move_id;
+    check("moves",actor,"/aprender 1 pular",
+      "duplicate choice SKIPPED; original learned move preserved",
+      {status:skippedRow,moveId:stillKnown,replies:skipped.replies},
+      skippedRow==="SKIPPED"&&stillKnown===moveId);
 
     // Seed synthetic evolutionary stone and rule (never in real published content).
     const stoneId = randomUUID();
+    // Reuse Bulbasaur's real next species (Ivysaur) rather than a random
+    // unrelated species. ONLY the item-based alternate trigger is synthetic.
     const target = await pool.query<{ form_id: string; display_name: string }>(
-      `SELECT rev.form_id::text, species_rev.display_name FROM pokemon_form_revisions rev
-        JOIN pokemon_forms form ON form.id=rev.form_id
-        JOIN pokemon_species_revisions species_rev
-          ON species_rev.content_release_id=rev.content_release_id
-          AND species_rev.species_id=form.species_id AND species_rev.active=TRUE
-        WHERE rev.content_release_id=$1 AND rev.form_id<>$2 AND rev.active=TRUE
-        ORDER BY rev.form_id LIMIT 1`,
+      `SELECT rule.to_form_id::text AS form_id, species_rev.display_name
+       FROM evolution_rules rule
+       JOIN pokemon_forms form ON form.id=rule.to_form_id
+       JOIN pokemon_species_revisions species_rev
+         ON species_rev.content_release_id=rule.content_release_id
+        AND species_rev.species_id=form.species_id AND species_rev.active=TRUE
+       WHERE rule.content_release_id=$1 AND rule.from_form_id=$2
+         AND rule.trigger_kind='LEVEL' AND rule.active=TRUE
+       ORDER BY rule.id LIMIT 1`,
       [release,first.form_id],
     );
     const targetForm = target.rows[0]?.form_id;
@@ -241,6 +273,23 @@ async function main() {
     );
     if (itemIndex < 0) throw new Error("The synthetic evolution stone was not projected");
     const evolveCommand = `/evoluir #1 ${itemIndex + 1}`;
+    const autoOption = await send(actor, "/evoluir #1 1");
+    const priorForm = (await pool.query<{form_id:string}>(
+      "SELECT form_id::text FROM pokemon_instances WHERE id=$1",[pokemonId])).rows[0]?.form_id;
+    check("evolution",actor,"/evoluir #1 1 (level rule)",
+      "automatically leveled evolutions refuse manual triggering",
+      {formId:priorForm,replies:autoOption.replies},
+      priorForm===first.form_id && autoOption.replies.some(s=>/automátic/iu.test(s)));
+    const otherActor = actor===PLAYER_A ? PLAYER_B : PLAYER_A;
+    const rivalOptions = await send(otherActor,"/evolucao #1");
+    check("evolution",otherActor,"/evolucao #1 without stone",
+      "the other trainer sees the same rule but inventory ×0",
+      rivalOptions.replies.join(" | "),
+      rivalOptions.replies.some(s=>s.includes("Pedra da Jornada") && s.includes("×0")));
+    const denied = await send(otherActor,`/evoluir #1 ${itemIndex+1}`);
+    check("evolution",otherActor,"try item evolution without item",
+      "server denies with human-readable missing item notice",
+      denied.replies.join(" | "),denied.replies.some(s=>/não possui|necessár/iu.test(s)));
     const itemBefore = await pool.query<{ quantity: string }>(
       "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
     const evo = await send(actor, evolveCommand, "STAGE2-EVOLVE-EXACT-ONCE");
@@ -257,6 +306,16 @@ async function main() {
       "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId])).rows[0]?.quantity;
     check("evolution", actor, "replay same WhatsApp message id", "no second item charged",
       { replayBalance }, replayBalance === "1");
+    const newSheet=await send(actor,"/pokemon #1");
+    check("pokemon",actor,"/pokemon #1 after evolution",
+      "new evolved species shown on the actual bot ficha",
+      newSheet.replies.join(" | "),
+      newSheet.replies.some(s=>s.includes(target.rows[0]?.display_name ?? "")));
+    const inventory=await send(actor,"/inventario");
+    check("inventory",actor,"/inventario after stone consumption",
+      "stone is visible with quantity 1",
+      inventory.replies.join(" | "),
+      inventory.replies.some(s=>s.includes("Pedra da Jornada")&&/×1|x1|: 1|1 unid/iu.test(s)));
 
     // The PC/Hub use the same transactional storage owner.
     const boxId = randomUUID();
@@ -310,6 +369,10 @@ async function main() {
     check("pc narrative",actor,"/caixas",
       "Box roster or explicit entry guidance",
       boxes.replies.join(" | "),boxes.inbox==="PROCESSED" && boxes.replies.length>0);
+    const deposit=await send(actor,"/depositar");
+    check("pc narrative",actor,"/depositar",
+      "deposit flow gives user-visible menu or cannot remove the last team member",
+      deposit.replies.join(" | "),deposit.inbox==="PROCESSED"&&deposit.replies.length>0);
 
     const bugs=findings.filter(x=>!x.ok);
     console.log(JSON.stringify({event:"stage2.player.complete",actor,
