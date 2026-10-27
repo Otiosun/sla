@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
+import type {
+  OperationalEvolutionOptionView,
+  OperationalUxReadModel,
+} from "../messaging/operational-ux-read-model.js";
 import { type ExternalIdentity, ExternalIdentitySchema } from "../player/contracts.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
@@ -23,15 +27,57 @@ const EvolutionRequestSchema = z
 interface PlayerPortalEvolutionDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly profiles: Pick<PlayerStarterService, "getProfile">;
-  readonly reads: Pick<OperationalUxReadModel, "activeBattleId">;
+  readonly reads: Pick<OperationalUxReadModel, "activeBattleId" | "listEvolutionOptions">;
   readonly progression: Pick<ProgressionService, "evolvePokemon">;
 }
 
 /** Players may only evolve their own Pokémon. PostgreSQL re-checks ownership
  * and applies evolution + item consumption atomically and idempotently.
  * Do not expose administrative or arbitrary form-mutation operations here. */
+export interface PlayerPortalEvolutionOptionsView {
+  readonly blockedByBattle: boolean;
+  readonly options: readonly (Omit<OperationalEvolutionOptionView, "itemQuantity"> & {
+    readonly itemQuantity: string | null;
+  })[];
+}
+
 export class PlayerPortalEvolutionService {
   public constructor(private readonly dependencies: PlayerPortalEvolutionDependencies) {}
+
+  public async listOptions(
+    identity: ExternalIdentity,
+    pokemonInstanceId: unknown,
+  ): Promise<Result<PlayerPortalEvolutionOptionsView>> {
+    if (typeof pokemonInstanceId !== "string") {
+      return err(appError("VALIDATION_FAILED", "Invalid Pokémon instance ID"));
+    }
+    const parsedPokemon = parsePokemonInstanceId(pokemonInstanceId);
+    const who = ExternalIdentitySchema.safeParse(identity);
+    if (!parsedPokemon.ok || !who.success) {
+      return err(appError("VALIDATION_FAILED", "Invalid evolution lookup"));
+    }
+    const player = await this.dependencies.players.resolvePlayer(who.data);
+    if (!player.ok) return player;
+    const profile = await this.dependencies.profiles.getProfile(player.value.playerId);
+    if (!profile.ok) return profile;
+    if (profile.value.playerStatus !== "ACTIVE" || profile.value.onboardingState !== "COMPLETE") {
+      return err(appError("PLAYER_INELIGIBLE", "Player cannot view evolution options yet"));
+    }
+    if (!this.dependencies.reads.listEvolutionOptions) {
+      return err(appError("FEATURE_UNAVAILABLE", "Evolution rules are unavailable"));
+    }
+    const [options, battleId] = await Promise.all([
+      this.dependencies.reads.listEvolutionOptions(player.value.playerId, parsedPokemon.value),
+      this.dependencies.reads.activeBattleId(player.value.playerId),
+    ]);
+    return ok({
+      blockedByBattle: battleId !== null,
+      options: options.map((option) => ({
+        ...option,
+        itemQuantity: option.itemQuantity === null ? null : option.itemQuantity.toString(),
+      })),
+    });
+  }
 
   public async evolve(identity: ExternalIdentity, input: unknown): Promise<Result<EvolutionResult>> {
     const parsed = EvolutionRequestSchema.safeParse(input);
