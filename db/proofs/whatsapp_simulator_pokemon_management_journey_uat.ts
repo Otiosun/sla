@@ -81,12 +81,12 @@ function textOf(entry: Outbound): string {
   return entry.message.messageType === "TEXT" ? String(payload.text ?? "") :
     entry.message.messageType === "IMAGE" ? String(payload.caption ?? "") : JSON.stringify(payload);
 }
-async function send(actor: string, command: string, fixedId?: string) {
+async function send(actor: string, command: string, fixedId?: string, replyTo?: string) {
   const id = fixedId ?? `STAGE2-JOURNEY-${++serial}`;
   const from = operational.adapter.transcript.length;
   await operational.adapter.injectText({
     externalMessageId: id, senderRef: actor, chatRef: WORLD, text: command,
-    replyToExternalMessageId: null,
+    replyToExternalMessageId: replyTo ?? null,
   });
   await operational.runtime.flushOutbox();
   await new Promise<void>((resolve) => setTimeout(resolve, 550));
@@ -101,6 +101,15 @@ async function send(actor: string, command: string, fixedId?: string) {
     replies: replies.map(textOf).map((text) => text.slice(0, 800)),
   }));
   return { id, replies: replies.map(textOf), inbox: state.rows[0]?.status ?? null };
+}
+async function replyLast(actor: string, text: string) {
+  const outbound = [...operational.adapter.transcript].reverse().find(
+    (item): item is Outbound => item.direction === "OUTBOUND" &&
+      item.message.destinationRef === WORLD &&
+      typeof item.message.payload.worldServicePrompt === "object",
+  );
+  if (!outbound) throw new Error("No PC selection prompt available");
+  return send(actor, text, undefined, outbound.providerExternalMessageId);
 }
 async function player(ref: string): Promise<PlayerId> {
   const q = await pool.query<{ player_id: string }>(
@@ -373,6 +382,77 @@ async function main() {
     check("pc narrative",actor,"/depositar",
       "deposit flow gives user-visible menu or cannot remove the last team member",
       deposit.replies.join(" | "),deposit.inbox==="PROCESSED"&&deposit.replies.length>0);
+
+    // Actual exact-reply conversations, not mock renderer snapshots.
+    const premature=await replyLast(actor,"01");
+    check("pc conversation",actor,"reply 01 to deposit",
+      "team Pokémon chosen, destination preview and confirmation",
+      premature.replies.join(" | "),premature.replies.some(s=>/CONFIRMAR.*DEPÓSITO|DEPOSITO/iu.test(s)));
+    const cancelled=await replyLast(actor,"02");
+    check("pc conversation",actor,"reply 02 / cancel deposit",
+      "no change in storage",
+      cancelled.replies.join(" | "),cancelled.replies.some(s=>/CANCELAD/iu.test(s)));
+    const withdrawMenu=await send(actor,"/retirar");
+    check("pc conversation",actor,"/retirar",
+      "stored Ivysaur offered for return to team",
+      withdrawMenu.replies.join(" | "),
+      withdrawMenu.replies.some(s=>/RETI(RAR|RADA)|𝗥𝗘𝗧𝗜𝗥𝗔𝗥/iu.test(s)&&s.includes("Ivysaur")));
+    const withdrawChoice=await replyLast(actor,"01");
+    check("pc conversation",actor,"reply 01 / select Ivysaur",
+      "withdraw confirmation prompt",
+      withdrawChoice.replies.join(" | "),
+      withdrawChoice.replies.some(s=>/CONFIRMAR|𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥/iu.test(s)));
+    const withdrawn=await replyLast(actor,"01");
+    const partyAfterWithdraw=await pool.query<{pokemon_instance_id:string}>(
+      "SELECT pokemon_instance_id::text FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",[owner]);
+    check("pc conversation",actor,"reply 01 / confirm withdraw",
+      "Ivysaur returned to team and DB team now has 2 Pokémon",
+      {replies:withdrawn.replies,party:partyAfterWithdraw.rows},
+      partyAfterWithdraw.rows.length===2 &&
+      withdrawn.replies.some(s=>/RETIRAD|𝗥𝗘𝗧𝗜𝗥𝗔𝗗𝗢/iu.test(s)));
+    const depositMenu2=await send(actor,"/depositar");
+    check("pc conversation",actor,"/depositar with 2 on team",
+      "bot lists both active Pokémon",depositMenu2.replies.join(" | "),
+      depositMenu2.replies.some(s=>s.includes("Bulbasaur")&&s.includes("Ivysaur")));
+    const depositChoice=await replyLast(actor,"01");
+    check("pc conversation",actor,"reply 01 / select Bulbasaur",
+      "preview Box destination before commit",
+      depositChoice.replies.join(" | "),
+      depositChoice.replies.some(s=>/DEPÓSITO|𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢/iu.test(s)));
+    const committed=await replyLast(actor,"01");
+    const afterDeposit=await pool.query<{pokemon_instance_id:string;placement_kind:string}>(
+      "SELECT pokemon_instance_id::text,placement_kind FROM pokemon_roster_slots WHERE player_id=$1 ORDER BY placement_kind,slot_no",[owner]);
+    check("pc conversation",actor,"reply 01 / confirm deposit",
+      "one Pokémon stored and one remains active",
+      {replies:committed.replies,roster:afterDeposit.rows},
+      committed.replies.some(s=>/ARMAZENAD|𝗔𝗥𝗠𝗔𝗭𝗘𝗡𝗔𝗗𝗢/iu.test(s)) &&
+      afterDeposit.rows.filter(s=>s.placement_kind==="TEAM").length===1 &&
+      afterDeposit.rows.filter(s=>s.placement_kind==="BOX").length===1);
+    const organizeMenu=await send(actor,"/organizar");
+    check("pc conversation",actor,"/organizar","stored Pokémon offered",
+      organizeMenu.replies.join(" | "),organizeMenu.replies.some(s=>/𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔𝗥/iu.test(s)));
+    const organizedSelected=await replyLast(actor,"01");
+    check("pc conversation",actor,"reply 01 / choose stored Pokémon",
+      "destination input format shown",
+      organizedSelected.replies.join(" | "),
+      organizedSelected.replies.some(s=>/2\/5|2 5/iu.test(s)));
+    const organizedDestination=await replyLast(actor,"2/5");
+    check("pc conversation",actor,"reply 2/5 / choose new Box",
+      "source and destination preview",
+      organizedDestination.replies.join(" | "),
+      organizedDestination.replies.some(s=>/Caixa 02|𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔ÇÃ𝗢/iu.test(s)));
+    const organizedConfirmed=await replyLast(actor,"01");
+    const updated=await pool.query<{box_no:number|null;slot_no:number}>(
+      "SELECT box_no,slot_no FROM pokemon_roster_slots WHERE pokemon_instance_id=$1",[boxId]);
+    check("pc conversation",actor,"reply 01 / confirm organize",
+      "Box 2 slot 5 persisted",
+      {replies:organizedConfirmed.replies,position:updated.rows[0]},
+      organizedConfirmed.replies.some(s=>/𝗖𝗔𝗜𝗫𝗔 𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔𝗗𝗔/iu.test(s)) &&
+      updated.rows[0]?.box_no===2 && updated.rows[0]?.slot_no===5);
+    const finalBoxes=await send(actor,"/caixas");
+    check("pc conversation",actor,"/caixas / after move",
+      "Box 2 contains relocated Bulbasaur",
+      finalBoxes.replies.join(" | "),finalBoxes.replies.some(s=>s.includes("Bulbasaur")&&s.includes("Caixa 02")));
 
     const bugs=findings.filter(x=>!x.ok);
     console.log(JSON.stringify({event:"stage2.player.complete",actor,
