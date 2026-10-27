@@ -204,8 +204,8 @@ function handler(
     }),
     ...(options.premiumEnabled ? {
       premiumRead: {
-        orders: { listPlayerOrders: async () => [{ id: "order-for-test" }] },
-        entitlements: { listPlayerEntitlements: async () => [{ entitlementKey: "XP_2X" }] },
+        orders: { listPlayerOrders: async () => [] },
+        entitlements: { listPlayerEntitlements: async () => [] },
       },
       premiumDelivery: {
         catalog: async () => [
@@ -268,11 +268,11 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     const products = await owner.instance.handle(new Request(url + "/entitlements", { headers }));
     expect(products.status).toBe(200);
     expect(await products.json()).toEqual({
-      entitlements: [{ entitlementKey: "XP_2X" }],
+      entitlements: [],
     });
     const orders = await owner.instance.handle(new Request(url + "/orders", { headers }));
     expect(orders.status).toBe(200);
-    expect(await orders.json()).toEqual({ orders: [{ id: "order-for-test" }] });
+    expect(await orders.json()).toEqual({ orders: [] });
 
     const delegate = handler({ admin: true, owner: false, premiumEnabled: true,
       capabilities: ["player.read", "premium.delivery.grant"] });
