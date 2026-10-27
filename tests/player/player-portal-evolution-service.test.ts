@@ -42,6 +42,45 @@ function fixture(options: { activeBattle?: boolean; status?: PlayerProfileView["
 const request = { pokemonInstanceId, requestId, trigger: { kind: "LEVEL" } };
 
 describe("PlayerPortalEvolutionService", () => {
+  it("lists only owned Pokémon evolution rules with serialized item quantities", async () => {
+    const listEvolutionOptions = vi.fn(async () => [{
+      targetDisplayName: "Charmeleon",
+      triggerKind: "ITEM" as const,
+      requiredLevel: null,
+      relativePhysicalStats: null,
+      itemId: "66666666-6666-4666-8666-666666666666",
+      itemDisplayName: "Pedra evolutiva",
+      itemQuantity: 2n,
+      conditionActive: null,
+    }]);
+    const subject = new PlayerPortalEvolutionService({
+      players: { resolvePlayer: async () => ok({ playerId, state: "COMPLETE", created: false }) },
+      profiles: { getProfile: async () => ok(profile) },
+      reads: {
+        activeBattleId: async () => "active-battle",
+        listEvolutionOptions,
+      },
+      progression: { evolvePokemon: async () => ok({
+        pokemonInstanceId, fromFormId: formId, toFormId: newFormId,
+        triggerKind: "ITEM", beforeLevel: 16, afterLevel: 16, replayed: false,
+      }) },
+    });
+    expect(await subject.listOptions(identity, pokemonInstanceId)).toMatchObject({
+      ok: true,
+      value: {
+        blockedByBattle: true,
+        options: [{
+          itemQuantity: "2",
+          itemDisplayName: "Pedra evolutiva",
+          targetDisplayName: "Charmeleon",
+        }],
+      },
+    });
+    expect(listEvolutionOptions).toHaveBeenCalledWith(playerId, pokemonInstanceId);
+    expect((await subject.listOptions(identity, "not-a-pokemon-id")).ok).toBe(false);
+    expect(listEvolutionOptions).toHaveBeenCalledTimes(1);
+  });
+
   it("runs canonical progression only as the authenticated player and namespaces retry keys", async () => {
     const { subject, evolvePokemon } = fixture();
     const result = await subject.evolve(identity, request);
