@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 import { EntitlementService } from "../modules/entitlements/service.js";
 import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
 import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
 import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
@@ -227,6 +229,10 @@ export function composePlayerPortalRuntime(
     adminTeam,
     adminMutations: adminService,
     premiumDelivery,
+    premiumRead: {
+      orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
+      entitlements,
+    },
   });
 
   return {
