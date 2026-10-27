@@ -66,6 +66,20 @@ function handler(
       replayed: false,
     }),
   );
+  const listEvolutionOptions = vi.fn(async () => ok({
+    blockedByBattle: false,
+    options: [{
+      targetDisplayName: "Charmeleon", triggerKind: "LEVEL" as const,
+      requiredLevel: 16, relativePhysicalStats: null, itemId: null,
+      itemDisplayName: null, itemQuantity: null, conditionActive: null,
+    }],
+  }));
+  const evolvePokemon = vi.fn(async () => ok({
+    pokemonInstanceId: profile.starterPokemonInstanceId!,
+    fromFormId: "66666666-6666-4666-8666-666666666666",
+    toFormId: "77777777-7777-4777-8777-777777777777",
+    triggerKind: "LEVEL" as const, beforeLevel: 16, afterLevel: 16, replayed: false,
+  }));
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
   const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
   const adminPlayerGet = vi.fn(async () => {
@@ -172,6 +186,7 @@ function handler(
       list: async () => ok({ blockedByBattle: false, choices: [] }),
       resolve: resolveMoveChoice,
     },
+    evolutions: { listOptions: listEvolutionOptions, evolve: evolvePokemon },
     customization: { update: customizationUpdate },
     admin: {
       resolvePrincipal: async () =>
@@ -284,6 +299,8 @@ function handler(
     instance,
     rosterMove,
     resolveMoveChoice,
+    listEvolutionOptions,
+    evolvePokemon,
     customizationUpdate,
     adminPlayerSearch,
     adminPlayerGet,
@@ -780,6 +797,43 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
     );
     expect(massAssignment.status).toBe(400);
     expect(adminPrepareMutation).toHaveBeenCalledTimes(1);
+  });
+
+  it("authenticates evolution options and routes a confirmed evolution to the server", async () => {
+    const { instance, listEvolutionOptions, evolvePokemon } = handler();
+    const pokemonInstanceId = profile.starterPokemonInstanceId;
+    const base = "https://api.example.test/v1/hub/player/pokemon";
+    const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+
+    const options = await instance.handle(new Request(
+      `${base}/evolution-options?pokemonInstanceId=${pokemonInstanceId}`,
+      { headers },
+    ));
+    expect(options.status).toBe(200);
+    expect(await options.json()).toMatchObject({ blockedByBattle: false,
+      options: [{ requiredLevel: 16, targetDisplayName: "Charmeleon" }] });
+    expect(listEvolutionOptions).toHaveBeenCalledWith(identity, pokemonInstanceId);
+
+    const malformed = await instance.handle(new Request(
+      `${base}/evolution-options?pokemonInstanceId=bad-id`, { headers },
+    ));
+    expect(malformed.status).toBe(400);
+    expect(listEvolutionOptions).toHaveBeenCalledOnce();
+
+    const evolved = await instance.handle(new Request(`${base}/evolve`, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ pokemonInstanceId,
+        requestId: "88888888-8888-4888-8888-888888888888",
+        trigger: { kind: "LEVEL" } }),
+    }));
+    expect(evolved.status).toBe(200);
+    expect((await evolved.json()).evolution.toFormId).toBe("77777777-7777-4777-8777-777777777777");
+    expect(evolvePokemon).toHaveBeenCalledOnce();
+
+    const missingSession = await instance.handle(new Request(
+      `${base}/evolution-options?pokemonInstanceId=${pokemonInstanceId}`,
+    ));
+    expect(missingSession.status).toBe(401);
   });
 
   it("allows roster, move learning and cosmetic profile updates without gameplay mutations", async () => {
