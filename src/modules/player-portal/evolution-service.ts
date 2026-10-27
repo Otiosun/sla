@@ -85,6 +85,11 @@ export class PlayerPortalEvolutionService {
     if (!parsed.success || !who.success) {
       return err(appError("VALIDATION_FAILED", "Invalid evolution request"));
     }
+    // Level evolution is automatic inside the XP/progression transaction.
+    // The Hub may request only manual ITEM/CONDITION evolutions.
+    if (parsed.data.trigger.kind === "LEVEL") {
+      return err(appError("ACTION_INVALID", "Evolução por nível acontece automaticamente ao receber XP."));
+    }
 
     const player = await this.dependencies.players.resolvePlayer(who.data);
     if (!player.ok) return player;
