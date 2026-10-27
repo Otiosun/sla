@@ -1,0 +1,79 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
+import { type ExternalIdentity, ExternalIdentitySchema } from "../player/contracts.js";
+import type { PlayerRegistrationService } from "../player/registration-service.js";
+import type { PlayerStarterService } from "../player/starter-service.js";
+import type { EvolutionResult } from "../progression/contracts.js";
+import type { ProgressionService } from "../progression/service.js";
+
+const EvolutionRequestSchema = z
+  .object({
+    pokemonInstanceId: z.string().uuid(),
+    requestId: z.string().uuid(),
+    trigger: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("LEVEL") }).strict(),
+      z.object({ kind: z.literal("ITEM"), itemId: z.string().uuid() }).strict(),
+      z.object({ kind: z.literal("CONDITION") }).strict(),
+    ]),
+  })
+  .strict();
+
+interface PlayerPortalEvolutionDependencies {
+  readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
+  readonly profiles: Pick<PlayerStarterService, "getProfile">;
+  readonly reads: Pick<OperationalUxReadModel, "activeBattleId">;
+  readonly progression: Pick<ProgressionService, "evolvePokemon">;
+}
+
+/** Players may only evolve their own Pokémon. PostgreSQL re-checks ownership
+ * and applies evolution + item consumption atomically and idempotently.
+ * Do not expose administrative or arbitrary form-mutation operations here. */
+export class PlayerPortalEvolutionService {
+  public constructor(private readonly dependencies: PlayerPortalEvolutionDependencies) {}
+
+  public async evolve(identity: ExternalIdentity, input: unknown): Promise<Result<EvolutionResult>> {
+    const parsed = EvolutionRequestSchema.safeParse(input);
+    const who = ExternalIdentitySchema.safeParse(identity);
+    if (!parsed.success || !who.success) {
+      return err(appError("VALIDATION_FAILED", "Invalid evolution request"));
+    }
+
+    const player = await this.dependencies.players.resolvePlayer(who.data);
+    if (!player.ok) return player;
+    const profile = await this.dependencies.profiles.getProfile(player.value.playerId);
+    if (!profile.ok) return profile;
+    if (profile.value.playerStatus !== "ACTIVE" || profile.value.onboardingState !== "COMPLETE") {
+      return err(appError("PLAYER_INELIGIBLE", "Player cannot evolve Pokémon yet"));
+    }
+    if ((await this.dependencies.reads.activeBattleId(player.value.playerId)) !== null) {
+      return err(appError("FLOW_BLOCKED", "Pokémon não podem evoluir durante uma batalha ativa."));
+    }
+
+    const evolved = await this.dependencies.progression.evolvePokemon({
+      playerId: player.value.playerId,
+      pokemonInstanceId: parsed.data.pokemonInstanceId,
+      idempotencyKey: `hub.evolution:${player.value.playerId}:${parsed.data.requestId}`,
+      correlationId: randomUUID(),
+      trigger: parsed.data.trigger,
+    });
+    if (evolved.ok) return ok(evolved.value);
+
+    switch (evolved.error.code) {
+      case "EVOLUTION_NOT_FOUND":
+        return err(appError("NOT_FOUND", "Pokémon não encontrado na conta do treinador."));
+      case "EVOLUTION_NOT_ELIGIBLE":
+      case "EVOLUTION_ITEM_MISSING":
+        return err(appError("ACTION_INVALID", evolved.error.message, {
+          progressionCode: evolved.error.code,
+        }));
+      case "PROGRESSION_IDEMPOTENCY_CONFLICT":
+        return err(appError("REVISION_CONFLICT", "Esta chave já foi usada em outra evolução."));
+      case "PROGRESSION_INPUT_INVALID":
+        return err(appError("VALIDATION_FAILED", evolved.error.message));
+      default:
+        return err(appError("FEATURE_UNAVAILABLE", "Evolução temporariamente indisponível."));
+    }
+  }
+}
