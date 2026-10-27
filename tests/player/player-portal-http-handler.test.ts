@@ -78,7 +78,7 @@ function handler(
     pokemonInstanceId: profile.starterPokemonInstanceId!,
     fromFormId: "66666666-6666-4666-8666-666666666666",
     toFormId: "77777777-7777-4777-8777-777777777777",
-    triggerKind: "LEVEL" as const, beforeLevel: 16, afterLevel: 16, replayed: false,
+    triggerKind: "ITEM" as const, beforeLevel: 16, afterLevel: 16, replayed: false,
   }));
   const customizationUpdate = vi.fn(async () => ok(profile.profileCustomization));
   const adminPlayerSearch = vi.fn(async () => ({ items: [], nextCursor: null }));
@@ -824,7 +824,7 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
       method: "POST", headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ pokemonInstanceId,
         requestId: "88888888-8888-4888-8888-888888888888",
-        trigger: { kind: "LEVEL" } }),
+        trigger: { kind: "ITEM", itemId: "99999999-9999-4999-8999-999999999999" } }),
     }));
     expect(evolved.status).toBe(200);
     expect(await evolved.json()).toMatchObject({
