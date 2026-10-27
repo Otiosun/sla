@@ -254,11 +254,10 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
 
     const catalog = await api(base + "/catalog");
     expect(catalog.status).toBe(200);
-    const products = (await catalog.json()).products;
-    expect(products).toEqual(expect.arrayContaining([
+    expect(await catalog.json()).toMatchObject({ products: expect.arrayContaining([
       expect.objectContaining({ sku: "2XP" }),
       expect.objectContaining({ sku: "LUCK" }),
-    ]));
+    ]) });
 
     const xp = {
       requestId: randomUUID(), playerId, sku: "2XP", quantity: 2,
@@ -287,10 +286,10 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
 
     const audit = await api(historyPath);
     expect(audit.status).toBe(200);
-    expect((await audit.json()).deliveries).toEqual(expect.arrayContaining([
+    expect(await audit.json()).toMatchObject({ deliveries: expect.arrayContaining([
       expect.objectContaining({ sku: "2XP", requestId: xp.requestId, durationSeconds: 1209600 }),
       expect.objectContaining({ sku: "LUCK", requestId: luck.requestId, durationSeconds: null }),
-    ]));
+    ]) });
 
     access.role = "ordinary-admin";
     expect((await api(base, "POST", { ...luck, requestId: randomUUID() })).status).toBe(403);
