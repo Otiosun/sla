@@ -827,7 +827,9 @@ describe("PlayerPortalHttpHandler companion boundary", () => {
         trigger: { kind: "LEVEL" } }),
     }));
     expect(evolved.status).toBe(200);
-    expect((await evolved.json()).evolution.toFormId).toBe("77777777-7777-4777-8777-777777777777");
+    expect(await evolved.json()).toMatchObject({
+      evolution: { toFormId: "77777777-7777-4777-8777-777777777777" },
+    });
     expect(evolvePokemon).toHaveBeenCalledOnce();
 
     const missingSession = await instance.handle(new Request(
