@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { EntitlementService } from "../../src/modules/entitlements/service.js";
+import { PlayerPortalHttpHandler } from "../../src/modules/player-portal/http-handler.js";
+import { ok } from "../../src/shared-kernel/result.js";
 import { ManualPremiumDeliveryService } from "../../src/modules/premium-orders/manual-delivery-service.js";
 import { PremiumDeliveryCaseService } from "../../src/modules/premium-orders/manual-delivery-case-service.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -216,6 +218,95 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
       [playerId, requestId],
     );
     expect(grants.rows[0]?.count).toBe("1");
+  });
+
+
+  it("drives real Premium HTTP owner/delegate grants through disposable PostgreSQL, with a single audit trail", async () => {
+    const access = { role: "owner" as "owner" | "delegate" | "ordinary-admin" | "player" };
+    const identity = { provider: "baileys" as const, externalId: "5511999999999@s.whatsapp.net" };
+    // Only Premium routes are called. All other handler dependencies are unused
+    // test doubles, while premiumDelivery is the REAL PostgreSQL-backed service.
+    const handler = new PlayerPortalHttpHandler({
+      sessions: { verify: () => ok(identity) },
+      admin: {
+        resolvePrincipal: async () =>
+          access.role === "player" ? null : { principalId: actorPrincipalId },
+        capabilitiesFor: async () =>
+          access.role === "owner" ? ["central.view"] :
+          access.role === "delegate" ? ["central.view", "premium.delivery.grant", "player.read"] :
+          ["central.view"],
+      },
+      adminTeam: { isOwner: async () => access.role === "owner" },
+      premiumDelivery: service,
+    } as unknown as ConstructorParameters<typeof PlayerPortalHttpHandler>[0]);
+
+    const api = (path: string, method: "GET" | "POST" = "GET", body?: unknown) =>
+      handler.handle(new Request(`https://synthetic-hub.invalid${path}`, {
+        method,
+        headers: {
+          cookie: "__Host-pokemon_hub_session=test.session",
+          "content-type": "application/json",
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }));
+    const base = "/v1/hub/admin/premium/delivery";
+    const historyPath = `/v1/hub/admin/premium/players/${playerId}/deliveries`;
+
+    const catalog = await api(base + "/catalog");
+    expect(catalog.status).toBe(200);
+    const products = (await catalog.json()).products;
+    expect(products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sku: "2XP" }),
+      expect.objectContaining({ sku: "LUCK" }),
+    ]));
+
+    const xp = {
+      requestId: randomUUID(), playerId, sku: "2XP", quantity: 2,
+      reason: "Duas semanas autorizadas após conferência externa.",
+    };
+    const first = await api(base, "POST", xp);
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({ applied: true, replayed: false });
+    const replay = await api(base, "POST", xp);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ applied: true, replayed: true });
+    const conflict = await api(base, "POST", { ...xp, quantity: 3 });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ error: "IDEMPOTENCY_CONFLICT" });
+
+    access.role = "delegate";
+    const luck = {
+      requestId: randomUUID(), playerId, sku: "LUCK", quantity: 1,
+      reason: "Sorte permanente autorizada por operador delegado.",
+    };
+    const delivered = await api(base, "POST", luck);
+    expect(delivered.status).toBe(201);
+    expect(await delivered.json()).toMatchObject({
+      applied: true, entitlement: { entitlementKey: "CAPTURE_LUCK_2X", expiresAt: null },
+    });
+
+    const audit = await api(historyPath);
+    expect(audit.status).toBe(200);
+    expect((await audit.json()).deliveries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sku: "2XP", requestId: xp.requestId, durationSeconds: 1209600 }),
+      expect.objectContaining({ sku: "LUCK", requestId: luck.requestId, durationSeconds: null }),
+    ]));
+
+    access.role = "ordinary-admin";
+    expect((await api(base, "POST", { ...luck, requestId: randomUUID() })).status).toBe(403);
+    expect((await api(historyPath)).status).toBe(403);
+    access.role = "player";
+    expect((await api(base + "/catalog")).status).toBe(403);
+
+    const counts = await pool.query<{
+      grants: string; paymentEvents: string; orders: string;
+    }>(
+      "SELECT (SELECT count(*)::text FROM entitlement_grants) AS grants, " +
+      "(SELECT count(*)::text FROM premium_payment_events) AS \\"paymentEvents\\", " +
+      "(SELECT count(*)::text FROM premium_orders) AS orders",
+    );
+    expect(counts.rows[0]).toEqual({ grants: "2", paymentEvents: "0", orders: "0" });
+    expect((await service.history(playerId))).toHaveLength(2);
   });
 
   it("refuses to issue an unpublished gamepass or quantity beyond backend limits", async () => {
