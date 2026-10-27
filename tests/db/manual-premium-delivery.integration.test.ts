@@ -177,6 +177,47 @@ describe.sequential("manual Premium grants via published 2XP and LUCK catalog", 
     expect(rows.rows[0]).toEqual({ grants: "0", paymentEvents: "0", orders: "0" });
   });
 
+  it("rejects a changed payload with the same delivery request ID instead of double granting", async () => {
+    const requestId = randomUUID();
+    const original = {
+      requestId, playerId, sku: "2XP", quantity: 1,
+      reason: "Primeira entrega autorizada externamente.",
+    };
+    expect(await service.deliver(original, actorPrincipalId)).toMatchObject({
+      kind: "APPLIED", replayed: false,
+    });
+    expect(await service.deliver(
+      { ...original, quantity: 2 }, actorPrincipalId,
+    )).toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+    const history = await service.history(playerId);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ requestId, quantity: 1, durationSeconds: 604800 });
+  });
+
+  it("serializes simultaneous retries for one 2XP request into a single ledger grant", async () => {
+    const requestId = randomUUID();
+    const input = {
+      requestId, playerId, sku: "2XP", quantity: 1,
+      reason: "Entrega validada externamente com reenvios simultâneos.",
+    };
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => service.deliver(input, actorPrincipalId)),
+    );
+    expect(results.every((result) => result.kind === "APPLIED")).toBe(true);
+    expect(results.filter((result) => result.kind === "APPLIED" && !result.replayed))
+      .toHaveLength(1);
+    expect(results.filter((result) => result.kind === "APPLIED" && result.replayed))
+      .toHaveLength(5);
+    const entries = await service.history(playerId);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ requestId, sku: "2XP", quantity: 1 });
+    const grants = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM entitlement_grants WHERE player_id = $1 AND idempotency_key = $2",
+      [playerId, requestId],
+    );
+    expect(grants.rows[0]?.count).toBe("1");
+  });
+
   it("refuses to issue an unpublished gamepass or quantity beyond backend limits", async () => {
     expect(await service.deliver({
       requestId: randomUUID(), playerId, sku: "TERA", quantity: 1,
