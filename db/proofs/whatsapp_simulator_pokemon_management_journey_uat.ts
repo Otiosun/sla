@@ -387,11 +387,11 @@ async function main() {
     const premature=await replyLast(actor,"01");
     check("pc conversation",actor,"reply 01 to deposit",
       "team Pokémon chosen, destination preview and confirmation",
-      premature.replies.join(" | "),premature.replies.some(s=>/CONFIRMAR.*DEPÓSITO|DEPOSITO/iu.test(s)));
+      premature.replies.join(" | "),premature.replies.some(s=>s.includes("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢") || /confirmar depósito/iu.test(s.normalize("NFKC"))));
     const cancelled=await replyLast(actor,"02");
     check("pc conversation",actor,"reply 02 / cancel deposit",
       "no change in storage",
-      cancelled.replies.join(" | "),cancelled.replies.some(s=>/CANCELAD/iu.test(s)));
+      cancelled.replies.join(" | "),cancelled.replies.some(s=>s.includes("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢") || /cancelado/iu.test(s.normalize("NFKC"))));
     const withdrawMenu=await send(actor,"/retirar");
     check("pc conversation",actor,"/retirar",
       "stored Ivysaur offered for return to team",
