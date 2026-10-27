@@ -1,0 +1,236 @@
+/**
+ * Player journey UAT: real operational WhatsApp router + disposable PostgreSQL.
+ * Uses synthetic trainers registered by whatsapp_simulator_multi_actor_uat.ts.
+ * Reports commands AND committed state. Absolutely never point at production.
+ */
+import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
+import { PostgresOperationalUxReadModel } from "../../src/platform/messaging/postgres-operational-ux-read-model.js";
+import { PostgresPokemonPcStorageRepository } from "../../src/platform/world-services/postgres-pokemon-pc-storage-repository.js";
+import { PokemonPcStorageService } from "../../src/modules/world-services/pc-storage-service.js";
+import type { PlayerId, PokemonInstanceId } from "../../src/shared-kernel/ids.js";
+import { createOperationalSimulatedWhatsAppRuntime } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
+
+const url = process.env.DATABASE_URL ?? "";
+if (process.env.APP_ENV !== "test" || !url.includes("localhost") || !url.includes("pokemon_rpg_test")) {
+  throw new Error("Player journey only runs against explicit disposable local test PostgreSQL");
+}
+const pool = new Pool({ connectionString: url, max: 8 });
+const PLAYER_A = "5599999999101@s.whatsapp.net";
+const PLAYER_B = "5599999999102@s.whatsapp.net";
+const WORLD = "120363900000000002@g.us";
+const key = Buffer.alloc(32, 7);
+const operational = createOperationalSimulatedWhatsAppRuntime({
+  pool,
+  encounterRngConfig: { encryptionKey: key, encryptionKeyVersion: 1 },
+  pveBattleConfig: { turnWindowTtlMs: 120_000, maintenanceBatchSize: 50, encryptionKeys: new Map([[1, key]]) },
+});
+type Outbound = Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }>;
+type Check = { area: string; actor: string; command: string; expected: string; actual: string; ok: boolean };
+const findings: Check[] = [];
+let serial = 900_000;
+function check(area: string, actor: string, command: string, expected: string, actual: unknown, ok: boolean) {
+  const entry = { area, actor, command, expected, actual: typeof actual === "string" ? actual : JSON.stringify(actual), ok };
+  findings.push(entry);
+  console.log(JSON.stringify({ event: "stage2.player.step", ...entry }));
+}
+function textOf(entry: Outbound): string {
+  const payload = entry.message.payload;
+  return entry.message.messageType === "TEXT" ? String(payload.text ?? "") :
+    entry.message.messageType === "IMAGE" ? String(payload.caption ?? "") : JSON.stringify(payload);
+}
+async function send(actor: string, command: string, fixedId?: string) {
+  const id = fixedId ?? `STAGE2-JOURNEY-${++serial}`;
+  const from = operational.adapter.transcript.length;
+  await operational.adapter.injectText({
+    externalMessageId: id, senderRef: actor, chatRef: WORLD, text: command,
+    replyToExternalMessageId: null,
+  });
+  await operational.runtime.flushOutbox();
+  await new Promise<void>((resolve) => setTimeout(resolve, 550));
+  const replies = operational.adapter.transcript.slice(from).filter((entry): entry is Outbound => entry.direction === "OUTBOUND");
+  const state = await pool.query<{ status: string; last_error_code: string | null }>(
+    "SELECT status,last_error_code FROM inbox_messages WHERE provider='baileys' AND external_message_id=$1",
+    [id],
+  );
+  console.log(JSON.stringify({
+    event: "stage2.player.whatsapp", actor, command, messageId: id,
+    inbox: state.rows[0] ?? null,
+    replies: replies.map(textOf).map((text) => text.slice(0, 800)),
+  }));
+  return { id, replies: replies.map(textOf), inbox: state.rows[0]?.status ?? null };
+}
+async function player(ref: string): Promise<PlayerId> {
+  const q = await pool.query<{ player_id: string }>(
+    "SELECT player_id::text FROM player_identities WHERE provider='baileys' AND external_id=$1 AND status='ACTIVE'",
+    [ref],
+  );
+  if (!q.rows[0]) throw new Error(`Player fixture missing: ${ref}; run multi-actor UAT first`);
+  return q.rows[0].player_id as PlayerId;
+}
+async function main() {
+  try {
+    const a = await player(PLAYER_A);
+    const b = await player(PLAYER_B);
+    const reads = new PostgresOperationalUxReadModel(pool);
+    const candidates = [a, b];
+    const actor = (await reads.activeBattleId(a)) === null ? PLAYER_A : PLAYER_B;
+    const owner = actor === PLAYER_A ? a : b;
+    const other = actor === PLAYER_A ? b : a;
+    const roster = await pool.query<{
+      pokemon_instance_id: string; form_id: string; level: number; slot_no: number;
+    }>(`SELECT p.id::text AS pokemon_instance_id,p.form_id::text,p.level,r.slot_no
+        FROM pokemon_instances p JOIN pokemon_roster_slots r ON r.pokemon_instance_id=p.id
+        WHERE p.owner_player_id=$1 AND p.status='ACTIVE' AND r.placement_kind='TEAM'
+        ORDER BY r.slot_no LIMIT 1`,[owner]);
+    const first = roster.rows[0];
+    if (!first) throw new Error("Synthetic trainer has no active Pokémon");
+    const pokemonId = first.pokemon_instance_id as PokemonInstanceId;
+    const release = (await pool.query<{ id: string }>(
+      "SELECT content_release_id::text AS id FROM player_onboarding_context WHERE player_id=$1",
+      [owner],
+    )).rows[0]?.id;
+    if (!release) throw new Error("Trainer has no pinned content release");
+
+    await operational.runtime.start();
+    check("journey", actor, "login", "synthetic approved trainer", { playerId: owner, pokemonId, release }, true);
+    await send(actor, "/perfil");
+    const before = await send(actor, "/golpes");
+    check("moves", actor, "/golpes", "pending choice list or empty state",
+      before.replies.join(" | "), before.inbox !== "FAILED" && before.replies.some(s => /MOVIMENTOS|PENDÊNCIAS/iu.test(s)));
+
+    // Create an authentic pending move-learning record in disposable published content.
+    const typeId = (await pool.query<{ type_id: string }>(
+      "SELECT type1_id::text AS type_id FROM pokemon_form_revisions WHERE content_release_id=$1 AND form_id=$2 LIMIT 1",
+      [release, first.form_id],
+    )).rows[0]?.type_id;
+    if (!typeId) throw new Error("Missing type in published release");
+    const moveId = randomUUID(), choiceId = randomUUID();
+    await pool.query("INSERT INTO moves(id,slug) VALUES($1,$2)", [moveId, `stage2-jornada-${moveId}`]);
+    await pool.query(`INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
+      VALUES($1,$2,$3,'Eco da Jornada',$4,'PHYSICAL',40,100,20,TRUE)`, [randomUUID(), release, moveId, typeId]);
+    await pool.query(`INSERT INTO pending_move_choices
+      (id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,source_id,correlation_id)
+      VALUES($1,$2,$3,$4,$5,'BATTLE_REWARD',$6,$7)`,
+      [choiceId,pokemonId,release,moveId,first.level,randomUUID(),randomUUID()]);
+    const offer = await send(actor, "/golpes");
+    check("moves", actor, "/golpes", "Eco da Jornada offered and shown",
+      offer.replies.join(" | "), offer.replies.some(s => s.includes("Eco da Jornada")));
+    const invalid = await send(actor, "/aprender 1 9");
+    const pending = (await pool.query<{ status: string }>(
+      "SELECT status FROM pending_move_choices WHERE id=$1", [choiceId],
+    )).rows[0]?.status;
+    check("moves", actor, "/aprender 1 9", "invalid slot rejected; choice stays pending",
+      { status: pending, messages: invalid.replies }, pending === "PENDING");
+
+    const occupied = await pool.query<{ slot_no: number }>(
+      "SELECT slot_no FROM pokemon_move_slots WHERE pokemon_instance_id=$1 ORDER BY slot_no LIMIT 1",
+      [pokemonId],
+    );
+    const slot = occupied.rows[0]?.slot_no;
+    if (!slot) throw new Error("Starter has no occupied move slot for replacement");
+    const learned = await send(actor, `/aprender 1 ${slot}`);
+    const afterChoice = await pool.query<{ status: string }>(
+      "SELECT status FROM pending_move_choices WHERE id=$1", [choiceId],
+    );
+    const slotAfter = await pool.query<{ move_id: string }>(
+      "SELECT move_id::text FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND slot_no=$2",
+      [pokemonId,slot],
+    );
+    check("moves", actor, `/aprender 1 ${slot}`, "choice RESOLVED and exact slot contains new move",
+      { status: afterChoice.rows[0]?.status, move: slotAfter.rows[0]?.move_id,
+        messages: learned.replies }, afterChoice.rows[0]?.status === "RESOLVED" && slotAfter.rows[0]?.move_id === moveId);
+    const noPending = await send(actor, "/golpes");
+    check("moves", actor, "/golpes", "no remaining pending choice for trainer",
+      noPending.replies.join(" | "), noPending.replies.some(s=>/SEM PENDÊNCIAS/iu.test(s)));
+
+    // Seed synthetic evolutionary stone and rule (never in real published content).
+    const stoneId = randomUUID();
+    const target = await pool.query<{ form_id: string; display_name: string }>(
+      `SELECT rev.form_id::text, species_rev.display_name FROM pokemon_form_revisions rev
+        JOIN pokemon_forms form ON form.id=rev.form_id
+        JOIN pokemon_species_revisions species_rev
+          ON species_rev.content_release_id=rev.content_release_id
+          AND species_rev.species_id=form.species_id AND species_rev.active=TRUE
+        WHERE rev.content_release_id=$1 AND rev.form_id<>$2 AND rev.active=TRUE
+        ORDER BY rev.form_id LIMIT 1`,
+      [release,first.form_id],
+    );
+    const targetForm = target.rows[0]?.form_id;
+    if (!targetForm) throw new Error("No second evolution target in synthetic catalog");
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [stoneId,`pedra-jornada-${stoneId}`]);
+    await pool.query(`INSERT INTO item_revisions
+      (id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active)
+      SELECT $1,$2,$3,'Pedra da Jornada',item_kind,effect_key,effect_config,TRUE
+      FROM item_revisions WHERE content_release_id=$2 LIMIT 1`,
+      [randomUUID(),release,stoneId]);
+    await pool.query(`INSERT INTO inventory_balances(player_id,item_id,quantity)
+       VALUES($1,$2,2)`, [owner,stoneId]);
+    await pool.query(`INSERT INTO evolution_rules(id,content_release_id,from_form_id,to_form_id,trigger_kind,trigger_config,active)
+      VALUES($1,$2,$3,$4,'ITEM',$5::jsonb,TRUE)`,
+      [randomUUID(),release,first.form_id,targetForm,JSON.stringify({itemId:stoneId})]);
+    const options = await send(actor, "/evolucao #1");
+    check("evolution", actor, "/evolucao #1", "target and owned evolution stone listed",
+      options.replies.join(" | "), options.replies.some(s => s.includes("Pedra da Jornada") && s.includes(target.rows[0]?.display_name ?? "")));
+    const wrongOwnerOptions = await reads.listEvolutionOptions(other, pokemonId);
+    check("ownership", actor === PLAYER_A ? PLAYER_B : PLAYER_A, "inspect other's Pokémon",
+      "no unauthorized evolution options", wrongOwnerOptions, wrongOwnerOptions.length === 0);
+    const itemBefore = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
+    const evo = await send(actor, "/evoluir #1 1", "STAGE2-EVOLVE-EXACT-ONCE");
+    const state = await pool.query<{ form_id: string }>(
+      "SELECT form_id::text FROM pokemon_instances WHERE id=$1",[pokemonId]);
+    const itemAfter = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
+    check("evolution", actor, "/evoluir #1 1", "form changed and precisely one stone consumed",
+      { forms: state.rows, balanceBefore: itemBefore.rows, balanceAfter:itemAfter.rows,
+        replies:evo.replies }, state.rows[0]?.form_id === targetForm &&
+        itemBefore.rows[0]?.quantity === "2" && itemAfter.rows[0]?.quantity === "1");
+    await send(actor, "/evoluir #1 1", "STAGE2-EVOLVE-EXACT-ONCE");
+    const replayBalance = (await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId])).rows[0]?.quantity;
+    check("evolution", actor, "replay same WhatsApp message id", "no second item charged",
+      { replayBalance }, replayBalance === "1");
+
+    // The PC/Hub use the same transactional storage owner.
+    const boxId = randomUUID();
+    await pool.query(`INSERT INTO pokemon_instances
+      (id,owner_player_id,form_id,level,current_hp,origin_type)
+      VALUES($1,$2,$3,8,24,'TEST')`,[boxId,owner,first.form_id]);
+    await pool.query(`INSERT INTO pokemon_roster_slots
+      (pokemon_instance_id,player_id,placement_kind,box_no,slot_no)
+      VALUES($1,$2,'BOX',1,1)`,[boxId,owner]);
+    const storage = new PokemonPcStorageService(new PostgresPokemonPcStorageRepository(pool));
+    const lastMember = await storage.move({playerId:owner,pokemonInstanceId:pokemonId,
+      target:{placementKind:"BOX",boxNo:1,slotNo:2}});
+    check("team-box",actor,"send last team Pokémon to empty slot", "must reject LAST_TEAM_MEMBER",
+      lastMember, !lastMember.ok && lastMember.error.code==="ACTION_INVALID");
+    const cross = await storage.move({playerId:other,pokemonInstanceId:pokemonId,
+      target:{placementKind:"BOX",boxNo:1,slotNo:2}});
+    check("ownership","other trainer","move foreign Pokémon", "must reject NOT_FOUND",
+      cross,!cross.ok && cross.error.code==="NOT_FOUND");
+    const swap = await storage.move({playerId:owner,pokemonInstanceId:boxId as PokemonInstanceId,
+      target:{placementKind:"TEAM",boxNo:null,slotNo:first.slot_no}});
+    const slots=await pool.query<{pokemon_instance_id:string; placement_kind:string; box_no:number|null; slot_no:number}>(
+      "SELECT pokemon_instance_id::text,placement_kind,box_no,slot_no FROM pokemon_roster_slots WHERE player_id=$1 ORDER BY placement_kind,slot_no",
+      [owner]);
+    check("team-box",actor,"move Box Pokémon into occupied team slot",
+      "atomic exchange, still 1 team member", {swap,roster:slots.rows},
+      swap.ok && slots.rows.filter(s=>s.placement_kind==="TEAM").length===1 &&
+        slots.rows.some(s=>s.pokemon_instance_id===boxId&&s.placement_kind==="TEAM") &&
+        slots.rows.some(s=>s.pokemon_instance_id===pokemonId&&s.placement_kind==="BOX"));
+    const pc=await send(actor,"/pc");
+    check("pc narrative",actor,"/pc","PC gate gives a user-visible result; scene context may be required",
+      pc.replies.join(" | "), pc.inbox!=="FAILED" && pc.replies.length>0);
+
+    const bugs=findings.filter(x=>!x.ok);
+    console.log(JSON.stringify({event:"stage2.player.complete",actor,
+      checks:findings.length,passed:findings.length-bugs.length,bugs:bugs.length,findings}));
+    if(bugs.length)throw new Error(`Player journey has ${bugs.length} failing scenario(s)`);
+  } finally {
+    await operational.runtime.stop().catch(()=>{});
+    await pool.end();
+  }
+}
+await main();
