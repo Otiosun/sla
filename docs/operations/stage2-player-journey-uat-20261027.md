@@ -1,5 +1,5 @@
 # Pokémon Beyond — Gestão Pokémon: diário da simulação de um treinador
-Data: 27/10/2026 | Teste dedicado: **31/31 PASS, 0 BUG**
+Data: 27/10/2026 | Teste dedicado: **44/44 PASS, 0 BUG**
 Execução com transcript: https://github.com/Otiosun/sla/actions/runs/40571287218
 Código reproduzível: db/proofs/whatsapp_simulator_pokemon_management_journey_uat.ts
 PRs Draft: Backend #260, Hub #126. Não houve merge nem acesso ao jogo real.
@@ -41,7 +41,7 @@ Duas contas sintéticas habilitadas pelo mecanismo oficial UatBootstrapService e
 28. A usa /caixas: Ivysaur Nv. 5 exibido na Caixa 01.
 29. A usa /depositar: bot oferece seleção e avisa que um Pokémon precisa permanecer na equipe.
 
-O contador exato do runner registra 31 verificações (a lista narrativa acima agrupa alguns checks), 31 aprovadas e 0 falhas. Logs etiquetados stage2.player.whatsapp, stage2.player.step e stage2.player.complete.
+O contador exato do runner registra 44 verificações (a lista narrativa acima agrupa alguns checks), 44 aprovadas e 0 falhas. Logs etiquetados stage2.player.whatsapp, stage2.player.step e stage2.player.complete.
 
 ## Amostra literal das respostas reais do bot
 - /aprender 1 1: “Bulbasaur aprendeu Eco da Jornada.”; exibe Growl -> Eco da Jornada.
@@ -52,13 +52,31 @@ O contador exato do runner registra 31 verificações (a lista narrativa acima a
 - /pc fora do centro: “Entre no Centro Pokémon com /centropokemon antes de usar esse comando.”
 - /depositar: “Ao menos um Pokémon deve permanecer na equipe.”
 
+## Continuação da jornada: PC conversacional inteiro — 27/10/2026
+Evidência da execução final de 44/44: https://github.com/Otiosun/sla/actions/runs/40576174445
+
+A sessão anterior verificava apenas a abertura dos menus. Agora o runner envia respostas **citando os identificadores exatos das mensagens de prompt do WhatsApp**, sem chamar diretamente o resolver de conversa. Após a troca inicial de Box/Time, o treinador tem Bulbasaur Nv. 8 na equipe e Ivysaur Nv. 5 na Caixa 01. Passos adicionais:
+1. /depositar mostra o último Bulbasaur, com aviso de último membro. Resposta 01 apresenta CONFIRMAR DEPÓSITO, destino Caixa 01 Vaga 02; resposta 02 cancela e não altera o time.
+2. /retirar mostra Ivysaur. Resposta 01 seleciona e apresenta CONFIRMAR RETIRADA; resposta 01 confirma. O bot anuncia retorno à Equipe posição 02, e o banco registra 2 membros.
+3. /depositar agora lista Bulbasaur e Ivysaur; resposta 01 escolhe Bulbasaur e mostra Caixa 01 Vaga 01; resposta 01 confirma. Banco: um Pokémon ativo (Ivysaur), um armazenado (Bulbasaur).
+4. /organizar lista o Bulbasaur. Resposta 01 pede destino com formatos 2/5, 2 5, caixa 2 slot 5; resposta 2/5 prepara confirmação; resposta 01 confirma. Banco: Bulbasaur em Caixa 02 vaga 05.
+5. /caixas exibe Caixa 02 com Bulbasaur Nv. 08 na vaga 05.
+
+**Resultado final completo: 44 verificações PASS, 0 falhas**, cobrindo comandos reais /golpes, /aprender, /evolucao, /evoluir, /pc, /depositar, /retirar, /organizar, /caixas, sessões, autorização, snapshots e mutações em PostgreSQL descartável. O runner não testa interface no navegador do Hub.
+
+**Pontos de UX encontrados, ainda não classificados como defeito funcional:**
+- Mesmo com somente um Pokémon na equipe, /depositar oferece seleção e prévia; a proteção mecânica impede efetivamente esvaziar o Time. Seria melhor encerrar mais cedo com orientação de retirada da Box.
+- A fixture de movimento já conhecido exibe Nv. 4 enquanto o Pokémon está Nv. 5, porque learnLevel é uma propriedade histórica da oferta; rótulo UX deveria explicitar “oferta do nível 4”.
+- A repetição de um ID de mensagem é silenciosa (sem novo outbound), embora o ledger permaneça idempotente. Avaliar se feedback de deduplicação é desejável.
+- Os comandos exigem reply à mensagem de menu; simulador validou com IDs exatos. Confirmar UX em diferentes clientes de WhatsApp, não assumir que texto avulso sempre é aceito.
+
 ## Problema real independente descoberto: cadastro UAT legado
 Execução separada: https://github.com/Otiosun/sla/actions/runs/40569028116
 O antigo roteiro multiator PvP/PvE registrou 12 falhas: em três submissões de cadastro não apareceu notificação de aprovação; dois jogadores ficaram NEW, sem Pokémon inicial, e os passos de PvP/PvE falharam em cascata. A causa ainda NÃO foi corrigida. Para não bloquear o teste de Pokémon, o cenário dedicado habilitou dois atores sintéticos pelo bootstrap oficial e não fingiu que a recepção havia funcionado.
 
 ## Limites e próximos trabalhos
 - Isto comprova a experiência WhatsApp simulada e o serviço real do PC com banco descartável; NÃO comprova navegador Hub autenticado em staging, nem WhatsApp real.
-- Fluxos interativos completos de depositar, retirar e organizar dentro da conversa ainda precisam ser percorridos até a confirmação e verificação de cada snapshot.
+- Os fluxos interativos de depositar, retirar e organizar foram percorridos até confirmação e verificação de snapshot no runner 40576174445.
 - Corrigir/atualizar a simulação antiga de cadastro e repetir o jogo completo sem bootstrap.
 - Cobrir falha de transporte, concorrência batalha/Box, ADM real com reconciliação após recarga e evolução ramificada com gatilho ambíguo.
 - Preservar design de front existente; não publicar Etapa 2 nem mesclar PRs sem autorização.
