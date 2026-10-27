@@ -104,7 +104,7 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly roster: Pick<PlayerPortalRosterService, "move">;
   readonly moveChoices: Pick<PlayerPortalMoveChoiceService, "list" | "resolve">;
-  readonly evolutions?: Pick<PlayerPortalEvolutionService, "evolve">;
+  readonly evolutions?: Pick<PlayerPortalEvolutionService, "evolve" | "listOptions">;
   readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
@@ -258,6 +258,11 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/battle") {
       return this.withSession(request, (identity) => this.getBattle(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon/evolution-options") {
+      return this.withSession(request, (identity) =>
+        this.getEvolutionOptions(url.searchParams.get("pokemonInstanceId"), identity),
+      );
     }
     if (request.method === "POST" && url.pathname === "/v1/hub/player/pokemon/evolve") {
       return this.withSession(request, (identity) => this.evolvePokemon(request, identity));
@@ -899,6 +904,22 @@ export class PlayerPortalHttpHandler {
       blockedByBattle: refreshed.value.blockedByBattle,
       choices: refreshed.value.choices,
     });
+  }
+
+  private async getEvolutionOptions(
+    pokemonInstanceId: string | null,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    if (!this.dependencies.evolutions) {
+      return jsonResponse(503, { error: "FEATURE_UNAVAILABLE" });
+    }
+    const result = await this.dependencies.evolutions.listOptions(identity, pokemonInstanceId);
+    return result.ok
+      ? jsonResponse(200, {
+          blockedByBattle: result.value.blockedByBattle,
+          options: result.value.options,
+        })
+      : errorResponse(result.error, "evolution");
   }
 
   private async evolvePokemon(request: Request, identity: ExternalIdentity): Promise<Response> {
