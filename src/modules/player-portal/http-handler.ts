@@ -3,7 +3,18 @@ import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
 import type { AdminTeamService } from "../admin/team-service.js";
+import type { EntitlementService } from "../entitlements/service.js";
+import type { PremiumOrderService } from "../premium-orders/service.js";
+import {
+  AdvancePremiumDeliveryCaseSchema,
+  OpenPremiumDeliveryCaseSchema,
+  type PremiumDeliveryCaseService,
+} from "../premium-orders/manual-delivery-case-service.js";
 import type { ExternalIdentity } from "../player/contracts.js";
+import {
+  ManualPremiumDeliverySchema,
+  type ManualPremiumDeliveryService,
+} from "../premium-orders/manual-delivery-service.js";
 import {
   AdminOperationApprovalRequestSchema,
   AdminOperationPrepareRequestSchema,
@@ -102,6 +113,12 @@ interface PlayerPortalHttpDependencies {
     "isOwner" | "list" | "addPrincipal" | "setReceptionStaff" | "replaceCapabilities"
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
+  readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
+  readonly premiumCases?: Pick<PremiumDeliveryCaseService, "catalog" | "list" | "timeline" | "open" | "advance">;
+  readonly premiumRead?: {
+    readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
+    readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
+  };
 }
 
 export class PlayerPortalHttpHandler {
@@ -115,6 +132,66 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
+    }
+    // Human-operated support cases are NEVER automatic grants or payment approvals.
+    if (url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
+        request.method === "GET" && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, "catalog"),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/cases" &&
+        ((request.method === "POST" && !url.search) ||
+         (request.method === "GET" && url.searchParams.size === 1 && url.searchParams.has("playerId")))) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, request.method === "POST" ? "open" : "list",
+          url.searchParams.get("playerId") ?? undefined),
+      );
+    }
+    const caseMatch = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/delivery\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(transition|events)$/i,
+    );
+    if (caseMatch?.[1] && !url.search &&
+        ((caseMatch[2] === "transition" && request.method === "POST") ||
+         (caseMatch[2] === "events" && request.method === "GET"))) {
+      const caseId = caseMatch[1];
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(
+          request, identity, caseMatch[2] === "events" ? "timeline" : "advance", caseId,
+        ),
+      );
+    }
+    // Commerce grants are independent of payment approvals; never infer a paid order.
+    if (request.method === "GET" && url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
+        !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "catalog"),
+      );
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/admin/premium/delivery" &&
+        !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "deliver"),
+      );
+    }
+    const premiumHistory = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/deliveries$/i,
+    );
+    if (request.method === "GET" && premiumHistory?.[1] && !url.search) {
+      const targetPlayerId = premiumHistory[1];
+      return this.withSession(request, (identity) =>
+        this.manualPremiumDelivery(request, identity, "history", targetPlayerId),
+      );
+    }
+    const premiumRead = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(orders|entitlements)$/i,
+    );
+    if (request.method === "GET" && premiumRead?.[1] && premiumRead[2] && !url.search) {
+      const playerId = premiumRead[1];
+      const resource = premiumRead[2].toLowerCase() as "orders" | "entitlements";
+      return this.withSession(request, (identity) =>
+        this.getAdminPremiumRead(identity, playerId, resource),
+      );
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
       return this.withSession(request, (identity) => this.getAdminSelf(identity));
@@ -269,6 +346,134 @@ export class PlayerPortalHttpHandler {
     const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
     if (!capabilities.includes("central.view")) return null;
     return { principalId: principal.principalId, capabilities };
+  }
+
+  private async manualPremiumCase(
+    request: Request,
+    identity: ExternalIdentity,
+    action: "catalog" | "list" | "open" | "advance" | "timeline",
+    targetId?: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null ||
+        (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "PREMIUM_CASE_FORBIDDEN" });
+    }
+    const cases = this.dependencies.premiumCases;
+    if (!cases) return jsonResponse(503, { error: "PREMIUM_CASE_UNAVAILABLE" });
+    try {
+      if (action === "catalog") return jsonResponse(200, { products: cases.catalog() });
+      if (action === "list") {
+        if (!targetId || !/^[0-9a-f-]{36}$/i.test(targetId)) {
+          return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        }
+        return jsonResponse(200, { cases: await cases.list(targetId) });
+      }
+      if (action === "timeline") {
+        if (!targetId) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        return jsonResponse(200, { events: await cases.timeline(targetId) });
+      }
+      const input = await readJsonBody(request);
+      if (action === "open") {
+        const parsed = OpenPremiumDeliveryCaseSchema.safeParse(input);
+        if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        const result = await cases.open(parsed.data, admin.principalId);
+        if (result.kind !== "APPLIED") {
+          return jsonResponse(
+            result.kind === "PLAYER_NOT_FOUND" || result.kind === "SKU_UNSUPPORTED" ? 404 : 409,
+            { error: result.kind },
+          );
+        }
+        return jsonResponse(result.replayed ? 200 : 201, {
+          replayed: result.replayed, case: result.case,
+        });
+      }
+      const parsed = AdvancePremiumDeliveryCaseSchema.safeParse(input);
+      if (!parsed.success || parsed.data.caseId !== targetId) {
+        return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      }
+      const result = await cases.advance(parsed.data, admin.principalId);
+      if (result.kind !== "APPLIED") {
+        return jsonResponse(result.kind === "NOT_FOUND" ? 404 : 409, { error: result.kind });
+      }
+      return jsonResponse(200, { replayed: result.replayed, case: result.case });
+    } catch {
+      return jsonResponse(503, { error: "PREMIUM_CASE_UNAVAILABLE" });
+    }
+  }
+
+  private async manualPremiumDelivery(
+    request: Request,
+    identity: ExternalIdentity,
+    operation: "catalog" | "deliver" | "history",
+    playerId?: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null) return jsonResponse(403, { error: "PREMIUM_DELIVERY_FORBIDDEN" });
+    const isOwner = await this.dependencies.adminTeam?.isOwner(admin.principalId);
+    if (isOwner !== true && !admin.capabilities.includes("premium.delivery.grant")) {
+      return jsonResponse(403, { error: "PREMIUM_DELIVERY_FORBIDDEN" });
+    }
+    const delivery = this.dependencies.premiumDelivery;
+    if (!delivery) return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+
+    try {
+      if (operation === "catalog") {
+        return jsonResponse(200, { products: await delivery.catalog() });
+      }
+      if (operation === "history") {
+        if (!playerId) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        return jsonResponse(200, { deliveries: await delivery.history(playerId) });
+      }
+      const body = await readJsonBody(request);
+      const parsed = ManualPremiumDeliverySchema.safeParse(body);
+      if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      const result = await delivery.deliver(parsed.data, admin.principalId);
+      if (result.kind === "APPLIED") {
+        return jsonResponse(result.replayed ? 200 : 201, {
+          applied: true,
+          replayed: result.replayed,
+          requestId: parsed.data.requestId,
+          entitlement: result.entitlement,
+        });
+      }
+      if (result.kind === "PLAYER_NOT_FOUND" || result.kind === "PRODUCT_UNAVAILABLE") {
+        return jsonResponse(404, { error: result.kind });
+      }
+      return jsonResponse(409, { error: result.kind });
+    } catch {
+      // Fail closed: an exception never becomes a success notification.
+      return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+  }
+
+  private async getAdminPremiumRead(
+    identity: ExternalIdentity,
+    playerId: string,
+    resource: "orders" | "entitlements",
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    // Payments and all entitlements are owner-only; a delegated delivery
+    // capability must never reveal the commercial/order ledger.
+    if (admin === null ||
+        (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "PREMIUM_READ_FORBIDDEN" });
+    }
+    if (!this.dependencies.premiumRead) {
+      return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
+    }
+    try {
+      if (resource === "orders") {
+        return jsonResponse(200, {
+          orders: await this.dependencies.premiumRead.orders.listPlayerOrders(playerId),
+        });
+      }
+      return jsonResponse(200, {
+        entitlements: await this.dependencies.premiumRead.entitlements.listPlayerEntitlements(playerId),
+      });
+    } catch {
+      return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
+    }
   }
 
   private async getAdminSelf(identity: ExternalIdentity): Promise<Response> {

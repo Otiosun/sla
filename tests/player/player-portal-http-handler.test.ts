@@ -53,7 +53,7 @@ const location: PlayerPortalWorldLocationView = {
 };
 
 function handler(
-  options: { admin?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
+  options: { admin?: boolean; owner?: boolean; premiumEnabled?: boolean; capabilities?: readonly string[]; principalId?: string } = {},
 ) {
   const rosterMove = vi.fn(async () => ok(undefined));
   const resolveMoveChoice = vi.fn(async () =>
@@ -195,6 +195,82 @@ function handler(
     adminRewardCatalog: {
       get: adminRewardCatalogGet,
     },
+    ...(options.owner === undefined ? {} : {
+      adminTeam: {
+        isOwner: async () => options.owner === true,
+      } as unknown as NonNullable<
+        ConstructorParameters<typeof PlayerPortalHttpHandler>[0]["adminTeam"]
+      >,
+    }),
+    ...(options.premiumEnabled ? {
+      premiumCases: {
+        catalog: () => [{ sku: "GEN", title: "Pokémon Gênesis", maxQuantity: 20 }],
+        list: async () => [{
+          id: "44444444-4444-4444-8444-444444444444",
+          playerId: profile.playerId,
+          sku: "GEN", title: "Pokémon Gênesis", quantity: 1,
+          state: "OPEN" as const, revision: 0,
+          openingActorPrincipalId: "77777777-7777-4777-8777-777777777777",
+          createdAt: "2026-10-26T00:00:00.000Z",
+          updatedAt: "2026-10-26T00:00:00.000Z",
+        }],
+        timeline: async () => [],
+        open: async (_input: unknown, _actor: string) => ({
+          kind: "APPLIED" as const, replayed: false,
+          case: {
+            id: "44444444-4444-4444-8444-444444444444",
+            playerId: profile.playerId,
+            sku: "GEN", title: "Pokémon Gênesis", quantity: 1,
+            state: "OPEN" as const, revision: 0,
+            openingActorPrincipalId: "77777777-7777-4777-8777-777777777777",
+            createdAt: "2026-10-26T00:00:00.000Z",
+            updatedAt: "2026-10-26T00:00:00.000Z",
+          },
+        }),
+        advance: async (_input: unknown, _actor: string) => ({
+          kind: "APPLIED" as const, replayed: false,
+          case: {
+            id: "44444444-4444-4444-8444-444444444444",
+            playerId: profile.playerId,
+            sku: "GEN", title: "Pokémon Gênesis", quantity: 1,
+            state: "IN_PROGRESS" as const, revision: 1,
+            openingActorPrincipalId: "77777777-7777-4777-8777-777777777777",
+            createdAt: "2026-10-26T00:00:00.000Z",
+            updatedAt: "2026-10-26T00:00:00.000Z",
+          },
+        }),
+      },
+      premiumRead: {
+        orders: { listPlayerOrders: async () => [] },
+        entitlements: { listPlayerEntitlements: async () => [] },
+      },
+      premiumDelivery: {
+        catalog: async () => [
+          { sku: "2XP", title: "XP em Dobro", maxQuantity: 52,
+            entitlementKey: "XP_2X", grantModel: "TIMED" as const,
+            durationSecondsPerUnit: 604800 },
+          { sku: "LUCK", title: "Bênção da Sorte", maxQuantity: 1,
+            entitlementKey: "CAPTURE_LUCK_2X", grantModel: "PERMANENT" as const,
+            durationSecondsPerUnit: null },
+        ],
+        history: async () => [],
+        deliver: async (input: unknown, _actor: string) => ({
+          kind: "APPLIED" as const, replayed: false,
+          entitlement: {
+            playerId: (input as { playerId: string }).playerId,
+            entitlementKey: (input as { sku: string }).sku === "LUCK"
+              ? "CAPTURE_LUCK_2X" : "XP_2X",
+            grantModel: (input as { sku: string }).sku === "LUCK"
+              ? "PERMANENT" as const : "TIMED" as const,
+            administrativeStatus: "ACTIVE" as const,
+            startsAt: "2026-10-26T00:00:00.000Z",
+            expiresAt: null,
+            revision: "1",
+            currentlyActive: true,
+          },
+        }),
+      },
+    } : {}),
     adminMutations: {
       listOperationDefinitions: adminListOperationDefinitions,
       prepareMutation: adminPrepareMutation,
@@ -222,6 +298,133 @@ function handler(
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
+  it("allows only the owner to manage human Premium support cases, without any automatic grants", async () => {
+    const base = "https://api.example.test/v1/hub/admin/premium/delivery/cases";
+    const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true });
+    const productList = await owner.instance.handle(new Request(base + "/catalog", { headers }));
+    expect(productList.status).toBe(200);
+    expect(await productList.json()).toEqual({
+      products: [{ sku: "GEN", title: "Pokémon Gênesis", maxQuantity: 20 }],
+    });
+    const list = await owner.instance.handle(new Request(
+      base + "?playerId=" + profile.playerId, { headers },
+    ));
+    expect(list.status).toBe(200);
+    expect(await list.json()).toMatchObject({
+      cases: [{ sku: "GEN", state: "OPEN" }],
+    });
+    const opening = {
+      caseId: "44444444-4444-4444-8444-444444444444",
+      eventId: "55555555-5555-4555-8555-555555555555",
+      playerId: profile.playerId, sku: "GEN", quantity: 1,
+      note: "Aguardar conceito personalizado e revisão humana.",
+    };
+    const opened = await owner.instance.handle(new Request(base, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(opening),
+    }));
+    expect(opened.status).toBe(201);
+    expect(await opened.json()).toMatchObject({
+      replayed: false, case: { state: "OPEN", sku: "GEN" },
+    });
+    const caseUrl = base + "/" + opening.caseId;
+    const events = await owner.instance.handle(new Request(caseUrl + "/events", { headers }));
+    expect(events.status).toBe(200);
+    expect(await events.json()).toEqual({ events: [] });
+    const transition = await owner.instance.handle(new Request(caseUrl + "/transition", {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        caseId: opening.caseId, eventId: "66666666-6666-4666-8666-666666666666",
+        expectedRevision: 0, nextState: "IN_PROGRESS", attested: false,
+        note: "Atendimento iniciado, nenhuma recompensa emitida.",
+      }),
+    }));
+    expect(transition.status).toBe(200);
+    expect(await transition.json()).toMatchObject({
+      case: { state: "IN_PROGRESS" }, replayed: false,
+    });
+
+    const delegate = handler({
+      admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["premium.delivery.grant", "player.read"],
+    });
+    for (const [url, method] of [
+      [base + "/catalog", "GET"], [base, "POST"],
+      [caseUrl + "/events", "GET"], [caseUrl + "/transition", "POST"],
+    ] as const) {
+      const denied = await delegate.instance.handle(new Request(url, {
+        method, headers: { ...headers, "content-type": "application/json" },
+        ...(method === "POST" ? { body: JSON.stringify(opening) } : {}),
+      }));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: "PREMIUM_CASE_FORBIDDEN" });
+    }
+  });
+
+  it("returns premium entitlements and orders only to the owner, never a delivery delegate", async () => {
+    const url = `https://api.example.test/v1/hub/admin/premium/players/${profile.playerId}`;
+    const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true });
+    const products = await owner.instance.handle(new Request(url + "/entitlements", { headers }));
+    expect(products.status).toBe(200);
+    expect(await products.json()).toEqual({
+      entitlements: [],
+    });
+    const orders = await owner.instance.handle(new Request(url + "/orders", { headers }));
+    expect(orders.status).toBe(200);
+    expect(await orders.json()).toEqual({ orders: [] });
+
+    const delegate = handler({ admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["player.read", "premium.delivery.grant"] });
+    for (const suffix of ["/orders", "/entitlements"]) {
+      const res = await delegate.instance.handle(new Request(url + suffix, { headers }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "PREMIUM_READ_FORBIDDEN" });
+    }
+    const unavailable = handler({ admin: true, owner: true, premiumEnabled: false });
+    expect((await unavailable.instance.handle(new Request(url + "/entitlements", { headers }))).status)
+      .toBe(503);
+  });
+
+  it("fails closed for ordinary ADM while allowing owner and explicit delegated Premium grants", async () => {
+    const base = "https://api.example.test/v1/hub/admin/premium/delivery";
+    const cookie = "__Host-pokemon_hub_session=session-token";
+    const headers = { cookie };
+    const ordinary = handler({ admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["reward.grant", "player.read"] });
+    expect((await ordinary.instance.handle(new Request(base + "/catalog", { headers }))).status).toBe(403);
+
+    const delegate = handler({ admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["premium.delivery.grant", "player.read"] });
+    const catalog = await delegate.instance.handle(new Request(base + "/catalog", { headers }));
+    expect(catalog.status).toBe(200);
+    const catalogResponse = (await catalog.json()) as { products: Array<{ sku: string }> };
+    expect(catalogResponse.products.map((product) => product.sku)).toEqual(["2XP", "LUCK"]);
+
+    const payload = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      playerId: profile.playerId, sku: "LUCK", quantity: 1,
+      reason: "Pagamento conferido pelo administrador autorizado.",
+    };
+    const delivery = await delegate.instance.handle(new Request(base, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+    expect(delivery.status).toBe(201);
+    expect(await delivery.json()).toMatchObject({
+      applied: true, requestId: payload.requestId,
+      entitlement: { playerId: profile.playerId, entitlementKey: "CAPTURE_LUCK_2X" },
+    });
+
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true,
+      capabilities: ["player.read"] });
+    expect((await owner.instance.handle(new Request(base + "/catalog", { headers }))).status).toBe(200);
+
+    const unavailable = handler({ admin: true, owner: true, premiumEnabled: false });
+    expect((await unavailable.instance.handle(new Request(base + "/catalog", { headers }))).status).toBe(503);
+  });
+
   it("exchanges a one-shot ticket for a secure HttpOnly cookie", async () => {
     const response = await handler().instance.handle(
       new Request("https://api.example.test/v1/hub/auth/exchange", {

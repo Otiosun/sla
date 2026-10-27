@@ -1,0 +1,82 @@
+name: Premium Delivery Integration Proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/premium-delivery-integration-proof.yml"
+      - "src/modules/premium-orders/manual-delivery-service.ts"
+      - "src/modules/player-portal/http-handler.ts"
+      - "src/runtime/compose-player-portal-runtime.ts"
+      - "src/modules/admin/registry-catalog.ts"
+      - "tests/player/player-portal-http-handler.test.ts"
+      - "tests/db/manual-premium-delivery.integration.test.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: premium-delivery-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-and-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokemon_rpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d pokemon_rpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      POSTGRES_INTEGRATION_TEST_URL: postgresql://pokemon:test-only-password@localhost:5432/postgres
+      ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
+      DATABASE_POOL_MAX: "12"
+      DATABASE_CONNECT_TIMEOUT_MS: "5000"
+      DATABASE_IDLE_TIMEOUT_MS: "30000"
+      DATABASE_QUERY_TIMEOUT_MS: "10000"
+      DATABASE_STATEMENT_TIMEOUT_MS: "10000"
+      DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: "15000"
+    steps:
+      - name: Checkout without persisting credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned package manager
+        run: npm install --global pnpm@11.23.0
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Apply and verify schema on disposable PostgreSQL only
+        run: |
+          pnpm db:migrate
+          pnpm db:verify
+      - name: Check Premium grant HTTP contracts and idempotent ledger
+        run: |
+          pnpm exec vitest run \
+            tests/player/player-portal-http-handler.test.ts \
+            tests/db/manual-premium-delivery.integration.test.ts \
+            tests/db/entitlements.integration.test.ts \
+            tests/db/premium-orders.integration.test.ts \
+            tests/db/premium-orders-xp2x.integration.test.ts
+      - name: Typecheck and compile
+        run: |
+          pnpm typecheck
+          pnpm build

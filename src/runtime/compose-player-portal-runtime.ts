@@ -1,4 +1,10 @@
 import type { Pool } from "pg";
+import { EntitlementService } from "../modules/entitlements/service.js";
+import { ManualPremiumDeliveryService } from "../modules/premium-orders/manual-delivery-service.js";
+import { PremiumDeliveryCaseService } from "../modules/premium-orders/manual-delivery-case-service.js";
+import { PremiumOrderService } from "../modules/premium-orders/service.js";
+import { PostgresPremiumOrderRepository } from "../platform/premium-orders/postgres-premium-order-repository.js";
+import { PostgresEntitlementRepository } from "../platform/entitlements/postgres-entitlement-repository.js";
 import { AdminAuditService } from "../modules/admin/audit-service.js";
 import { registerPhase12DBatchAdminOperations } from "../modules/admin/batch-definitions.js";
 import { AdminBatchService } from "../modules/admin/batch-service.js";
@@ -200,6 +206,10 @@ export function composePlayerPortalRuntime(
     new PostgresAdminRewardCatalogRepository(options.pool),
   );
   const adminTeam = new AdminTeamService(new PostgresAdminTeamRepository(options.pool));
+  // The published catalog already defines 2XP and LUCK on the modern DB release.
+  // This uses the same idempotent entitlement ledger, never payment mutation.
+  const entitlements = new EntitlementService(new PostgresEntitlementRepository(options.pool));
+  const premiumDelivery = new ManualPremiumDeliveryService(options.pool, entitlements);
   const adminPlayerIdentityHttp = new AdminPlayerIdentityHttpHandler({
     sessions,
     admin,
@@ -219,6 +229,12 @@ export function composePlayerPortalRuntime(
     adminAudit,
     adminTeam,
     adminMutations: adminService,
+    premiumDelivery,
+    premiumCases: new PremiumDeliveryCaseService(options.pool),
+    premiumRead: {
+      orders: new PremiumOrderService(new PostgresPremiumOrderRepository(options.pool)),
+      entitlements,
+    },
   });
 
   return {

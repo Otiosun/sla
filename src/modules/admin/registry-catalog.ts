@@ -33,6 +33,9 @@ export const ADMIN_CAPABILITIES = [
   ["wallet.adjust", 2],
   ["pokedex.seen.grant", 2],
   ["reward.grant", 2],
+  // Paid benefits are owner-only unless individually delegated; regular ADM
+  // roles receive no premium delivery rights by default.
+  ["premium.delivery.grant", 4],
   ["effect.apply", 2],
   ["effect.remove", 2],
   ["player.access.suspend", 3],
@@ -80,7 +83,9 @@ const RECEPTION_REVIEW_CAPABILITIES = [
 
 const SENIOR_CAPABILITIES = ADMIN_CAPABILITIES.filter(([, risk]) => risk <= 3).map(([key]) => key);
 const OWNER_CAPABILITIES = ADMIN_CAPABILITIES.map(([key]) => key);
-const MASTER_CAPABILITIES = OWNER_CAPABILITIES.filter((key) => key !== "player.identity.change");
+const MASTER_CAPABILITIES = OWNER_CAPABILITIES.filter(
+  (key) => key !== "player.identity.change" && key !== "premium.delivery.grant",
+);
 
 export const ADMIN_ROLE_CAPABILITIES: Readonly<Record<string, readonly AdminCapabilityKey[]>> = {
   RECEPTION_MOD: RECEPTION_REVIEW_CAPABILITIES,
