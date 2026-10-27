@@ -1104,7 +1104,7 @@ function errorResponse(
   if (context === "profile" && error.code === "NOT_FOUND") {
     return jsonResponse(404, { error: error.code });
   }
-  if (context === "roster" && error.code === "ACTION_INVALID") {
+  if (context === "roster" && (error.code === "ACTION_INVALID" || error.code === "FLOW_BLOCKED")) {
     return jsonResponse(409, { error: error.code });
   }
   if (context === "evolution" && error.code === "NOT_FOUND") {
