@@ -35,3 +35,52 @@ jobs:
         run: pnpm exec vitest run tests/player/player-portal-evolution-service.test.ts tests/player/player-portal-http-handler.test.ts tests/player/player-portal-move-choice-service.test.ts tests/player/player-portal-roster-service.test.ts
       - name: Build runtime
         run: pnpm build
+
+  postgres-simulation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokemon_rpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d pokemon_rpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      POSTGRES_INTEGRATION_TEST_URL: postgresql://pokemon:test-only-password@localhost:5432/postgres
+      ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
+    steps:
+      - name: Checkout isolated Stage 2 branch
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.23.0 --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Migrate and verify disposable PostgreSQL
+        run: |
+          pnpm db:migrate
+          pnpm db:verify
+      - name: Simulate Team/Box atomic swap, last-team-member, duplicates and move choices
+        run: |
+          pnpm exec vitest run \
+            tests/db/hub-pc-storage-move.integration.test.ts \
+            tests/db/roster-placement-30-slot-boxes.integration.test.ts \
+            tests/db/pending-move-choice-duplicate.integration.test.ts \
+            tests/db/player-portal-read-repository.integration.test.ts
