@@ -5,6 +5,11 @@ import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.
 import type { AdminTeamService } from "../admin/team-service.js";
 import type { EntitlementService } from "../entitlements/service.js";
 import type { PremiumOrderService } from "../premium-orders/service.js";
+import {
+  AdvancePremiumDeliveryCaseSchema,
+  OpenPremiumDeliveryCaseSchema,
+  type PremiumDeliveryCaseService,
+} from "../premium-orders/manual-delivery-case-service.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import {
   ManualPremiumDeliverySchema,
@@ -109,6 +114,7 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
   readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
+  readonly premiumCases?: Pick<PremiumDeliveryCaseService, "catalog" | "list" | "timeline" | "open" | "advance">;
   readonly premiumRead?: {
     readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
     readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
@@ -126,6 +132,34 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/self") {
       return this.withSession(request, (identity) => this.getSelf(identity));
+    }
+    // Human-operated support cases are NEVER automatic grants or payment approvals.
+    if (url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
+        request.method === "GET" && !url.search) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, "catalog"),
+      );
+    }
+    if (url.pathname === "/v1/hub/admin/premium/delivery/cases" &&
+        ((request.method === "POST" && !url.search) ||
+         (request.method === "GET" && url.searchParams.size === 1 && url.searchParams.has("playerId")))) {
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(request, identity, request.method === "POST" ? "open" : "list",
+          url.searchParams.get("playerId") ?? undefined),
+      );
+    }
+    const caseMatch = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/delivery\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(transition|events)$/i,
+    );
+    if (caseMatch?.[1] && !url.search &&
+        ((caseMatch[2] === "transition" && request.method === "POST") ||
+         (caseMatch[2] === "events" && request.method === "GET"))) {
+      const caseId = caseMatch[1];
+      return this.withSession(request, (identity) =>
+        this.manualPremiumCase(
+          request, identity, caseMatch[2] === "events" ? "timeline" : "advance", caseId,
+        ),
+      );
     }
     // Commerce grants are independent of payment approvals; never infer a paid order.
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
@@ -312,6 +346,60 @@ export class PlayerPortalHttpHandler {
     const capabilities = await this.dependencies.admin.capabilitiesFor(identity);
     if (!capabilities.includes("central.view")) return null;
     return { principalId: principal.principalId, capabilities };
+  }
+
+  private async manualPremiumCase(
+    request: Request,
+    identity: ExternalIdentity,
+    action: "catalog" | "list" | "open" | "advance" | "timeline",
+    targetId?: string,
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    if (admin === null ||
+        (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "PREMIUM_CASE_FORBIDDEN" });
+    }
+    const cases = this.dependencies.premiumCases;
+    if (!cases) return jsonResponse(503, { error: "PREMIUM_CASE_UNAVAILABLE" });
+    try {
+      if (action === "catalog") return jsonResponse(200, { products: cases.catalog() });
+      if (action === "list") {
+        if (!targetId || !/^[0-9a-f-]{36}$/i.test(targetId)) {
+          return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        }
+        return jsonResponse(200, { cases: await cases.list(targetId) });
+      }
+      if (action === "timeline") {
+        if (!targetId) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        return jsonResponse(200, { events: await cases.timeline(targetId) });
+      }
+      const input = await readJsonBody(request);
+      if (action === "open") {
+        const parsed = OpenPremiumDeliveryCaseSchema.safeParse(input);
+        if (!parsed.success) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+        const result = await cases.open(parsed.data, admin.principalId);
+        if (result.kind !== "APPLIED") {
+          return jsonResponse(
+            result.kind === "PLAYER_NOT_FOUND" || result.kind === "SKU_UNSUPPORTED" ? 404 : 409,
+            { error: result.kind },
+          );
+        }
+        return jsonResponse(result.replayed ? 200 : 201, {
+          replayed: result.replayed, case: result.case,
+        });
+      }
+      const parsed = AdvancePremiumDeliveryCaseSchema.safeParse(input);
+      if (!parsed.success || parsed.data.caseId !== targetId) {
+        return jsonResponse(400, { error: "VALIDATION_FAILED" });
+      }
+      const result = await cases.advance(parsed.data, admin.principalId);
+      if (result.kind !== "APPLIED") {
+        return jsonResponse(result.kind === "NOT_FOUND" ? 404 : 409, { error: result.kind });
+      }
+      return jsonResponse(200, { replayed: result.replayed, case: result.case });
+    } catch {
+      return jsonResponse(503, { error: "PREMIUM_CASE_UNAVAILABLE" });
+    }
   }
 
   private async manualPremiumDelivery(
