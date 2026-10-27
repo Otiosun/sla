@@ -203,6 +203,43 @@ function handler(
       >,
     }),
     ...(options.premiumEnabled ? {
+      premiumCases: {
+        catalog: () => [{ sku: "GEN", title: "Pokémon Gênesis", maxQuantity: 20 }],
+        list: async () => [{
+          id: "44444444-4444-4444-8444-444444444444",
+          playerId: profile.playerId,
+          sku: "GEN", title: "Pokémon Gênesis", quantity: 1,
+          state: "OPEN" as const, revision: 0,
+          openingActorPrincipalId: "77777777-7777-4777-8777-777777777777",
+          createdAt: "2026-10-26T00:00:00.000Z",
+          updatedAt: "2026-10-26T00:00:00.000Z",
+        }],
+        timeline: async () => [],
+        open: async (_input: unknown, _actor: string) => ({
+          kind: "APPLIED" as const, replayed: false,
+          case: {
+            id: "44444444-4444-4444-8444-444444444444",
+            playerId: profile.playerId,
+            sku: "GEN", title: "Pokémon Gênesis", quantity: 1,
+            state: "OPEN" as const, revision: 0,
+            openingActorPrincipalId: "77777777-7777-4777-8777-777777777777",
+            createdAt: "2026-10-26T00:00:00.000Z",
+            updatedAt: "2026-10-26T00:00:00.000Z",
+          },
+        }),
+        advance: async (_input: unknown, _actor: string) => ({
+          kind: "APPLIED" as const, replayed: false,
+          case: {
+            id: "44444444-4444-4444-8444-444444444444",
+            playerId: profile.playerId,
+            sku: "GEN", title: "Pokémon Gênesis", quantity: 1,
+            state: "IN_PROGRESS" as const, revision: 1,
+            openingActorPrincipalId: "77777777-7777-4777-8777-777777777777",
+            createdAt: "2026-10-26T00:00:00.000Z",
+            updatedAt: "2026-10-26T00:00:00.000Z",
+          },
+        }),
+      },
       premiumRead: {
         orders: { listPlayerOrders: async () => [] },
         entitlements: { listPlayerEntitlements: async () => [] },
@@ -261,6 +298,70 @@ function handler(
 }
 
 describe("PlayerPortalHttpHandler companion boundary", () => {
+  it("allows only the owner to manage human Premium support cases, without any automatic grants", async () => {
+    const base = "https://api.example.test/v1/hub/admin/premium/delivery/cases";
+    const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
+    const owner = handler({ admin: true, owner: true, premiumEnabled: true });
+    const productList = await owner.instance.handle(new Request(base + "/catalog", { headers }));
+    expect(productList.status).toBe(200);
+    expect(await productList.json()).toEqual({
+      products: [{ sku: "GEN", title: "Pokémon Gênesis", maxQuantity: 20 }],
+    });
+    const list = await owner.instance.handle(new Request(
+      base + "?playerId=" + profile.playerId, { headers },
+    ));
+    expect(list.status).toBe(200);
+    expect(await list.json()).toMatchObject({
+      cases: [{ sku: "GEN", state: "OPEN" }],
+    });
+    const opening = {
+      caseId: "44444444-4444-4444-8444-444444444444",
+      eventId: "55555555-5555-4555-8555-555555555555",
+      playerId: profile.playerId, sku: "GEN", quantity: 1,
+      note: "Aguardar conceito personalizado e revisão humana.",
+    };
+    const opened = await owner.instance.handle(new Request(base, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(opening),
+    }));
+    expect(opened.status).toBe(201);
+    expect(await opened.json()).toMatchObject({
+      replayed: false, case: { state: "OPEN", sku: "GEN" },
+    });
+    const caseUrl = base + "/" + opening.caseId;
+    const events = await owner.instance.handle(new Request(caseUrl + "/events", { headers }));
+    expect(events.status).toBe(200);
+    expect(await events.json()).toEqual({ events: [] });
+    const transition = await owner.instance.handle(new Request(caseUrl + "/transition", {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        caseId: opening.caseId, eventId: "66666666-6666-4666-8666-666666666666",
+        expectedRevision: 0, nextState: "IN_PROGRESS", attested: false,
+        note: "Atendimento iniciado, nenhuma recompensa emitida.",
+      }),
+    }));
+    expect(transition.status).toBe(200);
+    expect(await transition.json()).toMatchObject({
+      case: { state: "IN_PROGRESS" }, replayed: false,
+    });
+
+    const delegate = handler({
+      admin: true, owner: false, premiumEnabled: true,
+      capabilities: ["premium.delivery.grant", "player.read"],
+    });
+    for (const [url, method] of [
+      [base + "/catalog", "GET"], [base, "POST"],
+      [caseUrl + "/events", "GET"], [caseUrl + "/transition", "POST"],
+    ]) {
+      const denied = await delegate.instance.handle(new Request(url, {
+        method, headers: { ...headers, "content-type": "application/json" },
+        ...(method === "POST" ? { body: JSON.stringify(opening) } : {}),
+      }));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: "PREMIUM_CASE_FORBIDDEN" });
+    }
+  });
+
   it("returns premium entitlements and orders only to the owner, never a delivery delegate", async () => {
     const url = `https://api.example.test/v1/hub/admin/premium/players/${profile.playerId}`;
     const headers = { cookie: "__Host-pokemon_hub_session=session-token" };
