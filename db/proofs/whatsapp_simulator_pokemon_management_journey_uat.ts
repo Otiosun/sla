@@ -6,6 +6,14 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsapp/simulated-whatsapp-adapter.js";
+import { UatBootstrapService } from "../../src/modules/admin/uat-bootstrap.js";
+import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
+import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
+import { WorldService } from "../../src/modules/world/service.js";
+import { SystemClock } from "../../src/platform/clock/index.js";
+import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { CryptoRandomSource } from "../../src/platform/rng/index.js";
+import { PostgresWorldRepository } from "../../src/platform/world/postgres-world-repository.js";
 import { PostgresOperationalUxReadModel } from "../../src/platform/messaging/postgres-operational-ux-read-model.js";
 import { PostgresPokemonPcStorageRepository } from "../../src/platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PokemonPcStorageService } from "../../src/modules/world-services/pc-storage-service.js";
@@ -71,6 +79,24 @@ async function player(ref: string): Promise<PlayerId> {
 }
 async function main() {
   try {
+    // Explicitly prepare two independent, synthetic players in this disposable DB.
+    // This does not conceal the older multi-actor registration regression: that
+    // proof runs independently and is tracked as a separate failure.
+    const onboardingRepo = new PostgresPlayerOnboardingRepository(pool);
+    const starter = new PlayerStarterService(onboardingRepo, new SystemClock(), new CryptoRandomSource());
+    const players = new PlayerRegistrationService(onboardingRepo);
+    const world = new WorldService(new PostgresWorldRepository(pool), { enabled: true, reason: null });
+    const principal = (await pool.query<{id:string}>(
+      "SELECT id::text FROM admin_principals WHERE identity_ref='whatsapp:5599999999000@s.whatsapp.net' LIMIT 1",
+    )).rows[0]?.id;
+    if (!principal) throw new Error("Synthetic admin fixture missing");
+    const bootstrap = new UatBootstrapService(pool, players, starter, world);
+    for (const ref of [PLAYER_A, PLAYER_B]) {
+      const result = await bootstrap.bootstrap({ provider: "baileys", externalId: ref }, principal);
+      check("setup", ref, "test-only onboarding bootstrap",
+        "ACTIVE synthetic player with starter and location", result, result.ok);
+      if (!result.ok) throw new Error(`Cannot bootstrap synthetic actor: ${ref} ${result.error.code}`);
+    }
     const a = await player(PLAYER_A);
     const b = await player(PLAYER_B);
     const reads = new PostgresOperationalUxReadModel(pool);
