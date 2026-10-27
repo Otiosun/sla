@@ -235,18 +235,24 @@ async function main() {
     const wrongOwnerOptions = await reads.listEvolutionOptions(other, pokemonId);
     check("ownership", actor === PLAYER_A ? PLAYER_B : PLAYER_A, "inspect other's Pokémon",
       "no unauthorized evolution options", wrongOwnerOptions, wrongOwnerOptions.length === 0);
+    const canonicalOptions = await reads.listEvolutionOptions(owner, pokemonId);
+    const itemIndex = canonicalOptions.findIndex(
+      (option) => option.triggerKind === "ITEM" && option.itemId === stoneId,
+    );
+    if (itemIndex < 0) throw new Error("The synthetic evolution stone was not projected");
+    const evolveCommand = `/evoluir #1 ${itemIndex + 1}`;
     const itemBefore = await pool.query<{ quantity: string }>(
       "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
-    const evo = await send(actor, "/evoluir #1 1", "STAGE2-EVOLVE-EXACT-ONCE");
+    const evo = await send(actor, evolveCommand, "STAGE2-EVOLVE-EXACT-ONCE");
     const state = await pool.query<{ form_id: string }>(
       "SELECT form_id::text FROM pokemon_instances WHERE id=$1",[pokemonId]);
     const itemAfter = await pool.query<{ quantity: string }>(
       "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
-    check("evolution", actor, "/evoluir #1 1", "form changed and precisely one stone consumed",
+    check("evolution", actor, evolveCommand, "form changed and precisely one stone consumed",
       { forms: state.rows, balanceBefore: itemBefore.rows, balanceAfter:itemAfter.rows,
         replies:evo.replies }, state.rows[0]?.form_id === targetForm &&
         itemBefore.rows[0]?.quantity === "2" && itemAfter.rows[0]?.quantity === "1");
-    await send(actor, "/evoluir #1 1", "STAGE2-EVOLVE-EXACT-ONCE");
+    await send(actor, evolveCommand, "STAGE2-EVOLVE-EXACT-ONCE");
     const replayBalance = (await pool.query<{ quantity: string }>(
       "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId])).rows[0]?.quantity;
     check("evolution", actor, "replay same WhatsApp message id", "no second item charged",
@@ -280,8 +286,30 @@ async function main() {
         slots.rows.some(s=>s.pokemon_instance_id===boxId&&s.placement_kind==="TEAM") &&
         slots.rows.some(s=>s.pokemon_instance_id===pokemonId&&s.placement_kind==="BOX"));
     const pc=await send(actor,"/pc");
-    check("pc narrative",actor,"/pc","PC gate gives a user-visible result; scene context may be required",
-      pc.replies.join(" | "), pc.inbox!=="FAILED" && pc.replies.length>0);
+    check("pc narrative",actor,"/pc without entering center","guided gate to enter Pokémon Center",
+      pc.replies.join(" | "),
+      pc.inbox!=="FAILED" && pc.replies.some(s=>/centro pokémon|centropokemon/iu.test(s)));
+    const arrival = [
+      "O treinador para diante do Centro Pokémon e contempla a fachada iluminada.",
+      "Ele ajusta a mochila, confere a Poké Ball no cinto e caminha até a porta.",
+      "Depois de entrar, cumprimenta a atendente e procura o terminal de armazenamento.",
+      "A intenção é guardar seus Pokémon com calma, respeitando o ambiente e o atendimento.",
+    ].join("\n");
+    const roleplay = await send(actor,arrival);
+    check("narrative",actor,"narrar chegada ao Centro Pokémon",
+      "scene proof processed",roleplay.replies.join(" | "), roleplay.inbox==="PROCESSED");
+    const center = await send(actor,"/centropokemon");
+    check("pc narrative",actor,"/centropokemon",
+      "center service presents user-visible instructions",
+      center.replies.join(" | "),center.inbox==="PROCESSED" && center.replies.length>0);
+    const pcEntered = await send(actor,"/pc");
+    check("pc narrative",actor,"/pc after scene and entry",
+      "PC storage menu, or explicit actionable availability response",
+      pcEntered.replies.join(" | "),pcEntered.inbox==="PROCESSED" && pcEntered.replies.length>0);
+    const boxes = await send(actor,"/caixas");
+    check("pc narrative",actor,"/caixas",
+      "Box roster or explicit entry guidance",
+      boxes.replies.join(" | "),boxes.inbox==="PROCESSED" && boxes.replies.length>0);
 
     const bugs=findings.filter(x=>!x.ok);
     console.log(JSON.stringify({event:"stage2.player.complete",actor,
