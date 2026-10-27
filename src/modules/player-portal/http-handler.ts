@@ -3,6 +3,8 @@ import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
 import type { AdminRewardCatalogService } from "../admin/reward-catalog-service.js";
 import type { AdminTeamService } from "../admin/team-service.js";
+import type { EntitlementService } from "../entitlements/service.js";
+import type { PremiumOrderService } from "../premium-orders/service.js";
 import type { ExternalIdentity } from "../player/contracts.js";
 import {
   ManualPremiumDeliverySchema,
@@ -107,6 +109,10 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
   readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
+  readonly premiumRead?: {
+    readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
+    readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
+  };
 }
 
 export class PlayerPortalHttpHandler {
@@ -141,6 +147,16 @@ export class PlayerPortalHttpHandler {
       const targetPlayerId = premiumHistory[1];
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "history", targetPlayerId),
+      );
+    }
+    const premiumRead = url.pathname.match(
+      /^\/v1\/hub\/admin\/premium\/players\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(orders|entitlements)$/i,
+    );
+    if (request.method === "GET" && premiumRead?.[1] && premiumRead[2] && !url.search) {
+      const playerId = premiumRead[1];
+      const resource = premiumRead[2].toLowerCase() as "orders" | "entitlements";
+      return this.withSession(request, (identity) =>
+        this.getAdminPremiumRead(identity, playerId, resource),
       );
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/admin/self") {
@@ -340,6 +356,35 @@ export class PlayerPortalHttpHandler {
     } catch {
       // Fail closed: an exception never becomes a success notification.
       return jsonResponse(503, { error: "PREMIUM_DELIVERY_UNAVAILABLE" });
+    }
+  }
+
+  private async getAdminPremiumRead(
+    identity: ExternalIdentity,
+    playerId: string,
+    resource: "orders" | "entitlements",
+  ): Promise<Response> {
+    const admin = await this.resolvePortalAdmin(identity);
+    // Payments and all entitlements are owner-only; a delegated delivery
+    // capability must never reveal the commercial/order ledger.
+    if (admin === null ||
+        (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+      return jsonResponse(403, { error: "PREMIUM_READ_FORBIDDEN" });
+    }
+    if (!this.dependencies.premiumRead) {
+      return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
+    }
+    try {
+      if (resource === "orders") {
+        return jsonResponse(200, {
+          orders: await this.dependencies.premiumRead.orders.listPlayerOrders(playerId),
+        });
+      }
+      return jsonResponse(200, {
+        entitlements: await this.dependencies.premiumRead.entitlements.listPlayerEntitlements(playerId),
+      });
+    } catch {
+      return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
     }
   }
 
