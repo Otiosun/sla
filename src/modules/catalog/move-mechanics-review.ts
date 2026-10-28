@@ -44,6 +44,19 @@ export type MoveEffectReview = {
   readonly basicDamageCandidate: boolean;
 };
 
+/**
+ * Metadata often reports "damage" for moves whose custom mechanics live in
+ * other data (Fly, U-turn, Focus Punch, False Swipe, etc.). Do not infer
+ * standard battle support from their power/accuracy alone.
+ * This conservative set only identifies candidates for manual verification.
+ */
+const BASIC_DAMAGE_REVIEW_CANDIDATES = new Set([
+  "tackle", "pound", "scratch", "vine-whip", "water-gun", "gust",
+  "aqua-tail", "dragon-claw", "dragon-pulse", "drill-peck", "fairy-wind",
+  "horn-attack", "hydro-pump", "megahorn", "peck", "power-whip",
+  "seed-bomb", "slam", "wing-attack", "ember",
+]);
+
 const KNOWN_CATEGORY: Record<string, MoveEffectReview["category"]> = {
   physical: "PHYSICAL", special: "SPECIAL", status: "STATUS",
 };
@@ -57,6 +70,9 @@ export function classifyMoveForBattleReview(raw: ExternalMoveMechanics): MoveEff
   const reasons: string[] = [];
   const meta = raw.meta;
   if(category === "STATUS") reasons.push("STATUS_MOVE_EFFECT");
+  if(!BASIC_DAMAGE_REVIEW_CANDIDATES.has(raw.name)) {
+    reasons.push("UNREVIEWED_MOVE_SPECIFIC_MECHANICS");
+  }
   if(raw.power === null || raw.power <= 0) reasons.push("NON_STANDARD_POWER");
   if(raw.pp === null || !Number.isInteger(raw.pp) || raw.pp < 1) reasons.push("PP_SPECIAL");
   if(raw.accuracy === null || raw.accuracy < 1 || raw.accuracy > 100) reasons.push("ACCURACY_SPECIAL");
