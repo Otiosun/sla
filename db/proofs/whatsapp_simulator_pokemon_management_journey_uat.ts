@@ -610,6 +610,80 @@ async function main() {
       "Box 2 contains relocated Bulbasaur",
       finalBoxes.replies.join(" | "),finalBoxes.replies.some(s=>s.includes("Bulbasaur")&&s.includes("Caixa 02")));
 
+    // An existing trainer who passed level 16 before automatic evolution was
+    // introduced must not be forced to gain more XP, even at level 100.
+    // Only mutate the disposable synthetic second trainer; production untouched.
+    const overdueActor = actor === PLAYER_A ? PLAYER_B : PLAYER_A;
+    const overdueRecord = (await pool.query<{
+      id: string; form_id: string; level: number; xp: string;
+    }>(
+      `SELECT id::text, form_id::text, level, xp::text
+       FROM pokemon_instances WHERE owner_player_id=$1 AND status='ACTIVE'
+       ORDER BY created_at, id LIMIT 1`,
+      [other],
+    )).rows[0];
+    if (!overdueRecord) throw new Error("Second trainer must have a starter");
+    await pool.query(
+      `UPDATE pokemon_instances SET level=20, xp=0, revision=revision+1, updated_at=now()
+       WHERE id=$1 AND owner_player_id=$2`,
+      [overdueRecord.id, other],
+    );
+    const beforeCompensationWallet = (await pool.query<{quantity:string}>(
+      `SELECT coalesce(sum(quantity),0)::text AS quantity
+       FROM inventory_balances WHERE player_id=$1`,
+      [other],
+    )).rows[0]?.quantity ?? "0";
+    const overdueMenu = await send(overdueActor, "/evolucao #1");
+    check("evolution legacy", overdueActor, "/evolucao #1",
+      "overdue level evolution is detected and an actionable correction is offered",
+      overdueMenu.replies.join(" | "),
+      overdueMenu.inbox === "PROCESSED" &&
+      overdueMenu.replies.some((text) =>
+        text.includes("EVOLUÇÃO ATRASADA") && text.includes("/regularizar #1")));
+    const repairMessageId = "STAGE2-OVERDUE-CORRECTION-ONCE";
+    const correctedLevel = await send(overdueActor, "/regularizar #1", repairMessageId);
+    const afterCorrection = (await pool.query<{
+      form_id:string; level:number; xp:string;
+    }>(
+      `SELECT form_id::text, level, xp::text
+       FROM pokemon_instances WHERE id=$1`,
+      [overdueRecord.id],
+    )).rows[0];
+    const afterCompensationWallet = (await pool.query<{quantity:string}>(
+      `SELECT coalesce(sum(quantity),0)::text AS quantity
+       FROM inventory_balances WHERE player_id=$1`,
+      [other],
+    )).rows[0]?.quantity ?? "0";
+    check("evolution legacy", overdueActor, "/regularizar #1",
+      "stuck L20 evolves without XP gain or any item consumption",
+      { replies: correctedLevel.replies, before: overdueRecord, after: afterCorrection,
+        itemBefore: beforeCompensationWallet, itemAfter: afterCompensationWallet },
+      correctedLevel.inbox === "PROCESSED" &&
+      correctedLevel.replies.some((text) => text.includes("EVOLUÇÃO REGULARIZADA")) &&
+      afterCorrection !== undefined &&
+      afterCorrection.form_id !== overdueRecord.form_id &&
+      afterCorrection.level === 20 && afterCorrection.xp === "0" &&
+      beforeCompensationWallet === afterCompensationWallet);
+    const claimsBeforeReplay = (await pool.query<{ n:string }>(
+      `SELECT count(*)::text AS n FROM pokemon_evolution_claims
+       WHERE pokemon_instance_id=$1 AND trigger_kind='LEVEL'`, [overdueRecord.id],
+    )).rows[0]?.n;
+    await send(overdueActor, "/regularizar #1", repairMessageId);
+    const claimsAfterReplay = (await pool.query<{ n:string }>(
+      `SELECT count(*)::text AS n FROM pokemon_evolution_claims
+       WHERE pokemon_instance_id=$1 AND trigger_kind='LEVEL'`, [overdueRecord.id],
+    )).rows[0]?.n;
+    check("evolution legacy", overdueActor, "repeat exact /regularizar WhatsApp message ID",
+      "one evolution claim only; no second mutation",
+      { claimsBeforeReplay, claimsAfterReplay },
+      claimsBeforeReplay === "1" && claimsAfterReplay === "1");
+    const alreadyRegularized = await send(overdueActor, "/regularizar #1");
+    check("evolution legacy", overdueActor, "/regularizar #1 again",
+      "subsequent ordinary request is idempotently reported as already in correct form",
+      alreadyRegularized.replies.join(" | "),
+      alreadyRegularized.inbox === "PROCESSED" &&
+      alreadyRegularized.replies.some((text) => text.includes("EVOLUÇÃO EM DIA")));
+
     const bugs=findings.filter(x=>!x.ok);
     console.log(JSON.stringify({event:"stage2.player.complete",actor,
       checks:findings.length,passed:findings.length-bugs.length,bugs:bugs.length,findings}));
