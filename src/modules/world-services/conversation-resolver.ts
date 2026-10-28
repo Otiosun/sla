@@ -17,7 +17,6 @@ import type { WorldService } from "../world/service.js";
 import type { WorldServiceSessionRecord } from "./contracts.js";
 import {
   isMartCatalogPromptKey,
-  martItemByCode,
   martQuantityOfferFromPromptKey,
   parseMartQuantityReply,
 } from "./mart-catalog.js";
@@ -367,13 +366,13 @@ export class WorldServiceConversationResolver {
         }
 
         if (isMartCatalogPromptKey(promptKey)) {
-          const selected = martItemByCode(text);
+          const optionNo = parseMenuNumber(text);
           const availability = this.dependencies.martAvailability;
-          if (selected === null || availability === undefined) {
+          if (optionNo === null || availability === undefined) {
             return feedbackResult(context, session, "Não consegui validar a oferta. Use `/comprar` para atualizar.");
           }
           const published = purchasableMartItems(await availability.listPublishedOffers());
-          const verified = published.find((item) => item.offerKey === selected.offerKey);
+          const verified = published.find((item) => Number(item.code) === optionNo);
           if (verified === undefined) {
             return feedbackResult(context, session,
               "Essa mercadoria não está disponível no catálogo publicado. Use `/comprar` para atualizar.");
