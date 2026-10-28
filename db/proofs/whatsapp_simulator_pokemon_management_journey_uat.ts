@@ -440,6 +440,84 @@ async function main() {
         learned.ok && replayed.ok && replayed.value.replayed === true &&
           learned.value.itemId === null && found.rows.length === 1);
     }
+    // TM end-to-end proof: synthetic move + a single published-compatible machine
+    // and two inventory units are created only in disposable test PostgreSQL.
+    const tmMoveId = randomUUID(), tmItemId = randomUUID();
+    const newForm = (await pool.query<{ form_id: string }>(
+      "SELECT form_id::text FROM pokemon_instances WHERE id=$1", [pokemonId],
+    )).rows[0]?.form_id;
+    if (!newForm) throw Error("Missing evolved form for TM test");
+    const tmType = (await pool.query<{ type_id: string }>(
+      "SELECT type1_id::text AS type_id FROM pokemon_form_revisions WHERE content_release_id=$1 AND form_id=$2",
+      [release, newForm],
+    )).rows[0]?.type_id;
+    if (!tmType) throw Error("Missing type for TM move fixture");
+    await pool.query("INSERT INTO moves(id,slug) VALUES ($1,$2)",
+      [tmMoveId, `stage2-tm-${tmMoveId}`]);
+    await insertSyntheticPublishedFixture("move_revisions",
+      `INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
+       VALUES ($1,$2,$3,'Raio da Jornada',$4,'SPECIAL',40,100,15,TRUE)`,
+      [randomUUID(), release, tmMoveId, tmType]);
+    await insertSyntheticPublishedFixture("move_learnset_entries",
+      `INSERT INTO move_learnset_entries
+       (id,content_release_id,form_id,move_id,learn_method,learn_level,source_key,active)
+       VALUES ($1,$2,$3,$4,'MACHINE',NULL,'stage2-test-tm-only',TRUE)`,
+      [randomUUID(), release, newForm, tmMoveId]);
+    await pool.query("INSERT INTO items(id,slug) VALUES ($1,$2)",
+      [tmItemId, `stage2-tm-${tmItemId}`]);
+    await insertSyntheticPublishedFixture("item_revisions",
+      `INSERT INTO item_revisions
+       (id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active)
+       VALUES($1,$2,$3,'TM da Jornada','TM','teach-move',$4::jsonb,TRUE)`,
+      [randomUUID(),release,tmItemId,JSON.stringify({moveId:tmMoveId})]);
+    const economy = new EconomyService(new PostgresEconomyRepository(pool));
+    const awarded = await economy.addItem({
+      playerId: owner, itemId: tmItemId, quantity: 2n,
+      idempotencyKey: `stage2:synthetic:tm:${tmItemId}`,
+      metadata: {
+        sourceType: "STAGE2_UAT_FIXTURE", sourceId: randomUUID(),
+        reason: "Synthetic machine for isolated move acquisition",
+        actorType: "SYSTEM", actorId: null, correlationId: randomUUID(),
+      },
+    });
+    if (!awarded.ok) throw Error(`Synthetic TM grant rejected: ${awarded.error.message}`);
+    const tmAvailable = await training.options({
+      playerId: owner, pokemonInstanceId: pokemonId, method: "TM",
+    });
+    check("moves", actor, "TM compatibility and inventory",
+      "only the owned item bound to the active-form machine move is listed",
+      tmAvailable,
+      tmAvailable.ok && tmAvailable.value.some((m) =>
+        m.moveId === tmMoveId && m.itemId === tmItemId && m.itemQuantity === 2n));
+    const botMachines = await send(actor, "/tms #1");
+    check("moves", actor, "/tms #1 after synthetic TM grant",
+      "TM from published-compatible source appears in the real WhatsApp menu",
+      botMachines.replies.join(" | "),
+      botMachines.replies.some((m) => m.includes("Raio da Jornada") && m.includes("TM da Jornada")));
+    const taughtViaBot = await send(actor, "/ensinar #1 1", "STAGE2-UAT-TM-ONCE");
+    const afterTm = await pool.query<{quantity: string}>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [owner,tmItemId],
+    );
+    const slotTm = await pool.query<{slot_no:number}>(
+      "SELECT slot_no FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND move_id=$2",
+      [pokemonId,tmMoveId],
+    );
+    check("moves", actor, "/ensinar #1 1",
+      "TM consumed exactly once and compatible move equipped",
+      { messages:taughtViaBot.replies,remaining:afterTm.rows,slot:slotTm.rows },
+      taughtViaBot.inbox === "PROCESSED" && afterTm.rows[0]?.quantity === "1" &&
+        slotTm.rows.length === 1);
+    await send(actor, "/ensinar #1 1", "STAGE2-UAT-TM-ONCE");
+    const afterReplay = await pool.query<{quantity: string}>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [owner,tmItemId],
+    );
+    check("moves", actor, "replayed same TM message ID",
+      "idempotent inbox does not deduct a second machine",
+      afterReplay.rows,
+      afterReplay.rows[0]?.quantity === "1");
+
     const pcEntered = await send(actor,"/pc");
     check("pc narrative",actor,"/pc after scene and entry",
       "PC storage menu, or explicit actionable availability response",
