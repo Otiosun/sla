@@ -6,6 +6,7 @@ import type {
   OperationalInventoryItemView,
   OperationalOwnedPokemonDetailView,
   OperationalOwnedPokemonView,
+  OperationalLevelLearnsetEntry,
   OperationalPendingMoveChoiceView,
   OperationalPokedexSpeciesView,
   OperationalPokemonDetailView,
@@ -642,6 +643,51 @@ export class PostgresOperationalUxReadModel implements OperationalUxReadModel {
       }
     }
     return [...grouped.values()];
+  }
+
+  public async listLevelLearnset(
+    playerId: PlayerId,
+    pokemonInstanceId: PokemonInstanceId,
+  ): Promise<readonly OperationalLevelLearnsetEntry[]> {
+    const result = await this.pool.query<{
+      move_id: string;
+      move_display_name: string;
+      learn_level: number;
+      known: boolean;
+    }>(
+      `SELECT entry.move_id,
+              move_revision.display_name AS move_display_name,
+              entry.learn_level,
+              EXISTS(
+                SELECT 1 FROM pokemon_move_slots slot
+                WHERE slot.pokemon_instance_id = pokemon.id
+                  AND slot.move_id = entry.move_id
+              ) AS known
+       FROM pokemon_instances pokemon
+       JOIN player_onboarding_context context
+         ON context.player_id = pokemon.owner_player_id
+       JOIN move_learnset_entries entry
+         ON entry.content_release_id = context.content_release_id
+        AND entry.form_id = pokemon.form_id
+        AND entry.learn_method = 'LEVEL'
+        AND entry.learn_level IS NOT NULL
+        AND entry.active = TRUE
+       JOIN move_revisions move_revision
+         ON move_revision.content_release_id = context.content_release_id
+        AND move_revision.move_id = entry.move_id
+        AND move_revision.active = TRUE
+       WHERE pokemon.owner_player_id = $1
+         AND pokemon.id = $2
+         AND pokemon.status = 'ACTIVE'
+       ORDER BY entry.learn_level, move_revision.display_name, entry.move_id`,
+      [playerId, pokemonInstanceId],
+    );
+    return result.rows.map((entry) => ({
+      moveId: entry.move_id,
+      moveDisplayName: entry.move_display_name,
+      learnLevel: entry.learn_level,
+      known: entry.known,
+    }));
   }
 
   public async listEvolutionOptions(
