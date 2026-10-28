@@ -9,6 +9,7 @@ import type { SimulatedWhatsAppTranscriptEntry } from "../../src/adapters/whatsa
 import { UatBootstrapService } from "../../src/modules/admin/uat-bootstrap.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
+import { MoveTrainingService } from "../../src/modules/progression/move-training-service.js";
 import { WorldService } from "../../src/modules/world/service.js";
 import { SystemClock } from "../../src/platform/clock/index.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -389,6 +390,40 @@ async function main() {
       machineList.replies.join(" | "),
       machineList.inbox === "PROCESSED" && machineList.replies.some((m) =>
         m.includes("MÁQUINAS") || m.includes("Nenhuma TM compatível")));
+    // Real reminder transaction after an earlier move replacement and evolution:
+    // prove legacy form history stays relearnable without XP or item creation.
+    const training = new MoveTrainingService(pool);
+    const availableReminder = await training.options({
+      playerId: owner, pokemonInstanceId: pokemonId, method: "REMINDER",
+    });
+    const option = availableReminder.ok ? availableReminder.value[0] : undefined;
+    check("moves", actor, "relearner verifies previous form's moves",
+      "at least one previously accessible move eligible in pinned release",
+      availableReminder,
+      availableReminder.ok && option !== undefined);
+    if (option !== undefined) {
+      const input = {
+        playerId: owner,
+        pokemonInstanceId: pokemonId,
+        method: "REMINDER" as const,
+        moveId: option.moveId,
+        itemId: null,
+        replaceSlotNo: null,
+        idempotencyKey: `stage2:reminder:${pokemonId}:${option.moveId}`,
+        correlationId: randomUUID(),
+      };
+      const learned = await training.learn(input);
+      const replayed = await training.learn(input);
+      const found = await pool.query<{ slot_no: number }>(
+        "SELECT slot_no FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND move_id=$2",
+        [pokemonId, option.moveId],
+      );
+      check("moves", actor, "relearn formerly known move + idempotent replay",
+        "correct slot, no consumed item and exact replay",
+        { learned, replayed, equipped: found.rows },
+        learned.ok && replayed.ok && replayed.value.replayed === true &&
+          learned.value.itemId === null && found.rows.length === 1);
+    }
     const pcEntered = await send(actor,"/pc");
     check("pc narrative",actor,"/pc after scene and entry",
       "PC storage menu, or explicit actionable availability response",
