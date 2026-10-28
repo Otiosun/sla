@@ -23,6 +23,7 @@ export type EvolutionSourceEdge = {
   readonly toSpeciesSlug: string;
   readonly sourceChainId: number;
   readonly sourceTrigger: string;
+  readonly sourceVersionGroup: string | null;
   readonly method: "LEVEL" | "ITEM" | "CONDITION_REVIEW";
   readonly requiredLevel: number | null;
   readonly itemSlug: string | null;
@@ -44,7 +45,10 @@ function asObject(value:unknown):Record<string,unknown> {
  * Gameplay can only enable bare LEVEL and bare use-item transitions; all
  * nontrivial conditions require a verified domain implementation first.
  */
-export function parseVersionedEvolutionChain(raw:ExternalEvolutionChain):readonly EvolutionSourceEdge[] {
+export function parseVersionedEvolutionChain(
+  raw: ExternalEvolutionChain,
+  options: { readonly maxVersionGroupId?: number } = {},
+): readonly EvolutionSourceEdge[] {
   if(!Number.isInteger(raw.id)||raw.id<1)throw new Error("Invalid evolution chain identity");
   const edges:EvolutionSourceEdge[]=[];
   const route=new Set<string>();
@@ -56,22 +60,55 @@ export function parseVersionedEvolutionChain(raw:ExternalEvolutionChain):readonl
     for(const child of node.evolves_to){
       if(!SLUG.test(child.species?.name??""))throw new Error("Invalid evolution target");
       const alternatives=child.evolution_details;
+      const before=Array.isArray(alternatives)?alternatives:[];
+      // Version-group URL IDs are monotonic game generations in the PokéAPI.
+      // Do not import an evolution method introduced after the pinned game.
+      // If the source has several historical entries for the same form pair,
+      // use the latest applicable entry, preserving regional form branches.
+      const matching=before.filter(detail=>{
+        const version=asObject(detail.version_group);
+        const url=typeof version.url==="string"?version.url:"";
+        const parsed=/^https:\/\/pokeapi\.co\/api\/v2\/version-group\/(\d+)\/$/u.exec(url);
+        if(options.maxVersionGroupId === undefined)return true;
+        // Unknown version is never treated as a safe historical rule.
+        return parsed!==null && Number(parsed[1])<=options.maxVersionGroupId;
+      });
+      const applicable=new Map<string,ExternalEvolutionDetail>();
+      for(const detail of matching){
+        const required=asObject(detail.required_pokemon_form).name??"";
+        const evolved=asObject(detail.evolved_pokemon_form).name??"";
+        const region=asObject(detail.region).name??"";
+        const key=[required,evolved,region].join(":");
+        const previous=applicable.get(key);
+        const prevUrl=typeof asObject(previous?.version_group).url==="string"?
+          String(asObject(previous?.version_group).url):"";
+        const currentUrl=typeof asObject(detail.version_group).url==="string"?
+          String(asObject(detail.version_group).url):"";
+        const prevId=Number(/\/(\d+)\/$/u.exec(prevUrl)?.[1]??0);
+        const currentId=Number(/\/(\d+)\/$/u.exec(currentUrl)?.[1]??0);
+        if(previous===undefined||currentId>prevId)applicable.set(key,detail);
+      }
       if(!Array.isArray(alternatives)||alternatives.length===0){
         edges.push({
           fromSpeciesSlug:node.species.name,toSpeciesSlug:child.species.name,
-          sourceChainId:raw.id,sourceTrigger:"UNSPECIFIED",
+          sourceChainId:raw.id,sourceTrigger:"UNSPECIFIED",sourceVersionGroup:null,
           method:"CONDITION_REVIEW",requiredLevel:null,itemSlug:null,
           nontrivialRequirements:["MISSING_SOURCE_DETAILS"],sourceData:{},
         });
       }else{
-        for(const detail of alternatives){
+        for(const detail of applicable.values()){
           const trigger=detail.trigger?.name??"UNSPECIFIED";
           if(!SLUG.test(trigger) && trigger!=="UNSPECIFIED"){
             throw new Error("Unknown evolution trigger identifier");
           }
           const sourceData=asObject(detail);
+          const required=asObject(detail.required_pokemon_form).name;
+          const evolved=asObject(detail.evolved_pokemon_form).name;
           const extras=Object.keys(sourceData).filter(key =>
-            !["trigger","item","min_level"].includes(key) && meaningful(sourceData[key])).sort();
+            !["trigger","item","min_level","version_group","is_default"].includes(key) &&
+            meaningful(sourceData[key]) &&
+            !(key==="required_pokemon_form" && required===node.species.name) &&
+            !(key==="evolved_pokemon_form" && evolved===child.species.name)).sort();
           const level=detail.min_level??null;
           if(level!==null && (!Number.isInteger(level)||level<1||level>100)){
             throw new Error("Invalid evolution minimum level");
@@ -82,9 +119,11 @@ export function parseVersionedEvolutionChain(raw:ExternalEvolutionChain):readonl
             item===null && extras.length===0;
           const bareItem=trigger==="use-item" && item!==null &&
             level===null && extras.length===0;
+          const version=asObject(detail.version_group).name;
           edges.push({
             fromSpeciesSlug:node.species.name,toSpeciesSlug:child.species.name,
             sourceChainId:raw.id,sourceTrigger:trigger,
+            sourceVersionGroup:typeof version==="string"?version:null,
             method:bareLevel?"LEVEL":bareItem?"ITEM":"CONDITION_REVIEW",
             requiredLevel:level,itemSlug:item,
             nontrivialRequirements:bareLevel||bareItem?[]:extras.length>0?extras:["TRIGGER_REVIEW"],
