@@ -558,9 +558,10 @@ export function createProgressionWhatsAppRoutes(
         "",
         "△ *EVOLUÇÃO ATRASADA DETECTADA*",
         "_Seu Pokémon já atingiu um requisito por nível, mas ainda está na forma anterior._",
-        overdue.length === 1
-          ? `→ \`/regularizar #${String(pokemon.value.collectionNo)}\` · corrigir sem ganhar XP`
-          : "_Múltiplos caminhos exigem verificação antes de corrigir._",
+        `→ \`/regularizar #${String(pokemon.value.collectionNo)}\` · corrigir sem ganhar XP`,
+        ...(overdue.length > 1
+          ? ["_Se houver caminhos por atributos, o servidor verificará o único destino elegível._"]
+          : []),
       );
     }
     lines.push(
@@ -596,11 +597,9 @@ export function createProgressionWhatsAppRoutes(
       return textResult(context,
         "◇ *EVOLUÇÃO EM DIA*\n\nNão há evolução por nível atrasada para este Pokémon.");
     }
-    if (eligible.length !== 1) {
-      return err(appError("FLOW_BLOCKED", "Multiple possible historical evolutions", {
-        userMessage: "Há vários caminhos possíveis; nenhum foi escolhido automaticamente. A administração precisa conferir o histórico.",
-      }));
-    }
+    // Multiple LEVEL entries may be mutually exclusive by Attack/Defense.
+    // Do not pick one in the UI: canonical DB evaluates current stats and
+    // refuses the mutation unless exactly one rule is eligible.
     const clear = await ensureEvolutionMutationClear(dependencies, resolved.value.playerId);
     if (!clear.ok) return clear;
     const correlation = parseCorrelationId(context.correlationId);
@@ -616,7 +615,7 @@ export function createProgressionWhatsAppRoutes(
     return textResult(context, [
       "✦ *EVOLUÇÃO REGULARIZADA*",
       "",
-      `*${pokemon.value.nickname ?? pokemon.value.displayName}* → *${eligible[0]?.targetDisplayName ?? "Nova forma"}*`,
+      `*${pokemon.value.nickname ?? pokemon.value.displayName}* evoluiu para a forma elegível pelo catálogo.`,
       "",
       "Nenhum XP adicional foi necessário. Nenhum item foi consumido.",
       `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atualizada`,
