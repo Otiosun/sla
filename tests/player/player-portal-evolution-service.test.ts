@@ -34,7 +34,19 @@ function fixture(options: { activeBattle?: boolean; status?: PlayerProfileView["
       profiles: { getProfile: async () => ok({
         ...profile, playerStatus: options.status ?? profile.playerStatus,
       }) },
-      reads: { activeBattleId: async () => options.activeBattle ? "battle-id" : null },
+      reads: {
+        activeBattleId: async () => options.activeBattle ? "battle-id" : null,
+        listOwnedPokemon: async () => [{
+          collectionNo: 1, pokemonInstanceId, displayName: "Bulbasaur", nickname: null,
+          level: 20, xp: 0n, currentHp: 36, placementKind: "TEAM" as const,
+          boxNo: null, slotNo: 1,
+        }],
+        listEvolutionOptions: async () => [{
+          targetDisplayName: "Ivysaur", triggerKind: "LEVEL" as const,
+          requiredLevel: 16, relativePhysicalStats: null, itemId: null,
+          itemDisplayName: null, itemQuantity: null, conditionActive: null,
+        }],
+      },
       progression: { evolvePokemon },
     }),
   };
@@ -114,6 +126,47 @@ describe("PlayerPortalEvolutionService", () => {
       trigger: { kind: "LEVEL" },
     });
     expect(result).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(evolvePokemon).not.toHaveBeenCalled();
+  });
+
+  it("regularizes an already reached LEVEL rule with its own idempotency namespace", async () => {
+    const { subject, evolvePokemon } = fixture();
+    const repaired = await subject.evolve(identity, {
+      pokemonInstanceId, requestId, trigger: { kind: "LEVEL" }, recovery: true,
+    });
+    expect(repaired.ok).toBe(true);
+    expect(evolvePokemon).toHaveBeenCalledWith(expect.objectContaining({
+      playerId,pokemonInstanceId,trigger:{kind:"LEVEL"},
+      idempotencyKey:`hub.evolution-repair:${playerId}:${requestId}`,
+    }));
+  });
+
+  it("rejects recovery of an unreached LEVEL or non-LEVEL with repair flag", async () => {
+    const { subject, evolvePokemon } = fixture();
+    expect((await subject.evolve(identity,{
+      pokemonInstanceId,requestId,trigger:{kind:"ITEM",itemId:formId},recovery:true,
+    })).ok).toBe(false);
+    expect(evolvePokemon).not.toHaveBeenCalled();
+    const subjectYoung=new PlayerPortalEvolutionService({
+      players: { resolvePlayer: async () => ok({ playerId, state: "COMPLETE", created: false }) },
+      profiles: { getProfile: async () => ok(profile) },
+      reads: {
+        activeBattleId: async () => null,
+        listOwnedPokemon: async () => [{
+          collectionNo:1,pokemonInstanceId,displayName:"Bulbasaur",nickname:null,level:5,
+          xp:0n,currentHp:20,placementKind:"TEAM" as const,boxNo:null,slotNo:1,
+        }],
+        listEvolutionOptions: async () => [{
+          targetDisplayName:"Ivysaur",triggerKind:"LEVEL" as const,requiredLevel:16,
+          relativePhysicalStats:null,itemId:null,itemDisplayName:null,itemQuantity:null,conditionActive:null,
+        }],
+      },
+      progression:{evolvePokemon},
+    });
+    const blocked=await subjectYoung.evolve(identity,{
+      pokemonInstanceId,requestId,trigger:{kind:"LEVEL"},recovery:true,
+    });
+    expect(blocked).toMatchObject({ok:false,error:{code:"ACTION_INVALID"}});
     expect(evolvePokemon).not.toHaveBeenCalled();
   });
 
