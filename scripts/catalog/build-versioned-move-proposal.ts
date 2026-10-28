@@ -5,6 +5,10 @@ import {
   parseVersionedAcquisitionLearnset,
   type VersionedAcquisitionMove,
 } from "../../src/modules/catalog/versioned-learnset-source.js";
+import {
+  classifyMoveForBattleReview,
+  type ExternalMoveMechanics,
+} from "../../src/modules/catalog/move-mechanics-review.js";
 
 /**
  * Offline-at-runtime content builder. Run only in content preparation; never
@@ -141,12 +145,25 @@ const generatedPokemon = await Promise.all(manifest.pokemonSlugs.map(async (slug
   return { pokemonSlug:slug, versionGroup:version,rawSha256:source.sha256,moves:parsed.moves };
 }));
 pokemon.push(...generatedPokemon);
+
+// Include validated, hashed damage parameters but never auto-publish effects.
+const allMoveSlugs = [...new Set(pokemon.flatMap((entry) =>
+  entry.moves.map((move) => move.moveSlug)))].sort();
+const moveDefinitions = await Promise.all(allMoveSlugs.map(async (slug) => {
+  const source = await fetchJson<MoveResponse & ExternalMoveMechanics>(
+    `https://pokeapi.co/api/v2/move/${slug}/`,
+  );
+  if (source.data.name !== slug) throw new Error(`Move identity mismatch for ${slug}`);
+  return { ...classifyMoveForBattleReview(source.data), rawSha256: source.sha256 };
+}));
+
 const proposal = {
   format: "POKEMON_BEYOND_MOVE_PROPOSAL_V1",
   generatedAt: new Date().toISOString(),
   source: "https://pokeapi.co/api/v2/",
   defaultVersionGroup: manifest.versionGroup,
   pokemon,
+  moveDefinitions,
   machines: [...machineMap.values()].sort((a, b) =>
     a.itemSlug.localeCompare(b.itemSlug) || a.moveSlug.localeCompare(b.moveSlug)),
   constraints: [
@@ -163,6 +180,9 @@ console.log(JSON.stringify({
   event: "stage2.versioned-move-proposal",
   forms: pokemon.length,
   machines: proposal.machines.length,
+  moveDefinitions: proposal.moveDefinitions.length,
+  basicDamageCandidates: proposal.moveDefinitions.filter((move) => move.basicDamageCandidate).length,
+  effectsRequiringReview: proposal.moveDefinitions.filter((move) => !move.basicDamageCandidate).length,
   outputFile,
   writesToDatabase: false,
 }));
