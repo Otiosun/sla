@@ -2273,6 +2273,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           toFormId: rule.to_form_id,
           evolutionRuleId: rule.id,
           triggerKind: input.trigger.kind,
+          level: pokemonRow.level,
         },
         actorType: "PLAYER",
         actorId: input.playerId,
