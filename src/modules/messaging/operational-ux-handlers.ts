@@ -282,9 +282,10 @@ export function createOperationalUxRoutes(
                 "📟 *ROTOM · CENTRO POKÉMON*",
                 "",
                 "❤️ `/centropokemon` · painel do Centro",
-                "✨ `/curar` · recuperar a equipe",
-                "🖥️ `/pc` · acessar boxes",
-                "💬 `/conversar` · falar com Nurse Hana",
+                "✨ `/curar` · restaurar HP, PP e status",
+                "🖥️ `/pc` · equipe e Boxes",
+                "✦ `/reaprender #1` · recuperar golpes esquecidos",
+                "💬 `/conversar` · orientações da enfermeira Hana",
                 "🚪 `/sair` · sair da instalação",
               ];
         return textResult(context, facility.join("\n"), { type: "PLAYER", id: playerId });
@@ -318,6 +319,8 @@ export function createOperationalUxRoutes(
         "`/equipe` · formação atual",
         "`/colecao` · todos os Pokémon",
         "`/pokemon <# ou nome>` · ficha individual",
+        "`/aprendizados #1` · golpes por nível",
+        "`/tms #1` · máquinas compatíveis",
         "`/evolucao <# ou nome>` · evolução e requisitos",
         "`/inventario` · mochila",
         "`/pokedex` · registros",
