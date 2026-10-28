@@ -10,6 +10,8 @@ on:
       - scripts/catalog/**
       - src/modules/catalog/versioned-learnset-source.ts
       - src/modules/catalog/stage2-source-proposal-audit.ts
+      - src/modules/catalog/versioned-evolution-chain.ts
+      - src/modules/catalog/move-mechanics-review.ts
       - db/proofs/stage2_release_publication_audit.ts
   workflow_dispatch:
 
