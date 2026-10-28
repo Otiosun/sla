@@ -560,15 +560,18 @@ export function createWorldServiceWhatsAppRoutes(
     const storage = await dependencies.pcStorage.getStorage(player.value);
     if (!storage.ok) return storage;
 
+    const canDeposit = storage.value.team.length > 1;
     return textResult(
       context,
       renderPokemonPcDepositSelection(storage.value),
       active.value.sessionId,
-      {
-        playerId: player.value,
-        expectedRevision: active.value.revision,
-      },
-      ":center:pc:deposit:list",
+      canDeposit
+        ? {
+            playerId: player.value,
+            expectedRevision: active.value.revision,
+          }
+        : null,
+      canDeposit ? ":center:pc:deposit:list" : ":center:pc:deposit:blocked",
     );
   };
 
