@@ -44,14 +44,26 @@ describe("version-pinned, reviewable learnset source", () => {
     expect(() => parseVersionedLevelLearnset(sample, "legends-arceus")).toThrow(/No level-up source data/);
   });
 
-  it("does not allow conflicts, invalid levels or invalid source payloads", () => {
+  it("retains repeated level-up learning and still blocks invalid source payloads", () => {
     const version = { move_learn_method: { name: "level-up" }, version_group: { name: "scarlet-violet" } };
-    expect(() => parseVersionedLevelLearnset({
+    const repeated = {
       name: "pikachu", moves: [{
         move: { name: "quick-attack" },
-        version_group_details: [{ ...version, level_learned_at: 12 }, { ...version, level_learned_at: 14 }],
+        version_group_details: [{ ...version, level_learned_at: 12 },
+          { ...version, level_learned_at: 14 }, { ...version, level_learned_at: 14 }],
       }],
-    })).toThrow(/Conflicting learn level/);
+    };
+    expect(parseVersionedLevelLearnset(repeated).moves).toEqual([
+      { moveSlug: "quick-attack", learnLevel: 12 },
+      { moveSlug: "quick-attack", learnLevel: 14 },
+    ]);
+    expect(parseVersionedAcquisitionLearnset(repeated).moves).toEqual([
+      { moveSlug: "quick-attack", method: "LEVEL", learnLevel: 12 },
+      { moveSlug: "quick-attack", method: "LEVEL", learnLevel: 14 },
+    ]);
+    expect(compareLevelLearnsets(parseVersionedLevelLearnset(repeated), [
+      { moveSlug: "quick-attack", learnLevel: 12 },
+    ])).toEqual([{ moveSlug: "quick-attack", sourceLevel: 14, catalogLevel: null }]);
     expect(() => parseVersionedLevelLearnset({
       name: "pikachu", moves: [{ move: { name: "quick-attack" },
         version_group_details: [{ ...version, level_learned_at: 101 }] }],
