@@ -595,18 +595,23 @@ export function createWorldServiceWhatsAppRoutes(
     const storage = await dependencies.pcStorage.getStorage(player.value);
     if (!storage.ok) return storage;
     const hasStoredPokemon = storage.value.boxes.some((box) => box.pokemon.length > 0);
+    const canWithdraw = hasStoredPokemon && storage.value.team.length < 6;
 
     return textResult(
       context,
       renderPokemonPcWithdrawSelection(storage.value),
       active.value.sessionId,
-      hasStoredPokemon
+      canWithdraw
         ? {
             playerId: player.value,
             expectedRevision: active.value.revision,
           }
         : null,
-      hasStoredPokemon ? ":center:pc:withdraw:list" : ":center:pc:withdraw:empty",
+      canWithdraw
+        ? ":center:pc:withdraw:list"
+        : hasStoredPokemon
+          ? ":center:pc:withdraw:team-full"
+          : ":center:pc:withdraw:empty",
     );
   };
 
