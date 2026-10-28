@@ -116,6 +116,19 @@ async function fetchJson<T>(url: string): Promise<{data: T; sha256: string}> {
   const saved = await result;
   return { data: saved.value as T, sha256: saved.sha256 };
 }
+// Resolve actual numeric generation IDs instead of guessing historical order.
+const pinnedGroupIds = new Map<string, number>();
+await Promise.all([...new Set([manifest.versionGroup,...Object.values(supportedOverrides)])]
+  .map(async (slug) => {
+    const result = await fetchJson<{id:number;name:string}>(
+      `https://pokeapi.co/api/v2/version-group/${slug}/`,
+    );
+    if (result.data.name !== slug || !Number.isInteger(result.data.id) || result.data.id<1) {
+      throw new Error(`Unverified version-group identity: ${slug}`);
+    }
+    pinnedGroupIds.set(slug,result.data.id);
+  }));
+
 const pokemon: Array<{
   pokemonSlug: string;
   versionGroup: string;
@@ -177,7 +190,10 @@ await Promise.all(manifest.pokemonSlugs.map(async (slug) => {
     throw new Error(`Evolution chain not available for ${slug}`);
   }
   const chain = await fetchJson<ExternalEvolutionChain>(species.data.evolution_chain.url);
-  const edges = parseVersionedEvolutionChain(chain.data);
+  const pinnedVersion = supportedOverrides[slug] ?? manifest.versionGroup;
+  const pinnedId = pinnedGroupIds.get(pinnedVersion);
+  if (pinnedId === undefined) throw new Error(`Version group not pinned: ${pinnedVersion}`);
+  const edges = parseVersionedEvolutionChain(chain.data, {maxVersionGroupId:pinnedId});
   const existing = sourceChains.get(chain.data.id);
   if (existing !== undefined && existing.rawSha256 !== chain.sha256) {
     throw new Error(`Two conflicting sources for evolution chain ${chain.data.id}`);
