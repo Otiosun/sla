@@ -13,15 +13,19 @@ import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
+import type { WorldServiceSessionService } from "../world-services/session-service.js";
+import type { MoveTrainingService, MoveTrainingMethod } from "./move-training-service.js";
 import type { ProgressionService } from "./service.js";
 
 export interface ProgressionWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly reads: Pick<
     OperationalUxReadModel,
-    "listPendingMoveChoices" | "activeBattleId" | "listOwnedPokemon" | "listEvolutionOptions"
+    "listPendingMoveChoices" | "activeBattleId" | "listOwnedPokemon" | "listEvolutionOptions" | "listLevelLearnset"
   >;
   readonly progression: Pick<ProgressionService, "resolveMoveChoice" | "evolvePokemon">;
+  readonly training?: Pick<MoveTrainingService, "options" | "learn">;
+  readonly sessions?: Pick<WorldServiceSessionService, "loadActiveSession">;
   readonly encounter?: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly world?: Pick<WorldService, "travelLock">;
 }
@@ -96,16 +100,40 @@ function evolutionRelativeRequirement(
   return "";
 }
 
+/** The mutation contract accepts ITEM+itemId or CONDITION only, not target form.
+ * Never offer two commands that resolve to the same trigger but different targets. */
+export function manualEvolutionTriggerKey(option: OperationalEvolutionOptionView): string | null {
+  if (option.triggerKind === "LEVEL") return null;
+  return option.triggerKind === "ITEM" ? `ITEM:${option.itemId ?? "missing"}` : "CONDITION";
+}
+
+export function hasAmbiguousManualEvolution(
+  options: readonly OperationalEvolutionOptionView[],
+  chosen: OperationalEvolutionOptionView,
+): boolean {
+  const key = manualEvolutionTriggerKey(chosen);
+  return key !== null &&
+    options.filter((option) => manualEvolutionTriggerKey(option) === key).length > 1;
+}
+
 function evolutionOptionLine(
   option: OperationalEvolutionOptionView,
   index: number,
   collectionNo: number,
+  ambiguous: boolean,
 ): readonly string[] {
   if (option.triggerKind === "LEVEL") {
     const relative = evolutionRelativeRequirement(option.relativePhysicalStats);
     return [
       `*${String(index + 1)}. ${option.targetDisplayName}*`,
       `　Nível ${String(option.requiredLevel ?? "—")} · evolução automática${relative.length === 0 ? "" : ` · ${relative}`}`,
+    ];
+  }
+  if (ambiguous) {
+    return [
+      `*${String(index + 1)}. ${option.targetDisplayName}*`,
+      "　_Indisponível: vários destinos usam o mesmo gatilho._",
+      "　_A escolha de destino ainda não pode ser diferenciada com segurança._",
     ];
   }
   if (option.triggerKind === "ITEM") {
@@ -318,6 +346,158 @@ export function createProgressionWhatsAppRoutes(
     );
   };
 
+  const learnsetGuide: Handler = async (context) => {
+    const resolved = await dependencies.players.resolvePlayer(identity(context));
+    if (!resolved.ok) return resolved;
+    const ownedReader = dependencies.reads.listOwnedPokemon;
+    const learnsetReader = dependencies.reads.listLevelLearnset;
+    if (ownedReader === undefined || learnsetReader === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Consulta de aprendizados indisponível."));
+    }
+    const owned = await ownedReader.call(dependencies.reads, resolved.value.playerId);
+    const pokemon = resolveOwnedPokemonReference(owned, commandArgs(context).join(" "));
+    if (!pokemon.ok) return pokemon;
+    const entries = await learnsetReader.call(
+      dependencies.reads, resolved.value.playerId, pokemon.value.pokemonInstanceId,
+    );
+    const name = pokemon.value.nickname ?? pokemon.value.displayName;
+    const past = entries.filter((entry) => entry.learnLevel <= pokemon.value.level);
+    const future = entries.filter((entry) => entry.learnLevel > pokemon.value.level);
+    const lines = [
+      "✦ *𝗔𝗣𝗥𝗘𝗡𝗗𝗜𝗭𝗔𝗗𝗢𝗦*",
+      "",
+      `◇ *${name}* · Nv. ${String(pokemon.value.level)}`,
+      "　_Golpes por nível · catálogo da sua versão_",
+      "",
+    ];
+    if (entries.length === 0) {
+      lines.push(
+        "_Nenhum golpe por nível foi registrado para esta forma no catálogo atual._",
+        "_Não é possível inferir golpes de outra geração._",
+      );
+      return textResult(context, lines.join("\n"));
+    }
+    lines.push("◇ *𝗝Á 𝗔𝗟𝗖𝗔𝗡Ç𝗔𝗗𝗢𝗦*");
+    if (past.length === 0) lines.push("_Nenhum ainda._");
+    for (const entry of past.slice(-6)) {
+      lines.push(
+        `　Nv. ${String(entry.learnLevel)} · ${entry.moveDisplayName} · ${entry.known ? "equipado" : "não equipado"}`,
+      );
+    }
+    if (past.length > 6) lines.push(`　… e mais ${String(past.length - 6)} registro(s) anteriores.`);
+    lines.push("", "◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗢𝗦 𝗡Í𝗩𝗘𝗜𝗦*");
+    if (future.length === 0) lines.push("_Nenhuma nova aprendizagem por nível registrada._");
+    for (const entry of future.slice(0, 6)) {
+      lines.push(`　Nv. ${String(entry.learnLevel)} · ${entry.moveDisplayName}`);
+    }
+    if (future.length > 6) lines.push(`　… e mais ${String(future.length - 6)} adiante.`);
+    lines.push(
+      "",
+      "_Com vaga livre, o novo golpe é aprendido automaticamente. Com 4 golpes, a escolha fica em /golpes._",
+      "_Golpes antigos não equipados não voltam à força: use /reaprender no Centro Pokémon._",
+      "`/golpes` · decisões pendentes",
+      "`/centropokemon` · onde reaprender",
+      `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atual`,
+    );
+    return textResult(context, lines.join("\n"));
+  };
+
+  const trainingMenu = (method: MoveTrainingMethod, execute: boolean): Handler =>
+    async (context) => {
+      const player = await dependencies.players.resolvePlayer(identity(context));
+      if (!player.ok) return player;
+      if (dependencies.training === undefined || dependencies.reads.listOwnedPokemon === undefined) {
+        return err(appError("FEATURE_UNAVAILABLE", "Sistema de aprendizado ainda indisponível."));
+      }
+      if (method === "REMINDER") {
+        if (dependencies.sessions === undefined) return err(appError("FEATURE_UNAVAILABLE",
+          "Consulta do Centro Pokémon indisponível."));
+        const visit = await dependencies.sessions.loadActiveSession(player.value.playerId);
+        if (!visit.ok) return visit;
+        if (visit.value?.serviceKind !== "POKEMON_CENTER") {
+          return err(appError("FLOW_BLOCKED",
+            "Entre no Centro Pokémon com `/centropokemon` para reaprender movimentos."));
+        }
+      }
+
+      const args = commandArgs(context);
+      const pokemonReference = args[0] ?? "";
+      const owned = await dependencies.reads.listOwnedPokemon(player.value.playerId);
+      const pokemon = resolveOwnedPokemonReference(owned, pokemonReference);
+      if (!pokemon.ok) return pokemon;
+      const options = await dependencies.training.options({
+        playerId: player.value.playerId,
+        pokemonInstanceId: pokemon.value.pokemonInstanceId,
+        method,
+      });
+      if (!options.ok) return options;
+      const name = pokemon.value.nickname ?? pokemon.value.displayName;
+      const base = method === "TM" ? "ensinar" : "reaprender";
+      if (!execute || args.length < 2) {
+        const lines = [
+          method === "TM" ? "▣ *MÁQUINAS · TM*" : "✦ *REAPRENDIZADO*",
+          "",
+          `◇ *${name}* · Nv. ${String(pokemon.value.level)}`,
+          "",
+        ];
+        if (options.value.length === 0) {
+          lines.push(method === "TM"
+            ? "_Nenhuma TM compatível está disponível na sua mochila._"
+            : "_Nenhum movimento elegível para reaprender nesta versão._");
+        }
+        options.value.forEach((entry, index) => {
+          const suffix = method === "TM"
+            ? ` · ${entry.itemName ?? "TM"} ×${String(entry.itemQuantity ?? 0n)}`
+            : "";
+          lines.push(`\`${String(index + 1)}\` ${entry.displayName}${suffix}`);
+        });
+        if (options.value.length > 0) {
+          lines.push("", `\`/${base} #${String(pokemon.value.collectionNo)} <opção>\``,
+            "_Com quatro golpes, adicione o slot (1–4) a substituir ao final._");
+        }
+        if (method === "TM") lines.push("Use `/comprar` em um Poké Mart para consultar ofertas publicadas.");
+        return textResult(context, lines.join("\n"));
+      }
+      const number = parseMenuNumber(args[1] ?? "");
+      const picked = number === null ? undefined : options.value[number - 1];
+      if (picked === undefined) {
+        return err(appError("VALIDATION_FAILED",
+          `Opção inexistente. Consulte \`/${base} #${String(pokemon.value.collectionNo)}\`.`));
+      }
+      const requestedSlot = args[2] === undefined ? null : parseMenuNumber(args[2]);
+      if (args.length > 3 || (args[2] !== undefined && requestedSlot === null)) {
+        return err(appError("VALIDATION_FAILED", "Escolha um slot válido de 1 a 4."));
+      }
+      const clear = await ensureEvolutionMutationClear(dependencies, player.value.playerId);
+      if (!clear.ok) return clear;
+      const correlation = parseCorrelationId(context.correlationId);
+      if (!correlation.ok) return correlation;
+      const taught = await dependencies.training.learn({
+        playerId: player.value.playerId,
+        pokemonInstanceId: pokemon.value.pokemonInstanceId,
+        method,
+        moveId: picked.moveId,
+        itemId: picked.itemId,
+        replaceSlotNo: requestedSlot,
+        idempotencyKey: context.idempotencyKey,
+        correlationId: correlation.value,
+      });
+      if (!taught.ok) return taught;
+      return textResult(context, [
+        "✦ *MOVIMENTO APRENDIDO*",
+        "",
+        `*${name}* aprendeu *${picked.displayName}*.`,
+        `Slot ${String(taught.value.slotNo)}${taught.value.replacedMoveId === null
+          ? " · vaga livre" : " · movimento anterior substituído"}.`,
+        method === "TM" ? "Uma TM foi consumida." : "Reaprendizado realizado sem custo.",
+        "",
+        `\`/pokemon #${String(pokemon.value.collectionNo)}\` · conferir movimentos`,
+      ].join("\n"));
+    };
+  const showTms = trainingMenu("TM", false);
+  const teachTm = trainingMenu("TM", true);
+  const relearn = trainingMenu("REMINDER", true);
+
   const evolutionInfo: Handler = async (context) => {
     const resolvedPlayer = await dependencies.players.resolvePlayer(identity(context));
     if (!resolvedPlayer.ok) return resolvedPlayer;
@@ -362,14 +542,84 @@ export function createProgressionWhatsAppRoutes(
       "",
     ];
     options.forEach((option, index) => {
-      lines.push(...evolutionOptionLine(option, index, pokemon.value.collectionNo));
+      lines.push(...evolutionOptionLine(
+        option, index, pokemon.value.collectionNo,
+        hasAmbiguousManualEvolution(options, option),
+      ));
       if (index < options.length - 1) lines.push("");
     });
+    const overdue = options.filter((option) =>
+      option.triggerKind === "LEVEL" &&
+      option.requiredLevel !== null &&
+      pokemon.value.level >= option.requiredLevel
+    );
+    if (overdue.length > 0) {
+      lines.push(
+        "",
+        "△ *EVOLUÇÃO ATRASADA DETECTADA*",
+        "_Seu Pokémon já atingiu um requisito por nível, mas ainda está na forma anterior._",
+        `→ \`/regularizar #${String(pokemon.value.collectionNo)}\` · corrigir sem ganhar XP`,
+        ...(overdue.length > 1
+          ? ["_Se houver caminhos por atributos, o servidor verificará o único destino elegível._"]
+          : []),
+      );
+    }
     lines.push(
       "",
       "_Evoluções por nível acontecem automaticamente quando o requisito é atingido._",
     );
     return textResult(context, lines.join("\n"));
+  };
+
+  /**
+   * A player with an overdue LEVEL evolution can restore it without extra XP.
+   * Database service re-checks current form, pinned rules, ownership, and level.
+   * No ITEM/CONDITION trigger, no arbitrary choice of form.
+   */
+  const regularize: Handler = async (context) => {
+    const resolved = await dependencies.players.resolvePlayer(identity(context));
+    if (!resolved.ok) return resolved;
+    const ownedReader = dependencies.reads.listOwnedPokemon;
+    const optionsReader = dependencies.reads.listEvolutionOptions;
+    if (ownedReader === undefined || optionsReader === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Consulta de evolução indisponível."));
+    }
+    const owned = await ownedReader.call(dependencies.reads, resolved.value.playerId);
+    const pokemon = resolveOwnedPokemonReference(owned, commandArgs(context).join(" "));
+    if (!pokemon.ok) return pokemon;
+    const options = await optionsReader.call(dependencies.reads,
+      resolved.value.playerId, pokemon.value.pokemonInstanceId);
+    const eligible = options.filter((option) =>
+      option.triggerKind === "LEVEL" &&
+      option.requiredLevel !== null &&
+      pokemon.value.level >= option.requiredLevel);
+    if (eligible.length === 0) {
+      return textResult(context,
+        "◇ *EVOLUÇÃO EM DIA*\n\nNão há evolução por nível atrasada para este Pokémon.");
+    }
+    // Multiple LEVEL entries may be mutually exclusive by Attack/Defense.
+    // Do not pick one in the UI: canonical DB evaluates current stats and
+    // refuses the mutation unless exactly one rule is eligible.
+    const clear = await ensureEvolutionMutationClear(dependencies, resolved.value.playerId);
+    if (!clear.ok) return clear;
+    const correlation = parseCorrelationId(context.correlationId);
+    if (!correlation.ok) return correlation;
+    const result = await dependencies.progression.evolvePokemon({
+      playerId: resolved.value.playerId,
+      pokemonInstanceId: pokemon.value.pokemonInstanceId,
+      trigger: { kind: "LEVEL" },
+      idempotencyKey: context.idempotencyKey,
+      correlationId: correlation.value,
+    });
+    if (!result.ok) return progressionFailureResult(result.error);
+    return textResult(context, [
+      "✦ *EVOLUÇÃO REGULARIZADA*",
+      "",
+      `*${pokemon.value.nickname ?? pokemon.value.displayName}* evoluiu para a forma elegível pelo catálogo.`,
+      "",
+      "Nenhum XP adicional foi necessário. Nenhum item foi consumido.",
+      `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atualizada`,
+    ].join("\n"));
   };
 
   const evolve: Handler = async (context) => {
@@ -413,6 +663,14 @@ export function createProgressionWhatsAppRoutes(
           "VALIDATION_FAILED",
           "Essa opção de evolução não existe. Use `/evolucao <# ou nome>` para atualizar a lista.",
         ),
+      );
+    }
+    if (hasAmbiguousManualEvolution(options, selected)) {
+      return err(
+        appError("FLOW_BLOCKED", "Evolution target is ambiguous for this trigger", {
+          userMessage:
+            "Há mais de um destino para esse mesmo gatilho. Essa evolução está bloqueada até o catálogo permitir identificar a escolha com segurança. Nenhum item foi consumido.",
+        }),
       );
     }
     if (selected.triggerKind === "LEVEL") {
@@ -481,6 +739,10 @@ export function createProgressionWhatsAppRoutes(
 
   return [
     { command: "golpes", aliases: ["movimentos"], handler: new FunctionalHandler(pendingMoves) },
+    { command: "aprendizados", aliases: ["learnset"], handler: new FunctionalHandler(learnsetGuide) },
+    { command: "tms", handler: new FunctionalHandler(showTms) },
+    { command: "ensinar", handler: new FunctionalHandler(teachTm), rateLimitClass: "SENSITIVE" },
+    { command: "reaprender", handler: new FunctionalHandler(relearn), rateLimitClass: "SENSITIVE" },
     {
       command: "aprender",
       handler: new FunctionalHandler(resolvePendingMove),
@@ -494,6 +756,11 @@ export function createProgressionWhatsAppRoutes(
     {
       command: "evoluir",
       handler: new FunctionalHandler(evolve),
+      rateLimitClass: "SENSITIVE",
+    },
+    {
+      command: "regularizar",
+      handler: new FunctionalHandler(regularize),
       rateLimitClass: "SENSITIVE",
     },
   ];

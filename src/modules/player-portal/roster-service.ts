@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { OperationalUxReadModel } from "../messaging/operational-ux-read-model.js";
 import { type ExternalIdentity, ExternalIdentitySchema } from "../player/contracts.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
@@ -35,6 +36,7 @@ interface PlayerPortalRosterDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly profiles: Pick<PlayerStarterService, "getProfile">;
   readonly storage: Pick<PokemonPcStorageService, "move">;
+  readonly reads: Pick<OperationalUxReadModel, "activeBattleId">;
 }
 
 export class PlayerPortalRosterService {
@@ -59,6 +61,11 @@ export class PlayerPortalRosterService {
     if (!profile.ok) return profile;
     if (profile.value.playerStatus !== "ACTIVE" || profile.value.onboardingState !== "COMPLETE") {
       return err(appError("PLAYER_INELIGIBLE", "Player is not eligible for Hub access"));
+    }
+
+    // Do not let the Hub reconfigure the active team in the middle of combat.
+    if ((await this.dependencies.reads.activeBattleId(resolved.value.playerId)) !== null) {
+      return err(appError("FLOW_BLOCKED", "Time/Box não podem mudar durante uma batalha ativa."));
     }
 
     const moved = await this.dependencies.storage.move({

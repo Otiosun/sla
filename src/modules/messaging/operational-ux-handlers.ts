@@ -4,6 +4,7 @@ import type { BattleCombatant } from "../battle/contracts.js";
 import type { BattleOperationalReadService } from "../battle/operational-read-service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import { pokemonXpRequiredForNextLevel } from "../progression/rules.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldService } from "../world/service.js";
 import { zhouliaArrivalCaption } from "../world/zhoulia-presentation.js";
@@ -281,9 +282,10 @@ export function createOperationalUxRoutes(
                 "📟 *ROTOM · CENTRO POKÉMON*",
                 "",
                 "❤️ `/centropokemon` · painel do Centro",
-                "✨ `/curar` · recuperar a equipe",
-                "🖥️ `/pc` · acessar boxes",
-                "💬 `/conversar` · falar com Nurse Hana",
+                "✨ `/curar` · restaurar HP, PP e status",
+                "🖥️ `/pc` · equipe e Boxes",
+                "✦ `/reaprender #1` · recuperar golpes esquecidos",
+                "💬 `/conversar` · orientações da enfermeira Hana",
                 "🚪 `/sair` · sair da instalação",
               ];
         return textResult(context, facility.join("\n"), { type: "PLAYER", id: playerId });
@@ -317,6 +319,8 @@ export function createOperationalUxRoutes(
         "`/equipe` · formação atual",
         "`/colecao` · todos os Pokémon",
         "`/pokemon <# ou nome>` · ficha individual",
+        "`/aprendizados #1` · golpes por nível",
+        "`/tms #1` · máquinas compatíveis",
         "`/evolucao <# ou nome>` · evolução e requisitos",
         "`/inventario` · mochila",
         "`/pokedex` · registros",
@@ -780,7 +784,11 @@ export function createOperationalUxRoutes(
         "",
         `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
         `HP　\`${String(detail.currentHp)}/${String(detail.maxHp)}\`　·　\`${statuses}\``,
-        ...(ownedDetail === null ? [] : [`XP　\`${ownedDetail.xp.toString()}\``]),
+        ...(ownedDetail === null ? [] : [
+          detail.level >= 100
+            ? "XP　\`NÍVEL MÁXIMO\`"
+            : `XP　\`${ownedDetail.xp.toString()}/${String(pokemonXpRequiredForNextLevel(detail.level))}\` · faltam ${(BigInt(pokemonXpRequiredForNextLevel(detail.level)) - ownedDetail.xp).toString()}`,
+        ]),
         `Posição: *${placement}*`,
         "",
         `◇ *NATURE*　${detail.natureDisplayName}`,
@@ -794,7 +802,10 @@ export function createOperationalUxRoutes(
         ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
         "",
         "`/golpes` · decisões de aprendizado",
+        `\`/aprendizados #${String(ref)}\` · próximos movimentos por nível`,
+        `\`/tms #${String(ref)}\` · TMs compatíveis na mochila`,
         `\`/evolucao #${String(ref)}\` · evolução e requisitos`,
+        "`/centropokemon` · reaprender movimentos antigos",
         "`/equipe` · administrar formação",
       ].join("\n"),
     );

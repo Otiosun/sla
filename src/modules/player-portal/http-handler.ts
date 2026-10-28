@@ -1,3 +1,4 @@
+import { parsePokemonInstanceId } from "../../shared-kernel/ids.js";
 import type { AppError } from "../../shared-kernel/result.js";
 import { ADMIN_ERROR_CODES, AdminError } from "../admin/errors.js";
 import type { Player360Service } from "../admin/player360-service.js";
@@ -21,6 +22,7 @@ import {
 } from "./admin-operation-contracts.js";
 import { AdminPlayerAdjustmentRequestSchema } from "./admin-player-adjustment-contracts.js";
 import type { HubLoginTicketService } from "./login-ticket-service.js";
+import type { PlayerPortalEvolutionService } from "./evolution-service.js";
 import type { PlayerPortalMoveChoiceService } from "./move-choice-service.js";
 import type { PlayerPortalProfileCustomizationService } from "./profile-customization-service.js";
 import type { PlayerPortalReadService } from "./read-service.js";
@@ -103,6 +105,7 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly roster: Pick<PlayerPortalRosterService, "move">;
   readonly moveChoices: Pick<PlayerPortalMoveChoiceService, "list" | "resolve">;
+  readonly evolutions?: Pick<PlayerPortalEvolutionService, "evolve" | "listOptions">;
   readonly customization: Pick<PlayerPortalProfileCustomizationService, "update">;
   readonly admin: PlayerPortalAdminAccess;
   readonly adminPlayers: Pick<Player360Service, "search" | "get">;
@@ -256,6 +259,14 @@ export class PlayerPortalHttpHandler {
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/battle") {
       return this.withSession(request, (identity) => this.getBattle(identity));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/hub/player/pokemon/evolution-options") {
+      return this.withSession(request, (identity) =>
+        this.getEvolutionOptions(url.searchParams.get("pokemonInstanceId"), identity),
+      );
+    }
+    if (request.method === "POST" && url.pathname === "/v1/hub/player/pokemon/evolve") {
+      return this.withSession(request, (identity) => this.evolvePokemon(request, identity));
     }
     if (request.method === "GET" && url.pathname === "/v1/hub/player/move-choices") {
       return this.withSession(request, (identity) => this.getMoveChoices(identity));
@@ -896,6 +907,38 @@ export class PlayerPortalHttpHandler {
     });
   }
 
+  private async getEvolutionOptions(
+    pokemonInstanceId: string | null,
+    identity: ExternalIdentity,
+  ): Promise<Response> {
+    if (pokemonInstanceId === null || !parsePokemonInstanceId(pokemonInstanceId).ok) {
+      return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    }
+    if (!this.dependencies.evolutions) {
+      return jsonResponse(503, { error: "FEATURE_UNAVAILABLE" });
+    }
+    const result = await this.dependencies.evolutions.listOptions(identity, pokemonInstanceId);
+    return result.ok
+      ? jsonResponse(200, {
+          blockedByBattle: result.value.blockedByBattle,
+          options: result.value.options,
+        })
+      : errorResponse(result.error, "evolution");
+  }
+
+  private async evolvePokemon(request: Request, identity: ExternalIdentity): Promise<Response> {
+    if (!this.dependencies.evolutions) {
+      return jsonResponse(503, { error: "FEATURE_UNAVAILABLE" });
+    }
+    const body = await readJsonBody(request);
+    if (body === null) return jsonResponse(400, { error: "VALIDATION_FAILED" });
+    const result = await this.dependencies.evolutions.evolve(identity, body);
+    if (!result.ok) return errorResponse(result.error, "evolution");
+    const pokemon = await this.dependencies.player.getPokemon(identity);
+    if (!pokemon.ok) return errorResponse(pokemon.error, "read");
+    return jsonResponse(200, { evolution: result.value, pokemon: pokemon.value });
+  }
+
   private async moveRoster(request: Request, identity: ExternalIdentity): Promise<Response> {
     const body = await readJsonBody(request);
     if (body === null) {
@@ -1038,7 +1081,7 @@ function serializeSessionCookie(token: string): string {
 
 function errorResponse(
   error: AppError,
-  context: "exchange" | "read" | "roster" | "moves" | "profile",
+  context: "exchange" | "read" | "roster" | "moves" | "profile" | "evolution",
 ): Response {
   if (error.code === "PLAYER_INELIGIBLE") {
     return jsonResponse(403, { error: error.code });
@@ -1061,7 +1104,17 @@ function errorResponse(
   if (context === "profile" && error.code === "NOT_FOUND") {
     return jsonResponse(404, { error: error.code });
   }
-  if (context === "roster" && error.code === "ACTION_INVALID") {
+  if (context === "roster" && (error.code === "ACTION_INVALID" || error.code === "FLOW_BLOCKED")) {
+    return jsonResponse(409, { error: error.code });
+  }
+  if (context === "evolution" && error.code === "NOT_FOUND") {
+    return jsonResponse(404, { error: error.code });
+  }
+  if (context === "evolution" && (
+    error.code === "FLOW_BLOCKED" ||
+    error.code === "ACTION_INVALID" ||
+    error.code === "REVISION_CONFLICT"
+  )) {
     return jsonResponse(409, { error: error.code });
   }
   if (context === "moves" && error.code === "NOT_FOUND") {

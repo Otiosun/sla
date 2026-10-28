@@ -311,9 +311,10 @@ async function learnMovesAtLevel(
     readonly level: number;
     readonly sourceType: string;
     readonly sourceId: string;
-    readonly actorType: "SYSTEM" | "ADMIN";
+    readonly actorType: "SYSTEM" | "ADMIN" | "PLAYER";
     readonly actorId: string | null;
     readonly correlationId: string;
+    readonly includeEvolutionMoves?: boolean;
     readonly slots: MutableMoveSlot[];
     readonly learnedMoveIds: string[];
     readonly pendingMoveChoiceIds: string[];
@@ -328,11 +329,13 @@ async function learnMovesAtLevel(
       AND revision.move_id = entry.move_id
      WHERE entry.content_release_id = $1
        AND entry.form_id = $2
-       AND entry.learn_method = 'LEVEL'
-       AND entry.learn_level = $3
+       AND (
+         (entry.learn_method = 'LEVEL' AND entry.learn_level = $3)
+         OR ($4::boolean = TRUE AND entry.learn_method = 'EVOLUTION')
+       )
        AND entry.active = TRUE
      ORDER BY move.slug, entry.move_id`,
-    [input.contentReleaseId, input.formId, input.level],
+    [input.contentReleaseId, input.formId, input.level, input.includeEvolutionMoves === true],
   );
 
   for (const move of learnset.rows) {
@@ -1017,6 +1020,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           actorType: input.source.actorType,
           actorId: input.source.actorId,
           correlationId: input.correlationId,
+          includeEvolutionMoves: true,
           slots,
           learnedMoveIds,
           pendingMoveChoiceIds,
@@ -2007,12 +2011,13 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       }>(
         `SELECT release.id AS content_release_id, release.default_ruleset_id AS ruleset_id,
                 ruleset.config AS ruleset_config
-         FROM content_release_pointers pointer
-         JOIN content_releases release ON release.id = pointer.content_release_id
+         FROM player_onboarding_context context
+         JOIN content_releases release ON release.id = context.content_release_id
          JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
-         WHERE pointer.pointer_key = 'ACTIVE'
-           AND release.status = 'PUBLISHED'
-           AND ruleset.status = 'PUBLISHED'`,
+         WHERE context.player_id = $1
+           AND release.status IN ('PUBLISHED', 'ARCHIVED')
+           AND ruleset.status IN ('PUBLISHED', 'ARCHIVED')`,
+        [input.playerId],
       );
       const activeRow = active.rows[0];
       if (activeRow === undefined) return { kind: "RULES_MISSING" };
@@ -2049,6 +2054,21 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       );
       const pokemonRow = pokemon.rows[0];
       if (pokemonRow === undefined) return { kind: "NOT_FOUND" };
+
+      // Authoritative mutation guard. WhatsApp/Hub prechecks alone can race
+      // with combat creation; this is a second validation inside the transaction.
+      const battle = await client.query(
+        `SELECT battle.id FROM battles battle
+         LEFT JOIN battle_sides side ON side.battle_id = battle.id
+         LEFT JOIN battle_participant_controllers controller ON controller.battle_id = battle.id
+         WHERE battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
+           AND (side.player_id = $1 OR controller.player_id = $1)
+         LIMIT 1`,
+        [input.playerId],
+      );
+      if (battle.rows.length > 0) {
+        return { kind: "NOT_ELIGIBLE", reason: "Pokemon cannot evolve in an active battle" };
+      }
 
       const currentForm = await loadFormStats(
         client,
@@ -2188,6 +2208,29 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         throw new ProgressionStateViolation("Evolution Pokemon CAS failed");
       }
       await recordPokedexOwned(client, input.playerId, newForm.speciesId);
+      // Manual item/condition evolutions and overdue LEVEL corrections can
+      // also grant on-evolution moves. Full movesets create PENDING choices.
+      const currentMoves = await client.query<{ slot_no: number; move_id: string }>(
+        `SELECT slot_no, move_id FROM pokemon_move_slots
+         WHERE pokemon_instance_id = $1 ORDER BY slot_no FOR UPDATE`,
+        [input.pokemonInstanceId],
+      );
+      await learnMovesAtLevel(client, {
+        pokemonInstanceId: input.pokemonInstanceId,
+        playerId: input.playerId,
+        contentReleaseId: activeRow.content_release_id,
+        formId: rule.to_form_id,
+        level: pokemonRow.level,
+        sourceType: "EVOLUTION",
+        sourceId: claimId,
+        actorType: "PLAYER",
+        actorId: input.playerId,
+        correlationId: input.correlationId,
+        includeEvolutionMoves: true,
+        slots: currentMoves.rows.map((row) => ({ slotNo: row.slot_no, moveId: row.move_id })),
+        learnedMoveIds: [],
+        pendingMoveChoiceIds: [],
+      });
       const result = EvolutionResultSchema.parse({
         pokemonInstanceId: input.pokemonInstanceId,
         fromFormId: pokemonRow.form_id,
@@ -2230,6 +2273,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           toFormId: rule.to_form_id,
           evolutionRuleId: rule.id,
           triggerKind: input.trigger.kind,
+          level: pokemonRow.level,
         },
         actorType: "PLAYER",
         actorId: input.playerId,

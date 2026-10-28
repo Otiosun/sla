@@ -31,6 +31,7 @@ import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { AdminPlayerIdentityHttpHandler } from "../modules/player-portal/admin-player-identity-http-handler.js";
 import { PlayerPortalHttpHandler } from "../modules/player-portal/http-handler.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
+import { PlayerPortalEvolutionService } from "../modules/player-portal/evolution-service.js";
 import { PlayerPortalMoveChoiceService } from "../modules/player-portal/move-choice-service.js";
 import { PlayerPortalProfileCustomizationService } from "../modules/player-portal/profile-customization-service.js";
 import { PlayerPortalReadService } from "../modules/player-portal/read-service.js";
@@ -117,9 +118,16 @@ export function composePlayerPortalRuntime(
     players,
     profiles,
     storage: pcStorage,
+    reads: presentation,
   });
   const progression = new ProgressionService(new PostgresProgressionRepository(options.pool));
   const moveChoices = new PlayerPortalMoveChoiceService({
+    players,
+    profiles,
+    reads: presentation,
+    progression,
+  });
+  const evolutions = new PlayerPortalEvolutionService({
     players,
     profiles,
     reads: presentation,
@@ -222,6 +230,7 @@ export function composePlayerPortalRuntime(
     player,
     roster,
     moveChoices,
+    evolutions,
     customization,
     admin,
     adminPlayers,

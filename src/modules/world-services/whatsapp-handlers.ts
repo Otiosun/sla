@@ -16,6 +16,7 @@ import {
 import type { FishingService } from "./fishing-service.js";
 import type { PokemonCenterHealingService } from "./healing-service.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
+import { purchasableMartItems, type MartPublishedOfferReader } from "./mart-published-offers.js";
 import { createPokemonPcOrganizeRoute } from "./pc-organize-whatsapp.js";
 import {
   renderPokemonPcDepositSelection,
@@ -68,6 +69,7 @@ export interface WorldServiceWhatsAppDependencies {
     Partial<Pick<WorldServiceSessionService, "recordSceneProof">>;
   readonly healing?: Pick<PokemonCenterHealingService, "healTeam">;
   readonly economy?: Pick<MartSaleInventoryReader, "listSellableInventory">;
+  readonly martAvailability?: MartPublishedOfferReader;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage">;
   readonly fishing?: Pick<FishingService, "attempt">;
   readonly fishingSpecies?: FishingSpeciesDisplayNameReader;
@@ -377,15 +379,19 @@ export function createWorldServiceWhatsAppRoutes(
       );
     }
 
+    if (dependencies.martAvailability === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Published shop catalog reader is unavailable"));
+    }
+    const offers = purchasableMartItems(await dependencies.martAvailability.listPublishedOffers());
     return textResult(
       context,
-      renderMartCatalog(),
+      renderMartCatalog(offers),
       active.value.sessionId,
-      {
+      offers.length === 0 ? null : {
         playerId: player.value,
         expectedRevision: active.value.revision,
       },
-      ":mart:catalog",
+      offers.length === 0 ? ":mart:empty" : ":mart:catalog",
     );
   };
 
@@ -403,7 +409,11 @@ export function createWorldServiceWhatsAppRoutes(
       );
     }
 
-    return textResult(context, renderMartCatalog(), active.value.sessionId, null, ":mart:items");
+    if (dependencies.martAvailability === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Published shop catalog reader is unavailable"));
+    }
+    const offers = purchasableMartItems(await dependencies.martAvailability.listPublishedOffers());
+    return textResult(context, renderMartCatalog(offers), active.value.sessionId, null, ":mart:items");
   };
 
   const sell: Handler = async (context) => {
@@ -560,15 +570,18 @@ export function createWorldServiceWhatsAppRoutes(
     const storage = await dependencies.pcStorage.getStorage(player.value);
     if (!storage.ok) return storage;
 
+    const canDeposit = storage.value.team.length > 1;
     return textResult(
       context,
       renderPokemonPcDepositSelection(storage.value),
       active.value.sessionId,
-      {
-        playerId: player.value,
-        expectedRevision: active.value.revision,
-      },
-      ":center:pc:deposit:list",
+      canDeposit
+        ? {
+            playerId: player.value,
+            expectedRevision: active.value.revision,
+          }
+        : null,
+      canDeposit ? ":center:pc:deposit:list" : ":center:pc:deposit:blocked",
     );
   };
 
@@ -592,18 +605,23 @@ export function createWorldServiceWhatsAppRoutes(
     const storage = await dependencies.pcStorage.getStorage(player.value);
     if (!storage.ok) return storage;
     const hasStoredPokemon = storage.value.boxes.some((box) => box.pokemon.length > 0);
+    const canWithdraw = hasStoredPokemon && storage.value.team.length < 6;
 
     return textResult(
       context,
       renderPokemonPcWithdrawSelection(storage.value),
       active.value.sessionId,
-      hasStoredPokemon
+      canWithdraw
         ? {
             playerId: player.value,
             expectedRevision: active.value.revision,
           }
         : null,
-      hasStoredPokemon ? ":center:pc:withdraw:list" : ":center:pc:withdraw:empty",
+      canWithdraw
+        ? ":center:pc:withdraw:list"
+        : hasStoredPokemon
+          ? ":center:pc:withdraw:team-full"
+          : ":center:pc:withdraw:empty",
     );
   };
 

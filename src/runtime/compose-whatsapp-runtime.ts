@@ -56,6 +56,7 @@ import {
   createCompetitiveSpawnGuessRoute,
 } from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
+import { MoveTrainingService } from "../modules/progression/move-training-service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
 import { createSpawnWhatsAppRoute } from "../modules/encounter/spawn-whatsapp.js";
@@ -153,6 +154,7 @@ import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
 import { PostgresFishingAttemptRepository } from "../platform/world-services/postgres-fishing-attempt-repository.js";
 import { PostgresMartSaleInventoryReader } from "../platform/world-services/postgres-mart-sale-inventory-reader.js";
+import { PostgresMartPublishedOffersReader } from "../platform/world-services/postgres-mart-published-offers-reader.js";
 import { PostgresPokemonCenterHealingRepository } from "../platform/world-services/postgres-pokemon-center-healing-repository.js";
 import { PostgresPokemonPcStorageRepository } from "../platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
@@ -305,7 +307,9 @@ export function createOperationalMessagingComposition(
     return result.rows[0]?.external_id ?? null;
   };
   const economy = new EconomyService(new PostgresEconomyRepository(pool));
+  const moveTraining = new MoveTrainingService(pool);
   const martSaleInventory = new PostgresMartSaleInventoryReader(pool);
+  const martAvailability = new PostgresMartPublishedOffersReader(pool);
   const martEconomy = {
     purchaseQuantity: economy.purchaseQuantity.bind(economy),
     getWalletBalance: economy.getWalletBalance.bind(economy),
@@ -454,6 +458,7 @@ export function createOperationalMessagingComposition(
     sessions: worldServiceSessions,
     replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
     economy: martEconomy,
+    martAvailability,
     pcStorage: pokemonPcStorage,
   });
   const nonReceptionConversationResolver = {
@@ -802,6 +807,7 @@ export function createOperationalMessagingComposition(
     activeEncounter: encounter.activeForPlayer.bind(encounter),
     healing: pokemonCenterHealing,
     economy: martSaleInventory,
+    martAvailability,
     pcStorage: pokemonPcStorage,
     ...(fishing === undefined ? {} : { fishing }),
     fishingSpecies: {
@@ -813,6 +819,8 @@ export function createOperationalMessagingComposition(
     players: playerRegistration,
     reads,
     progression,
+    training: moveTraining,
+    sessions: worldServiceSessions,
     encounter,
     world,
   });

@@ -1,6 +1,6 @@
 import { parseMenuNumber, parsePositiveQuantity } from "../messaging/human-input.js";
 
-export type MartCatalogCategory = "CAPTURE" | "RECOVERY" | "TREATMENT" | "FIELD" | "BATTLE";
+export type MartCatalogCategory = "CAPTURE" | "RECOVERY" | "TREATMENT" | "FIELD" | "BATTLE" | "TM" | "EVOLUTION" | "OTHER";
 
 export interface MartCatalogItem {
   readonly code: string;

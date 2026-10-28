@@ -94,6 +94,14 @@ export interface OperationalPokedexSpeciesView {
   readonly caughtCount: bigint;
 }
 
+/** LEVEL learnset of the Pokémon's current form in the trainer's pinned release. */
+export interface OperationalLevelLearnsetEntry {
+  readonly moveId: string;
+  readonly moveDisplayName: string;
+  readonly learnLevel: number;
+  readonly known: boolean;
+}
+
 export interface OperationalPendingMoveChoiceView {
   readonly choiceId: string;
   readonly pokemonInstanceId: PokemonInstanceId;
@@ -127,6 +135,10 @@ export interface OperationalUxReadModel {
   listInventory(playerId: PlayerId): Promise<readonly OperationalInventoryItemView[]>;
   listPokedex(playerId: PlayerId): Promise<readonly OperationalPokedexSpeciesView[]>;
   listPendingMoveChoices(playerId: PlayerId): Promise<readonly OperationalPendingMoveChoiceView[]>;
+  listLevelLearnset?(
+    playerId: PlayerId,
+    pokemonInstanceId: PokemonInstanceId,
+  ): Promise<readonly OperationalLevelLearnsetEntry[]>;
   listEvolutionOptions?(
     playerId: PlayerId,
     pokemonInstanceId: PokemonInstanceId,
