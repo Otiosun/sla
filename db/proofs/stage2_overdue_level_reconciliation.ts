@@ -23,7 +23,9 @@ try {
 } catch {
   throw new Error("A valid disposable DATABASE_URL is required");
 }
-if (!permission || !["localhost", "127.0.0.1", "::1"].includes(localUrl.hostname) ||
+if (!permission || process.env.APP_ENV !== "test" ||
+    localUrl.pathname !== "/pokemon_rpg_test" ||
+    !["localhost", "127.0.0.1", "::1"].includes(localUrl.hostname) ||
     !["postgres:", "postgresql:"].includes(localUrl.protocol)) {
   throw new Error("Only explicitly enabled loopback disposable PostgreSQL may be audited");
 }
