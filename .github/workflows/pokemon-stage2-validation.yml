@@ -139,5 +139,15 @@ jobs:
       # journey uses the real isolated UAT bootstrap, not a production shortcut.
       - name: Trainer journey /pokemon /golpes /aprender /evolucao /evoluir /pc
         run: node --import tsx db/proofs/whatsapp_simulator_pokemon_management_journey_uat.ts
+      - name: Audit PUBLISHED Stage 2 catalog coverage without mutations
+        run: node --import tsx db/proofs/stage2_release_publication_audit.ts --output build/catalog/release-audit.json
+      - name: Upload exact catalog coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage2-published-catalog-audit
+          path: build/catalog/release-audit.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Read-only legacy evolution audit (disposable PostgreSQL)
         run: node --import tsx db/proofs/stage2_overdue_level_reconciliation.ts
