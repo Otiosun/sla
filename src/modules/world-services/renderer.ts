@@ -1,7 +1,7 @@
 import type { PurchaseResult, SaleResult } from "../economy/contracts.js";
 import type { WorldServiceKind } from "./contracts.js";
 import type { MartCatalogCategory, MartCatalogItem } from "./mart-catalog.js";
-import { MART_CATALOG } from "./mart-catalog.js";
+
 import type { MartSellableInventoryItem } from "./mart-sale.js";
 import type { PokemonPcStorageSnapshot } from "./pc-storage-service.js";
 
@@ -176,7 +176,7 @@ export function renderPokemonPcBoxes(snapshot: PokemonPcStorageSnapshot): string
   return lines.join("\n");
 }
 
-export function renderMartCatalog(items: readonly MartCatalogItem[] = MART_CATALOG): string {
+export function renderMartCatalog(items: readonly MartCatalogItem[]): string {
   const lines = [
     "🛒 *𝗣𝗥𝗔𝗧𝗘𝗟𝗘𝗜𝗥𝗔𝗦*",
     "　Poké Mart · Catálogo",
