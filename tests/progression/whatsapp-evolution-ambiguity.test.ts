@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import type { OperationalEvolutionOptionView } from "../../src/modules/messaging/operational-ux-read-model.js";
+import type { ProgressionService } from "../../src/modules/progression/service.js";
 import {
   createProgressionWhatsAppRoutes,
   type ProgressionWhatsAppDependencies,
@@ -32,7 +33,7 @@ function option(
 }
 
 function fixture(options: readonly OperationalEvolutionOptionView[]) {
-  const evolvePokemon = vi.fn(async () =>
+  const evolvePokemon = vi.fn<ProgressionService["evolvePokemon"]>(async () =>
     ok({
       pokemonInstanceId, fromFormId: randomUUID(), toFormId: randomUUID(),
       triggerKind: "ITEM" as const, beforeLevel: 16, afterLevel: 16, replayed: false,
