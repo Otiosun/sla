@@ -13,6 +13,8 @@ import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
+import type { WorldServiceSessionService } from "../world-services/session-service.js";
+import type { MoveTrainingService, MoveTrainingMethod } from "./move-training-service.js";
 import type { ProgressionService } from "./service.js";
 
 export interface ProgressionWhatsAppDependencies {
@@ -22,6 +24,8 @@ export interface ProgressionWhatsAppDependencies {
     "listPendingMoveChoices" | "activeBattleId" | "listOwnedPokemon" | "listEvolutionOptions" | "listLevelLearnset"
   >;
   readonly progression: Pick<ProgressionService, "resolveMoveChoice" | "evolvePokemon">;
+  readonly training?: Pick<MoveTrainingService, "options" | "learn">;
+  readonly sessions?: Pick<WorldServiceSessionService, "loadActiveSession">;
   readonly encounter?: Pick<EncounterOperationalReadService, "activeForPlayer">;
   readonly world?: Pick<WorldService, "travelLock">;
 }
@@ -397,6 +401,102 @@ export function createProgressionWhatsAppRoutes(
     return textResult(context, lines.join("\n"));
   };
 
+  const trainingMenu = (method: MoveTrainingMethod, execute: boolean): Handler =>
+    async (context) => {
+      const player = await dependencies.players.resolvePlayer(identity(context));
+      if (!player.ok) return player;
+      if (dependencies.training === undefined || dependencies.reads.listOwnedPokemon === undefined) {
+        return err(appError("FEATURE_UNAVAILABLE", "Sistema de aprendizado ainda indisponível."));
+      }
+      if (method === "REMINDER") {
+        if (dependencies.sessions === undefined) return err(appError("FEATURE_UNAVAILABLE",
+          "Consulta do Centro Pokémon indisponível."));
+        const visit = await dependencies.sessions.loadActiveSession(player.value.playerId);
+        if (!visit.ok) return visit;
+        if (visit.value?.serviceKind !== "POKEMON_CENTER") {
+          return err(appError("FLOW_BLOCKED",
+            "Entre no Centro Pokémon com `/centropokemon` para reaprender movimentos."));
+        }
+      }
+
+      const args = commandArgs(context);
+      const pokemonReference = args[0] ?? "";
+      const owned = await dependencies.reads.listOwnedPokemon(player.value.playerId);
+      const pokemon = resolveOwnedPokemonReference(owned, pokemonReference);
+      if (!pokemon.ok) return pokemon;
+      const options = await dependencies.training.options({
+        playerId: player.value.playerId,
+        pokemonInstanceId: pokemon.value.pokemonInstanceId,
+        method,
+      });
+      if (!options.ok) return options;
+      const name = pokemon.value.nickname ?? pokemon.value.displayName;
+      const base = method === "TM" ? "ensinar" : "reaprender";
+      if (!execute || args.length < 2) {
+        const lines = [
+          method === "TM" ? "▣ *MÁQUINAS · TM*" : "✦ *REAPRENDIZADO*",
+          "",
+          `◇ *${name}* · Nv. ${String(pokemon.value.level)}`,
+          "",
+        ];
+        if (options.value.length === 0) {
+          lines.push(method === "TM"
+            ? "_Nenhuma TM compatível está disponível na sua mochila._"
+            : "_Nenhum movimento elegível para reaprender nesta versão._");
+        }
+        options.value.forEach((entry, index) => {
+          const suffix = method === "TM"
+            ? ` · ${entry.itemName ?? "TM"} ×${String(entry.itemQuantity ?? 0n)}`
+            : "";
+          lines.push(`\`${String(index + 1)}\` ${entry.displayName}${suffix}`);
+        });
+        if (options.value.length > 0) {
+          lines.push("", `\`/${base} #${String(pokemon.value.collectionNo)} <opção>\``,
+            "_Com quatro golpes, adicione o slot (1–4) a substituir ao final._");
+        }
+        if (method === "TM") lines.push("Use `/comprar` em um Poké Mart para consultar ofertas publicadas.");
+        return textResult(context, lines.join("\n"));
+      }
+      const number = parseMenuNumber(args[1] ?? "");
+      const picked = number === null ? undefined : options.value[number - 1];
+      if (picked === undefined) {
+        return err(appError("VALIDATION_FAILED",
+          `Opção inexistente. Consulte \`/${base} #${String(pokemon.value.collectionNo)}\`.`));
+      }
+      const requestedSlot = args[2] === undefined ? null : parseMenuNumber(args[2]);
+      if (args.length > 3 || (args[2] !== undefined && requestedSlot === null)) {
+        return err(appError("VALIDATION_FAILED", "Escolha um slot válido de 1 a 4."));
+      }
+      const clear = await ensureEvolutionMutationClear(dependencies, player.value.playerId);
+      if (!clear.ok) return clear;
+      const correlation = parseCorrelationId(context.correlationId);
+      if (!correlation.ok) return correlation;
+      const taught = await dependencies.training.learn({
+        playerId: player.value.playerId,
+        pokemonInstanceId: pokemon.value.pokemonInstanceId,
+        method,
+        moveId: picked.moveId,
+        itemId: picked.itemId,
+        replaceSlotNo: requestedSlot,
+        idempotencyKey: context.idempotencyKey,
+        correlationId: correlation.value,
+      });
+      if (!taught.ok) return taught;
+      return textResult(context, [
+        "✦ *MOVIMENTO APRENDIDO*",
+        "",
+        `*${name}* aprendeu *${picked.displayName}*.`,
+        `Slot ${String(taught.value.slotNo)}${taught.value.replacedMoveId === null
+          ? " · vaga livre" : " · movimento anterior substituído"}.`,
+        method === "TM" ? "Uma TM foi consumida." : "Reaprendizado realizado sem custo.",
+        "",
+        `\`/pokemon #${String(pokemon.value.collectionNo)}\` · conferir movimentos`,
+      ].join("\n"));
+    };
+  const showTms = trainingMenu("TM", false);
+  const teachTm = trainingMenu("TM", true);
+  const relearn = trainingMenu("REMINDER", true);
+
   const evolutionInfo: Handler = async (context) => {
     const resolvedPlayer = await dependencies.players.resolvePlayer(identity(context));
     if (!resolvedPlayer.ok) return resolvedPlayer;
@@ -640,6 +740,9 @@ export function createProgressionWhatsAppRoutes(
   return [
     { command: "golpes", aliases: ["movimentos"], handler: new FunctionalHandler(pendingMoves) },
     { command: "aprendizados", aliases: ["learnset"], handler: new FunctionalHandler(learnsetGuide) },
+    { command: "tms", handler: new FunctionalHandler(showTms) },
+    { command: "ensinar", handler: new FunctionalHandler(teachTm), rateLimitClass: "SENSITIVE" },
+    { command: "reaprender", handler: new FunctionalHandler(relearn), rateLimitClass: "SENSITIVE" },
     {
       command: "aprender",
       handler: new FunctionalHandler(resolvePendingMove),
