@@ -9,6 +9,10 @@ import {
   classifyMoveForBattleReview,
   type ExternalMoveMechanics,
 } from "../../src/modules/catalog/move-mechanics-review.js";
+import {
+  parseVersionedEvolutionChain,
+  type ExternalEvolutionChain,
+} from "../../src/modules/catalog/versioned-evolution-chain.js";
 
 /**
  * Offline-at-runtime content builder. Run only in content preparation; never
@@ -157,6 +161,35 @@ const moveDefinitions = await Promise.all(allMoveSlugs.map(async (slug) => {
   return { ...classifyMoveForBattleReview(source.data), rawSha256: source.sha256 };
 }));
 
+// Source families are fetched once, even when several active Pokémon share
+// the same evolution chain. No ITEM, friendship or branching rule is published.
+const sourceChains = new Map<number,{
+  chainId:number;
+  rawSha256:string;
+  rootSpeciesSlug:string;
+  edges:ReturnType<typeof parseVersionedEvolutionChain>;
+}>();
+await Promise.all(manifest.pokemonSlugs.map(async (slug) => {
+  const species = await fetchJson<{
+    name:string; evolution_chain:{url:string}|null;
+  }>(`https://pokeapi.co/api/v2/pokemon-species/${slug}/`);
+  if (species.data.name !== slug || species.data.evolution_chain === null) {
+    throw new Error(`Evolution chain not available for ${slug}`);
+  }
+  const chain = await fetchJson<ExternalEvolutionChain>(species.data.evolution_chain.url);
+  const edges = parseVersionedEvolutionChain(chain.data);
+  const existing = sourceChains.get(chain.data.id);
+  if (existing !== undefined && existing.rawSha256 !== chain.sha256) {
+    throw new Error(`Two conflicting sources for evolution chain ${chain.data.id}`);
+  }
+  sourceChains.set(chain.data.id,{
+    chainId:chain.data.id,rawSha256:chain.sha256,
+    rootSpeciesSlug:chain.data.chain.species.name,
+    edges,
+  });
+}));
+const evolutionChains = [...sourceChains.values()].sort((a,b)=>a.chainId-b.chainId);
+
 const proposal = {
   format: "POKEMON_BEYOND_MOVE_PROPOSAL_V1",
   generatedAt: new Date().toISOString(),
@@ -164,6 +197,7 @@ const proposal = {
   defaultVersionGroup: manifest.versionGroup,
   pokemon,
   moveDefinitions,
+  evolutionChains,
   machines: [...machineMap.values()].sort((a, b) =>
     a.itemSlug.localeCompare(b.itemSlug) || a.moveSlug.localeCompare(b.moveSlug)),
   constraints: [
@@ -183,6 +217,8 @@ console.log(JSON.stringify({
   moveDefinitions: proposal.moveDefinitions.length,
   basicDamageCandidates: proposal.moveDefinitions.filter((move) => move.basicDamageCandidate).length,
   effectsRequiringReview: proposal.moveDefinitions.filter((move) => !move.basicDamageCandidate).length,
+  evolutionChains: proposal.evolutionChains.length,
+  evolutionEdges: proposal.evolutionChains.reduce((count,chain)=>count+chain.edges.length,0),
   outputFile,
   writesToDatabase: false,
 }));
