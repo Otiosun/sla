@@ -19,6 +19,10 @@ const proposal:CatalogSourceProposal={
     ]},
   ],
   machines:[{moveSlug:"thunderbolt",itemSlug:"tm126",versionGroup:"scarlet-violet",sha256:hash}],
+  evolutionChains:[
+    {chainId:1,rawSha256:hash,rootSpeciesSlug:"pikachu",edges:[]},
+    {chainId:2,rawSha256:hash,rootSpeciesSlug:"pidgey",edges:[]},
+  ],
   moveDefinitions:["quick-attack","thunderbolt","tackle"].map((slug)=>({
     slug,category:"PHYSICAL" as const,typeSlug:"normal",
     power:40,accuracy:100,maxPp:30,priority:0,reviewReasons:[],
@@ -64,6 +68,14 @@ describe("source manifest and generated complete proposal before publication",()
     const issues=auditCatalogSourceProposal(manifest,changed);
     expect(issues).toEqual(expect.arrayContaining([
       expect.objectContaining({code:"MOVE_DEFINITION_MISSING",subject:"thunderbolt"}),
+    ]));
+  });
+  it("blocks an active Pokémon without a sourced evolution family",()=>{
+    const problems=auditCatalogSourceProposal(manifest,{
+      ...proposal,evolutionChains:proposal.evolutionChains.slice(0,1),
+    });
+    expect(problems).toEqual(expect.arrayContaining([
+      expect.objectContaining({code:"EVOLUTION_FAMILY_MISSING",subject:"pidgey"}),
     ]));
   });
   it("rejects unknown form, invalid levels and source hashes",()=>{
