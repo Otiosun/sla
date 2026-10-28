@@ -12,6 +12,22 @@ function formatPcNumber(value: number): string {
 
 export function renderPokemonPcDepositSelection(snapshot: PokemonPcStorageSnapshot): string {
   const team = [...snapshot.team].sort((left, right) => left.slotNo - right.slotNo);
+  if (team.length <= 1) {
+    return [
+      "△ *𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢*",
+      "",
+      team.length === 0
+        ? "> _Você não possui Pokémon ativos para depositar._"
+        : "> _O último Pokémon da equipe não pode ser guardado._",
+      "",
+      ...(team.length === 1
+        ? [`◇ *${team[0]!.displayName}* · Equipe 01/06`, ""]
+        : []),
+      "↑ \`/retirar\` · Traga outro Pokémon primeiro",
+      "‹ \`/pc\` · Voltar ao terminal",
+    ].join("\n");
+  }
+
   const lines = [
     "↓ *𝗗𝗘𝗣𝗢𝗦𝗜𝗧𝗔𝗥 𝗣𝗢𝗞É𝗠𝗢𝗡*",
     "　PC Pokémon · Equipe atual",
