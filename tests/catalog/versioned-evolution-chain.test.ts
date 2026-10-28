@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   parseVersionedEvolutionChain, type ExternalEvolutionChain,
+  type ExternalEvolutionDetail, type ExternalEvolutionLink,
 } from "../../src/modules/catalog/versioned-evolution-chain.js";
-const leaf=(name:string,detail:Record<string,unknown>)=>({
+const leaf=(name:string,detail:ExternalEvolutionDetail):ExternalEvolutionLink=>({
   species:{name},evolves_to:[],evolution_details:[detail],
 });
 describe("evolution family source importer",()=>{
