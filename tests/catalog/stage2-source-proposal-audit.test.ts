@@ -19,6 +19,11 @@ const proposal:CatalogSourceProposal={
     ]},
   ],
   machines:[{moveSlug:"thunderbolt",itemSlug:"tm126",versionGroup:"scarlet-violet",sha256:hash}],
+  moveDefinitions:["quick-attack","thunderbolt","tackle"].map((slug)=>({
+    slug,category:"PHYSICAL" as const,typeSlug:"normal",
+    power:40,accuracy:100,maxPp:30,priority:0,reviewReasons:[],
+    basicDamageCandidate:true,rawSha256:hash,
+  })),
 };
 describe("source manifest and generated complete proposal before publication",()=>{
   it("accepts only explicitly pinned versions, valid checksums and compatible machine item",()=>{
@@ -53,6 +58,13 @@ describe("source manifest and generated complete proposal before publication",()
       }],
     });
     expect(problems.map(p=>p.code)).toContain("MACHINE_ITEM_CONFLICT");
+  });
+  it("blocks a source proposal that references a move without reviewed battle parameters",()=>{
+    const changed={...proposal,moveDefinitions:proposal.moveDefinitions.filter(x=>x.slug!=="thunderbolt")};
+    const issues=auditCatalogSourceProposal(manifest,changed);
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({code:"MOVE_DEFINITION_MISSING",subject:"thunderbolt"}),
+    ]));
   });
   it("rejects unknown form, invalid levels and source hashes",()=>{
     const problems=auditCatalogSourceProposal(manifest,{
