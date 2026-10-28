@@ -139,3 +139,5 @@ jobs:
       # journey uses the real isolated UAT bootstrap, not a production shortcut.
       - name: Trainer journey /pokemon /golpes /aprender /evolucao /evoluir /pc
         run: node --import tsx db/proofs/whatsapp_simulator_pokemon_management_journey_uat.ts
+      - name: Read-only legacy evolution audit (disposable PostgreSQL)
+        run: node --import tsx db/proofs/stage2_overdue_level_reconciliation.ts
