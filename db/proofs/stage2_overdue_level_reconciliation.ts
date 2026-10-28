@@ -6,7 +6,7 @@ import {
 } from "../../src/modules/progression/recovery-audit.js";
 import { ProgressionService } from "../../src/modules/progression/service.js";
 import { PostgresProgressionRepository } from "../../src/platform/progression/postgres-progression-repository.js";
-import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
+import { parsePlayerId, parsePokemonInstanceId } from "../../src/shared-kernel/ids.js";
 
 /**
  * Stage2 legacy evolution reconciliation, SAFE MODE:
@@ -120,9 +120,15 @@ try {
     summary.eligibleForReview += 1;
     if (!apply) continue;
 
+    const parsedPlayerId = parsePlayerId(current.player_id);
+    const parsedPokemonId = parsePokemonInstanceId(current.pokemon_id);
+    if (!parsedPlayerId.ok || !parsedPokemonId.ok) {
+      summary.errors += 1;
+      continue;
+    }
     const evolved = await progression.evolvePokemon({
-      playerId: createPlayerId(current.player_id),
-      pokemonInstanceId: createPokemonInstanceId(current.pokemon_id),
+      playerId: parsedPlayerId.value,
+      pokemonInstanceId: parsedPokemonId.value,
       trigger: { kind: "LEVEL" },
       idempotencyKey: `stage2.reconcile-level:${current.player_id}:${current.pokemon_id}:${current.release_id}:${current.form_id}`,
       correlationId: randomUUID(),
