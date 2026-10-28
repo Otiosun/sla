@@ -11,6 +11,9 @@ const CATEGORY_LABELS: Readonly<Record<MartCatalogCategory, string>> = {
   TREATMENT: "┄┄ ✚ *𝗧𝗥𝗔𝗧𝗔𝗠𝗘𝗡𝗧𝗢* ┄┄",
   FIELD: "┄┄ ⌁ *𝗖𝗔𝗠𝗣𝗢* ┄┄",
   BATTLE: "┄┄ ◆ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔* ┄┄",
+  TM: "┄┄ ▣ *𝗠Á𝗤𝗨𝗜𝗡𝗔𝗦* ┄┄",
+  EVOLUTION: "┄┄ ✦ *𝗘𝗩𝗢𝗟𝗨ÇÃ𝗢* ┄┄",
+  OTHER: "┄┄ ◇ *𝗢𝗨𝗧𝗥𝗢𝗦* ┄┄",
 };
 
 function formatMoney(value: bigint): string {
