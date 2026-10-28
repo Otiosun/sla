@@ -96,16 +96,40 @@ function evolutionRelativeRequirement(
   return "";
 }
 
+/** The mutation contract accepts ITEM+itemId or CONDITION only, not target form.
+ * Never offer two commands that resolve to the same trigger but different targets. */
+export function manualEvolutionTriggerKey(option: OperationalEvolutionOptionView): string | null {
+  if (option.triggerKind === "LEVEL") return null;
+  return option.triggerKind === "ITEM" ? `ITEM:${option.itemId ?? "missing"}` : "CONDITION";
+}
+
+export function hasAmbiguousManualEvolution(
+  options: readonly OperationalEvolutionOptionView[],
+  chosen: OperationalEvolutionOptionView,
+): boolean {
+  const key = manualEvolutionTriggerKey(chosen);
+  return key !== null &&
+    options.filter((option) => manualEvolutionTriggerKey(option) === key).length > 1;
+}
+
 function evolutionOptionLine(
   option: OperationalEvolutionOptionView,
   index: number,
   collectionNo: number,
+  ambiguous: boolean,
 ): readonly string[] {
   if (option.triggerKind === "LEVEL") {
     const relative = evolutionRelativeRequirement(option.relativePhysicalStats);
     return [
       `*${String(index + 1)}. ${option.targetDisplayName}*`,
       `　Nível ${String(option.requiredLevel ?? "—")} · evolução automática${relative.length === 0 ? "" : ` · ${relative}`}`,
+    ];
+  }
+  if (ambiguous) {
+    return [
+      `*${String(index + 1)}. ${option.targetDisplayName}*`,
+      "　_Indisponível: vários destinos usam o mesmo gatilho._",
+      "　_A escolha de destino ainda não pode ser diferenciada com segurança._",
     ];
   }
   if (option.triggerKind === "ITEM") {
@@ -362,7 +386,10 @@ export function createProgressionWhatsAppRoutes(
       "",
     ];
     options.forEach((option, index) => {
-      lines.push(...evolutionOptionLine(option, index, pokemon.value.collectionNo));
+      lines.push(...evolutionOptionLine(
+        option, index, pokemon.value.collectionNo,
+        hasAmbiguousManualEvolution(options, option),
+      ));
       if (index < options.length - 1) lines.push("");
     });
     lines.push(
@@ -413,6 +440,14 @@ export function createProgressionWhatsAppRoutes(
           "VALIDATION_FAILED",
           "Essa opção de evolução não existe. Use `/evolucao <# ou nome>` para atualizar a lista.",
         ),
+      );
+    }
+    if (hasAmbiguousManualEvolution(options, selected)) {
+      return err(
+        appError("FLOW_BLOCKED", "Evolution target is ambiguous for this trigger", {
+          userMessage:
+            "Há mais de um destino para esse mesmo gatilho. Essa evolução está bloqueada até o catálogo permitir identificar a escolha com segurança. Nenhum item foi consumido.",
+        }),
       );
     }
     if (selected.triggerKind === "LEVEL") {
