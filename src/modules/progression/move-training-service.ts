@@ -87,6 +87,20 @@ export class MoveTrainingService {
              WHERE choice.pokemon_instance_id = $1 AND choice.content_release_id = $2
                AND choice.learn_level <= $4
              UNION
+             -- Moves from previous forms are available only if their threshold
+             -- was reached before that form evolved. Avoid granting later moves
+             -- of a no-longer-owned form.
+             SELECT old_entry.move_id FROM pokemon_history_events evolution
+             JOIN move_learnset_entries old_entry
+               ON old_entry.content_release_id = $2
+              AND old_entry.form_id::text = evolution.payload->>'fromFormId'
+              AND old_entry.active = TRUE
+              AND (old_entry.learn_method = 'START' OR
+                (old_entry.learn_method = 'LEVEL' AND
+                 old_entry.learn_level <= COALESCE(
+                   NULLIF(evolution.payload->>'level', '')::integer, 0)))
+             WHERE evolution.pokemon_instance_id = $1 AND evolution.event_type = 'EVOLVED'
+             UNION
              SELECT (event.payload->>'moveId')::uuid
              FROM pokemon_history_events event
              WHERE event.pokemon_instance_id = $1
