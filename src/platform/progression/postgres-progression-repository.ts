@@ -2055,6 +2055,21 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       const pokemonRow = pokemon.rows[0];
       if (pokemonRow === undefined) return { kind: "NOT_FOUND" };
 
+      // Authoritative mutation guard. WhatsApp/Hub prechecks alone can race
+      // with combat creation; this is a second validation inside the transaction.
+      const battle = await client.query(
+        `SELECT battle.id FROM battles battle
+         LEFT JOIN battle_sides side ON side.battle_id = battle.id
+         LEFT JOIN battle_participant_controllers controller ON controller.battle_id = battle.id
+         WHERE battle.status IN ('CREATED', 'ACTIVE', 'RESOLVING_TURN')
+           AND (side.player_id = $1 OR controller.player_id = $1)
+         LIMIT 1`,
+        [input.playerId],
+      );
+      if (battle.rows.length > 0) {
+        return { kind: "NOT_ELIGIBLE", reason: "Pokemon cannot evolve in an active battle" };
+      }
+
       const currentForm = await loadFormStats(
         client,
         activeRow.content_release_id,
