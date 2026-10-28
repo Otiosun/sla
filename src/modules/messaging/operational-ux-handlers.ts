@@ -4,6 +4,7 @@ import type { BattleCombatant } from "../battle/contracts.js";
 import type { BattleOperationalReadService } from "../battle/operational-read-service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import { pokemonXpRequiredForNextLevel } from "../progression/rules.js";
 import type { PlayerStarterService } from "../player/starter-service.js";
 import type { WorldService } from "../world/service.js";
 import { zhouliaArrivalCaption } from "../world/zhoulia-presentation.js";
@@ -780,7 +781,11 @@ export function createOperationalUxRoutes(
         "",
         `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
         `HP　\`${String(detail.currentHp)}/${String(detail.maxHp)}\`　·　\`${statuses}\``,
-        ...(ownedDetail === null ? [] : [`XP　\`${ownedDetail.xp.toString()}\``]),
+        ...(ownedDetail === null ? [] : [
+          detail.level >= 100
+            ? "XP　\`NÍVEL MÁXIMO\`"
+            : `XP　\`${ownedDetail.xp.toString()}/${String(pokemonXpRequiredForNextLevel(detail.level))}\` · faltam ${(BigInt(pokemonXpRequiredForNextLevel(detail.level)) - ownedDetail.xp).toString()}`,
+        ]),
         `Posição: *${placement}*`,
         "",
         `◇ *NATURE*　${detail.natureDisplayName}`,
