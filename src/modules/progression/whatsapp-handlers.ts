@@ -447,11 +447,79 @@ export function createProgressionWhatsAppRoutes(
       ));
       if (index < options.length - 1) lines.push("");
     });
+    const overdue = options.filter((option) =>
+      option.triggerKind === "LEVEL" &&
+      option.requiredLevel !== null &&
+      pokemon.value.level >= option.requiredLevel
+    );
+    if (overdue.length > 0) {
+      lines.push(
+        "",
+        "△ *EVOLUÇÃO ATRASADA DETECTADA*",
+        "_Seu Pokémon já atingiu um requisito por nível, mas ainda está na forma anterior._",
+        overdue.length === 1
+          ? `→ \`/regularizar #${String(pokemon.value.collectionNo)}\` · corrigir sem ganhar XP`
+          : "_Múltiplos caminhos exigem verificação antes de corrigir._",
+      );
+    }
     lines.push(
       "",
       "_Evoluções por nível acontecem automaticamente quando o requisito é atingido._",
     );
     return textResult(context, lines.join("\n"));
+  };
+
+  /**
+   * A player with an overdue LEVEL evolution can restore it without extra XP.
+   * Database service re-checks current form, pinned rules, ownership, and level.
+   * No ITEM/CONDITION trigger, no arbitrary choice of form.
+   */
+  const regularize: Handler = async (context) => {
+    const resolved = await dependencies.players.resolvePlayer(identity(context));
+    if (!resolved.ok) return resolved;
+    const ownedReader = dependencies.reads.listOwnedPokemon;
+    const optionsReader = dependencies.reads.listEvolutionOptions;
+    if (ownedReader === undefined || optionsReader === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Consulta de evolução indisponível."));
+    }
+    const owned = await ownedReader.call(dependencies.reads, resolved.value.playerId);
+    const pokemon = resolveOwnedPokemonReference(owned, commandArgs(context).join(" "));
+    if (!pokemon.ok) return pokemon;
+    const options = await optionsReader.call(dependencies.reads,
+      resolved.value.playerId, pokemon.value.pokemonInstanceId);
+    const eligible = options.filter((option) =>
+      option.triggerKind === "LEVEL" &&
+      option.requiredLevel !== null &&
+      pokemon.value.level >= option.requiredLevel);
+    if (eligible.length === 0) {
+      return textResult(context,
+        "◇ *EVOLUÇÃO EM DIA*\n\nNão há evolução por nível atrasada para este Pokémon.");
+    }
+    if (eligible.length !== 1) {
+      return err(appError("FLOW_BLOCKED", "Multiple possible historical evolutions", {
+        userMessage: "Há vários caminhos possíveis; nenhum foi escolhido automaticamente. A administração precisa conferir o histórico.",
+      }));
+    }
+    const clear = await ensureEvolutionMutationClear(dependencies, resolved.value.playerId);
+    if (!clear.ok) return clear;
+    const correlation = parseCorrelationId(context.correlationId);
+    if (!correlation.ok) return correlation;
+    const result = await dependencies.progression.evolvePokemon({
+      playerId: resolved.value.playerId,
+      pokemonInstanceId: pokemon.value.pokemonInstanceId,
+      trigger: { kind: "LEVEL" },
+      idempotencyKey: context.idempotencyKey,
+      correlationId: correlation.value,
+    });
+    if (!result.ok) return progressionFailureResult(result.error);
+    return textResult(context, [
+      "✦ *EVOLUÇÃO REGULARIZADA*",
+      "",
+      `*${pokemon.value.nickname ?? pokemon.value.displayName}* → *${eligible[0]?.targetDisplayName ?? "Nova forma"}*`,
+      "",
+      "Nenhum XP adicional foi necessário. Nenhum item foi consumido.",
+      `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atualizada`,
+    ].join("\n"));
   };
 
   const evolve: Handler = async (context) => {
@@ -585,6 +653,11 @@ export function createProgressionWhatsAppRoutes(
     {
       command: "evoluir",
       handler: new FunctionalHandler(evolve),
+      rateLimitClass: "SENSITIVE",
+    },
+    {
+      command: "regularizar",
+      handler: new FunctionalHandler(regularize),
       rateLimitClass: "SENSITIVE",
     },
   ];
