@@ -29,4 +29,22 @@ describe("Poké Mart published-offer storefront", () => {
     expect(renderMartCatalog([])).toContain("Nenhuma mercadoria disponível");
     expect(renderMartCatalog([])).not.toContain("› _Responda com o número da mercadoria._");
   });
+
+  it("includes only real published evolution stones and TMs beyond the legacy shelf", () => {
+    const items = purchasableMartItems([
+      { offerKey: "shop.tm-electric", itemQuantity: 1n, priceAmount: 1500n,
+        displayName: "TM Electric", itemKind: "TM" },
+      { offerKey: "shop.thunder-stone", itemQuantity: 1n, priceAmount: 2500n,
+        displayName: "Thunder Stone", itemKind: "EVOLUTION" },
+    ]);
+    expect(items).toEqual([
+      expect.objectContaining({ displayName: "Thunder Stone", category: "EVOLUTION", code: "17" }),
+      expect.objectContaining({ displayName: "TM Electric", category: "TM", code: "18" }),
+    ]);
+    const text = renderMartCatalog(items);
+    expect(text).toContain("Thunder Stone");
+    expect(text).toContain("TM Electric");
+    expect(text).toContain("₽2.500");
+    expect(text).toContain("₽1.500");
+  });
 });
