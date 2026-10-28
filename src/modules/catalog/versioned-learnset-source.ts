@@ -62,11 +62,9 @@ export function parseVersionedAcquisitionLearnset(
       }
       const learnedAt = method === "LEVEL" ? record.level_learned_at : null;
       const normalized = { moveSlug: entry.move.name, method, learnLevel: learnedAt };
-      const key = `${entry.move.name}:${method}`;
-      const previous = moves.get(key);
-      if (previous !== undefined && previous.learnLevel !== learnedAt) {
-        throw new Error(`Conflicting learnset records for ${key} in ${versionGroup}`);
-      }
+      // A Pokémon may legitimately learn the same move at multiple levels.
+      // The unique source identity is move + method + level, not just move.
+      const key = `${entry.move.name}:${method}:${learnedAt ?? ""}`;
       moves.set(key, normalized);
     }
   }
@@ -106,7 +104,7 @@ export function parseVersionedLevelLearnset(
     throw new RangeError("Invalid version group");
   }
   const parsed = PokemonLearnsetSourceSchema.parse(raw);
-  const byMove = new Map<string, number>();
+  const byMoveAndLevel = new Map<string, VersionedLevelMove>();
   let hasVersionData = false;
   for (const entry of parsed.moves) {
     for (const version of entry.version_group_details) {
@@ -117,20 +115,18 @@ export function parseVersionedLevelLearnset(
       if (version.level_learned_at < 1 || version.level_learned_at > 100) {
         throw new RangeError("Level-up learnset entry outside levels 1–100");
       }
-      const previous = byMove.get(entry.move.name);
-      if (previous !== undefined && previous !== version.level_learned_at) {
-        throw new Error(`Conflicting learn level for ${entry.move.name} in ${versionGroup}`);
-      }
-      byMove.set(entry.move.name, version.level_learned_at);
+      byMoveAndLevel.set(`${entry.move.name}:${version.level_learned_at}`, {
+        moveSlug: entry.move.name, learnLevel: version.level_learned_at,
+      });
     }
   }
-  if (!hasVersionData || byMove.size === 0) {
+  if (!hasVersionData || byMoveAndLevel.size === 0) {
     throw new Error(`No level-up source data for ${parsed.name} in ${versionGroup}; do not infer`);
   }
   return {
     pokemonSlug: parsed.name,
     versionGroup,
-    moves: [...byMove].map(([moveSlug, learnLevel]) => ({ moveSlug, learnLevel }))
+    moves: [...byMoveAndLevel.values()]
       .sort((a, b) => a.learnLevel - b.learnLevel || a.moveSlug.localeCompare(b.moveSlug)),
   };
 }
@@ -146,12 +142,31 @@ export function compareLevelLearnsets(
   source: VersionedLearnset,
   catalog: readonly VersionedLevelMove[],
 ): readonly LearnsetDiscrepancy[] {
-  const expected = new Map(source.moves.map((move) => [move.moveSlug, move.learnLevel]));
-  const actual = new Map(catalog.map((move) => [move.moveSlug, move.learnLevel]));
+  const expected = new Map<string, Set<number>>();
+  const actual = new Map<string, Set<number>>();
+  for (const entry of source.moves) {
+    const levels = expected.get(entry.moveSlug) ?? new Set<number>();
+    levels.add(entry.learnLevel);
+    expected.set(entry.moveSlug, levels);
+  }
+  for (const entry of catalog) {
+    const levels = actual.get(entry.moveSlug) ?? new Set<number>();
+    levels.add(entry.learnLevel);
+    actual.set(entry.moveSlug, levels);
+  }
   const allMoves = [...new Set([...expected.keys(), ...actual.keys()])].sort();
   return allMoves.flatMap((moveSlug) => {
-    const sourceLevel = expected.get(moveSlug) ?? null;
-    const catalogLevel = actual.get(moveSlug) ?? null;
-    return sourceLevel === catalogLevel ? [] : [{ moveSlug, sourceLevel, catalogLevel }];
+    const sourceLevels = [...(expected.get(moveSlug) ?? [])].sort((a,b)=>a-b);
+    const catalogLevels = [...(actual.get(moveSlug) ?? [])].sort((a,b)=>a-b);
+    if (sourceLevels.length === 1 && catalogLevels.length === 1 &&
+        sourceLevels[0] !== catalogLevels[0]) {
+      return [{ moveSlug, sourceLevel: sourceLevels[0] ?? null, catalogLevel: catalogLevels[0] ?? null }];
+    }
+    return [
+      ...sourceLevels.filter((level)=>!catalogLevels.includes(level))
+        .map((sourceLevel)=>({moveSlug,sourceLevel,catalogLevel:null})),
+      ...catalogLevels.filter((level)=>!sourceLevels.includes(level))
+        .map((catalogLevel)=>({moveSlug,sourceLevel:null,catalogLevel})),
+    ];
   });
 }
