@@ -55,7 +55,7 @@ function fixture(options: readonly OperationalEvolutionOptionView[]) {
   const routes = createProgressionWhatsAppRoutes(dependencies);
 
   async function send(command: string) {
-    const route = routes.find((r) => r.command === command.split(" ")[0].slice(1));
+    const route = routes.find((r) => r.command === (command.split(" ")[0] ?? "").slice(1));
     if (!route) throw new Error("Missing progression route");
     const context = {
       inboxMessageId: randomUUID(),
@@ -126,6 +126,6 @@ describe("WhatsApp manual evolution with indistinguishable destinations", () => 
     const item = await send("/evoluir #1 2");
     expect(item.ok).toBe(true);
     expect(evolvePokemon).toHaveBeenCalledTimes(1);
-    expect(evolvePokemon.mock.calls[0]?.[0].trigger).toEqual({ kind: "ITEM", itemId: itemA });
+    expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({ trigger: { kind: "ITEM", itemId: itemA } });
   });
 });
