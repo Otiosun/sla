@@ -139,7 +139,7 @@ export class MoveTrainingService {
              AND item.active = TRUE AND item.item_kind = 'TM'
              AND item.effect_key = 'teach-move'
              AND item.effect_config->>'moveId' = entry.move_id::text
-           JOIN inventory_balances balance ON balance.player_id = $5
+           JOIN inventory_balances balance ON balance.player_id = $4
              AND balance.item_id = item.item_id AND balance.quantity > 0
            WHERE entry.content_release_id = $2 AND entry.form_id = $3
              AND entry.learn_method IN ('MACHINE', 'TM')
@@ -149,7 +149,7 @@ export class MoveTrainingService {
                WHERE slot.pokemon_instance_id = $1 AND slot.move_id = entry.move_id
              )
            ORDER BY revision.move_id, item.item_id`,
-          [pokemonInstanceId, pokemon.content_release_id, pokemon.form_id, pokemon.level, playerId],
+          [pokemonInstanceId, pokemon.content_release_id, pokemon.form_id, playerId],
         );
     return {
       pokemon,
