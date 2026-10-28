@@ -3,6 +3,7 @@ import type { CatalogSnapshot } from "../../src/modules/catalog/contracts.js";
 import { auditStage2ContentReadiness } from "../../src/modules/catalog/stage2-content-readiness.js";
 
 type Slice = Pick<CatalogSnapshot, "forms" | "moves" | "items" | "learnsets" | "evolutions" | "purchaseOffers">;
+const evoStoneId = "baf47d4e-22f9-4d9b-90f1-74bd149b0dc7";
 const baseline: Slice = {
   forms: [
     { formId: "bulba", speciesId: "s1", type1Id: "grass", type2Id: "poison", active: true },
@@ -13,7 +14,7 @@ const baseline: Slice = {
     accuracy: 100, priority: 0, maxPp: 35, effectKey: null, effectConfig: {}, active: true,
   }],
   items: [{
-    itemId: "evo-stone", itemKind: "EVOLUTION", effectKey: null, effectConfig: {}, active: true,
+    itemId: evoStoneId, itemKind: "EVOLUTION", effectKey: null, effectConfig: {}, active: true,
   }],
   learnsets: [
     { formId: "bulba", moveId: "tackle", learnMethod: "START", learnLevel: null, active: true },
@@ -43,7 +44,7 @@ describe("stage2 public catalog readiness (no gameplay mutations)", () => {
     const withEvolution: Slice = {
       ...baseline,
       evolutions: [{ fromFormId: "bulba", toFormId: "ivy", triggerKind: "ITEM",
-        triggerConfig: { itemId: "evo-stone" }, active: true }],
+        triggerConfig: { itemId: evoStoneId }, active: true }],
     };
     expect(auditStage2ContentReadiness(withEvolution, options)).toContainEqual(
       expect.objectContaining({ code: "UNOBTAINABLE_EVOLUTION_ITEM" }),
@@ -51,7 +52,7 @@ describe("stage2 public catalog readiness (no gameplay mutations)", () => {
     const stocked: Slice = {
       ...withEvolution,
       purchaseOffers: [{
-        offerKey: "shop.evo-stone", itemId: "evo-stone",
+        offerKey: "shop.evo-stone", itemId: evoStoneId,
         currencyId: "pokedollar", itemQuantity: "1", priceAmount: "2000",
         sortOrder: 1, active: true,
       }],
