@@ -129,3 +129,37 @@ describe("WhatsApp manual evolution with indistinguishable destinations", () => 
     expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({ trigger: { kind: "ITEM", itemId: itemA } });
   });
 });
+
+
+describe("missed level evolution recovery", () => {
+  it("permits Lv16+ recovery without awarding XP, spending item or selecting a form manually", async () => {
+    const { send, evolvePokemon } = fixture([option("Ivysaur", "LEVEL")]);
+    const menu = await send("/evolucao #1");
+    expect(menu.ok).toBe(true);
+    if (!menu.ok) throw Error(menu.error.message);
+    expect(menu.value.outgoing[0]?.payload.text).toContain("EVOLUÇÃO ATRASADA");
+    expect(menu.value.outgoing[0]?.payload.text).toContain("/regularizar #1");
+    const corrected = await send("/regularizar #1");
+    expect(corrected.ok).toBe(true);
+    expect(evolvePokemon).toHaveBeenCalledTimes(1);
+    expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({ trigger: { kind: "LEVEL" } });
+  });
+
+  it("blocks ambiguous historical destination and prevents blind mutation", async () => {
+    const { send, evolvePokemon } = fixture([
+      option("Forma A", "LEVEL"), option("Forma B", "LEVEL"),
+    ]);
+    const result = await send("/regularizar #1");
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(evolvePokemon).not.toHaveBeenCalled();
+  });
+
+  it("no eligible level route means no mutation or fabricated XP", async () => {
+    const { send, evolvePokemon } = fixture([option("Raichu", "ITEM", itemA)]);
+    const result = await send("/regularizar #1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw Error(result.error.message);
+    expect(result.value.outgoing[0]?.payload.text).toContain("EVOLUÇÃO EM DIA");
+    expect(evolvePokemon).not.toHaveBeenCalled();
+  });
+});
