@@ -2007,12 +2007,13 @@ export class PostgresProgressionRepository implements ProgressionRepository {
       }>(
         `SELECT release.id AS content_release_id, release.default_ruleset_id AS ruleset_id,
                 ruleset.config AS ruleset_config
-         FROM content_release_pointers pointer
-         JOIN content_releases release ON release.id = pointer.content_release_id
+         FROM player_onboarding_context context
+         JOIN content_releases release ON release.id = context.content_release_id
          JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
-         WHERE pointer.pointer_key = 'ACTIVE'
-           AND release.status = 'PUBLISHED'
-           AND ruleset.status = 'PUBLISHED'`,
+         WHERE context.player_id = $1
+           AND release.status IN ('PUBLISHED', 'ARCHIVED')
+           AND ruleset.status IN ('PUBLISHED', 'ARCHIVED')`,
+        [input.playerId],
       );
       const activeRow = active.rows[0];
       if (activeRow === undefined) return { kind: "RULES_MISSING" };
