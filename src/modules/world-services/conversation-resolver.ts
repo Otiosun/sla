@@ -18,11 +18,11 @@ import type { WorldServiceSessionRecord } from "./contracts.js";
 import {
   isMartCatalogPromptKey,
   martItemByCode,
-  martItemByOfferKey,
   martQuantityOfferFromPromptKey,
   parseMartQuantityReply,
 } from "./mart-catalog.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
+import { purchasableMartItems, type MartPublishedOfferReader } from "./mart-published-offers.js";
 import {
   isMartSaleListPromptKey,
   martSaleItemByCode,
@@ -96,6 +96,7 @@ export interface WorldServiceConversationResolverDependencies {
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
   readonly economy?: MartEconomyService;
+  readonly martAvailability?: MartPublishedOfferReader;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage"> &
     Partial<Pick<PokemonPcStorageService, "deposit" | "withdraw" | "organize">>;
 }
@@ -367,19 +368,33 @@ export class WorldServiceConversationResolver {
 
         if (isMartCatalogPromptKey(promptKey)) {
           const selected = martItemByCode(text);
-          if (selected === null) return emptyReply(context, session);
+          const availability = this.dependencies.martAvailability;
+          if (selected === null || availability === undefined) {
+            return feedbackResult(context, session, "Não consegui validar a oferta. Use `/comprar` para atualizar.");
+          }
+          const published = purchasableMartItems(await availability.listPublishedOffers());
+          const verified = published.find((item) => item.offerKey === selected.offerKey);
+          if (verified === undefined) {
+            return feedbackResult(context, session,
+              "Essa mercadoria não está disponível no catálogo publicado. Use `/comprar` para atualizar.");
+          }
           return replyResult(
             context,
             session,
-            renderMartItemSelection(selected),
-            `:mart:quantity:${selected.offerKey}`,
+            renderMartItemSelection(verified),
+            `:mart:quantity:${verified.offerKey}`,
           );
         }
 
         const offerKey = martQuantityOfferFromPromptKey(promptKey);
         if (offerKey !== null) {
-          const selected = martItemByOfferKey(offerKey);
-          if (selected === null) return emptyReply(context, session);
+          const availability = this.dependencies.martAvailability;
+          if (availability === undefined) return feedbackResult(context, session,
+            "O catálogo de compras está indisponível. Tente `/comprar` novamente.");
+          const selected = purchasableMartItems(await availability.listPublishedOffers())
+            .find((item) => item.offerKey === offerKey);
+          if (selected === undefined) return feedbackResult(context, session,
+            "Essa oferta mudou ou deixou de estar disponível. Use `/comprar` para atualizar.");
           const quantity = parseMartQuantityReply(text, selected);
           if (quantity === null || this.dependencies.economy === undefined) {
             return emptyReply(context, session);
