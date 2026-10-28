@@ -311,9 +311,10 @@ async function learnMovesAtLevel(
     readonly level: number;
     readonly sourceType: string;
     readonly sourceId: string;
-    readonly actorType: "SYSTEM" | "ADMIN";
+    readonly actorType: "SYSTEM" | "ADMIN" | "PLAYER";
     readonly actorId: string | null;
     readonly correlationId: string;
+    readonly includeEvolutionMoves?: boolean;
     readonly slots: MutableMoveSlot[];
     readonly learnedMoveIds: string[];
     readonly pendingMoveChoiceIds: string[];
@@ -328,11 +329,13 @@ async function learnMovesAtLevel(
       AND revision.move_id = entry.move_id
      WHERE entry.content_release_id = $1
        AND entry.form_id = $2
-       AND entry.learn_method = 'LEVEL'
-       AND entry.learn_level = $3
+       AND (
+         (entry.learn_method = 'LEVEL' AND entry.learn_level = $3)
+         OR ($4::boolean = TRUE AND entry.learn_method = 'EVOLUTION')
+       )
        AND entry.active = TRUE
      ORDER BY move.slug, entry.move_id`,
-    [input.contentReleaseId, input.formId, input.level],
+    [input.contentReleaseId, input.formId, input.level, input.includeEvolutionMoves === true],
   );
 
   for (const move of learnset.rows) {
@@ -1017,6 +1020,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
           actorType: input.source.actorType,
           actorId: input.source.actorId,
           correlationId: input.correlationId,
+          includeEvolutionMoves: true,
           slots,
           learnedMoveIds,
           pendingMoveChoiceIds,
@@ -2189,6 +2193,29 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         throw new ProgressionStateViolation("Evolution Pokemon CAS failed");
       }
       await recordPokedexOwned(client, input.playerId, newForm.speciesId);
+      // Manual item/condition evolutions and overdue LEVEL corrections can
+      // also grant on-evolution moves. Full movesets create PENDING choices.
+      const currentMoves = await client.query<{ slot_no: number; move_id: string }>(
+        `SELECT slot_no, move_id FROM pokemon_move_slots
+         WHERE pokemon_instance_id = $1 ORDER BY slot_no FOR UPDATE`,
+        [input.pokemonInstanceId],
+      );
+      await learnMovesAtLevel(client, {
+        pokemonInstanceId: input.pokemonInstanceId,
+        playerId: input.playerId,
+        contentReleaseId: activeRow.content_release_id,
+        formId: rule.to_form_id,
+        level: pokemonRow.level,
+        sourceType: "EVOLUTION",
+        sourceId: claimId,
+        actorType: "PLAYER",
+        actorId: input.playerId,
+        correlationId: input.correlationId,
+        includeEvolutionMoves: true,
+        slots: currentMoves.rows.map((row) => ({ slotNo: row.slot_no, moveId: row.move_id })),
+        learnedMoveIds: [],
+        pendingMoveChoiceIds: [],
+      });
       const result = EvolutionResultSchema.parse({
         pokemonInstanceId: input.pokemonInstanceId,
         fromFormId: pokemonRow.form_id,
