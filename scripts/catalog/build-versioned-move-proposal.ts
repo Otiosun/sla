@@ -52,49 +52,62 @@ for (const [pokemon, version] of Object.entries(supportedOverrides)) {
     throw new Error("Override requires an existing Pokémon and explicit version-group");
   }
 }
-const cache = new Map<string, { value: unknown; sha256: string }>();
-async function fetchJson<T>(url: string): Promise<{ data: T; sha256: string }> {
-  if (!url.startsWith("https://pokeapi.co/api/v2/")) {
-    throw new Error("External source must be https://pokeapi.co/api/v2/");
+const cache = new Map<string, Promise<{value: unknown; sha256: string}>>();
+const MAX_CONCURRENT_REQUESTS = 5;
+let activeRequests = 0;
+const waiting: Array<() => void> = [];
+async function reserveRequest(): Promise<void> {
+  if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+    await new Promise<void>((resolve) => waiting.push(resolve));
   }
-  let result = cache.get(url);
-  if (result === undefined) {
-    let raw: string | null = null;
+  activeRequests += 1;
+}
+function finishRequest(): void {
+  activeRequests -= 1;
+  waiting.shift()?.();
+}
+async function loadSource(url: string): Promise<{value: unknown; sha256: string}> {
+  await reserveRequest();
+  try {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
         const response = await fetch(url, {
-          headers: {
-            "User-Agent": "pokemon-beyond-content-proposal/1",
-            "Accept": "application/json",
-          },
+          headers: { "User-Agent": "pokemon-beyond-content-proposal/1", Accept: "application/json" },
           signal: AbortSignal.timeout(18_000),
         });
         if (response.ok) {
-          raw = await response.text();
-          break;
+          const raw = await response.text();
+          return { value: JSON.parse(raw) as unknown,
+            sha256: createHash("sha256").update(raw).digest("hex") };
         }
-        // A missing form/move is a hard content error, not a transient request.
-        if (![429, 500, 502, 503, 504].includes(response.status)) {
+        if (![429,500,502,503,504].includes(response.status)) {
           throw new Error(`Source request failed ${response.status}: ${url}`);
         }
-        if (attempt === 3) throw new Error(`Source unavailable after retry: ${response.status} ${url}`);
+        if (attempt === 3) throw new Error(`Source unavailable ${response.status}: ${url}`);
       } catch (error) {
         if (attempt === 3 || (error instanceof Error && error.message.startsWith("Source request failed"))) {
           throw error;
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
+      await new Promise<void>((resolve) => setTimeout(resolve, 400 * 2 ** attempt));
     }
-    if (raw === null) throw new Error(`Source unavailable: ${url}`);
-    result = {
-      value: JSON.parse(raw) as unknown,
-      sha256: createHash("sha256").update(raw).digest("hex"),
-    };
+    throw new Error(`Source unavailable: ${url}`);
+  } finally {
+    finishRequest();
+  }
+}
+async function fetchJson<T>(url: string): Promise<{data: T; sha256: string}> {
+  if (!/^https:\/\/pokeapi\.co\/api\/v2\/[a-z0-9/._-]+\/?$/u.test(url)) {
+    throw new Error("Unexpected source host or path");
+  }
+  let result = cache.get(url);
+  if (result === undefined) {
+    result = loadSource(url);
     cache.set(url, result);
   }
-  return { data: result.value as T, sha256: result.sha256 };
+  const saved = await result;
+  return { data: saved.value as T, sha256: saved.sha256 };
 }
-
 const pokemon: Array<{
   pokemonSlug: string;
   versionGroup: string;
@@ -103,37 +116,31 @@ const pokemon: Array<{
 }> = [];
 const machineMap = new Map<string, { itemSlug: string; moveSlug: string; versionGroup: string; sha256: string }>();
 
-for (const slug of manifest.pokemonSlugs) {
+const generatedPokemon = await Promise.all(manifest.pokemonSlugs.map(async (slug) => {
   const version = supportedOverrides[slug] ?? manifest.versionGroup;
   const source = await fetchJson<unknown>(`https://pokeapi.co/api/v2/pokemon/${slug}/`);
   const parsed = parseVersionedAcquisitionLearnset(source.data, version);
-  pokemon.push({
-    pokemonSlug: slug, versionGroup: version, rawSha256: source.sha256, moves: parsed.moves,
-  });
-  for (const entry of parsed.moves.filter((x) => x.method === "MACHINE")) {
-    const move = await fetchJson<MoveResponse>(
-      `https://pokeapi.co/api/v2/move/${entry.moveSlug}/`,
-    );
+  await Promise.all(parsed.moves.filter((move) => move.method === "MACHINE").map(async (entry) => {
+    const move = await fetchJson<MoveResponse>(`https://pokeapi.co/api/v2/move/${entry.moveSlug}/`);
     const matching = move.data.machines.filter((ref) => ref.version_group.name === version);
     if (matching.length === 0) {
-      throw new Error(`TM source missing for ${slug}:${entry.moveSlug}:${version}; do not fabricate`);
+      throw new Error(`No machine mapping for ${slug}:${entry.moveSlug}:${version}`);
     }
-    for (const ref of matching) {
+    await Promise.all(matching.map(async (ref) => {
       const machine = await fetchJson<MachineInfo>(ref.machine.url);
       if (machine.data.move.name !== entry.moveSlug ||
           machine.data.version_group.name !== version ||
           !validSlug.test(machine.data.item.name)) {
-        throw new Error(`Conflicting machine item mapping for ${entry.moveSlug} in ${version}`);
+        throw new Error(`Unverified machine mapping ${entry.moveSlug}:${version}`);
       }
       const key = `${version}:${entry.moveSlug}:${machine.data.item.name}`;
-      machineMap.set(key, {
-        itemSlug: machine.data.item.name, moveSlug: entry.moveSlug,
-        versionGroup: version, sha256: machine.sha256,
-      });
-    }
-  }
-}
-
+      machineMap.set(key,{ itemSlug:machine.data.item.name, moveSlug:entry.moveSlug,
+        versionGroup:version, sha256:machine.sha256 });
+    }));
+  }));
+  return { pokemonSlug:slug, versionGroup:version,rawSha256:source.sha256,moves:parsed.moves };
+}));
+pokemon.push(...generatedPokemon);
 const proposal = {
   format: "POKEMON_BEYOND_MOVE_PROPOSAL_V1",
   generatedAt: new Date().toISOString(),
