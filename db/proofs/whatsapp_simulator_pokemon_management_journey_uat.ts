@@ -89,7 +89,8 @@ type Check = { area: string; actor: string; command: string; expected: string; a
 const findings: Check[] = [];
 let serial = 900_000;
 function check(area: string, actor: string, command: string, expected: string, actual: unknown, ok: boolean) {
-  const entry = { area, actor, command, expected, actual: typeof actual === "string" ? actual : JSON.stringify(actual), ok };
+  const entry = { area, actor, command, expected, actual: typeof actual === "string" ? actual
+    : JSON.stringify(actual, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value), ok };
   findings.push(entry);
   console.log(JSON.stringify({ event: "stage2.player.step", ...entry }));
 }
