@@ -176,7 +176,7 @@ export function renderPokemonPcBoxes(snapshot: PokemonPcStorageSnapshot): string
   return lines.join("\n");
 }
 
-export function renderMartCatalog(): string {
+export function renderMartCatalog(items: readonly MartCatalogItem[] = MART_CATALOG): string {
   const lines = [
     "🛒 *𝗣𝗥𝗔𝗧𝗘𝗟𝗘𝗜𝗥𝗔𝗦*",
     "　Poké Mart · Catálogo",
@@ -188,7 +188,7 @@ export function renderMartCatalog(): string {
   ];
 
   let category: MartCatalogCategory | null = null;
-  for (const item of MART_CATALOG) {
+  for (const item of items) {
     if (item.category !== category) {
       if (category !== null) lines.push("");
       category = item.category;
@@ -197,7 +197,12 @@ export function renderMartCatalog(): string {
     lines.push(`\`${item.code}\` ${item.displayName} · *₽${formatMoney(item.unitPrice)}*`);
   }
 
-  lines.push("", "› _Responda com o número da mercadoria._");
+  if (items.length === 0) {
+    lines.push("◇ *Nenhuma mercadoria disponível neste catálogo publicado.*", "",
+      "_O comerciante não anuncia itens sem oferta ativa._");
+  } else {
+    lines.push("", "› _Responda com o número da mercadoria._");
+  }
   return lines.join("\n");
 }
 
