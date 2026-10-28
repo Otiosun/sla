@@ -383,15 +383,22 @@ async function main() {
       "deposit flow gives user-visible menu or cannot remove the last team member",
       deposit.replies.join(" | "),deposit.inbox==="PROCESSED"&&deposit.replies.length>0);
 
-    // Actual exact-reply conversations, not mock renderer snapshots.
-    const premature=await replyLast(actor,"01");
-    check("pc conversation",actor,"reply 01 to deposit",
-      "team Pokémon chosen, destination preview and confirmation",
-      premature.replies.join(" | "),premature.replies.some(s=>s.includes("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢") || /confirmar depósito/iu.test(s.normalize("NFKC"))));
-    const cancelled=await replyLast(actor,"02");
-    check("pc conversation",actor,"reply 02 / cancel deposit",
-      "no change in storage",
-      cancelled.replies.join(" | "),cancelled.replies.some(s=>s.includes("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗖𝗔𝗡𝗖𝗘𝗟𝗔𝗗𝗢") || /cancelado/iu.test(s.normalize("NFKC"))));
+    // A last-team-member deposit now ends immediately without an impossible prompt.
+    // Follow-up numeric text must not trigger a mutation without a valid quoted selection.
+    check("pc conversation",actor,"/depositar with one active member",
+      "blocked immediately without an actionable selection",
+      deposit.replies.join(" | "),
+      deposit.replies.some(s=>s.includes("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢")));
+    const teamBeforeStray=await pool.query<{n:string}>(
+      "SELECT count(*)::text AS n FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",[owner]);
+    const strayNumber=await send(actor,"01");
+    const teamAfterStray=await pool.query<{n:string}>(
+      "SELECT count(*)::text AS n FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",[owner]);
+    check("pc conversation",actor,"unquoted 01 after blocked deposit",
+      "no Pokémon leaves the single-member team",
+      {replies:strayNumber.replies,before:teamBeforeStray.rows,after:teamAfterStray.rows},
+      teamBeforeStray.rows[0]?.n==="1" && teamAfterStray.rows[0]?.n==="1"
+        && !strayNumber.replies.some(s=>s.includes("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢")));
     const withdrawMenu=await send(actor,"/retirar");
     check("pc conversation",actor,"/retirar",
       "stored Ivysaur offered for return to team",
