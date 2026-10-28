@@ -377,6 +377,18 @@ async function main() {
     check("pc narrative",actor,"/centropokemon",
       "center service presents user-visible instructions",
       center.replies.join(" | "),center.inbox==="PROCESSED" && center.replies.length>0);
+    const reminder = await send(actor, "/reaprender #1");
+    check("moves", actor, "/reaprender #1 at Center",
+      "eligible list or explicit no-moves result from pinned release",
+      reminder.replies.join(" | "),
+      reminder.inbox === "PROCESSED" && reminder.replies.some((m) =>
+        m.includes("REAPRENDIZADO") || m.includes("Nenhum movimento elegível")));
+    const machineList = await send(actor, "/tms #1");
+    check("moves", actor, "/tms #1",
+      "only compatible, owned TMs are offered; missing TM is explicit",
+      machineList.replies.join(" | "),
+      machineList.inbox === "PROCESSED" && machineList.replies.some((m) =>
+        m.includes("MÁQUINAS") || m.includes("Nenhuma TM compatível")));
     const pcEntered = await send(actor,"/pc");
     check("pc narrative",actor,"/pc after scene and entry",
       "PC storage menu, or explicit actionable availability response",
