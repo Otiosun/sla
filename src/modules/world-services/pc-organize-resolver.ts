@@ -144,7 +144,7 @@ export async function resolvePokemonPcOrganizeReply(input: {
       return feedbackReply(
         input.context,
         input.session,
-        "◇ *𝗣𝗢𝗦𝗜ÇÃ𝗢 𝗜𝗡𝗔𝗟𝗧𝗘𝗥𝗔𝗗𝗔*\\n\\nEste Pokémon já ocupa essa vaga. Informe outro destino livre.",
+        "◇ *𝗣𝗢𝗦𝗜ÇÃ𝗢 𝗜𝗡𝗔𝗟𝗧𝗘𝗥𝗔𝗗𝗔*\n\nEste Pokémon já ocupa essa vaga. Informe outro destino livre.",
       );
     }
     const occupant = storage.value.boxes
@@ -154,7 +154,7 @@ export async function resolvePokemonPcOrganizeReply(input: {
       return feedbackReply(
         input.context,
         input.session,
-        `△ *𝗩𝗔𝗚𝗔 𝗢𝗖𝗨𝗣𝗔𝗗𝗔*\\n\\n◇ *${occupant.displayName}* já ocupa a Caixa ${destination.boxNo} / Vaga ${destination.slotNo}.\\n\\nInforme uma vaga livre. Nenhum Pokémon foi movido.`,
+        `△ *𝗩𝗔𝗚𝗔 𝗢𝗖𝗨𝗣𝗔𝗗𝗔*\n\n◇ *${occupant.displayName}* já ocupa a Caixa ${destination.boxNo} / Vaga ${destination.slotNo}.\n\nInforme uma vaga livre. Nenhum Pokémon foi movido.`,
       );
     }
     return replyResult(
