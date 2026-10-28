@@ -11,5 +11,8 @@
     "rattata",
     "pikachu"
   ],
-  "explicitlyApprovedVersionOverrides": {}
+  "explicitlyApprovedVersionOverrides": {
+    "pidgey": "ultra-sun-ultra-moon",
+    "rattata": "ultra-sun-ultra-moon"
+  }
 }
