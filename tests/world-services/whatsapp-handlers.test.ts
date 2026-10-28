@@ -4,7 +4,7 @@ import type { MessageHandlerContext } from "../../src/modules/messaging/contract
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import type { WorldServiceWhatsAppDependencies } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
-import { createPlayerId } from "../../src/shared-kernel/ids.js";
+import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 function context(): MessageHandlerContext {
@@ -139,5 +139,63 @@ describe("Pokemon Center WhatsApp healing", () => {
       ok: false,
       error: expect.objectContaining({ code: "ACTION_INVALID" }),
     });
+  });
+});
+
+describe("Pokemon PC deposit early block", () => {
+  function makeTeamSnapshot(playerId: ReturnType<typeof createPlayerId>, size: number) {
+    return {
+      playerId,
+      team: Array.from({ length: size }, (_, index) => ({
+        pokemonInstanceId: createPokemonInstanceId(),
+        displayName: index === 0 ? "Ivysaur" : "Pikachu",
+        level: 16,
+        placementKind: "TEAM" as const,
+        boxNo: null,
+        slotNo: index + 1,
+      })),
+      boxes: [],
+    };
+  }
+
+  it.each([0, 1])("blocks a deposit menu with %i active Pokemon and no reply prompt", async (size) => {
+    const playerId = createPlayerId();
+    const session = activeCenterSession(playerId);
+    const dependencies = {
+      players: {
+        resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
+      },
+      sessions: { loadActiveSession: async () => ok(session) },
+      pcStorage: { getStorage: async () => ok(makeTeamSnapshot(playerId, size)) },
+    } as unknown as WorldServiceWhatsAppDependencies;
+
+    const result = await routeFor(dependencies, "depositar").handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.value.outgoing).toHaveLength(1);
+    const payload = result.value.outgoing[0]?.payload;
+    expect(payload?.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢");
+    expect(payload?.text).not.toContain("Responda com o número");
+    expect(payload).not.toHaveProperty("worldServicePrompt");
+  });
+
+  it("still offers the quoted choice flow when the team has two Pokemon", async () => {
+    const playerId = createPlayerId();
+    const session = activeCenterSession(playerId);
+    const dependencies = {
+      players: {
+        resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
+      },
+      sessions: { loadActiveSession: async () => ok(session) },
+      pcStorage: { getStorage: async () => ok(makeTeamSnapshot(playerId, 2)) },
+    } as unknown as WorldServiceWhatsAppDependencies;
+
+    const result = await routeFor(dependencies, "depositar").handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const payload = result.value.outgoing[0]?.payload;
+    expect(payload?.text).toContain("𝗗𝗘𝗣𝗢𝗦𝗜𝗧𝗔𝗥 𝗣𝗢𝗞É𝗠𝗢𝗡");
+    expect(payload?.text).toContain("Responda com o número");
+    expect(payload).toHaveProperty("worldServicePrompt");
   });
 });
