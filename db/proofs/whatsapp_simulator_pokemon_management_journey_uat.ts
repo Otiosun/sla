@@ -10,6 +10,8 @@ import { UatBootstrapService } from "../../src/modules/admin/uat-bootstrap.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PlayerStarterService } from "../../src/modules/player/starter-service.js";
 import { MoveTrainingService } from "../../src/modules/progression/move-training-service.js";
+import { EconomyService } from "../../src/modules/economy/service.js";
+import { PostgresEconomyRepository } from "../../src/platform/economy/postgres-economy-repository.js";
 import { WorldService } from "../../src/modules/world/service.js";
 import { SystemClock } from "../../src/platform/clock/index.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -37,6 +39,7 @@ const catalogGuard = {
   move_revisions: "trg_move_revisions_draft_only",
   item_revisions: "trg_item_revisions_draft_only",
   evolution_rules: "trg_evolution_rules_draft_only",
+  move_learnset_entries: "trg_move_learnset_entries_draft_only",
 } as const;
 async function insertSyntheticPublishedFixture(
   table: keyof typeof catalogGuard,
@@ -47,10 +50,23 @@ async function insertSyntheticPublishedFixture(
   const trigger = catalogGuard[table];
   try {
     await client.query("BEGIN");
-    await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
+    // Real PostgreSQL trigger names are introspected for the new learnset path;
+    // no assumptions about an absent trigger. All bypasses are confined to test.
+    const triggerNames = table === "move_learnset_entries"
+      ? (await client.query<{ tgname: string }>(
+          `SELECT t.tgname FROM pg_trigger t
+           JOIN pg_class c ON c.oid = t.tgrelid
+           WHERE c.relname = $1 AND NOT t.tgisinternal
+             AND t.tgname LIKE '%draft%'`, [table],
+        )).rows.map((row) => row.tgname)
+      : [trigger];
+    for (const name of triggerNames) {
+      if (!/^[a-zA-Z0-9_]+$/u.test(name)) throw Error("Unsafe fixture trigger name");
+      await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${name}`);
+    }
     const inserted = await client.query(query, [...values]);
     if (inserted.rowCount !== 1) throw new Error(`Synthetic fixture ${table} did not insert exactly one row`);
-    await client.query(`ALTER TABLE ${table} ENABLE TRIGGER ${trigger}`);
+    for (const name of triggerNames) await client.query(`ALTER TABLE ${table} ENABLE TRIGGER ${name}`);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
