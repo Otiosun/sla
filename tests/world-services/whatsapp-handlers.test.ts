@@ -231,3 +231,37 @@ describe("Pokemon PC deposit early block", () => {
   });
 
 });
+
+describe("Published Poké Mart only", () => {
+  function martDependencies(offers: readonly { offerKey: string; itemQuantity: bigint; priceAmount: bigint }[]) {
+    const playerId = createPlayerId();
+    const session = { ...activeCenterSession(playerId), serviceKind: "POKEMART" as const };
+    const dependencies = {
+      players: {
+        resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
+      },
+      sessions: { loadActiveSession: async () => ok(session) },
+      martAvailability: { listPublishedOffers: async () => offers },
+    } as unknown as WorldServiceWhatsAppDependencies;
+    return dependencies;
+  }
+
+  it("does not expose purchase choices or a prompt when ACTIVE has no offers", async () => {
+    const result = await routeFor(martDependencies([]), "comprar").handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw Error(result.error.message);
+    expect(result.value.outgoing[0]?.payload.text).toContain("Nenhuma mercadoria disponível");
+    expect(result.value.outgoing[0]?.payload).not.toHaveProperty("worldServicePrompt");
+  });
+
+  it("shows only actual active offers, not the full static Mart catalog", async () => {
+    const result = await routeFor(martDependencies([
+      { offerKey: "shop.poke-ball", itemQuantity: 1n, priceAmount: 200n },
+    ]), "comprar").handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw Error(result.error.message);
+    expect(result.value.outgoing[0]?.payload.text).toContain("Poké Ball");
+    expect(result.value.outgoing[0]?.payload.text).not.toContain("Potion");
+    expect(result.value.outgoing[0]?.payload).toHaveProperty("worldServicePrompt");
+  });
+});
