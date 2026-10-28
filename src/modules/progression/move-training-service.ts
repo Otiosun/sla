@@ -184,21 +184,17 @@ export class MoveTrainingService {
     })).digest("hex");
 
     return withTransaction(this.pool, async (client): Promise<Result<MoveTrainingResult>> => {
-      // Lock first; all competing move acquisitions serialize against this row.
-      const locked = await client.query(
-        `SELECT id FROM pokemon_instances
-         WHERE id = $1 AND owner_player_id = $2 AND status = 'ACTIVE' FOR UPDATE`,
-        [input.pokemonInstanceId, input.playerId],
-      );
-      if (locked.rows.length === 0) return err(appError("NOT_FOUND", "Pokémon não pertence a você."));
-
+      // A single message/request key is globally idempotent across all Pokémon.
+      // Serialize the key BEFORE locking an owned Pokémon to avoid lock cycles.
+      const signedLock = BigInt.asIntN(64, BigInt("0x" + requestKey.slice(0, 16)));
+      await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [signedLock.toString()]);
       const existing = await client.query<{
         payload: { fingerprint: string; result: MoveTrainingResult };
       }>(
         `SELECT payload FROM pokemon_history_events
-         WHERE pokemon_instance_id = $1 AND event_type = 'MOVE_TRAINED'
-           AND payload->>'requestKey' = $2 ORDER BY id LIMIT 1`,
-        [input.pokemonInstanceId, requestKey],
+         WHERE event_type = 'MOVE_TRAINED'
+           AND payload->>'requestKey' = $1 LIMIT 1`,
+        [requestKey],
       );
       const replay = existing.rows[0]?.payload;
       if (replay !== undefined) {
@@ -207,6 +203,15 @@ export class MoveTrainingService {
         }
         return ok({ ...replay.result, replayed: true });
       }
+
+      // Lock the owned Pokémon after replay checks; distinct requests
+      // targeting the same creature serialize before viewing slots/items.
+      const locked = await client.query(
+        `SELECT id FROM pokemon_instances
+         WHERE id = $1 AND owner_player_id = $2 AND status = 'ACTIVE' FOR UPDATE`,
+        [input.pokemonInstanceId, input.playerId],
+      );
+      if (locked.rows.length === 0) return err(appError("NOT_FOUND", "Pokémon não pertence a você."));
 
       const battle = await client.query(
         `SELECT battle.id FROM battles battle
