@@ -59,9 +59,33 @@ async function fetchJson<T>(url: string): Promise<{ data: T; sha256: string }> {
   }
   let result = cache.get(url);
   if (result === undefined) {
-    const response = await fetch(url, { headers: { "User-Agent": "pokemon-beyond-content-proposal/1" } });
-    if (!response.ok) throw new Error(`Source request failed ${response.status}: ${url}`);
-    const raw = await response.text();
+    let raw: string | null = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "User-Agent": "pokemon-beyond-content-proposal/1",
+            "Accept": "application/json",
+          },
+          signal: AbortSignal.timeout(18_000),
+        });
+        if (response.ok) {
+          raw = await response.text();
+          break;
+        }
+        // A missing form/move is a hard content error, not a transient request.
+        if (![429, 500, 502, 503, 504].includes(response.status)) {
+          throw new Error(`Source request failed ${response.status}: ${url}`);
+        }
+        if (attempt === 3) throw new Error(`Source unavailable after retry: ${response.status} ${url}`);
+      } catch (error) {
+        if (attempt === 3 || (error instanceof Error && error.message.startsWith("Source request failed"))) {
+          throw error;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
+    }
+    if (raw === null) throw new Error(`Source unavailable: ${url}`);
     result = {
       value: JSON.parse(raw) as unknown,
       sha256: createHash("sha256").update(raw).digest("hex"),
