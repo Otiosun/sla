@@ -8,7 +8,7 @@ import {
   type ProgressionWhatsAppDependencies,
 } from "../../src/modules/progression/whatsapp-handlers.js";
 import { createPlayerId, createPokemonInstanceId } from "../../src/shared-kernel/ids.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { err, ok } from "../../src/shared-kernel/result.js";
 
 const playerId = createPlayerId();
 const pokemonInstanceId = createPokemonInstanceId();
@@ -145,13 +145,21 @@ describe("missed level evolution recovery", () => {
     expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({ trigger: { kind: "LEVEL" } });
   });
 
-  it("blocks ambiguous historical destination and prevents blind mutation", async () => {
+  it("delegates stat-branched LEVEL choice to DB, which must reject a truly ambiguous target", async () => {
     const { send, evolvePokemon } = fixture([
       option("Forma A", "LEVEL"), option("Forma B", "LEVEL"),
     ]);
+    evolvePokemon.mockResolvedValueOnce(err({
+      code: "EVOLUTION_NOT_ELIGIBLE", message: "Multiple evolution rules match the same request",
+    }));
+    const menu = await send("/evolucao #1");
+    expect(menu.ok).toBe(true);
+    if (!menu.ok) throw Error(menu.error.message);
+    expect(menu.value.outgoing[0]?.payload.text).toContain("/regularizar #1");
     const result = await send("/regularizar #1");
-    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
-    expect(evolvePokemon).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(evolvePokemon).toHaveBeenCalledTimes(1);
+    expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({ trigger: { kind: "LEVEL" } });
   });
 
   it("no eligible level route means no mutation or fabricated XP", async () => {
