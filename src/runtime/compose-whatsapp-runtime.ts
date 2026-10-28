@@ -56,6 +56,7 @@ import {
   createCompetitiveSpawnGuessRoute,
 } from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
+import { MoveTrainingService } from "../modules/progression/move-training-service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
 import { createSpawnWhatsAppRoute } from "../modules/encounter/spawn-whatsapp.js";
@@ -306,6 +307,7 @@ export function createOperationalMessagingComposition(
     return result.rows[0]?.external_id ?? null;
   };
   const economy = new EconomyService(new PostgresEconomyRepository(pool));
+  const moveTraining = new MoveTrainingService(pool);
   const martSaleInventory = new PostgresMartSaleInventoryReader(pool);
   const martAvailability = new PostgresMartPublishedOffersReader(pool);
   const martEconomy = {
@@ -817,6 +819,8 @@ export function createOperationalMessagingComposition(
     players: playerRegistration,
     reads,
     progression,
+    training: moveTraining,
+    sessions: worldServiceSessions,
     encounter,
     world,
   });
