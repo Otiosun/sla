@@ -23,13 +23,7 @@ const EvolutionRequestSchema = z
     ]),
     recovery: z.literal(true).optional(),
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    if ((value.trigger.kind === "LEVEL") !== (value.recovery === true)) {
-      ctx.addIssue({ code: "custom", path: ["recovery"],
-        message: "LEVEL is only allowed as an explicit overdue repair" });
-    }
-  });
+  .strict();
 
 interface PlayerPortalEvolutionDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
@@ -93,8 +87,15 @@ export class PlayerPortalEvolutionService {
     if (!parsed.success || !who.success) {
       return err(appError("VALIDATION_FAILED", "Invalid evolution request"));
     }
-    // Normal LEVEL evolution is automatic; the only player-requested LEVEL
-    // path here is the explicit historical repair flag validated by Zod.
+    // Keep the original ACTION_INVALID semantics for normal LEVEL requests.
+    // No client may turn an ordinary level evolution into manual use.
+    if (parsed.data.trigger.kind === "LEVEL" && parsed.data.recovery !== true) {
+      return err(appError("ACTION_INVALID",
+        "A evolução por nível é automática. Apenas uma evolução já atrasada pode ser regularizada."));
+    }
+    if (parsed.data.trigger.kind !== "LEVEL" && parsed.data.recovery === true) {
+      return err(appError("VALIDATION_FAILED", "Regularização não usa itens nem condições."));
+    }
     const player = await this.dependencies.players.resolvePlayer(who.data);
     if (!player.ok) return player;
     const profile = await this.dependencies.profiles.getProfile(player.value.playerId);
