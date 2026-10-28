@@ -53,6 +53,42 @@ describe("evolution family source importer",()=>{
       method:"CONDITION_REVIEW",nontrivialRequirements:["time_of_day"],
     });
   });
+  it("does not mistake source version metadata for an evolution condition",()=>{
+    const graph:ExternalEvolutionChain={
+      id:1,chain:{species:{name:"bulbasaur"},evolution_details:null,evolves_to:[
+        leaf("ivysaur",{version_group:{name:"red-blue",url:"https://pokeapi.co/api/v2/version-group/1/"},
+          is_default:true,trigger:{name:"level-up"},min_level:16,
+          item:null,min_happiness:null,time_of_day:"",
+          required_pokemon_form:{name:"bulbasaur"},evolved_pokemon_form:null}),
+      ]},
+    };
+    expect(parseVersionedEvolutionChain(graph,{maxVersionGroupId:18})).toEqual([
+      expect.objectContaining({method:"LEVEL",requiredLevel:16,
+        sourceVersionGroup:"red-blue",nontrivialRequirements:[]}),
+    ]);
+  });
+  it("blocks future generation evolution paths and keeps USUM location requirements",()=>{
+    const group=(id:number,name:string)=>({
+      name,url:"https://pokeapi.co/api/v2/version-group/"+id+"/",
+    });
+    const graph:ExternalEvolutionChain={
+      id:67,chain:{species:{name:"eevee"},evolution_details:null,evolves_to:[
+        {species:{name:"leafeon"},evolves_to:[],evolution_details:[
+          {version_group:group(17,"sun-moon"),trigger:{name:"level-up"},location:{name:"lush-jungle"}},
+          {version_group:group(20,"sword-shield"),trigger:{name:"use-item"},item:{name:"leaf-stone"}},
+        ]},
+        {species:{name:"sylveon"},evolves_to:[],evolution_details:[
+          {version_group:group(25,"scarlet-violet"),trigger:{name:"level-up"},min_happiness:160},
+        ]},
+      ]},
+    };
+    const edges=parseVersionedEvolutionChain(graph,{maxVersionGroupId:18});
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({
+      toSpeciesSlug:"leafeon",method:"CONDITION_REVIEW",sourceVersionGroup:"sun-moon",
+      nontrivialRequirements:["location"],
+    });
+  });
   it("fails closed on invalid level and source cycle",()=>{
     const bad:ExternalEvolutionChain={
       id:3,chain:{species:{name:"a"},evolution_details:null,evolves_to:[
