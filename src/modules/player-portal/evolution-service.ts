@@ -21,13 +21,21 @@ const EvolutionRequestSchema = z
       z.object({ kind: z.literal("ITEM"), itemId: z.string().uuid() }).strict(),
       z.object({ kind: z.literal("CONDITION") }).strict(),
     ]),
+    recovery: z.literal(true).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if ((value.trigger.kind === "LEVEL") !== (value.recovery === true)) {
+      ctx.addIssue({ code: "custom", path: ["recovery"],
+        message: "LEVEL is only allowed as an explicit overdue repair" });
+    }
+  });
 
 interface PlayerPortalEvolutionDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly profiles: Pick<PlayerStarterService, "getProfile">;
-  readonly reads: Pick<OperationalUxReadModel, "activeBattleId" | "listEvolutionOptions">;
+  readonly reads: Pick<OperationalUxReadModel,
+    "activeBattleId" | "listEvolutionOptions"> & Partial<Pick<OperationalUxReadModel, "listOwnedPokemon">>;
   readonly progression: Pick<ProgressionService, "evolvePokemon">;
 }
 
@@ -85,12 +93,8 @@ export class PlayerPortalEvolutionService {
     if (!parsed.success || !who.success) {
       return err(appError("VALIDATION_FAILED", "Invalid evolution request"));
     }
-    // Level evolution is automatic inside the XP/progression transaction.
-    // The Hub may request only manual ITEM/CONDITION evolutions.
-    if (parsed.data.trigger.kind === "LEVEL") {
-      return err(appError("ACTION_INVALID", "Evolução por nível acontece automaticamente ao receber XP."));
-    }
-
+    // Normal LEVEL evolution is automatic; the only player-requested LEVEL
+    // path here is the explicit historical repair flag validated by Zod.
     const player = await this.dependencies.players.resolvePlayer(who.data);
     if (!player.ok) return player;
     const profile = await this.dependencies.profiles.getProfile(player.value.playerId);
@@ -102,10 +106,36 @@ export class PlayerPortalEvolutionService {
       return err(appError("FLOW_BLOCKED", "Pokémon não podem evoluir durante uma batalha ativa."));
     }
 
+    if (parsed.data.trigger.kind === "LEVEL") {
+      const ownedReader = this.dependencies.reads.listOwnedPokemon;
+      if (ownedReader === undefined) {
+        return err(appError("FEATURE_UNAVAILABLE", "Revisão histórica indisponível."));
+      }
+      const [owned, rules] = await Promise.all([
+        ownedReader.call(this.dependencies.reads, player.value.playerId),
+        this.dependencies.reads.listEvolutionOptions(
+          player.value.playerId, parsed.data.pokemonInstanceId,
+        ),
+      ]);
+      const current = owned.find((p) => p.pokemonInstanceId === parsed.data.pokemonInstanceId);
+      if (current === undefined) {
+        return err(appError("NOT_FOUND", "Pokémon não encontrado na conta do treinador."));
+      }
+      if (!rules.some((rule) => rule.triggerKind === "LEVEL" &&
+        rule.requiredLevel !== null && current.level >= rule.requiredLevel)) {
+        return err(appError("ACTION_INVALID",
+          "Nenhuma evolução por nível atrasada; a progressão normal é automática."));
+      }
+      // Current stats, final target and historical idempotency are validated
+      // again inside the canonical Pokémon row-locked evolution transaction.
+    }
+
     const evolved = await this.dependencies.progression.evolvePokemon({
       playerId: player.value.playerId,
       pokemonInstanceId: parsed.data.pokemonInstanceId,
-      idempotencyKey: `hub.evolution:${player.value.playerId}:${parsed.data.requestId}`,
+      idempotencyKey: parsed.data.recovery === true
+        ? `hub.evolution-repair:${player.value.playerId}:${parsed.data.requestId}`
+        : `hub.evolution:${player.value.playerId}:${parsed.data.requestId}`,
       correlationId: randomUUID(),
       trigger: parsed.data.trigger,
     });
