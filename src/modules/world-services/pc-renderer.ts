@@ -120,6 +120,20 @@ export function renderPokemonPcWithdrawSelection(snapshot: PokemonPcStorageSnaps
     return lines.join("\n");
   }
 
+  if (snapshot.team.length >= 6) {
+    return [
+      "△ *𝗘𝗤𝗨𝗜𝗣𝗘 𝗖𝗛𝗘𝗜𝗔*",
+      "",
+      "> _Você já possui seis Pokémon ativos._",
+      "",
+      "⚡ Equipe · `06 / 06`",
+      "Nenhuma retirada foi realizada.",
+      "",
+      "↓ `/depositar` · Liberar uma posição",
+      "‹ `/pc` · Voltar ao terminal",
+    ].join("\n");
+  }
+
   stored.forEach((pokemon, index) => {
     lines.push(
       `\`${formatPcNumber(index + 1)}\` ${pokemon.displayName} · Nv. \`${formatPcNumber(pokemon.level)}\``,
