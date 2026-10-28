@@ -19,7 +19,7 @@ export interface ProgressionWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly reads: Pick<
     OperationalUxReadModel,
-    "listPendingMoveChoices" | "activeBattleId" | "listOwnedPokemon" | "listEvolutionOptions"
+    "listPendingMoveChoices" | "activeBattleId" | "listOwnedPokemon" | "listEvolutionOptions" | "listLevelLearnset"
   >;
   readonly progression: Pick<ProgressionService, "resolveMoveChoice" | "evolvePokemon">;
   readonly encounter?: Pick<EncounterOperationalReadService, "activeForPlayer">;
@@ -342,6 +342,61 @@ export function createProgressionWhatsAppRoutes(
     );
   };
 
+  const learnsetGuide: Handler = async (context) => {
+    const resolved = await dependencies.players.resolvePlayer(identity(context));
+    if (!resolved.ok) return resolved;
+    const ownedReader = dependencies.reads.listOwnedPokemon;
+    const learnsetReader = dependencies.reads.listLevelLearnset;
+    if (ownedReader === undefined || learnsetReader === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Consulta de aprendizados indisponível."));
+    }
+    const owned = await ownedReader.call(dependencies.reads, resolved.value.playerId);
+    const pokemon = resolveOwnedPokemonReference(owned, commandArgs(context).join(" "));
+    if (!pokemon.ok) return pokemon;
+    const entries = await learnsetReader.call(
+      dependencies.reads, resolved.value.playerId, pokemon.value.pokemonInstanceId,
+    );
+    const name = pokemon.value.nickname ?? pokemon.value.displayName;
+    const past = entries.filter((entry) => entry.learnLevel <= pokemon.value.level);
+    const future = entries.filter((entry) => entry.learnLevel > pokemon.value.level);
+    const lines = [
+      "✦ *𝗔𝗣𝗥𝗘𝗡𝗗𝗜𝗭𝗔𝗗𝗢𝗦*",
+      "",
+      `◇ *${name}* · Nv. ${String(pokemon.value.level)}`,
+      "　_Golpes por nível · catálogo da sua versão_",
+      "",
+    ];
+    if (entries.length === 0) {
+      lines.push(
+        "_Nenhum golpe por nível foi registrado para esta forma no catálogo atual._",
+        "_Não é possível inferir golpes de outra geração._",
+      );
+      return textResult(context, lines.join("\n"));
+    }
+    lines.push("◇ *𝗝Á 𝗔𝗟𝗖𝗔𝗡Ç𝗔𝗗𝗢𝗦*");
+    if (past.length === 0) lines.push("_Nenhum ainda._");
+    for (const entry of past.slice(-6)) {
+      lines.push(
+        `　Nv. ${String(entry.learnLevel)} · ${entry.moveDisplayName} · ${entry.known ? "equipado" : "não equipado"}`,
+      );
+    }
+    if (past.length > 6) lines.push(`　… e mais ${String(past.length - 6)} registro(s) anteriores.`);
+    lines.push("", "◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗢𝗦 𝗡Í𝗩𝗘𝗜𝗦*");
+    if (future.length === 0) lines.push("_Nenhuma nova aprendizagem por nível registrada._");
+    for (const entry of future.slice(0, 6)) {
+      lines.push(`　Nv. ${String(entry.learnLevel)} · ${entry.moveDisplayName}`);
+    }
+    if (future.length > 6) lines.push(`　… e mais ${String(future.length - 6)} adiante.`);
+    lines.push(
+      "",
+      "_Com vaga livre, o novo golpe é aprendido automaticamente. Com 4 golpes, a escolha fica em /golpes._",
+      "_Um golpe antigo não equipado pode ter sido recusado; não será recuperado automaticamente._",
+      "`/golpes` · decisões pendentes",
+      `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atual`,
+    );
+    return textResult(context, lines.join("\n"));
+  };
+
   const evolutionInfo: Handler = async (context) => {
     const resolvedPlayer = await dependencies.players.resolvePlayer(identity(context));
     if (!resolvedPlayer.ok) return resolvedPlayer;
@@ -516,6 +571,7 @@ export function createProgressionWhatsAppRoutes(
 
   return [
     { command: "golpes", aliases: ["movimentos"], handler: new FunctionalHandler(pendingMoves) },
+    { command: "aprendizados", aliases: ["learnset"], handler: new FunctionalHandler(learnsetGuide) },
     {
       command: "aprender",
       handler: new FunctionalHandler(resolvePendingMove),
