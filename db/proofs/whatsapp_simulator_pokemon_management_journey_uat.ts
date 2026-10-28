@@ -393,8 +393,15 @@ async function main() {
       "scene proof processed",roleplay.replies.join(" | "), roleplay.inbox==="PROCESSED");
     const center = await send(actor,"/centropokemon");
     check("pc narrative",actor,"/centropokemon",
-      "center service presents user-visible instructions",
-      center.replies.join(" | "),center.inbox==="PROCESSED" && center.replies.length>0);
+      "center presents recovery, PC and move-reminding directions in one visit",
+      center.replies.join(" | "),center.inbox==="PROCESSED" && center.replies.some((line) =>
+        line.includes("/curar") && line.includes("/pc") && line.includes("/reaprender #1"))); 
+    const centerMenu = await send(actor, "/menu");
+    check("pc narrative",actor,"/menu inside Center",
+      "Rotom teaches service-specific recovery and relearning commands",
+      centerMenu.replies.join(" | "),
+      centerMenu.inbox === "PROCESSED" && centerMenu.replies.some((line) =>
+        line.includes("/curar") && line.includes("/pc") && line.includes("/reaprender #1")));
     const reminder = await send(actor, "/reaprender #1");
     check("moves", actor, "/reaprender #1 at Center",
       "eligible list or explicit no-moves result from pinned release",
