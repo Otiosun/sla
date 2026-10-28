@@ -92,6 +92,12 @@ export class MoveTrainingService {
              WHERE event.pokemon_instance_id = $1
                AND event.event_type IN ('MOVE_LEARNED', 'MOVE_REPLACED', 'MOVE_TRAINED')
                AND event.payload ? 'moveId'
+             UNION
+             SELECT (event.payload->>'replacedMoveId')::uuid
+             FROM pokemon_history_events event
+             WHERE event.pokemon_instance_id = $1
+               AND event.event_type IN ('MOVE_REPLACED', 'MOVE_TRAINED')
+               AND event.payload ? 'replacedMoveId'
            )
            SELECT revision.move_id, revision.display_name,
                   NULL::text AS item_id, NULL::text AS item_name,
@@ -312,7 +318,8 @@ export class MoveTrainingService {
            id, pokemon_instance_id, event_type, payload, actor_type, actor_id, correlation_id
          ) VALUES ($1, $2, 'MOVE_TRAINED', $3::jsonb, 'PLAYER', $4, $5)`,
         [randomUUID(), input.pokemonInstanceId, JSON.stringify({
-          requestKey, fingerprint, moveId: input.moveId, method: input.method, result,
+          requestKey, fingerprint, moveId: input.moveId,
+          replacedMoveId: replaced?.move_id ?? null, method: input.method, result,
         }), input.playerId, input.correlationId],
       );
       return ok(result);
