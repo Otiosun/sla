@@ -22,6 +22,18 @@ export interface CatalogSourceProposal {
     readonly versionGroup: string;
     readonly sha256: string;
   }[];
+  readonly moveDefinitions: readonly {
+    readonly slug: string;
+    readonly category: "PHYSICAL" | "SPECIAL" | "STATUS";
+    readonly typeSlug: string;
+    readonly power: number | null;
+    readonly accuracy: number | null;
+    readonly maxPp: number | null;
+    readonly priority: number;
+    readonly reviewReasons: readonly string[];
+    readonly basicDamageCandidate: boolean;
+    readonly rawSha256: string;
+  }[];
 }
 export interface SourceProblem {
   readonly code: string;
@@ -102,6 +114,29 @@ export function auditCatalogSourceProposal(
         "The same TM item teaches two moves within one game version");
     }
     machineNames.set(itemKey,machine.moveSlug);
+  }
+  const expectedDefinitions=new Set(proposal.pokemon.flatMap(p=>p.moves.map(m=>m.moveSlug)));
+  const defined=new Set<string>();
+  for(const definition of proposal.moveDefinitions) {
+    if(defined.has(definition.slug)) {
+      add("MOVE_DEFINITION_DUPLICATE",definition.slug,"Same move defined more than once");
+    }
+    defined.add(definition.slug);
+    if(!expectedDefinitions.has(definition.slug)) {
+      add("MOVE_DEFINITION_UNREFERENCED",definition.slug,"Not present in source learnsets");
+    }
+    if(!SHA.test(definition.rawSha256) ||
+       !SLUG.test(definition.slug) || !SLUG.test(definition.typeSlug) ||
+       !Number.isInteger(definition.priority) ||
+       !["PHYSICAL","SPECIAL","STATUS"].includes(definition.category) ||
+       !Array.isArray(definition.reviewReasons) ||
+       definition.reviewReasons.some(reason=>typeof reason!=="string") ||
+       definition.basicDamageCandidate !== (definition.reviewReasons.length===0)) {
+      add("MOVE_DEFINITION_INVALID",definition.slug,"Corrupted or unreviewable source metadata");
+    }
+  }
+  for(const name of expectedDefinitions) {
+    if(!defined.has(name))add("MOVE_DEFINITION_MISSING",name,"Move parameters have no verified source");
   }
   const obtained=new Set(proposal.machines.map(m=>[m.versionGroup,m.moveSlug].join(":")));
   for(const key of expectedMachines)if(!obtained.has(key)){
