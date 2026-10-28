@@ -11,6 +11,13 @@ type Source = {
   pokemon: { pokemonSlug: string; versionGroup: string;
     moves: { moveSlug: string; method: string; learnLevel: number|null }[] }[];
   machines: { itemSlug: string; moveSlug: string; versionGroup: string }[];
+  moveDefinitions: {slug:string; basicDamageCandidate:boolean; reviewReasons:string[]}[];
+  evolutionChains: {chainId:number; rootSpeciesSlug:string; edges:{
+    fromSpeciesSlug:string; toSpeciesSlug:string;
+    method:"LEVEL"|"ITEM"|"CONDITION_REVIEW";
+    requiredLevel:number|null; itemSlug:string|null;
+    nontrivialRequirements:readonly string[];
+  }[]}[];
 };
 const strict = process.argv.includes("--strict");
 const idx = process.argv.indexOf("--proposal");
@@ -118,6 +125,37 @@ try {
         code:"MISSING_TM_ITEM",entityId:machine.itemSlug,
         detail:"Machine for "+machine.moveSlug+" ("+machine.versionGroup+") has no published item"});
     }
+    for(const chain of source.evolutionChains){
+      for(const edge of chain.edges){
+        const from=seen.get(edge.fromSpeciesSlug);
+        if(!from)continue; // No published source form, so no player can evolve it.
+        const to=seen.get(edge.toSpeciesSlug);
+        if(!to){
+          issues.push({code:"EVOLUTION_TARGET_NOT_PUBLISHED",entityId:edge.fromSpeciesSlug,
+            detail:edge.toSpeciesSlug+" ("+edge.method+") has no active destination form"});
+          continue;
+        }
+        if(edge.method==="CONDITION_REVIEW"){
+          issues.push({code:"EVOLUTION_CONDITION_UNIMPLEMENTED",entityId:edge.fromSpeciesSlug,
+            detail:edge.toSpeciesSlug+" needs explicit domain requirements: "+
+              edge.nontrivialRequirements.join(",")});
+          continue;
+        }
+        const matching=evolutions.some((rule)=>{
+          if(!rule.active||rule.fromFormId!==from||rule.toFormId!==to||
+             rule.triggerKind!==edge.method)return false;
+          const config=rule.triggerConfig;
+          if(typeof config!=="object"||config===null)return false;
+          const data=config as Record<string,unknown>;
+          if(edge.method==="LEVEL")return data.level===edge.requiredLevel;
+          const item=items.find(i=>i.itemId===data.itemId&&i.active);
+          return item?.slug===edge.itemSlug;
+        });
+        if(!matching)issues.push({code:"EVOLUTION_RULE_NOT_PUBLISHED",entityId:edge.fromSpeciesSlug,
+          detail:edge.toSpeciesSlug+" lacks a verified "+edge.method+" rule"});
+      }
+    }
+
   }
   const codes=[...new Set(issues.map(i=>i.code))].sort();
   const counts=Object.fromEntries(codes.map(code=>[code,issues.filter(i=>i.code===code).length]));
@@ -126,6 +164,10 @@ try {
     manifestForms:allowed.size,activeForms:forms.filter(f=>f.active).length,
     activeMoves:moves.filter(m=>m.active).length,activeItems:items.filter(i=>i.active).length,
     sourceCompared:source!==null,pass:source!==null&&issues.length===0,
+    sourceMoveDefinitions:source?.moveDefinitions.length??0,
+    sourceEffectsNeedingReview:source?.moveDefinitions.filter(m=>!m.basicDamageCandidate).length??0,
+    sourceEvolutionChains:source?.evolutionChains.length??0,
+    sourceEvolutionEdges:source?.evolutionChains.reduce((n,c)=>n+c.edges.length,0)??0,
     issuesCount:issues.length,counts,issues,
   };
   console.log(JSON.stringify({event:"stage2.release.audit",releaseId:id,
