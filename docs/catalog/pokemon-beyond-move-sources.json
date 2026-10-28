@@ -1,0 +1,15 @@
+{
+  "versionGroup": "scarlet-violet",
+  "pokemonSlugs": [
+    "bulbasaur",
+    "ivysaur",
+    "charmander",
+    "charmeleon",
+    "squirtle",
+    "wartortle",
+    "pidgey",
+    "rattata",
+    "pikachu"
+  ],
+  "explicitlyApprovedVersionOverrides": {}
+}
