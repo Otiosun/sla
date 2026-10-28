@@ -13,10 +13,13 @@ export class PostgresMartPublishedOffersReader implements MartPublishedOfferRead
       offer_key: string;
       item_quantity: string;
       price_amount: string;
+      display_name: string;
+      item_kind: string;
     }>(
       `SELECT offer.offer_key,
               offer.item_quantity::text AS item_quantity,
-              offer.price_amount::text AS price_amount
+              offer.price_amount::text AS price_amount,
+              item_revision.display_name, item_revision.item_kind
          FROM content_release_pointers pointer
          JOIN content_releases release
            ON release.id = pointer.content_release_id
@@ -34,6 +37,8 @@ export class PostgresMartPublishedOffersReader implements MartPublishedOfferRead
       offerKey: offer.offer_key,
       itemQuantity: BigInt(offer.item_quantity),
       priceAmount: BigInt(offer.price_amount),
+      displayName: offer.display_name,
+      itemKind: offer.item_kind,
     }));
   }
 }
