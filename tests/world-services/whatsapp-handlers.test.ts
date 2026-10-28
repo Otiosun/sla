@@ -47,7 +47,15 @@ function activeCenterSession(
 }
 
 function routeFor(dependencies: WorldServiceWhatsAppDependencies, command: string) {
-  const route = createWorldServiceWhatsAppRoutes(dependencies).find(
+  // Legacy unit stubs intentionally omit world.getLocation. Add a no-op
+  // implementation rather than weakening production travel/battle guards.
+  const completeDependencies: WorldServiceWhatsAppDependencies = {
+    ...dependencies,
+    world: dependencies.world ?? {
+      getLocation: async () => { throw new Error("Unexpected location lookup in unit fixture"); },
+    },
+  };
+  const route = createWorldServiceWhatsAppRoutes(completeDependencies).find(
     (candidate) => candidate.command === command,
   );
   if (route === undefined) throw new Error(`Missing route: ${command}`);
