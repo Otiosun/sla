@@ -92,9 +92,10 @@ export function renderWorldServiceEntry(kind: WorldServiceKind): string {
         "",
         "👩‍⚕️ _— Olá! Bem-vindo ao Centro Pokémon. Espero que sua jornada esteja sendo tranquila. Posso ajudá-lo com alguma coisa?_",
         "",
-        "♡　`/curar`",
-        "▣　`/pc`",
-        "ᯓ　`/conversar`",
+        "♡　`/curar` · recuperar HP, PP e status",
+        "▣　`/pc` · administrar equipe e Boxes",
+        "✦　`/reaprender #1` · recuperar golpes antigos",
+        "ᯓ　`/conversar` · perguntar sobre os serviços",
         "‹　`/sair`",
         "",
         "　　　　　　♡",
@@ -412,7 +413,7 @@ export function renderCenterHanaConversation(): string {
     "",
     "> _Hana apoia as mãos no balcão e lhe dedica um sorriso tranquilo._",
     "",
-    "👩‍⚕️ _— A Vila dos Arrozais é o primeiro lugar onde muitos treinadores aprendem a cuidar da própria equipe. Saber quando parar, recuperar seus Pokémon e observar como eles estão também faz parte da jornada._",
+    "👩‍⚕️ _— A Vila dos Arrozais é o primeiro lugar onde muitos treinadores aprendem a cuidar da própria equipe. Se quiser, posso recuperar seus Pokémon com \`/curar\` e ajudar a lembrar golpes antigos com \`/reaprender #1\`. O terminal \`/pc\` cuida das Boxes._",
     "",
     "‹　`/conversar`",
   ].join("\n");
@@ -441,12 +442,14 @@ function normalizeNpcInput(value: string): string {
 
 export function renderCenterHanaContinuation(input: string): string {
   const normalized = normalizeNpcInput(input);
-  const line = /\b(cur(ar|a)|cura|recuper(ar|acao)|hp|machucad|ferid)/u.test(normalized)
+  const line = /\b(?:golp\w*|moviment\w*|aprend\w*|lembr\w*|esquec\w*|trein\w*|tm|ataqu\w*)/u.test(normalized)
+    ? "👩‍⚕️ _— Para recuperar um golpe que seu Pokémon podia conhecer, use \`/reaprender #1\` aqui no Centro. Se os quatro slots estiverem ocupados, você escolhe qual substituir. Novos golpes por nível ficam em \`/aprendizados #1\` e as TMs são ensinadas pela mochila, não pela enfermaria._"
+    : /\b(cur(ar|a)|cura|recuper(ar|acao)|hp|machucad|ferid)/u.test(normalized)
     ? "👩‍⚕️ _— Se algum deles estiver cansado ou ferido, eu posso cuidar da equipe. É só usar `/curar` enquanto estiver aqui._"
     : /\b(pc|box|caixa|guardar|retirar|equipe)/u.test(normalized)
       ? "👩‍⚕️ _— Para organizar quem viaja com você, o terminal do PC fica logo ali. Use `/pc` e escolha com calma._"
       : input.includes("?")
-        ? "👩‍⚕️ _— Posso ajudar com recuperação, cuidados básicos e orientação sobre o Centro. Se quiser tratar sua equipe ou usar o PC, é só me dizer._"
+        ? "👩‍⚕️ _— Posso recuperar a equipe, ajudar com golpes antigos e orientar o uso do PC. Você pode perguntar normalmente ou usar \`/curar\`, \`/reaprender #1\` e \`/pc\`._"
         : /^\s*[*_]/u.test(input)
           ? "👩‍⚕️ _Hana acompanha a cena por um instante, claramente tentando entender o que você pretende fazer._\n\n— Tudo bem... quer me perguntar alguma coisa ou precisa de ajuda com seus Pokémon?_"
           : "👩‍⚕️ _Hana escuta sem interromper e responde com tranquilidade._\n\n— Entendi. Enquanto estiver no Centro, pode falar comigo ou pedir ajuda com sua equipe.";
