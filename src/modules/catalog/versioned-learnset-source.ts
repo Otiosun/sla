@@ -19,6 +19,68 @@ const PokemonLearnsetSourceSchema = z.object({
   moves: z.array(MoveEntrySchema),
 });
 
+export type VersionedAcquisitionMethod = "LEVEL" | "EVOLUTION" | "MACHINE" | "TUTOR" | "EGG";
+export interface VersionedAcquisitionMove {
+  readonly moveSlug: string;
+  readonly method: VersionedAcquisitionMethod;
+  /** Null for EVOLUTION/MACHINE/TUTOR/EGG; evolution uses source level 0. */
+  readonly learnLevel: number | null;
+}
+
+export interface VersionedAcquisitionLearnset {
+  readonly pokemonSlug: string;
+  readonly versionGroup: string;
+  readonly moves: readonly VersionedAcquisitionMove[];
+}
+
+/**
+ * One pinned game generation; method 0 level-up is an evolution move, not invalid.
+ * TM item -> move pairing is resolved separately by the version-specific
+ * PokéAPI machine resource, never guessed from the move name.
+ */
+export function parseVersionedAcquisitionLearnset(
+  raw: unknown,
+  versionGroup = "scarlet-violet",
+): VersionedAcquisitionLearnset {
+  if (!/^[a-z0-9][a-z0-9-]*$/u.test(versionGroup)) throw new RangeError("Invalid version group");
+  const source = PokemonLearnsetSourceSchema.parse(raw);
+  const moves = new Map<string, VersionedAcquisitionMove>();
+  let versionPresent = false;
+  for (const entry of source.moves) {
+    for (const record of entry.version_group_details) {
+      if (record.version_group.name !== versionGroup) continue;
+      versionPresent = true;
+      const kind = record.move_learn_method.name;
+      const method: VersionedAcquisitionMethod | null =
+        kind === "level-up" ? record.level_learned_at === 0 ? "EVOLUTION" : "LEVEL"
+        : kind === "machine" ? "MACHINE"
+        : kind === "tutor" ? "TUTOR"
+        : kind === "egg" ? "EGG" : null;
+      if (method === null) continue;
+      if (method === "LEVEL" && (record.level_learned_at < 1 || record.level_learned_at > 100)) {
+        throw new RangeError("Learn level outside Pokémon level cap");
+      }
+      const learnedAt = method === "LEVEL" ? record.level_learned_at : null;
+      const normalized = { moveSlug: entry.move.name, method, learnLevel: learnedAt };
+      const key = `${entry.move.name}:${method}`;
+      const previous = moves.get(key);
+      if (previous !== undefined && previous.learnLevel !== learnedAt) {
+        throw new Error(`Conflicting learnset records for ${key} in ${versionGroup}`);
+      }
+      moves.set(key, normalized);
+    }
+  }
+  if (!versionPresent || moves.size === 0) {
+    throw new Error(`No acquisition records for ${source.name} in ${versionGroup}`);
+  }
+  return {
+    pokemonSlug: source.name,
+    versionGroup,
+    moves: [...moves.values()].sort((a, b) => a.method.localeCompare(b.method) ||
+      (a.learnLevel ?? 0) - (b.learnLevel ?? 0) || a.moveSlug.localeCompare(b.moveSlug)),
+  };
+}
+
 export interface VersionedLevelMove {
   readonly moveSlug: string;
   readonly learnLevel: number;
@@ -51,6 +113,7 @@ export function parseVersionedLevelLearnset(
       if (version.version_group.name !== versionGroup) continue;
       hasVersionData = true;
       if (version.move_learn_method.name !== "level-up") continue;
+      if (version.level_learned_at === 0) continue; // EVOLUTION, processed separately
       if (version.level_learned_at < 1 || version.level_learned_at > 100) {
         throw new RangeError("Level-up learnset entry outside levels 1–100");
       }
