@@ -1,3 +1,5 @@
+import type { EvolutionSourceEdge } from "./versioned-evolution-chain.js";
+
 /** Pure source-integrity gate for the offline PokéAPI proposal builder. */
 export interface CatalogSourceManifest {
   readonly versionGroup: string;
@@ -21,6 +23,12 @@ export interface CatalogSourceProposal {
     readonly moveSlug: string;
     readonly versionGroup: string;
     readonly sha256: string;
+  }[];
+  readonly evolutionChains: readonly {
+    readonly chainId: number;
+    readonly rawSha256: string;
+    readonly rootSpeciesSlug: string;
+    readonly edges: readonly EvolutionSourceEdge[];
   }[];
   readonly moveDefinitions: readonly {
     readonly slug: string;
@@ -115,6 +123,41 @@ export function auditCatalogSourceProposal(
     }
     machineNames.set(itemKey,machine.moveSlug);
   }
+  const coveredByFamily=new Set<string>();
+  const seenChains=new Set<number>();
+  for(const chain of proposal.evolutionChains) {
+    if(!Number.isInteger(chain.chainId)||chain.chainId<1 ||
+       !SHA.test(chain.rawSha256) || !SLUG.test(chain.rootSpeciesSlug)) {
+      add("EVOLUTION_CHAIN_INVALID",String(chain.chainId),"Invalid source tree or checksum");
+    }
+    if(seenChains.has(chain.chainId)) {
+      add("EVOLUTION_CHAIN_DUPLICATE",String(chain.chainId),"Source tree repeated");
+    }
+    seenChains.add(chain.chainId);
+    coveredByFamily.add(chain.rootSpeciesSlug);
+    for(const edge of chain.edges) {
+      coveredByFamily.add(edge.fromSpeciesSlug);
+      coveredByFamily.add(edge.toSpeciesSlug);
+      if(edge.sourceChainId!==chain.chainId ||
+         !SLUG.test(edge.fromSpeciesSlug)||!SLUG.test(edge.toSpeciesSlug) ||
+         !["LEVEL","ITEM","CONDITION_REVIEW"].includes(edge.method)) {
+        add("EVOLUTION_EDGE_INVALID",edge.fromSpeciesSlug,"Invalid transition identity or method");
+      }
+      if(edge.method==="LEVEL" &&
+        (edge.requiredLevel===null||edge.requiredLevel<2||
+         edge.itemSlug!==null||edge.nontrivialRequirements.length!==0)) {
+        add("EVOLUTION_LEVEL_UNSAFE",edge.fromSpeciesSlug,"Conditional evolution coerced to LEVEL");
+      }
+      if(edge.method==="ITEM" &&
+        (edge.itemSlug===null||edge.nontrivialRequirements.length!==0)) {
+        add("EVOLUTION_ITEM_UNSAFE",edge.fromSpeciesSlug,"Non-item condition coerced to ITEM");
+      }
+    }
+  }
+  for(const slug of required)if(!coveredByFamily.has(slug)){
+    add("EVOLUTION_FAMILY_MISSING",slug,"No versioned evolution chain for active form");
+  }
+
   const expectedDefinitions=new Set(proposal.pokemon.flatMap(p=>p.moves.map(m=>m.moveSlug)));
   const defined=new Set<string>();
   for(const definition of proposal.moveDefinitions) {
