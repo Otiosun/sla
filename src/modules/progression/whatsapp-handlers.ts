@@ -394,8 +394,9 @@ export function createProgressionWhatsAppRoutes(
     lines.push(
       "",
       "_Com vaga livre, o novo golpe é aprendido automaticamente. Com 4 golpes, a escolha fica em /golpes._",
-      "_Um golpe antigo não equipado pode ter sido recusado; não será recuperado automaticamente._",
+      "_Golpes antigos não equipados não voltam à força: use /reaprender no Centro Pokémon._",
       "`/golpes` · decisões pendentes",
+      "`/centropokemon` · onde reaprender",
       `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atual`,
     );
     return textResult(context, lines.join("\n"));
