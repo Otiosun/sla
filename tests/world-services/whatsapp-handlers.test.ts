@@ -198,4 +198,36 @@ describe("Pokemon PC deposit early block", () => {
     expect(payload?.text).toContain("Responda com o número");
     expect(payload).toHaveProperty("worldServicePrompt");
   });
+  it("blocks PC withdrawal when all six team slots are occupied", async () => {
+    const playerId = createPlayerId();
+    const session = activeCenterSession(playerId);
+    const storedPokemon = {
+      pokemonInstanceId: createPokemonInstanceId(),
+      displayName: "Geodude",
+      level: 10,
+      placementKind: "BOX" as const,
+      boxNo: 1,
+      slotNo: 6,
+    };
+    const snapshot = {
+      ...makeTeamSnapshot(playerId, 6),
+      boxes: [{ boxNo: 1, occupied: 1, capacity: 30 as const, pokemon: [storedPokemon] }],
+    };
+    const dependencies = {
+      players: {
+        resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
+      },
+      sessions: { loadActiveSession: async () => ok(session) },
+      pcStorage: { getStorage: async () => ok(snapshot) },
+    } as unknown as WorldServiceWhatsAppDependencies;
+
+    const result = await routeFor(dependencies, "retirar").handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const payload = result.value.outgoing[0]?.payload;
+    expect(payload?.text).toContain("𝗘𝗤𝗨𝗜𝗣𝗘 𝗖𝗛𝗘𝗜𝗔");
+    expect(payload?.text).not.toContain("Responda com o número");
+    expect(payload).not.toHaveProperty("worldServicePrompt");
+  });
+
 });
