@@ -172,6 +172,13 @@ async function main() {
     const sheetView = await send(actor, "/pokemon #1");
     check("pokemon",actor,"/pokemon #1","starter species and move details",
       sheetView.replies.join(" | "),sheetView.replies.some(s=>/Bulbasaur/iu.test(s)));
+    const learnsetView = await send(actor, "/aprendizados #1");
+    check("moves", actor, "/aprendizados #1",
+      "trainer-pinned level learnset and next milestones, not generic TM rewards",
+      learnsetView.replies.join(" | "),
+      learnsetView.inbox !== "FAILED" && learnsetView.replies.some(
+        (message) => message.includes("𝗔𝗣𝗥𝗘𝗡𝗗𝗜𝗭𝗔𝗗𝗢𝗦") && message.includes("Vine Whip"),
+      ));
     const before = await send(actor, "/golpes");
     check("moves", actor, "/golpes", "pending choice list or empty state",
       before.replies.join(" | "), before.inbox !== "FAILED" && before.replies.some(s => /MOVIMENTOS|PENDÊNCIAS/iu.test(s)));
