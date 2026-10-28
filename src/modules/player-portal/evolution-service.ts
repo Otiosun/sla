@@ -108,14 +108,14 @@ export class PlayerPortalEvolutionService {
 
     if (parsed.data.trigger.kind === "LEVEL") {
       const ownedReader = this.dependencies.reads.listOwnedPokemon;
-      if (ownedReader === undefined) {
+      const rulesReader = this.dependencies.reads.listEvolutionOptions;
+      const pokemonId = parsePokemonInstanceId(parsed.data.pokemonInstanceId);
+      if (ownedReader === undefined || rulesReader === undefined || !pokemonId.ok) {
         return err(appError("FEATURE_UNAVAILABLE", "Revisão histórica indisponível."));
       }
       const [owned, rules] = await Promise.all([
         ownedReader.call(this.dependencies.reads, player.value.playerId),
-        this.dependencies.reads.listEvolutionOptions(
-          player.value.playerId, parsed.data.pokemonInstanceId,
-        ),
+        rulesReader.call(this.dependencies.reads, player.value.playerId, pokemonId.value),
       ]);
       const current = owned.find((p) => p.pokemonInstanceId === parsed.data.pokemonInstanceId);
       if (current === undefined) {
