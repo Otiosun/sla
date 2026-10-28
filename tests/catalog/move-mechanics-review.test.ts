@@ -32,6 +32,13 @@ describe("PokéAPI moves require mechanics review before publication",()=>{
     expect(classifyMoveForBattleReview(special).reviewReasons)
       .toEqual(expect.arrayContaining(["TARGETING_RULES","MULTI_HIT"]));
   });
+  it("does not treat Fly, U-turn or Focus Punch as ordinary damage even if the API calls them damage",()=>{
+    for(const slug of ["fly","u-turn","focus-punch","false-swipe"]) {
+      const reviewed=classifyMoveForBattleReview({...tackle,name:slug});
+      expect(reviewed.basicDamageCandidate).toBe(false);
+      expect(reviewed.reviewReasons).toContain("UNREVIEWED_MOVE_SPECIFIC_MECHANICS");
+    }
+  });
   it("cannot import an unknown damage class silently",()=>{
     expect(()=>classifyMoveForBattleReview({...tackle,damage_class:{name:"mystery"}}))
       .toThrow(/Invalid source move/);
