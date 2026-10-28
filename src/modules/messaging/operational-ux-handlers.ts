@@ -799,7 +799,10 @@ export function createOperationalUxRoutes(
         ...(moves.length === 0 ? ["_Nenhum movimento._"] : moves),
         "",
         "`/golpes` · decisões de aprendizado",
+        `\`/aprendizados #${String(ref)}\` · próximos movimentos por nível`,
+        `\`/tms #${String(ref)}\` · TMs compatíveis na mochila`,
         `\`/evolucao #${String(ref)}\` · evolução e requisitos`,
+        "`/centropokemon` · reaprender movimentos antigos",
         "`/equipe` · administrar formação",
       ].join("\n"),
     );
