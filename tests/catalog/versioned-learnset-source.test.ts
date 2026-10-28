@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   compareLevelLearnsets,
   parseVersionedLevelLearnset,
+  parseVersionedAcquisitionLearnset,
 } from "../../src/modules/catalog/versioned-learnset-source.js";
 
 const sample = {
@@ -56,5 +57,25 @@ describe("version-pinned, reviewable learnset source", () => {
         version_group_details: [{ ...version, level_learned_at: 101 }] }],
     })).toThrow(/outside levels/);
     expect(() => parseVersionedLevelLearnset({ name: "pikachu", moves: "wrong" })).toThrow();
+  });
+
+  it("keeps on-evolution and TM moves separate from ordinary levels", () => {
+    const special = {
+      name: "raichu",
+      moves: [
+        { move: { name: "thunder-punch" }, version_group_details: [{
+          level_learned_at: 0, move_learn_method: { name: "level-up" },
+          version_group: { name: "scarlet-violet" },
+        }] },
+        { move: { name: "thunderbolt" }, version_group_details: [{
+          level_learned_at: 0, move_learn_method: { name: "machine" },
+          version_group: { name: "scarlet-violet" },
+        }] },
+      ],
+    };
+    const entries = parseVersionedAcquisitionLearnset(special).moves;
+    expect(entries).toContainEqual({ moveSlug: "thunder-punch", method: "EVOLUTION", learnLevel: null });
+    expect(entries).toContainEqual({ moveSlug: "thunderbolt", method: "MACHINE", learnLevel: null });
+    expect(() => parseVersionedLevelLearnset(special)).toThrow(/No level-up source data/);
   });
 });
