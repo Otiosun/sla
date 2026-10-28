@@ -23,8 +23,8 @@ export function renderPokemonPcDepositSelection(snapshot: PokemonPcStorageSnapsh
       ...(team.length === 1
         ? [`◇ *${team[0]!.displayName}* · Equipe 01/06`, ""]
         : []),
-      "↑ \`/retirar\` · Traga outro Pokémon primeiro",
-      "‹ \`/pc\` · Voltar ao terminal",
+      "↑ `/retirar` · Traga outro Pokémon primeiro",
+      "‹ `/pc` · Voltar ao terminal",
     ].join("\n");
   }
 
