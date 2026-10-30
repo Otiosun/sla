@@ -51,7 +51,7 @@ CREATE TABLE solo_expedition_receipts (
   player_id UUID NOT NULL REFERENCES players(id),
   idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
   expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
-  operation TEXT NOT NULL CHECK (operation IN ('PREPARE', 'CHANGE_PERIOD', 'ADVANCE', 'END')),
+  operation TEXT NOT NULL CHECK (operation IN ('PREPARE', 'CHANGE_PERIOD', 'ADVANCE', 'END', 'ACTION_SEARCH_FREE')),
   fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
   result JSONB NOT NULL CHECK (jsonb_typeof(result) = 'object'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
