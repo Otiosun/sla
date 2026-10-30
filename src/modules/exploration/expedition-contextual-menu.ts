@@ -2,6 +2,10 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 export type ExpeditionMenuIntent =
   | "STATUS"
+  | "PREPARE_DAY"
+  | "PREPARE_NIGHT"
+  | "CHANGE_PERIOD"
+  | "CANCEL_PREPARATION"
   | "TEAM"
   | "BAG"
   | "DESTINATIONS"
