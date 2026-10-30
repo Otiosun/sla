@@ -84,7 +84,10 @@ export class PostgresIncidentalMenuSnapshots {
     try {
       await client.query("BEGIN");
       // Serialize duplicate attempts to issue one menu to the same trainer.
-      const player=await client.query("SELECT id FROM players WHERE id=$1 FOR UPDATE",[input.playerId]);
+      const player=await client.query(
+        "SELECT id FROM players WHERE id=$1 AND status='ACTIVE' AND EXISTS (SELECT 1 FROM onboarding_states WHERE player_id=$1 AND state='COMPLETE') FOR UPDATE",
+        [input.playerId],
+      );
       if(player.rowCount!==1) {
         await client.query("ROLLBACK");
         return err(appError("PLAYER_INELIGIBLE","Trainer not found"));
