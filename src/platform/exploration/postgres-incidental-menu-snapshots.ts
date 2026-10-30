@@ -182,6 +182,7 @@ export class PostgresIncidentalMenuSnapshots {
         return view;
       }
       const payload:StoredPanel={...view.value,
+        choices:[...view.value.choices],
         encounterRevision:view.value.encounterRevision.toString()};
       const menuId=randomUUID();
       await client.query(
