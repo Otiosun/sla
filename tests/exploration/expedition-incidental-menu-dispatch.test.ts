@@ -56,6 +56,38 @@ describe("server-referenced incidental message menu",()=>{
     });
   });
 
+  it("resolves the exact quoted WhatsApp provider/chat reference before capture",async()=>{
+    const f=fixture();
+    const ref={
+      provider:"baileys",chatRef:"120363-group@g.us",
+      externalMessageId:"sent-encounter-message",
+    };
+    const resolver={
+      resolveReply:vi.fn(async (_input:{playerId:typeof f.input.playerId;repliedTo:typeof ref})=>
+        ok(f.menu)),
+    };
+    const answer=await f.dispatcher.dispatchCaptureReply({
+      playerId:f.input.playerId,repliedTo:ref,resolver,
+      rawChoice:"2",inboxIdempotencyKey:"inbox:quoted-one",
+      correlationId:f.input.correlationId,causationId:null,
+    });
+    expect(answer.ok).toBe(true);
+    expect(resolver.resolveReply).toHaveBeenCalledWith({
+      playerId:f.input.playerId,repliedTo:ref,
+    });
+    expect(f.capture.attempt).toHaveBeenCalledTimes(1);
+    expect(f.capture.attempt.mock.calls[0]?.[0].idempotencyKey).toBe("inbox:quoted-one");
+    resolver.resolveReply.mockResolvedValueOnce(
+      err(appError("FLOW_BLOCKED","No menu for this reply")),
+    );
+    expect((await f.dispatcher.dispatchCaptureReply({
+      playerId:f.input.playerId,repliedTo:{...ref,chatRef:"wrong-group@g.us"},
+      resolver,rawChoice:"2",inboxIdempotencyKey:"inbox:other",
+      correlationId:f.input.correlationId,causationId:null,
+    })).ok).toBe(false);
+    expect(f.capture.attempt).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards the same inbox key across retries without regenerating a Ball ID",async()=>{
     const f=fixture();
     await f.dispatcher.dispatchCapture(f.input);
