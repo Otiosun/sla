@@ -16,11 +16,14 @@ import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/pl
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
 import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
+import { ExpeditionIncidentalTransportSeam } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
+import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
+import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
 import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
-import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { createCorrelationId, createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = (() => {
@@ -591,6 +594,61 @@ describe("encounter PostgreSQL integration", () => {
           }
 
 
+
+          // End-to-end in disposable PG: search outcome -> ENGAGED -> persisted
+          // menu -> simulated provider ACK -> real reply binding -> dispatch.
+          // The published fixture permits capture IN_BATTLE only, so the
+          // captured "2" must fail closed BEFORE any CaptureService invocation.
+          const deliveryBySeam={
+            provider:"baileys",chatRef:"other-game-group@g.us",
+            externalMessageId:"provider-ack-transport-seam",
+          };
+          let sendCount=0;
+          const transport=new ExpeditionIncidentalTransportSeam(
+            snapshots,binding,
+            {send:async (sent)=>{
+              sendCount++;
+              expect(sent.menuId).toBe(issued.menuId);
+              expect(sent.text).toBe(issued.menu.text);
+              expect(sent.provider).toBe(deliveryBySeam.provider);
+              expect(sent.chatRef).toBe(deliveryBySeam.chatRef);
+              return {ok:true as const,value:deliveryBySeam};
+            }},
+            new ExpeditionIncidentalMenuDispatcher(
+              snapshots,
+              new ExpeditionIncidentalCaptureAction(ownerGate,{
+                attempt:async()=>{throw Error("Never call CaptureService for unauthorized Ball")},
+              }),
+            ),
+          );
+          const presented=unwrap(await transport.present({
+            playerId,outcomeId:first.effectRef,canBattle:true,canIgnore:false,
+            combiningCount:0,provider:deliveryBySeam.provider,
+            chatRef:deliveryBySeam.chatRef,
+          }));
+          expect(sendCount).toBe(1);
+          expect(presented.menuId).toBe(issued.menuId);
+          expect(presented.text).toBe(issued.menu.text);
+          expect(unwrap(await binding.resolveReply({
+            playerId,repliedTo:deliveryBySeam,
+          })).menuId).toBe(issued.menuId);
+          const blockedCapture=await transport.captureQuotedReply({
+            playerId,provider:deliveryBySeam.provider,
+            chatRef:deliveryBySeam.chatRef,
+            quotedExternalMessageId:deliveryBySeam.externalMessageId,
+            rawChoice:"2",inboxIdempotencyKey:"inbox:quoted-approved-player",
+            correlationId:createCorrelationId(),causationId:null,
+          });
+          expect(blockedCapture).toMatchObject({
+            ok:false,error:{code:"FLOW_BLOCKED"},
+          });
+          expect((await transport.captureQuotedReply({
+            playerId:createPlayerId(),provider:deliveryBySeam.provider,
+            chatRef:deliveryBySeam.chatRef,
+            quotedExternalMessageId:deliveryBySeam.externalMessageId,
+            rawChoice:"2",inboxIdempotencyKey:"inbox:foreign-player",
+            correlationId:createCorrelationId(),causationId:null,
+          })).ok).toBe(false);
 
           expect((await snapshots.findForPlayer(createPlayerId(),issued.menuId)).ok).toBe(false);
           expect((await pool.query<{n:string}>(
