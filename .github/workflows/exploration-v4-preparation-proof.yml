@@ -1,0 +1,38 @@
+name: Exploration V4 Preparation Gate Proof
+on:
+  pull_request:
+    branches:
+      - integration/ux-combat-exploration-v4-20261030
+    paths:
+      - src/modules/exploration/expedition-v4-preparation-panel.ts
+      - src/modules/exploration/expedition-v4-active-panel.ts
+      - src/modules/exploration/expedition-contextual-menu.ts
+      - tests/exploration/expedition-v4-preparation-panel.test.ts
+      - tests/exploration/expedition-v4-active-panel.test.ts
+      - .github/workflows/exploration-v4-preparation-proof.yml
+permissions:
+  contents: read
+jobs:
+  preparation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Typecheck entire integrated bot
+        run: pnpm typecheck
+      - name: V4 opening, preparing, active, action authorization and native fold
+        run: |
+          pnpm exec vitest run \
+            tests/exploration/expedition-v4-preparation-panel.test.ts \
+            tests/exploration/expedition-v4-active-panel.test.ts \
+            tests/exploration/expedition-contextual-menu.test.ts \
+            tests/messaging/whatsapp-native-read-more.test.ts \
+            tests/messaging/pvp-whatsapp.test.ts
