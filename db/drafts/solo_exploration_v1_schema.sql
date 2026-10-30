@@ -62,3 +62,27 @@ COMMENT ON TABLE solo_expeditions IS
   'Draft V1.1 expedition lifecycle; no gameplay routes or live migrations.';
 COMMENT ON TABLE solo_expedition_receipts IS
   'Immutable at-most-once transition outcomes bound to idempotency fingerprints.';
+
+
+-- One durable search outcome per source expedition revision. This record and
+-- its canonical encounter (when present), time, weekly quota and receipt all
+-- belong to ONE caller-owned PostgreSQL transaction.
+-- NO_SIGNAL and TRAIL carry no fake grants, inventory or encounter.
+CREATE TABLE solo_expedition_search_outcomes (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id),
+  expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
+  expedition_revision BIGINT NOT NULL CHECK (expedition_revision >= 0),
+  kind TEXT NOT NULL CHECK (kind IN ('NO_SIGNAL', 'TRAIL', 'INCIDENTAL', 'DIRECT')),
+  encounter_id UUID NULL REFERENCES encounters(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT solo_search_encounter_requirements CHECK (
+    (kind IN ('NO_SIGNAL', 'TRAIL') AND encounter_id IS NULL)
+    OR (kind IN ('INCIDENTAL', 'DIRECT') AND encounter_id IS NOT NULL)
+  ),
+  UNIQUE(expedition_id, expedition_revision)
+);
+CREATE INDEX solo_search_outcomes_by_player
+  ON solo_expedition_search_outcomes(player_id, expedition_id);
+COMMENT ON TABLE solo_expedition_search_outcomes IS
+  'Draft, not live. Outcome selection is server-side only; no loot or encounter invented by UI.';
