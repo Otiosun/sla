@@ -45,6 +45,7 @@ export interface IncidentalEncounterPanel {
   readonly padded: boolean;
   readonly choices: readonly IncidentalAction[];
   readonly encounterRevision: bigint;
+  readonly encounterId: string;
 }
 
 const BALL_OPTIONS: Readonly<Record<IncidentalBallKind, {
@@ -122,6 +123,7 @@ export function renderExpeditionV4IncidentalPanel(
   return ok({
     visible, expanded, text: rendered.text, padded: rendered.padded,
     choices: options, encounterRevision: input.encounterRevision,
+    encounterId: input.encounterId,
   });
 }
 
@@ -134,8 +136,10 @@ export function selectCurrentIncidentalAction(input: {
   readonly raw: string | null;
   readonly menu: IncidentalEncounterPanel;
   readonly expectedEncounterRevision: bigint;
+  readonly expectedEncounterId: string;
 }): Result<IncidentalAction> {
-  if (input.expectedEncounterRevision !== input.menu.encounterRevision) {
+  if (input.expectedEncounterId !== input.menu.encounterId ||
+      input.expectedEncounterRevision !== input.menu.encounterRevision) {
     return err(appError("REVISION_CONFLICT", "Incidental encounter menu became stale"));
   }
   const raw = input.raw ?? "";
