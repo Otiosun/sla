@@ -573,6 +573,15 @@ describe("encounter PostgreSQL integration", () => {
             "SELECT count(*)::text AS n FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
             [issued.menuId],
           )).rows[0]?.n).toBe("1");
+          await expect(pool.query(
+            "UPDATE solo_incidental_menu_snapshots SET ball_item_ids='{}'::jsonb WHERE id=$1",
+            [issued.menuId],
+          )).rejects.toThrow(/immutable/u);
+          await expect(pool.query(
+            "DELETE FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
+            [issued.menuId],
+          )).rejects.toThrow(/immutable/u);
+
 
           expect((await snapshots.findForPlayer(createPlayerId(),issued.menuId)).ok).toBe(false);
           expect((await pool.query<{n:string}>(
