@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ExpeditionIncidentalTransportSeam,
 } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
-import { createCorrelationId, createPlayerId } from "../../src/shared-kernel/ids.js";
+import { createCorrelationId, createPlayerId, type EncounterId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
 import type { ProviderMessageReference } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
 import type { IssuedIncidentalMenu } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
@@ -11,7 +11,7 @@ import { renderExpeditionV4IncidentalPanel } from "../../src/modules/exploration
 
 function fixture() {
   const playerId = createPlayerId();
-  const encounterId = randomUUID();
+  const encounterId = randomUUID() as EncounterId;
   const view = renderExpeditionV4IncidentalPanel({
     source: "INCIDENTAL", encounterStatus: "ENGAGED",
     encounterId, encounterRevision: 2n, speciesName: "Zigzagoon",
