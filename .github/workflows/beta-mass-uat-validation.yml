@@ -1,0 +1,85 @@
+# Disposable PostgreSQL only. This workflow never connects to any production system.
+name: Beta Mass UAT (isolated PR)
+
+on:
+  pull_request:
+    branches:
+      - feat/pokemon-management-stage2-20261027
+    paths:
+      - "db/proofs/whatsapp_simulator_multi_actor_uat.ts"
+      - "db/proofs/whatsapp_simulator_stress_uat.ts"
+      - "db/proofs/whatsapp_simulator_deep_gameplay_uat.ts"
+      - ".github/workflows/beta-mass-uat-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-mass-uat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: isolated PG18 / ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [multi-and-deep, stress-12]
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokemon_rpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d pokemon_rpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      BELL_WORLD_TIME_OF_DAY: DAY
+      WHATSAPP_ENABLED: "false"
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout PR-only source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.23.0
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify disposable target; migrate
+        run: |
+          node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='localhost'||u.port!=='5432'||u.pathname!=='/pokemon_rpg_test'||process.env.APP_ENV!=='test')process.exit(1)"
+          pnpm db:migrate
+          pnpm db:verify
+      - name: Seed only synthetic test gameplay
+        run: |
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:seed:phase11
+          pnpm db:seed:phase12
+          pnpm ops:seed:whatsapp-simulator-fixture
+      - name: Multi-actor natural registration plus PvP/PvE
+        if: matrix.suite == 'multi-and-deep'
+        run: pnpm uat:whatsapp:multi
+      - name: Deep gameplay, capture, fishing, reward ledger
+        if: matrix.suite == 'multi-and-deep'
+        run: pnpm uat:whatsapp:deep
+      - name: 12 players, PvP, concurrency, security, retry
+        if: matrix.suite == 'stress-12'
+        run: pnpm uat:whatsapp:stress
