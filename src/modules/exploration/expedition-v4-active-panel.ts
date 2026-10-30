@@ -1,7 +1,7 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { renderWhatsAppNativeReadMore } from "../messaging/whatsapp-native-read-more.js";
 import type { ExpeditionMenuChoice } from "./expedition-contextual-menu.js";
-import { EXPEDITION_DURATION_MINUTES } from "./expedition-clock.js";
+import { EXPEDITION_DURATION_MINUTES, expeditionClock } from "./expedition-clock.js";
 
 /**
  * UX V4 shadow presenter. No WhatsApp route, command dispatcher, gameplay
@@ -56,11 +56,18 @@ export function renderExpeditionV4ActivePanel(
     input.phase !== "ACTIVE" ||
     !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(input.currentTime) ||
     !Number.isSafeInteger(input.elapsedMinutes) ||
-    input.elapsedMinutes < 0 ||
-    input.elapsedMinutes > EXPEDITION_DURATION_MINUTES ||
+    input.elapsedMinutes <= 0 ||
+    input.elapsedMinutes >= EXPEDITION_DURATION_MINUTES ||
+    !["DAY", "NIGHT"].includes(input.period) ||
     input.choices.length === 0
   ) {
     return err(appError("FLOW_BLOCKED", "No canonical ACTIVE expedition view is available"));
+  }
+
+  // The displayed clock must match the persisted period/minutes exactly;
+  // rendering a caller-invented clock risks misleading a player about costs.
+  if (expeditionClock(input.period, input.elapsedMinutes).currentTime !== input.currentTime) {
+    return err(appError("FLOW_BLOCKED", "Expedition clock is inconsistent with elapsed minutes"));
   }
 
   const seen = new Set<number>();
