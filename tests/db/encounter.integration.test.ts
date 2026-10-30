@@ -417,7 +417,9 @@ describe("encounter PostgreSQL integration", () => {
         "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
         [committed.effectRef, playerId],
       )).rows[0]?.n).toBe("1");
+      await client.query("BEGIN");
       expect(unwrap(await effect(client, snapshot)).effectRef).toBe(committed.effectRef);
+      await client.query("COMMIT");
     } finally {
       try { await client.query("ROLLBACK"); } catch { /* no open transaction */ }
       client.release();
