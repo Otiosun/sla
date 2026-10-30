@@ -26,8 +26,9 @@ function styledUpper(value: string): string {
 }
 
 export function renderFishingCast(result: FishingAttemptResult): string {
+  const pointName = result.fishingPointName.replace(/\s+/gu, " ").trim().slice(0, 80) || "Ponto de Pesca";
   return [
-    `⌁ *𝗥𝗜𝗢 𝗗𝗢𝗦 𝗔𝗥𝗥𝗢𝗭𝗔𝗜𝗦*`,
+    `⌁ *${styledUpper(pointName)}*`,
     "　🎣 Ponto de Pesca",
     "",
     "> _Você lança a linha e permanece em silêncio enquanto observa a superfície do rio._",
