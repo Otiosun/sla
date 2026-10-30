@@ -553,7 +553,9 @@ async function main(): Promise<void> {
       captureAttempts += 1;
       const result = await send({ actor: PLAYER_B, text: "/capturar Poké Ball" });
       const captureText = result.outbound.map(textOf).join(" | ");
-      if (/Pokémon capturado/iu.test(captureText)) {
+      // Actual renderer says "*Species* foi capturado.", not "Pokémon capturado".
+      // The persisted roster, Pokedex and ball ledger are audited below as well.
+      if (/(?:Pokémon capturado|foi capturad[oa])/iu.test(captureText.normalize("NFKC"))) {
         captured = true;
         add("PASS", "capture", "player-b", `capture attempt ${attempt}`, captureText);
       } else {
@@ -904,11 +906,14 @@ async function main(): Promise<void> {
         [rewardBattleId],
       );
       const rewardNoticeRow = rewardNotice.rows[0];
+      const rewardText = (rewardNoticeRow?.text ?? "").normalize("NFKC");
       add(
         rewardNoticeRow?.status === "SENT" &&
           rewardNoticeRow.destination_ref === WORLD &&
           rewardNoticeRow.internal_status === "SENT" &&
-          /RECOMPENSA DE BATALHA/iu.test(rewardNoticeRow.text ?? "")
+          /RECOMPENSA/iu.test(rewardText) &&
+          rewardText.includes(`@${PLAYER_B.split("@")[0]}`) &&
+          /\+\d+\s*XP/iu.test(rewardText)
           ? "PASS"
           : "GAP",
         "progression",
