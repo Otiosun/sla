@@ -1,0 +1,132 @@
+name: Exploration Incidental Game Group Gate Proof
+
+on:
+  pull_request:
+    branches:
+      - feat/exploration-incidental-inbound-admission-20261030
+    paths:
+      - src/platform/exploration/postgres-expedition-repository.ts
+      - src/modules/exploration/expedition-incidental-capture-action.ts
+      - src/platform/exploration/postgres-incidental-menu-snapshots.ts
+      - src/platform/exploration/postgres-incidental-menu-reply-binding.ts
+      - tests/db/encounter.integration.test.ts
+      - db/drafts/solo_exploration_v1_schema.sql
+      - src/modules/exploration/expedition-incidental-menu-dispatch.ts
+      - src/modules/exploration/expedition-incidental-transport-seam.ts
+      - db/proofs/phase10_capture_e2e.ts
+      - src/platform/exploration/incidental-menu-outbox-delivery-preparation.ts
+      - src/modules/exploration/expedition-incidental-incoming-admission.ts
+      - src/modules/exploration/expedition-incidental-game-group-admission.ts
+      - tests/exploration/expedition-incidental-game-group-admission.test.ts
+      - tests/exploration/expedition-incidental-incoming-admission.test.ts
+      - tests/exploration/incidental-menu-outbox-delivery-preparation.test.ts
+      - src/platform/exploration/expedition-published-outcome-policy.ts
+      - tests/exploration/expedition-published-outcome-policy.test.ts
+      - tests/exploration/expedition-incidental-transport-seam.test.ts
+      - tests/exploration/expedition-incidental-menu-dispatch.test.ts
+      - src/modules/exploration/expedition-incidental-encounter-engagement.ts
+      - src/platform/exploration/postgres-incidental-outcome-authorization.ts
+      - tests/exploration/expedition-incidental-capture-action.test.ts
+      - src/modules/exploration/expedition-v4-incidental-panel.ts
+      - tests/exploration/expedition-v4-incidental-panel.test.ts
+      - src/platform/encounter/postgres-encounter-repository.ts
+      - tests/db/encounter.integration.test.ts
+      - db/drafts/solo_exploration_v1_schema.sql
+      - tests/db/solo-expedition-repository.integration.test.ts
+      - .github/workflows/exploration-incidental-game-group-gate-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+      DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify disposable database target
+        run: |
+          node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='127.0.0.1'||u.port!=='5432'||u.pathname!=='/postgres'||process.env.APP_ENV!=='test')process.exit(1)"
+      - name: TypeScript and first-action transactional contracts
+        run: |
+          pnpm typecheck
+          pnpm exec vitest run tests/db/solo-expedition-repository.integration.test.ts tests/exploration/expedition-state.test.ts tests/db/encounter.integration.test.ts tests/exploration/expedition-v4-incidental-panel.test.ts tests/exploration/expedition-incidental-capture-action.test.ts tests/exploration/expedition-incidental-menu-dispatch.test.ts tests/exploration/expedition-incidental-transport-seam.test.ts tests/exploration/expedition-published-outcome-policy.test.ts tests/exploration/incidental-menu-outbox-delivery-preparation.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts
+
+
+  capture-engine:
+    name: Canonical Capture Phase10 real PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokemon_rpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d pokemon_rpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+      DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/pokemon_rpg_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Reject non-disposable PG connection
+        run: |
+          node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='127.0.0.1'||u.port!=='5432'||u.pathname!=='/pokemon_rpg_test'||process.env.APP_ENV!=='test')process.exit(1)"
+      - name: Migrate and seed canonical catalog only in disposable PG
+        run: |
+          pnpm db:migrate
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:verify
+      - name: Prove CaptureService inventory and TEAM BOX retry atomicity
+        run: |
+          pnpm exec vitest run tests/capture
+          EXPLORATION_INCIDENTAL_PHASE10_PROOF=true node --import tsx db/proofs/phase10_capture_e2e.ts
+          node --import tsx db/proofs/phase10_capture_outbox_replay.ts
