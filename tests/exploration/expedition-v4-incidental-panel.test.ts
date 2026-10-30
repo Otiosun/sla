@@ -7,7 +7,7 @@ import {
 
 const current: IncidentalEncounterPanelInput = {
   source: "INCIDENTAL",
-  encounterStatus: "PRESENTED",
+  encounterStatus: "ENGAGED",
   encounterId: "e4c48e48-35d5-4fd7-9fee-d69ce4cfa50e",
   encounterRevision: 7n,
   speciesName: "Zigzagoon",
@@ -108,7 +108,10 @@ describe("incidental V4 shadow scene: canonically authorized actions only", () =
       ...current, level: 0,
     }).ok).toBe(false);
     expect(renderExpeditionV4IncidentalPanel({
-      ...current, encounterStatus: "CREATED" as "PRESENTED",
+      ...current, encounterStatus: "CREATED" as "ENGAGED",
+    }).ok).toBe(false);
+    expect(renderExpeditionV4IncidentalPanel({
+      ...current, encounterStatus: "PRESENTED" as "ENGAGED",
     }).ok).toBe(false);
     expect(renderExpeditionV4IncidentalPanel({
       ...current, ignoreMinutes: 99 as 10,
