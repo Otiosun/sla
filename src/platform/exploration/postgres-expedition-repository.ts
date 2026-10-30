@@ -312,7 +312,8 @@ export class PostgresExpeditionRepository {
           AND area_rev.content_release_id = release.id AND area_rev.active = TRUE
          WHERE location.player_id = $1
            AND region.slug = 'zhoulia'
-           AND area.slug IN ('vila-dos-arrozais', 'campos-de-yun')`,
+           AND area.slug IN ('vila-dos-arrozais', 'campos-de-yun')
+         FOR UPDATE OF location`,
         [input.playerId],
       );
       const areaId = location.rows[0]?.area_id;
@@ -463,7 +464,8 @@ export class PostgresExpeditionRepository {
            JOIN area_revisions ar ON ar.area_id=area.id
              AND ar.content_release_id=release.id AND ar.active=TRUE
            WHERE loc.player_id=$1 AND region.slug='zhoulia'
-             AND area.slug IN ('vila-dos-arrozais','campos-de-yun')`,
+             AND area.slug IN ('vila-dos-arrozais','campos-de-yun')
+           FOR UPDATE OF loc`,
           [input.playerId],
         );
         if (location.rows[0]?.area_id !== original.areaId) {
