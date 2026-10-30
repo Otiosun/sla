@@ -24,7 +24,7 @@ export interface IncidentalBallAvailability {
 
 export interface IncidentalEncounterPanelInput {
   readonly source: "INCIDENTAL";
-  readonly encounterStatus: "PRESENTED" | "ENGAGED";
+  readonly encounterStatus: "ENGAGED";
   readonly encounterId: string;
   readonly encounterRevision: bigint;
   readonly speciesName: string;
@@ -63,7 +63,7 @@ export function renderExpeditionV4IncidentalPanel(
   const species = input.speciesName.replace(/\s+/gu, " ").trim();
   if (
     input.source !== "INCIDENTAL" ||
-    !["PRESENTED", "ENGAGED"].includes(input.encounterStatus) ||
+    input.encounterStatus !== "ENGAGED" ||
     !/^[a-f0-9-]{36}$/iu.test(input.encounterId) ||
     input.encounterRevision < 0n ||
     species.length === 0 ||
