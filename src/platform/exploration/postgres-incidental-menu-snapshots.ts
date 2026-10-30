@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import { z } from "zod";
 import { RulesetConfigSchema, EffectConfigSchemas } from "../../modules/catalog/contracts.js";
 import {
@@ -57,7 +57,13 @@ function decode(row:ReceiptRow):Result<IssuedIncidentalMenu> {
       return err(appError("INVALID_STATE_TRANSITION","Persisted Ball mapping is invalid"));
     }
   }
-  return ok({menuId:row.id,outcomeId:row.outcome_id,menu,ballItemIds:mapping.data});
+  // Zod .optional() allows explicit undefined, but the domain's exact
+  // optional-properties contract allows only absent keys or actual item IDs.
+  const ballItemIds:Partial<Record<IncidentalBallKind,string>>={};
+  if(mapping.data.POKE!==undefined)ballItemIds.POKE=mapping.data.POKE;
+  if(mapping.data.GREAT!==undefined)ballItemIds.GREAT=mapping.data.GREAT;
+  if(mapping.data.ULTRA!==undefined)ballItemIds.ULTRA=mapping.data.ULTRA;
+  return ok({menuId:row.id,outcomeId:row.outcome_id,menu,ballItemIds});
 }
 
 /**
