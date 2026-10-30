@@ -499,6 +499,32 @@ describe("encounter PostgreSQL integration", () => {
         )).rows[0]?.n).toBe("2");
         expect((await store.current(playerId))?.consumedWeekKey).not.toBeNull();
       }
+      const fakePlayerId = await createEligiblePlayer(client, fixture.areaId);
+      const fakeStore = new PostgresExpeditionRepository(
+        pool, new ManualClock(FIXED_NOW), "America/Maceio",
+      );
+      const preparedFake = unwrap(await fakeStore.prepare({
+        playerId: fakePlayerId, period: "NIGHT", idempotencyKey: "fake-preparation",
+      })).expedition;
+      const fabricated = createSearchOutcomeEffect({
+        policy: { decide: async () => ({ ok: true as const, value: { kind: "DIRECT" as const } }) },
+        encounter: async () => ({ ok: true as const, value: { effectRef: randomUUID() } }),
+      });
+      expect(await fakeStore.executeSearchFree({
+        playerId: fakePlayerId,
+        expeditionId: preparedFake.expeditionId,
+        expectedRevision: 0n,
+        idempotencyKey: "fake-result-blocked",
+        effect: fabricated,
+      })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+      expect(await fakeStore.current(fakePlayerId)).toMatchObject({
+        phase: "PREPARING", elapsedMinutes: 0,
+        consumedWeekKey: null, revision: 0n,
+      });
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+        [fakePlayerId],
+      )).rows[0]?.n).toBe("0");
     } finally {
       await client.query("UPDATE areas SET slug='phase8-route' WHERE id=$1", [fixture.areaId]);
       await client.query("UPDATE regions SET slug='phase8-kanto' WHERE id=$1", [regionId]);
