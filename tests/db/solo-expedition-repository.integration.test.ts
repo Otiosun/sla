@@ -20,6 +20,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let pool: Pool;
   let clock: ManualClock;
   let store: PostgresExpeditionRepository;
+  let publishedReleaseId: string;
 
   async function trainer(): Promise<PlayerId> {
     const id = createPlayerId();
@@ -35,6 +36,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       region,
       "solo-area-" + area,
     ]);
+    await pool.query(
+      "INSERT INTO region_revisions(id, content_release_id, region_id, display_name, active, data) VALUES ($1,$2,$3,$4,TRUE,'{}'::jsonb)",
+      [randomUUID(), publishedReleaseId, region, "Solo Region " + region],
+    );
+    await pool.query(
+      "INSERT INTO area_revisions(id, content_release_id, area_id, display_name, active, data) VALUES ($1,$2,$3,$4,TRUE,$5::jsonb)",
+      [randomUUID(), publishedReleaseId, area, "Solo Area " + area,
+        JSON.stringify({ schemaVersion: 1, kind: "ROUTE", safePoint: false, startingArea: false, relocationPriority: 10 })],
+    );
     await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [id, area]);
     return id;
   }
@@ -68,6 +78,33 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       "utf8",
     );
     await pool.query(sql);
+    const rulesetId = randomUUID();
+    publishedReleaseId = randomUUID();
+    await pool.query(
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,'{}'::jsonb,'DRAFT')",
+      [rulesetId],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [rulesetId, JSON.stringify({valid:true, issues:[]}), "a".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [rulesetId]);
+    await pool.query(
+      "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
+      [publishedReleaseId, rulesetId],
+    );
+    await pool.query(
+      "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
+      [publishedReleaseId, JSON.stringify({valid:true,issues:[]}), "b".repeat(64)],
+    );
+    await pool.query(
+      "UPDATE content_releases SET status='PUBLISHED',published_at=now() WHERE id=$1",
+      [publishedReleaseId],
+    );
+    await pool.query(
+      "INSERT INTO content_release_pointers(pointer_key,content_release_id) VALUES ('ACTIVE',$1)",
+      [publishedReleaseId],
+    );
     clock = new ManualClock(new Date("2026-10-19T12:00:00Z"));
     store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
   }, 30_000);
@@ -78,6 +115,32 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
       await adminPool.end();
     }
+  });
+
+  it("fails closed if the current area was removed from the ACTIVE PUBLISHED release", async () => {
+    const playerId = await trainer();
+    await pool.query(
+      "UPDATE area_revisions SET active=FALSE WHERE content_release_id=$1 AND area_id=(SELECT area_id FROM player_locations WHERE player_id=$2)",
+      [publishedReleaseId, playerId],
+    );
+    const blocked = await store.prepare({
+      playerId, period: "DAY", idempotencyKey: "unpublished-area",
+    });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(0);
+  });
+
+  it("fails closed if the entire region is inactive in the published release", async () => {
+    const playerId = await trainer();
+    await pool.query(
+      "UPDATE region_revisions SET active=FALSE WHERE content_release_id=$1 AND region_id=(SELECT area.region_id FROM player_locations location JOIN areas area ON area.id=location.area_id WHERE location.player_id=$2)",
+      [publishedReleaseId, playerId],
+    );
+    expect(await store.prepare({
+      playerId, period: "NIGHT", idempotencyKey: "unpublished-region",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
   });
 
   it("persists free preparation and restores its location after reconstruction", async () => {
