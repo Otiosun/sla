@@ -119,13 +119,19 @@ function validateKey(key: string): Result<void> {
 }
 
 async function lockedPlayer(client: PoolClient, playerId: PlayerId): Promise<Result<void>> {
-  const player = await client.query<{ status: string }>(
-    "SELECT status FROM players WHERE id = $1 FOR UPDATE",
+  const player = await client.query<{ status: string; onboarding_complete: boolean }>(
+    `SELECT player.status,
+            EXISTS (
+              SELECT 1 FROM onboarding_states onboarding
+              WHERE onboarding.player_id = player.id AND onboarding.state = 'COMPLETE'
+            ) AS onboarding_complete
+     FROM players AS player
+     WHERE player.id = $1 FOR UPDATE`,
     [playerId],
   );
-  return player.rows[0]?.status === "ACTIVE"
+  return player.rows[0]?.status === "ACTIVE" && player.rows[0]?.onboarding_complete === true
     ? ok(undefined)
-    : err(appError("PLAYER_INELIGIBLE", "Only active trainers may start or change an expedition"));
+    : err(appError("PLAYER_INELIGIBLE", "Only active trainers with completed onboarding may start or change an expedition"));
 }
 
 async function replay(
