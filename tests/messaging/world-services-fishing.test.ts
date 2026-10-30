@@ -143,6 +143,16 @@ describe("Fishing WhatsApp flow", () => {
     expect(result.value.resultRefId).toBe(ENCOUNTER_ID);
   });
 
+  it("uses the actual published fishing point in the first scene, never a fixed location", async () => {
+    const current = fishingRoute(fishingResult({ fishingPointName: "Canal Azul" }));
+    const response = await current.route.handler.handle(context("03"));
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    expect(response.value.outgoing[0]?.payload.text).toContain("𝗖𝗔𝗡𝗔𝗟 𝗔𝗭𝗨𝗟");
+    expect(response.value.outgoing[0]?.payload.text).not.toContain("𝗥𝗜𝗢 𝗗𝗢𝗦 𝗔𝗥𝗥𝗢𝗭𝗔𝗜𝗦");
+    expect(response.value.outgoing[2]?.payload.text).toContain("Canal Azul");
+  });
+
   it("renders a consumed no-encounter attempt without fabricating an encounter", async () => {
     const current = fishingRoute(
       fishingResult({ roll: 9, rarity: null, encounter: null, remainingAttempts: 1 }),
