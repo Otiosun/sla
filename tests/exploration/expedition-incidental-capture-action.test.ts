@@ -8,6 +8,7 @@ import {
 } from "../../src/modules/exploration/expedition-v4-incidental-panel.js";
 import { createCorrelationId, createPlayerId, type EncounterId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
+import type { CaptureAttemptInput } from "../../src/modules/capture/contracts.js";
 
 const playerId = createPlayerId();
 const correlationId = createCorrelationId();
@@ -42,7 +43,7 @@ function setup() {
     rollBasisPoints: 6500, pokemonInstanceId: null, placement: null,
     replayed: false as const, events: [],
   };
-  const capture = { attempt: vi.fn(async () => ok(captureResult)) };
+  const capture = { attempt: vi.fn(async (_input: CaptureAttemptInput) => ok(captureResult)) };
   const action = new ExpeditionIncidentalCaptureAction(authorize, capture);
   const base = {
     playerId, rawChoice: "2", expectedEncounterId: encounterId,
