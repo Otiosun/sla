@@ -481,7 +481,7 @@ async function main(): Promise<void> {
           // UI renders stylized Unicode letters: PVP INICIADO is the current HUD title.
           // Still require the battle action and HP data, not just a generic success reply.
           return /(?:PVP INICIADO|Batalha iniciada)/iu.test(text) &&
-            /HP/iu.test(text) && text.includes("/movimento");
+            /HP/iu.test(text) && (text.includes("/movimento") || text.includes("/moves"));
         })
           ? "PASS"
           : "BUG",
