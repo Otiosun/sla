@@ -61,13 +61,13 @@ describe("incidental V4 shadow scene: canonically authorized actions only", () =
     expect(shown.value.expanded).not.toContain("Poké Ball");
     expect(shown.value.expanded).not.toContain("Ultra Ball");
     expect(selectCurrentIncidentalAction({
-      raw: "2", menu: shown.value, expectedEncounterRevision: 7n,
+      raw: "2", menu: shown.value, expectedEncounterRevision: 7n, expectedEncounterId: current.encounterId,
     })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(selectCurrentIncidentalAction({
-      raw: "3", menu: shown.value, expectedEncounterRevision: 7n,
+      raw: "3", menu: shown.value, expectedEncounterRevision: 7n, expectedEncounterId: current.encounterId,
     })).toMatchObject({ ok: true, value: { optionNo: 3, kind: "CAPTURE", ball: "GREAT" } });
     expect(selectCurrentIncidentalAction({
-      raw: "0", menu: shown.value, expectedEncounterRevision: 7n,
+      raw: "0", menu: shown.value, expectedEncounterRevision: 7n, expectedEncounterId: current.encounterId,
     })).toMatchObject({ ok: true, value: { kind: "IGNORE", optionNo: 0 } });
   });
 
@@ -75,11 +75,15 @@ describe("incidental V4 shadow scene: canonically authorized actions only", () =
     const shown = renderExpeditionV4IncidentalPanel(current);
     if (!shown.ok) throw new Error("Test fixture must render");
     expect(selectCurrentIncidentalAction({
-      raw: "2", menu: shown.value, expectedEncounterRevision: 8n,
+      raw: "2", menu: shown.value, expectedEncounterRevision: 8n, expectedEncounterId: current.encounterId,
+    })).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    expect(selectCurrentIncidentalAction({
+      raw: "2", menu: shown.value, expectedEncounterRevision: 7n,
+      expectedEncounterId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     })).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
     for (const raw of ["23", "2 3", "/capturar", "Pokebola", "", "5"]) {
       expect(selectCurrentIncidentalAction({
-        raw, menu: shown.value, expectedEncounterRevision: 7n,
+        raw, menu: shown.value, expectedEncounterRevision: 7n, expectedEncounterId: current.encounterId,
       }).ok).toBe(false);
     }
     expect(renderExpeditionV4IncidentalPanel({
