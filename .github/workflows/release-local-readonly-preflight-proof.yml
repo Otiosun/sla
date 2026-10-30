@@ -1,0 +1,46 @@
+name: Release Read-Only Preflight Proof
+
+on:
+  pull_request:
+    branches:
+      - fix/uat-registration-profession-20261030
+    paths:
+      - "scripts/operations/release-local-readonly-preflight.ps1"
+      - ".github/workflows/release-local-readonly-preflight-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify preflight against disposable Git folder
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $fixture = Join-Path $env:RUNNER_TEMP "beyond-preflight-fixture"
+          New-Item -ItemType Directory -Path $fixture -Force | Out-Null
+          git -C $fixture init
+          git -C $fixture config user.email "bot@example.invalid"
+          git -C $fixture config user.name "Bot Fixture"
+          Set-Content -Path (Join-Path $fixture 'fixture.txt') -Value "synthetic" -Encoding ASCII
+          git -C $fixture add fixture.txt
+          git -C $fixture commit -m "synthetic test only"
+          $before = @(git --no-optional-locks -C $fixture status --porcelain=v1)
+          $output = @(powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/operations/release-local-readonly-preflight.ps1 -BotDirectory $fixture)
+          if ($LASTEXITCODE -ne 0) { throw "Read-only preflight failed" }
+          $combined = $output -join "`n"
+          if ($combined -notmatch '(?s)\{.*\}') { throw "Missing JSON report" }
+          $report = $Matches[0] | ConvertFrom-Json
+          if ($report.reportType -ne 'POKEMON_BEYOND_RELEASE_PREFLIGHT_READONLY') { throw "Wrong report" }
+          if ($report.deploymentSafeToProceed -ne $false) { throw "Release must be blocked" }
+          if ($report.gitTrackedChanges -ne 0 -or $report.gitUntrackedFiles -ne 0) { throw "Unexpected files" }
+          $after = @(git --no-optional-locks -C $fixture status --porcelain=v1)
+          if (($before -join ';') -ne ($after -join ';')) { throw "Fixture modified" }
+          Write-Output "RELEASE_PREFLIGHT_READONLY_PASS"
