@@ -3,7 +3,7 @@ import { renderWhatsAppNativeReadMore } from "../messaging/whatsapp-native-read-
 
 /**
  * V4 incidental encounter preview (SHADOW ONLY). An authorized caller must
- * supply a real PRESENTED/ENGAGED encounter, its published species display,
+ * supply a real ENGAGED encounter, its published species display,
  * current capture eligibility, inventory and live menu revision.
  *
  * No WhatsApp route, battle, capture, inventory debit or encounter mutation.
