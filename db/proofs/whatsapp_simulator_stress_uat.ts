@@ -180,6 +180,7 @@ function fullFicha(index: number, starter: string): string {
     `Aparência: Viajante de Zhoulia número ${index + 1}, mochila e roupa de campo.`,
     `Personalidade: ${index % 3 === 0 ? "Impulsivo" : "Observador"}, curioso e cooperativo.`,
     `História / resumo: Entrou no RPG para explorar Zhoulia no cenário de stress ${index + 1}.`,
+    "Profissão: Explorador",
     `Pokémon inicial: ${starter}`,
   ].join("\n");
 }
@@ -302,7 +303,7 @@ async function main(): Promise<void> {
         (entry) => typeof entry.message.payload.registrationReview === "object",
       );
       if (review === undefined) {
-        add("BUG", "registration", `submit player ${index + 1}`, "review notification missing");
+        add("BUG", "registration", `submit player ${index + 1}`, "review notification missing; last reply: " + (submitted.outbound.map(textOf).join(" | ") || "(none)"));
         continue;
       }
       const admin = OWNER_ADMINS[index % OWNER_ADMINS.length];
