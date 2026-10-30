@@ -14,6 +14,7 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
 import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
+import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
@@ -488,6 +489,14 @@ describe("encounter PostgreSQL integration", () => {
           playerId, encounterId: outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId,
           outcomeId: first.effectRef,
         })).toBe(kind === "INCIDENTAL");
+
+        if (kind === "DIRECT") {
+          const directMenu=await new PostgresIncidentalMenuSnapshots(pool).issue({
+            playerId,outcomeId:first.effectRef,canBattle:true,canIgnore:false,
+            combiningCount:0,
+          });
+          expect(directMenu).toMatchObject({ok:false,error:{code:"FLOW_BLOCKED"}});
+        }
         expect(await ownerGate.belongsToPlayer({
           playerId: createPlayerId(),
           encounterId: outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId,
@@ -509,6 +518,33 @@ describe("encounter PostgreSQL integration", () => {
           }));
           expect(same.status).toBe("ENGAGED");
           expect(same.revision).toBe(ready.revision);
+          const snapshots = new PostgresIncidentalMenuSnapshots(pool);
+          const issuance = {
+            playerId, outcomeId:first.effectRef,
+            canBattle:true, canIgnore:false, combiningCount:0,
+          };
+          const issued = unwrap(await snapshots.issue(issuance));
+          expect(issued.outcomeId).toBe(first.effectRef);
+          expect(issued.menu.encounterId).toBe(target);
+          expect(issued.menu.encounterRevision).toBe(ready.revision);
+          // Fixture Capture ruleset permits IN_BATTLE only. Do not offer a
+          // one-tap Ball even if the UI would like to show one.
+          expect(issued.menu.choices).toEqual([{optionNo:1,kind:"BATTLE"}]);
+          expect(issued.ballItemIds).toEqual({});
+          const retries = await Promise.all(Array.from({length:4},
+            () => snapshots.issue({...issuance,canIgnore:true,combiningCount:450})));
+          for(const attempt of retries) {
+            expect(unwrap(attempt).menuId).toBe(issued.menuId);
+            expect(unwrap(attempt).menu.text).toBe(issued.menu.text);
+          }
+          expect(unwrap(await snapshots.findForPlayer(playerId,issued.menuId)).menu)
+            .toEqual(issued.menu);
+          expect((await snapshots.findForPlayer(createPlayerId(),issued.menuId)).ok).toBe(false);
+          expect((await pool.query<{n:string}>(
+            "SELECT count(*)::text AS n FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
+            [first.effectRef],
+          )).rows[0]?.n).toBe("1");
+
           expect(await prepareIncidentalEncounterForCapture(deps, {
             playerId: createPlayerId(), encounterId: target, outcomeId: first.effectRef,
           })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
