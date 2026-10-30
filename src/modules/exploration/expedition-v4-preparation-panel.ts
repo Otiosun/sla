@@ -38,7 +38,7 @@ export interface ExpeditionV4PresentedPanel {
 
 function safeLocation(value: string): string | null {
   const sanitized = value
-    .replace(/[\r\n*_~`/<>]/gu, " ")
+    .replace(/[\r\n*_~`\/<>]/gu, " ")
     .replace(/\p{Cc}/gu, " ")
     .replace(/\u031d/gu, "")
     .replace(/\s+/gu, " ")
@@ -69,7 +69,7 @@ function safeMenu(
       return err(appError("VALIDATION_FAILED", "Invalid or repeated expedition action"));
     }
     const label = choice.label
-      .replace(/[\r\n*_~`/<>]/gu, " ")
+      .replace(/[\r\n*_~`\/<>]/gu, " ")
       .replace(/\p{Cc}/gu, " ")
       .replace(/\u031d/gu, "")
       .replace(/\s+/gu, " ")
