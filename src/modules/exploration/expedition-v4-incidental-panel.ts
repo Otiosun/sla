@@ -67,7 +67,7 @@ export function renderExpeditionV4IncidentalPanel(
     input.encounterRevision < 0n ||
     species.length === 0 ||
     species.length > 70 ||
-    /[*_~`<>[\]\u031d]|\p{Cc}/u.test(species) ||
+    !/^[\p{L}\p{N} .:'’!?♀♂-]+$/u.test(species) ||
     !Number.isSafeInteger(input.level) ||
     input.level < 1 || input.level > 100 ||
     input.ignoreMinutes !== 10 ||
@@ -83,7 +83,11 @@ export function renderExpeditionV4IncidentalPanel(
     actions.push("1. ⚔️ Batalhar");
   }
   const captureLines: string[] = [];
-  for (const ball of input.balls) {
+  // Preserve the canonical 2/3/4 hierarchy even if inventory rows arrive unsorted.
+  const sortedBalls = [...input.balls].sort(
+    (a, b) => (BALL_OPTIONS[a.kind]?.optionNo ?? 99) - (BALL_OPTIONS[b.kind]?.optionNo ?? 99),
+  );
+  for (const ball of sortedBalls) {
     if (seenBalls.has(ball.kind) || !(ball.kind in BALL_OPTIONS) ||
       !Number.isSafeInteger(ball.quantity) || ball.quantity < 0 || ball.quantity > 9999) {
       return err(appError("VALIDATION_FAILED", "Invalid current Ball availability"));
