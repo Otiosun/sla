@@ -141,3 +141,37 @@ CREATE TRIGGER solo_incidental_menu_immutable
 CREATE TRIGGER solo_incidental_menu_delivery_immutable
   BEFORE UPDATE OR DELETE ON solo_incidental_menu_deliveries
   FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
+
+
+-- DRAFT ONLY: author-approved area/period search-result weights. No default
+-- percentages are invented. Published content is not editable from gameplay.
+CREATE TABLE solo_search_outcome_policies (
+  id UUID PRIMARY KEY,
+  content_release_id UUID NOT NULL REFERENCES content_releases(id),
+  area_id UUID NOT NULL REFERENCES areas(id),
+  period TEXT NOT NULL CHECK (period IN ('DAY', 'NIGHT')),
+  weights JSONB NOT NULL CHECK (jsonb_typeof(weights) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(content_release_id, area_id, period)
+);
+COMMENT ON TABLE solo_search_outcome_policies IS
+  'Draft-only: approved 10000-basis-point outcome weights; none seeded or inferred.';
+
+CREATE FUNCTION prevent_unapproved_search_policy_write() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE release_status TEXT;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    SELECT status INTO release_status FROM content_releases WHERE id=OLD.content_release_id;
+  ELSE
+    SELECT status INTO release_status FROM content_releases WHERE id=NEW.content_release_id;
+  END IF;
+  IF release_status IS DISTINCT FROM 'DRAFT' THEN
+    RAISE EXCEPTION 'Outcome weights may be authored only before release approval';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+CREATE TRIGGER solo_search_outcome_policy_draft_only
+  BEFORE INSERT OR UPDATE OR DELETE ON solo_search_outcome_policies
+  FOR EACH ROW EXECUTE FUNCTION prevent_unapproved_search_policy_write();
