@@ -6,6 +6,7 @@ import type { CaptureAttemptInput } from "../../src/modules/capture/contracts.js
 import { renderExpeditionV4IncidentalPanel } from "../../src/modules/exploration/expedition-v4-incidental-panel.js";
 import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
 import { ExpeditionIncidentalMenuDispatcher, type SentMessageMenuResolver } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
+import type { IssuedIncidentalMenu } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 
 
 function fixture() {
@@ -97,10 +98,11 @@ describe("server-referenced incidental message menu",()=>{
 
   it("rejects missing or foreign server menu references before ever touching CaptureService",async()=>{
     const f=fixture();
-    f.menus.findForPlayer.mockResolvedValueOnce(
-      err(appError("FLOW_BLOCKED","No issued menu for this trainer")),
+    const unavailable = new ExpeditionIncidentalMenuDispatcher(
+      { findForPlayer:async()=>err(appError("FLOW_BLOCKED","No issued menu for this trainer")) },
+      new ExpeditionIncidentalCaptureAction(f.authorize,f.capture),
     );
-    expect((await f.dispatcher.dispatchCapture(f.input)).ok).toBe(false);
+    expect((await unavailable.dispatchCapture(f.input)).ok).toBe(false);
     expect(f.capture.attempt).not.toHaveBeenCalled();
     const wrongId={...f.input,rawChoice:"4"};
     expect((await f.dispatcher.dispatchCapture(wrongId)).ok).toBe(false);
