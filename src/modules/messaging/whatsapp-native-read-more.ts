@@ -31,20 +31,24 @@ export interface WhatsAppReadMoreResult {
  * No options are removed or re-numbered, and no gameplay state changes here.
  */
 export function renderWhatsAppNativeReadMore(input: WhatsAppReadMoreInput): WhatsAppReadMoreResult {
-  const fallback = [input.visible, input.expanded].join("\n\n");
+  // The design marker is not part of the player-facing payload.
+  const visible = input.visible.replaceAll("[Ler mais]", "").trimEnd();
+  const expanded = input.expanded.replaceAll("[Ler mais]", "").trimStart();
+  const fallback = [visible, expanded].join("\n\n");
   if (
-    input.visible.trim().length === 0 ||
-    input.expanded.trim().length === 0 ||
+    visible.trim().length === 0 ||
+    expanded.trim().length === 0 ||
     input.visible.includes("[Ler mais]") ||
     input.expanded.includes("[Ler mais]")
   ) {
     return { text: fallback, padded: false, reason: "INVALID_CONTENT" };
   }
-  if (!Number.isSafeInteger(input.combiningCount) || input.combiningCount <= 0) {
+  if (!Number.isSafeInteger(input.combiningCount) || input.combiningCount <= 0 ||
+    input.combiningCount > 16384) {
     return { text: fallback, padded: false, reason: "UNCALIBRATED" };
   }
   const separator = WHATSAPP_READ_MORE_COMBINING_CHARACTER.repeat(input.combiningCount);
-  const folded = [input.visible, separator, input.expanded].join("\n\n");
+  const folded = [visible, separator, expanded].join("\n\n");
   if (
     input.maxCodeUnits !== undefined &&
     (!Number.isSafeInteger(input.maxCodeUnits) ||
