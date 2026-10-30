@@ -136,6 +136,7 @@ function fullFicha(name: string, starter: string, variant: string): string {
     `Aparência: Casaco de viagem, mochila leve e marcador ${variant}.`,
     `Personalidade: Curioso, prudente e competitivo; perfil ${variant}.`,
     `História / resumo: Saiu para explorar Zhoulia, registrar espécies e testar o sistema como ${variant}.`,
+    "Profissão: Explorador",
     `Pokémon inicial: ${starter}`,
   ].join("\n");
 }
@@ -151,7 +152,6 @@ async function main(): Promise<void> {
       maintenanceBatchSize: 50,
       encryptionKeys: new Map([[1, key]]),
     },
-    now: () => new Date("2026-09-20T00:30:00.000Z"),
   });
 
   const adapter = operational.adapter;
@@ -355,14 +355,14 @@ async function main(): Promise<void> {
     await replyLast(PLAYER_A, RECEPTION, "2");
     await replyLast(PLAYER_A, RECEPTION, fullFicha("Ari Voss", starterA, "A"));
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar" });
-    await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar sim" });
+    const submissionA1 = await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar sim" });
 
     const reviewA1 = latestBot(
       RECEPTION,
       (entry) => typeof entry.message.payload.registrationReview === "object",
     );
     if (reviewA1 === null) {
-      add("BUG", "registration", "player-a", "submit", "no admin review notification");
+      add("BUG", "registration", "player-a", "submit", "no admin review notification; last reply: " + (submissionA1.outbound.map(textOf).join(" | ") || "(none)"));
     } else {
       const rogue = await send({
         actor: ROGUE,
@@ -401,14 +401,14 @@ async function main(): Promise<void> {
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/modo completo" });
     await replyLast(PLAYER_A, RECEPTION, fullFicha("Ari Voss", starterA, "A-revisado"));
     await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar" });
-    await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar sim" });
+    const submissionA2 = await send({ actor: PLAYER_A, chat: RECEPTION, text: "/confirmar sim" });
 
     const reviewA2 = latestBot(
       RECEPTION,
       (entry) => typeof entry.message.payload.registrationReview === "object",
     );
     if (reviewA2 === null) {
-      add("BUG", "registration", "player-a", "resubmit", "second review notification missing");
+      add("BUG", "registration", "player-a", "resubmit", "second review notification missing; last reply: " + (submissionA2.outbound.map(textOf).join(" | ") || "(none)"));
     } else {
       const approved = await send({
         actor: REVIEW_ADMIN,
@@ -438,19 +438,20 @@ async function main(): Promise<void> {
       "Cabelo curto, capa azul e mochila de campo.",
       "Paciente, observadora e competitiva.",
       "Quer mapear Zhoulia e compreender seus Pokémon selvagens.",
+      "Pesquisador",
       starterB,
     ]) {
       await replyLast(PLAYER_B, RECEPTION, value);
     }
     await send({ actor: PLAYER_B, chat: RECEPTION, text: "/confirmar" });
-    await send({ actor: PLAYER_B, chat: RECEPTION, text: "/confirmar sim" });
+    const submissionB = await send({ actor: PLAYER_B, chat: RECEPTION, text: "/confirmar sim" });
 
     const reviewB = latestBot(RECEPTION, (entry) => {
       const review = entry.message.payload.registrationReview;
       return typeof review === "object" && entry !== reviewA2;
     });
     if (reviewB === null) {
-      add("BUG", "registration", "player-b", "guided submit", "review notification missing");
+      add("BUG", "registration", "player-b", "guided submit", "review notification missing; last reply: " + (submissionB.outbound.map(textOf).join(" | ") || "(none)"));
     } else {
       await send({
         actor: OWNER_ADMIN,
