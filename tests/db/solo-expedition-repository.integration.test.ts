@@ -29,6 +29,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const id = createPlayerId();
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [id]);
     await pool.query(
+      "INSERT INTO onboarding_states(player_id,state,starter_claim_key,completed_at) VALUES ($1,'COMPLETE','exploration-fixture',now())",
+      [id],
+    );
+    await pool.query(
       "INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)",
       [id, areaId ?? activeAreaId],
     );
@@ -125,6 +129,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
       await adminPool.end();
     }
+  });
+
+  it("rejects an ACTIVE but unregistered player before creating a PREPARING receipt", async () => {
+    const playerId = createPlayerId();
+    await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [playerId]);
+    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [
+      playerId, activeAreaId,
+    ]);
+    expect(await store.prepare({
+      playerId, period: "DAY", idempotencyKey: "unregistered-player",
+    })).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(0);
   });
 
   it("fails closed if the current area was removed from the ACTIVE PUBLISHED release", async () => {
