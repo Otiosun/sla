@@ -42,10 +42,10 @@ function timeRemaining(minutes: number): string {
 
 function safeChoiceLabel(value: string): string {
   return value
-    .replace(/[\\r\\n*_~`<>]/gu, " ")
-    .replace(/\\p{Cc}/gu, " ")
-    .replace(/\\u031d/gu, "")
-    .replace(/\\s+/gu, " ")
+    .replace(/[\r\n*_~`<>]/gu, " ")
+    .replace(/\p{Cc}/gu, " ")
+    .replace(/\u031d/gu, "")
+    .replace(/\s+/gu, " ")
     .trim();
 }
 
@@ -54,7 +54,7 @@ export function renderExpeditionV4ActivePanel(
 ): Result<ExpeditionV4ActivePanel> {
   if (
     input.phase !== "ACTIVE" ||
-    !/^(?:[01]\\d|2[0-3]):[0-5]\\d$/u.test(input.currentTime) ||
+    !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(input.currentTime) ||
     !Number.isSafeInteger(input.elapsedMinutes) ||
     input.elapsedMinutes < 0 ||
     input.elapsedMinutes > EXPEDITION_DURATION_MINUTES ||
@@ -86,8 +86,8 @@ export function renderExpeditionV4ActivePanel(
     "◇ *𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*",
     `${input.period === "DAY" ? "☀️" : "🌙"} *${input.currentTime}*`,
     `⌛ Restam \`${timeRemaining(EXPEDITION_DURATION_MINUTES - input.elapsedMinutes)}\``,
-  ].join("\\n");
-  const expanded = options.join("\\n");
+  ].join("\n");
+  const expanded = options.join("\n");
   const rendered = renderWhatsAppNativeReadMore({
     visible,
     expanded,
