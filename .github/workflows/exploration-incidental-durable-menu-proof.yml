@@ -9,7 +9,7 @@ on:
       - src/modules/exploration/expedition-incidental-capture-action.ts
       - src/modules/exploration/expedition-incidental-encounter-engagement.ts
       - src/platform/exploration/postgres-incidental-outcome-authorization.ts
-      - tests/exploration/expedition-incidental-capture-action.test.ts tests/exploration/expedition-incidental-menu-store.test.ts
+      - tests/exploration/expedition-incidental-capture-action.test.ts
       - tests/exploration/expedition-incidental-menu-store.test.ts
       - src/modules/exploration/expedition-incidental-menu-store.ts
       - src/modules/exploration/expedition-v4-incidental-panel.ts
@@ -62,7 +62,7 @@ jobs:
       - name: TypeScript and first-action transactional contracts
         run: |
           pnpm typecheck
-          pnpm exec vitest run tests/db/solo-expedition-repository.integration.test.ts tests/exploration/expedition-state.test.ts tests/db/encounter.integration.test.ts tests/exploration/expedition-v4-incidental-panel.test.ts tests/exploration/expedition-incidental-capture-action.test.ts
+          pnpm exec vitest run tests/db/solo-expedition-repository.integration.test.ts tests/exploration/expedition-state.test.ts tests/db/encounter.integration.test.ts tests/exploration/expedition-v4-incidental-panel.test.ts tests/exploration/expedition-incidental-capture-action.test.ts tests/exploration/expedition-incidental-menu-store.test.ts
 
 
   capture-engine:
