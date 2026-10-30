@@ -255,15 +255,32 @@ export class PostgresExpeditionRepository {
         );
       }
 
-      // World eligibility, unlocks and active-release content must be added
-      // before exposing /explorar; this draft only binds the current location.
+      // The location must be part of the ACTIVE PUBLISHED content release,
+      // not merely an identity row from a DRAFT or archived release.
+      // If the active pointer or any region/area publication is missing,
+      // fail closed before creating a PREPARING expedition or receipt.
       const location = await client.query<{ area_id: string }>(
-        "SELECT location.area_id::text FROM player_locations location JOIN areas area ON area.id=location.area_id WHERE location.player_id=$1",
+        `SELECT area.id::text AS area_id
+         FROM player_locations AS location
+         JOIN areas AS area ON area.id = location.area_id
+         JOIN regions AS region ON region.id = area.region_id
+         JOIN content_release_pointers AS pointer ON pointer.pointer_key = 'ACTIVE'
+         JOIN content_releases AS release
+           ON release.id = pointer.content_release_id AND release.status = 'PUBLISHED'
+         JOIN rulesets AS ruleset
+           ON ruleset.id = release.default_ruleset_id AND ruleset.status = 'PUBLISHED'
+         JOIN region_revisions AS region_rev
+           ON region_rev.region_id = region.id
+          AND region_rev.content_release_id = release.id AND region_rev.active = TRUE
+         JOIN area_revisions AS area_rev
+           ON area_rev.area_id = area.id
+          AND area_rev.content_release_id = release.id AND area_rev.active = TRUE
+         WHERE location.player_id = $1`,
         [input.playerId],
       );
       const areaId = location.rows[0]?.area_id;
       if (areaId === undefined) {
-        return err(appError("FLOW_BLOCKED", "A verified trainer location is required"));
+        return err(appError("FLOW_BLOCKED", "A verified trainer location in the ACTIVE PUBLISHED content release is required"));
       }
       const expeditionId = randomUUID();
       await client.query(
