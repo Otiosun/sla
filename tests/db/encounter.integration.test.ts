@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
@@ -11,6 +12,7 @@ import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgr
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
+import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
@@ -300,6 +302,7 @@ describe("encounter PostgreSQL integration", () => {
     const client = await pool.connect();
     try {
       fixture = await seedFixture(client);
+      await client.query(await readFile(new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url), "utf8"));
     } finally {
       client.release();
     }
@@ -422,6 +425,64 @@ describe("encounter PostgreSQL integration", () => {
       await client.query("COMMIT");
     } finally {
       try { await client.query("ROLLBACK"); } catch { /* no open transaction */ }
+      client.release();
+    }
+  });
+
+  it("atomically commits and replays a real Encounter with its expedition clock/quota", async () => {
+    const client = await pool.connect();
+    const region = await client.query<{ region_id: string }>(
+      "SELECT region_id::text FROM areas WHERE id=$1", [fixture.areaId],
+    );
+    const regionId = region.rows[0]?.region_id;
+    if (regionId === undefined) {
+      client.release();
+      throw new Error("Fixture region missing");
+    }
+    try {
+      // This is a disposable fixture: use the approved launch scope without
+      // editing any immutable PUBLISHED revision or production location.
+      await client.query("UPDATE regions SET slug='zhoulia' WHERE id=$1", [regionId]);
+      await client.query(
+        "UPDATE areas SET slug='vila-dos-arrozais' WHERE id=$1", [fixture.areaId],
+      );
+      const playerId = await createEligiblePlayer(client, fixture.areaId);
+      const clock = new ManualClock(FIXED_NOW);
+      const store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
+      const prepared = unwrap(await store.prepare({
+        playerId, period: "DAY", idempotencyKey: "combined-preparation",
+      })).expedition;
+      const effect = createDirectEncounterEffect({
+        seedProvider: new AesEncounterSeedProvider(
+          Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+        ),
+        clock, feature: FEATURE_ENABLED,
+      });
+      const input = {
+        playerId, expeditionId: prepared.expeditionId,
+        expectedRevision: prepared.revision, idempotencyKey: "combined-first-search",
+        effect,
+      };
+      const first = unwrap(await store.executeSearchFree(input));
+      expect(first).toMatchObject({
+        replayed: false, consumedWeeklySlot: true,
+        expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+      });
+      const replay = unwrap(await store.executeSearchFree(input));
+      expect(replay.replayed).toBe(true);
+      expect(replay.effectRef).toBe(first.effectRef);
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
+      )).rows[0]?.n).toBe("1");
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM solo_expedition_receipts WHERE player_id=$1", [playerId],
+      )).rows[0]?.n).toBe("2");
+      expect((await store.current(playerId))?.consumedWeekKey).not.toBeNull();
+    } finally {
+      await client.query(
+        "UPDATE areas SET slug='phase8-route' WHERE id=$1", [fixture.areaId],
+      );
+      await client.query("UPDATE regions SET slug='phase8-kanto' WHERE id=$1", [regionId]);
       client.release();
     }
   });
