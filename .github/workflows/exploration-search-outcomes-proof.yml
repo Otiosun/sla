@@ -7,6 +7,8 @@ on:
     paths:
       - src/platform/exploration/postgres-expedition-repository.ts
       - src/platform/exploration/expedition-search-outcome-effect.ts
+      - src/modules/exploration/expedition-v4-incidental-panel.ts
+      - tests/exploration/expedition-v4-incidental-panel.test.ts
       - src/platform/encounter/postgres-encounter-repository.ts
       - tests/db/encounter.integration.test.ts
       - db/drafts/solo_exploration_v1_schema.sql
@@ -55,4 +57,4 @@ jobs:
       - name: TypeScript and first-action transactional contracts
         run: |
           pnpm typecheck
-          pnpm exec vitest run tests/db/solo-expedition-repository.integration.test.ts tests/exploration/expedition-state.test.ts tests/db/encounter.integration.test.ts
+          pnpm exec vitest run tests/db/solo-expedition-repository.integration.test.ts tests/exploration/expedition-state.test.ts tests/db/encounter.integration.test.ts tests/exploration/expedition-v4-incidental-panel.test.ts
