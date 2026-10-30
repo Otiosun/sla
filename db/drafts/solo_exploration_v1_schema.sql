@@ -86,3 +86,20 @@ CREATE INDEX solo_search_outcomes_by_player
   ON solo_expedition_search_outcomes(player_id, expedition_id);
 COMMENT ON TABLE solo_expedition_search_outcomes IS
   'Draft, not live. Outcome selection is server-side only; no loot or encounter invented by UI.';
+
+-- Draft only: immutable server-issued menus. Never receive JSON/ball mappings
+-- from a WhatsApp user. Issue with the same transaction that authorizes ENGAGED.
+CREATE TABLE solo_incidental_menu_snapshots (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id),
+  outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
+  encounter_id UUID NOT NULL REFERENCES encounters(id),
+  encounter_revision BIGINT NOT NULL CHECK (encounter_revision >= 0),
+  menu JSONB NOT NULL CHECK (jsonb_typeof(menu) = 'object'),
+  ball_item_ids JSONB NOT NULL CHECK (jsonb_typeof(ball_item_ids) = 'object'),
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX solo_incidental_menu_player_idx
+  ON solo_incidental_menu_snapshots(player_id, id);
+COMMENT ON TABLE solo_incidental_menu_snapshots IS
+  'DRAFT ONLY; server-issued original incidental menu with fixed Ball map and encounter revision.';
