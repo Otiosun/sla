@@ -21,31 +21,17 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let clock: ManualClock;
   let store: PostgresExpeditionRepository;
   let publishedReleaseId: string;
+  let activeAreaId: string;
+  let unpublishedAreaId: string;
+  let inactiveRegionAreaId: string;
 
-  async function trainer(): Promise<PlayerId> {
+  async function trainer(areaId?: string): Promise<PlayerId> {
     const id = createPlayerId();
-    const region = randomUUID();
-    const area = randomUUID();
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [id]);
-    await pool.query("INSERT INTO regions(id,slug) VALUES ($1,$2)", [
-      region,
-      "solo-region-" + region,
-    ]);
-    await pool.query("INSERT INTO areas(id,region_id,slug) VALUES ($1,$2,$3)", [
-      area,
-      region,
-      "solo-area-" + area,
-    ]);
     await pool.query(
-      "INSERT INTO region_revisions(id, content_release_id, region_id, display_name, active, data) VALUES ($1,$2,$3,$4,TRUE,'{}'::jsonb)",
-      [randomUUID(), publishedReleaseId, region, "Solo Region " + region],
+      "INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)",
+      [id, areaId ?? activeAreaId],
     );
-    await pool.query(
-      "INSERT INTO area_revisions(id, content_release_id, area_id, display_name, active, data) VALUES ($1,$2,$3,$4,TRUE,$5::jsonb)",
-      [randomUUID(), publishedReleaseId, area, "Solo Area " + area,
-        JSON.stringify({ schemaVersion: 1, kind: "ROUTE", safePoint: false, startingArea: false, relocationPriority: 10 })],
-    );
-    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [id, area]);
     return id;
   }
 
@@ -80,6 +66,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     await pool.query(sql);
     const rulesetId = randomUUID();
     publishedReleaseId = randomUUID();
+    const activeRegionId = randomUUID();
+    const unpublishedRegionId = randomUUID();
+    const inactiveRegionId = randomUUID();
+    activeAreaId = randomUUID();
+    unpublishedAreaId = randomUUID();
+    inactiveRegionAreaId = randomUUID();
     await pool.query(
       "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,'{}'::jsonb,'DRAFT')",
       [rulesetId],
@@ -90,8 +82,26 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [rulesetId]);
     await pool.query(
+      "INSERT INTO regions(id,slug) VALUES ($1,'solo-active-proof'),($2,'solo-unpublished-proof'),($3,'solo-inactive-region-proof')",
+      [activeRegionId, unpublishedRegionId, inactiveRegionId],
+    );
+    await pool.query(
+      "INSERT INTO areas(id,region_id,slug) VALUES ($1,$4,'solo-active-area'),($2,$5,'solo-unpublished-area'),($3,$6,'solo-inactive-region-area')",
+      [activeAreaId, unpublishedAreaId, inactiveRegionAreaId,
+        activeRegionId, unpublishedRegionId, inactiveRegionId],
+    );
+    await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
       [publishedReleaseId, rulesetId],
+    );
+    await pool.query(
+      "INSERT INTO region_revisions(id,content_release_id,region_id,display_name,active,data) VALUES ($1,$3,$4,'Solo Active Region',TRUE,'{}'::jsonb),($2,$3,$5,'Solo Inactive Region',FALSE,'{}'::jsonb)",
+      [randomUUID(),randomUUID(),publishedReleaseId,activeRegionId,inactiveRegionId],
+    );
+    await pool.query(
+      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data) VALUES ($1,$3,$4,'Solo Active Area',TRUE,$6::jsonb),($2,$3,$5,'Solo Inactive Region Area',TRUE,$6::jsonb)",
+      [randomUUID(),randomUUID(),publishedReleaseId,activeAreaId,inactiveRegionAreaId,
+        JSON.stringify({schemaVersion:1,kind:"ROUTE",safePoint:false,startingArea:false,relocationPriority:10})],
     );
     await pool.query(
       "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
@@ -118,11 +128,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   });
 
   it("fails closed if the current area was removed from the ACTIVE PUBLISHED release", async () => {
-    const playerId = await trainer();
-    await pool.query(
-      "UPDATE area_revisions SET active=FALSE WHERE content_release_id=$1 AND area_id=(SELECT area_id FROM player_locations WHERE player_id=$2)",
-      [publishedReleaseId, playerId],
-    );
+    const playerId = await trainer(unpublishedAreaId);
     const blocked = await store.prepare({
       playerId, period: "DAY", idempotencyKey: "unpublished-area",
     });
@@ -132,11 +138,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   });
 
   it("fails closed if the entire region is inactive in the published release", async () => {
-    const playerId = await trainer();
-    await pool.query(
-      "UPDATE region_revisions SET active=FALSE WHERE content_release_id=$1 AND region_id=(SELECT area.region_id FROM player_locations location JOIN areas area ON area.id=location.area_id WHERE location.player_id=$2)",
-      [publishedReleaseId, playerId],
-    );
+    const playerId = await trainer(inactiveRegionAreaId);
     expect(await store.prepare({
       playerId, period: "NIGHT", idempotencyKey: "unpublished-region",
     })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
