@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createCorrelationId, createPlayerId, type EncounterId } from "../../src/shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 import type { CaptureAttemptInput } from "../../src/modules/capture/contracts.js";
 import { renderExpeditionV4IncidentalPanel } from "../../src/modules/exploration/expedition-v4-incidental-panel.js";
 import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
-import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
-import type { IssuedIncidentalMenu } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
+import { ExpeditionIncidentalMenuDispatcher, type SentMessageMenuResolver } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
+
 
 function fixture() {
   const playerId=createPlayerId();
@@ -62,9 +62,10 @@ describe("server-referenced incidental message menu",()=>{
       provider:"baileys",chatRef:"120363-group@g.us",
       externalMessageId:"sent-encounter-message",
     };
-    const resolver={
-      resolveReply:vi.fn(async (_input:{playerId:typeof f.input.playerId;repliedTo:typeof ref}):Promise<Result<IssuedIncidentalMenu>>=>
-        ok(f.menu)),
+    let replyAuthorized=true;
+    const resolver:SentMessageMenuResolver={
+      resolveReply:vi.fn(async ()=>
+        replyAuthorized ? ok(f.menu) : err(appError("FLOW_BLOCKED","No menu for this reply"))),
     };
     const answer=await f.dispatcher.dispatchCaptureReply({
       playerId:f.input.playerId,repliedTo:ref,resolver,
@@ -77,9 +78,7 @@ describe("server-referenced incidental message menu",()=>{
     });
     expect(f.capture.attempt).toHaveBeenCalledTimes(1);
     expect(f.capture.attempt.mock.calls[0]?.[0].idempotencyKey).toBe("inbox:quoted-one");
-    resolver.resolveReply.mockResolvedValueOnce(
-      err(appError("FLOW_BLOCKED","No menu for this reply")),
-    );
+    replyAuthorized=false;
     expect((await f.dispatcher.dispatchCaptureReply({
       playerId:f.input.playerId,repliedTo:{...ref,chatRef:"wrong-group@g.us"},
       resolver,rawChoice:"2",inboxIdempotencyKey:"inbox:other",
