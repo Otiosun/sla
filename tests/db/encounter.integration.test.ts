@@ -10,7 +10,7 @@ import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/po
 import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
-import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
@@ -330,6 +330,54 @@ describe("encounter PostgreSQL integration", () => {
     await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }, 30_000);
+
+  it("runs the canonical EncounterService inside an existing transaction and rolls back its own encounter", async () => {
+    const bootstrap = await pool.connect();
+    const playerId = await createEligiblePlayer(bootstrap, fixture.areaId);
+    bootstrap.release();
+
+    const execute = async (client: PoolClient) => {
+      const inside = new EncounterService(
+        encounterRepositoryWithinTransaction(client),
+        new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c)),
+        new ManualClock(FIXED_NOW),
+        FEATURE_ENABLED,
+      );
+      return inside.createOrReplay({
+        playerId,
+        idempotencyKey: "expedition-same-transaction",
+        environment: { timeOfDay: "DAY", surface: "LAND" },
+      });
+    };
+    const client = await pool.connect();
+    let firstId = "";
+    try {
+      await client.query("BEGIN");
+      const pending = unwrap(await execute(client));
+      firstId = pending.encounterId;
+      expect((await client.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE id=$1", [firstId],
+      )).rows[0]?.n).toBe("1");
+      await client.query("ROLLBACK");
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE id=$1", [firstId],
+      )).rows[0]?.n).toBe("0");
+
+      await client.query("BEGIN");
+      const committed = unwrap(await execute(client));
+      await client.query("COMMIT");
+      expect(committed.encounterId).not.toBe(firstId);
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
+      )).rows[0]?.n).toBe("1");
+      expect(unwrap(await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+        playerId, idempotencyKey: "expedition-same-transaction",
+      })).encounterId).toBe(committed.encounterId);
+    } finally {
+      try { await client.query("ROLLBACK"); } catch { /* not in transaction */ }
+      client.release();
+    }
+  });
 
   it("forces an active species even when it is not a natural entry while preserving the local level band", async () => {
     const client = await pool.connect();
