@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
-  SearchOutcomeDecision, SearchOutcomeKind, SearchOutcomePolicy,
+  SearchOutcomeDecision, SearchOutcomePolicy,
 } from "./expedition-search-outcome-effect.js";
 
 /**
