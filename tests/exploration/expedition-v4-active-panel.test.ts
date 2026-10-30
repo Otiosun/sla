@@ -5,7 +5,7 @@ import type { ExpeditionMenuChoice } from "../../src/modules/exploration/expedit
 function currentChoices(): readonly ExpeditionMenuChoice[] {
   return [
     { optionNo: 1, intent: "SEARCH_FREE", label: "🔎 Buscar Pokémon", phrases: ["buscar"] },
-    { optionNo: 2, intent: "BAG", label: "🎒 Buscar recursos", phrases: [] },
+    { optionNo: 2, intent: "SEARCH_RESOURCES", label: "🎒 Buscar recursos", phrases: [] },
     { optionNo: 3, intent: "TRAVEL", label: "🗺️ Viajar", phrases: [] },
     { optionNo: 4, intent: "END", label: "📋 Encerrar", phrases: [] },
   ];
