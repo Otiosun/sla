@@ -95,6 +95,65 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
   });
 
+  it("persists a free NIGHT switch, replays one receipt and charges no quota", async () => {
+    const playerId = await trainer();
+    const expedition = await prepare(playerId, "period-prepare");
+    const input = {
+      playerId, expeditionId: expedition.expeditionId,
+      expectedRevision: 0n, period: "NIGHT" as const,
+      idempotencyKey: "period-one",
+    };
+    const switched = await store.changePeriod(input);
+    expect(switched).toMatchObject({
+      ok: true, value: { changed: true, replayed: false, consumedWeeklySlot: false,
+        expedition: { period: "NIGHT", phase: "PREPARING",
+          elapsedMinutes: 0, consumedWeekKey: null, revision: 1n } },
+    });
+    expect((await store.current(playerId))?.period).toBe("NIGHT");
+    expect(await store.changePeriod(input)).toMatchObject({
+      ok: true, value: { replayed: true, expedition: { revision: 1n, period: "NIGHT" } },
+    });
+    expect(await store.changePeriod({ ...input, period: "DAY" })).toMatchObject({
+      ok: false, error: { code: "IDEMPOTENCY_KEY_INVALID" },
+    });
+    expect(await store.changePeriod({ ...input, idempotencyKey: "period-stale" })).toMatchObject({
+      ok: false, error: { code: "REVISION_CONFLICT" },
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    const started = await store.advance({
+      playerId, expeditionId: expedition.expeditionId,
+      expectedRevision: 1n, minutes: 30, idempotencyKey: "period-start",
+    });
+    expect(started).toMatchObject({
+      ok: true, value: { consumedWeeklySlot: true,
+        expedition: { phase: "ACTIVE", period: "NIGHT" } },
+    });
+    expect(await store.changePeriod({
+      ...input, expectedRevision: 2n, idempotencyKey: "period-too-late",
+      period: "DAY",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
+  it("serializes two racing period changes and deduplicates a retry", async () => {
+    const playerId = await trainer();
+    const expedition = await prepare(playerId, "race-period-prepare");
+    const base = {
+      playerId, expeditionId: expedition.expeditionId,
+      expectedRevision: 0n, period: "NIGHT" as const,
+    };
+    const results = await Promise.all([
+      store.changePeriod({ ...base, idempotencyKey: "race-period-A" }),
+      store.changePeriod({ ...base, idempotencyKey: "race-period-B" }),
+    ]);
+    expect(results.filter(result => result.ok && !result.value.replayed)).toHaveLength(1);
+    expect(results.filter(result => !result.ok && result.error.code === "REVISION_CONFLICT"))
+      .toHaveLength(1);
+    const current = await store.current(playerId);
+    expect(current).toMatchObject({ period: "NIGHT", phase: "PREPARING", revision: 1n,
+      consumedWeekKey: null, elapsedMinutes: 0 });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
   it("reserves one weekly slot and rejects altered replays", async () => {
     const playerId = await trainer();
     const initial = await prepare(playerId, "once-start");
