@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { expeditionClock } from "../../src/modules/exploration/expedition-clock.js";
 import {
   advanceExpedition,
+  changeExpeditionPeriod,
   endExpedition,
   expeditionRequiresReport,
   type ExpeditionSnapshot,
@@ -43,6 +44,42 @@ describe("expedition session state transitions", () => {
     });
     expect(original.phase).toBe("PREPARING");
     expect(original.consumedWeekKey).toBeNull();
+  });
+
+  it("changes DAY to NIGHT during PREPARING without using quota or minutes", () => {
+    const original = preparing();
+    const change = changeExpeditionPeriod({
+      expedition: original, expectedRevision: 0n, period: "NIGHT",
+    });
+    expect(change).toMatchObject({
+      ok: true, value: { changed: true, consumedWeeklySlot: false,
+        expedition: { period: "NIGHT", phase: "PREPARING", elapsedMinutes: 0,
+          consumedWeekKey: null, revision: 1n } },
+    });
+    expect(original).toEqual(preparing());
+    if (!change.ok) return;
+    expect(changeExpeditionPeriod({
+      expedition: change.value.expedition, expectedRevision: 1n, period: "NIGHT",
+    })).toMatchObject({
+      ok: true, value: { changed: false, consumedWeeklySlot: false, expedition: { revision: 1n } },
+    });
+    const first = advance(change.value.expedition, 30);
+    expect(first).toMatchObject({
+      ok: true, value: { consumedWeeklySlot: true, expedition: { phase: "ACTIVE", period: "NIGHT" } },
+    });
+    if (!first.ok) return;
+    expect(changeExpeditionPeriod({
+      expedition: first.value.expedition, expectedRevision: 2n, period: "DAY",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
+  it("refuses stale and invalid day/night switches", () => {
+    expect(changeExpeditionPeriod({
+      expedition: preparing(), expectedRevision: 1n, period: "NIGHT",
+    })).toMatchObject({ ok: false, error: { code: "REVISION_CONFLICT" } });
+    expect(changeExpeditionPeriod({
+      expedition: preparing(), expectedRevision: 0n, period: "OTHER" as "DAY",
+    })).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
   });
 
   it("consumes exactly one slot on the first timed action and records its Monday", () => {

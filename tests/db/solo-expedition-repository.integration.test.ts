@@ -20,22 +20,23 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let pool: Pool;
   let clock: ManualClock;
   let store: PostgresExpeditionRepository;
+  let publishedReleaseId: string;
+  let activeAreaId: string;
+  let unpublishedAreaId: string;
+  let inactiveRegionAreaId: string;
+  let outsideLaunchAreaId: string;
 
-  async function trainer(): Promise<PlayerId> {
+  async function trainer(areaId?: string): Promise<PlayerId> {
     const id = createPlayerId();
-    const region = randomUUID();
-    const area = randomUUID();
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [id]);
-    await pool.query("INSERT INTO regions(id,slug) VALUES ($1,$2)", [
-      region,
-      "solo-region-" + region,
-    ]);
-    await pool.query("INSERT INTO areas(id,region_id,slug) VALUES ($1,$2,$3)", [
-      area,
-      region,
-      "solo-area-" + area,
-    ]);
-    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [id, area]);
+    await pool.query(
+      "INSERT INTO onboarding_states(player_id,state,starter_claim_key,completed_at) VALUES ($1,'COMPLETE','exploration-fixture',now())",
+      [id],
+    );
+    await pool.query(
+      "INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)",
+      [id, areaId ?? activeAreaId],
+    );
     return id;
   }
 
@@ -68,6 +69,59 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       "utf8",
     );
     await pool.query(sql);
+    const rulesetId = randomUUID();
+    publishedReleaseId = randomUUID();
+    const activeRegionId = randomUUID();
+    const unpublishedRegionId = randomUUID();
+    const inactiveRegionId = randomUUID();
+    const outsideLaunchRegionId = randomUUID();
+    activeAreaId = randomUUID();
+    unpublishedAreaId = randomUUID();
+    inactiveRegionAreaId = randomUUID();
+    outsideLaunchAreaId = randomUUID();
+    await pool.query(
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,'{}'::jsonb,'DRAFT')",
+      [rulesetId],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [rulesetId, JSON.stringify({valid:true, issues:[]}), "a".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [rulesetId]);
+    await pool.query(
+      "INSERT INTO regions(id,slug) VALUES ($1,'zhoulia'),($2,'solo-unpublished-proof'),($3,'solo-inactive-region-proof'),($4,'other-allowed-region')",
+      [activeRegionId, unpublishedRegionId, inactiveRegionId, outsideLaunchRegionId],
+    );
+    await pool.query(
+      "INSERT INTO areas(id,region_id,slug) VALUES ($1,$5,'vila-dos-arrozais'),($2,$6,'solo-unpublished-area'),($3,$7,'solo-inactive-region-area'),($4,$8,'published-outside-zhoulia')",
+      [activeAreaId, unpublishedAreaId, inactiveRegionAreaId, outsideLaunchAreaId,
+        activeRegionId, unpublishedRegionId, inactiveRegionId, outsideLaunchRegionId],
+    );
+    await pool.query(
+      "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
+      [publishedReleaseId, rulesetId],
+    );
+    await pool.query(
+      "INSERT INTO region_revisions(id,content_release_id,region_id,display_name,active,data) VALUES ($1,$4,$5,'Zhoulia',TRUE,'{}'::jsonb),($2,$4,$6,'Solo Inactive Region',FALSE,'{}'::jsonb),($3,$4,$7,'Other Published Region',TRUE,'{}'::jsonb)",
+      [randomUUID(),randomUUID(),randomUUID(),publishedReleaseId,activeRegionId,inactiveRegionId,outsideLaunchRegionId],
+    );
+    await pool.query(
+      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data) VALUES ($1,$4,$5,'Vila dos Arrozais',TRUE,$8::jsonb),($2,$4,$6,'Solo Inactive Region Area',TRUE,$8::jsonb),($3,$4,$7,'Other Published Area',TRUE,$8::jsonb)",
+      [randomUUID(),randomUUID(),randomUUID(),publishedReleaseId,activeAreaId,inactiveRegionAreaId,outsideLaunchAreaId,
+        JSON.stringify({schemaVersion:1,kind:"ROUTE",safePoint:false,startingArea:false,relocationPriority:10})],
+    );
+    await pool.query(
+      "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
+      [publishedReleaseId, JSON.stringify({valid:true,issues:[]}), "b".repeat(64)],
+    );
+    await pool.query(
+      "UPDATE content_releases SET status='PUBLISHED',published_at=now() WHERE id=$1",
+      [publishedReleaseId],
+    );
+    await pool.query(
+      "INSERT INTO content_release_pointers(pointer_key,content_release_id) VALUES ('ACTIVE',$1)",
+      [publishedReleaseId],
+    );
     clock = new ManualClock(new Date("2026-10-19T12:00:00Z"));
     store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
   }, 30_000);
@@ -75,9 +129,54 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   afterAll(async () => {
     await pool?.end();
     if (adminPool) {
-      await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      // pool.end() must close every test-owned connection. Force-dropping the
+      // database can terminate a still-observing pg client with an uncaught
+      // 57P01, giving a false-red CI even when all assertions passed.
+      // A plain DROP exposes real leaks instead of masking them.
+      await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
+  });
+
+  it("rejects an ACTIVE but unregistered player before creating a PREPARING receipt", async () => {
+    const playerId = createPlayerId();
+    await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [playerId]);
+    await pool.query("INSERT INTO player_locations(player_id,area_id) VALUES ($1,$2)", [
+      playerId, activeAreaId,
+    ]);
+    expect(await store.prepare({
+      playerId, period: "DAY", idempotencyKey: "unregistered-player",
+    })).toMatchObject({ ok: false, error: { code: "PLAYER_INELIGIBLE" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(0);
+  });
+
+  it("fails closed if the current area was removed from the ACTIVE PUBLISHED release", async () => {
+    const playerId = await trainer(unpublishedAreaId);
+    const blocked = await store.prepare({
+      playerId, period: "DAY", idempotencyKey: "unpublished-area",
+    });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(0);
+  });
+
+  it("fails closed if the entire region is inactive in the published release", async () => {
+    const playerId = await trainer(inactiveRegionAreaId);
+    expect(await store.prepare({
+      playerId, period: "NIGHT", idempotencyKey: "unpublished-region",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+  });
+
+  it("denies a fully published area outside the V1 solo-expedition scope", async () => {
+    const playerId = await trainer(outsideLaunchAreaId);
+    const attempt = await store.prepare({
+      playerId, period: "DAY", idempotencyKey: "published-but-outside-launch",
+    });
+    expect(attempt).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(0);
   });
 
   it("persists free preparation and restores its location after reconstruction", async () => {
@@ -93,6 +192,65 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await reloaded.current(playerId)).toEqual(initial);
     expect(await count("solo_expeditions", playerId)).toBe(1);
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
+  it("persists a free NIGHT switch, replays one receipt and charges no quota", async () => {
+    const playerId = await trainer();
+    const expedition = await prepare(playerId, "period-prepare");
+    const input = {
+      playerId, expeditionId: expedition.expeditionId,
+      expectedRevision: 0n, period: "NIGHT" as const,
+      idempotencyKey: "period-one",
+    };
+    const switched = await store.changePeriod(input);
+    expect(switched).toMatchObject({
+      ok: true, value: { changed: true, replayed: false, consumedWeeklySlot: false,
+        expedition: { period: "NIGHT", phase: "PREPARING",
+          elapsedMinutes: 0, consumedWeekKey: null, revision: 1n } },
+    });
+    expect((await store.current(playerId))?.period).toBe("NIGHT");
+    expect(await store.changePeriod(input)).toMatchObject({
+      ok: true, value: { replayed: true, expedition: { revision: 1n, period: "NIGHT" } },
+    });
+    expect(await store.changePeriod({ ...input, period: "DAY" })).toMatchObject({
+      ok: false, error: { code: "IDEMPOTENCY_KEY_INVALID" },
+    });
+    expect(await store.changePeriod({ ...input, idempotencyKey: "period-stale" })).toMatchObject({
+      ok: false, error: { code: "REVISION_CONFLICT" },
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    const started = await store.advance({
+      playerId, expeditionId: expedition.expeditionId,
+      expectedRevision: 1n, minutes: 30, idempotencyKey: "period-start",
+    });
+    expect(started).toMatchObject({
+      ok: true, value: { consumedWeeklySlot: true,
+        expedition: { phase: "ACTIVE", period: "NIGHT" } },
+    });
+    expect(await store.changePeriod({
+      ...input, expectedRevision: 2n, idempotencyKey: "period-too-late",
+      period: "DAY",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+  });
+
+  it("serializes two racing period changes and deduplicates a retry", async () => {
+    const playerId = await trainer();
+    const expedition = await prepare(playerId, "race-period-prepare");
+    const base = {
+      playerId, expeditionId: expedition.expeditionId,
+      expectedRevision: 0n, period: "NIGHT" as const,
+    };
+    const results = await Promise.all([
+      store.changePeriod({ ...base, idempotencyKey: "race-period-A" }),
+      store.changePeriod({ ...base, idempotencyKey: "race-period-B" }),
+    ]);
+    expect(results.filter(result => result.ok && !result.value.replayed)).toHaveLength(1);
+    expect(results.filter(result => !result.ok && result.error.code === "REVISION_CONFLICT"))
+      .toHaveLength(1);
+    const current = await store.current(playerId);
+    expect(current).toMatchObject({ period: "NIGHT", phase: "PREPARING", revision: 1n,
+      consumedWeekKey: null, elapsedMinutes: 0 });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
   });
 
   it("reserves one weekly slot and rejects altered replays", async () => {

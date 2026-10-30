@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
 import {
   advanceExpedition,
+  changeExpeditionPeriod,
   endExpedition,
   type ExpeditionEndReason,
   type ExpeditionPhase,
@@ -61,6 +62,14 @@ export interface AdvanceStoredExpeditionInput {
   readonly idempotencyKey: string;
 }
 
+export interface ChangeStoredExpeditionPeriodInput {
+  readonly playerId: PlayerId;
+  readonly expeditionId: string;
+  readonly expectedRevision: bigint;
+  readonly period: ExpeditionPeriod;
+  readonly idempotencyKey: string;
+}
+
 export interface EndStoredExpeditionInput {
   readonly playerId: PlayerId;
   readonly expeditionId: string;
@@ -110,13 +119,19 @@ function validateKey(key: string): Result<void> {
 }
 
 async function lockedPlayer(client: PoolClient, playerId: PlayerId): Promise<Result<void>> {
-  const player = await client.query<{ status: string }>(
-    "SELECT status FROM players WHERE id = $1 FOR UPDATE",
+  const player = await client.query<{ status: string; onboarding_complete: boolean }>(
+    `SELECT player.status,
+            EXISTS (
+              SELECT 1 FROM onboarding_states onboarding
+              WHERE onboarding.player_id = player.id AND onboarding.state = 'COMPLETE'
+            ) AS onboarding_complete
+     FROM players AS player
+     WHERE player.id = $1 FOR UPDATE`,
     [playerId],
   );
-  return player.rows[0]?.status === "ACTIVE"
+  return player.rows[0]?.status === "ACTIVE" && player.rows[0]?.onboarding_complete === true
     ? ok(undefined)
-    : err(appError("PLAYER_INELIGIBLE", "Only active trainers may start or change an expedition"));
+    : err(appError("PLAYER_INELIGIBLE", "Only active trainers with completed onboarding may start or change an expedition"));
 }
 
 async function replay(
@@ -141,7 +156,7 @@ async function writeReceipt(
   playerId: PlayerId,
   key: string,
   expeditionId: string,
-  operation: "PREPARE" | "ADVANCE" | "END",
+  operation: "PREPARE" | "ADVANCE" | "END" | "CHANGE_PERIOD",
   inputFingerprint: string,
   transition: ExpeditionTransition,
 ): Promise<StoredExpeditionTransition> {
@@ -170,10 +185,11 @@ async function persistSnapshot(
   expectedRevision: bigint,
 ): Promise<void> {
   const updated = await client.query(
-    "UPDATE solo_expeditions SET phase=$3,elapsed_minutes=$4,consumed_week_key=$5::date,end_reason=$6,revision=$7::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$8::bigint",
+    "UPDATE solo_expeditions SET period=$3,phase=$4,elapsed_minutes=$5,consumed_week_key=$6::date,end_reason=$7,revision=$8::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$9::bigint",
     [
       value.expeditionId,
       value.playerId,
+      value.period,
       value.phase,
       value.elapsedMinutes,
       value.consumedWeekKey,
@@ -245,15 +261,34 @@ export class PostgresExpeditionRepository {
         );
       }
 
-      // World eligibility, unlocks and active-release content must be added
-      // before exposing /explorar; this draft only binds the current location.
+      // The location must be part of the ACTIVE PUBLISHED content release,
+      // not merely an identity row from a DRAFT or archived release.
+      // If the active pointer or any region/area publication is missing,
+      // fail closed before creating a PREPARING expedition or receipt.
       const location = await client.query<{ area_id: string }>(
-        "SELECT location.area_id::text FROM player_locations location JOIN areas area ON area.id=location.area_id WHERE location.player_id=$1",
+        `SELECT area.id::text AS area_id
+         FROM player_locations AS location
+         JOIN areas AS area ON area.id = location.area_id
+         JOIN regions AS region ON region.id = area.region_id
+         JOIN content_release_pointers AS pointer ON pointer.pointer_key = 'ACTIVE'
+         JOIN content_releases AS release
+           ON release.id = pointer.content_release_id AND release.status = 'PUBLISHED'
+         JOIN rulesets AS ruleset
+           ON ruleset.id = release.default_ruleset_id AND ruleset.status = 'PUBLISHED'
+         JOIN region_revisions AS region_rev
+           ON region_rev.region_id = region.id
+          AND region_rev.content_release_id = release.id AND region_rev.active = TRUE
+         JOIN area_revisions AS area_rev
+           ON area_rev.area_id = area.id
+          AND area_rev.content_release_id = release.id AND area_rev.active = TRUE
+         WHERE location.player_id = $1
+           AND region.slug = 'zhoulia'
+           AND area.slug IN ('vila-dos-arrozais', 'campos-de-yun')`,
         [input.playerId],
       );
       const areaId = location.rows[0]?.area_id;
       if (areaId === undefined) {
-        return err(appError("FLOW_BLOCKED", "A verified trainer location is required"));
+        return err(appError("FLOW_BLOCKED", "A verified trainer location in the ACTIVE PUBLISHED content release is required"));
       }
       const expeditionId = randomUUID();
       await client.query(
@@ -335,6 +370,44 @@ export class PostgresExpeditionRepository {
           transition.value,
         ),
       );
+    });
+  }
+
+  /** Idempotent, revision-locked DAY/NIGHT toggle; never consumes a slot. */
+  public async changePeriod(
+    input: ChangeStoredExpeditionPeriodInput,
+  ): Promise<Result<StoredExpeditionTransition>> {
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    if (input.period !== "DAY" && input.period !== "NIGHT") {
+      return err(appError("VALIDATION_FAILED", "Unknown expedition period"));
+    }
+    const inputFingerprint = fingerprint([
+      "CHANGE_PERIOD",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      input.period,
+    ]);
+    return withTransaction(this.pool, async (client) => {
+      const player = await lockedPlayer(client, input.playerId);
+      if (!player.ok) return player;
+      const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
+      if (prior !== null) return prior;
+      const original = await lockedExpedition(client, input.playerId, input.expeditionId);
+      if (original === null) return unavailable();
+      const transition = changeExpeditionPeriod({
+        expedition: original,
+        expectedRevision: input.expectedRevision,
+        period: input.period,
+      });
+      if (!transition.ok) return transition;
+      if (transition.value.changed) {
+        await persistSnapshot(client, transition.value.expedition, original.revision);
+      }
+      return ok(await writeReceipt(
+        client, input.playerId, input.idempotencyKey, input.expeditionId,
+        "CHANGE_PERIOD", inputFingerprint, transition.value,
+      ));
     });
   }
 

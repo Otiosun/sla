@@ -72,5 +72,9 @@ describe("UX V4 ACTIVE Rotom shadow renderer", () => {
     expect(renderExpeditionV4ActivePanel({ ...input, currentTime: "27:61" }).ok).toBe(false);
     expect(renderExpeditionV4ActivePanel({ ...input, elapsedMinutes: -1 }).ok).toBe(false);
     expect(renderExpeditionV4ActivePanel({ ...input, elapsedMinutes: 721 }).ok).toBe(false);
+    expect(renderExpeditionV4ActivePanel({ ...input, elapsedMinutes: 0 }).ok).toBe(false);
+    expect(renderExpeditionV4ActivePanel({ ...input, elapsedMinutes: 720 }).ok).toBe(false);
+    expect(renderExpeditionV4ActivePanel({ ...input, currentTime: "21:15" }).ok).toBe(false);
+    expect(renderExpeditionV4ActivePanel({ ...input, period: "DAY" }).ok).toBe(false);
   });
 });

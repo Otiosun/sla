@@ -151,6 +151,35 @@ export function advanceExpedition(input: {
   });
 }
 
+/**
+ * Changing the day/night choice is free ONLY while still PREPARING.
+ * This pure transition does not reserve quota and never rewinds ACTIVE time.
+ * Callers must serialize revision/receipt with the persisted snapshot.
+ */
+export function changeExpeditionPeriod(input: {
+  readonly expedition: ExpeditionSnapshot;
+  readonly expectedRevision: bigint;
+  readonly period: ExpeditionPeriod;
+}): Result<ExpeditionTransition> {
+  const current = input.expedition;
+  const safe = guard(current, input.expectedRevision);
+  if (!safe.ok) return safe;
+  if (current.phase !== "PREPARING") {
+    return err(appError("FLOW_BLOCKED", "The expedition period cannot change after the first action"));
+  }
+  if (input.period !== "DAY" && input.period !== "NIGHT") {
+    return err(appError("VALIDATION_FAILED", "Invalid expedition period"));
+  }
+  if (current.period === input.period) {
+    return ok({ expedition: current, consumedWeeklySlot: false, changed: false });
+  }
+  return ok({
+    expedition: { ...current, period: input.period, revision: current.revision + 1n },
+    consumedWeeklySlot: false,
+    changed: true,
+  });
+}
+
 export function endExpedition(input: {
   readonly expedition: ExpeditionSnapshot;
   readonly expectedRevision: bigint;
