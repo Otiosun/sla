@@ -6,6 +6,7 @@ import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const dbName = "pokemon_solo_exp_" + process.pid + "_" + Date.now();
 
@@ -69,6 +70,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       "utf8",
     );
     await pool.query(sql);
+    await pool.query(`CREATE TABLE solo_search_effect_test (
+      id UUID PRIMARY KEY,
+      player_id UUID NOT NULL REFERENCES players(id),
+      expedition_id UUID NOT NULL REFERENCES solo_expeditions(id)
+    )`);
     const rulesetId = randomUUID();
     publishedReleaseId = randomUUID();
     const activeRegionId = randomUUID();
@@ -177,6 +183,155 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(attempt).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(await count("solo_expeditions", playerId)).toBe(0);
     expect(await count("solo_expedition_receipts", playerId)).toBe(0);
+  });
+
+  it("commits effect, 30 minutes, quota and durable receipt atomically, then replays", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "atomic-search-prepare");
+    let effectCount = 0;
+    const effectId = randomUUID();
+    const input = {
+      playerId, expeditionId: initial.expeditionId,
+      expectedRevision: 0n, idempotencyKey: "atomic-search-one",
+      effect: async (client: import("pg").PoolClient) => {
+        effectCount++;
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES ($1,$2,$3)",
+          [effectId, playerId, initial.expeditionId],
+        );
+        return ok({ effectRef: effectId });
+      },
+    };
+    const first = await store.executeSearchFree(input);
+    expect(first).toMatchObject({
+      ok: true, value: { replayed: false, effectRef: effectId,
+        consumedWeeklySlot: true, expedition: {
+          phase: "ACTIVE", elapsedMinutes: 30, revision: 1n,
+          consumedWeekKey: "2026-10-19",
+        },
+      },
+    });
+    expect(await store.executeSearchFree(input)).toMatchObject({
+      ok: true, value: { replayed: true, effectRef: effectId,
+        expedition: { revision: 1n, elapsedMinutes: 30 },
+      },
+    });
+    expect(effectCount).toBe(1);
+    expect((await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM solo_search_effect_test WHERE player_id=$1", [playerId],
+    )).rows[0]?.n).toBe("1");
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
+  it("rolls back a partially written search when canonical effect refuses", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "atomic-reject-prepare");
+    const attemptedId = randomUUID();
+    const common = {
+      playerId, expeditionId: initial.expeditionId,
+      expectedRevision: 0n, idempotencyKey: "atomic-reject",
+    };
+    const rejected = await store.executeSearchFree({
+      ...common,
+      effect: async client => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES ($1,$2,$3)",
+          [attemptedId, playerId, initial.expeditionId],
+        );
+        return err(appError("FLOW_BLOCKED", "Encounter catalog is unavailable"));
+      },
+    });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING", elapsedMinutes: 0, consumedWeekKey: null, revision: 0n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+    expect((await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM solo_search_effect_test WHERE player_id=$1", [playerId],
+    )).rows[0]?.n).toBe("0");
+
+    // Failed input did not consume its idempotency key: a legitimate retry may commit.
+    const retried = await store.executeSearchFree({
+      ...common,
+      effect: async client => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES ($1,$2,$3)",
+          [attemptedId, playerId, initial.expeditionId],
+        );
+        return ok({ effectRef: attemptedId });
+      },
+    });
+    expect(retried).toMatchObject({ ok: true, value: {
+      effectRef: attemptedId, consumedWeeklySlot: true,
+    } });
+  });
+
+  it("blocks invalid evidence and mismatched reused action keys without losing quota", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "atomic-evidence-prepare");
+    const common = { playerId, expeditionId: initial.expeditionId,
+      expectedRevision: 0n, idempotencyKey: "atomic-evidence" };
+    expect(await store.executeSearchFree({
+      ...common, effect: async () => ok({ effectRef: "" }),
+    })).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING", consumedWeekKey: null, elapsedMinutes: 0,
+    });
+    const succeeded = await store.executeSearchFree({
+      ...common, effect: async () => ok({ effectRef: "encounter:test-evidence" }),
+    });
+    expect(succeeded.ok).toBe(true);
+    expect(await store.executeSearchFree({
+      ...common, expectedRevision: 1n, effect: async () => {
+        throw new Error("Effect must not execute after key reuse");
+      },
+    })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_KEY_INVALID" } });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
+  it("serializes parallel delivery of the same search and never duplicates its effect", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "atomic-race-prepare");
+    const effectId = randomUUID();
+    const input = {
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 0n,
+      idempotencyKey: "atomic-race-search",
+      effect: async (client: import("pg").PoolClient) => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES ($1,$2,$3)",
+          [effectId, playerId, initial.expeditionId],
+        );
+        return ok({ effectRef: effectId });
+      },
+    };
+    const results = await Promise.all([
+      store.executeSearchFree(input), store.executeSearchFree(input),
+      store.executeSearchFree(input), store.executeSearchFree(input),
+    ]);
+    expect(results.filter(x=>x.ok && !x.value.replayed)).toHaveLength(1);
+    expect(results.filter(x=>x.ok && x.value.replayed)).toHaveLength(3);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    expect((await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM solo_search_effect_test WHERE player_id=$1", [playerId],
+    )).rows[0]?.n).toBe("1");
+  });
+
+  it("denies a search when World location changes after preparation", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "atomic-location-prepare");
+    await pool.query("UPDATE player_locations SET area_id=$1 WHERE player_id=$2", [
+      outsideLaunchAreaId, playerId,
+    ]);
+    const blocked = await store.executeSearchFree({
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 0n,
+      idempotencyKey: "atomic-drift",
+      effect: async () => { throw new Error("No effect allowed after World drift"); },
+    });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING", elapsedMinutes: 0, consumedWeekKey: null,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
   });
 
   it("persists free preparation and restores its location after reconstruction", async () => {
