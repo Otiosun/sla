@@ -8,6 +8,7 @@ on:
       - src/platform/exploration/postgres-expedition-repository.ts
       - src/platform/exploration/expedition-direct-encounter-effect.ts
       - src/platform/encounter/postgres-encounter-repository.ts
+      - tests/db/encounter.integration.test.ts
       - db/drafts/solo_exploration_v1_schema.sql
       - tests/db/solo-expedition-repository.integration.test.ts
       - .github/workflows/exploration-atomic-first-action-proof.yml
