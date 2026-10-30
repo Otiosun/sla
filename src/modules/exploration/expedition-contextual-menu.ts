@@ -7,6 +7,7 @@ export type ExpeditionMenuIntent =
   | "DESTINATIONS"
   | "TRAVEL"
   | "SEARCH_FREE"
+  | "SEARCH_RESOURCES"
   | "SEARCH_TARGET"
   | "FOLLOW_TRAIL"
   | "IGNORE_ENCOUNTER"
