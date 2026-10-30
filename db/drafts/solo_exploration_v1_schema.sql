@@ -126,3 +126,18 @@ CREATE INDEX solo_incidental_menu_deliveries_by_player
   ON solo_incidental_menu_deliveries(player_id,menu_id);
 COMMENT ON TABLE solo_incidental_menu_deliveries IS
   'Draft only: provider response-to message binding, not a WhatsApp sender authorization.';
+
+
+-- Enforce immutability at SQL level, not merely by repository convention.
+CREATE FUNCTION reject_solo_incidental_menu_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'Issued incidental menus and their message bindings are immutable';
+END;
+$$;
+CREATE TRIGGER solo_incidental_menu_immutable
+  BEFORE UPDATE OR DELETE ON solo_incidental_menu_snapshots
+  FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
+CREATE TRIGGER solo_incidental_menu_delivery_immutable
+  BEFORE UPDATE OR DELETE ON solo_incidental_menu_deliveries
+  FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
