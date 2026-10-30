@@ -16,6 +16,21 @@ function choices(): readonly ExpeditionMenuChoice[] {
 }
 
 describe("V1.7 contextual Rotom interpreter (pure, no gameplay action)", () => {
+  it("distinguishes a read-only bag view from a resource search that spends minutes", () => {
+    const options: readonly ExpeditionMenuChoice[] = [
+      { optionNo: 1, intent: "BAG", label: "Ver mochila", phrases: [] },
+      { optionNo: 2, intent: "SEARCH_RESOURCES", label: "Buscar recursos", phrases: [] },
+    ];
+    const bag = selectExpeditionMenuChoice({ text: "1", choices: options });
+    const search = selectExpeditionMenuChoice({ text: "2", choices: options });
+    expect(bag.ok).toBe(true);
+    expect(search.ok).toBe(true);
+    if (!bag.ok || !search.ok) return;
+    expect(bag.value.requiresServerActionAuthorization).toBe(false);
+    expect(search.value.requiresServerActionAuthorization).toBe(true);
+  });
+
+
   it.each([
     { text: "1", optionNo: 1, intent: "STATUS", requiresServerActionAuthorization: false },
     { text: " 2 ", optionNo: 2, intent: "TEAM", requiresServerActionAuthorization: false },
