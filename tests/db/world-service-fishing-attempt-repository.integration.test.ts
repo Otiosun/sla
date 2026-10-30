@@ -240,6 +240,64 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
     });
   });
 
+  it("deduplicates parallel deliveries of one fishing command at the PostgreSQL boundary", async () => {
+    const playerId = await playerAt(fishingAreaId);
+    const requests = Array.from({ length: 8 }, () =>
+      repository.reserveAttempt({
+        playerId,
+        idempotencyKey: "fish-parallel-same-inbox",
+        roll: 9,
+      }),
+    );
+    const results = await Promise.all(requests);
+
+    expect(results).toHaveLength(8);
+    expect(results.every((item) => item.kind === "RESERVED")).toBe(true);
+    expect(results.filter((item) => item.kind === "RESERVED" && !item.replayed)).toHaveLength(1);
+    expect(results.filter((item) => item.kind === "RESERVED" && item.replayed)).toHaveLength(7);
+    for (const item of results) {
+      expect(item).toMatchObject({
+        kind: "RESERVED",
+        attemptNo: 1,
+        remainingAttempts: 4,
+        roll: 9,
+      });
+    }
+    const persisted = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM fishing_attempts WHERE player_id = $1",
+      [playerId],
+    );
+    expect(persisted.rows[0]?.count).toBe("1");
+  });
+
+  it("enforces the five-attempt daily limit even with twelve different concurrent commands", async () => {
+    const playerId = await playerAt(fishingAreaId);
+    const attempts = await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        repository.reserveAttempt({
+          playerId,
+          idempotencyKey: `fish-parallel-unique-${index}`,
+          roll: 9,
+        }),
+      ),
+    );
+
+    const reserved = attempts.filter((item) => item.kind === "RESERVED");
+    const limited = attempts.filter((item) => item.kind === "DAILY_LIMIT_REACHED");
+    expect(reserved).toHaveLength(5);
+    expect(limited).toHaveLength(7);
+    expect(reserved.map((item) => item.kind === "RESERVED" ? item.attemptNo : -1).sort((a, b) => a - b))
+      .toEqual([1, 2, 3, 4, 5]);
+    expect(limited.every((item) => item.kind === "DAILY_LIMIT_REACHED" && item.remainingAttempts === 0))
+      .toBe(true);
+
+    const persisted = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM fishing_attempts WHERE player_id = $1",
+      [playerId],
+    );
+    expect(persisted.rows[0]?.count).toBe("5");
+  });
+
   it("does not consume quota when the current area has no Fishing configuration", async () => {
     const playerId = await playerAt(dryAreaId);
 

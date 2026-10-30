@@ -1,0 +1,36 @@
+name: WhatsApp Native Fold Proof
+
+on:
+  pull_request:
+    branches:
+      - fix/uat-registration-profession-20261030
+    paths:
+      - "src/modules/messaging/whatsapp-native-read-more.ts"
+      - "tests/messaging/whatsapp-native-read-more.test.ts"
+      - ".github/workflows/whatsapp-native-fold-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fold:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.23.0
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Native fold unit proof
+        run: pnpm exec vitest run tests/messaging/whatsapp-native-read-more.test.ts
