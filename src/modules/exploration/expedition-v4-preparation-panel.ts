@@ -108,7 +108,7 @@ export function renderExpeditionV4OpeningPanel(
   if (input.choices.length !== 2 || day === undefined || night === undefined) {
     return err(appError("FLOW_BLOCKED", "Current period options are not available"));
   }
-  const periodMenu = safeMenu(input.choices, new Set(["PREPARE_DAY", "PREPARE_NIGHT"]));
+  const periodMenu = safeMenu(input.choices, new Set<ExpeditionMenuChoice["intent"]>(["PREPARE_DAY", "PREPARE_NIGHT"]));
   if (!periodMenu.ok) return periodMenu;
   const visible = [
     "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*",
