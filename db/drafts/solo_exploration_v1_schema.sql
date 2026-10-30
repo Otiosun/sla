@@ -86,3 +86,23 @@ CREATE INDEX solo_search_outcomes_by_player
   ON solo_expedition_search_outcomes(player_id, expedition_id);
 COMMENT ON TABLE solo_expedition_search_outcomes IS
   'Draft, not live. Outcome selection is server-side only; no loot or encounter invented by UI.';
+
+
+-- A server-issued, immutable menu receipt. Repeated sends return the same
+-- visible text and choice→item mapping; clients cannot submit arbitrary Ball
+-- IDs and an old reply cannot silently adopt a new encounter menu.
+-- Only the dispatcher (not a WhatsApp payload) may select the UUID menu ID.
+CREATE TABLE solo_incidental_menu_snapshots (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id),
+  outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
+  encounter_id UUID NOT NULL REFERENCES encounters(id),
+  encounter_revision BIGINT NOT NULL CHECK (encounter_revision >= 0),
+  panel JSONB NOT NULL CHECK (jsonb_typeof(panel)='object'),
+  ball_item_ids JSONB NOT NULL CHECK (jsonb_typeof(ball_item_ids)='object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX solo_incidental_menus_by_player
+  ON solo_incidental_menu_snapshots(player_id,created_at DESC);
+COMMENT ON TABLE solo_incidental_menu_snapshots IS
+  'Immutable server-issued V4 incidental menu and authorized Ball mappings. Draft only; WhatsApp binding and migration require separate release gate.';
