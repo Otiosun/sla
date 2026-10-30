@@ -15,6 +15,7 @@ import { createDirectEncounterEffect } from "../../src/platform/exploration/expe
 import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
 import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
+import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
 import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
@@ -539,6 +540,40 @@ describe("encounter PostgreSQL integration", () => {
           }
           expect(unwrap(await snapshots.findForPlayer(playerId,issued.menuId)).menu)
             .toEqual(issued.menu);
+          const binding=new PostgresIncidentalMenuReplyBinding(pool,snapshots);
+          const delivery={
+            provider:"baileys",chatRef:"group-fixture@g.us",
+            externalMessageId:"provider-original-sent-message",
+          };
+          expect((await binding.bindDelivered({
+            playerId,menuId:issued.menuId,message:delivery,
+          })).ok).toBe(true);
+          expect((await binding.bindDelivered({
+            playerId,menuId:issued.menuId,message:delivery,
+          })).ok).toBe(true);
+          const resolved=unwrap(await binding.resolveReply({
+            playerId,repliedTo:delivery,
+          }));
+          expect(resolved.menuId).toBe(issued.menuId);
+          expect(resolved.menu.text).toBe(issued.menu.text);
+          expect((await binding.resolveReply({
+            playerId:createPlayerId(),repliedTo:delivery,
+          })).ok).toBe(false);
+          expect((await binding.resolveReply({
+            playerId,repliedTo:{...delivery,chatRef:"other-group@g.us"},
+          })).ok).toBe(false);
+          expect((await binding.resolveReply({
+            playerId,repliedTo:{...delivery,externalMessageId:"another-message"},
+          })).ok).toBe(false);
+          expect((await binding.bindDelivered({
+            playerId,menuId:issued.menuId,
+            message:{...delivery,chatRef:"wrong-group\n@g.us"},
+          })).ok).toBe(false);
+          expect((await pool.query<{n:string}>(
+            "SELECT count(*)::text AS n FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
+            [issued.menuId],
+          )).rows[0]?.n).toBe("1");
+
           expect((await snapshots.findForPlayer(createPlayerId(),issued.menuId)).ok).toBe(false);
           expect((await pool.query<{n:string}>(
             "SELECT count(*)::text AS n FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
