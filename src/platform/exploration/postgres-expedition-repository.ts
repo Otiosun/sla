@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
 import {
   advanceExpedition,
+  changeExpeditionPeriod,
   endExpedition,
   type ExpeditionEndReason,
   type ExpeditionPhase,
@@ -58,6 +59,14 @@ export interface AdvanceStoredExpeditionInput {
   readonly expeditionId: string;
   readonly expectedRevision: bigint;
   readonly minutes: number;
+  readonly idempotencyKey: string;
+}
+
+export interface ChangeStoredExpeditionPeriodInput {
+  readonly playerId: PlayerId;
+  readonly expeditionId: string;
+  readonly expectedRevision: bigint;
+  readonly period: ExpeditionPeriod;
   readonly idempotencyKey: string;
 }
 
@@ -141,7 +150,7 @@ async function writeReceipt(
   playerId: PlayerId,
   key: string,
   expeditionId: string,
-  operation: "PREPARE" | "ADVANCE" | "END",
+  operation: "PREPARE" | "ADVANCE" | "END" | "CHANGE_PERIOD",
   inputFingerprint: string,
   transition: ExpeditionTransition,
 ): Promise<StoredExpeditionTransition> {
@@ -170,10 +179,11 @@ async function persistSnapshot(
   expectedRevision: bigint,
 ): Promise<void> {
   const updated = await client.query(
-    "UPDATE solo_expeditions SET phase=$3,elapsed_minutes=$4,consumed_week_key=$5::date,end_reason=$6,revision=$7::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$8::bigint",
+    "UPDATE solo_expeditions SET period=$3,phase=$4,elapsed_minutes=$5,consumed_week_key=$6::date,end_reason=$7,revision=$8::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$9::bigint",
     [
       value.expeditionId,
       value.playerId,
+      value.period,
       value.phase,
       value.elapsedMinutes,
       value.consumedWeekKey,
@@ -335,6 +345,44 @@ export class PostgresExpeditionRepository {
           transition.value,
         ),
       );
+    });
+  }
+
+  /** Idempotent, revision-locked DAY/NIGHT toggle; never consumes a slot. */
+  public async changePeriod(
+    input: ChangeStoredExpeditionPeriodInput,
+  ): Promise<Result<StoredExpeditionTransition>> {
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    if (input.period !== "DAY" && input.period !== "NIGHT") {
+      return err(appError("VALIDATION_FAILED", "Unknown expedition period"));
+    }
+    const inputFingerprint = fingerprint([
+      "CHANGE_PERIOD",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      input.period,
+    ]);
+    return withTransaction(this.pool, async (client) => {
+      const player = await lockedPlayer(client, input.playerId);
+      if (!player.ok) return player;
+      const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
+      if (prior !== null) return prior;
+      const original = await lockedExpedition(client, input.playerId, input.expeditionId);
+      if (original === null) return unavailable();
+      const transition = changeExpeditionPeriod({
+        expedition: original,
+        expectedRevision: input.expectedRevision,
+        period: input.period,
+      });
+      if (!transition.ok) return transition;
+      if (transition.value.changed) {
+        await persistSnapshot(client, transition.value.expedition, original.revision);
+      }
+      return ok(await writeReceipt(
+        client, input.playerId, input.idempotencyKey, input.expeditionId,
+        "CHANGE_PERIOD", inputFingerprint, transition.value,
+      ));
     });
   }
 
