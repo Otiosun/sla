@@ -12,6 +12,7 @@ import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgr
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
+import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
@@ -429,7 +430,7 @@ describe("encounter PostgreSQL integration", () => {
     }
   });
 
-  it("atomically commits and replays a real Encounter with its expedition clock/quota", async () => {
+  it("atomically binds DIRECT and INCIDENTAL outcomes to real Encounter IDs with replay", async () => {
     const client = await pool.connect();
     const region = await client.query<{ region_id: string }>(
       "SELECT region_id::text FROM areas WHERE id=$1", [fixture.areaId],
@@ -440,48 +441,92 @@ describe("encounter PostgreSQL integration", () => {
       throw new Error("Fixture region missing");
     }
     try {
-      // This is a disposable fixture: use the approved launch scope without
-      // editing any immutable PUBLISHED revision or production location.
       await client.query("UPDATE regions SET slug='zhoulia' WHERE id=$1", [regionId]);
-      await client.query(
-        "UPDATE areas SET slug='vila-dos-arrozais' WHERE id=$1", [fixture.areaId],
+      await client.query("UPDATE areas SET slug='vila-dos-arrozais' WHERE id=$1", [fixture.areaId]);
+      for (const kind of ["DIRECT", "INCIDENTAL"] as const) {
+        const playerId = await createEligiblePlayer(client, fixture.areaId);
+        const clock = new ManualClock(FIXED_NOW);
+        const store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
+        const prepared = unwrap(await store.prepare({
+          playerId, period: "DAY", idempotencyKey: "combined-preparation",
+        })).expedition;
+        const canonicalEncounter = createDirectEncounterEffect({
+          seedProvider: new AesEncounterSeedProvider(
+            Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+          ),
+          clock, feature: FEATURE_ENABLED,
+        });
+        let decisionCount = 0;
+        const effect = createSearchOutcomeEffect({
+          policy: { decide: async () => {
+            decisionCount++;
+            return { ok: true as const, value: { kind } };
+          } },
+          encounter: canonicalEncounter,
+        });
+        const input = {
+          playerId, expeditionId: prepared.expeditionId,
+          expectedRevision: prepared.revision,
+          idempotencyKey: "combined-first-search",
+          effect,
+        };
+        const first = unwrap(await store.executeSearchFree(input));
+        expect(first).toMatchObject({
+          replayed: false, consumedWeeklySlot: true,
+          expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+        });
+        const outcome = await readStoredSearchOutcome(client, playerId, first.effectRef);
+        expect(outcome).toMatchObject({
+          playerId, expeditionId: prepared.expeditionId,
+          kind, expeditionRevision: 0n,
+        });
+        expect(outcome?.encounterId).toBeTruthy();
+        expect(outcome?.encounterId).not.toBe(first.effectRef);
+        const replay = unwrap(await store.executeSearchFree(input));
+        expect(replay.replayed).toBe(true);
+        expect(replay.effectRef).toBe(first.effectRef);
+        expect(decisionCount).toBe(1);
+        expect((await pool.query<{ n: string }>(
+          "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
+        )).rows[0]?.n).toBe("1");
+        expect((await pool.query<{ n: string }>(
+          "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+          [playerId],
+        )).rows[0]?.n).toBe("1");
+        expect((await pool.query<{ n: string }>(
+          "SELECT count(*)::text AS n FROM solo_expedition_receipts WHERE player_id=$1",
+          [playerId],
+        )).rows[0]?.n).toBe("2");
+        expect((await store.current(playerId))?.consumedWeekKey).not.toBeNull();
+      }
+      const fakePlayerId = await createEligiblePlayer(client, fixture.areaId);
+      const fakeStore = new PostgresExpeditionRepository(
+        pool, new ManualClock(FIXED_NOW), "America/Maceio",
       );
-      const playerId = await createEligiblePlayer(client, fixture.areaId);
-      const clock = new ManualClock(FIXED_NOW);
-      const store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
-      const prepared = unwrap(await store.prepare({
-        playerId, period: "DAY", idempotencyKey: "combined-preparation",
+      const preparedFake = unwrap(await fakeStore.prepare({
+        playerId: fakePlayerId, period: "NIGHT", idempotencyKey: "fake-preparation",
       })).expedition;
-      const effect = createDirectEncounterEffect({
-        seedProvider: new AesEncounterSeedProvider(
-          Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
-        ),
-        clock, feature: FEATURE_ENABLED,
+      const fabricated = createSearchOutcomeEffect({
+        policy: { decide: async () => ({ ok: true as const, value: { kind: "DIRECT" as const } }) },
+        encounter: async () => ({ ok: true as const, value: { effectRef: randomUUID() } }),
       });
-      const input = {
-        playerId, expeditionId: prepared.expeditionId,
-        expectedRevision: prepared.revision, idempotencyKey: "combined-first-search",
-        effect,
-      };
-      const first = unwrap(await store.executeSearchFree(input));
-      expect(first).toMatchObject({
-        replayed: false, consumedWeeklySlot: true,
-        expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+      expect(await fakeStore.executeSearchFree({
+        playerId: fakePlayerId,
+        expeditionId: preparedFake.expeditionId,
+        expectedRevision: 0n,
+        idempotencyKey: "fake-result-blocked",
+        effect: fabricated,
+      })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+      expect(await fakeStore.current(fakePlayerId)).toMatchObject({
+        phase: "PREPARING", elapsedMinutes: 0,
+        consumedWeekKey: null, revision: 0n,
       });
-      const replay = unwrap(await store.executeSearchFree(input));
-      expect(replay.replayed).toBe(true);
-      expect(replay.effectRef).toBe(first.effectRef);
       expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
-      )).rows[0]?.n).toBe("1");
-      expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM solo_expedition_receipts WHERE player_id=$1", [playerId],
-      )).rows[0]?.n).toBe("2");
-      expect((await store.current(playerId))?.consumedWeekKey).not.toBeNull();
+        "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+        [fakePlayerId],
+      )).rows[0]?.n).toBe("0");
     } finally {
-      await client.query(
-        "UPDATE areas SET slug='phase8-route' WHERE id=$1", [fixture.areaId],
-      );
+      await client.query("UPDATE areas SET slug='phase8-route' WHERE id=$1", [fixture.areaId]);
       await client.query("UPDATE regions SET slug='phase8-kanto' WHERE id=$1", [regionId]);
       client.release();
     }
