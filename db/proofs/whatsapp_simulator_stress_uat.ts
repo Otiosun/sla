@@ -476,7 +476,13 @@ async function main(): Promise<void> {
       }
       const accepted = await send({ actor: target, chat: WORLD, text: "/aceitar" });
       add(
-        accepted.outbound.some((entry) => /Batalha iniciada/iu.test(textOf(entry)))
+        accepted.outbound.some((entry) => {
+          const text = textOf(entry).normalize("NFKC");
+          // UI renders stylized Unicode letters: PVP INICIADO is the current HUD title.
+          // Still require the battle action and HP data, not just a generic success reply.
+          return /(?:PVP INICIADO|Batalha iniciada)/iu.test(text) &&
+            /HP/iu.test(text) && text.includes("/movimento");
+        })
           ? "PASS"
           : "BUG",
         "pvp",
