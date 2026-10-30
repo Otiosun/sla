@@ -581,6 +581,15 @@ describe("encounter PostgreSQL integration", () => {
             "DELETE FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
             [issued.menuId],
           )).rejects.toThrow(/immutable/u);
+          await pool.query("UPDATE players SET status='SUSPENDED' WHERE id=$1",[playerId]);
+          try {
+            expect(await snapshots.issue(issuance)).toMatchObject({
+              ok:false,error:{code:"PLAYER_INELIGIBLE"},
+            });
+          } finally {
+            await pool.query("UPDATE players SET status='ACTIVE' WHERE id=$1",[playerId]);
+          }
+
 
 
           expect((await snapshots.findForPlayer(createPlayerId(),issued.menuId)).ok).toBe(false);
