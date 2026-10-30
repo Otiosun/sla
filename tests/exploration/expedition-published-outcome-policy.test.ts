@@ -24,7 +24,7 @@ function queryFixture(weights:unknown, rowsCount=1) {
   const rows=rowsCount===0?[]:[{
     policy_id:policyId,release_id:releaseId,weights,
   }];
-  const query=vi.fn(async()=>({rows}));
+  const query=vi.fn(async (_sql:string, _params?:unknown[])=>({rows}));
   return {client:{query} as unknown as PoolClient,query};
 }
 
@@ -93,7 +93,7 @@ describe("published-only expedition search outcome policy (DRAFT, NO default wei
     const spoof=queryFixture({...allZero(),NO_SIGNAL:10_000});
     // A row with a non-UUID release/policy is never treated as published.
     const row=await spoof.client.query("ignored");
-    row.rows[0].policy_id="not-a-uuid";
+    if(row.rows[0] !== undefined) row.rows[0].policy_id="not-a-uuid";
     expect((await policy.decide(spoof.client,expedition)).ok).toBe(false);
   });
 
