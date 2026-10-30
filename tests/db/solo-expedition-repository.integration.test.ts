@@ -24,6 +24,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let activeAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
+  let outsideLaunchAreaId: string;
 
   async function trainer(areaId?: string): Promise<PlayerId> {
     const id = createPlayerId();
@@ -73,9 +74,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const activeRegionId = randomUUID();
     const unpublishedRegionId = randomUUID();
     const inactiveRegionId = randomUUID();
+    const outsideLaunchRegionId = randomUUID();
     activeAreaId = randomUUID();
     unpublishedAreaId = randomUUID();
     inactiveRegionAreaId = randomUUID();
+    outsideLaunchAreaId = randomUUID();
     await pool.query(
       "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,'{}'::jsonb,'DRAFT')",
       [rulesetId],
@@ -86,25 +89,25 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [rulesetId]);
     await pool.query(
-      "INSERT INTO regions(id,slug) VALUES ($1,'solo-active-proof'),($2,'solo-unpublished-proof'),($3,'solo-inactive-region-proof')",
-      [activeRegionId, unpublishedRegionId, inactiveRegionId],
+      "INSERT INTO regions(id,slug) VALUES ($1,'zhoulia'),($2,'solo-unpublished-proof'),($3,'solo-inactive-region-proof'),($4,'other-allowed-region')",
+      [activeRegionId, unpublishedRegionId, inactiveRegionId, outsideLaunchRegionId],
     );
     await pool.query(
-      "INSERT INTO areas(id,region_id,slug) VALUES ($1,$4,'solo-active-area'),($2,$5,'solo-unpublished-area'),($3,$6,'solo-inactive-region-area')",
-      [activeAreaId, unpublishedAreaId, inactiveRegionAreaId,
-        activeRegionId, unpublishedRegionId, inactiveRegionId],
+      "INSERT INTO areas(id,region_id,slug) VALUES ($1,$5,'vila-dos-arrozais'),($2,$6,'solo-unpublished-area'),($3,$7,'solo-inactive-region-area'),($4,$8,'published-outside-zhoulia')",
+      [activeAreaId, unpublishedAreaId, inactiveRegionAreaId, outsideLaunchAreaId,
+        activeRegionId, unpublishedRegionId, inactiveRegionId, outsideLaunchRegionId],
     );
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
       [publishedReleaseId, rulesetId],
     );
     await pool.query(
-      "INSERT INTO region_revisions(id,content_release_id,region_id,display_name,active,data) VALUES ($1,$3,$4,'Solo Active Region',TRUE,'{}'::jsonb),($2,$3,$5,'Solo Inactive Region',FALSE,'{}'::jsonb)",
-      [randomUUID(),randomUUID(),publishedReleaseId,activeRegionId,inactiveRegionId],
+      "INSERT INTO region_revisions(id,content_release_id,region_id,display_name,active,data) VALUES ($1,$4,$5,'Zhoulia',TRUE,'{}'::jsonb),($2,$4,$6,'Solo Inactive Region',FALSE,'{}'::jsonb),($3,$4,$7,'Other Published Region',TRUE,'{}'::jsonb)",
+      [randomUUID(),randomUUID(),randomUUID(),publishedReleaseId,activeRegionId,inactiveRegionId,outsideLaunchRegionId],
     );
     await pool.query(
-      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data) VALUES ($1,$3,$4,'Solo Active Area',TRUE,$6::jsonb),($2,$3,$5,'Solo Inactive Region Area',TRUE,$6::jsonb)",
-      [randomUUID(),randomUUID(),publishedReleaseId,activeAreaId,inactiveRegionAreaId,
+      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data) VALUES ($1,$4,$5,'Vila dos Arrozais',TRUE,$8::jsonb),($2,$4,$6,'Solo Inactive Region Area',TRUE,$8::jsonb),($3,$4,$7,'Other Published Area',TRUE,$8::jsonb)",
+      [randomUUID(),randomUUID(),randomUUID(),publishedReleaseId,activeAreaId,inactiveRegionAreaId,outsideLaunchAreaId,
         JSON.stringify({schemaVersion:1,kind:"ROUTE",safePoint:false,startingArea:false,relocationPriority:10})],
     );
     await pool.query(
@@ -160,6 +163,16 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       playerId, period: "NIGHT", idempotencyKey: "unpublished-region",
     })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(await count("solo_expeditions", playerId)).toBe(0);
+  });
+
+  it("denies a fully published area outside the V1 solo-expedition scope", async () => {
+    const playerId = await trainer(outsideLaunchAreaId);
+    const attempt = await store.prepare({
+      playerId, period: "DAY", idempotencyKey: "published-but-outside-launch",
+    });
+    expect(attempt).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await count("solo_expeditions", playerId)).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(0);
   });
 
   it("persists free preparation and restores its location after reconstruction", async () => {
