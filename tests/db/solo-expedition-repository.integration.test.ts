@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
@@ -183,6 +184,85 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(attempt).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(await count("solo_expeditions", playerId)).toBe(0);
     expect(await count("solo_expedition_receipts", playerId)).toBe(0);
+  });
+
+  it("persists NO_SIGNAL then TRAIL, charges once weekly and returns exact result on replay", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "outcome-prepare");
+    let called = 0;
+    const outcome = (kind: "NO_SIGNAL" | "TRAIL") => createSearchOutcomeEffect({
+      policy: { decide: async () => { called++; return ok({ kind }); } },
+      encounter: async () => {
+        throw new Error("Non-encounter results must never invoke EncounterService");
+      },
+    });
+    const first = await store.executeSearchFree({
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 0n,
+      idempotencyKey: "outcome-no-signal", effect: outcome("NO_SIGNAL"),
+    });
+    expect(first).toMatchObject({ ok: true, value: {
+      consumedWeeklySlot: true, expedition: { elapsedMinutes: 30, revision: 1n },
+    } });
+    if (!first.ok) return;
+    expect(await store.executeSearchFree({
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 0n,
+      idempotencyKey: "outcome-no-signal", effect: outcome("NO_SIGNAL"),
+    })).toMatchObject({ ok: true, value: {
+      replayed: true, effectRef: first.value.effectRef,
+    } });
+    const second = await store.executeSearchFree({
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 1n,
+      idempotencyKey: "outcome-trail", effect: outcome("TRAIL"),
+    });
+    expect(second).toMatchObject({ ok: true, value: {
+      consumedWeeklySlot: false, expedition: { elapsedMinutes: 60, revision: 2n },
+    } });
+    expect(called).toBe(2);
+    if (!second.ok) return;
+    const client = await pool.connect();
+    try {
+      const noSignal = await readStoredSearchOutcome(client, playerId, first.value.effectRef);
+      const trail = await readStoredSearchOutcome(client, playerId, second.value.effectRef);
+      expect(noSignal).toMatchObject({
+        playerId, expeditionId: initial.expeditionId, expeditionRevision: 0n,
+        kind: "NO_SIGNAL", encounterId: null,
+      });
+      expect(trail).toMatchObject({
+        playerId, expeditionId: initial.expeditionId, expeditionRevision: 1n,
+        kind: "TRAIL", encounterId: null,
+      });
+      expect(await readStoredSearchOutcome(client, createPlayerId(), second.value.effectRef))
+        .toBeNull();
+    } finally { client.release(); }
+    const rows = await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+      [playerId],
+    );
+    expect(rows.rows[0]?.n).toBe("2");
+    expect(await count("solo_expedition_receipts", playerId)).toBe(3);
+  });
+
+  it("rejects an invalid server outcome without burning any time or creating a receipt", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "outcome-invalid-prepare");
+    const effect = createSearchOutcomeEffect({
+      policy: {
+        decide: async () => ok({ kind: "UNKNOWN" as "DIRECT" }),
+      },
+      encounter: async () => { throw new Error("Encounter must not run"); },
+    });
+    expect(await store.executeSearchFree({
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 0n,
+      idempotencyKey: "outcome-invalid", effect,
+    })).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING", elapsedMinutes: 0, consumedWeekKey: null, revision: 0n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+    expect((await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+      [playerId],
+    )).rows[0]?.n).toBe("0");
   });
 
   it("commits effect, 30 minutes, quota and durable receipt atomically, then replays", async () => {
