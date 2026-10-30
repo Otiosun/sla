@@ -266,6 +266,45 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     } });
   });
 
+  it("rolls back SQL side effects and quota when an encounter throws unexpectedly", async () => {
+    const playerId = await trainer();
+    const initial = await prepare(playerId, "atomic-throw-prepare");
+    const evidenceId = randomUUID();
+    const input = {
+      playerId, expeditionId: initial.expeditionId, expectedRevision: 0n,
+      idempotencyKey: "atomic-throw-command",
+    };
+    await expect(store.executeSearchFree({
+      ...input,
+      effect: async client => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES ($1,$2,$3)",
+          [evidenceId, playerId, initial.expeditionId],
+        );
+        throw new Error("synthetic failed encounter generation");
+      },
+    })).rejects.toThrow("synthetic failed encounter generation");
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING", revision: 0n, elapsedMinutes: 0, consumedWeekKey: null,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+    expect((await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM solo_search_effect_test WHERE player_id=$1", [playerId],
+    )).rows[0]?.n).toBe("0");
+    expect(await store.executeSearchFree({
+      ...input,
+      effect: async client => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES ($1,$2,$3)",
+          [evidenceId, playerId, initial.expeditionId],
+        );
+        return ok({ effectRef: evidenceId });
+      },
+    })).toMatchObject({ ok: true, value: {
+      consumedWeeklySlot: true, effectRef: evidenceId,
+    } });
+  });
+
   it("blocks invalid evidence and mismatched reused action keys without losing quota", async () => {
     const playerId = await trainer();
     const initial = await prepare(playerId, "atomic-evidence-prepare");
