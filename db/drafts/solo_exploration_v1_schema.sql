@@ -106,3 +106,23 @@ CREATE INDEX solo_incidental_menus_by_player
   ON solo_incidental_menu_snapshots(player_id,created_at DESC);
 COMMENT ON TABLE solo_incidental_menu_snapshots IS
   'Immutable server-issued V4 incidental menu and authorized Ball mappings. Draft only; WhatsApp binding and migration require separate release gate.';
+
+
+-- Map the actual provider-delivered message to its server-issued menu. A
+-- reply in a different chat or a different trainer must never reuse choices.
+-- Binding occurs only after a trusted transport confirms delivery; it does
+-- not send messages or alter inbox/outbox.
+CREATE TABLE solo_incidental_menu_deliveries (
+  id UUID PRIMARY KEY,
+  menu_id UUID NOT NULL REFERENCES solo_incidental_menu_snapshots(id),
+  player_id UUID NOT NULL REFERENCES players(id),
+  provider TEXT NOT NULL CHECK (char_length(provider) BETWEEN 1 AND 30),
+  chat_ref TEXT NOT NULL CHECK (char_length(chat_ref) BETWEEN 1 AND 256),
+  external_message_id TEXT NOT NULL CHECK (char_length(external_message_id) BETWEEN 1 AND 256),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(provider,chat_ref,external_message_id)
+);
+CREATE INDEX solo_incidental_menu_deliveries_by_player
+  ON solo_incidental_menu_deliveries(player_id,menu_id);
+COMMENT ON TABLE solo_incidental_menu_deliveries IS
+  'Draft only: provider response-to message binding, not a WhatsApp sender authorization.';
