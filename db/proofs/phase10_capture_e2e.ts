@@ -8,6 +8,9 @@ import { CaptureService } from "../../src/modules/capture/service.js";
 import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
 import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
 import { ExpeditionIncidentalTransportSeam } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
+import { IncidentalMenuOutboxDeliveryPreparation } from "../../src/platform/exploration/incidental-menu-outbox-delivery-preparation.js";
+import { baileysOutboundMessageId } from "../../src/adapters/whatsapp/baileys-whatsapp-adapter.js";
+import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
@@ -753,10 +756,37 @@ async function proveIncidentalQuotedCapture(pool:Pool,ballItemId:string):Promise
   const ballChoice=menu.menu.choices.find(choice=>choice.kind==="CAPTURE" && choice.optionNo===2);
   if(!ballChoice || menu.ballItemIds.POKE!==ballItemId)
     throw Error("Published Phase10 ruleset did not authorize an offered Poké Ball");
+  // Prove the existing OutboxWorker preparation model: record the provider
+  // ID deterministically BEFORE the provider is called. This survives a crash
+  // after send without needing to recover an unknown WhatsApp acknowledgment.
+  const outbound:PendingOutboxMessage={
+    id:randomUUID(),channel:"whatsapp",destinationRef:"phase10-outbox-group@g.us",
+    messageType:"TEXT",
+    payload:{
+      text:sent.text,
+      incidentalMenu:{playerId:engaged.playerId,menuId:sent.menuId},
+    },
+    idempotencyKey:"expedition.menu:"+sent.menuId,
+    correlationId:randomUUID(),causationId:null,attempts:1,
+  };
+  const prepareOutbox=new IncidentalMenuOutboxDeliveryPreparation({
+    provider:"baileys",snapshots,binding:bindings,
+    providerMessageIdFor:baileysOutboundMessageId,
+  });
+  await prepareOutbox.prepare(outbound);
+  await prepareOutbox.prepare({...outbound,attempts:3});
+  const deterministicRef={
+    provider:"baileys",chatRef:outbound.destinationRef,
+    externalMessageId:baileysOutboundMessageId(outbound),
+  };
+  if(unwrap("resolve prebound outbox quote",await bindings.resolveReply({
+    playerId:engaged.playerId,repliedTo:deterministicRef,
+  })).menuId!==sent.menuId)
+    throw Error("Outbox prebinding did not recover exact issued menu");
   const reply={
-    playerId:engaged.playerId,provider:sentReference.provider,
-    chatRef:sentReference.chatRef,
-    quotedExternalMessageId:sentReference.externalMessageId,
+    playerId:engaged.playerId,provider:deterministicRef.provider,
+    chatRef:deterministicRef.chatRef,
+    quotedExternalMessageId:deterministicRef.externalMessageId,
     rawChoice:"2",inboxIdempotencyKey:"inbox:phase10-incidental-original",
     correlationId:createCorrelationId(),causationId:null,
   };
@@ -785,7 +815,7 @@ async function proveIncidentalQuotedCapture(pool:Pool,ballItemId:string):Promise
     audit.rows[0].ledger!=="1" || audit.rows[0].balance!=="1" ||
     audit.rows[0].deliveries!=="1")
     throw Error("Quoted incidental capture was not atomic/idempotent: "+JSON.stringify(audit.rows[0]));
-  console.log("Incidental Phase10 quoted reply E2E: issued menu, provider ACK, 1 Ball debit, 1 attempt, replay, foreign trainer denied");
+  console.log("Incidental Phase10 quoted reply E2E: issued menu, provider ACK + deterministic prebinding, 1 Ball debit, 1 attempt, replay, foreign trainer denied");
 }
 
 async function main(): Promise<void> {
