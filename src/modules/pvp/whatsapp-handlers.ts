@@ -69,6 +69,19 @@ async function player(dependencies: PvpWhatsAppDependencies, context: MessageHan
   });
 }
 
+/** First-turn instructions are shared across loaded and fallback PvP views. */
+function pvpFirstTurnGuide(): readonly string[] {
+  return [
+    "",
+    "◇ *𝗦𝗘𝗨 𝗣𝗥𝗜𝗠𝗘𝗜𝗥𝗢 𝗧𝗨𝗥𝗡𝗢*",
+    "",
+    "`/batalha` · Consultar o estado da luta",
+    "`/moves` · Ver seus golpes e PP",
+    "› _Use `/movimento <número>` quando houver golpe disponível._",
+    "› _As escolhas ficam ocultas até a resolução do turno._",
+  ];
+}
+
 async function pvpStartText(
   dependencies: PvpWhatsAppDependencies,
   battleId: string,
@@ -84,10 +97,7 @@ async function pvpStartText(
   if (dependencies.battle === undefined || dependencies.presentation === undefined) {
     return [
       ...heading,
-      "",
-      "> _As ações ficam ocultas até os dois escolherem._",
-      "",
-      "› _Use `/moves` para consultar seus movimentos._",
+      ...pvpFirstTurnGuide(),
     ].join("\n");
   }
 
@@ -95,10 +105,7 @@ async function pvpStartText(
   if (!state.ok) {
     return [
       ...heading,
-      "",
-      "> _As ações ficam ocultas até os dois escolherem._",
-      "",
-      "› _Use `/moves` para consultar seus movimentos._",
+      ...pvpFirstTurnGuide(),
     ].join("\n");
   }
 
@@ -129,10 +136,7 @@ async function pvpStartText(
       `HP \`${combatant.currentHp} / ${combatant.maxHp}\``,
       ...(index === active.length - 1 ? [] : [""]),
     ]),
-    "",
-    "> _As ações ficam ocultas até os dois escolherem._",
-    "",
-    "› _Use `/moves` para consultar seus movimentos._",
+    ...pvpFirstTurnGuide(),
   ].join("\n");
 }
 
