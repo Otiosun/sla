@@ -4,7 +4,8 @@ import {
   ExpeditionIncidentalTransportSeam,
 } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
 import { createCorrelationId, createPlayerId } from "../../src/shared-kernel/ids.js";
-import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
+import type { ProviderMessageReference } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
 import type { IssuedIncidentalMenu } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 import { renderExpeditionV4IncidentalPanel } from "../../src/modules/exploration/expedition-v4-incidental-panel.js";
 
@@ -27,10 +28,10 @@ function fixture() {
     provider: "baileys", chatRef: "group@g.us",
     externalMessageId: "provider-message-123",
   };
-  const snapshots = { issue: vi.fn(async () => ok(menu)) };
-  const sender = { send: vi.fn(async () => ok(ref)) };
+  const snapshots = { issue: vi.fn(async (): Promise<Result<IssuedIncidentalMenu>> => ok(menu)) };
+  const sender = { send: vi.fn(async (): Promise<Result<ProviderMessageReference>> => ok(ref)) };
   const bindings = {
-    bindDelivered: vi.fn(async () => ok(undefined)),
+    bindDelivered: vi.fn(async (): Promise<Result<void>> => ok(undefined)),
     resolveReply: vi.fn(async () => ok(menu)),
   };
   const captureResult = {
