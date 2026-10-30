@@ -169,7 +169,8 @@ BEGIN
   IF release_status IS DISTINCT FROM 'DRAFT' THEN
     RAISE EXCEPTION 'Outcome weights may be authored only before release approval';
   END IF;
-  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
 END;
 $$;
 CREATE TRIGGER solo_search_outcome_policy_draft_only
