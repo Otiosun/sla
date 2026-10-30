@@ -129,7 +129,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   afterAll(async () => {
     await pool?.end();
     if (adminPool) {
-      await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      // pool.end() must close every test-owned connection. Force-dropping the
+      // database can terminate a still-observing pg client with an uncaught
+      // 57P01, giving a false-red CI even when all assertions passed.
+      // A plain DROP exposes real leaks instead of masking them.
+      await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
   });
