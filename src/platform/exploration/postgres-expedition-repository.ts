@@ -281,7 +281,9 @@ export class PostgresExpeditionRepository {
          JOIN area_revisions AS area_rev
            ON area_rev.area_id = area.id
           AND area_rev.content_release_id = release.id AND area_rev.active = TRUE
-         WHERE location.player_id = $1`,
+         WHERE location.player_id = $1
+           AND region.slug = 'zhoulia'
+           AND area.slug IN ('vila-dos-arrozais', 'campos-de-yun')`,
         [input.playerId],
       );
       const areaId = location.rows[0]?.area_id;
