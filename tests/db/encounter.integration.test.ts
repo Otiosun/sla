@@ -10,6 +10,7 @@ import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/po
 import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
@@ -375,6 +376,50 @@ describe("encounter PostgreSQL integration", () => {
       })).encounterId).toBe(committed.encounterId);
     } finally {
       try { await client.query("ROLLBACK"); } catch { /* not in transaction */ }
+      client.release();
+    }
+  });
+
+  it("uses the official direct-encounter expedition adapter on the caller transaction", async () => {
+    const bootstrap = await pool.connect();
+    const playerId = await createEligiblePlayer(bootstrap, fixture.areaId);
+    bootstrap.release();
+    const effect = createDirectEncounterEffect({
+      seedProvider: new AesEncounterSeedProvider(
+        Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+      ),
+      clock: new ManualClock(FIXED_NOW),
+      feature: FEATURE_ENABLED,
+    });
+    const snapshot = {
+      expeditionId: randomUUID(), playerId, areaId: fixture.areaId,
+      period: "DAY" as const, phase: "PREPARING" as const,
+      elapsedMinutes: 0, consumedWeekKey: null, endReason: null,
+      revision: 0n,
+    };
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const pending = unwrap(await effect(client, snapshot));
+      expect((await client.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
+        [pending.effectRef, playerId],
+      )).rows[0]?.n).toBe("1");
+      await client.query("ROLLBACK");
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
+      )).rows[0]?.n).toBe("0");
+
+      await client.query("BEGIN");
+      const committed = unwrap(await effect(client, snapshot));
+      await client.query("COMMIT");
+      expect((await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
+        [committed.effectRef, playerId],
+      )).rows[0]?.n).toBe("1");
+      expect(unwrap(await effect(client, snapshot)).effectRef).toBe(committed.effectRef);
+    } finally {
+      try { await client.query("ROLLBACK"); } catch { /* no open transaction */ }
       client.release();
     }
   });
