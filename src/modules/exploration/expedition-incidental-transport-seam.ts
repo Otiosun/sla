@@ -6,7 +6,6 @@ import {
   type SentMessageMenuResolver,
 } from "./expedition-incidental-menu-dispatch.js";
 import type {
-  IssuedIncidentalMenu,
   PostgresIncidentalMenuSnapshots,
 } from "../../platform/exploration/postgres-incidental-menu-snapshots.js";
 import type { ProviderMessageReference } from "../../platform/exploration/postgres-incidental-menu-reply-binding.js";
