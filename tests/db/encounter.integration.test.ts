@@ -14,6 +14,7 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
 import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
+import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
@@ -493,6 +494,25 @@ describe("encounter PostgreSQL integration", () => {
           outcomeId: first.effectRef,
         })).toBe(false);
 
+        if (kind === "INCIDENTAL") {
+          const target = outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId;
+          const deps = {
+            authorize: ownerGate,
+            encounters: service(pool, new ManualClock(FIXED_NOW)),
+          };
+          const ready = unwrap(await prepareIncidentalEncounterForCapture(deps, {
+            playerId, encounterId: target, outcomeId: first.effectRef,
+          }));
+          expect(ready.status).toBe("ENGAGED");
+          const same = unwrap(await prepareIncidentalEncounterForCapture(deps, {
+            playerId, encounterId: target, outcomeId: first.effectRef,
+          }));
+          expect(same.status).toBe("ENGAGED");
+          expect(same.revision).toBe(ready.revision);
+          expect(await prepareIncidentalEncounterForCapture(deps, {
+            playerId: createPlayerId(), encounterId: target, outcomeId: first.effectRef,
+          })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+        }
         expect(outcome?.encounterId).not.toBe(first.effectRef);
         const replay = unwrap(await store.executeSearchFree(input));
         expect(replay.replayed).toBe(true);
