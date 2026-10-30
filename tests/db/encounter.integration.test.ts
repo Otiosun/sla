@@ -16,6 +16,7 @@ import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/pl
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
 import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
+import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import { ExpeditionIncidentalTransportSeam } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
 import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
 import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
@@ -342,6 +343,27 @@ describe("encounter PostgreSQL integration", () => {
     await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }, 30_000);
+
+  it("blocks search when approved area weights are absent and forbids late policy authoring", async () => {
+    const client=await pool.connect();
+    try {
+      const playerId=await createEligiblePlayer(client,fixture.areaId);
+      const policy=new PublishedSearchOutcomePolicy(Buffer.alloc(32,0x47));
+      const result=await policy.decide(client,{
+        expeditionId:randomUUID(),playerId,
+        areaId:fixture.areaId,period:"DAY",phase:"PREPARING",
+        elapsedMinutes:0,consumedWeekKey:null,endReason:null,revision:0n,
+      });
+      expect(result).toMatchObject({ok:false,error:{code:"FLOW_BLOCKED"}});
+      await expect(client.query(
+        `INSERT INTO solo_search_outcome_policies
+          (id,content_release_id,area_id,period,weights)
+         VALUES ($1,$2,$3,'DAY',$4::jsonb)`,
+        [randomUUID(),fixture.releaseId,fixture.areaId,
+         JSON.stringify({NO_SIGNAL:10000,TRAIL:0,INCIDENTAL:0,DIRECT:0})],
+      )).rejects.toThrow(/only before release approval/u);
+    } finally {client.release()}
+  });
 
   it("runs the canonical EncounterService inside an existing transaction and rolls back its own encounter", async () => {
     const bootstrap = await pool.connect();
