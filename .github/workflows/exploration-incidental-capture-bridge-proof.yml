@@ -7,6 +7,7 @@ on:
     paths:
       - src/platform/exploration/postgres-expedition-repository.ts
       - src/modules/exploration/expedition-incidental-capture-action.ts
+      - src/modules/exploration/expedition-incidental-encounter-engagement.ts
       - src/platform/exploration/postgres-incidental-outcome-authorization.ts
       - tests/exploration/expedition-incidental-capture-action.test.ts
       - src/modules/exploration/expedition-v4-incidental-panel.ts
