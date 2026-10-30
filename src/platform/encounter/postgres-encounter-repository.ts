@@ -678,6 +678,26 @@ class PostgresEncounterTransaction implements EncounterTransaction {
   }
 }
 
+/**
+ * Bind the canonical encounter engine to a transaction already owned by
+ * another domain (e.g. an expedition's first timed action).
+ *
+ * Deliberately DOES NOT BEGIN/COMMIT or create a separate pool connection.
+ * The caller must invoke this only inside withTransaction(...), use the
+ * same PoolClient for all effects, and own rollback on any Result failure.
+ */
+export function encounterRepositoryWithinTransaction(
+  client: PoolClient,
+): EncounterRepository {
+  const transaction = new PostgresEncounterTransaction(client);
+  return {
+    transaction: async <T>(work: (tx: EncounterTransaction) => Promise<T>): Promise<T> =>
+      work(transaction),
+    read: async <T>(work: (tx: EncounterTransaction) => Promise<T>): Promise<T> =>
+      work(transaction),
+  };
+}
+
 export class PostgresEncounterRepository implements EncounterRepository {
   public constructor(private readonly pool: Pool) {}
 

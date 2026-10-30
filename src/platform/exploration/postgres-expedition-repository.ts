@@ -14,7 +14,7 @@ import { expeditionWeekKey } from "../../modules/exploration/expedition-week.js"
 import type { Clock } from "../clock/index.js";
 import { withTransaction } from "../db/transaction.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
 
 /**
  * Staging-only V1.1 lifecycle persistence. It intentionally does not wire
@@ -23,6 +23,32 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
  */
 export interface StoredExpeditionTransition extends ExpeditionTransition {
   readonly replayed: boolean;
+}
+
+/** A durable gameplay-effect reference, committed in the SAME PG transaction. */
+export interface StoredSearchActionTransition extends StoredExpeditionTransition {
+  readonly effectRef: string;
+}
+
+/**
+ * SEARCH_FREE remains staging-only. The trusted adapter must write encounter
+ * effects using the provided client; network calls / independent DB pools are
+ * forbidden because they cannot roll back with expedition quota and minutes.
+ */
+export interface ExecuteSearchActionInput {
+  readonly playerId: PlayerId;
+  readonly expeditionId: string;
+  readonly expectedRevision: bigint;
+  readonly idempotencyKey: string;
+  readonly effect: (client: PoolClient, expedition: ExpeditionSnapshot) => Promise<
+    Result<{ readonly effectRef: string }>
+  >;
+}
+
+class AbortedSearchAction extends Error {
+  public constructor(public readonly domainError: AppError) {
+    super(domainError.message);
+  }
 }
 
 interface ExpeditionRow {
@@ -41,6 +67,7 @@ interface StoredOutcome {
   readonly expedition: Omit<ExpeditionSnapshot, "revision"> & { readonly revision: string };
   readonly consumedWeeklySlot: boolean;
   readonly changed: boolean;
+  readonly effectRef?: string;
 }
 
 interface ReceiptRow {
@@ -92,10 +119,11 @@ function snapshot(row: ExpeditionRow): ExpeditionSnapshot {
   };
 }
 
-function serialize(value: ExpeditionTransition): string {
+function serialize(value: ExpeditionTransition, effectRef?: string): string {
   return JSON.stringify({
     ...value,
     expedition: { ...value.expedition, revision: value.expedition.revision.toString() },
+    ...(effectRef === undefined ? {} : { effectRef }),
   } satisfies StoredOutcome);
 }
 
@@ -156,13 +184,14 @@ async function writeReceipt(
   playerId: PlayerId,
   key: string,
   expeditionId: string,
-  operation: "PREPARE" | "ADVANCE" | "END" | "CHANGE_PERIOD",
+  operation: "PREPARE" | "ADVANCE" | "END" | "CHANGE_PERIOD" | "ACTION_SEARCH_FREE",
   inputFingerprint: string,
   transition: ExpeditionTransition,
+  effectRef?: string,
 ): Promise<StoredExpeditionTransition> {
   await client.query(
     "INSERT INTO solo_expedition_receipts(player_id,idempotency_key,expedition_id,operation,fingerprint,result) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
-    [playerId, key, expeditionId, operation, inputFingerprint, serialize(transition)],
+    [playerId, key, expeditionId, operation, inputFingerprint, serialize(transition, effectRef)],
   );
   return { ...transition, replayed: false };
 }
@@ -283,7 +312,8 @@ export class PostgresExpeditionRepository {
           AND area_rev.content_release_id = release.id AND area_rev.active = TRUE
          WHERE location.player_id = $1
            AND region.slug = 'zhoulia'
-           AND area.slug IN ('vila-dos-arrozais', 'campos-de-yun')`,
+           AND area.slug IN ('vila-dos-arrozais', 'campos-de-yun')
+         FOR UPDATE OF location`,
         [input.playerId],
       );
       const areaId = location.rows[0]?.area_id;
@@ -371,6 +401,112 @@ export class PostgresExpeditionRepository {
         ),
       );
     });
+  }
+
+  /**
+   * A real search-action commit seam: the encounter adapter must persist its
+   * effect using this SAME PoolClient. If it refuses/throws, quota, minutes,
+   * receipt and all its PG writes roll back together. This is not wired to a
+   * WhatsApp command until a canonical Encounter adapter is available.
+   */
+  public async executeSearchFree(
+    input: ExecuteSearchActionInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    const inputFingerprint = fingerprint([
+      "ACTION_SEARCH_FREE",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      30,
+    ]);
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        const player = await lockedPlayer(client, input.playerId);
+        if (!player.ok) return player;
+        const prior = await client.query<ReceiptRow>(
+          "SELECT fingerprint,result FROM solo_expedition_receipts WHERE player_id=$1 AND idempotency_key=$2",
+          [input.playerId, input.idempotencyKey],
+        );
+        const old = prior.rows[0];
+        if (old !== undefined) {
+          if (old.fingerprint !== inputFingerprint) {
+            return err(appError("IDEMPOTENCY_KEY_INVALID", "Expedition key reused for different action"));
+          }
+          if (typeof old.result.effectRef !== "string" ||
+            old.result.effectRef.length === 0) {
+            return err(appError("INVALID_STATE_TRANSITION", "Search receipt has no durable effect"));
+          }
+          return ok({
+            ...restore(old.result, true),
+            effectRef: old.result.effectRef,
+          });
+        }
+        const original = await lockedExpedition(
+          client, input.playerId, input.expeditionId,
+        );
+        if (original === null) return unavailable();
+
+        // Recheck World location and the published launch scope under the
+        // shared player lock, even after PREPARING was created.
+        const location = await client.query<{ area_id: string }>(
+          `SELECT area.id::text AS area_id
+           FROM player_locations loc
+           JOIN areas area ON area.id=loc.area_id
+           JOIN regions region ON region.id=area.region_id
+           JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
+           JOIN content_releases release ON release.id=pointer.content_release_id
+             AND release.status='PUBLISHED'
+           JOIN rulesets ruleset ON ruleset.id=release.default_ruleset_id
+             AND ruleset.status='PUBLISHED'
+           JOIN region_revisions rr ON rr.region_id=region.id
+             AND rr.content_release_id=release.id AND rr.active=TRUE
+           JOIN area_revisions ar ON ar.area_id=area.id
+             AND ar.content_release_id=release.id AND ar.active=TRUE
+           WHERE loc.player_id=$1 AND region.slug='zhoulia'
+             AND area.slug IN ('vila-dos-arrozais','campos-de-yun')
+           FOR UPDATE OF loc`,
+          [input.playerId],
+        );
+        if (location.rows[0]?.area_id !== original.areaId) {
+          return err(appError("FLOW_BLOCKED", "Expedition World location or release changed"));
+        }
+        const week = expeditionWeekKey(this.clock.now(), this.timeZone);
+        const used = await client.query<{ count: string }>(
+          "SELECT COUNT(*)::text AS count FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key=$2::date",
+          [input.playerId, week],
+        );
+        const transition = advanceExpedition({
+          expedition: original,
+          expectedRevision: input.expectedRevision,
+          minutes: 30,
+          weekKey: week,
+          consumedThisWeek: Number(used.rows[0]?.count ?? "0"),
+        });
+        if (!transition.ok) return transition;
+
+        // The effect runs before the clock/quota is persisted. Its SQL writes
+        // participate in the same transaction and roll back on rejection.
+        const effect = await input.effect(client, original);
+        if (!effect.ok) throw new AbortedSearchAction(effect.error);
+        const effectRef = effect.value.effectRef;
+        if (typeof effectRef !== "string" ||
+          !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,199}$/u.test(effectRef)) {
+          throw new AbortedSearchAction(
+            appError("VALIDATION_FAILED", "Search effect must return a durable reference"),
+          );
+        }
+        await persistSnapshot(client, transition.value.expedition, original.revision);
+        const written = await writeReceipt(
+          client, input.playerId, input.idempotencyKey, input.expeditionId,
+          "ACTION_SEARCH_FREE", inputFingerprint, transition.value, effectRef,
+        );
+        return ok({ ...written, effectRef });
+      });
+    } catch (error) {
+      if (error instanceof AbortedSearchAction) return err(error.domainError);
+      throw error;
+    }
   }
 
   /** Idempotent, revision-locked DAY/NIGHT toggle; never consumes a slot. */
