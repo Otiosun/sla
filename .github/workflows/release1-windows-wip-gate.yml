@@ -1,0 +1,123 @@
+name: Release1 Windows WIP Exact Candidate Proof
+
+on:
+  pull_request:
+    branches:
+      - fix/release1-formatting-20261030
+    paths:
+      - ".github/workflows/release1-windows-wip-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    if: github.head_ref == 'gate/release1-windows-wip-20261031'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+    steps:
+      - name: Checkout audited PR code with no persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Use pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Pinned pnpm and immutable dependencies
+        run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Typecheck (whole candidate)
+        run: pnpm exec tsc --noEmit
+      - name: Focused Premium, capture, player, gameplay security tests
+        run: |
+          pnpm exec vitest run --maxWorkers=2 \
+            tests/capture/capture-service-seed-context.test.ts \
+            tests/progression/premium-xp2x-scope.test.ts \
+            tests/runtime/player-portal-runtime-config.test.ts \
+            tests/runtime/premium-staging-database-target.test.ts \
+            tests/runtime/premium-migration-surface.test.ts \
+            tests/player/manual-master-ball-contracts.test.ts \
+            tests/player/manual-master-ball-pack-handler.test.ts \
+            tests/player/manual-master-ball-session.test.ts \
+            tests/player/premium-manual-prod-guard.test.ts \
+            tests/player/player-portal-http-handler.test.ts \
+            tests/messaging/whatsapp-native-read-more.test.ts
+      - name: Production artifact build (without publishing)
+        run: pnpm build
+
+  disposable-postgres-and-natural-uat:
+    if: github.head_ref == 'gate/release1-windows-wip-20261031'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokemon_rpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d pokemon_rpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+      ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
+      DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/pokemon_rpg_test
+    steps:
+      - name: Checkout audited PR code with no persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify isolated database and no local secret inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$APP_ENV" = test
+          test "$WHATSAPP_ENABLED" = false
+          test "$ALLOW_DISPOSABLE_POSTGRES_TESTS" = 1
+          test "$DATABASE_URL" = "postgresql://pokemon:test-only-password@127.0.0.1:5432/pokemon_rpg_test"
+          test ! -e .env
+          test ! -e .env.local
+          test ! -d auth_info_baileys
+      - name: Use pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Pinned pnpm and immutable dependencies
+        run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Premium HTTP, XP2X and Master Ball transactional tests
+        run: |
+          pnpm exec vitest run --maxWorkers=2 \
+            tests/db/premium-http-lifecycle.integration.test.ts \
+            tests/db/premium-master-ball.integration.test.ts \
+            tests/db/xp2x-policy.integration.test.ts
+      - name: Migrate and seed only the ephemeral simulator database
+        run: |
+          pnpm db:migrate
+          pnpm db:verify
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:seed:phase11
+          pnpm db:seed:phase12
+          pnpm ops:seed:whatsapp-simulator-fixture
+      - name: Repeat natural trainer, review, starter, PvP/PvE journeys on WIP candidate
+        run: pnpm uat:whatsapp:multi
