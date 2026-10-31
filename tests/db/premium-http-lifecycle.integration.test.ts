@@ -170,236 +170,29 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
     }
   }, 60_000);
 
-  it("creates a PENDING 2XP order and returns one idempotent replay without payment", async () => {
-    const path = "/v1/hub/player/premium/orders";
-    const payload = {
-      requestId: randomUUID(),
-      items: [{ sku: "2XP", quantity: 2 }],
-    };
-    expect((await handler.handle(request(path, "POST", payload))).status).toBe(401);
-    expect(
-      (await handler.handle(request(path, "POST", { ...payload, playerId }, playerCookie))).status,
-    ).toBe(400);
-    expect(
-      (
-        await handler.handle(
-          request(
-            path,
-            "POST",
-            {
-              ...payload,
-              amountCents: 1,
-            },
-            playerCookie,
-          ),
-        )
-      ).status,
-    ).toBe(400);
-
-    const created = await handler.handle(request(path, "POST", payload, playerCookie));
-    expect(created.status).toBe(201);
-    const initial = (await created.json()) as {
-      order: { id: string; status: string; humanId: string; revision: string };
-    };
-    expect(initial).toMatchObject({
-      replayed: false,
-      paymentStatus: "PENDING",
-      order: { status: "PENDING", playerId, totalCents: 8000, currency: "BRL" },
-    });
-    const replay = await handler.handle(request(path, "POST", payload, playerCookie));
-    expect(replay.status).toBe(200);
-    expect(await replay.json()).toMatchObject({
-      replayed: true,
-      order: { id: initial.order.id, status: "PENDING" },
-    });
-
-    const counts = await pool.query<{
-      orders: string;
-      payments: string;
-      grants: string;
-    }>(`SELECT
-      (SELECT count(*)::text FROM premium_orders) AS orders,
-      (SELECT count(*)::text FROM premium_payment_events) AS payments,
-      (SELECT count(*)::text FROM entitlement_grants) AS grants`);
-    expect(counts.rows[0]).toEqual({ orders: "1", payments: "0", grants: "0" });
+  it("keeps archived payment and checkout paths NOT_FOUND for all sessions, with no writes", async () => {
+    const id = randomUUID();
+    const oldRoutes = [
+      ["/v1/hub/player/premium/orders", { requestId: id, items: [{ sku: "2XP", quantity: 2 }] }],
+      [`/v1/hub/admin/premium/orders/${id}/approve`, { requestId: id }],
+      [`/v1/hub/admin/premium/orders/${id}/deliver`, { requestId: id }],
+    ] as const;
+    for (const [path, payload] of oldRoutes) {
+      for (const cookie of [undefined, playerCookie, ownerCookie]) {
+        const response = await handler.handle(request(path, "POST", payload, cookie));
+        expect(response.status, `archived route ${path}, session=${cookie ? "present" : "absent"}`).toBe(404);
+      }
+    }
+    const counts = await pool.query<{ orders: string; payments: string; grants: string }>(
+      `SELECT (SELECT count(*)::text FROM premium_orders) AS orders,
+              (SELECT count(*)::text FROM premium_payment_events) AS payments,
+              (SELECT count(*)::text FROM entitlement_grants) AS grants`,
+    );
+    expect(counts.rows[0]).toEqual({ orders: "0", payments: "0", grants: "0" });
   });
 
-  it("requires owner, payment before delivery, then grants precisely 14 days once", async () => {
-    const created = await handler.handle(
-      request(
-        "/v1/hub/player/premium/orders",
-        "POST",
-        { requestId: randomUUID(), items: [{ sku: "2XP", quantity: 2 }] },
-        playerCookie,
-      ),
-    );
-    expect(created.status).toBe(201);
-    const { order } = (await created.json()) as {
-      order: { id: string; humanId: string; revision: string };
-    };
-    const approvePath = `/v1/hub/admin/premium/orders/${order.id}/approve`;
-    const deliverPath = `/v1/hub/admin/premium/orders/${order.id}/deliver`;
-    const approvalId = randomUUID();
-    const deliveryId = randomUUID();
-    const paymentInput = {
-      requestId: approvalId,
-      humanId: order.humanId,
-      expectedRevision: order.revision,
-      reason: "Pagamento confirmado manualmente pelo proprietário de teste.",
-      confirmed: true,
-    };
-
-    expect((await handler.handle(request(approvePath, "POST", paymentInput))).status).toBe(401);
-    expect(
-      (await handler.handle(request(approvePath, "POST", paymentInput, nonOwnerCookie))).status,
-    ).toBe(403);
-    expect(
-      (
-        await handler.handle(
-          request(
-            deliverPath,
-            "POST",
-            {
-              ...paymentInput,
-              requestId: deliveryId,
-            },
-            ownerCookie,
-          ),
-        )
-      ).status,
-    ).toBe(409);
-    expect(
-      (
-        await handler.handle(
-          request(
-            approvePath,
-            "POST",
-            {
-              ...paymentInput,
-              amountCents: 1,
-            },
-            ownerCookie,
-          ),
-        )
-      ).status,
-    ).toBe(400);
-
-    const paid = await handler.handle(request(approvePath, "POST", paymentInput, ownerCookie));
-    expect(paid.status).toBe(200);
-    expect(await paid.json()).toMatchObject({
-      operation: "PAYMENT_APPROVED",
-      delivered: false,
-      replayed: false,
-      order: { id: order.id, status: "PAID", totalCents: 8000 },
-    });
-    const payAgain = await handler.handle(request(approvePath, "POST", paymentInput, ownerCookie));
-    expect(payAgain.status).toBe(200);
-    expect(await payAgain.json()).toMatchObject({
-      operation: "PAYMENT_APPROVED",
-    });
-    expect(
-      (
-        await handler.handle(
-          request(
-            approvePath,
-            "POST",
-            {
-              ...paymentInput,
-              requestId: randomUUID(),
-            },
-            ownerCookie,
-          ),
-        )
-      ).status,
-    ).toBe(409);
-
-    const preDeliver = await pool.query<{ payments: string; grants: string; support: string }>(`
-      SELECT (SELECT count(*)::text FROM premium_payment_events) AS payments,
-        (SELECT count(*)::text FROM entitlement_grants) AS grants,
-        (SELECT count(*)::text FROM premium_support_events) AS support`);
-    // The refused second approval has its own REVIEW audit event: it did not
-    // create another payment or grant and is not a replay of the first request.
-    expect(preDeliver.rows[0]).toEqual({ payments: "1", grants: "0", support: "2" });
-
-    const deliveryInput = {
-      ...paymentInput,
-      requestId: deliveryId,
-      expectedRevision: "1",
-      reason: "Entrega do XP aprovada e confirmada em ambiente descartável.",
-    };
-    const delivered = await handler.handle(
-      request(deliverPath, "POST", deliveryInput, ownerCookie),
-    );
-    expect(delivered.status).toBe(200);
-    expect(await delivered.json()).toMatchObject({
-      operation: "2XP_DELIVERED",
-      delivered: true,
-      replayed: false,
-      order: { id: order.id, status: "APPLIED" },
-    });
-
-    const reDelivered = await handler.handle(
-      request(deliverPath, "POST", deliveryInput, ownerCookie),
-    );
-    expect(reDelivered.status).toBe(200);
-    expect(await reDelivered.json()).toMatchObject({
-      operation: "2XP_DELIVERED",
-      replayed: true,
-    });
-    const read = await handler.handle(
-      request(`/v1/hub/admin/premium/players/${playerId}/orders`, "GET", undefined, ownerCookie),
-    );
-    expect(read.status).toBe(200);
-    expect(await read.json()).toMatchObject({
-      orders: [{ id: order.id, status: "APPLIED" }],
-    });
-    expect(
-      (
-        await handler.handle(
-          request(
-            `/v1/hub/admin/premium/players/${playerId}/entitlements`,
-            "GET",
-            undefined,
-            nonOwnerCookie,
-          ),
-        )
-      ).status,
-    ).toBe(403);
-
-    const result = await pool.query<{
-      starts_at: Date;
-      expires_at: Date;
-      payments: string;
-      grants: string;
-      fulfillments: string;
-      support: string;
-      multiplier: number;
-    }>(
-      `SELECT e.starts_at, e.expires_at,
-      (SELECT count(*)::text FROM premium_payment_events) AS payments,
-      (SELECT count(*)::text FROM entitlement_grants) AS grants,
-      (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments,
-      (SELECT count(*)::text FROM premium_support_events) AS support,
-      pokemon_battle_xp_multiplier_for($1::uuid, now()) AS multiplier
-      FROM player_entitlements e
-      WHERE e.player_id = $1 AND e.entitlement_key = 'XP_2X'`,
-      [playerId],
-    );
-    expect(result.rows).toHaveLength(1);
-    const row = result.rows[0];
-    if (!row) throw new Error("Premium entitlement row disappeared");
-    expect(row.expires_at.getTime() - row.starts_at.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
-    expect(row).toMatchObject({
-      payments: "1",
-      grants: "1",
-      fulfillments: "1",
-      support: "3",
-      multiplier: 2,
-    });
-  });
-  it("serves real loopback HTTP requests through an ephemeral Node server, without starting the bot", async () => {
-    // The server is local to this disposable CI process and cannot be contacted
-    // from outside the GitHub runner. It uses the real Premium DB-backed handler.
+  it("serves manual owner-only delivery over real loopback HTTP, leaving checkout disabled", async () => {
+    // The HTTP listener is only bound to loopback in this disposable runner.
     const server = createServer((incoming, outgoing) => {
       void (async () => {
         const chunks: Uint8Array[] = [];
@@ -416,125 +209,68 @@ describe.sequential("Premium HTTP lifecycle with real isolated PostgreSQL", () =
           headers,
           ...(payload.byteLength > 0 ? { body: new Uint8Array(payload) } : {}),
         });
-        const handled = await handler.handle(forwarded);
-        outgoing.writeHead(handled.status, Object.fromEntries(handled.headers.entries()));
-        outgoing.end(Buffer.from(await handled.arrayBuffer()));
+        const response = await handler.handle(forwarded);
+        outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+        outgoing.end(Buffer.from(await response.arrayBuffer()));
       })().catch(() => {
         if (!outgoing.headersSent) outgoing.writeHead(500);
         outgoing.end();
       });
     });
-
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", resolve);
     });
     try {
-      const socket = server.address();
-      if (!socket || typeof socket === "string") throw new Error("No local test listener");
-      const wire = (path: string, method: "GET" | "POST", body?: unknown, cookie?: string) =>
-        fetch(`http://127.0.0.1:${socket.port}${path}`, {
-          method,
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("No loopback listener");
+      const wire = (path: string, body: unknown, cookie?: string) =>
+        fetch(`http://127.0.0.1:${address.port}${path}`, {
+          method: "POST",
           headers: {
             ...(cookie ? { cookie: `${COOKIE}=${cookie}` } : {}),
-            ...(body === undefined ? {} : { "content-type": "application/json" }),
+            "content-type": "application/json",
           },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          body: JSON.stringify(body),
         });
+      const obsolete = "/v1/hub/player/premium/orders";
+      const oldBody = { requestId: randomUUID(), items: [{ sku: "2XP", quantity: 2 }] };
+      expect((await wire(obsolete, oldBody)).status).toBe(404);
+      expect((await wire(obsolete, oldBody, playerCookie)).status).toBe(404);
 
-      const requestId = randomUUID();
-      const orderPath = "/v1/hub/player/premium/orders";
-      const payload = { requestId, items: [{ sku: "2XP", quantity: 1 }] };
-      expect((await wire(orderPath, "POST", payload)).status).toBe(401);
-      const placed = await wire(orderPath, "POST", payload, playerCookie);
-      expect(placed.status).toBe(201);
-      const creation = (await placed.json()) as {
-        order: { id: string; humanId: string; revision: string; totalCents: number };
-        paymentStatus: string;
-      };
-      expect(creation.paymentStatus).toBe("PENDING");
-      expect(creation.order.totalCents).toBe(4000);
-      const order = creation.order;
-      const same = await wire(orderPath, "POST", payload, playerCookie);
-      expect(same.status).toBe(200);
-      expect(await same.json()).toMatchObject({ replayed: true, order: { id: order.id } });
-
-      const approvePath = `/v1/hub/admin/premium/orders/${order.id}/approve`;
-      const deliverPath = `/v1/hub/admin/premium/orders/${order.id}/deliver`;
-      const adminInput = {
+      const path = "/v1/hub/admin/premium/delivery";
+      const payload = {
         requestId: randomUUID(),
-        humanId: order.humanId,
-        expectedRevision: order.revision,
-        reason: "Pagamento examinado manualmente pela conta sintética do teste.",
-        confirmed: true,
+        playerId,
+        sku: "2XP",
+        quantity: 2,
+        reason: "Entrega registrada manualmente em ambiente de teste isolado.",
       };
-      expect((await wire(approvePath, "POST", adminInput, playerCookie)).status).toBe(403);
-      expect((await wire(approvePath, "POST", adminInput, nonOwnerCookie)).status).toBe(403);
-      expect((await wire(deliverPath, "POST", adminInput, ownerCookie)).status).toBe(409);
-      const approved = await wire(approvePath, "POST", adminInput, ownerCookie);
-      expect(approved.status).toBe(200);
-      expect(await approved.json()).toMatchObject({
-        operation: "PAYMENT_APPROVED",
-        delivered: false,
-        order: { status: "PAID" },
+      expect((await wire(path, payload)).status).toBe(401);
+      expect((await wire(path, payload, nonOwnerCookie)).status).toBe(403);
+      const granted = await wire(path, payload, ownerCookie);
+      expect(granted.status).toBe(201);
+      expect(await granted.json()).toMatchObject({
+        applied: true,
+        replayed: false,
+        entitlement: { entitlementKey: "XP_2X", currentlyActive: true },
       });
-      const deliveredInput = {
-        ...adminInput,
-        requestId: randomUUID(),
-        expectedRevision: "1",
-        reason: "Entrega separada confirmada em teste HTTP local efêmero.",
-      };
-      const delivered = await wire(deliverPath, "POST", deliveredInput, ownerCookie);
-      expect(delivered.status).toBe(200);
-      expect(await delivered.json()).toMatchObject({
-        operation: "2XP_DELIVERED",
-        delivered: true,
-        order: { status: "APPLIED" },
-      });
-      const replay = await wire(deliverPath, "POST", deliveredInput, ownerCookie);
+      const replay = await wire(path, payload, ownerCookie);
       expect(replay.status).toBe(200);
-      expect(await replay.json()).toMatchObject({ replayed: true, operation: "2XP_DELIVERED" });
-
-      const unauthorizedList = await wire(
-        `/v1/hub/admin/premium/players/${playerId}/entitlements`,
-        "GET",
-        undefined,
-        nonOwnerCookie,
+      expect(await replay.json()).toMatchObject({ replayed: true, requestId: payload.requestId });
+      const counts = await pool.query<{ orders: string; payments: string; grants: string }>(
+        `SELECT (SELECT count(*)::text FROM premium_orders) AS orders,
+                (SELECT count(*)::text FROM premium_payment_events) AS payments,
+                (SELECT count(*)::text FROM entitlement_grants) AS grants`,
       );
-      expect(unauthorizedList.status).toBe(403);
-      const ownerList = await wire(
-        `/v1/hub/admin/premium/players/${playerId}/entitlements`,
-        "GET",
-        undefined,
-        ownerCookie,
-      );
-      expect(ownerList.status).toBe(200);
-      expect(await ownerList.json()).toMatchObject({
-        entitlements: [{ playerId, entitlementKey: "XP_2X" }],
-      });
-
-      const counts = await pool.query<{
-        orders: string;
-        payments: string;
-        grants: string;
-        fulfillments: string;
-      }>(`SELECT
-          (SELECT count(*)::text FROM premium_orders) AS orders,
-          (SELECT count(*)::text FROM premium_payment_events) AS payments,
-          (SELECT count(*)::text FROM entitlement_grants) AS grants,
-          (SELECT count(*)::text FROM premium_fulfillment_events) AS fulfillments`);
-      expect(counts.rows[0]).toEqual({
-        orders: "1",
-        payments: "1",
-        grants: "1",
-        fulfillments: "1",
-      });
+      expect(counts.rows[0]).toEqual({ orders: "0", payments: "0", grants: "1" });
     } finally {
       await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
+        server.close((error) => error ? reject(error) : resolve()),
       );
     }
   });
+
   it("lets owner deliver XP 2x directly without payment, with catalog, history and safe replay", async () => {
     const deliveryPath = "/v1/hub/admin/premium/delivery";
     const catalogPath = "/v1/hub/admin/premium/delivery/catalog";
