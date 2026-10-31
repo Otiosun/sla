@@ -391,6 +391,7 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
       seedProvider:new AesEncounterSeedProvider(Buffer.alloc(32,0xb1),1,()=>Buffer.alloc(32,0xb2)),
       clock:new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
       feature:{enabled:true,reason:null},
+      fishingDayTimeZone: "Etc/UTC",
     });
     const input={playerId,idempotencyKey:"fish-atomic-replay",roll:8};
     const results=await Promise.all(Array.from({length:6},()=>repo.reserveAndResolve(input)));
