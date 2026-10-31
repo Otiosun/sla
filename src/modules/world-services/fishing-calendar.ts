@@ -18,7 +18,7 @@ export function fishingDayKey(instant: Date, timeZone: string): string {
   }).formatToParts(instant);
   const getPart = (type: "year" | "month" | "day"): string => {
     const part = parts.find((value) => value.type === type)?.value;
-    if (part === undefined || !/^\\d{1,4}$/.test(part)) {
+    if (part === undefined || !/^\d{1,4}$/.test(part)) {
       throw new RangeError("Invalid fishing calendar day component");
     }
     return part.padStart(type === "year" ? 4 : 2, "0");
