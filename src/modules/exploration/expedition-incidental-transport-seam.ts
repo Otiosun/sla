@@ -65,7 +65,10 @@ export type TrustedIncidentalReply = {
 
 const cleanReference = (value: string): boolean =>
   value.length > 0 && value.length <= 256 &&
-  !/[\u0000-\u001f\u007f]/u.test(value);
+  ![...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
 
 const cleanProvider = (value: string): boolean =>
   /^[a-z0-9_-]{1,30}$/u.test(value);
