@@ -7,11 +7,15 @@ on:
     paths:
       - "src/modules/world-services/fishing-renderer.ts"
       - "src/modules/world-services/fishing-service.ts"
+      - "src/modules/world-services/fishing-calendar.ts"
+      - "tests/world-services/fishing-calendar.test.ts"
+      - "tests/messaging/world-service-fishing-runtime-composition.test.ts"
       - "src/modules/world-services/whatsapp-handlers.ts"
       - "src/modules/battle/pve-battle-start.ts"
       - "tests/battle/pve-battle-start-whatsapp.test.ts"
       - "src/platform/world-services/postgres-fishing-attempt-repository.ts"
       - "src/runtime/compose-whatsapp-runtime.ts"
+      - "src/runtime/whatsapp-runtime-config.ts"
       - "tests/world-services/fishing-service.test.ts"
       - "tests/db/world-service-fishing-attempt-repository.integration.test.ts"
       - "tests/db/encounter.integration.test.ts"
@@ -36,7 +40,7 @@ jobs:
       - run: npm install --global pnpm@11.23.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm typecheck
-      - run: pnpm exec vitest run tests/messaging/world-services-fishing.test.ts tests/world-services/fishing-service.test.ts tests/battle/pve-battle-start-whatsapp.test.ts
+      - run: pnpm exec vitest run tests/messaging/world-services-fishing.test.ts tests/world-services/fishing-service.test.ts tests/world-services/fishing-calendar.test.ts tests/messaging/world-service-fishing-runtime-composition.test.ts tests/battle/pve-battle-start-whatsapp.test.ts
 
   fishing-db:
     runs-on: ubuntu-24.04
