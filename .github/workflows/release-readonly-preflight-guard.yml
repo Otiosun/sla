@@ -1,0 +1,50 @@
+name: Windows Release Read-only Preflight Guard
+on:
+  pull_request:
+    branches:
+      - fix/fishing-atomic-encounter-20261030
+    paths:
+      - "scripts/operations/release-local-readonly-preflight.ps1"
+      - ".github/workflows/release-readonly-preflight-guard.yml"
+permissions:
+  contents: read
+jobs:
+  readonly-contract:
+    if: github.head_ref == 'fix/release-preflight-explicit-target-20261030'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify preflight cannot accidentally target another checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = (Resolve-Path 'scripts/operations/release-local-readonly-preflight.ps1').Path
+          $good = Join-Path $env:RUNNER_TEMP 'pokemon-good-disposable'
+          $wrong = Join-Path $env:RUNNER_TEMP 'pokemon-wrong-disposable'
+          foreach ($dir in @($good,$wrong)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            & git -C $dir init -q
+            & git -C $dir -c user.name=Test -c user.email=fixture@example.invalid commit --allow-empty -qm fixture
+          }
+          & git -C $good remote add origin 'https://github.com/Otiosun/sla.git'
+          & git -C $wrong remote add origin 'https://github.com/Otiosun/meu-bot-rpg.git'
+          $missing = (& pwsh -NoProfile -NonInteractive -File $script 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 1 -or !$missing.Contains('EXPLICIT_BOT_DIRECTORY_REQUIRED')) {
+            throw 'Missing explicit directory was not rejected'
+          }
+          $wrongResult = (& pwsh -NoProfile -NonInteractive -File $script -BotDirectory $wrong 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 1 -or !$wrongResult.Contains('WRONG_REPOSITORY_ORIGIN')) {
+            throw 'Wrong repository was not rejected'
+          }
+          $goodResult = (& pwsh -NoProfile -NonInteractive -File $script -BotDirectory $good 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0 -or !$goodResult.Contains('INSPECTION_ONLY_NOT_RELEASE_APPROVAL')) {
+            throw 'Correct disposable repository did not pass readonly inspection'
+          }
+          if (!$goodResult.Contains('"repositoryIdentityVerified": true') -or
+              !$goodResult.Contains('"deploymentSafeToProceed": false')) {
+            throw 'Readonly report falsely claimed release approval'
+          }
+          Write-Output 'READONLY_PREFLIGHT_TARGET_ISOLATION_PASS (synthetic local Git only)'

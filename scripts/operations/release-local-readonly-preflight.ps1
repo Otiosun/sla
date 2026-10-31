@@ -7,7 +7,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$BotDirectory = (Join-Path $env:USERPROFILE 'Documents\meu-bot-rpg')
+  [string]$BotDirectory
 )
 
 Set-StrictMode -Version Latest
@@ -18,6 +18,9 @@ function Fail([string]$reason) {
   exit 1
 }
 
+if ([string]::IsNullOrWhiteSpace($BotDirectory)) {
+  Fail 'EXPLICIT_BOT_DIRECTORY_REQUIRED'
+}
 if (-not (Test-Path -LiteralPath $BotDirectory -PathType Container)) {
   Fail 'BOT_DIRECTORY_NOT_FOUND'
 }
@@ -33,6 +36,17 @@ if ($null -eq $gitPath) {
 
 # Git's optional locks are disabled so status does not refresh/write the index.
 $env:GIT_OPTIONAL_LOCKS = '0'
+
+# Never mistake another checkout (notably Documents/meu-bot-rpg) for the
+# actual Pokemon Beyond deploy. Do not print origin: URL could contain a token.
+$originLines = @(& git --no-optional-locks -C $root config --get remote.origin.url 2>$null)
+if ($LASTEXITCODE -ne 0 -or $originLines.Count -ne 1) {
+  Fail 'GIT_ORIGIN_UNAVAILABLE'
+}
+$origin = [string]$originLines[0]
+if ($origin -notmatch '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)Otiosun/sla(\.git)?/?$') {
+  Fail 'WRONG_REPOSITORY_ORIGIN'
+}
 
 $shaLines = @(& git -C $root rev-parse --verify HEAD 2>$null)
 if ($LASTEXITCODE -ne 0 -or $shaLines.Count -ne 1) {
@@ -87,6 +101,7 @@ $report = [ordered]@{
   reportType = 'POKEMON_BEYOND_RELEASE_PREFLIGHT_READONLY'
   result = 'INSPECTION_ONLY_NOT_RELEASE_APPROVAL'
   liveFilesystemChangedByScript = $false
+  repositoryIdentityVerified = $true
   gitHead = $sha
   gitBranch = $branch
   gitTrackedChanges = $modifiedCount
