@@ -42,7 +42,7 @@ jobs:
         with:
           persist-credentials: false
           ref: gate/registration-natural-uat-20261031
-          fetch-depth: 2 # include the parent baseline for the code-only diff guard
+          fetch-depth: 0 # exact baseline ancestry check needs complete history
 
       - name: Verify isolated source and no local secret files
         shell: bash
