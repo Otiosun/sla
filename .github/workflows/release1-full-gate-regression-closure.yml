@@ -1,0 +1,65 @@
+name: Release1 Full-Gate Regression Closure
+on:
+  pull_request:
+    branches:
+      - fix/release-preflight-explicit-target-20261030
+    paths:
+      - ".github/workflows/release1-full-gate-regression-closure.yml"
+      - "db/proofs/phase11_progression_e2e.ts"
+      - "tests/messaging/world-services-*"
+      - "tests/world-services/**"
+      - "src/modules/world-services/**"
+permissions:
+  contents: read
+jobs:
+  regression-closure:
+    if: github.head_ref == 'fix/release1-full-gate-regressions-20261030'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    env:
+      APP_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+      MIGRATOR_DATABASE_URL: postgresql://pokemon:test-only-password@localhost:5432/pokemon_rpg_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile
+      - name: Full lint diagnostics (report all, do not mute)
+        run: pnpm exec biome lint . --max-diagnostics=250
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - name: Recheck Mart/PC message replies using published catalog
+        run: pnpm exec vitest run tests/messaging/world-services-mart-purchase.test.ts tests/messaging/world-services-mart-items.test.ts tests/messaging/world-services-pc-storage-flow.test.ts
+      - name: Run disposable PG18
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name pokemon-pg-regress \
+            --env POSTGRES_USER=pokemon --env POSTGRES_PASSWORD=test-only-password \
+            --env POSTGRES_DB=pokemon_rpg_test --publish 5432:5432 \
+            postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+          for n in {1..30}; do
+            if docker exec pokemon-pg-regress pg_isready -U pokemon -d pokemon_rpg_test >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          docker logs pokemon-pg-regress
+          exit 1
+      - run: pnpm db:migrate
+      - name: Seed historical Phase11 content
+        run: |
+          pnpm db:seed:phase4
+          pnpm db:seed:phase5
+          pnpm db:seed:phase6
+          pnpm db:seed:phase7
+          pnpm db:seed:phase11:provisional
+      - name: Prove historical item/condition/level evolution with pinned context
+        run: node --import tsx db/proofs/phase11_progression_e2e.ts
+      - name: No production activity
+        run: echo "ALL_REGRESSIONS_TESTED_ONLY_AGAINST_GITHUB_RUNNER_AND_DISPOSABLE_PG"
