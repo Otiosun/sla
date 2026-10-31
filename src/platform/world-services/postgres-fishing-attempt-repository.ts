@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { EncounterService } from "../../modules/encounter/service.js";
+import { fishingDayKey } from "../../modules/world-services/fishing-calendar.js";
 import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
 import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
 import type { EncounterView } from "../../modules/encounter/contracts.js";
@@ -74,12 +75,17 @@ function unavailable(playerId: PlayerId, reason: string): FishingAttemptReservat
 export class PostgresFishingAttemptRepository implements FishingAttemptRepository {
   public constructor(
     private readonly pool: Pool,
-    private readonly atomicEncounter?: {
-      readonly seedProvider: EncounterSeedProvider;
+    private readonly config: {
       readonly clock: Clock;
-      readonly feature: FeatureAvailability;
+      /** Approved world timezone, required even in non-encounter legacy proofs. */
+      readonly fishingDayTimeZone: string;
+      readonly seedProvider?: EncounterSeedProvider;
+      readonly feature?: FeatureAvailability;
     },
-  ) {}
+  ) {
+    // Reject invalid configuration before any SQL/attempt or quota mutation.
+    fishingDayKey(config.clock.now(), config.fishingDayTimeZone);
+  }
 
   public async reserveAttempt(
     input: ReserveFishingAttemptInput,
@@ -97,7 +103,8 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
     readonly reservation: FishingAttemptReservationResult;
     readonly encounter: EncounterView | null;
   }>> {
-    if (this.atomicEncounter === undefined) {
+    const config = this.config;
+    if (config.seedProvider === undefined || config.feature === undefined) {
       return err(appError("FEATURE_UNAVAILABLE", "Atomic fishing encounter dependencies are missing"));
     }
     try {
@@ -113,9 +120,9 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
         }
         const encounter = await new EncounterService(
           encounterRepositoryWithinTransaction(client),
-          this.atomicEncounter!.seedProvider,
-          this.atomicEncounter!.clock,
-          this.atomicEncounter!.feature,
+          config.seedProvider,
+          config.clock,
+          config.feature,
         ).createOrReplay({
           playerId: input.playerId,
           idempotencyKey: `fishing:${reservation.attemptId}`,
@@ -145,6 +152,8 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
       throw new RangeError("Fishing idempotency key must contain 1 to 200 characters");
     }
     fishingRarityForRoll(input.roll);
+    // Frozen day for this one attempt, independent of PostgreSQL/host timezone.
+    const fishingDay = fishingDayKey(this.config.clock.now(), this.config.fishingDayTimeZone);
 
       const player = await client.query<{ status: string }>(
         "SELECT status FROM players WHERE id = $1 FOR UPDATE",
@@ -226,8 +235,8 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
       const used = await client.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
          FROM fishing_attempts
-         WHERE player_id = $1 AND fishing_day = CURRENT_DATE`,
-        [input.playerId],
+         WHERE player_id = $1 AND fishing_day = $2::date`,
+        [input.playerId, fishingDay],
       );
       const usedToday = Number(used.rows[0]?.count ?? "0");
       if (usedToday >= DAILY_LIMIT) {
@@ -255,7 +264,7 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
            id, player_id, content_release_id, area_id, fishing_day,
            attempt_no, idempotency_key, roll, rarity,
            fishing_point_name, encounter_table_slug
-         ) VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, $8, $9, $10)
+         ) VALUES ($1, $2, $3, $4, $5::date, $6, $7, $8, $9, $10, $11)
          RETURNING id::text, player_id::text, area_id::text, attempt_no, roll, rarity,
                    fishing_point_name, encounter_table_slug`,
         [
@@ -263,6 +272,7 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
           input.playerId,
           contextRow.content_release_id,
           contextRow.area_id,
+          fishingDay,
           attemptNo,
           input.idempotencyKey,
           input.roll,
