@@ -152,45 +152,45 @@ async function battleStartText(
     return fallback;
   }
   try {
-  const controllers = await dependencies.controllers.listByBattle(battleId);
-  const activeIds = new Set(
-    state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
-  );
-  const ownController = controllers.find(
-    (entry) =>
-      entry.kind === "PLAYER" &&
-      entry.playerId === targetPlayerId &&
-      activeIds.has(entry.participantId),
-  );
-  const own =
-    ownController === undefined
-      ? undefined
-      : state.combatants.find(
-          (combatant) => combatant.participantId === ownController.participantId,
-        );
-  const opponent = state.combatants.find(
-    (combatant) =>
-      combatant.participantKind === "WILD_POKEMON" && activeIds.has(combatant.participantId),
-  );
-  if (own === undefined || opponent === undefined) return fallback;
+    const controllers = await dependencies.controllers.listByBattle(battleId);
+    const activeIds = new Set(
+      state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
+    );
+    const ownController = controllers.find(
+      (entry) =>
+        entry.kind === "PLAYER" &&
+        entry.playerId === targetPlayerId &&
+        activeIds.has(entry.participantId),
+    );
+    const own =
+      ownController === undefined
+        ? undefined
+        : state.combatants.find(
+            (combatant) => combatant.participantId === ownController.participantId,
+          );
+    const opponent = state.combatants.find(
+      (combatant) =>
+        combatant.participantKind === "WILD_POKEMON" && activeIds.has(combatant.participantId),
+    );
+    if (own === undefined || opponent === undefined) return fallback;
 
-  const [ownName, opponentName] = await Promise.all([
-    dependencies.presentation.speciesDisplayName(state.contentReleaseId, own.speciesId),
-    dependencies.presentation.speciesDisplayName(state.contentReleaseId, opponent.speciesId),
-  ]);
+    const [ownName, opponentName] = await Promise.all([
+      dependencies.presentation.speciesDisplayName(state.contentReleaseId, own.speciesId),
+      dependencies.presentation.speciesDisplayName(state.contentReleaseId, opponent.speciesId),
+    ]);
 
-  return [
-    "✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
-    `　${mentionTag(targetRef)}`,
-    "",
-    `*${ownName ?? "Pokémon"}*${own.shiny ? " ✦" : ""} · Nv. \`${own.level}\``,
-    `HP \`${own.currentHp} / ${own.maxHp}\``,
-    "",
-    `*${opponentName ?? "Pokémon selvagem"}*${opponent.shiny ? " ✦" : ""} · Nv. \`${opponent.level}\``,
-    `HP \`${opponent.currentHp} / ${opponent.maxHp}\``,
-    "",
-    "› _Use `/moves` para consultar seus movimentos._",
-  ].join("\n");
+    return [
+      "✦ *𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+      `　${mentionTag(targetRef)}`,
+      "",
+      `*${ownName ?? "Pokémon"}*${own.shiny ? " ✦" : ""} · Nv. \`${own.level}\``,
+      `HP \`${own.currentHp} / ${own.maxHp}\``,
+      "",
+      `*${opponentName ?? "Pokémon selvagem"}*${opponent.shiny ? " ✦" : ""} · Nv. \`${opponent.level}\``,
+      `HP \`${opponent.currentHp} / ${opponent.maxHp}\``,
+      "",
+      "› _Use `/moves` para consultar seus movimentos._",
+    ].join("\n");
   } catch {
     // The battle was already committed. Presentation lookup failures must
     // never misreport a real battle as a failed start to the narrator.
