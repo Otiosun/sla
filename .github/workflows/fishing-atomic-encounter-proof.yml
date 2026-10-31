@@ -7,6 +7,7 @@ on:
     paths:
       - "src/modules/world-services/fishing-renderer.ts"
       - "src/modules/world-services/fishing-service.ts"
+      - "src/modules/world-services/whatsapp-handlers.ts"
       - "src/platform/world-services/postgres-fishing-attempt-repository.ts"
       - "src/runtime/compose-whatsapp-runtime.ts"
       - "tests/world-services/fishing-service.test.ts"
