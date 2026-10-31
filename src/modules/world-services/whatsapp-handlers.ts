@@ -655,7 +655,9 @@ export function createWorldServiceWhatsAppRoutes(
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     if (dependencies.fishing === undefined) {
-      return err(appError("INVALID_STATE_TRANSITION", "Fishing service is unavailable"));
+      return err(appError("FEATURE_UNAVAILABLE", "Fishing calendar or service is not configured", {
+        userMessage: "A pesca ainda não foi habilitada para o calendário deste mundo. Avise a equipe do RPG.",
+      }));
     }
 
     const attempted = await dependencies.fishing.attempt({
