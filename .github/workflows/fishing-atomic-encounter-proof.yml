@@ -11,6 +11,7 @@ on:
       - "src/runtime/compose-whatsapp-runtime.ts"
       - "tests/world-services/fishing-service.test.ts"
       - "tests/db/world-service-fishing-attempt-repository.integration.test.ts"
+      - "tests/db/encounter.integration.test.ts"
       - "tests/messaging/world-services-fishing.test.ts"
       - ".github/workflows/fishing-atomic-encounter-proof.yml"
 
@@ -70,4 +71,4 @@ jobs:
         run: |
           node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='127.0.0.1'||u.port!=='5432'||u.pathname!=='/pokemon_rpg_test'||process.env.APP_ENV!=='test')process.exit(1)"
       - name: Fishing repository concurrency and idempotency
-        run: pnpm exec vitest run tests/db/world-service-fishing-attempt-repository.integration.test.ts
+        run: pnpm exec vitest run tests/db/world-service-fishing-attempt-repository.integration.test.ts tests/db/encounter.integration.test.ts
