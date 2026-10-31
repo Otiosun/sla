@@ -200,7 +200,7 @@ describe("Fishing WhatsApp flow", () => {
   it("renders the anonymous fallback when the optional species reader is absent", async () => {
     const attempt = vi.fn(async () => ok(fishingResult()));
     const deps = dependencies(attempt);
-    const noDisplayReader = { ...deps, fishingSpecies: undefined };
+    const { fishingSpecies: _unused, ...noDisplayReader } = deps;
     const route = createWorldServiceWhatsAppRoutes(noDisplayReader)
       .find((definition) => definition.command === "pescar");
     expect(route).toBeDefined();
