@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fishingComposition = vi.hoisted(() => ({
   attemptRepositoryConstructor: vi.fn(),
@@ -54,6 +54,7 @@ vi.mock("../../src/modules/world-services/fishing-service.js", () => ({
 import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
 
 describe("Fishing runtime composition", () => {
+  beforeEach(() => vi.clearAllMocks());
   it("composes durable fishing and encounter owners when RNG configuration is supplied", () => {
     const pool = {} as Pool;
     const encryptionKey = Buffer.alloc(32, 0xa5);
@@ -61,7 +62,7 @@ describe("Fishing runtime composition", () => {
     const composition = createOperationalMessagingComposition(pool, {
       encryptionKey,
       encryptionKeyVersion: 7,
-    });
+    }, null, null, null, "Etc/UTC");
 
     expect(
       composition.admitCommand({
@@ -100,4 +101,20 @@ describe("Fishing runtime composition", () => {
     expect(fishingComposition.fishingServiceConstructor.mock.calls[0]?.[0]).toBe(attempts);
     expect(fishingComposition.fishingServiceConstructor.mock.calls[0]?.[1]).toBe(encounters);
   });
+  it("does not compose an uncalibrated fishing service from PostgreSQL server-local time", () => {
+    const pool = {} as Pool;
+    createOperationalMessagingComposition(pool, {
+      encryptionKey: Buffer.alloc(32, 1), encryptionKeyVersion: 1,
+    });
+    expect(fishingComposition.attemptRepositoryConstructor).not.toHaveBeenCalled();
+    expect(fishingComposition.fishingServiceConstructor).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid configured world timezone before running SQL", () => {
+    // This test uses the real clock/calendar helper; invalid zones fail on
+    // construction rather than silently taking the bot machine date.
+    const zone = "Mars/Zhoulia";
+    expect(() => new Intl.DateTimeFormat("en-US", { timeZone: zone })).toThrow();
+  });
+
 });
