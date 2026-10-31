@@ -179,7 +179,7 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
         relocationPriority: 0,
         fishing: {
           pointName: "Rio Sintético",
-          encounterTables: { COMMON: "grass" },
+          encounterTables: { COMMON: "grass", UNCOMMON: "grass" },
         },
       }),
     ],
