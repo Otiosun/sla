@@ -151,6 +151,7 @@ async function battleStartText(
   if (dependencies.controllers === undefined || dependencies.presentation === undefined) {
     return fallback;
   }
+  try {
   const controllers = await dependencies.controllers.listByBattle(battleId);
   const activeIds = new Set(
     state.sides.flatMap((side) => (side.slots ?? [side]).map((slot) => slot.activeParticipantId)),
@@ -190,6 +191,11 @@ async function battleStartText(
     "",
     "› _Use `/moves` para consultar seus movimentos._",
   ].join("\n");
+  } catch {
+    // The battle was already committed. Presentation lookup failures must
+    // never misreport a real battle as a failed start to the narrator.
+    return fallback;
+  }
 }
 
 export function createPveBattleStartWhatsAppRoute(
