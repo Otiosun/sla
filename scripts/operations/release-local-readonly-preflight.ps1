@@ -44,7 +44,11 @@ if ($LASTEXITCODE -ne 0 -or $originLines.Count -ne 1) {
   Fail 'GIT_ORIGIN_UNAVAILABLE'
 }
 $origin = [string]$originLines[0]
-if ($origin -notmatch '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)Otiosun/sla(\.git)?/? = @(& git -C $root rev-parse --verify HEAD 2>$null)
+if ($origin -notmatch '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)Otiosun/sla(\.git)?/?$') {
+  Fail 'WRONG_REPOSITORY_ORIGIN'
+}
+
+$shaLines = @(& git -C $root rev-parse --verify HEAD 2>$null)
 if ($LASTEXITCODE -ne 0 -or $shaLines.Count -ne 1) {
   Fail 'GIT_HEAD_UNAVAILABLE'
 }
