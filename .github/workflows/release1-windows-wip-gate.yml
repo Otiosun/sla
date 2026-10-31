@@ -6,6 +6,7 @@ on:
       - fix/release1-formatting-20261030
     paths:
       - ".github/workflows/release1-windows-wip-gate.yml"
+      - "tests/db/premium-http-lifecycle.integration.test.ts"
 
 permissions:
   contents: read
