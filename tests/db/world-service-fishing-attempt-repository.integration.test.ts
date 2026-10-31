@@ -3,7 +3,7 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
-import { ManualClock } from "../../src/platform/clock/index.js";
+import { ManualClock, SystemClock } from "../../src/platform/clock/index.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
@@ -69,7 +69,10 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
     await adminPool.query(`CREATE DATABASE "${dbName}"`);
     pool = new Pool({ connectionString: databaseUrlFor(dbName), max: 6 });
     await runMigrations(pool, { appliedBy: "fishing-repository-vitest" });
-    repository = new PostgresFishingAttemptRepository(pool);
+    repository = new PostgresFishingAttemptRepository(pool, {
+      clock: new SystemClock(),
+      fishingDayTimeZone: "Etc/UTC", // disposable proof uses explicit UTC, not production policy
+    });
 
     const client = await pool.connect();
     try {
@@ -352,6 +355,7 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
       ),
       clock: new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
       feature: {enabled:true, reason:null},
+      fishingDayTimeZone: "Etc/UTC",
     });
     const failed=await atomicRepo.reserveAndResolve({
       playerId,idempotencyKey:"fish-rollback-invalid-published-table",roll:16,
