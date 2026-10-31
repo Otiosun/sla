@@ -30,7 +30,13 @@ export interface ExpeditionV4ActivePanel {
 }
 
 const ACTIVE_INTENTS = new Set<ExpeditionMenuChoice["intent"]>([
-  "SEARCH_FREE", "SEARCH_TARGET", "SEARCH_RESOURCES", "BAG", "DESTINATIONS", "TRAVEL", "END",
+  "SEARCH_FREE",
+  "SEARCH_TARGET",
+  "SEARCH_RESOURCES",
+  "BAG",
+  "DESTINATIONS",
+  "TRAVEL",
+  "END",
 ]);
 
 function timeRemaining(minutes: number): string {

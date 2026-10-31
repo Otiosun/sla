@@ -90,7 +90,7 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
   public async reserveAttempt(
     input: ReserveFishingAttemptInput,
   ): Promise<FishingAttemptReservationResult> {
-    return withTransaction(this.pool, client => this.reserveWithin(client, input));
+    return withTransaction(this.pool, (client) => this.reserveWithin(client, input));
   }
 
   /**
@@ -99,26 +99,30 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
    * results throw the private rollback sentinel, which withTransaction
    * converts into a PostgreSQL ROLLBACK before returning a domain error.
    */
-  public async reserveAndResolve(input: ReserveFishingAttemptInput): Promise<Result<{
-    readonly reservation: FishingAttemptReservationResult;
-    readonly encounter: EncounterView | null;
-  }>> {
+  public async reserveAndResolve(input: ReserveFishingAttemptInput): Promise<
+    Result<{
+      readonly reservation: FishingAttemptReservationResult;
+      readonly encounter: EncounterView | null;
+    }>
+  > {
     const config = this.config;
     const seedProvider = config.seedProvider;
     const feature = config.feature;
     if (seedProvider === undefined || feature === undefined) {
-      return err(appError("FEATURE_UNAVAILABLE", "Atomic fishing encounter dependencies are missing"));
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Atomic fishing encounter dependencies are missing"),
+      );
     }
     try {
-      return await withTransaction(this.pool, async client => {
+      return await withTransaction(this.pool, async (client) => {
         const reservation = await this.reserveWithin(client, input);
         if (reservation.kind !== "RESERVED" || reservation.rarity === null) {
           return ok({ reservation, encounter: null });
         }
         if (reservation.encounterTableSlug === null) {
-          throw new FishingAtomicRollback(appError(
-            "FLOW_BLOCKED", "Fishing encounter table was not persisted",
-          ));
+          throw new FishingAtomicRollback(
+            appError("FLOW_BLOCKED", "Fishing encounter table was not persisted"),
+          );
         }
         const encounter = await new EncounterService(
           encounterRepositoryWithinTransaction(client),
@@ -132,11 +136,13 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
           environment: { surface: "WATER" },
         });
         if (!encounter.ok) throw new FishingAtomicRollback(encounter.error);
-        if (encounter.value.playerId !== input.playerId ||
-            encounter.value.areaId !== reservation.areaId) {
-          throw new FishingAtomicRollback(appError(
-            "FLOW_BLOCKED", "Fishing encounter is not in the reserved area",
-          ));
+        if (
+          encounter.value.playerId !== input.playerId ||
+          encounter.value.areaId !== reservation.areaId
+        ) {
+          throw new FishingAtomicRollback(
+            appError("FLOW_BLOCKED", "Fishing encounter is not in the reserved area"),
+          );
         }
         return ok({ reservation, encounter: encounter.value });
       });
@@ -157,32 +163,32 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
     // Frozen day for this one attempt, independent of PostgreSQL/host timezone.
     const fishingDay = fishingDayKey(this.config.clock.now(), this.config.fishingDayTimeZone);
 
-      const player = await client.query<{ status: string }>(
-        "SELECT status FROM players WHERE id = $1 FOR UPDATE",
-        [input.playerId],
-      );
-      const playerRow = player.rows[0];
-      if (playerRow === undefined || playerRow.status !== "ACTIVE") {
-        return unavailable(input.playerId, "Player is not active");
-      }
+    const player = await client.query<{ status: string }>(
+      "SELECT status FROM players WHERE id = $1 FOR UPDATE",
+      [input.playerId],
+    );
+    const playerRow = player.rows[0];
+    if (playerRow === undefined || playerRow.status !== "ACTIVE") {
+      return unavailable(input.playerId, "Player is not active");
+    }
 
-      const replay = await client.query<FishingAttemptRow>(
-        `SELECT id::text, player_id::text, area_id::text, attempt_no, roll, rarity,
+    const replay = await client.query<FishingAttemptRow>(
+      `SELECT id::text, player_id::text, area_id::text, attempt_no, roll, rarity,
                 fishing_point_name, encounter_table_slug
          FROM fishing_attempts
          WHERE player_id = $1 AND idempotency_key = $2
          FOR UPDATE`,
-        [input.playerId, input.idempotencyKey],
-      );
-      const replayRow = replay.rows[0];
-      if (replayRow !== undefined) return reserved(replayRow, input.playerId, true);
+      [input.playerId, input.idempotencyKey],
+    );
+    const replayRow = replay.rows[0];
+    if (replayRow !== undefined) return reserved(replayRow, input.playerId, true);
 
-      const context = await client.query<{
-        area_id: string;
-        content_release_id: string;
-        area_data: unknown;
-      }>(
-        `SELECT location.area_id::text AS area_id,
+    const context = await client.query<{
+      area_id: string;
+      content_release_id: string;
+      area_data: unknown;
+    }>(
+      `SELECT location.area_id::text AS area_id,
                 pointer.content_release_id::text AS content_release_id,
                 revision.data AS area_data
          FROM player_locations location
@@ -196,24 +202,24 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
           AND revision.area_id = location.area_id
           AND revision.active = TRUE
          WHERE location.player_id = $1`,
-        [input.playerId],
-      );
-      const contextRow = context.rows[0];
-      if (contextRow === undefined) {
-        return unavailable(input.playerId, "Player location or active content is unavailable");
-      }
+      [input.playerId],
+    );
+    const contextRow = context.rows[0];
+    if (contextRow === undefined) {
+      return unavailable(input.playerId, "Player location or active content is unavailable");
+    }
 
-      const areaConfig = WorldAreaConfigSchema.safeParse(contextRow.area_data);
-      if (!areaConfig.success) {
-        throw new Error(`Published fishing area ${contextRow.area_id} has invalid world config`);
-      }
-      const fishing = areaConfig.data.fishing;
-      if (fishing === undefined) {
-        return unavailable(input.playerId, "Fishing is not configured for the current area");
-      }
+    const areaConfig = WorldAreaConfigSchema.safeParse(contextRow.area_data);
+    if (!areaConfig.success) {
+      throw new Error(`Published fishing area ${contextRow.area_id} has invalid world config`);
+    }
+    const fishing = areaConfig.data.fishing;
+    if (fishing === undefined) {
+      return unavailable(input.playerId, "Fishing is not configured for the current area");
+    }
 
-      const flow = await client.query<{ active_encounter: boolean; active_battle: boolean }>(
-        `SELECT
+    const flow = await client.query<{ active_encounter: boolean; active_battle: boolean }>(
+      `SELECT
            EXISTS (
              SELECT 1
              FROM encounters encounter
@@ -227,64 +233,64 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
              WHERE side.player_id = $1
                AND battle.status = ANY($3::text[])
            ) AS active_battle`,
-        [input.playerId, ACTIVE_ENCOUNTER_STATUSES, ACTIVE_BATTLE_STATUSES],
-      );
-      const flowRow = flow.rows[0];
-      if (flowRow?.active_encounter || flowRow?.active_battle) {
-        return unavailable(input.playerId, "Player has an incompatible active encounter or battle");
-      }
+      [input.playerId, ACTIVE_ENCOUNTER_STATUSES, ACTIVE_BATTLE_STATUSES],
+    );
+    const flowRow = flow.rows[0];
+    if (flowRow?.active_encounter || flowRow?.active_battle) {
+      return unavailable(input.playerId, "Player has an incompatible active encounter or battle");
+    }
 
-      const used = await client.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count
+    const used = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
          FROM fishing_attempts
          WHERE player_id = $1 AND fishing_day = $2::date`,
-        [input.playerId, fishingDay],
+      [input.playerId, fishingDay],
+    );
+    const usedToday = Number(used.rows[0]?.count ?? "0");
+    if (usedToday >= DAILY_LIMIT) {
+      return {
+        kind: "DAILY_LIMIT_REACHED",
+        playerId: input.playerId,
+        dailyLimit: DAILY_LIMIT,
+        remainingAttempts: 0,
+      };
+    }
+
+    const rarity = fishingRarityForRoll(input.roll);
+    const encounterTableSlug = rarity === null ? null : (fishing.encounterTables[rarity] ?? null);
+    if (rarity !== null && encounterTableSlug === null) {
+      return unavailable(
+        input.playerId,
+        `Fishing ${rarity} encounter pool is not configured for the current area`,
       );
-      const usedToday = Number(used.rows[0]?.count ?? "0");
-      if (usedToday >= DAILY_LIMIT) {
-        return {
-          kind: "DAILY_LIMIT_REACHED",
-          playerId: input.playerId,
-          dailyLimit: DAILY_LIMIT,
-          remainingAttempts: 0,
-        };
-      }
+    }
 
-      const rarity = fishingRarityForRoll(input.roll);
-      const encounterTableSlug = rarity === null ? null : (fishing.encounterTables[rarity] ?? null);
-      if (rarity !== null && encounterTableSlug === null) {
-        return unavailable(
-          input.playerId,
-          `Fishing ${rarity} encounter pool is not configured for the current area`,
-        );
-      }
-
-      const attemptNo = usedToday + 1;
-      const attemptId = randomUUID();
-      const inserted = await client.query<FishingAttemptRow>(
-        `INSERT INTO fishing_attempts(
+    const attemptNo = usedToday + 1;
+    const attemptId = randomUUID();
+    const inserted = await client.query<FishingAttemptRow>(
+      `INSERT INTO fishing_attempts(
            id, player_id, content_release_id, area_id, fishing_day,
            attempt_no, idempotency_key, roll, rarity,
            fishing_point_name, encounter_table_slug
          ) VALUES ($1, $2, $3, $4, $5::date, $6, $7, $8, $9, $10, $11)
          RETURNING id::text, player_id::text, area_id::text, attempt_no, roll, rarity,
                    fishing_point_name, encounter_table_slug`,
-        [
-          attemptId,
-          input.playerId,
-          contextRow.content_release_id,
-          contextRow.area_id,
-          fishingDay,
-          attemptNo,
-          input.idempotencyKey,
-          input.roll,
-          rarity,
-          fishing.pointName,
-          encounterTableSlug,
-        ],
-      );
-      const insertedRow = inserted.rows[0];
-      if (insertedRow === undefined) throw new Error("Fishing attempt insert returned no row");
-      return reserved(insertedRow, input.playerId, false);
+      [
+        attemptId,
+        input.playerId,
+        contextRow.content_release_id,
+        contextRow.area_id,
+        fishingDay,
+        attemptNo,
+        input.idempotencyKey,
+        input.roll,
+        rarity,
+        fishing.pointName,
+        encounterTableSlug,
+      ],
+    );
+    const insertedRow = inserted.rows[0];
+    if (insertedRow === undefined) throw new Error("Fishing attempt insert returned no row");
+    return reserved(insertedRow, input.playerId, false);
   }
 }

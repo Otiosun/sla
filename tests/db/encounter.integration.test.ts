@@ -12,7 +12,10 @@ import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgr
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
-import { createSearchOutcomeEffect, readStoredSearchOutcome } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
+import {
+  createSearchOutcomeEffect,
+  readStoredSearchOutcome,
+} from "../../src/platform/exploration/expedition-search-outcome-effect.js";
 import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
 import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
 import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
@@ -22,11 +25,19 @@ import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploratio
 import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
 import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
-import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import {
+  PostgresEncounterRepository,
+  encounterRepositoryWithinTransaction,
+} from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
 import { FishingService } from "../../src/modules/world-services/fishing-service.js";
-import { createCorrelationId, createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import {
+  createCorrelationId,
+  createEncounterId,
+  createPlayerId,
+  type PlayerId,
+} from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
 const databaseUrl = (() => {
@@ -317,7 +328,12 @@ describe("encounter PostgreSQL integration", () => {
     const client = await pool.connect();
     try {
       fixture = await seedFixture(client);
-      await client.query(await readFile(new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url), "utf8"));
+      await client.query(
+        await readFile(
+          new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url),
+          "utf8",
+        ),
+      );
     } finally {
       client.release();
     }
@@ -351,24 +367,38 @@ describe("encounter PostgreSQL integration", () => {
   }, 30_000);
 
   it("blocks search when approved area weights are absent and forbids late policy authoring", async () => {
-    const client=await pool.connect();
+    const client = await pool.connect();
     try {
-      const playerId=await createEligiblePlayer(client,fixture.areaId);
-      const policy=new PublishedSearchOutcomePolicy(Buffer.alloc(32,0x47));
-      const result=await policy.decide(client,{
-        expeditionId:randomUUID(),playerId,
-        areaId:fixture.areaId,period:"DAY",phase:"PREPARING",
-        elapsedMinutes:0,consumedWeekKey:null,endReason:null,revision:0n,
+      const playerId = await createEligiblePlayer(client, fixture.areaId);
+      const policy = new PublishedSearchOutcomePolicy(Buffer.alloc(32, 0x47));
+      const result = await policy.decide(client, {
+        expeditionId: randomUUID(),
+        playerId,
+        areaId: fixture.areaId,
+        period: "DAY",
+        phase: "PREPARING",
+        elapsedMinutes: 0,
+        consumedWeekKey: null,
+        endReason: null,
+        revision: 0n,
       });
-      expect(result).toMatchObject({ok:false,error:{code:"FLOW_BLOCKED"}});
-      await expect(client.query(
-        `INSERT INTO solo_search_outcome_policies
+      expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+      await expect(
+        client.query(
+          `INSERT INTO solo_search_outcome_policies
           (id,content_release_id,area_id,period,weights)
          VALUES ($1,$2,$3,'DAY',$4::jsonb)`,
-        [randomUUID(),fixture.releaseId,fixture.areaId,
-         JSON.stringify({NO_SIGNAL:10000,TRAIL:0,INCIDENTAL:0,DIRECT:0})],
-      )).rejects.toThrow(/only before release approval/u);
-    } finally {client.release()}
+          [
+            randomUUID(),
+            fixture.releaseId,
+            fixture.areaId,
+            JSON.stringify({ NO_SIGNAL: 10000, TRAIL: 0, INCIDENTAL: 0, DIRECT: 0 }),
+          ],
+        ),
+      ).rejects.toThrow(/only before release approval/u);
+    } finally {
+      client.release();
+    }
   });
 
   it("runs the canonical EncounterService inside an existing transaction and rolls back its own encounter", async () => {
@@ -395,26 +425,50 @@ describe("encounter PostgreSQL integration", () => {
       await client.query("BEGIN");
       const pending = unwrap(await execute(client));
       firstId = pending.encounterId;
-      expect((await client.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE id=$1", [firstId],
-      )).rows[0]?.n).toBe("1");
+      expect(
+        (
+          await client.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM encounters WHERE id=$1",
+            [firstId],
+          )
+        ).rows[0]?.n,
+      ).toBe("1");
       await client.query("ROLLBACK");
-      expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE id=$1", [firstId],
-      )).rows[0]?.n).toBe("0");
+      expect(
+        (
+          await pool.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM encounters WHERE id=$1",
+            [firstId],
+          )
+        ).rows[0]?.n,
+      ).toBe("0");
 
       await client.query("BEGIN");
       const committed = unwrap(await execute(client));
       await client.query("COMMIT");
       expect(committed.encounterId).not.toBe(firstId);
-      expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
-      )).rows[0]?.n).toBe("1");
-      expect(unwrap(await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
-        playerId, idempotencyKey: "expedition-same-transaction",
-      })).encounterId).toBe(committed.encounterId);
+      expect(
+        (
+          await pool.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1",
+            [playerId],
+          )
+        ).rows[0]?.n,
+      ).toBe("1");
+      expect(
+        unwrap(
+          await service(pool, new ManualClock(FIXED_NOW)).createOrReplay({
+            playerId,
+            idempotencyKey: "expedition-same-transaction",
+          }),
+        ).encounterId,
+      ).toBe(committed.encounterId);
     } finally {
-      try { await client.query("ROLLBACK"); } catch { /* not in transaction */ }
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        /* not in transaction */
+      }
       client.release();
     }
   });
@@ -424,43 +478,65 @@ describe("encounter PostgreSQL integration", () => {
     const playerId = await createEligiblePlayer(bootstrap, fixture.areaId);
     bootstrap.release();
     const effect = createDirectEncounterEffect({
-      seedProvider: new AesEncounterSeedProvider(
-        Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
+        Buffer.alloc(32, 0x4c),
       ),
       clock: new ManualClock(FIXED_NOW),
       feature: FEATURE_ENABLED,
     });
     const snapshot = {
-      expeditionId: randomUUID(), playerId, areaId: fixture.areaId,
-      period: "DAY" as const, phase: "PREPARING" as const,
-      elapsedMinutes: 0, consumedWeekKey: null, endReason: null,
+      expeditionId: randomUUID(),
+      playerId,
+      areaId: fixture.areaId,
+      period: "DAY" as const,
+      phase: "PREPARING" as const,
+      elapsedMinutes: 0,
+      consumedWeekKey: null,
+      endReason: null,
       revision: 0n,
     };
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const pending = unwrap(await effect(client, snapshot));
-      expect((await client.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
-        [pending.effectRef, playerId],
-      )).rows[0]?.n).toBe("1");
+      expect(
+        (
+          await client.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
+            [pending.effectRef, playerId],
+          )
+        ).rows[0]?.n,
+      ).toBe("1");
       await client.query("ROLLBACK");
-      expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
-      )).rows[0]?.n).toBe("0");
+      expect(
+        (
+          await pool.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1",
+            [playerId],
+          )
+        ).rows[0]?.n,
+      ).toBe("0");
 
       await client.query("BEGIN");
       const committed = unwrap(await effect(client, snapshot));
       await client.query("COMMIT");
-      expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
-        [committed.effectRef, playerId],
-      )).rows[0]?.n).toBe("1");
+      expect(
+        (
+          await pool.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM encounters WHERE id=$1 AND player_id=$2",
+            [committed.effectRef, playerId],
+          )
+        ).rows[0]?.n,
+      ).toBe("1");
       await client.query("BEGIN");
       expect(unwrap(await effect(client, snapshot)).effectRef).toBe(committed.effectRef);
       await client.query("COMMIT");
     } finally {
-      try { await client.query("ROLLBACK"); } catch { /* no open transaction */ }
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        /* no open transaction */
+      }
       client.release();
     }
   });
@@ -468,7 +544,8 @@ describe("encounter PostgreSQL integration", () => {
   it("atomically binds DIRECT and INCIDENTAL outcomes to real Encounter IDs with replay", async () => {
     const client = await pool.connect();
     const region = await client.query<{ region_id: string }>(
-      "SELECT region_id::text FROM areas WHERE id=$1", [fixture.areaId],
+      "SELECT region_id::text FROM areas WHERE id=$1",
+      [fixture.areaId],
     );
     const regionId = region.rows[0]?.region_id;
     if (regionId === undefined) {
@@ -482,78 +559,111 @@ describe("encounter PostgreSQL integration", () => {
         const playerId = await createEligiblePlayer(client, fixture.areaId);
         const clock = new ManualClock(FIXED_NOW);
         const store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
-        const prepared = unwrap(await store.prepare({
-          playerId, period: "DAY", idempotencyKey: "combined-preparation",
-        })).expedition;
+        const prepared = unwrap(
+          await store.prepare({
+            playerId,
+            period: "DAY",
+            idempotencyKey: "combined-preparation",
+          }),
+        ).expedition;
         const canonicalEncounter = createDirectEncounterEffect({
-          seedProvider: new AesEncounterSeedProvider(
-            Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+          seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
+            Buffer.alloc(32, 0x4c),
           ),
-          clock, feature: FEATURE_ENABLED,
+          clock,
+          feature: FEATURE_ENABLED,
         });
         let decisionCount = 0;
         const effect = createSearchOutcomeEffect({
-          policy: { decide: async () => {
-            decisionCount++;
-            return { ok: true as const, value: { kind } };
-          } },
+          policy: {
+            decide: async () => {
+              decisionCount++;
+              return { ok: true as const, value: { kind } };
+            },
+          },
           encounter: canonicalEncounter,
         });
         const input = {
-          playerId, expeditionId: prepared.expeditionId,
+          playerId,
+          expeditionId: prepared.expeditionId,
           expectedRevision: prepared.revision,
           idempotencyKey: "combined-first-search",
           effect,
         };
         const first = unwrap(await store.executeSearchFree(input));
         expect(first).toMatchObject({
-          replayed: false, consumedWeeklySlot: true,
+          replayed: false,
+          consumedWeeklySlot: true,
           expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
         });
         const outcome = await readStoredSearchOutcome(client, playerId, first.effectRef);
         expect(outcome).toMatchObject({
-          playerId, expeditionId: prepared.expeditionId,
-          kind, expeditionRevision: 0n,
+          playerId,
+          expeditionId: prepared.expeditionId,
+          kind,
+          expeditionRevision: 0n,
         });
         expect(outcome?.encounterId).toBeTruthy();
         const ownerGate = new PostgresIncidentalOutcomeAuthorization(pool);
-        expect(await ownerGate.belongsToPlayer({
-          playerId, encounterId: outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId,
-          outcomeId: first.effectRef,
-        })).toBe(kind === "INCIDENTAL");
+        expect(
+          await ownerGate.belongsToPlayer({
+            playerId,
+            encounterId:
+              outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId,
+            outcomeId: first.effectRef,
+          }),
+        ).toBe(kind === "INCIDENTAL");
 
         if (kind === "DIRECT") {
-          const directMenu=await new PostgresIncidentalMenuSnapshots(pool).issue({
-            playerId,outcomeId:first.effectRef,canBattle:true,canIgnore:false,
-            combiningCount:0,
+          const directMenu = await new PostgresIncidentalMenuSnapshots(pool).issue({
+            playerId,
+            outcomeId: first.effectRef,
+            canBattle: true,
+            canIgnore: false,
+            combiningCount: 0,
           });
-          expect(directMenu).toMatchObject({ok:false,error:{code:"FLOW_BLOCKED"}});
+          expect(directMenu).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
         }
-        expect(await ownerGate.belongsToPlayer({
-          playerId: createPlayerId(),
-          encounterId: outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId,
-          outcomeId: first.effectRef,
-        })).toBe(false);
+        expect(
+          await ownerGate.belongsToPlayer({
+            playerId: createPlayerId(),
+            encounterId:
+              outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId,
+            outcomeId: first.effectRef,
+          }),
+        ).toBe(false);
 
         if (kind === "INCIDENTAL") {
-          const target = outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId;
+          const target =
+            outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId;
           const deps = {
             authorize: ownerGate,
             encounters: service(pool, new ManualClock(FIXED_NOW)),
           };
-          const ready = unwrap(await prepareIncidentalEncounterForCapture(deps, {
-            playerId, encounterId: target, outcomeId: first.effectRef,
-          }));
+          const ready = unwrap(
+            await prepareIncidentalEncounterForCapture(deps, {
+              playerId,
+              encounterId: target,
+              outcomeId: first.effectRef,
+            }),
+          );
           expect(ready.status).toBe("ENGAGED");
-          const same = unwrap(await prepareIncidentalEncounterForCapture(deps, {
-            playerId, encounterId: target, outcomeId: first.effectRef,
-          }));
+          const same = unwrap(
+            await prepareIncidentalEncounterForCapture(deps, {
+              playerId,
+              encounterId: target,
+              outcomeId: first.effectRef,
+            }),
+          );
           expect(same.status).toBe("ENGAGED");
           expect(same.revision).toBe(ready.revision);
           const snapshots = new PostgresIncidentalMenuSnapshots(pool);
           const issuance = {
-            playerId, outcomeId:first.effectRef,
-            canBattle:true, canIgnore:false, combiningCount:0,
+            playerId,
+            outcomeId: first.effectRef,
+            canBattle: true,
+            canIgnore: false,
+            combiningCount: 0,
           };
           const issued = unwrap(await snapshots.issue(issuance));
           expect(issued.outcomeId).toBe(first.effectRef);
@@ -561,177 +671,286 @@ describe("encounter PostgreSQL integration", () => {
           expect(issued.menu.encounterRevision).toBe(ready.revision);
           // Fixture Capture ruleset permits IN_BATTLE only. Do not offer a
           // one-tap Ball even if the UI would like to show one.
-          expect(issued.menu.choices).toEqual([{optionNo:1,kind:"BATTLE"}]);
+          expect(issued.menu.choices).toEqual([{ optionNo: 1, kind: "BATTLE" }]);
           expect(issued.ballItemIds).toEqual({});
-          const retries = await Promise.all(Array.from({length:4},
-            () => snapshots.issue({...issuance,canIgnore:true,combiningCount:450})));
-          for(const attempt of retries) {
+          const retries = await Promise.all(
+            Array.from({ length: 4 }, () =>
+              snapshots.issue({ ...issuance, canIgnore: true, combiningCount: 450 }),
+            ),
+          );
+          for (const attempt of retries) {
             expect(unwrap(attempt).menuId).toBe(issued.menuId);
             expect(unwrap(attempt).menu.text).toBe(issued.menu.text);
           }
-          expect(unwrap(await snapshots.findForPlayer(playerId,issued.menuId)).menu)
-            .toEqual(issued.menu);
-          const binding=new PostgresIncidentalMenuReplyBinding(pool,snapshots);
-          const delivery={
-            provider:"baileys",chatRef:"group-fixture@g.us",
-            externalMessageId:"provider-original-sent-message",
+          expect(unwrap(await snapshots.findForPlayer(playerId, issued.menuId)).menu).toEqual(
+            issued.menu,
+          );
+          const binding = new PostgresIncidentalMenuReplyBinding(pool, snapshots);
+          const delivery = {
+            provider: "baileys",
+            chatRef: "group-fixture@g.us",
+            externalMessageId: "provider-original-sent-message",
           };
-          expect((await binding.bindDelivered({
-            playerId,menuId:issued.menuId,message:delivery,
-          })).ok).toBe(true);
-          expect((await binding.bindDelivered({
-            playerId,menuId:issued.menuId,message:delivery,
-          })).ok).toBe(true);
-          const resolved=unwrap(await binding.resolveReply({
-            playerId,repliedTo:delivery,
-          }));
+          expect(
+            (
+              await binding.bindDelivered({
+                playerId,
+                menuId: issued.menuId,
+                message: delivery,
+              })
+            ).ok,
+          ).toBe(true);
+          expect(
+            (
+              await binding.bindDelivered({
+                playerId,
+                menuId: issued.menuId,
+                message: delivery,
+              })
+            ).ok,
+          ).toBe(true);
+          const resolved = unwrap(
+            await binding.resolveReply({
+              playerId,
+              repliedTo: delivery,
+            }),
+          );
           expect(resolved.menuId).toBe(issued.menuId);
           expect(resolved.menu.text).toBe(issued.menu.text);
-          expect((await binding.resolveReply({
-            playerId:createPlayerId(),repliedTo:delivery,
-          })).ok).toBe(false);
-          expect((await binding.resolveReply({
-            playerId,repliedTo:{...delivery,chatRef:"other-group@g.us"},
-          })).ok).toBe(false);
-          expect((await binding.resolveReply({
-            playerId,repliedTo:{...delivery,externalMessageId:"another-message"},
-          })).ok).toBe(false);
-          expect((await binding.bindDelivered({
-            playerId,menuId:issued.menuId,
-            message:{...delivery,chatRef:"wrong-group\n@g.us"},
-          })).ok).toBe(false);
-          expect((await pool.query<{n:string}>(
-            "SELECT count(*)::text AS n FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
-            [issued.menuId],
-          )).rows[0]?.n).toBe("1");
-          await expect(pool.query(
-            "UPDATE solo_incidental_menu_snapshots SET ball_item_ids='{}'::jsonb WHERE id=$1",
-            [issued.menuId],
-          )).rejects.toThrow(/immutable/u);
-          await expect(pool.query(
-            "DELETE FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
-            [issued.menuId],
-          )).rejects.toThrow(/immutable/u);
-          await pool.query("UPDATE players SET status='SUSPENDED' WHERE id=$1",[playerId]);
+          expect(
+            (
+              await binding.resolveReply({
+                playerId: createPlayerId(),
+                repliedTo: delivery,
+              })
+            ).ok,
+          ).toBe(false);
+          expect(
+            (
+              await binding.resolveReply({
+                playerId,
+                repliedTo: { ...delivery, chatRef: "other-group@g.us" },
+              })
+            ).ok,
+          ).toBe(false);
+          expect(
+            (
+              await binding.resolveReply({
+                playerId,
+                repliedTo: { ...delivery, externalMessageId: "another-message" },
+              })
+            ).ok,
+          ).toBe(false);
+          expect(
+            (
+              await binding.bindDelivered({
+                playerId,
+                menuId: issued.menuId,
+                message: { ...delivery, chatRef: "wrong-group\n@g.us" },
+              })
+            ).ok,
+          ).toBe(false);
+          expect(
+            (
+              await pool.query<{ n: string }>(
+                "SELECT count(*)::text AS n FROM solo_incidental_menu_deliveries WHERE menu_id=$1",
+                [issued.menuId],
+              )
+            ).rows[0]?.n,
+          ).toBe("1");
+          await expect(
+            pool.query(
+              "UPDATE solo_incidental_menu_snapshots SET ball_item_ids='{}'::jsonb WHERE id=$1",
+              [issued.menuId],
+            ),
+          ).rejects.toThrow(/immutable/u);
+          await expect(
+            pool.query("DELETE FROM solo_incidental_menu_deliveries WHERE menu_id=$1", [
+              issued.menuId,
+            ]),
+          ).rejects.toThrow(/immutable/u);
+          await pool.query("UPDATE players SET status='SUSPENDED' WHERE id=$1", [playerId]);
           try {
             expect(await snapshots.issue(issuance)).toMatchObject({
-              ok:false,error:{code:"PLAYER_INELIGIBLE"},
+              ok: false,
+              error: { code: "PLAYER_INELIGIBLE" },
             });
           } finally {
-            await pool.query("UPDATE players SET status='ACTIVE' WHERE id=$1",[playerId]);
+            await pool.query("UPDATE players SET status='ACTIVE' WHERE id=$1", [playerId]);
           }
-
-
 
           // End-to-end in disposable PG: search outcome -> ENGAGED -> persisted
           // menu -> simulated provider ACK -> real reply binding -> dispatch.
           // The published fixture permits capture IN_BATTLE only, so the
           // captured "2" must fail closed BEFORE any CaptureService invocation.
-          const deliveryBySeam={
-            provider:"baileys",chatRef:"other-game-group@g.us",
-            externalMessageId:"provider-ack-transport-seam",
+          const deliveryBySeam = {
+            provider: "baileys",
+            chatRef: "other-game-group@g.us",
+            externalMessageId: "provider-ack-transport-seam",
           };
-          let sendCount=0;
-          const transport=new ExpeditionIncidentalTransportSeam(
-            snapshots,binding,
-            {send:async (sent)=>{
-              sendCount++;
-              expect(sent.menuId).toBe(issued.menuId);
-              expect(sent.text).toBe(issued.menu.text);
-              expect(sent.provider).toBe(deliveryBySeam.provider);
-              expect(sent.chatRef).toBe(deliveryBySeam.chatRef);
-              return {ok:true as const,value:deliveryBySeam};
-            }},
+          let sendCount = 0;
+          const transport = new ExpeditionIncidentalTransportSeam(
+            snapshots,
+            binding,
+            {
+              send: async (sent) => {
+                sendCount++;
+                expect(sent.menuId).toBe(issued.menuId);
+                expect(sent.text).toBe(issued.menu.text);
+                expect(sent.provider).toBe(deliveryBySeam.provider);
+                expect(sent.chatRef).toBe(deliveryBySeam.chatRef);
+                return { ok: true as const, value: deliveryBySeam };
+              },
+            },
             new ExpeditionIncidentalMenuDispatcher(
               snapshots,
-              new ExpeditionIncidentalCaptureAction(ownerGate,{
-                attempt:async()=>{throw Error("Never call CaptureService for unauthorized Ball")},
+              new ExpeditionIncidentalCaptureAction(ownerGate, {
+                attempt: async () => {
+                  throw Error("Never call CaptureService for unauthorized Ball");
+                },
               }),
             ),
           );
-          const presented=unwrap(await transport.present({
-            playerId,outcomeId:first.effectRef,canBattle:true,canIgnore:false,
-            combiningCount:0,provider:deliveryBySeam.provider,
-            chatRef:deliveryBySeam.chatRef,
-          }));
+          const presented = unwrap(
+            await transport.present({
+              playerId,
+              outcomeId: first.effectRef,
+              canBattle: true,
+              canIgnore: false,
+              combiningCount: 0,
+              provider: deliveryBySeam.provider,
+              chatRef: deliveryBySeam.chatRef,
+            }),
+          );
           expect(sendCount).toBe(1);
           expect(presented.menuId).toBe(issued.menuId);
           expect(presented.text).toBe(issued.menu.text);
-          expect(unwrap(await binding.resolveReply({
-            playerId,repliedTo:deliveryBySeam,
-          })).menuId).toBe(issued.menuId);
-          const blockedCapture=await transport.captureQuotedReply({
-            playerId,provider:deliveryBySeam.provider,
-            chatRef:deliveryBySeam.chatRef,
-            quotedExternalMessageId:deliveryBySeam.externalMessageId,
-            rawChoice:"2",inboxIdempotencyKey:"inbox:quoted-approved-player",
-            correlationId:createCorrelationId(),causationId:null,
+          expect(
+            unwrap(
+              await binding.resolveReply({
+                playerId,
+                repliedTo: deliveryBySeam,
+              }),
+            ).menuId,
+          ).toBe(issued.menuId);
+          const blockedCapture = await transport.captureQuotedReply({
+            playerId,
+            provider: deliveryBySeam.provider,
+            chatRef: deliveryBySeam.chatRef,
+            quotedExternalMessageId: deliveryBySeam.externalMessageId,
+            rawChoice: "2",
+            inboxIdempotencyKey: "inbox:quoted-approved-player",
+            correlationId: createCorrelationId(),
+            causationId: null,
           });
           expect(blockedCapture).toMatchObject({
-            ok:false,error:{code:"FLOW_BLOCKED"},
+            ok: false,
+            error: { code: "FLOW_BLOCKED" },
           });
-          expect((await transport.captureQuotedReply({
-            playerId:createPlayerId(),provider:deliveryBySeam.provider,
-            chatRef:deliveryBySeam.chatRef,
-            quotedExternalMessageId:deliveryBySeam.externalMessageId,
-            rawChoice:"2",inboxIdempotencyKey:"inbox:foreign-player",
-            correlationId:createCorrelationId(),causationId:null,
-          })).ok).toBe(false);
+          expect(
+            (
+              await transport.captureQuotedReply({
+                playerId: createPlayerId(),
+                provider: deliveryBySeam.provider,
+                chatRef: deliveryBySeam.chatRef,
+                quotedExternalMessageId: deliveryBySeam.externalMessageId,
+                rawChoice: "2",
+                inboxIdempotencyKey: "inbox:foreign-player",
+                correlationId: createCorrelationId(),
+                causationId: null,
+              })
+            ).ok,
+          ).toBe(false);
 
-          expect((await snapshots.findForPlayer(createPlayerId(),issued.menuId)).ok).toBe(false);
-          expect((await pool.query<{n:string}>(
-            "SELECT count(*)::text AS n FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
-            [first.effectRef],
-          )).rows[0]?.n).toBe("1");
+          expect((await snapshots.findForPlayer(createPlayerId(), issued.menuId)).ok).toBe(false);
+          expect(
+            (
+              await pool.query<{ n: string }>(
+                "SELECT count(*)::text AS n FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
+                [first.effectRef],
+              )
+            ).rows[0]?.n,
+          ).toBe("1");
 
-          expect(await prepareIncidentalEncounterForCapture(deps, {
-            playerId: createPlayerId(), encounterId: target, outcomeId: first.effectRef,
-          })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+          expect(
+            await prepareIncidentalEncounterForCapture(deps, {
+              playerId: createPlayerId(),
+              encounterId: target,
+              outcomeId: first.effectRef,
+            }),
+          ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
         }
         expect(outcome?.encounterId).not.toBe(first.effectRef);
         const replay = unwrap(await store.executeSearchFree(input));
         expect(replay.replayed).toBe(true);
         expect(replay.effectRef).toBe(first.effectRef);
         expect(decisionCount).toBe(1);
-        expect((await pool.query<{ n: string }>(
-          "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1", [playerId],
-        )).rows[0]?.n).toBe("1");
-        expect((await pool.query<{ n: string }>(
-          "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
-          [playerId],
-        )).rows[0]?.n).toBe("1");
-        expect((await pool.query<{ n: string }>(
-          "SELECT count(*)::text AS n FROM solo_expedition_receipts WHERE player_id=$1",
-          [playerId],
-        )).rows[0]?.n).toBe("2");
+        expect(
+          (
+            await pool.query<{ n: string }>(
+              "SELECT count(*)::text AS n FROM encounters WHERE player_id=$1",
+              [playerId],
+            )
+          ).rows[0]?.n,
+        ).toBe("1");
+        expect(
+          (
+            await pool.query<{ n: string }>(
+              "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+              [playerId],
+            )
+          ).rows[0]?.n,
+        ).toBe("1");
+        expect(
+          (
+            await pool.query<{ n: string }>(
+              "SELECT count(*)::text AS n FROM solo_expedition_receipts WHERE player_id=$1",
+              [playerId],
+            )
+          ).rows[0]?.n,
+        ).toBe("2");
         expect((await store.current(playerId))?.consumedWeekKey).not.toBeNull();
       }
       const fakePlayerId = await createEligiblePlayer(client, fixture.areaId);
       const fakeStore = new PostgresExpeditionRepository(
-        pool, new ManualClock(FIXED_NOW), "America/Maceio",
+        pool,
+        new ManualClock(FIXED_NOW),
+        "America/Maceio",
       );
-      const preparedFake = unwrap(await fakeStore.prepare({
-        playerId: fakePlayerId, period: "NIGHT", idempotencyKey: "fake-preparation",
-      })).expedition;
+      const preparedFake = unwrap(
+        await fakeStore.prepare({
+          playerId: fakePlayerId,
+          period: "NIGHT",
+          idempotencyKey: "fake-preparation",
+        }),
+      ).expedition;
       const fabricated = createSearchOutcomeEffect({
         policy: { decide: async () => ({ ok: true as const, value: { kind: "DIRECT" as const } }) },
         encounter: async () => ({ ok: true as const, value: { effectRef: randomUUID() } }),
       });
-      expect(await fakeStore.executeSearchFree({
-        playerId: fakePlayerId,
-        expeditionId: preparedFake.expeditionId,
-        expectedRevision: 0n,
-        idempotencyKey: "fake-result-blocked",
-        effect: fabricated,
-      })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+      expect(
+        await fakeStore.executeSearchFree({
+          playerId: fakePlayerId,
+          expeditionId: preparedFake.expeditionId,
+          expectedRevision: 0n,
+          idempotencyKey: "fake-result-blocked",
+          effect: fabricated,
+        }),
+      ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
       expect(await fakeStore.current(fakePlayerId)).toMatchObject({
-        phase: "PREPARING", elapsedMinutes: 0,
-        consumedWeekKey: null, revision: 0n,
+        phase: "PREPARING",
+        elapsedMinutes: 0,
+        consumedWeekKey: null,
+        revision: 0n,
       });
-      expect((await pool.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
-        [fakePlayerId],
-      )).rows[0]?.n).toBe("0");
+      expect(
+        (
+          await pool.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM solo_expedition_search_outcomes WHERE player_id=$1",
+            [fakePlayerId],
+          )
+        ).rows[0]?.n,
+      ).toBe("0");
     } finally {
       await client.query("UPDATE areas SET slug='phase8-route' WHERE id=$1", [fixture.areaId]);
       await client.query("UPDATE regions SET slug='phase8-kanto' WHERE id=$1", [regionId]);
@@ -1392,38 +1611,53 @@ describe("encounter PostgreSQL integration", () => {
     expect(row.rows[0]?.creation_idempotency_key).toBe(`legacy:${encounterId}`);
   });
   it("atomically persists one fishing quota + real EncounterService encounter and replays the same inbox", async () => {
-    const client=await pool.connect();
-    let playerId:PlayerId;
-    try {playerId=await createEligiblePlayer(client,fixture.areaId);}
-    finally {client.release();}
+    const client = await pool.connect();
+    let playerId: PlayerId;
+    try {
+      playerId = await createEligiblePlayer(client, fixture.areaId);
+    } finally {
+      client.release();
+    }
     // This fixture is isolated in disposable PostgreSQL and its fishing
     // rarity COMMON points at an ACTUAL eligible published encounter table.
-    const repository=new PostgresFishingAttemptRepository(pool,{
-      seedProvider:new AesEncounterSeedProvider(
-        Buffer.alloc(32,0xa5),1,()=>Buffer.alloc(32,0x4c),
+    const repository = new PostgresFishingAttemptRepository(pool, {
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
+        Buffer.alloc(32, 0x4c),
       ),
-      clock:new ManualClock(FIXED_NOW),
-      feature:FEATURE_ENABLED,
-      fishingDayTimeZone:"Etc/UTC",
+      clock: new ManualClock(FIXED_NOW),
+      feature: FEATURE_ENABLED,
+      fishingDayTimeZone: "Etc/UTC",
     });
-    const fakeStandalone={
-      createOrReplay:async()=>{throw new Error("Standalone encounter must not be called")},
+    const fakeStandalone = {
+      createOrReplay: async () => {
+        throw new Error("Standalone encounter must not be called");
+      },
     };
-    const fishing=new FishingService(repository,fakeStandalone,{
-      randomFloat:()=>0,
-      randomInt:()=>9,
+    const fishing = new FishingService(repository, fakeStandalone, {
+      randomFloat: () => 0,
+      randomInt: () => 9,
     });
-    const first=unwrap(await fishing.attempt({
-      playerId,idempotencyKey:"fishing:atomic:published-common",
-    }));
+    const first = unwrap(
+      await fishing.attempt({
+        playerId,
+        idempotencyKey: "fishing:atomic:published-common",
+      }),
+    );
     expect(first).toMatchObject({
-      rarity:"COMMON",roll:10,attemptNo:1,replayed:false,remainingAttempts:4,
+      rarity: "COMMON",
+      roll: 10,
+      attemptNo: 1,
+      replayed: false,
+      remainingAttempts: 4,
     });
     expect(first.encounter?.playerId).toBe(playerId);
     expect(first.encounter?.areaId).toBe(fixture.areaId);
-    const replay=unwrap(await fishing.attempt({
-      playerId,idempotencyKey:"fishing:atomic:published-common",
-    }));
+    const replay = unwrap(
+      await fishing.attempt({
+        playerId,
+        idempotencyKey: "fishing:atomic:published-common",
+      }),
+    );
     expect(replay.replayed).toBe(true);
     expect(replay.encounter?.encounterId).toBe(first.encounter?.encounterId);
 
@@ -1431,38 +1665,53 @@ describe("encounter PostgreSQL integration", () => {
     // The authorized PVE flow can subsequently observe, engage and start
     // exactly one canonical battle without spending another fishing quota.
     if (first.encounter === null) throw new Error("Fishing fixture did not create an encounter");
-    const engine=service(pool,new ManualClock(FIXED_NOW));
-    const presented=unwrap(await engine.observe({
-      playerId,encounterId:first.encounter.encounterId,expectedRevision:first.encounter.revision,
-    }));
+    const engine = service(pool, new ManualClock(FIXED_NOW));
+    const presented = unwrap(
+      await engine.observe({
+        playerId,
+        encounterId: first.encounter.encounterId,
+        expectedRevision: first.encounter.revision,
+      }),
+    );
     expect(presented.status).toBe("PRESENTED");
-    const engaged=unwrap(await engine.engage({
-      playerId,encounterId:first.encounter.encounterId,expectedRevision:presented.revision,
-    }));
+    const engaged = unwrap(
+      await engine.engage({
+        playerId,
+        encounterId: first.encounter.encounterId,
+        expectedRevision: presented.revision,
+      }),
+    );
     expect(engaged.status).toBe("ENGAGED");
-    const started=unwrap(await engine.startBattle({
-      playerId,encounterId:first.encounter.encounterId,expectedRevision:engaged.revision,
-    }));
+    const started = unwrap(
+      await engine.startBattle({
+        playerId,
+        encounterId: first.encounter.encounterId,
+        expectedRevision: engaged.revision,
+      }),
+    );
     expect(started.encounter.status).toBe("IN_BATTLE");
     expect(started.replayed).toBe(false);
-    const battleReplay=unwrap(await engine.startBattle({
-      playerId,encounterId:first.encounter.encounterId,expectedRevision:engaged.revision,
-    }));
+    const battleReplay = unwrap(
+      await engine.startBattle({
+        playerId,
+        encounterId: first.encounter.encounterId,
+        expectedRevision: engaged.revision,
+      }),
+    );
     expect(battleReplay.replayed).toBe(true);
     expect(battleReplay.battleId).toBe(started.battleId);
-    const battleCount=await pool.query<{count:string}>(
+    const battleCount = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM battles WHERE encounter_id=$1",
       [first.encounter.encounterId],
     );
     expect(battleCount.rows[0]?.count).toBe("1");
 
-    const totals=await pool.query<{casts:string;encounters:string}>(
+    const totals = await pool.query<{ casts: string; encounters: string }>(
       `SELECT
         (SELECT count(*)::text FROM fishing_attempts WHERE player_id=$1) AS casts,
         (SELECT count(*)::text FROM encounters WHERE player_id=$1) AS encounters`,
       [playerId],
     );
-    expect(totals.rows[0]).toEqual({casts:"1",encounters:"1"});
+    expect(totals.rows[0]).toEqual({ casts: "1", encounters: "1" });
   });
-
 });

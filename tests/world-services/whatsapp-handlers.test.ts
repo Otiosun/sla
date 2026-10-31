@@ -52,7 +52,9 @@ function routeFor(dependencies: WorldServiceWhatsAppDependencies, command: strin
   const completeDependencies: WorldServiceWhatsAppDependencies = {
     ...dependencies,
     world: dependencies.world ?? {
-      getLocation: async () => { throw new Error("Unexpected location lookup in unit fixture"); },
+      getLocation: async () => {
+        throw new Error("Unexpected location lookup in unit fixture");
+      },
     },
   };
   const route = createWorldServiceWhatsAppRoutes(completeDependencies).find(
@@ -166,26 +168,29 @@ describe("Pokemon PC deposit early block", () => {
     };
   }
 
-  it.each([0, 1])("blocks a deposit menu with %i active Pokemon and no reply prompt", async (size) => {
-    const playerId = createPlayerId();
-    const session = activeCenterSession(playerId);
-    const dependencies = {
-      players: {
-        resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
-      },
-      sessions: { loadActiveSession: async () => ok(session) },
-      pcStorage: { getStorage: async () => ok(makeTeamSnapshot(playerId, size)) },
-    } as unknown as WorldServiceWhatsAppDependencies;
+  it.each([0, 1])(
+    "blocks a deposit menu with %i active Pokemon and no reply prompt",
+    async (size) => {
+      const playerId = createPlayerId();
+      const session = activeCenterSession(playerId);
+      const dependencies = {
+        players: {
+          resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
+        },
+        sessions: { loadActiveSession: async () => ok(session) },
+        pcStorage: { getStorage: async () => ok(makeTeamSnapshot(playerId, size)) },
+      } as unknown as WorldServiceWhatsAppDependencies;
 
-    const result = await routeFor(dependencies, "depositar").handler.handle(context());
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(result.error.message);
-    expect(result.value.outgoing).toHaveLength(1);
-    const payload = result.value.outgoing[0]?.payload;
-    expect(payload?.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢");
-    expect(payload?.text).not.toContain("Responda com o número");
-    expect(payload).not.toHaveProperty("worldServicePrompt");
-  });
+      const result = await routeFor(dependencies, "depositar").handler.handle(context());
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.error.message);
+      expect(result.value.outgoing).toHaveLength(1);
+      const payload = result.value.outgoing[0]?.payload;
+      expect(payload?.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢");
+      expect(payload?.text).not.toContain("Responda com o número");
+      expect(payload).not.toHaveProperty("worldServicePrompt");
+    },
+  );
 
   it("still offers the quoted choice flow when the team has two Pokemon", async () => {
     const playerId = createPlayerId();
@@ -237,11 +242,12 @@ describe("Pokemon PC deposit early block", () => {
     expect(payload?.text).not.toContain("Responda com o número");
     expect(payload).not.toHaveProperty("worldServicePrompt");
   });
-
 });
 
 describe("Published Poké Mart only", () => {
-  function martDependencies(offers: readonly { offerKey: string; itemQuantity: bigint; priceAmount: bigint }[]) {
+  function martDependencies(
+    offers: readonly { offerKey: string; itemQuantity: bigint; priceAmount: bigint }[],
+  ) {
     const playerId = createPlayerId();
     const session = { ...activeCenterSession(playerId), serviceKind: "POKEMART" as const };
     const dependencies = {
@@ -263,9 +269,10 @@ describe("Published Poké Mart only", () => {
   });
 
   it("shows only actual active offers, not the full static Mart catalog", async () => {
-    const result = await routeFor(martDependencies([
-      { offerKey: "shop.poke-ball", itemQuantity: 1n, priceAmount: 200n },
-    ]), "comprar").handler.handle(context());
+    const result = await routeFor(
+      martDependencies([{ offerKey: "shop.poke-ball", itemQuantity: 1n, priceAmount: 200n }]),
+      "comprar",
+    ).handler.handle(context());
     expect(result.ok).toBe(true);
     if (!result.ok) throw Error(result.error.message);
     expect(result.value.outgoing[0]?.payload.text).toContain("Poké Ball");

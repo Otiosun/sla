@@ -7,11 +7,13 @@ import { z } from "zod";
  */
 const MoveEntrySchema = z.object({
   move: z.object({ name: z.string().min(1) }),
-  version_group_details: z.array(z.object({
-    level_learned_at: z.number().int().min(0),
-    move_learn_method: z.object({ name: z.string().min(1) }),
-    version_group: z.object({ name: z.string().min(1) }),
-  })),
+  version_group_details: z.array(
+    z.object({
+      level_learned_at: z.number().int().min(0),
+      move_learn_method: z.object({ name: z.string().min(1) }),
+      version_group: z.object({ name: z.string().min(1) }),
+    }),
+  ),
 });
 
 const PokemonLearnsetSourceSchema = z.object({
@@ -52,10 +54,17 @@ export function parseVersionedAcquisitionLearnset(
       versionPresent = true;
       const kind = record.move_learn_method.name;
       const method: VersionedAcquisitionMethod | null =
-        kind === "level-up" ? record.level_learned_at === 0 ? "EVOLUTION" : "LEVEL"
-        : kind === "machine" ? "MACHINE"
-        : kind === "tutor" ? "TUTOR"
-        : kind === "egg" ? "EGG" : null;
+        kind === "level-up"
+          ? record.level_learned_at === 0
+            ? "EVOLUTION"
+            : "LEVEL"
+          : kind === "machine"
+            ? "MACHINE"
+            : kind === "tutor"
+              ? "TUTOR"
+              : kind === "egg"
+                ? "EGG"
+                : null;
       if (method === null) continue;
       if (method === "LEVEL" && (record.level_learned_at < 1 || record.level_learned_at > 100)) {
         throw new RangeError("Learn level outside Pokémon level cap");
@@ -74,8 +83,12 @@ export function parseVersionedAcquisitionLearnset(
   return {
     pokemonSlug: source.name,
     versionGroup,
-    moves: [...moves.values()].sort((a, b) => a.method.localeCompare(b.method) ||
-      (a.learnLevel ?? 0) - (b.learnLevel ?? 0) || a.moveSlug.localeCompare(b.moveSlug)),
+    moves: [...moves.values()].sort(
+      (a, b) =>
+        a.method.localeCompare(b.method) ||
+        (a.learnLevel ?? 0) - (b.learnLevel ?? 0) ||
+        a.moveSlug.localeCompare(b.moveSlug),
+    ),
   };
 }
 
@@ -116,7 +129,8 @@ export function parseVersionedLevelLearnset(
         throw new RangeError("Level-up learnset entry outside levels 1–100");
       }
       byMoveAndLevel.set(`${entry.move.name}:${version.level_learned_at}`, {
-        moveSlug: entry.move.name, learnLevel: version.level_learned_at,
+        moveSlug: entry.move.name,
+        learnLevel: version.level_learned_at,
       });
     }
   }
@@ -126,8 +140,9 @@ export function parseVersionedLevelLearnset(
   return {
     pokemonSlug: parsed.name,
     versionGroup,
-    moves: [...byMoveAndLevel.values()]
-      .sort((a, b) => a.learnLevel - b.learnLevel || a.moveSlug.localeCompare(b.moveSlug)),
+    moves: [...byMoveAndLevel.values()].sort(
+      (a, b) => a.learnLevel - b.learnLevel || a.moveSlug.localeCompare(b.moveSlug),
+    ),
   };
 }
 
@@ -156,17 +171,24 @@ export function compareLevelLearnsets(
   }
   const allMoves = [...new Set([...expected.keys(), ...actual.keys()])].sort();
   return allMoves.flatMap((moveSlug) => {
-    const sourceLevels = [...(expected.get(moveSlug) ?? [])].sort((a,b)=>a-b);
-    const catalogLevels = [...(actual.get(moveSlug) ?? [])].sort((a,b)=>a-b);
-    if (sourceLevels.length === 1 && catalogLevels.length === 1 &&
-        sourceLevels[0] !== catalogLevels[0]) {
-      return [{ moveSlug, sourceLevel: sourceLevels[0] ?? null, catalogLevel: catalogLevels[0] ?? null }];
+    const sourceLevels = [...(expected.get(moveSlug) ?? [])].sort((a, b) => a - b);
+    const catalogLevels = [...(actual.get(moveSlug) ?? [])].sort((a, b) => a - b);
+    if (
+      sourceLevels.length === 1 &&
+      catalogLevels.length === 1 &&
+      sourceLevels[0] !== catalogLevels[0]
+    ) {
+      return [
+        { moveSlug, sourceLevel: sourceLevels[0] ?? null, catalogLevel: catalogLevels[0] ?? null },
+      ];
     }
     return [
-      ...sourceLevels.filter((level)=>!catalogLevels.includes(level))
-        .map((sourceLevel)=>({moveSlug,sourceLevel,catalogLevel:null})),
-      ...catalogLevels.filter((level)=>!sourceLevels.includes(level))
-        .map((catalogLevel)=>({moveSlug,sourceLevel:null,catalogLevel})),
+      ...sourceLevels
+        .filter((level) => !catalogLevels.includes(level))
+        .map((sourceLevel) => ({ moveSlug, sourceLevel, catalogLevel: null })),
+      ...catalogLevels
+        .filter((level) => !sourceLevels.includes(level))
+        .map((catalogLevel) => ({ moveSlug, sourceLevel: null, catalogLevel })),
     ];
   });
 }

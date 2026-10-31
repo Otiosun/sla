@@ -124,10 +124,12 @@ describe("PVE explicit battle-start WhatsApp route", () => {
     const playerId = "11111111-1111-4111-8111-111111111111";
     const encounterId = "22222222-2222-4222-8222-222222222222";
     const battleId = "33333333-3333-4333-8333-333333333333";
-    const startCanonical = vi.fn(async () => ok({
-      start: { battleId, replayed: false },
-      initialization: { state: { sides: [], combatants: [], contentReleaseId: "test" } },
-    }));
+    const startCanonical = vi.fn(async () =>
+      ok({
+        start: { battleId, replayed: false },
+        initialization: { state: { sides: [], combatants: [], contentReleaseId: "test" } },
+      }),
+    );
     const listByBattle = vi.fn(async () => {
       throw new Error("Transient PVE controller read failure after battle COMMIT");
     });
@@ -164,5 +166,4 @@ describe("PVE explicit battle-start WhatsApp route", () => {
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗕𝗔𝗧𝗔𝗟𝗛𝗔");
     expect(result.value.outgoing[0]?.payload.text).toContain("/moves");
   });
-
 });

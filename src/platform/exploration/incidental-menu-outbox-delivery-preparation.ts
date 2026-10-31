@@ -39,16 +39,23 @@ export class IncidentalMenuOutboxDeliveryPreparation implements OutboxDeliveryPr
     const menuId = "menuId" in anchor ? anchor.menuId : undefined;
     const rawPlayerId = "playerId" in anchor ? anchor.playerId : undefined;
     const playerId = typeof rawPlayerId === "string" ? parsePlayerId(rawPlayerId) : null;
-    if (message.messageType !== "TEXT" ||
-        typeof menuId !== "string" || !/^[a-f0-9-]{36}$/iu.test(menuId) ||
-        playerId === null || !playerId.ok ||
-        typeof message.payload.text !== "string" ||
-        message.idempotencyKey.trim().length === 0) {
+    if (
+      message.messageType !== "TEXT" ||
+      typeof menuId !== "string" ||
+      !/^[a-f0-9-]{36}$/iu.test(menuId) ||
+      playerId === null ||
+      !playerId.ok ||
+      typeof message.payload.text !== "string" ||
+      message.idempotencyKey.trim().length === 0
+    ) {
       throw new Error("Unsafe incidental menu outbox message");
     }
     const issued = await this.options.snapshots.findForPlayer(playerId.value, menuId);
-    if (!issued.ok || issued.value.menuId !== menuId ||
-        issued.value.menu.text !== message.payload.text) {
+    if (
+      !issued.ok ||
+      issued.value.menuId !== menuId ||
+      issued.value.menu.text !== message.payload.text
+    ) {
       throw new Error("Incidental menu text or owner diverges from stored receipt");
     }
     const providerMessageId = this.options.providerMessageIdFor(message);

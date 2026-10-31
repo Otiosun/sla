@@ -30,7 +30,6 @@ describe("V1.7 contextual Rotom interpreter (pure, no gameplay action)", () => {
     expect(search.value.requiresServerActionAuthorization).toBe(true);
   });
 
-
   it.each([
     { text: "1", optionNo: 1, intent: "STATUS", requiresServerActionAuthorization: false },
     { text: " 2 ", optionNo: 2, intent: "TEAM", requiresServerActionAuthorization: false },

@@ -59,10 +59,17 @@ describe("Fishing runtime composition", () => {
     const pool = {} as Pool;
     const encryptionKey = Buffer.alloc(32, 0xa5);
 
-    const composition = createOperationalMessagingComposition(pool, {
-      encryptionKey,
-      encryptionKeyVersion: 7,
-    }, null, null, null, "Etc/UTC");
+    const composition = createOperationalMessagingComposition(
+      pool,
+      {
+        encryptionKey,
+        encryptionKeyVersion: 7,
+      },
+      null,
+      null,
+      null,
+      "Etc/UTC",
+    );
 
     expect(
       composition.admitCommand({
@@ -104,7 +111,8 @@ describe("Fishing runtime composition", () => {
   it("does not compose an uncalibrated fishing service from PostgreSQL server-local time", () => {
     const pool = {} as Pool;
     createOperationalMessagingComposition(pool, {
-      encryptionKey: Buffer.alloc(32, 1), encryptionKeyVersion: 1,
+      encryptionKey: Buffer.alloc(32, 1),
+      encryptionKeyVersion: 1,
     });
     expect(fishingComposition.attemptRepositoryConstructor).not.toHaveBeenCalled();
     expect(fishingComposition.fishingServiceConstructor).not.toHaveBeenCalled();
@@ -116,5 +124,4 @@ describe("Fishing runtime composition", () => {
     const zone = "Mars/Zhoulia";
     expect(() => new Intl.DateTimeFormat("en-US", { timeZone: zone })).toThrow();
   });
-
 });

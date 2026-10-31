@@ -1,7 +1,5 @@
 import type { Pool } from "pg";
-import type {
-  IncidentalOutcomeAuthorization,
-} from "../../modules/exploration/expedition-incidental-capture-action.js";
+import type { IncidentalOutcomeAuthorization } from "../../modules/exploration/expedition-incidental-capture-action.js";
 
 /**
  * Cross-check the outcome the bot actually committed for this trainer.
@@ -11,9 +9,9 @@ import type {
 export class PostgresIncidentalOutcomeAuthorization implements IncidentalOutcomeAuthorization {
   public constructor(private readonly pool: Pool) {}
 
-  public async belongsToPlayer(input: Parameters<
-    IncidentalOutcomeAuthorization["belongsToPlayer"]
-  >[0]): Promise<boolean> {
+  public async belongsToPlayer(
+    input: Parameters<IncidentalOutcomeAuthorization["belongsToPlayer"]>[0],
+  ): Promise<boolean> {
     const response = await this.pool.query<{ authorized: boolean }>(
       `SELECT EXISTS (
         SELECT 1

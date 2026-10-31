@@ -71,12 +71,14 @@ function session(
 /** All products come from the published-offer port, never an implicit static catalog. */
 function publishedMartOffers() {
   return {
-    listPublishedOffers: vi.fn(async () => MART_CATALOG.map((item) => ({
-      offerKey: item.offerKey,
-      itemQuantity: 1n,
-      priceAmount: item.unitPrice,
-      displayName: item.displayName,
-    }))),
+    listPublishedOffers: vi.fn(async () =>
+      MART_CATALOG.map((item) => ({
+        offerKey: item.offerKey,
+        itemQuantity: 1n,
+        priceAmount: item.unitPrice,
+        displayName: item.displayName,
+      })),
+    ),
   };
 }
 

@@ -1,6 +1,9 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { parseCorrelationId, type PlayerId } from "../../shared-kernel/ids.js";
-import { incomingMessageIdempotencyKey, type MessageHandlerContext } from "../messaging/contracts.js";
+import {
+  incomingMessageIdempotencyKey,
+  type MessageHandlerContext,
+} from "../messaging/contracts.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { CaptureAttemptResult } from "../capture/contracts.js";
 import type { ExpeditionIncidentalTransportSeam } from "./expedition-incidental-transport-seam.js";
@@ -30,8 +33,7 @@ export class ExpeditionIncidentalIncomingAdmission {
   ): Promise<Result<CaptureAttemptResult | null>> {
     const message = context.message;
     // Non-numeric and unquoted text belongs to other existing session routes.
-    if (!/^[234]$/u.test(message.text ?? "") ||
-        message.replyToExternalMessageId === null) {
+    if (!/^[234]$/u.test(message.text ?? "") || message.replyToExternalMessageId === null) {
       return ok(null);
     }
     // Only the exact inbox-assigned idempotency key and correlation ID may
@@ -41,9 +43,12 @@ export class ExpeditionIncidentalIncomingAdmission {
     }
     const correlation = parseCorrelationId(context.correlationId);
     if (!correlation.ok) return correlation;
-    if (message.provider !== "baileys" ||
-        message.senderRef.length === 0 || message.chatRef.length === 0 ||
-        message.replyToExternalMessageId.length === 0) {
+    if (
+      message.provider !== "baileys" ||
+      message.senderRef.length === 0 ||
+      message.chatRef.length === 0 ||
+      message.replyToExternalMessageId.length === 0
+    ) {
       return err(appError("FLOW_BLOCKED", "Invalid trusted incidental message envelope"));
     }
     const identity = await this.registration.resolvePlayer({

@@ -48,10 +48,15 @@ export interface IncidentalEncounterPanel {
   readonly encounterId: string;
 }
 
-const BALL_OPTIONS: Readonly<Record<IncidentalBallKind, {
-  readonly optionNo: 2 | 3 | 4;
-  readonly text: string;
-}>> = {
+const BALL_OPTIONS: Readonly<
+  Record<
+    IncidentalBallKind,
+    {
+      readonly optionNo: 2 | 3 | 4;
+      readonly text: string;
+    }
+  >
+> = {
   POKE: { optionNo: 2, text: "◉ Poké Ball" },
   GREAT: { optionNo: 3, text: "◈ Great Ball" },
   ULTRA: { optionNo: 4, text: "✧ Ultra Ball" },
@@ -70,11 +75,14 @@ export function renderExpeditionV4IncidentalPanel(
     species.length > 70 ||
     !/^[\p{L}\p{N} .:'’!?♀♂-]+$/u.test(species) ||
     !Number.isSafeInteger(input.level) ||
-    input.level < 1 || input.level > 100 ||
+    input.level < 1 ||
+    input.level > 100 ||
     input.ignoreMinutes !== 10 ||
     input.balls.length > 3
   ) {
-    return err(appError("VALIDATION_FAILED", "Incidental encounter does not have a safe current view"));
+    return err(
+      appError("VALIDATION_FAILED", "Incidental encounter does not have a safe current view"),
+    );
   }
   const seenBalls = new Set<IncidentalBallKind>();
   const options: IncidentalAction[] = [];
@@ -89,16 +97,22 @@ export function renderExpeditionV4IncidentalPanel(
     (a, b) => (BALL_OPTIONS[a.kind]?.optionNo ?? 99) - (BALL_OPTIONS[b.kind]?.optionNo ?? 99),
   );
   for (const ball of sortedBalls) {
-    if (seenBalls.has(ball.kind) || !(ball.kind in BALL_OPTIONS) ||
-      !Number.isSafeInteger(ball.quantity) || ball.quantity < 0 || ball.quantity > 9999) {
+    if (
+      seenBalls.has(ball.kind) ||
+      !(ball.kind in BALL_OPTIONS) ||
+      !Number.isSafeInteger(ball.quantity) ||
+      ball.quantity < 0 ||
+      ball.quantity > 9999
+    ) {
       return err(appError("VALIDATION_FAILED", "Invalid current Ball availability"));
     }
     seenBalls.add(ball.kind);
     if (ball.quantity === 0 || !ball.captureAuthorized) continue;
     const option = BALL_OPTIONS[ball.kind];
     options.push({ optionNo: option.optionNo, kind: "CAPTURE", ball: ball.kind });
-    captureLines.push(String(option.optionNo) + ". " + option.text +
-      " ● `×" + String(ball.quantity) + "`");
+    captureLines.push(
+      String(option.optionNo) + ". " + option.text + " ● `×" + String(ball.quantity) + "`",
+    );
   }
   if (input.canIgnore) options.push({ optionNo: 0, kind: "IGNORE" });
   if (options.length === 0) {
@@ -117,12 +131,18 @@ export function renderExpeditionV4IncidentalPanel(
     ...(input.canIgnore ? ["", "0. ↩️ Ignorar ● `10 min`"] : []),
   ].join("\n");
   const rendered = renderWhatsAppNativeReadMore({
-    visible, expanded, combiningCount: input.combiningCount,
+    visible,
+    expanded,
+    combiningCount: input.combiningCount,
     ...(input.maxCodeUnits === undefined ? {} : { maxCodeUnits: input.maxCodeUnits }),
   });
   return ok({
-    visible, expanded, text: rendered.text, padded: rendered.padded,
-    choices: options, encounterRevision: input.encounterRevision,
+    visible,
+    expanded,
+    text: rendered.text,
+    padded: rendered.padded,
+    choices: options,
+    encounterRevision: input.encounterRevision,
     encounterId: input.encounterId,
   });
 }
@@ -138,15 +158,17 @@ export function selectCurrentIncidentalAction(input: {
   readonly expectedEncounterRevision: bigint;
   readonly expectedEncounterId: string;
 }): Result<IncidentalAction> {
-  if (input.expectedEncounterId !== input.menu.encounterId ||
-      input.expectedEncounterRevision !== input.menu.encounterRevision) {
+  if (
+    input.expectedEncounterId !== input.menu.encounterId ||
+    input.expectedEncounterRevision !== input.menu.encounterRevision
+  ) {
     return err(appError("REVISION_CONFLICT", "Incidental encounter menu became stale"));
   }
   const raw = input.raw ?? "";
   if (!/^(?:0|[1-4])$/u.test(raw)) {
     return err(appError("VALIDATION_FAILED", "Choose one current incidental menu number"));
   }
-  const choice = input.menu.choices.find(item => String(item.optionNo) === raw);
+  const choice = input.menu.choices.find((item) => String(item.optionNo) === raw);
   return choice === undefined
     ? err(appError("FLOW_BLOCKED", "That action is not in the current authorized menu"))
     : ok(choice);

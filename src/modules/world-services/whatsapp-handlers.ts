@@ -387,10 +387,12 @@ export function createWorldServiceWhatsAppRoutes(
       context,
       renderMartCatalog(offers),
       active.value.sessionId,
-      offers.length === 0 ? null : {
-        playerId: player.value,
-        expectedRevision: active.value.revision,
-      },
+      offers.length === 0
+        ? null
+        : {
+            playerId: player.value,
+            expectedRevision: active.value.revision,
+          },
       offers.length === 0 ? ":mart:empty" : ":mart:catalog",
     );
   };
@@ -413,7 +415,13 @@ export function createWorldServiceWhatsAppRoutes(
       return err(appError("FEATURE_UNAVAILABLE", "Published shop catalog reader is unavailable"));
     }
     const offers = purchasableMartItems(await dependencies.martAvailability.listPublishedOffers());
-    return textResult(context, renderMartCatalog(offers), active.value.sessionId, null, ":mart:items");
+    return textResult(
+      context,
+      renderMartCatalog(offers),
+      active.value.sessionId,
+      null,
+      ":mart:items",
+    );
   };
 
   const sell: Handler = async (context) => {
@@ -655,9 +663,12 @@ export function createWorldServiceWhatsAppRoutes(
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     if (dependencies.fishing === undefined) {
-      return err(appError("FEATURE_UNAVAILABLE", "Fishing calendar or service is not configured", {
-        userMessage: "A pesca ainda não foi habilitada para o calendário deste mundo. Avise a equipe do RPG.",
-      }));
+      return err(
+        appError("FEATURE_UNAVAILABLE", "Fishing calendar or service is not configured", {
+          userMessage:
+            "A pesca ainda não foi habilitada para o calendário deste mundo. Avise a equipe do RPG.",
+        }),
+      );
     }
 
     const attempted = await dependencies.fishing.attempt({

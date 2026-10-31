@@ -25,13 +25,14 @@ describe("UX V4 ACTIVE Rotom shadow renderer", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.padded).toBe(false);
-    expect(result.value.visible).toBe(
-      "◇ *𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*\n🌙 *20:15*\n⌛ Restam `9h45`",
-    );
+    expect(result.value.visible).toBe("◇ *𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*\n🌙 *20:15*\n⌛ Restam `9h45`");
     for (const text of [
-      "1. 🔎 Buscar Pokémon", "2. 🎒 Buscar recursos",
-      "3. 🗺️ Viajar", "4. 📋 Encerrar",
-    ]) expect(result.value.text).toContain(text);
+      "1. 🔎 Buscar Pokémon",
+      "2. 🎒 Buscar recursos",
+      "3. 🗺️ Viajar",
+      "4. 📋 Encerrar",
+    ])
+      expect(result.value.text).toContain(text);
     expect(result.value.text).not.toContain("[Ler mais]");
   });
 
@@ -47,7 +48,9 @@ describe("UX V4 ACTIVE Rotom shadow renderer", () => {
 
   it("retains full options if a caption limit cannot fit the spacer", () => {
     const result = renderExpeditionV4ActivePanel({
-      ...input, combiningCount: 450, maxCodeUnits: 100,
+      ...input,
+      combiningCount: 450,
+      maxCodeUnits: 100,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;

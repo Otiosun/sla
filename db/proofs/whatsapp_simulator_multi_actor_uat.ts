@@ -362,7 +362,14 @@ async function main(): Promise<void> {
       (entry) => typeof entry.message.payload.registrationReview === "object",
     );
     if (reviewA1 === null) {
-      add("BUG", "registration", "player-a", "submit", "no admin review notification; last reply: " + (submissionA1.outbound.map(textOf).join(" | ") || "(none)"));
+      add(
+        "BUG",
+        "registration",
+        "player-a",
+        "submit",
+        "no admin review notification; last reply: " +
+          (submissionA1.outbound.map(textOf).join(" | ") || "(none)"),
+      );
     } else {
       const rogue = await send({
         actor: ROGUE,
@@ -408,7 +415,14 @@ async function main(): Promise<void> {
       (entry) => typeof entry.message.payload.registrationReview === "object",
     );
     if (reviewA2 === null) {
-      add("BUG", "registration", "player-a", "resubmit", "second review notification missing; last reply: " + (submissionA2.outbound.map(textOf).join(" | ") || "(none)"));
+      add(
+        "BUG",
+        "registration",
+        "player-a",
+        "resubmit",
+        "second review notification missing; last reply: " +
+          (submissionA2.outbound.map(textOf).join(" | ") || "(none)"),
+      );
     } else {
       const approved = await send({
         actor: REVIEW_ADMIN,
@@ -451,7 +465,14 @@ async function main(): Promise<void> {
       return typeof review === "object" && entry !== reviewA2;
     });
     if (reviewB === null) {
-      add("BUG", "registration", "player-b", "guided submit", "review notification missing; last reply: " + (submissionB.outbound.map(textOf).join(" | ") || "(none)"));
+      add(
+        "BUG",
+        "registration",
+        "player-b",
+        "guided submit",
+        "review notification missing; last reply: " +
+          (submissionB.outbound.map(textOf).join(" | ") || "(none)"),
+      );
     } else {
       await send({
         actor: OWNER_ADMIN,

@@ -24,7 +24,11 @@ import type { PlayerId, PokemonInstanceId } from "../../src/shared-kernel/ids.js
 import { createOperationalSimulatedWhatsAppRuntime } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 
 const url = process.env.DATABASE_URL ?? "";
-if (process.env.APP_ENV !== "test" || !url.includes("localhost") || !url.includes("pokemon_rpg_test")) {
+if (
+  process.env.APP_ENV !== "test" ||
+  !url.includes("localhost") ||
+  !url.includes("pokemon_rpg_test")
+) {
   throw new Error("Player journey only runs against explicit disposable local test PostgreSQL");
 }
 const pool = new Pool({ connectionString: url, max: 8 });
@@ -52,21 +56,27 @@ async function insertSyntheticPublishedFixture(
     await client.query("BEGIN");
     // Real PostgreSQL trigger names are introspected for the new learnset path;
     // no assumptions about an absent trigger. All bypasses are confined to test.
-    const triggerNames = table === "move_learnset_entries"
-      ? (await client.query<{ tgname: string }>(
-          `SELECT t.tgname FROM pg_trigger t
+    const triggerNames =
+      table === "move_learnset_entries"
+        ? (
+            await client.query<{ tgname: string }>(
+              `SELECT t.tgname FROM pg_trigger t
            JOIN pg_class c ON c.oid = t.tgrelid
            WHERE c.relname = $1 AND NOT t.tgisinternal
-             AND t.tgname LIKE '%draft%'`, [table],
-        )).rows.map((row) => row.tgname)
-      : [trigger];
+             AND t.tgname LIKE '%draft%'`,
+              [table],
+            )
+          ).rows.map((row) => row.tgname)
+        : [trigger];
     for (const name of triggerNames) {
       if (!/^[a-zA-Z0-9_]+$/u.test(name)) throw Error("Unsafe fixture trigger name");
       await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${name}`);
     }
     const inserted = await client.query(query, [...values]);
-    if (inserted.rowCount !== 1) throw new Error(`Synthetic fixture ${table} did not insert exactly one row`);
-    for (const name of triggerNames) await client.query(`ALTER TABLE ${table} ENABLE TRIGGER ${name}`);
+    if (inserted.rowCount !== 1)
+      throw new Error(`Synthetic fixture ${table} did not insert exactly one row`);
+    for (const name of triggerNames)
+      await client.query(`ALTER TABLE ${table} ENABLE TRIGGER ${name}`);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -82,50 +92,95 @@ const key = Buffer.alloc(32, 7);
 const operational = createOperationalSimulatedWhatsAppRuntime({
   pool,
   encounterRngConfig: { encryptionKey: key, encryptionKeyVersion: 1 },
-  pveBattleConfig: { turnWindowTtlMs: 120_000, maintenanceBatchSize: 50, encryptionKeys: new Map([[1, key]]) },
+  pveBattleConfig: {
+    turnWindowTtlMs: 120_000,
+    maintenanceBatchSize: 50,
+    encryptionKeys: new Map([[1, key]]),
+  },
 });
 type Outbound = Extract<SimulatedWhatsAppTranscriptEntry, { direction: "OUTBOUND" }>;
-type Check = { area: string; actor: string; command: string; expected: string; actual: string; ok: boolean };
+type Check = {
+  area: string;
+  actor: string;
+  command: string;
+  expected: string;
+  actual: string;
+  ok: boolean;
+};
 const findings: Check[] = [];
 let serial = 900_000;
-function check(area: string, actor: string, command: string, expected: string, actual: unknown, ok: boolean) {
-  const entry = { area, actor, command, expected, actual: typeof actual === "string" ? actual
-    : JSON.stringify(actual, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value), ok };
+function check(
+  area: string,
+  actor: string,
+  command: string,
+  expected: string,
+  actual: unknown,
+  ok: boolean,
+) {
+  const entry = {
+    area,
+    actor,
+    command,
+    expected,
+    actual:
+      typeof actual === "string"
+        ? actual
+        : JSON.stringify(actual, (_key, value: unknown) =>
+            typeof value === "bigint" ? value.toString() : value,
+          ),
+    ok,
+  };
   findings.push(entry);
   console.log(JSON.stringify({ event: "stage2.player.step", ...entry }));
 }
 function textOf(entry: Outbound): string {
   const payload = entry.message.payload;
-  return entry.message.messageType === "TEXT" ? String(payload.text ?? "") :
-    entry.message.messageType === "IMAGE" ? String(payload.caption ?? "") : JSON.stringify(payload);
+  return entry.message.messageType === "TEXT"
+    ? String(payload.text ?? "")
+    : entry.message.messageType === "IMAGE"
+      ? String(payload.caption ?? "")
+      : JSON.stringify(payload);
 }
 async function send(actor: string, command: string, fixedId?: string, replyTo?: string) {
   const id = fixedId ?? `STAGE2-JOURNEY-${++serial}`;
   const from = operational.adapter.transcript.length;
   await operational.adapter.injectText({
-    externalMessageId: id, senderRef: actor, chatRef: WORLD, text: command,
+    externalMessageId: id,
+    senderRef: actor,
+    chatRef: WORLD,
+    text: command,
     replyToExternalMessageId: replyTo ?? null,
   });
   await operational.runtime.flushOutbox();
   await new Promise<void>((resolve) => setTimeout(resolve, 550));
-  const replies = operational.adapter.transcript.slice(from).filter((entry): entry is Outbound => entry.direction === "OUTBOUND");
+  const replies = operational.adapter.transcript
+    .slice(from)
+    .filter((entry): entry is Outbound => entry.direction === "OUTBOUND");
   const state = await pool.query<{ status: string; last_error_code: string | null }>(
     "SELECT status,last_error_code FROM inbox_messages WHERE provider='baileys' AND external_message_id=$1",
     [id],
   );
-  console.log(JSON.stringify({
-    event: "stage2.player.whatsapp", actor, command, messageId: id,
-    inbox: state.rows[0] ?? null,
-    replies: replies.map(textOf).map((text) => text.slice(0, 800)),
-  }));
+  console.log(
+    JSON.stringify({
+      event: "stage2.player.whatsapp",
+      actor,
+      command,
+      messageId: id,
+      inbox: state.rows[0] ?? null,
+      replies: replies.map(textOf).map((text) => text.slice(0, 800)),
+    }),
+  );
   return { id, replies: replies.map(textOf), inbox: state.rows[0]?.status ?? null };
 }
 async function replyLast(actor: string, text: string) {
-  const outbound = [...operational.adapter.transcript].reverse().find(
-    (item): item is Outbound => item.direction === "OUTBOUND" &&
-      item.message.destinationRef === WORLD &&
-      typeof item.message.payload.worldServicePrompt === "object",
-  );
+  const outbound = [...operational.adapter.transcript]
+    .reverse()
+    .find(
+      (item): item is Outbound =>
+        item.direction === "OUTBOUND" &&
+        item.message.destinationRef === WORLD &&
+        typeof item.message.payload.worldServicePrompt === "object",
+    );
   if (!outbound) throw new Error("No PC selection prompt available");
   return send(actor, text, undefined, outbound.providerExternalMessageId);
 }
@@ -143,19 +198,35 @@ async function main() {
     // This does not conceal the older multi-actor registration regression: that
     // proof runs independently and is tracked as a separate failure.
     const onboardingRepo = new PostgresPlayerOnboardingRepository(pool);
-    const starter = new PlayerStarterService(onboardingRepo, new SystemClock(), new CryptoRandomSource());
+    const starter = new PlayerStarterService(
+      onboardingRepo,
+      new SystemClock(),
+      new CryptoRandomSource(),
+    );
     const players = new PlayerRegistrationService(onboardingRepo);
-    const world = new WorldService(new PostgresWorldRepository(pool), { enabled: true, reason: null });
-    const principal = (await pool.query<{id:string}>(
-      "SELECT id::text FROM admin_principals WHERE identity_ref='whatsapp:5599999999000@s.whatsapp.net' LIMIT 1",
-    )).rows[0]?.id;
+    const world = new WorldService(new PostgresWorldRepository(pool), {
+      enabled: true,
+      reason: null,
+    });
+    const principal = (
+      await pool.query<{ id: string }>(
+        "SELECT id::text FROM admin_principals WHERE identity_ref='whatsapp:5599999999000@s.whatsapp.net' LIMIT 1",
+      )
+    ).rows[0]?.id;
     if (!principal) throw new Error("Synthetic admin fixture missing");
     const bootstrap = new UatBootstrapService(pool, players, starter, world);
     for (const ref of [PLAYER_A, PLAYER_B]) {
       const result = await bootstrap.bootstrap({ provider: "baileys", externalId: ref }, principal);
-      check("setup", ref, "test-only onboarding bootstrap",
-        "ACTIVE synthetic player with starter and location", result, result.ok);
-      if (!result.ok) throw new Error(`Cannot bootstrap synthetic actor: ${ref} ${result.error.code}`);
+      check(
+        "setup",
+        ref,
+        "test-only onboarding bootstrap",
+        "ACTIVE synthetic player with starter and location",
+        result,
+        result.ok,
+      );
+      if (!result.ok)
+        throw new Error(`Cannot bootstrap synthetic actor: ${ref} ${result.error.code}`);
     }
     const a = await player(PLAYER_A);
     const b = await player(PLAYER_B);
@@ -165,65 +236,135 @@ async function main() {
     const owner = actor === PLAYER_A ? a : b;
     const other = actor === PLAYER_A ? b : a;
     const roster = await pool.query<{
-      pokemon_instance_id: string; form_id: string; level: number; slot_no: number;
-    }>(`SELECT p.id::text AS pokemon_instance_id,p.form_id::text,p.level,r.slot_no
+      pokemon_instance_id: string;
+      form_id: string;
+      level: number;
+      slot_no: number;
+    }>(
+      `SELECT p.id::text AS pokemon_instance_id,p.form_id::text,p.level,r.slot_no
         FROM pokemon_instances p JOIN pokemon_roster_slots r ON r.pokemon_instance_id=p.id
         WHERE p.owner_player_id=$1 AND p.status='ACTIVE' AND r.placement_kind='TEAM'
-        ORDER BY r.slot_no LIMIT 1`,[owner]);
+        ORDER BY r.slot_no LIMIT 1`,
+      [owner],
+    );
     const first = roster.rows[0];
     if (!first) throw new Error("Synthetic trainer has no active Pokémon");
     const pokemonId = first.pokemon_instance_id as PokemonInstanceId;
-    const release = (await pool.query<{ id: string }>(
-      "SELECT content_release_id::text AS id FROM player_onboarding_context WHERE player_id=$1",
-      [owner],
-    )).rows[0]?.id;
+    const release = (
+      await pool.query<{ id: string }>(
+        "SELECT content_release_id::text AS id FROM player_onboarding_context WHERE player_id=$1",
+        [owner],
+      )
+    ).rows[0]?.id;
     if (!release) throw new Error("Trainer has no pinned content release");
 
     await operational.runtime.start();
-    check("journey", actor, "login", "synthetic approved trainer", { playerId: owner, pokemonId, release }, true);
+    check(
+      "journey",
+      actor,
+      "login",
+      "synthetic approved trainer",
+      { playerId: owner, pokemonId, release },
+      true,
+    );
     const profileView = await send(actor, "/perfil");
-    check("profile", actor, "/perfil", "trainer identity and ACTIVE status",
-      profileView.replies.join(" | "),profileView.replies.some(s=>s.includes("UAT Trainer") && s.includes("ACTIVE")));
+    check(
+      "profile",
+      actor,
+      "/perfil",
+      "trainer identity and ACTIVE status",
+      profileView.replies.join(" | "),
+      profileView.replies.some((s) => s.includes("UAT Trainer") && s.includes("ACTIVE")),
+    );
     const partyView = await send(actor, "/equipe");
-    check("team",actor,"/equipe","starter Pokémon visible",
-      partyView.replies.join(" | "),partyView.replies.some(s=>/Bulbasaur|Pokémon/iu.test(s)));
+    check(
+      "team",
+      actor,
+      "/equipe",
+      "starter Pokémon visible",
+      partyView.replies.join(" | "),
+      partyView.replies.some((s) => /Bulbasaur|Pokémon/iu.test(s)),
+    );
     const sheetView = await send(actor, "/pokemon #1");
-    check("pokemon",actor,"/pokemon #1","starter species and move details",
-      sheetView.replies.join(" | "),sheetView.replies.some(s=>/Bulbasaur/iu.test(s)));
+    check(
+      "pokemon",
+      actor,
+      "/pokemon #1",
+      "starter species and move details",
+      sheetView.replies.join(" | "),
+      sheetView.replies.some((s) => /Bulbasaur/iu.test(s)),
+    );
     const learnsetView = await send(actor, "/aprendizados #1");
-    check("moves", actor, "/aprendizados #1",
+    check(
+      "moves",
+      actor,
+      "/aprendizados #1",
       "trainer-pinned level learnset and next milestones, not generic TM rewards",
       learnsetView.replies.join(" | "),
-      learnsetView.inbox !== "FAILED" && learnsetView.replies.some(
-        (message) => message.includes("𝗔𝗣𝗥𝗘𝗡𝗗𝗜𝗭𝗔𝗗𝗢𝗦") && message.includes("Vine Whip"),
-      ));
+      learnsetView.inbox !== "FAILED" &&
+        learnsetView.replies.some(
+          (message) => message.includes("𝗔𝗣𝗥𝗘𝗡𝗗𝗜𝗭𝗔𝗗𝗢𝗦") && message.includes("Vine Whip"),
+        ),
+    );
     const before = await send(actor, "/golpes");
-    check("moves", actor, "/golpes", "pending choice list or empty state",
-      before.replies.join(" | "), before.inbox !== "FAILED" && before.replies.some(s => /MOVIMENTOS|PENDÊNCIAS/iu.test(s)));
+    check(
+      "moves",
+      actor,
+      "/golpes",
+      "pending choice list or empty state",
+      before.replies.join(" | "),
+      before.inbox !== "FAILED" && before.replies.some((s) => /MOVIMENTOS|PENDÊNCIAS/iu.test(s)),
+    );
 
     // Create an authentic pending move-learning record in disposable published content.
-    const typeId = (await pool.query<{ type_id: string }>(
-      "SELECT type1_id::text AS type_id FROM pokemon_form_revisions WHERE content_release_id=$1 AND form_id=$2 LIMIT 1",
-      [release, first.form_id],
-    )).rows[0]?.type_id;
+    const typeId = (
+      await pool.query<{ type_id: string }>(
+        "SELECT type1_id::text AS type_id FROM pokemon_form_revisions WHERE content_release_id=$1 AND form_id=$2 LIMIT 1",
+        [release, first.form_id],
+      )
+    ).rows[0]?.type_id;
     if (!typeId) throw new Error("Missing type in published release");
-    const moveId = randomUUID(), choiceId = randomUUID();
-    await pool.query("INSERT INTO moves(id,slug) VALUES($1,$2)", [moveId, `stage2-jornada-${moveId}`]);
-    await insertSyntheticPublishedFixture("move_revisions", `INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
-      VALUES($1,$2,$3,'Eco da Jornada',$4,'PHYSICAL',40,100,20,TRUE)`, [randomUUID(), release, moveId, typeId]);
-    await pool.query(`INSERT INTO pending_move_choices
+    const moveId = randomUUID(),
+      choiceId = randomUUID();
+    await pool.query("INSERT INTO moves(id,slug) VALUES($1,$2)", [
+      moveId,
+      `stage2-jornada-${moveId}`,
+    ]);
+    await insertSyntheticPublishedFixture(
+      "move_revisions",
+      `INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
+      VALUES($1,$2,$3,'Eco da Jornada',$4,'PHYSICAL',40,100,20,TRUE)`,
+      [randomUUID(), release, moveId, typeId],
+    );
+    await pool.query(
+      `INSERT INTO pending_move_choices
       (id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,source_id,correlation_id)
       VALUES($1,$2,$3,$4,$5,'BATTLE_REWARD',$6,$7)`,
-      [choiceId,pokemonId,release,moveId,first.level,randomUUID(),randomUUID()]);
+      [choiceId, pokemonId, release, moveId, first.level, randomUUID(), randomUUID()],
+    );
     const offer = await send(actor, "/golpes");
-    check("moves", actor, "/golpes", "Eco da Jornada offered and shown",
-      offer.replies.join(" | "), offer.replies.some(s => s.includes("Eco da Jornada")));
+    check(
+      "moves",
+      actor,
+      "/golpes",
+      "Eco da Jornada offered and shown",
+      offer.replies.join(" | "),
+      offer.replies.some((s) => s.includes("Eco da Jornada")),
+    );
     const invalid = await send(actor, "/aprender 1 9");
-    const pending = (await pool.query<{ status: string }>(
-      "SELECT status FROM pending_move_choices WHERE id=$1", [choiceId],
-    )).rows[0]?.status;
-    check("moves", actor, "/aprender 1 9", "invalid slot rejected; choice stays pending",
-      { status: pending, messages: invalid.replies }, pending === "PENDING");
+    const pending = (
+      await pool.query<{ status: string }>("SELECT status FROM pending_move_choices WHERE id=$1", [
+        choiceId,
+      ])
+    ).rows[0]?.status;
+    check(
+      "moves",
+      actor,
+      "/aprender 1 9",
+      "invalid slot rejected; choice stays pending",
+      { status: pending, messages: invalid.replies },
+      pending === "PENDING",
+    );
 
     const occupied = await pool.query<{ slot_no: number }>(
       "SELECT slot_no FROM pokemon_move_slots WHERE pokemon_instance_id=$1 ORDER BY slot_no LIMIT 1",
@@ -233,38 +374,79 @@ async function main() {
     if (!slot) throw new Error("Starter has no occupied move slot for replacement");
     const learned = await send(actor, `/aprender 1 ${slot}`);
     const afterChoice = await pool.query<{ status: string }>(
-      "SELECT status FROM pending_move_choices WHERE id=$1", [choiceId],
+      "SELECT status FROM pending_move_choices WHERE id=$1",
+      [choiceId],
     );
     const slotAfter = await pool.query<{ move_id: string }>(
       "SELECT move_id::text FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND slot_no=$2",
-      [pokemonId,slot],
+      [pokemonId, slot],
     );
-    check("moves", actor, `/aprender 1 ${slot}`, "choice RESOLVED and exact slot contains new move",
-      { status: afterChoice.rows[0]?.status, move: slotAfter.rows[0]?.move_id,
-        messages: learned.replies }, afterChoice.rows[0]?.status === "RESOLVED" && slotAfter.rows[0]?.move_id === moveId);
+    check(
+      "moves",
+      actor,
+      `/aprender 1 ${slot}`,
+      "choice RESOLVED and exact slot contains new move",
+      {
+        status: afterChoice.rows[0]?.status,
+        move: slotAfter.rows[0]?.move_id,
+        messages: learned.replies,
+      },
+      afterChoice.rows[0]?.status === "RESOLVED" && slotAfter.rows[0]?.move_id === moveId,
+    );
     const noPending = await send(actor, "/golpes");
-    check("moves", actor, "/golpes", "no remaining pending choice for trainer",
-      noPending.replies.join(" | "), noPending.replies.some(s=>/SEM PENDÊNCIAS/iu.test(s)));
+    check(
+      "moves",
+      actor,
+      "/golpes",
+      "no remaining pending choice for trainer",
+      noPending.replies.join(" | "),
+      noPending.replies.some((s) => /SEM PENDÊNCIAS/iu.test(s)),
+    );
     // Another reward offers the same learned move; the player must safely skip.
     const duplicateChoiceId = randomUUID();
-    await pool.query(`INSERT INTO pending_move_choices
+    await pool.query(
+      `INSERT INTO pending_move_choices
       (id,pokemon_instance_id,content_release_id,move_id,learn_level,source_type,source_id,correlation_id)
       VALUES($1,$2,$3,$4,$5,'BATTLE_REWARD',$6,$7)`,
-      [duplicateChoiceId,pokemonId,release,moveId,Math.max(1,first.level-1),randomUUID(),randomUUID()]);
-    const duplicateOffer=await send(actor,"/golpes");
-    check("moves",actor,"/golpes duplicate reward",
+      [
+        duplicateChoiceId,
+        pokemonId,
+        release,
+        moveId,
+        Math.max(1, first.level - 1),
+        randomUUID(),
+        randomUUID(),
+      ],
+    );
+    const duplicateOffer = await send(actor, "/golpes");
+    check(
+      "moves",
+      actor,
+      "/golpes duplicate reward",
       "warns the move is already learned instead of suggesting a damaging replacement",
-      duplicateOffer.replies.join(" | "),duplicateOffer.replies.some(s=>/já conhece|não substitua/iu.test(s)));
-    const skipped=await send(actor,"/aprender 1 pular");
-    const skippedRow=(await pool.query<{status:string}>("SELECT status FROM pending_move_choices WHERE id=$1",
-      [duplicateChoiceId])).rows[0]?.status;
-    const stillKnown=(await pool.query<{move_id:string}>(
-      "SELECT move_id::text FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND slot_no=$2",
-      [pokemonId,slot])).rows[0]?.move_id;
-    check("moves",actor,"/aprender 1 pular",
+      duplicateOffer.replies.join(" | "),
+      duplicateOffer.replies.some((s) => /já conhece|não substitua/iu.test(s)),
+    );
+    const skipped = await send(actor, "/aprender 1 pular");
+    const skippedRow = (
+      await pool.query<{ status: string }>("SELECT status FROM pending_move_choices WHERE id=$1", [
+        duplicateChoiceId,
+      ])
+    ).rows[0]?.status;
+    const stillKnown = (
+      await pool.query<{ move_id: string }>(
+        "SELECT move_id::text FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND slot_no=$2",
+        [pokemonId, slot],
+      )
+    ).rows[0]?.move_id;
+    check(
+      "moves",
+      actor,
+      "/aprender 1 pular",
       "duplicate choice SKIPPED; original learned move preserved",
-      {status:skippedRow,moveId:stillKnown,replies:skipped.replies},
-      skippedRow==="SKIPPED"&&stillKnown===moveId);
+      { status: skippedRow, moveId: stillKnown, replies: skipped.replies },
+      skippedRow === "SKIPPED" && stillKnown === moveId,
+    );
 
     // Seed synthetic evolutionary stone and rule (never in real published content).
     const stoneId = randomUUID();
@@ -280,27 +462,53 @@ async function main() {
        WHERE rule.content_release_id=$1 AND rule.from_form_id=$2
          AND rule.trigger_kind='LEVEL' AND rule.active=TRUE
        ORDER BY rule.id LIMIT 1`,
-      [release,first.form_id],
+      [release, first.form_id],
     );
     const targetForm = target.rows[0]?.form_id;
     if (!targetForm) throw new Error("No second evolution target in synthetic catalog");
-    await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [stoneId,`pedra-jornada-${stoneId}`]);
-    await insertSyntheticPublishedFixture("item_revisions", `INSERT INTO item_revisions
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [
+      stoneId,
+      `pedra-jornada-${stoneId}`,
+    ]);
+    await insertSyntheticPublishedFixture(
+      "item_revisions",
+      `INSERT INTO item_revisions
       (id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active)
       SELECT $1,$2,$3,'Pedra da Jornada',item_kind,effect_key,effect_config,TRUE
       FROM item_revisions WHERE content_release_id=$2 LIMIT 1`,
-      [randomUUID(),release,stoneId]);
-    await pool.query(`INSERT INTO inventory_balances(player_id,item_id,quantity)
-       VALUES($1,$2,2)`, [owner,stoneId]);
-    await insertSyntheticPublishedFixture("evolution_rules", `INSERT INTO evolution_rules(id,content_release_id,from_form_id,to_form_id,trigger_kind,trigger_config,active)
+      [randomUUID(), release, stoneId],
+    );
+    await pool.query(
+      `INSERT INTO inventory_balances(player_id,item_id,quantity)
+       VALUES($1,$2,2)`,
+      [owner, stoneId],
+    );
+    await insertSyntheticPublishedFixture(
+      "evolution_rules",
+      `INSERT INTO evolution_rules(id,content_release_id,from_form_id,to_form_id,trigger_kind,trigger_config,active)
       VALUES($1,$2,$3,$4,'ITEM',$5::jsonb,TRUE)`,
-      [randomUUID(),release,first.form_id,targetForm,JSON.stringify({itemId:stoneId})]);
+      [randomUUID(), release, first.form_id, targetForm, JSON.stringify({ itemId: stoneId })],
+    );
     const options = await send(actor, "/evolucao #1");
-    check("evolution", actor, "/evolucao #1", "target and owned evolution stone listed",
-      options.replies.join(" | "), options.replies.some(s => s.includes("Pedra da Jornada") && s.includes(target.rows[0]?.display_name ?? "")));
+    check(
+      "evolution",
+      actor,
+      "/evolucao #1",
+      "target and owned evolution stone listed",
+      options.replies.join(" | "),
+      options.replies.some(
+        (s) => s.includes("Pedra da Jornada") && s.includes(target.rows[0]?.display_name ?? ""),
+      ),
+    );
     const wrongOwnerOptions = await reads.listEvolutionOptions(other, pokemonId);
-    check("ownership", actor === PLAYER_A ? PLAYER_B : PLAYER_A, "inspect other's Pokémon",
-      "no unauthorized evolution options", wrongOwnerOptions, wrongOwnerOptions.length === 0);
+    check(
+      "ownership",
+      actor === PLAYER_A ? PLAYER_B : PLAYER_A,
+      "inspect other's Pokémon",
+      "no unauthorized evolution options",
+      wrongOwnerOptions,
+      wrongOwnerOptions.length === 0,
+    );
     const canonicalOptions = await reads.listEvolutionOptions(owner, pokemonId);
     const itemIndex = canonicalOptions.findIndex(
       (option) => option.triggerKind === "ITEM" && option.itemId === stoneId,
@@ -308,123 +516,258 @@ async function main() {
     if (itemIndex < 0) throw new Error("The synthetic evolution stone was not projected");
     const evolveCommand = `/evoluir #1 ${itemIndex + 1}`;
     const autoOption = await send(actor, "/evoluir #1 1");
-    const priorForm = (await pool.query<{form_id:string}>(
-      "SELECT form_id::text FROM pokemon_instances WHERE id=$1",[pokemonId])).rows[0]?.form_id;
-    check("evolution",actor,"/evoluir #1 1 (level rule)",
+    const priorForm = (
+      await pool.query<{ form_id: string }>(
+        "SELECT form_id::text FROM pokemon_instances WHERE id=$1",
+        [pokemonId],
+      )
+    ).rows[0]?.form_id;
+    check(
+      "evolution",
+      actor,
+      "/evoluir #1 1 (level rule)",
       "automatically leveled evolutions refuse manual triggering",
-      {formId:priorForm,replies:autoOption.replies},
-      priorForm===first.form_id && autoOption.replies.some(s=>/automátic/iu.test(s)));
-    const otherActor = actor===PLAYER_A ? PLAYER_B : PLAYER_A;
-    const rivalOptions = await send(otherActor,"/evolucao #1");
-    check("evolution",otherActor,"/evolucao #1 without stone",
+      { formId: priorForm, replies: autoOption.replies },
+      priorForm === first.form_id && autoOption.replies.some((s) => /automátic/iu.test(s)),
+    );
+    const otherActor = actor === PLAYER_A ? PLAYER_B : PLAYER_A;
+    const rivalOptions = await send(otherActor, "/evolucao #1");
+    check(
+      "evolution",
+      otherActor,
+      "/evolucao #1 without stone",
       "the other trainer sees the same rule but inventory ×0",
       rivalOptions.replies.join(" | "),
-      rivalOptions.replies.some(s=>s.includes("Pedra da Jornada") && s.includes("×0")));
-    const denied = await send(otherActor,`/evoluir #1 ${itemIndex+1}`);
-    check("evolution",otherActor,"try item evolution without item",
+      rivalOptions.replies.some((s) => s.includes("Pedra da Jornada") && s.includes("×0")),
+    );
+    const denied = await send(otherActor, `/evoluir #1 ${itemIndex + 1}`);
+    check(
+      "evolution",
+      otherActor,
+      "try item evolution without item",
       "server denies with human-readable missing item notice",
-      denied.replies.join(" | "),denied.replies.some(s=>/não possui|necessár/iu.test(s)));
+      denied.replies.join(" | "),
+      denied.replies.some((s) => /não possui|necessár/iu.test(s)),
+    );
     const itemBefore = await pool.query<{ quantity: string }>(
-      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [owner, stoneId],
+    );
     const evo = await send(actor, evolveCommand, "STAGE2-EVOLVE-EXACT-ONCE");
     const state = await pool.query<{ form_id: string }>(
-      "SELECT form_id::text FROM pokemon_instances WHERE id=$1",[pokemonId]);
+      "SELECT form_id::text FROM pokemon_instances WHERE id=$1",
+      [pokemonId],
+    );
     const itemAfter = await pool.query<{ quantity: string }>(
-      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId]);
-    check("evolution", actor, evolveCommand, "form changed and precisely one stone consumed",
-      { forms: state.rows, balanceBefore: itemBefore.rows, balanceAfter:itemAfter.rows,
-        replies:evo.replies }, state.rows[0]?.form_id === targetForm &&
-        itemBefore.rows[0]?.quantity === "2" && itemAfter.rows[0]?.quantity === "1");
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [owner, stoneId],
+    );
+    check(
+      "evolution",
+      actor,
+      evolveCommand,
+      "form changed and precisely one stone consumed",
+      {
+        forms: state.rows,
+        balanceBefore: itemBefore.rows,
+        balanceAfter: itemAfter.rows,
+        replies: evo.replies,
+      },
+      state.rows[0]?.form_id === targetForm &&
+        itemBefore.rows[0]?.quantity === "2" &&
+        itemAfter.rows[0]?.quantity === "1",
+    );
     await send(actor, evolveCommand, "STAGE2-EVOLVE-EXACT-ONCE");
-    const replayBalance = (await pool.query<{ quantity: string }>(
-      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",[owner,stoneId])).rows[0]?.quantity;
-    check("evolution", actor, "replay same WhatsApp message id", "no second item charged",
-      { replayBalance }, replayBalance === "1");
-    const newSheet=await send(actor,"/pokemon #1");
-    check("pokemon",actor,"/pokemon #1 after evolution",
+    const replayBalance = (
+      await pool.query<{ quantity: string }>(
+        "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+        [owner, stoneId],
+      )
+    ).rows[0]?.quantity;
+    check(
+      "evolution",
+      actor,
+      "replay same WhatsApp message id",
+      "no second item charged",
+      { replayBalance },
+      replayBalance === "1",
+    );
+    const newSheet = await send(actor, "/pokemon #1");
+    check(
+      "pokemon",
+      actor,
+      "/pokemon #1 after evolution",
       "new evolved species shown on the actual bot ficha",
       newSheet.replies.join(" | "),
-      newSheet.replies.some(s=>s.includes(target.rows[0]?.display_name ?? "")));
-    const inventory=await send(actor,"/inventario");
-    check("inventory",actor,"/inventario after stone consumption",
+      newSheet.replies.some((s) => s.includes(target.rows[0]?.display_name ?? "")),
+    );
+    const inventory = await send(actor, "/inventario");
+    check(
+      "inventory",
+      actor,
+      "/inventario after stone consumption",
       "stone is visible with quantity 1",
       inventory.replies.join(" | "),
-      inventory.replies.some(s=>s.includes("Pedra da Jornada")&&/×1|x1|: 1|1 unid/iu.test(s)));
+      inventory.replies.some((s) => s.includes("Pedra da Jornada") && /×1|x1|: 1|1 unid/iu.test(s)),
+    );
 
     // The PC/Hub use the same transactional storage owner.
     const boxId = randomUUID();
-    await pool.query(`INSERT INTO pokemon_instances
+    await pool.query(
+      `INSERT INTO pokemon_instances
       (id,owner_player_id,form_id,level,current_hp,origin_type)
-      VALUES($1,$2,$3,8,24,'TEST')`,[boxId,owner,first.form_id]);
-    await pool.query(`INSERT INTO pokemon_roster_slots
+      VALUES($1,$2,$3,8,24,'TEST')`,
+      [boxId, owner, first.form_id],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_roster_slots
       (pokemon_instance_id,player_id,placement_kind,box_no,slot_no)
-      VALUES($1,$2,'BOX',1,1)`,[boxId,owner]);
+      VALUES($1,$2,'BOX',1,1)`,
+      [boxId, owner],
+    );
     const storage = new PokemonPcStorageService(new PostgresPokemonPcStorageRepository(pool));
-    const lastMember = await storage.move({playerId:owner,pokemonInstanceId:pokemonId,
-      target:{placementKind:"BOX",boxNo:1,slotNo:2}});
-    check("team-box",actor,"send last team Pokémon to empty slot", "must reject LAST_TEAM_MEMBER",
-      lastMember, !lastMember.ok && lastMember.error.code==="ACTION_INVALID");
-    const cross = await storage.move({playerId:other,pokemonInstanceId:pokemonId,
-      target:{placementKind:"BOX",boxNo:1,slotNo:2}});
-    check("ownership","other trainer","move foreign Pokémon", "must reject NOT_FOUND",
-      cross,!cross.ok && cross.error.code==="NOT_FOUND");
-    const swap = await storage.move({playerId:owner,pokemonInstanceId:boxId as PokemonInstanceId,
-      target:{placementKind:"TEAM",boxNo:null,slotNo:first.slot_no}});
-    const slots=await pool.query<{pokemon_instance_id:string; placement_kind:string; box_no:number|null; slot_no:number}>(
+    const lastMember = await storage.move({
+      playerId: owner,
+      pokemonInstanceId: pokemonId,
+      target: { placementKind: "BOX", boxNo: 1, slotNo: 2 },
+    });
+    check(
+      "team-box",
+      actor,
+      "send last team Pokémon to empty slot",
+      "must reject LAST_TEAM_MEMBER",
+      lastMember,
+      !lastMember.ok && lastMember.error.code === "ACTION_INVALID",
+    );
+    const cross = await storage.move({
+      playerId: other,
+      pokemonInstanceId: pokemonId,
+      target: { placementKind: "BOX", boxNo: 1, slotNo: 2 },
+    });
+    check(
+      "ownership",
+      "other trainer",
+      "move foreign Pokémon",
+      "must reject NOT_FOUND",
+      cross,
+      !cross.ok && cross.error.code === "NOT_FOUND",
+    );
+    const swap = await storage.move({
+      playerId: owner,
+      pokemonInstanceId: boxId as PokemonInstanceId,
+      target: { placementKind: "TEAM", boxNo: null, slotNo: first.slot_no },
+    });
+    const slots = await pool.query<{
+      pokemon_instance_id: string;
+      placement_kind: string;
+      box_no: number | null;
+      slot_no: number;
+    }>(
       "SELECT pokemon_instance_id::text,placement_kind,box_no,slot_no FROM pokemon_roster_slots WHERE player_id=$1 ORDER BY placement_kind,slot_no",
-      [owner]);
-    check("team-box",actor,"move Box Pokémon into occupied team slot",
-      "atomic exchange, still 1 team member", {swap,roster:slots.rows},
-      swap.ok && slots.rows.filter(s=>s.placement_kind==="TEAM").length===1 &&
-        slots.rows.some(s=>s.pokemon_instance_id===boxId&&s.placement_kind==="TEAM") &&
-        slots.rows.some(s=>s.pokemon_instance_id===pokemonId&&s.placement_kind==="BOX"));
-    const pc=await send(actor,"/pc");
-    check("pc narrative",actor,"/pc without entering center","guided gate to enter Pokémon Center",
+      [owner],
+    );
+    check(
+      "team-box",
+      actor,
+      "move Box Pokémon into occupied team slot",
+      "atomic exchange, still 1 team member",
+      { swap, roster: slots.rows },
+      swap.ok &&
+        slots.rows.filter((s) => s.placement_kind === "TEAM").length === 1 &&
+        slots.rows.some((s) => s.pokemon_instance_id === boxId && s.placement_kind === "TEAM") &&
+        slots.rows.some((s) => s.pokemon_instance_id === pokemonId && s.placement_kind === "BOX"),
+    );
+    const pc = await send(actor, "/pc");
+    check(
+      "pc narrative",
+      actor,
+      "/pc without entering center",
+      "guided gate to enter Pokémon Center",
       pc.replies.join(" | "),
-      pc.inbox!=="FAILED" && pc.replies.some(s=>/centro pokémon|centropokemon/iu.test(s)));
+      pc.inbox !== "FAILED" && pc.replies.some((s) => /centro pokémon|centropokemon/iu.test(s)),
+    );
     const arrival = [
       "O treinador para diante do Centro Pokémon e contempla a fachada iluminada.",
       "Ele ajusta a mochila, confere a Poké Ball no cinto e caminha até a porta.",
       "Depois de entrar, cumprimenta a atendente e procura o terminal de armazenamento.",
       "A intenção é guardar seus Pokémon com calma, respeitando o ambiente e o atendimento.",
     ].join("\n");
-    const roleplay = await send(actor,arrival);
-    check("narrative",actor,"narrar chegada ao Centro Pokémon",
-      "scene proof processed",roleplay.replies.join(" | "), roleplay.inbox==="PROCESSED");
-    const center = await send(actor,"/centropokemon");
-    check("pc narrative",actor,"/centropokemon",
+    const roleplay = await send(actor, arrival);
+    check(
+      "narrative",
+      actor,
+      "narrar chegada ao Centro Pokémon",
+      "scene proof processed",
+      roleplay.replies.join(" | "),
+      roleplay.inbox === "PROCESSED",
+    );
+    const center = await send(actor, "/centropokemon");
+    check(
+      "pc narrative",
+      actor,
+      "/centropokemon",
       "center presents recovery, PC and move-reminding directions in one visit",
-      center.replies.join(" | "),center.inbox==="PROCESSED" && center.replies.some((line) =>
-        line.includes("/curar") && line.includes("/pc") && line.includes("/reaprender #1"))); 
+      center.replies.join(" | "),
+      center.inbox === "PROCESSED" &&
+        center.replies.some(
+          (line) =>
+            line.includes("/curar") && line.includes("/pc") && line.includes("/reaprender #1"),
+        ),
+    );
     const centerMenu = await send(actor, "/menu");
-    check("pc narrative",actor,"/menu inside Center",
+    check(
+      "pc narrative",
+      actor,
+      "/menu inside Center",
       "Rotom teaches service-specific recovery and relearning commands",
       centerMenu.replies.join(" | "),
-      centerMenu.inbox === "PROCESSED" && centerMenu.replies.some((line) =>
-        line.includes("/curar") && line.includes("/pc") && line.includes("/reaprender #1")));
+      centerMenu.inbox === "PROCESSED" &&
+        centerMenu.replies.some(
+          (line) =>
+            line.includes("/curar") && line.includes("/pc") && line.includes("/reaprender #1"),
+        ),
+    );
     const reminder = await send(actor, "/reaprender #1");
-    check("moves", actor, "/reaprender #1 at Center",
+    check(
+      "moves",
+      actor,
+      "/reaprender #1 at Center",
       "eligible list or explicit no-moves result from pinned release",
       reminder.replies.join(" | "),
-      reminder.inbox === "PROCESSED" && reminder.replies.some((m) =>
-        m.includes("REAPRENDIZADO") || m.includes("Nenhum movimento elegível")));
+      reminder.inbox === "PROCESSED" &&
+        reminder.replies.some(
+          (m) => m.includes("REAPRENDIZADO") || m.includes("Nenhum movimento elegível"),
+        ),
+    );
     const machineList = await send(actor, "/tms #1");
-    check("moves", actor, "/tms #1",
+    check(
+      "moves",
+      actor,
+      "/tms #1",
       "only compatible, owned TMs are offered; missing TM is explicit",
       machineList.replies.join(" | "),
-      machineList.inbox === "PROCESSED" && machineList.replies.some((m) =>
-        m.includes("MÁQUINAS") || m.includes("Nenhuma TM compatível")));
+      machineList.inbox === "PROCESSED" &&
+        machineList.replies.some(
+          (m) => m.includes("MÁQUINAS") || m.includes("Nenhuma TM compatível"),
+        ),
+    );
     // Real reminder transaction after an earlier move replacement and evolution:
     // prove legacy form history stays relearnable without XP or item creation.
     const training = new MoveTrainingService(pool);
     const availableReminder = await training.options({
-      playerId: owner, pokemonInstanceId: pokemonId, method: "REMINDER",
+      playerId: owner,
+      pokemonInstanceId: pokemonId,
+      method: "REMINDER",
     });
     const option = availableReminder.ok ? availableReminder.value[0] : undefined;
-    check("moves", actor, "relearner verifies previous form's moves",
+    check(
+      "moves",
+      actor,
+      "relearner verifies previous form's moves",
       "at least one previously accessible move eligible in pinned release",
       availableReminder,
-      availableReminder.ok && option !== undefined);
+      availableReminder.ok && option !== undefined,
+    );
     if (option !== undefined) {
       const input = {
         playerId: owner,
@@ -442,261 +785,445 @@ async function main() {
         "SELECT slot_no FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND move_id=$2",
         [pokemonId, option.moveId],
       );
-      check("moves", actor, "relearn formerly known move + idempotent replay",
+      check(
+        "moves",
+        actor,
+        "relearn formerly known move + idempotent replay",
         "correct slot, no consumed item and exact replay",
         { learned, replayed, equipped: found.rows },
-        learned.ok && replayed.ok && replayed.value.replayed === true &&
-          learned.value.itemId === null && found.rows.length === 1);
+        learned.ok &&
+          replayed.ok &&
+          replayed.value.replayed === true &&
+          learned.value.itemId === null &&
+          found.rows.length === 1,
+      );
     }
     // TM end-to-end proof: synthetic move + a single published-compatible machine
     // and two inventory units are created only in disposable test PostgreSQL.
-    const tmMoveId = randomUUID(), tmItemId = randomUUID();
-    const newForm = (await pool.query<{ form_id: string }>(
-      "SELECT form_id::text FROM pokemon_instances WHERE id=$1", [pokemonId],
-    )).rows[0]?.form_id;
+    const tmMoveId = randomUUID(),
+      tmItemId = randomUUID();
+    const newForm = (
+      await pool.query<{ form_id: string }>(
+        "SELECT form_id::text FROM pokemon_instances WHERE id=$1",
+        [pokemonId],
+      )
+    ).rows[0]?.form_id;
     if (!newForm) throw Error("Missing evolved form for TM test");
-    const tmType = (await pool.query<{ type_id: string }>(
-      "SELECT type1_id::text AS type_id FROM pokemon_form_revisions WHERE content_release_id=$1 AND form_id=$2",
-      [release, newForm],
-    )).rows[0]?.type_id;
+    const tmType = (
+      await pool.query<{ type_id: string }>(
+        "SELECT type1_id::text AS type_id FROM pokemon_form_revisions WHERE content_release_id=$1 AND form_id=$2",
+        [release, newForm],
+      )
+    ).rows[0]?.type_id;
     if (!tmType) throw Error("Missing type for TM move fixture");
-    await pool.query("INSERT INTO moves(id,slug) VALUES ($1,$2)",
-      [tmMoveId, `stage2-tm-${tmMoveId}`]);
-    await insertSyntheticPublishedFixture("move_revisions",
+    await pool.query("INSERT INTO moves(id,slug) VALUES ($1,$2)", [
+      tmMoveId,
+      `stage2-tm-${tmMoveId}`,
+    ]);
+    await insertSyntheticPublishedFixture(
+      "move_revisions",
       `INSERT INTO move_revisions(id,content_release_id,move_id,display_name,type_id,category,power,accuracy,max_pp,active)
        VALUES ($1,$2,$3,'Raio da Jornada',$4,'SPECIAL',40,100,15,TRUE)`,
-      [randomUUID(), release, tmMoveId, tmType]);
-    await insertSyntheticPublishedFixture("move_learnset_entries",
+      [randomUUID(), release, tmMoveId, tmType],
+    );
+    await insertSyntheticPublishedFixture(
+      "move_learnset_entries",
       `INSERT INTO move_learnset_entries
        (id,content_release_id,form_id,move_id,learn_method,learn_level,source_key,active)
        VALUES ($1,$2,$3,$4,'MACHINE',NULL,'stage2-test-tm-only',TRUE)`,
-      [randomUUID(), release, newForm, tmMoveId]);
-    await pool.query("INSERT INTO items(id,slug) VALUES ($1,$2)",
-      [tmItemId, `stage2-tm-${tmItemId}`]);
-    await insertSyntheticPublishedFixture("item_revisions",
+      [randomUUID(), release, newForm, tmMoveId],
+    );
+    await pool.query("INSERT INTO items(id,slug) VALUES ($1,$2)", [
+      tmItemId,
+      `stage2-tm-${tmItemId}`,
+    ]);
+    await insertSyntheticPublishedFixture(
+      "item_revisions",
       `INSERT INTO item_revisions
        (id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active)
        VALUES($1,$2,$3,'TM da Jornada','TM','teach-move',$4::jsonb,TRUE)`,
-      [randomUUID(),release,tmItemId,JSON.stringify({moveId:tmMoveId})]);
+      [randomUUID(), release, tmItemId, JSON.stringify({ moveId: tmMoveId })],
+    );
     const economy = new EconomyService(new PostgresEconomyRepository(pool));
     const awarded = await economy.addItem({
-      playerId: owner, itemId: tmItemId, quantity: 2n,
+      playerId: owner,
+      itemId: tmItemId,
+      quantity: 2n,
       idempotencyKey: `stage2:synthetic:tm:${tmItemId}`,
       metadata: {
-        sourceType: "STAGE2_UAT_FIXTURE", sourceId: randomUUID(),
+        sourceType: "STAGE2_UAT_FIXTURE",
+        sourceId: randomUUID(),
         reason: "Synthetic machine for isolated move acquisition",
-        actorType: "SYSTEM", actorId: null, correlationId: randomUUID(),
+        actorType: "SYSTEM",
+        actorId: null,
+        correlationId: randomUUID(),
       },
     });
     if (!awarded.ok) throw Error(`Synthetic TM grant rejected: ${awarded.error.message}`);
     const tmAvailable = await training.options({
-      playerId: owner, pokemonInstanceId: pokemonId, method: "TM",
+      playerId: owner,
+      pokemonInstanceId: pokemonId,
+      method: "TM",
     });
-    check("moves", actor, "TM compatibility and inventory",
+    check(
+      "moves",
+      actor,
+      "TM compatibility and inventory",
       "only the owned item bound to the active-form machine move is listed",
       tmAvailable,
-      tmAvailable.ok && tmAvailable.value.some((m) =>
-        m.moveId === tmMoveId && m.itemId === tmItemId && m.itemQuantity === 2n));
+      tmAvailable.ok &&
+        tmAvailable.value.some(
+          (m) => m.moveId === tmMoveId && m.itemId === tmItemId && m.itemQuantity === 2n,
+        ),
+    );
     const botMachines = await send(actor, "/tms #1");
-    check("moves", actor, "/tms #1 after synthetic TM grant",
+    check(
+      "moves",
+      actor,
+      "/tms #1 after synthetic TM grant",
       "TM from published-compatible source appears in the real WhatsApp menu",
       botMachines.replies.join(" | "),
-      botMachines.replies.some((m) => m.includes("Raio da Jornada") && m.includes("TM da Jornada")));
+      botMachines.replies.some((m) => m.includes("Raio da Jornada") && m.includes("TM da Jornada")),
+    );
     const taughtViaBot = await send(actor, "/ensinar #1 1", "STAGE2-UAT-TM-ONCE");
-    const afterTm = await pool.query<{quantity: string}>(
+    const afterTm = await pool.query<{ quantity: string }>(
       "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
-      [owner,tmItemId],
+      [owner, tmItemId],
     );
-    const slotTm = await pool.query<{slot_no:number}>(
+    const slotTm = await pool.query<{ slot_no: number }>(
       "SELECT slot_no FROM pokemon_move_slots WHERE pokemon_instance_id=$1 AND move_id=$2",
-      [pokemonId,tmMoveId],
+      [pokemonId, tmMoveId],
     );
-    check("moves", actor, "/ensinar #1 1",
+    check(
+      "moves",
+      actor,
+      "/ensinar #1 1",
       "TM consumed exactly once and compatible move equipped",
-      { messages:taughtViaBot.replies,remaining:afterTm.rows,slot:slotTm.rows },
-      taughtViaBot.inbox === "PROCESSED" && afterTm.rows[0]?.quantity === "1" &&
-        slotTm.rows.length === 1);
-    await send(actor, "/ensinar #1 1", "STAGE2-UAT-TM-ONCE");
-    const afterReplay = await pool.query<{quantity: string}>(
-      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
-      [owner,tmItemId],
+      { messages: taughtViaBot.replies, remaining: afterTm.rows, slot: slotTm.rows },
+      taughtViaBot.inbox === "PROCESSED" &&
+        afterTm.rows[0]?.quantity === "1" &&
+        slotTm.rows.length === 1,
     );
-    check("moves", actor, "replayed same TM message ID",
+    await send(actor, "/ensinar #1 1", "STAGE2-UAT-TM-ONCE");
+    const afterReplay = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [owner, tmItemId],
+    );
+    check(
+      "moves",
+      actor,
+      "replayed same TM message ID",
       "idempotent inbox does not deduct a second machine",
       afterReplay.rows,
-      afterReplay.rows[0]?.quantity === "1");
+      afterReplay.rows[0]?.quantity === "1",
+    );
 
-    const pcEntered = await send(actor,"/pc");
-    check("pc narrative",actor,"/pc after scene and entry",
+    const pcEntered = await send(actor, "/pc");
+    check(
+      "pc narrative",
+      actor,
+      "/pc after scene and entry",
       "PC storage menu, or explicit actionable availability response",
-      pcEntered.replies.join(" | "),pcEntered.inbox==="PROCESSED" && pcEntered.replies.length>0);
-    const boxes = await send(actor,"/caixas");
-    check("pc narrative",actor,"/caixas",
+      pcEntered.replies.join(" | "),
+      pcEntered.inbox === "PROCESSED" && pcEntered.replies.length > 0,
+    );
+    const boxes = await send(actor, "/caixas");
+    check(
+      "pc narrative",
+      actor,
+      "/caixas",
       "Box roster or explicit entry guidance",
-      boxes.replies.join(" | "),boxes.inbox==="PROCESSED" && boxes.replies.length>0);
-    const deposit=await send(actor,"/depositar");
-    check("pc narrative",actor,"/depositar",
+      boxes.replies.join(" | "),
+      boxes.inbox === "PROCESSED" && boxes.replies.length > 0,
+    );
+    const deposit = await send(actor, "/depositar");
+    check(
+      "pc narrative",
+      actor,
+      "/depositar",
       "deposit flow gives user-visible menu or cannot remove the last team member",
-      deposit.replies.join(" | "),deposit.inbox==="PROCESSED"&&deposit.replies.length>0);
+      deposit.replies.join(" | "),
+      deposit.inbox === "PROCESSED" && deposit.replies.length > 0,
+    );
 
     // A last-team-member deposit now ends immediately without an impossible prompt.
     // Follow-up numeric text must not trigger a mutation without a valid quoted selection.
-    check("pc conversation",actor,"/depositar with one active member",
+    check(
+      "pc conversation",
+      actor,
+      "/depositar with one active member",
       "blocked immediately without an actionable selection",
       deposit.replies.join(" | "),
-      deposit.replies.some(s=>s.includes("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢")));
-    const teamBeforeStray=await pool.query<{n:string}>(
-      "SELECT count(*)::text AS n FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",[owner]);
-    const strayNumber=await send(actor,"01");
-    const teamAfterStray=await pool.query<{n:string}>(
-      "SELECT count(*)::text AS n FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",[owner]);
-    check("pc conversation",actor,"unquoted 01 after blocked deposit",
+      deposit.replies.some((s) => s.includes("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢")),
+    );
+    const teamBeforeStray = await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",
+      [owner],
+    );
+    const strayNumber = await send(actor, "01");
+    const teamAfterStray = await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",
+      [owner],
+    );
+    check(
+      "pc conversation",
+      actor,
+      "unquoted 01 after blocked deposit",
       "no Pokémon leaves the single-member team",
-      {replies:strayNumber.replies,before:teamBeforeStray.rows,after:teamAfterStray.rows},
-      teamBeforeStray.rows[0]?.n==="1" && teamAfterStray.rows[0]?.n==="1"
-        && !strayNumber.replies.some(s=>s.includes("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢")));
-    const withdrawMenu=await send(actor,"/retirar");
-    check("pc conversation",actor,"/retirar",
+      { replies: strayNumber.replies, before: teamBeforeStray.rows, after: teamAfterStray.rows },
+      teamBeforeStray.rows[0]?.n === "1" &&
+        teamAfterStray.rows[0]?.n === "1" &&
+        !strayNumber.replies.some((s) => s.includes("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥 𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢")),
+    );
+    const withdrawMenu = await send(actor, "/retirar");
+    check(
+      "pc conversation",
+      actor,
+      "/retirar",
       "stored Ivysaur offered for return to team",
       withdrawMenu.replies.join(" | "),
-      withdrawMenu.replies.some(s=>/RETI(RAR|RADA)|𝗥𝗘𝗧𝗜𝗥𝗔𝗥/iu.test(s)&&s.includes("Ivysaur")));
-    const withdrawChoice=await replyLast(actor,"01");
-    check("pc conversation",actor,"reply 01 / select Ivysaur",
+      withdrawMenu.replies.some((s) => /RETI(RAR|RADA)|𝗥𝗘𝗧𝗜𝗥𝗔𝗥/iu.test(s) && s.includes("Ivysaur")),
+    );
+    const withdrawChoice = await replyLast(actor, "01");
+    check(
+      "pc conversation",
+      actor,
+      "reply 01 / select Ivysaur",
       "withdraw confirmation prompt",
       withdrawChoice.replies.join(" | "),
-      withdrawChoice.replies.some(s=>/CONFIRMAR|𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥/iu.test(s)));
-    const withdrawn=await replyLast(actor,"01");
-    const partyAfterWithdraw=await pool.query<{pokemon_instance_id:string}>(
-      "SELECT pokemon_instance_id::text FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",[owner]);
-    check("pc conversation",actor,"reply 01 / confirm withdraw",
+      withdrawChoice.replies.some((s) => /CONFIRMAR|𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔𝗥/iu.test(s)),
+    );
+    const withdrawn = await replyLast(actor, "01");
+    const partyAfterWithdraw = await pool.query<{ pokemon_instance_id: string }>(
+      "SELECT pokemon_instance_id::text FROM pokemon_roster_slots WHERE player_id=$1 AND placement_kind='TEAM'",
+      [owner],
+    );
+    check(
+      "pc conversation",
+      actor,
+      "reply 01 / confirm withdraw",
       "Ivysaur returned to team and DB team now has 2 Pokémon",
-      {replies:withdrawn.replies,party:partyAfterWithdraw.rows},
-      partyAfterWithdraw.rows.length===2 &&
-      withdrawn.replies.some(s=>/RETIRAD|𝗥𝗘𝗧𝗜𝗥𝗔𝗗𝗢/iu.test(s)));
-    const depositMenu2=await send(actor,"/depositar");
-    check("pc conversation",actor,"/depositar with 2 on team",
-      "bot lists both active Pokémon",depositMenu2.replies.join(" | "),
-      depositMenu2.replies.some(s=>s.includes("Bulbasaur")&&s.includes("Ivysaur")));
-    const depositChoice=await replyLast(actor,"01");
-    check("pc conversation",actor,"reply 01 / select Bulbasaur",
+      { replies: withdrawn.replies, party: partyAfterWithdraw.rows },
+      partyAfterWithdraw.rows.length === 2 &&
+        withdrawn.replies.some((s) => /RETIRAD|𝗥𝗘𝗧𝗜𝗥𝗔𝗗𝗢/iu.test(s)),
+    );
+    const depositMenu2 = await send(actor, "/depositar");
+    check(
+      "pc conversation",
+      actor,
+      "/depositar with 2 on team",
+      "bot lists both active Pokémon",
+      depositMenu2.replies.join(" | "),
+      depositMenu2.replies.some((s) => s.includes("Bulbasaur") && s.includes("Ivysaur")),
+    );
+    const depositChoice = await replyLast(actor, "01");
+    check(
+      "pc conversation",
+      actor,
+      "reply 01 / select Bulbasaur",
       "preview Box destination before commit",
       depositChoice.replies.join(" | "),
-      depositChoice.replies.some(s=>/DEPÓSITO|𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢/iu.test(s)));
-    const committed=await replyLast(actor,"01");
-    const afterDeposit=await pool.query<{pokemon_instance_id:string;placement_kind:string}>(
-      "SELECT pokemon_instance_id::text,placement_kind FROM pokemon_roster_slots WHERE player_id=$1 ORDER BY placement_kind,slot_no",[owner]);
-    check("pc conversation",actor,"reply 01 / confirm deposit",
+      depositChoice.replies.some((s) => /DEPÓSITO|𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢/iu.test(s)),
+    );
+    const committed = await replyLast(actor, "01");
+    const afterDeposit = await pool.query<{ pokemon_instance_id: string; placement_kind: string }>(
+      "SELECT pokemon_instance_id::text,placement_kind FROM pokemon_roster_slots WHERE player_id=$1 ORDER BY placement_kind,slot_no",
+      [owner],
+    );
+    check(
+      "pc conversation",
+      actor,
+      "reply 01 / confirm deposit",
       "one Pokémon stored and one remains active",
-      {replies:committed.replies,roster:afterDeposit.rows},
-      committed.replies.some(s=>/ARMAZENAD|𝗔𝗥𝗠𝗔𝗭𝗘𝗡𝗔𝗗𝗢/iu.test(s)) &&
-      afterDeposit.rows.filter(s=>s.placement_kind==="TEAM").length===1 &&
-      afterDeposit.rows.filter(s=>s.placement_kind==="BOX").length===1);
-    const organizeMenu=await send(actor,"/organizar");
-    check("pc conversation",actor,"/organizar","stored Pokémon offered",
-      organizeMenu.replies.join(" | "),organizeMenu.replies.some(s=>/𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔𝗥/iu.test(s)));
-    const organizedSelected=await replyLast(actor,"01");
-    check("pc conversation",actor,"reply 01 / choose stored Pokémon",
+      { replies: committed.replies, roster: afterDeposit.rows },
+      committed.replies.some((s) => /ARMAZENAD|𝗔𝗥𝗠𝗔𝗭𝗘𝗡𝗔𝗗𝗢/iu.test(s)) &&
+        afterDeposit.rows.filter((s) => s.placement_kind === "TEAM").length === 1 &&
+        afterDeposit.rows.filter((s) => s.placement_kind === "BOX").length === 1,
+    );
+    const organizeMenu = await send(actor, "/organizar");
+    check(
+      "pc conversation",
+      actor,
+      "/organizar",
+      "stored Pokémon offered",
+      organizeMenu.replies.join(" | "),
+      organizeMenu.replies.some((s) => /𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔𝗥/iu.test(s)),
+    );
+    const organizedSelected = await replyLast(actor, "01");
+    check(
+      "pc conversation",
+      actor,
+      "reply 01 / choose stored Pokémon",
       "destination input format shown",
       organizedSelected.replies.join(" | "),
-      organizedSelected.replies.some(s=>/2\/5|2 5/iu.test(s)));
-    const organizedDestination=await replyLast(actor,"2/5");
-    check("pc conversation",actor,"reply 2/5 / choose new Box",
+      organizedSelected.replies.some((s) => /2\/5|2 5/iu.test(s)),
+    );
+    const organizedDestination = await replyLast(actor, "2/5");
+    check(
+      "pc conversation",
+      actor,
+      "reply 2/5 / choose new Box",
       "source and destination preview",
       organizedDestination.replies.join(" | "),
-      organizedDestination.replies.some(s=>/Caixa 02|𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔ÇÃ𝗢/iu.test(s)));
-    const organizedConfirmed=await replyLast(actor,"01");
-    const updated=await pool.query<{box_no:number|null;slot_no:number}>(
-      "SELECT box_no,slot_no FROM pokemon_roster_slots WHERE pokemon_instance_id=$1",[boxId]);
-    check("pc conversation",actor,"reply 01 / confirm organize",
+      organizedDestination.replies.some((s) => /Caixa 02|𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔ÇÃ𝗢/iu.test(s)),
+    );
+    const organizedConfirmed = await replyLast(actor, "01");
+    const updated = await pool.query<{ box_no: number | null; slot_no: number }>(
+      "SELECT box_no,slot_no FROM pokemon_roster_slots WHERE pokemon_instance_id=$1",
+      [boxId],
+    );
+    check(
+      "pc conversation",
+      actor,
+      "reply 01 / confirm organize",
       "Box 2 slot 5 persisted",
-      {replies:organizedConfirmed.replies,position:updated.rows[0]},
-      organizedConfirmed.replies.some(s=>/𝗖𝗔𝗜𝗫𝗔 𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔𝗗𝗔/iu.test(s)) &&
-      updated.rows[0]?.box_no===2 && updated.rows[0]?.slot_no===5);
-    const finalBoxes=await send(actor,"/caixas");
-    check("pc conversation",actor,"/caixas / after move",
+      { replies: organizedConfirmed.replies, position: updated.rows[0] },
+      organizedConfirmed.replies.some((s) => /𝗖𝗔𝗜𝗫𝗔 𝗢𝗥𝗚𝗔𝗡𝗜𝗭𝗔𝗗𝗔/iu.test(s)) &&
+        updated.rows[0]?.box_no === 2 &&
+        updated.rows[0]?.slot_no === 5,
+    );
+    const finalBoxes = await send(actor, "/caixas");
+    check(
+      "pc conversation",
+      actor,
+      "/caixas / after move",
       "Box 2 contains relocated Bulbasaur",
-      finalBoxes.replies.join(" | "),finalBoxes.replies.some(s=>s.includes("Bulbasaur")&&s.includes("Caixa 02")));
+      finalBoxes.replies.join(" | "),
+      finalBoxes.replies.some((s) => s.includes("Bulbasaur") && s.includes("Caixa 02")),
+    );
 
     // An existing trainer who passed level 16 before automatic evolution was
     // introduced must not be forced to gain more XP, even at level 100.
     // Only mutate the disposable synthetic second trainer; production untouched.
     const overdueActor = actor === PLAYER_A ? PLAYER_B : PLAYER_A;
-    const overdueRecord = (await pool.query<{
-      id: string; form_id: string; level: number; xp: string;
-    }>(
-      `SELECT id::text, form_id::text, level, xp::text
+    const overdueRecord = (
+      await pool.query<{
+        id: string;
+        form_id: string;
+        level: number;
+        xp: string;
+      }>(
+        `SELECT id::text, form_id::text, level, xp::text
        FROM pokemon_instances WHERE owner_player_id=$1 AND status='ACTIVE'
        ORDER BY created_at, id LIMIT 1`,
-      [other],
-    )).rows[0];
+        [other],
+      )
+    ).rows[0];
     if (!overdueRecord) throw new Error("Second trainer must have a starter");
     await pool.query(
       `UPDATE pokemon_instances SET level=20, xp=0, revision=revision+1, updated_at=now()
        WHERE id=$1 AND owner_player_id=$2`,
       [overdueRecord.id, other],
     );
-    const beforeCompensationWallet = (await pool.query<{quantity:string}>(
-      `SELECT coalesce(sum(quantity),0)::text AS quantity
+    const beforeCompensationWallet =
+      (
+        await pool.query<{ quantity: string }>(
+          `SELECT coalesce(sum(quantity),0)::text AS quantity
        FROM inventory_balances WHERE player_id=$1`,
-      [other],
-    )).rows[0]?.quantity ?? "0";
+          [other],
+        )
+      ).rows[0]?.quantity ?? "0";
     const overdueMenu = await send(overdueActor, "/evolucao #1");
-    check("evolution legacy", overdueActor, "/evolucao #1",
+    check(
+      "evolution legacy",
+      overdueActor,
+      "/evolucao #1",
       "overdue level evolution is detected and an actionable correction is offered",
       overdueMenu.replies.join(" | "),
       overdueMenu.inbox === "PROCESSED" &&
-      overdueMenu.replies.some((text) =>
-        text.includes("EVOLUÇÃO ATRASADA") && text.includes("/regularizar #1")));
+        overdueMenu.replies.some(
+          (text) => text.includes("EVOLUÇÃO ATRASADA") && text.includes("/regularizar #1"),
+        ),
+    );
     const repairMessageId = "STAGE2-OVERDUE-CORRECTION-ONCE";
     const correctedLevel = await send(overdueActor, "/regularizar #1", repairMessageId);
-    const afterCorrection = (await pool.query<{
-      form_id:string; level:number; xp:string;
-    }>(
-      `SELECT form_id::text, level, xp::text
+    const afterCorrection = (
+      await pool.query<{
+        form_id: string;
+        level: number;
+        xp: string;
+      }>(
+        `SELECT form_id::text, level, xp::text
        FROM pokemon_instances WHERE id=$1`,
-      [overdueRecord.id],
-    )).rows[0];
-    const afterCompensationWallet = (await pool.query<{quantity:string}>(
-      `SELECT coalesce(sum(quantity),0)::text AS quantity
+        [overdueRecord.id],
+      )
+    ).rows[0];
+    const afterCompensationWallet =
+      (
+        await pool.query<{ quantity: string }>(
+          `SELECT coalesce(sum(quantity),0)::text AS quantity
        FROM inventory_balances WHERE player_id=$1`,
-      [other],
-    )).rows[0]?.quantity ?? "0";
-    check("evolution legacy", overdueActor, "/regularizar #1",
+          [other],
+        )
+      ).rows[0]?.quantity ?? "0";
+    check(
+      "evolution legacy",
+      overdueActor,
+      "/regularizar #1",
       "stuck L20 evolves without XP gain or any item consumption",
-      { replies: correctedLevel.replies, before: overdueRecord, after: afterCorrection,
-        itemBefore: beforeCompensationWallet, itemAfter: afterCompensationWallet },
+      {
+        replies: correctedLevel.replies,
+        before: overdueRecord,
+        after: afterCorrection,
+        itemBefore: beforeCompensationWallet,
+        itemAfter: afterCompensationWallet,
+      },
       correctedLevel.inbox === "PROCESSED" &&
-      correctedLevel.replies.some((text) => text.includes("EVOLUÇÃO REGULARIZADA")) &&
-      afterCorrection !== undefined &&
-      afterCorrection.form_id !== overdueRecord.form_id &&
-      afterCorrection.level === 20 && afterCorrection.xp === "0" &&
-      beforeCompensationWallet === afterCompensationWallet);
-    const claimsBeforeReplay = (await pool.query<{ n:string }>(
-      `SELECT count(*)::text AS n FROM pokemon_evolution_claims
-       WHERE pokemon_instance_id=$1 AND trigger_kind='LEVEL'`, [overdueRecord.id],
-    )).rows[0]?.n;
+        correctedLevel.replies.some((text) => text.includes("EVOLUÇÃO REGULARIZADA")) &&
+        afterCorrection !== undefined &&
+        afterCorrection.form_id !== overdueRecord.form_id &&
+        afterCorrection.level === 20 &&
+        afterCorrection.xp === "0" &&
+        beforeCompensationWallet === afterCompensationWallet,
+    );
+    const claimsBeforeReplay = (
+      await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pokemon_evolution_claims
+       WHERE pokemon_instance_id=$1 AND trigger_kind='LEVEL'`,
+        [overdueRecord.id],
+      )
+    ).rows[0]?.n;
     await send(overdueActor, "/regularizar #1", repairMessageId);
-    const claimsAfterReplay = (await pool.query<{ n:string }>(
-      `SELECT count(*)::text AS n FROM pokemon_evolution_claims
-       WHERE pokemon_instance_id=$1 AND trigger_kind='LEVEL'`, [overdueRecord.id],
-    )).rows[0]?.n;
-    check("evolution legacy", overdueActor, "repeat exact /regularizar WhatsApp message ID",
+    const claimsAfterReplay = (
+      await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pokemon_evolution_claims
+       WHERE pokemon_instance_id=$1 AND trigger_kind='LEVEL'`,
+        [overdueRecord.id],
+      )
+    ).rows[0]?.n;
+    check(
+      "evolution legacy",
+      overdueActor,
+      "repeat exact /regularizar WhatsApp message ID",
       "one evolution claim only; no second mutation",
       { claimsBeforeReplay, claimsAfterReplay },
-      claimsBeforeReplay === "1" && claimsAfterReplay === "1");
+      claimsBeforeReplay === "1" && claimsAfterReplay === "1",
+    );
     const alreadyRegularized = await send(overdueActor, "/regularizar #1");
-    check("evolution legacy", overdueActor, "/regularizar #1 again",
+    check(
+      "evolution legacy",
+      overdueActor,
+      "/regularizar #1 again",
       "subsequent ordinary request is idempotently reported as already in correct form",
       alreadyRegularized.replies.join(" | "),
       alreadyRegularized.inbox === "PROCESSED" &&
-      alreadyRegularized.replies.some((text) => text.includes("EVOLUÇÃO EM DIA")));
+        alreadyRegularized.replies.some((text) => text.includes("EVOLUÇÃO EM DIA")),
+    );
 
-    const bugs=findings.filter(x=>!x.ok);
-    console.log(JSON.stringify({event:"stage2.player.complete",actor,
-      checks:findings.length,passed:findings.length-bugs.length,bugs:bugs.length,findings}));
-    if(bugs.length)throw new Error(`Player journey has ${bugs.length} failing scenario(s)`);
+    const bugs = findings.filter((x) => !x.ok);
+    console.log(
+      JSON.stringify({
+        event: "stage2.player.complete",
+        actor,
+        checks: findings.length,
+        passed: findings.length - bugs.length,
+        bugs: bugs.length,
+        findings,
+      }),
+    );
+    if (bugs.length) throw new Error(`Player journey has ${bugs.length} failing scenario(s)`);
   } finally {
-    await operational.runtime.stop().catch(()=>{});
+    await operational.runtime.stop().catch(() => {});
     await pool.end();
   }
 }

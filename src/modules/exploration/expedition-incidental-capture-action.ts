@@ -1,8 +1,6 @@
 import { appError, err, type Result } from "../../shared-kernel/result.js";
 import type { PlayerId, EncounterId, CorrelationId } from "../../shared-kernel/ids.js";
-import type {
-  CaptureAttemptInput, CaptureAttemptResult,
-} from "../capture/contracts.js";
+import type { CaptureAttemptInput, CaptureAttemptResult } from "../capture/contracts.js";
 import {
   selectCurrentIncidentalAction,
   type IncidentalEncounterPanel,
@@ -70,8 +68,7 @@ export class ExpeditionIncidentalCaptureAction {
     if (selection.value.kind !== "CAPTURE") {
       return err(appError("ACTION_INVALID", "The selected incidental action is not a Ball"));
     }
-    if (input.idempotencyKey.trim().length === 0 ||
-      input.idempotencyKey.length > 200) {
+    if (input.idempotencyKey.trim().length === 0 || input.idempotencyKey.length > 200) {
       return err(appError("VALIDATION_FAILED", "Missing stable capture idempotency key"));
     }
     const ballId = input.snapshot.ballItemIds[selection.value.ball];
@@ -84,7 +81,9 @@ export class ExpeditionIncidentalCaptureAction {
       outcomeId: input.snapshot.outcomeId,
     });
     if (!authorized) {
-      return err(appError("FLOW_BLOCKED", "Incidental encounter no longer belongs to this trainer"));
+      return err(
+        appError("FLOW_BLOCKED", "Incidental encounter no longer belongs to this trainer"),
+      );
     }
     // CaptureService performs the authoritative last-moment encounter revision,
     // inventory, policy, battle and replay checks inside its own transaction.

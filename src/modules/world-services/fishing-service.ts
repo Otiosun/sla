@@ -55,10 +55,12 @@ export interface FishingAttemptRepository {
    * under ONE transaction. No successful reservation is committed if the
    * encounter effect fails. Older isolated fakes can use reserveAttempt only.
    */
-  reserveAndResolve?(input: ReserveFishingAttemptInput): Promise<Result<{
-    readonly reservation: FishingAttemptReservationResult;
-    readonly encounter: EncounterView | null;
-  }>>;
+  reserveAndResolve?(input: ReserveFishingAttemptInput): Promise<
+    Result<{
+      readonly reservation: FishingAttemptReservationResult;
+      readonly encounter: EncounterView | null;
+    }>
+  >;
 }
 
 export interface FishingAttemptResult {
@@ -118,13 +120,15 @@ export class FishingService {
 
   public async attempt(input: FishingAttemptInput): Promise<Result<FishingAttemptResult>> {
     const generatedRoll = this.random.randomInt(20) + 1;
-    const atomic = this.repository.reserveAndResolve === undefined
-      ? null
-      : await this.repository.reserveAndResolve({ ...input, roll: generatedRoll });
+    const atomic =
+      this.repository.reserveAndResolve === undefined
+        ? null
+        : await this.repository.reserveAndResolve({ ...input, roll: generatedRoll });
     if (atomic !== null && !atomic.ok) return atomic;
-    const reservation = atomic === null
-      ? await this.repository.reserveAttempt({ ...input, roll: generatedRoll })
-      : atomic.value.reservation;
+    const reservation =
+      atomic === null
+        ? await this.repository.reserveAttempt({ ...input, roll: generatedRoll })
+        : atomic.value.reservation;
     if (reservation.kind === "DAILY_LIMIT_REACHED") {
       return err(
         appError("ACTION_INVALID", "Daily fishing attempt limit reached", {
@@ -172,7 +176,9 @@ export class FishingService {
         if (!created.ok) return created;
         encounter = created.value;
       } else if (encounter === null) {
-        return err(appError("INVALID_STATE_TRANSITION", "Atomic fishing encounter was not persisted"));
+        return err(
+          appError("INVALID_STATE_TRANSITION", "Atomic fishing encounter was not persisted"),
+        );
       }
     }
 

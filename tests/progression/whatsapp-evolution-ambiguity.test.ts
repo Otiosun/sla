@@ -35,17 +35,32 @@ function option(
 function fixture(options: readonly OperationalEvolutionOptionView[]) {
   const evolvePokemon = vi.fn<ProgressionService["evolvePokemon"]>(async () =>
     ok({
-      pokemonInstanceId, fromFormId: randomUUID(), toFormId: randomUUID(),
-      triggerKind: "ITEM" as const, beforeLevel: 16, afterLevel: 16, replayed: false,
+      pokemonInstanceId,
+      fromFormId: randomUUID(),
+      toFormId: randomUUID(),
+      triggerKind: "ITEM" as const,
+      beforeLevel: 16,
+      afterLevel: 16,
+      replayed: false,
     }),
   );
   const dependencies = {
     players: { resolvePlayer: async () => ok({ playerId, state: "COMPLETE", created: false }) },
     reads: {
-      listOwnedPokemon: async () => [{
-        collectionNo: 1, pokemonInstanceId, displayName: "Eevee", nickname: null,
-        level: 16, xp: 0n, currentHp: 32, placementKind: "TEAM", boxNo: null, slotNo: 1,
-      }],
+      listOwnedPokemon: async () => [
+        {
+          collectionNo: 1,
+          pokemonInstanceId,
+          displayName: "Eevee",
+          nickname: null,
+          level: 16,
+          xp: 0n,
+          currentHp: 32,
+          placementKind: "TEAM",
+          boxNo: null,
+          slotNo: 1,
+        },
+      ],
       listEvolutionOptions: async () => options,
       listPendingMoveChoices: async () => [],
       activeBattleId: async () => null,
@@ -63,10 +78,14 @@ function fixture(options: readonly OperationalEvolutionOptionView[]) {
       causationId: randomUUID(),
       idempotencyKey: `test:${randomUUID()}`,
       message: {
-        provider: "baileys", externalMessageId: randomUUID(),
-        senderRef: "5599999999001", chatRef: "test@g.us",
-        occurredAt: "2026-10-28T12:00:00-03:00", text: command,
-        mediaRefs: [], replyToExternalMessageId: null,
+        provider: "baileys",
+        externalMessageId: randomUUID(),
+        senderRef: "5599999999001",
+        chatRef: "test@g.us",
+        occurredAt: "2026-10-28T12:00:00-03:00",
+        text: command,
+        mediaRefs: [],
+        replyToExternalMessageId: null,
       },
     } as MessageHandlerContext;
     return route.handler.handle(context);
@@ -126,10 +145,11 @@ describe("WhatsApp manual evolution with indistinguishable destinations", () => 
     const item = await send("/evoluir #1 2");
     expect(item.ok).toBe(true);
     expect(evolvePokemon).toHaveBeenCalledTimes(1);
-    expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({ trigger: { kind: "ITEM", itemId: itemA } });
+    expect(evolvePokemon.mock.calls[0]?.[0]).toMatchObject({
+      trigger: { kind: "ITEM", itemId: itemA },
+    });
   });
 });
-
 
 describe("missed level evolution recovery", () => {
   it("permits Lv16+ recovery without awarding XP, spending item or selecting a form manually", async () => {
@@ -147,11 +167,15 @@ describe("missed level evolution recovery", () => {
 
   it("delegates stat-branched LEVEL choice to DB, which must reject a truly ambiguous target", async () => {
     const { send, evolvePokemon } = fixture([
-      option("Forma A", "LEVEL"), option("Forma B", "LEVEL"),
+      option("Forma A", "LEVEL"),
+      option("Forma B", "LEVEL"),
     ]);
-    evolvePokemon.mockResolvedValueOnce(err({
-      code: "EVOLUTION_NOT_ELIGIBLE", message: "Multiple evolution rules match the same request",
-    }));
+    evolvePokemon.mockResolvedValueOnce(
+      err({
+        code: "EVOLUTION_NOT_ELIGIBLE",
+        message: "Multiple evolution rules match the same request",
+      }),
+    );
     const menu = await send("/evolucao #1");
     expect(menu.ok).toBe(true);
     if (!menu.ok) throw Error(menu.error.message);

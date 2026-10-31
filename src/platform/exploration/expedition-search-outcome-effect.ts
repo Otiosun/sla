@@ -81,7 +81,9 @@ export function createSearchOutcomeEffect(deps: {
       );
       encounterId = valid.rows[0]?.id ?? null;
       if (encounterId === null) {
-        return err(appError("FLOW_BLOCKED", "Canonical encounter was not persisted in the active release"));
+        return err(
+          appError("FLOW_BLOCKED", "Canonical encounter was not persisted in the active release"),
+        );
       }
     }
 
@@ -91,8 +93,12 @@ export function createSearchOutcomeEffect(deps: {
          id,player_id,expedition_id,expedition_revision,kind,encounter_id
        ) VALUES ($1,$2,$3,$4::bigint,$5,$6)`,
       [
-        outcomeId, expedition.playerId, expedition.expeditionId,
-        expedition.revision.toString(), kind, encounterId,
+        outcomeId,
+        expedition.playerId,
+        expedition.expeditionId,
+        expedition.revision.toString(),
+        kind,
+        encounterId,
       ],
     );
     return ok({ effectRef: outcomeId });
@@ -119,12 +125,14 @@ export async function readStoredSearchOutcome(
     [outcomeId, playerId],
   );
   const row = result.rows[0];
-  return row === undefined ? null : {
-    outcomeId: row.id,
-    playerId: row.player_id,
-    expeditionId: row.expedition_id,
-    expeditionRevision: BigInt(row.expedition_revision),
-    kind: row.kind,
-    encounterId: row.encounter_id,
-  };
+  return row === undefined
+    ? null
+    : {
+        outcomeId: row.id,
+        playerId: row.player_id,
+        expeditionId: row.expedition_id,
+        expeditionRevision: BigInt(row.expedition_revision),
+        kind: row.kind,
+        encounterId: row.encounter_id,
+      };
 }

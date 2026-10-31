@@ -369,13 +369,20 @@ export class WorldServiceConversationResolver {
           const optionNo = parseMenuNumber(text);
           const availability = this.dependencies.martAvailability;
           if (optionNo === null || availability === undefined) {
-            return feedbackResult(context, session, "Não consegui validar a oferta. Use `/comprar` para atualizar.");
+            return feedbackResult(
+              context,
+              session,
+              "Não consegui validar a oferta. Use `/comprar` para atualizar.",
+            );
           }
           const published = purchasableMartItems(await availability.listPublishedOffers());
           const verified = published.find((item) => Number(item.code) === optionNo);
           if (verified === undefined) {
-            return feedbackResult(context, session,
-              "Essa mercadoria não está disponível no catálogo publicado. Use `/comprar` para atualizar.");
+            return feedbackResult(
+              context,
+              session,
+              "Essa mercadoria não está disponível no catálogo publicado. Use `/comprar` para atualizar.",
+            );
           }
           return replyResult(
             context,
@@ -388,12 +395,21 @@ export class WorldServiceConversationResolver {
         const offerKey = martQuantityOfferFromPromptKey(promptKey);
         if (offerKey !== null) {
           const availability = this.dependencies.martAvailability;
-          if (availability === undefined) return feedbackResult(context, session,
-            "O catálogo de compras está indisponível. Tente `/comprar` novamente.");
-          const selected = purchasableMartItems(await availability.listPublishedOffers())
-            .find((item) => item.offerKey === offerKey);
-          if (selected === undefined) return feedbackResult(context, session,
-            "Essa oferta mudou ou deixou de estar disponível. Use `/comprar` para atualizar.");
+          if (availability === undefined)
+            return feedbackResult(
+              context,
+              session,
+              "O catálogo de compras está indisponível. Tente `/comprar` novamente.",
+            );
+          const selected = purchasableMartItems(await availability.listPublishedOffers()).find(
+            (item) => item.offerKey === offerKey,
+          );
+          if (selected === undefined)
+            return feedbackResult(
+              context,
+              session,
+              "Essa oferta mudou ou deixou de estar disponível. Use `/comprar` para atualizar.",
+            );
           const quantity = parseMartQuantityReply(text, selected);
           if (quantity === null || this.dependencies.economy === undefined) {
             return emptyReply(context, session);

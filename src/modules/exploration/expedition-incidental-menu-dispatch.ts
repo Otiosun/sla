@@ -52,7 +52,8 @@ export class ExpeditionIncidentalMenuDispatcher {
     readonly causationId: string | null;
   }): Promise<Result<CaptureAttemptResult>> {
     const issued = await input.resolver.resolveReply({
-      playerId: input.playerId, repliedTo: input.repliedTo,
+      playerId: input.playerId,
+      repliedTo: input.repliedTo,
     });
     if (!issued.ok) return issued;
     return this.captureFromIssued(issued.value, input);
@@ -90,9 +91,7 @@ export class ExpeditionIncidentalMenuDispatcher {
     readonly correlationId: CorrelationId;
     readonly causationId: string | null;
   }): Promise<Result<CaptureAttemptResult>> {
-    const issued = await this.menus.findForPlayer(
-      input.playerId, input.serverMenuId,
-    );
+    const issued = await this.menus.findForPlayer(input.playerId, input.serverMenuId);
     if (!issued.ok) return issued;
     return this.captureFromIssued(issued.value, input);
   }

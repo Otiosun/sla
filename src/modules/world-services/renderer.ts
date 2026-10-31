@@ -202,8 +202,11 @@ export function renderMartCatalog(items: readonly MartCatalogItem[]): string {
   }
 
   if (items.length === 0) {
-    lines.push("◇ *Nenhuma mercadoria disponível neste catálogo publicado.*", "",
-      "_O comerciante não anuncia itens sem oferta ativa._");
+    lines.push(
+      "◇ *Nenhuma mercadoria disponível neste catálogo publicado.*",
+      "",
+      "_O comerciante não anuncia itens sem oferta ativa._",
+    );
   } else {
     lines.push("", "› _Responda com o número da mercadoria._");
   }
@@ -442,17 +445,19 @@ function normalizeNpcInput(value: string): string {
 
 export function renderCenterHanaContinuation(input: string): string {
   const normalized = normalizeNpcInput(input);
-  const line = /\b(?:golp\w*|moviment\w*|aprend\w*|lembr\w*|esquec\w*|trein\w*|tm|ataqu\w*)/u.test(normalized)
+  const line = /\b(?:golp\w*|moviment\w*|aprend\w*|lembr\w*|esquec\w*|trein\w*|tm|ataqu\w*)/u.test(
+    normalized,
+  )
     ? "👩‍⚕️ _— Para recuperar um golpe que seu Pokémon podia conhecer, use \`/reaprender #1\` aqui no Centro. Se os quatro slots estiverem ocupados, você escolhe qual substituir. Novos golpes por nível ficam em \`/aprendizados #1\` e as TMs são ensinadas pela mochila, não pela enfermaria._"
     : /\b(cur(ar|a)|cura|recuper(ar|acao)|hp|machucad|ferid)/u.test(normalized)
-    ? "👩‍⚕️ _— Se algum deles estiver cansado ou ferido, eu posso cuidar da equipe. É só usar `/curar` enquanto estiver aqui._"
-    : /\b(pc|box|caixa|guardar|retirar|equipe)/u.test(normalized)
-      ? "👩‍⚕️ _— Para organizar quem viaja com você, o terminal do PC fica logo ali. Use `/pc` e escolha com calma._"
-      : input.includes("?")
-        ? "👩‍⚕️ _— Posso recuperar a equipe, ajudar com golpes antigos e orientar o uso do PC. Você pode perguntar normalmente ou usar \`/curar\`, \`/reaprender #1\` e \`/pc\`._"
-        : /^\s*[*_]/u.test(input)
-          ? "👩‍⚕️ _Hana acompanha a cena por um instante, claramente tentando entender o que você pretende fazer._\n\n— Tudo bem... quer me perguntar alguma coisa ou precisa de ajuda com seus Pokémon?_"
-          : "👩‍⚕️ _Hana escuta sem interromper e responde com tranquilidade._\n\n— Entendi. Enquanto estiver no Centro, pode falar comigo ou pedir ajuda com sua equipe.";
+      ? "👩‍⚕️ _— Se algum deles estiver cansado ou ferido, eu posso cuidar da equipe. É só usar `/curar` enquanto estiver aqui._"
+      : /\b(pc|box|caixa|guardar|retirar|equipe)/u.test(normalized)
+        ? "👩‍⚕️ _— Para organizar quem viaja com você, o terminal do PC fica logo ali. Use `/pc` e escolha com calma._"
+        : input.includes("?")
+          ? "👩‍⚕️ _— Posso recuperar a equipe, ajudar com golpes antigos e orientar o uso do PC. Você pode perguntar normalmente ou usar \`/curar\`, \`/reaprender #1\` e \`/pc\`._"
+          : /^\s*[*_]/u.test(input)
+            ? "👩‍⚕️ _Hana acompanha a cena por um instante, claramente tentando entender o que você pretende fazer._\n\n— Tudo bem... quer me perguntar alguma coisa ou precisa de ajuda com seus Pokémon?_"
+            : "👩‍⚕️ _Hana escuta sem interromper e responde com tranquilidade._\n\n— Entendi. Enquanto estiver no Centro, pode falar comigo ou pedir ajuda com sua equipe.";
 
   return [
     "♡ *𝗘𝗡𝗙𝗘𝗥𝗠𝗘𝗜𝗥𝗔 𝗛𝗔𝗡𝗔*",

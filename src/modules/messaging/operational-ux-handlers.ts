@@ -784,11 +784,13 @@ export function createOperationalUxRoutes(
         "",
         `Nv. \`${String(detail.level)}\`　${gender}${detail.shiny ? "　✦ SHINY" : ""}`,
         `HP　\`${String(detail.currentHp)}/${String(detail.maxHp)}\`　·　\`${statuses}\``,
-        ...(ownedDetail === null ? [] : [
-          detail.level >= 100
-            ? "XP　\`NÍVEL MÁXIMO\`"
-            : `XP　\`${ownedDetail.xp.toString()}/${String(pokemonXpRequiredForNextLevel(detail.level))}\` · faltam ${(BigInt(pokemonXpRequiredForNextLevel(detail.level)) - ownedDetail.xp).toString()}`,
-        ]),
+        ...(ownedDetail === null
+          ? []
+          : [
+              detail.level >= 100
+                ? "XP　\`NÍVEL MÁXIMO\`"
+                : `XP　\`${ownedDetail.xp.toString()}/${String(pokemonXpRequiredForNextLevel(detail.level))}\` · faltam ${(BigInt(pokemonXpRequiredForNextLevel(detail.level)) - ownedDetail.xp).toString()}`,
+            ]),
         `Posição: *${placement}*`,
         "",
         `◇ *NATURE*　${detail.natureDisplayName}`,

@@ -21,7 +21,11 @@ export interface ProgressionWhatsAppDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly reads: Pick<
     OperationalUxReadModel,
-    "listPendingMoveChoices" | "activeBattleId" | "listOwnedPokemon" | "listEvolutionOptions" | "listLevelLearnset"
+    | "listPendingMoveChoices"
+    | "activeBattleId"
+    | "listOwnedPokemon"
+    | "listEvolutionOptions"
+    | "listLevelLearnset"
   >;
   readonly progression: Pick<ProgressionService, "resolveMoveChoice" | "evolvePokemon">;
   readonly training?: Pick<MoveTrainingService, "options" | "learn">;
@@ -112,8 +116,9 @@ export function hasAmbiguousManualEvolution(
   chosen: OperationalEvolutionOptionView,
 ): boolean {
   const key = manualEvolutionTriggerKey(chosen);
-  return key !== null &&
-    options.filter((option) => manualEvolutionTriggerKey(option) === key).length > 1;
+  return (
+    key !== null && options.filter((option) => manualEvolutionTriggerKey(option) === key).length > 1
+  );
 }
 
 function evolutionOptionLine(
@@ -358,7 +363,9 @@ export function createProgressionWhatsAppRoutes(
     const pokemon = resolveOwnedPokemonReference(owned, commandArgs(context).join(" "));
     if (!pokemon.ok) return pokemon;
     const entries = await learnsetReader.call(
-      dependencies.reads, resolved.value.playerId, pokemon.value.pokemonInstanceId,
+      dependencies.reads,
+      resolved.value.playerId,
+      pokemon.value.pokemonInstanceId,
     );
     const name = pokemon.value.nickname ?? pokemon.value.displayName;
     const past = entries.filter((entry) => entry.learnLevel <= pokemon.value.level);
@@ -384,7 +391,8 @@ export function createProgressionWhatsAppRoutes(
         `　Nv. ${String(entry.learnLevel)} · ${entry.moveDisplayName} · ${entry.known ? "equipado" : "não equipado"}`,
       );
     }
-    if (past.length > 6) lines.push(`　… e mais ${String(past.length - 6)} registro(s) anteriores.`);
+    if (past.length > 6)
+      lines.push(`　… e mais ${String(past.length - 6)} registro(s) anteriores.`);
     lines.push("", "◇ *𝗣𝗥Ó𝗫𝗜𝗠𝗢𝗦 𝗡Í𝗩𝗘𝗜𝗦*");
     if (future.length === 0) lines.push("_Nenhuma nova aprendizagem por nível registrada._");
     for (const entry of future.slice(0, 6)) {
@@ -402,21 +410,29 @@ export function createProgressionWhatsAppRoutes(
     return textResult(context, lines.join("\n"));
   };
 
-  const trainingMenu = (method: MoveTrainingMethod, execute: boolean): Handler =>
+  const trainingMenu =
+    (method: MoveTrainingMethod, execute: boolean): Handler =>
     async (context) => {
       const player = await dependencies.players.resolvePlayer(identity(context));
       if (!player.ok) return player;
-      if (dependencies.training === undefined || dependencies.reads.listOwnedPokemon === undefined) {
+      if (
+        dependencies.training === undefined ||
+        dependencies.reads.listOwnedPokemon === undefined
+      ) {
         return err(appError("FEATURE_UNAVAILABLE", "Sistema de aprendizado ainda indisponível."));
       }
       if (method === "REMINDER") {
-        if (dependencies.sessions === undefined) return err(appError("FEATURE_UNAVAILABLE",
-          "Consulta do Centro Pokémon indisponível."));
+        if (dependencies.sessions === undefined)
+          return err(appError("FEATURE_UNAVAILABLE", "Consulta do Centro Pokémon indisponível."));
         const visit = await dependencies.sessions.loadActiveSession(player.value.playerId);
         if (!visit.ok) return visit;
         if (visit.value?.serviceKind !== "POKEMON_CENTER") {
-          return err(appError("FLOW_BLOCKED",
-            "Entre no Centro Pokémon com `/centropokemon` para reaprender movimentos."));
+          return err(
+            appError(
+              "FLOW_BLOCKED",
+              "Entre no Centro Pokémon com `/centropokemon` para reaprender movimentos.",
+            ),
+          );
         }
       }
 
@@ -441,28 +457,39 @@ export function createProgressionWhatsAppRoutes(
           "",
         ];
         if (options.value.length === 0) {
-          lines.push(method === "TM"
-            ? "_Nenhuma TM compatível está disponível na sua mochila._"
-            : "_Nenhum movimento elegível para reaprender nesta versão._");
+          lines.push(
+            method === "TM"
+              ? "_Nenhuma TM compatível está disponível na sua mochila._"
+              : "_Nenhum movimento elegível para reaprender nesta versão._",
+          );
         }
         options.value.forEach((entry, index) => {
-          const suffix = method === "TM"
-            ? ` · ${entry.itemName ?? "TM"} ×${String(entry.itemQuantity ?? 0n)}`
-            : "";
+          const suffix =
+            method === "TM"
+              ? ` · ${entry.itemName ?? "TM"} ×${String(entry.itemQuantity ?? 0n)}`
+              : "";
           lines.push(`\`${String(index + 1)}\` ${entry.displayName}${suffix}`);
         });
         if (options.value.length > 0) {
-          lines.push("", `\`/${base} #${String(pokemon.value.collectionNo)} <opção>\``,
-            "_Com quatro golpes, adicione o slot (1–4) a substituir ao final._");
+          lines.push(
+            "",
+            `\`/${base} #${String(pokemon.value.collectionNo)} <opção>\``,
+            "_Com quatro golpes, adicione o slot (1–4) a substituir ao final._",
+          );
         }
-        if (method === "TM") lines.push("Use `/comprar` em um Poké Mart para consultar ofertas publicadas.");
+        if (method === "TM")
+          lines.push("Use `/comprar` em um Poké Mart para consultar ofertas publicadas.");
         return textResult(context, lines.join("\n"));
       }
       const number = parseMenuNumber(args[1] ?? "");
       const picked = number === null ? undefined : options.value[number - 1];
       if (picked === undefined) {
-        return err(appError("VALIDATION_FAILED",
-          `Opção inexistente. Consulte \`/${base} #${String(pokemon.value.collectionNo)}\`.`));
+        return err(
+          appError(
+            "VALIDATION_FAILED",
+            `Opção inexistente. Consulte \`/${base} #${String(pokemon.value.collectionNo)}\`.`,
+          ),
+        );
       }
       const requestedSlot = args[2] === undefined ? null : parseMenuNumber(args[2]);
       if (args.length > 3 || (args[2] !== undefined && requestedSlot === null)) {
@@ -483,16 +510,22 @@ export function createProgressionWhatsAppRoutes(
         correlationId: correlation.value,
       });
       if (!taught.ok) return taught;
-      return textResult(context, [
-        "✦ *MOVIMENTO APRENDIDO*",
-        "",
-        `*${name}* aprendeu *${picked.displayName}*.`,
-        `Slot ${String(taught.value.slotNo)}${taught.value.replacedMoveId === null
-          ? " · vaga livre" : " · movimento anterior substituído"}.`,
-        method === "TM" ? "Uma TM foi consumida." : "Reaprendizado realizado sem custo.",
-        "",
-        `\`/pokemon #${String(pokemon.value.collectionNo)}\` · conferir movimentos`,
-      ].join("\n"));
+      return textResult(
+        context,
+        [
+          "✦ *MOVIMENTO APRENDIDO*",
+          "",
+          `*${name}* aprendeu *${picked.displayName}*.`,
+          `Slot ${String(taught.value.slotNo)}${
+            taught.value.replacedMoveId === null
+              ? " · vaga livre"
+              : " · movimento anterior substituído"
+          }.`,
+          method === "TM" ? "Uma TM foi consumida." : "Reaprendizado realizado sem custo.",
+          "",
+          `\`/pokemon #${String(pokemon.value.collectionNo)}\` · conferir movimentos`,
+        ].join("\n"),
+      );
     };
   const showTms = trainingMenu("TM", false);
   const teachTm = trainingMenu("TM", true);
@@ -542,16 +575,21 @@ export function createProgressionWhatsAppRoutes(
       "",
     ];
     options.forEach((option, index) => {
-      lines.push(...evolutionOptionLine(
-        option, index, pokemon.value.collectionNo,
-        hasAmbiguousManualEvolution(options, option),
-      ));
+      lines.push(
+        ...evolutionOptionLine(
+          option,
+          index,
+          pokemon.value.collectionNo,
+          hasAmbiguousManualEvolution(options, option),
+        ),
+      );
       if (index < options.length - 1) lines.push("");
     });
-    const overdue = options.filter((option) =>
-      option.triggerKind === "LEVEL" &&
-      option.requiredLevel !== null &&
-      pokemon.value.level >= option.requiredLevel
+    const overdue = options.filter(
+      (option) =>
+        option.triggerKind === "LEVEL" &&
+        option.requiredLevel !== null &&
+        pokemon.value.level >= option.requiredLevel,
     );
     if (overdue.length > 0) {
       lines.push(
@@ -587,15 +625,22 @@ export function createProgressionWhatsAppRoutes(
     const owned = await ownedReader.call(dependencies.reads, resolved.value.playerId);
     const pokemon = resolveOwnedPokemonReference(owned, commandArgs(context).join(" "));
     if (!pokemon.ok) return pokemon;
-    const options = await optionsReader.call(dependencies.reads,
-      resolved.value.playerId, pokemon.value.pokemonInstanceId);
-    const eligible = options.filter((option) =>
-      option.triggerKind === "LEVEL" &&
-      option.requiredLevel !== null &&
-      pokemon.value.level >= option.requiredLevel);
+    const options = await optionsReader.call(
+      dependencies.reads,
+      resolved.value.playerId,
+      pokemon.value.pokemonInstanceId,
+    );
+    const eligible = options.filter(
+      (option) =>
+        option.triggerKind === "LEVEL" &&
+        option.requiredLevel !== null &&
+        pokemon.value.level >= option.requiredLevel,
+    );
     if (eligible.length === 0) {
-      return textResult(context,
-        "◇ *EVOLUÇÃO EM DIA*\n\nNão há evolução por nível atrasada para este Pokémon.");
+      return textResult(
+        context,
+        "◇ *EVOLUÇÃO EM DIA*\n\nNão há evolução por nível atrasada para este Pokémon.",
+      );
     }
     // Multiple LEVEL entries may be mutually exclusive by Attack/Defense.
     // Do not pick one in the UI: canonical DB evaluates current stats and
@@ -612,14 +657,17 @@ export function createProgressionWhatsAppRoutes(
       correlationId: correlation.value,
     });
     if (!result.ok) return progressionFailureResult(result.error);
-    return textResult(context, [
-      "✦ *EVOLUÇÃO REGULARIZADA*",
-      "",
-      `*${pokemon.value.nickname ?? pokemon.value.displayName}* evoluiu para a forma elegível pelo catálogo.`,
-      "",
-      "Nenhum XP adicional foi necessário. Nenhum item foi consumido.",
-      `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atualizada`,
-    ].join("\n"));
+    return textResult(
+      context,
+      [
+        "✦ *EVOLUÇÃO REGULARIZADA*",
+        "",
+        `*${pokemon.value.nickname ?? pokemon.value.displayName}* evoluiu para a forma elegível pelo catálogo.`,
+        "",
+        "Nenhum XP adicional foi necessário. Nenhum item foi consumido.",
+        `\`/pokemon #${String(pokemon.value.collectionNo)}\` · ficha atualizada`,
+      ].join("\n"),
+    );
   };
 
   const evolve: Handler = async (context) => {
@@ -739,7 +787,11 @@ export function createProgressionWhatsAppRoutes(
 
   return [
     { command: "golpes", aliases: ["movimentos"], handler: new FunctionalHandler(pendingMoves) },
-    { command: "aprendizados", aliases: ["learnset"], handler: new FunctionalHandler(learnsetGuide) },
+    {
+      command: "aprendizados",
+      aliases: ["learnset"],
+      handler: new FunctionalHandler(learnsetGuide),
+    },
     { command: "tms", handler: new FunctionalHandler(showTms) },
     { command: "ensinar", handler: new FunctionalHandler(teachTm), rateLimitClass: "SENSITIVE" },
     { command: "reaprender", handler: new FunctionalHandler(relearn), rateLimitClass: "SENSITIVE" },

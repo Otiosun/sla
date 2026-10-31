@@ -22,16 +22,19 @@ export class IncidentalGameGroupAdmission {
     readonly chatRef: string;
     readonly playerId: PlayerId;
   }): Promise<boolean> {
-    if (input.provider !== "baileys" ||
-        !/^[0-9]+@g\.us$/u.test(input.chatRef)) return false;
+    if (input.provider !== "baileys" || !/^[0-9]+@g\.us$/u.test(input.chatRef)) return false;
     try {
       const group = await this.community.resolveChat({
         provider: input.provider,
         chatRef: input.chatRef,
       });
-      if (!group.known || group.role !== "GAME" ||
-          !group.capabilities.includes("world") ||
-          !group.capabilities.includes("player.basic")) return false;
+      if (
+        !group.known ||
+        group.role !== "GAME" ||
+        !group.capabilities.includes("world") ||
+        !group.capabilities.includes("player.basic")
+      )
+        return false;
       const player = await this.access.load(input.playerId);
       return player.playerId === input.playerId && player.status === "ACTIVE";
     } catch {

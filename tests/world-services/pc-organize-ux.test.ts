@@ -12,7 +12,9 @@ const playerId = createPlayerId();
 const pokemonInstanceId = createPokemonInstanceId();
 const otherPokemonId = createPokemonInstanceId();
 const session = {
-  sessionId: randomUUID(), playerId, revision: 1n,
+  sessionId: randomUUID(),
+  playerId,
+  revision: 1n,
 } as WorldServiceSessionRecord;
 
 function context(text: string): MessageHandlerContext {
@@ -22,37 +24,52 @@ function context(text: string): MessageHandlerContext {
     causationId: randomUUID(),
     idempotencyKey: `test:${randomUUID()}`,
     message: {
-      provider: "baileys", externalMessageId: randomUUID(), senderRef: "5599999999001",
-      chatRef: "test@g.us", occurredAt: "2026-10-28T12:00:00-03:00",
-      text, mediaRefs: [], replyToExternalMessageId: "quoted-message",
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef: "5599999999001",
+      chatRef: "test@g.us",
+      occurredAt: "2026-10-28T12:00:00-03:00",
+      text,
+      mediaRefs: [],
+      replyToExternalMessageId: "quoted-message",
     },
   } as MessageHandlerContext;
 }
 
 function fixture() {
   const pokemon = {
-    pokemonInstanceId, displayName: "Pidgey", level: 8,
-    placementKind: "BOX" as const, boxNo: 1, slotNo: 1,
+    pokemonInstanceId,
+    displayName: "Pidgey",
+    level: 8,
+    placementKind: "BOX" as const,
+    boxNo: 1,
+    slotNo: 1,
   };
   const otherPokemon = {
-    pokemonInstanceId: otherPokemonId, displayName: "Geodude", level: 9,
-    placementKind: "BOX" as const, boxNo: 1, slotNo: 6,
+    pokemonInstanceId: otherPokemonId,
+    displayName: "Geodude",
+    level: 9,
+    placementKind: "BOX" as const,
+    boxNo: 1,
+    slotNo: 6,
   };
   const organize = vi.fn();
   const storage = {
-    getStorage: async () => ok({
-      playerId, team: [],
-      boxes: [
-        { boxNo: 1, occupied: 2, capacity: 30 as const, pokemon: [pokemon, otherPokemon] },
-      ],
-    }),
+    getStorage: async () =>
+      ok({
+        playerId,
+        team: [],
+        boxes: [{ boxNo: 1, occupied: 2, capacity: 30 as const, pokemon: [pokemon, otherPokemon] }],
+      }),
     organize,
   } as unknown as PokemonPcStorageService;
   async function select(text: string) {
     return resolvePokemonPcOrganizeReply({
-      context: context(text), session,
+      context: context(text),
+      session,
       promptKey: pcOrganizeDestinationPromptSuffix(pokemonInstanceId),
-      text, pcStorage: storage,
+      text,
+      pcStorage: storage,
     });
   }
   return { select, organize };
