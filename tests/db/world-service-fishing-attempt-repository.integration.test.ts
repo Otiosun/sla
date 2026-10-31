@@ -3,6 +3,8 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
+import { ManualClock } from "../../src/platform/clock/index.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = (() => {
@@ -342,4 +344,61 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
       expect(count.rows[0]?.count).toBe("0");
     }
   });
+  it("ROLLS BACK the daily cast when the published rarity table cannot create a canonical encounter", async () => {
+    const playerId = await playerAt(fishingAreaId);
+    const atomicRepo = new PostgresFishingAttemptRepository(pool, {
+      seedProvider: new AesEncounterSeedProvider(
+        Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+      ),
+      clock: new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
+      feature: {enabled:true, reason:null},
+    });
+    const failed=await atomicRepo.reserveAndResolve({
+      playerId,idempotencyKey:"fish-rollback-invalid-published-table",roll:16,
+    });
+    expect(failed.ok).toBe(false);
+    const empty=await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
+      [playerId],
+    );
+    expect(empty.rows[0]?.count).toBe("0");
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM encounters WHERE player_id=$1",
+      [playerId],
+    )).rows[0]?.count).toBe("0");
+
+    // The exact same user action is retryable after the failed transaction.
+    // A new no-bite roll can be stored as attempt 1 rather than consuming 2.
+    const later=await atomicRepo.reserveAndResolve({
+      playerId,idempotencyKey:"fish-rollback-invalid-published-table",roll:9,
+    });
+    expect(later).toMatchObject({
+      ok:true,value:{reservation:{kind:"RESERVED",attemptNo:1,roll:9},encounter:null},
+    });
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
+      [playerId],
+    )).rows[0]?.count).toBe("1");
+  });
+
+  it("atomically replays no-bite fishing without taking a sixth quota or new encounter", async () => {
+    const playerId=await playerAt(fishingAreaId);
+    const repo=new PostgresFishingAttemptRepository(pool, {
+      seedProvider:new AesEncounterSeedProvider(Buffer.alloc(32,0xb1),1,()=>Buffer.alloc(32,0xb2)),
+      clock:new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
+      feature:{enabled:true,reason:null},
+    });
+    const input={playerId,idempotencyKey:"fish-atomic-replay",roll:8};
+    const results=await Promise.all(Array.from({length:6},()=>repo.reserveAndResolve(input)));
+    expect(results.every(x=>x.ok)).toBe(true);
+    expect(results.filter(x=>x.ok && x.value.reservation.kind==="RESERVED" &&
+      !x.value.reservation.replayed)).toHaveLength(1);
+    expect(results.filter(x=>x.ok && x.value.reservation.kind==="RESERVED" &&
+      x.value.reservation.replayed)).toHaveLength(5);
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
+      [playerId],
+    )).rows[0]?.count).toBe("1");
+  });
+
 });
