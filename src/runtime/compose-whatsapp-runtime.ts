@@ -283,10 +283,17 @@ export function createOperationalMessagingComposition(
         );
   const captureBalls = new PostgresCaptureBallReader(pool);
   const fishing =
-    encounterWriter === undefined
+    encounterWriter === undefined || encounterRngConfig === null
       ? undefined
       : new FishingService(
-          new PostgresFishingAttemptRepository(pool),
+          new PostgresFishingAttemptRepository(pool, {
+            seedProvider: new AesEncounterSeedProvider(
+              encounterRngConfig.encryptionKey,
+              encounterRngConfig.encryptionKeyVersion,
+            ),
+            clock,
+            feature: { enabled: true, reason: null },
+          }),
           encounterWriter,
           new CryptoRandomSource(),
         );
