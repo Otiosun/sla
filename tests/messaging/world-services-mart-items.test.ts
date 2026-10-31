@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
+import { MART_CATALOG } from "../../src/modules/world-services/mart-catalog.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
@@ -53,6 +54,13 @@ describe("Poké Mart read-only items command", () => {
         ),
       },
       world: { getLocation: vi.fn() },
+      martAvailability: {
+        listPublishedOffers: vi.fn(async () => MART_CATALOG.map((item) => ({
+          offerKey: item.offerKey,
+          itemQuantity: 1n,
+          priceAmount: item.unitPrice,
+        }))),
+      },
       sessions: {
         openVisit: vi.fn(),
         loadActiveSession: vi.fn(async () => ok(session())),
