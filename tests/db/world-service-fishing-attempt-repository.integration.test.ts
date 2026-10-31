@@ -406,4 +406,39 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
     )).rows[0]?.count).toBe("1");
   });
 
+  it("resets exactly at the configured calendar midnight, not the PostgreSQL UTC date", async () => {
+    const playerId = await playerAt(fishingAreaId);
+    const clock = new ManualClock(new Date("2026-10-31T02:59:59.000Z"));
+    const zoned = new PostgresFishingAttemptRepository(pool, {
+      clock,
+      fishingDayTimeZone: "America/Recife", // proof fixture, NOT an approved world policy
+    });
+    const before = Array.from({length:5},(_,n)=>zoned.reserveAttempt({
+      playerId, idempotencyKey:`boundary-${n}`, roll:9,
+    }));
+    const used = await Promise.all(before);
+    expect(used.map(x=>x.kind==="RESERVED"?x.attemptNo:null)).toEqual([1,2,3,4,5]);
+    expect(await zoned.reserveAttempt({
+      playerId,idempotencyKey:"boundary-sixth",roll:9,
+    })).toMatchObject({kind:"DAILY_LIMIT_REACHED"});
+
+    // Same message still replays its persisted outcome after the day changed.
+    clock.advanceMs(1000);
+    expect(await zoned.reserveAttempt({
+      playerId,idempotencyKey:"boundary-0",roll:20,
+    })).toMatchObject({kind:"RESERVED",replayed:true,attemptNo:1,roll:9});
+    expect(await zoned.reserveAttempt({
+      playerId,idempotencyKey:"boundary-new-day",roll:9,
+    })).toMatchObject({kind:"RESERVED",replayed:false,attemptNo:1,remainingAttempts:4});
+    const rows=await pool.query<{fishing_day:string;n:string}>(
+      `SELECT fishing_day::text AS fishing_day,count(*)::text AS n
+       FROM fishing_attempts WHERE player_id=$1 GROUP BY fishing_day ORDER BY fishing_day`,
+      [playerId],
+    );
+    expect(rows.rows).toEqual([
+      {fishing_day:"2026-10-30",n:"5"},
+      {fishing_day:"2026-10-31",n:"1"},
+    ]);
+  });
+
 });
