@@ -32,8 +32,6 @@ jobs:
           & git -C $good remote add origin 'https://github.com/Otiosun/sla.git'
           & git -C $wrong remote add origin 'https://github.com/Otiosun/meu-bot-rpg.git'
           $missing = (& pwsh -NoProfile -NonInteractive -File $script 2>&1 | Out-String)
-          Write-Output ('MISSING_CASE_EXIT=' + $LASTEXITCODE)
-          Write-Output ('MISSING_CASE_TEXT=' + $missing)
           if ($LASTEXITCODE -ne 1 -or !$missing.Contains('EXPLICIT_BOT_DIRECTORY_REQUIRED')) {
             throw 'Missing explicit directory was not rejected'
           }
