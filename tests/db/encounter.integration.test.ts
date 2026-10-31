@@ -1404,6 +1404,7 @@ describe("encounter PostgreSQL integration", () => {
       ),
       clock:new ManualClock(FIXED_NOW),
       feature:FEATURE_ENABLED,
+      fishingDayTimeZone:"Etc/UTC",
     });
     const fakeStandalone={
       createOrReplay:async()=>{throw new Error("Standalone encounter must not be called")},
