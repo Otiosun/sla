@@ -39,14 +39,16 @@ export class ManualPremiumDeliveryService {
     private readonly entitlements: Pick<EntitlementService, "grant">,
   ) {}
 
-  public async catalog(): Promise<readonly {
-    sku: string;
-    title: string;
-    maxQuantity: number;
-    entitlementKey: string;
-    grantModel: "PERMANENT" | "TIMED";
-    durationSecondsPerUnit: number | null;
-  }[]> {
+  public async catalog(): Promise<
+    readonly {
+      sku: string;
+      title: string;
+      maxQuantity: number;
+      entitlementKey: string;
+      grantModel: "PERMANENT" | "TIMED";
+      durationSecondsPerUnit: number | null;
+    }[]
+  > {
     const rows = await this.pool.query<CatalogRow>(
       `SELECT sku, title, max_quantity,
               fulfillment_payload->>'entitlementKey' AS entitlement_key,
@@ -62,13 +64,16 @@ export class ManualPremiumDeliveryService {
        ORDER BY sku`,
     );
     return rows.rows
-      .filter((row) =>
-        row.entitlement_key && /^[A-Z0-9][A-Z0-9_.:-]{1,127}$/.test(row.entitlement_key) &&
-        row.max_quantity >= 1 && row.max_quantity <= 99 &&
-        (row.grant_model === "PERMANENT" ||
-          (Number.isSafeInteger(row.duration_seconds_per_unit) &&
-            (row.duration_seconds_per_unit ?? 0) > 0 &&
-            (row.duration_seconds_per_unit ?? 0) <= MAX_DURATION_SECONDS)),
+      .filter(
+        (row) =>
+          row.entitlement_key &&
+          /^[A-Z0-9][A-Z0-9_.:-]{1,127}$/.test(row.entitlement_key) &&
+          row.max_quantity >= 1 &&
+          row.max_quantity <= 99 &&
+          (row.grant_model === "PERMANENT" ||
+            (Number.isSafeInteger(row.duration_seconds_per_unit) &&
+              (row.duration_seconds_per_unit ?? 0) > 0 &&
+              (row.duration_seconds_per_unit ?? 0) <= MAX_DURATION_SECONDS)),
       )
       .map((row) => ({
         sku: row.sku,
@@ -80,17 +85,19 @@ export class ManualPremiumDeliveryService {
       }));
   }
 
-  public async history(playerId: string): Promise<readonly {
-    id: string;
-    entitlementKey: string;
-    durationSeconds: number | null;
-    actorPrincipalId: string;
-    requestId: string;
-    sku: string;
-    quantity: number;
-    reason: string;
-    createdAt: string;
-  }[]> {
+  public async history(playerId: string): Promise<
+    readonly {
+      id: string;
+      entitlementKey: string;
+      durationSeconds: number | null;
+      actorPrincipalId: string;
+      requestId: string;
+      sku: string;
+      quantity: number;
+      reason: string;
+      createdAt: string;
+    }[]
+  > {
     const rows = await this.pool.query<HistoryRow>(
       `SELECT id, entitlement_key, duration_seconds::text, actor_id,
               idempotency_key, metadata, created_at
@@ -119,11 +126,12 @@ export class ManualPremiumDeliveryService {
     if (!item) return { kind: "PRODUCT_UNAVAILABLE" } as const;
     if (input.quantity > item.maxQuantity) return { kind: "QUANTITY_LIMIT" } as const;
 
-    const durationSeconds = item.grantModel === "TIMED"
-      ? (item.durationSecondsPerUnit ?? 0) * input.quantity
-      : null;
-    if (durationSeconds !== null &&
-        (!Number.isSafeInteger(durationSeconds) || durationSeconds > MAX_DURATION_SECONDS)) {
+    const durationSeconds =
+      item.grantModel === "TIMED" ? (item.durationSecondsPerUnit ?? 0) * input.quantity : null;
+    if (
+      durationSeconds !== null &&
+      (!Number.isSafeInteger(durationSeconds) || durationSeconds > MAX_DURATION_SECONDS)
+    ) {
       return { kind: "DURATION_LIMIT" } as const;
     }
     // Grant is atomically idempotent in PostgreSQL. Reuse requestId on a retry,

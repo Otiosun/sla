@@ -40,9 +40,10 @@ export interface ExecuteSearchActionInput {
   readonly expeditionId: string;
   readonly expectedRevision: bigint;
   readonly idempotencyKey: string;
-  readonly effect: (client: PoolClient, expedition: ExpeditionSnapshot) => Promise<
-    Result<{ readonly effectRef: string }>
-  >;
+  readonly effect: (
+    client: PoolClient,
+    expedition: ExpeditionSnapshot,
+  ) => Promise<Result<{ readonly effectRef: string }>>;
 }
 
 class AbortedSearchAction extends Error {
@@ -159,7 +160,12 @@ async function lockedPlayer(client: PoolClient, playerId: PlayerId): Promise<Res
   );
   return player.rows[0]?.status === "ACTIVE" && player.rows[0]?.onboarding_complete === true
     ? ok(undefined)
-    : err(appError("PLAYER_INELIGIBLE", "Only active trainers with completed onboarding may start or change an expedition"));
+    : err(
+        appError(
+          "PLAYER_INELIGIBLE",
+          "Only active trainers with completed onboarding may start or change an expedition",
+        ),
+      );
 }
 
 async function replay(
@@ -318,7 +324,12 @@ export class PostgresExpeditionRepository {
       );
       const areaId = location.rows[0]?.area_id;
       if (areaId === undefined) {
-        return err(appError("FLOW_BLOCKED", "A verified trainer location in the ACTIVE PUBLISHED content release is required"));
+        return err(
+          appError(
+            "FLOW_BLOCKED",
+            "A verified trainer location in the ACTIVE PUBLISHED content release is required",
+          ),
+        );
       }
       const expeditionId = randomUUID();
       await client.query(
@@ -431,20 +442,21 @@ export class PostgresExpeditionRepository {
         const old = prior.rows[0];
         if (old !== undefined) {
           if (old.fingerprint !== inputFingerprint) {
-            return err(appError("IDEMPOTENCY_KEY_INVALID", "Expedition key reused for different action"));
+            return err(
+              appError("IDEMPOTENCY_KEY_INVALID", "Expedition key reused for different action"),
+            );
           }
-          if (typeof old.result.effectRef !== "string" ||
-            old.result.effectRef.length === 0) {
-            return err(appError("INVALID_STATE_TRANSITION", "Search receipt has no durable effect"));
+          if (typeof old.result.effectRef !== "string" || old.result.effectRef.length === 0) {
+            return err(
+              appError("INVALID_STATE_TRANSITION", "Search receipt has no durable effect"),
+            );
           }
           return ok({
             ...restore(old.result, true),
             effectRef: old.result.effectRef,
           });
         }
-        const original = await lockedExpedition(
-          client, input.playerId, input.expeditionId,
-        );
+        const original = await lockedExpedition(client, input.playerId, input.expeditionId);
         if (original === null) return unavailable();
 
         // Recheck World location and the published launch scope under the
@@ -490,16 +502,24 @@ export class PostgresExpeditionRepository {
         const effect = await input.effect(client, original);
         if (!effect.ok) throw new AbortedSearchAction(effect.error);
         const effectRef = effect.value.effectRef;
-        if (typeof effectRef !== "string" ||
-          !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,199}$/u.test(effectRef)) {
+        if (
+          typeof effectRef !== "string" ||
+          !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,199}$/u.test(effectRef)
+        ) {
           throw new AbortedSearchAction(
             appError("VALIDATION_FAILED", "Search effect must return a durable reference"),
           );
         }
         await persistSnapshot(client, transition.value.expedition, original.revision);
         const written = await writeReceipt(
-          client, input.playerId, input.idempotencyKey, input.expeditionId,
-          "ACTION_SEARCH_FREE", inputFingerprint, transition.value, effectRef,
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          input.expeditionId,
+          "ACTION_SEARCH_FREE",
+          inputFingerprint,
+          transition.value,
+          effectRef,
         );
         return ok({ ...written, effectRef });
       });
@@ -540,10 +560,17 @@ export class PostgresExpeditionRepository {
       if (transition.value.changed) {
         await persistSnapshot(client, transition.value.expedition, original.revision);
       }
-      return ok(await writeReceipt(
-        client, input.playerId, input.idempotencyKey, input.expeditionId,
-        "CHANGE_PERIOD", inputFingerprint, transition.value,
-      ));
+      return ok(
+        await writeReceipt(
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          input.expeditionId,
+          "CHANGE_PERIOD",
+          inputFingerprint,
+          transition.value,
+        ),
+      );
     });
   }
 

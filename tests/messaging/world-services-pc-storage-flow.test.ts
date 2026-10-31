@@ -205,5 +205,4 @@ describe("Pokemon PC WhatsApp storage reads", () => {
     expect(result.value.outgoing[0]?.payload.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢");
     expect(result.value.outgoing[0]?.payload.worldServicePrompt).toBeUndefined();
   });
-
 });

@@ -4,7 +4,8 @@ import { z } from "zod";
 import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
-  SearchOutcomeDecision, SearchOutcomePolicy,
+  SearchOutcomeDecision,
+  SearchOutcomePolicy,
 } from "./expedition-search-outcome-effect.js";
 
 /**
@@ -14,12 +15,14 @@ import type {
  *
  * The table exists only in db/drafts. No WhatsApp handler invokes this policy.
  */
-const weightsSchema = z.object({
-  NO_SIGNAL: z.number().int().min(0).max(10_000),
-  TRAIL: z.number().int().min(0).max(10_000),
-  INCIDENTAL: z.number().int().min(0).max(10_000),
-  DIRECT: z.number().int().min(0).max(10_000),
-}).strict();
+const weightsSchema = z
+  .object({
+    NO_SIGNAL: z.number().int().min(0).max(10_000),
+    TRAIL: z.number().int().min(0).max(10_000),
+    INCIDENTAL: z.number().int().min(0).max(10_000),
+    DIRECT: z.number().int().min(0).max(10_000),
+  })
+  .strict();
 
 export type SearchOutcomeWeights = z.infer<typeof weightsSchema>;
 const ORDER = ["NO_SIGNAL", "TRAIL", "INCIDENTAL", "DIRECT"] as const;
@@ -68,9 +71,11 @@ export class PublishedSearchOutcomePolicy implements SearchOutcomePolicy {
     client: PoolClient,
     expedition: ExpeditionSnapshot,
   ): Promise<Result<SearchOutcomeDecision>> {
-    if (!["DAY", "NIGHT"].includes(expedition.period) ||
-        !["PREPARING", "ACTIVE"].includes(expedition.phase) ||
-        expedition.revision < 0n) {
+    if (
+      !["DAY", "NIGHT"].includes(expedition.period) ||
+      !["PREPARING", "ACTIVE"].includes(expedition.phase) ||
+      expedition.revision < 0n
+    ) {
       return err(appError("FLOW_BLOCKED", "No eligible expedition for outcome selection"));
     }
     const policies = await client.query<PolicyRow>(
@@ -89,20 +94,30 @@ export class PublishedSearchOutcomePolicy implements SearchOutcomePolicy {
       [expedition.areaId, expedition.period],
     );
     if (policies.rows.length !== 1) {
-      return err(appError("FLOW_BLOCKED", "No approved published search-outcome policy for this area"));
+      return err(
+        appError("FLOW_BLOCKED", "No approved published search-outcome policy for this area"),
+      );
     }
     const row = policies.rows[0];
-    if (!row || !z.string().uuid().safeParse(row.policy_id).success ||
-        !z.string().uuid().safeParse(row.release_id).success) {
+    if (
+      !row ||
+      !z.string().uuid().safeParse(row.policy_id).success ||
+      !z.string().uuid().safeParse(row.release_id).success
+    ) {
       return err(appError("FLOW_BLOCKED", "Invalid published outcome-policy reference"));
     }
     const fields = [
-      "solo-expedition-search-outcome-v1", row.release_id, row.policy_id,
-      expedition.playerId, expedition.expeditionId, expedition.areaId,
-      expedition.period, expedition.revision.toString(),
+      "solo-expedition-search-outcome-v1",
+      row.release_id,
+      row.policy_id,
+      expedition.playerId,
+      expedition.expeditionId,
+      expedition.areaId,
+      expedition.period,
+      expedition.revision.toString(),
     ];
     const digest = createHmac("sha256", this.serverSecret)
-      .update(fields.map(s => s.length + ":" + s).join("|"), "utf8")
+      .update(fields.map((s) => s.length + ":" + s).join("|"), "utf8")
       .digest("hex");
     // 256-bit rejection sampling avoids a modulo bias even in theory.
     const max = 1n << 256n;
@@ -115,8 +130,12 @@ export class PublishedSearchOutcomePolicy implements SearchOutcomePolicy {
       if (attempt > 16) {
         return err(appError("FLOW_BLOCKED", "Outcome RNG could not draw a safe sample"));
       }
-      value = BigInt("0x" + createHmac("sha256", this.serverSecret)
-        .update(digest + ":" + attempt, "utf8").digest("hex"));
+      value = BigInt(
+        "0x" +
+          createHmac("sha256", this.serverSecret)
+            .update(digest + ":" + attempt, "utf8")
+            .digest("hex"),
+      );
     }
     return choosePublishedSearchOutcome(row.weights, Number(value % total));
   }

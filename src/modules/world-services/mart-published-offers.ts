@@ -28,14 +28,18 @@ export function purchasableMartItems(
   }
   // Additional published items (evolution stones, TMs, event-supplies) must
   // use the catalog's own display names. Never generate a fictional item.
-  const dynamic = [...unique.values()].filter((entry) =>
-    typeof entry.displayName === "string" && entry.displayName.trim().length > 0);
+  const dynamic = [...unique.values()].filter(
+    (entry) => typeof entry.displayName === "string" && entry.displayName.trim().length > 0,
+  );
   dynamic.sort((a, b) => a.offerKey.localeCompare(b.offerKey));
   const custom: MartCatalogItem[] = dynamic.map((entry, index) => {
     const kind = (entry.itemKind ?? "").toUpperCase();
-    const category = kind === "TM" || kind === "MACHINE"
-      ? "TM" as const : kind === "EVOLUTION" || kind === "EVOLUTION_STONE"
-        ? "EVOLUTION" as const : "OTHER" as const;
+    const category =
+      kind === "TM" || kind === "MACHINE"
+        ? ("TM" as const)
+        : kind === "EVOLUTION" || kind === "EVOLUTION_STONE"
+          ? ("EVOLUTION" as const)
+          : ("OTHER" as const);
     return {
       code: String(MART_CATALOG.length + index + 1).padStart(2, "0"),
       offerKey: entry.offerKey,

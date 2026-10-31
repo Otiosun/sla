@@ -23,15 +23,20 @@ try {
 } catch {
   throw new Error("A valid disposable DATABASE_URL is required");
 }
-if (!permission || process.env.APP_ENV !== "test" ||
-    localUrl.pathname !== "/pokemon_rpg_test" ||
-    !["localhost", "127.0.0.1", "::1"].includes(localUrl.hostname) ||
-    !["postgres:", "postgresql:"].includes(localUrl.protocol)) {
+if (
+  !permission ||
+  process.env.APP_ENV !== "test" ||
+  localUrl.pathname !== "/pokemon_rpg_test" ||
+  !["localhost", "127.0.0.1", "::1"].includes(localUrl.hostname) ||
+  !["postgres:", "postgresql:"].includes(localUrl.protocol)
+) {
   throw new Error("Only explicitly enabled loopback disposable PostgreSQL may be audited");
 }
 const apply = process.argv.includes("--apply");
 if (apply && process.env.STAGE2_RECONCILE_DISPOSABLE_APPLY !== "CONFIRMED_TEST_ONLY") {
-  throw new Error("Applying compensation requires STAGE2_RECONCILE_DISPOSABLE_APPLY=CONFIRMED_TEST_ONLY");
+  throw new Error(
+    "Applying compensation requires STAGE2_RECONCILE_DISPOSABLE_APPLY=CONFIRMED_TEST_ONLY",
+  );
 }
 
 interface SourceRow {
@@ -51,12 +56,16 @@ function parseLevelRule(config: unknown): {
   if (typeof config !== "object" || config === null) return null;
   const data = config as Record<string, unknown>;
   const level = data.level ?? data.minimumLevel;
-  if (typeof level !== "number" || !Number.isInteger(level) || level < 2 || level > 100) return null;
+  if (typeof level !== "number" || !Number.isInteger(level) || level < 2 || level > 100)
+    return null;
   const relative = data.relativePhysicalStats;
   if (
-    relative !== undefined && relative !== "ATTACK_GT_DEFENSE" &&
-    relative !== "ATTACK_LT_DEFENSE" && relative !== "ATTACK_EQ_DEFENSE"
-  ) return null;
+    relative !== undefined &&
+    relative !== "ATTACK_GT_DEFENSE" &&
+    relative !== "ATTACK_LT_DEFENSE" &&
+    relative !== "ATTACK_EQ_DEFENSE"
+  )
+    return null;
   return {
     level,
     relativePhysicalStats: relative === undefined ? null : relative,
@@ -92,8 +101,12 @@ try {
   }
   const summary = {
     mode: apply ? "DISPOSABLE_APPLY" : "DRY_RUN",
-    candidatesReviewed: 0, eligibleForReview: 0, needsStatsReview: 0,
-    ambiguous: 0, corrected: 0, errors: 0,
+    candidatesReviewed: 0,
+    eligibleForReview: 0,
+    needsStatsReview: 0,
+    ambiguous: 0,
+    corrected: 0,
+    errors: 0,
   };
   const progression = new ProgressionService(new PostgresProgressionRepository(pool));
   for (const group of grouped.values()) {
@@ -103,7 +116,10 @@ try {
     let invalidRules = false;
     for (const row of group) {
       const config = parseLevelRule(row.trigger_config);
-      if (config === null) { invalidRules = true; continue; }
+      if (config === null) {
+        invalidRules = true;
+        continue;
+      }
       candidates.push({
         targetFormId: row.target_form_id,
         requiredLevel: config.level,
@@ -116,8 +132,14 @@ try {
       continue;
     }
     const finding = auditOverdueLevelEvolution({ currentLevel: current.level, candidates });
-    if (finding.state === "AMBIGUOUS") { summary.ambiguous += 1; continue; }
-    if (finding.state === "NEEDS_STAT_REVIEW") { summary.needsStatsReview += 1; continue; }
+    if (finding.state === "AMBIGUOUS") {
+      summary.ambiguous += 1;
+      continue;
+    }
+    if (finding.state === "NEEDS_STAT_REVIEW") {
+      summary.needsStatsReview += 1;
+      continue;
+    }
     if (finding.state !== "ELIGIBLE_TO_REVIEW") continue;
     summary.eligibleForReview += 1;
     if (!apply) continue;

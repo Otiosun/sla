@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { purchasableMartItems } from "../../src/modules/world-services/mart-published-offers.js";
-import { renderMartCatalog, renderMartItemSelection } from "../../src/modules/world-services/renderer.js";
+import {
+  renderMartCatalog,
+  renderMartItemSelection,
+} from "../../src/modules/world-services/renderer.js";
 
 describe("Poké Mart published-offer storefront", () => {
   it("shows only true published offers at their actual published prices", () => {
@@ -21,21 +24,33 @@ describe("Poké Mart published-offer storefront", () => {
   });
 
   it("rejects package offers not represented by the one-item checkout UI", () => {
-    expect(purchasableMartItems([
-      { offerKey: "shop.poke-ball", itemQuantity: 5n, priceAmount: 900n },
-      { offerKey: "shop.potion", itemQuantity: 1n, priceAmount: 0n },
-      { offerKey: "shop.fake-stone", itemQuantity: 1n, priceAmount: 900n },
-    ])).toEqual([]);
+    expect(
+      purchasableMartItems([
+        { offerKey: "shop.poke-ball", itemQuantity: 5n, priceAmount: 900n },
+        { offerKey: "shop.potion", itemQuantity: 1n, priceAmount: 0n },
+        { offerKey: "shop.fake-stone", itemQuantity: 1n, priceAmount: 900n },
+      ]),
+    ).toEqual([]);
     expect(renderMartCatalog([])).toContain("Nenhuma mercadoria disponível");
     expect(renderMartCatalog([])).not.toContain("› _Responda com o número da mercadoria._");
   });
 
   it("includes only real published evolution stones and TMs beyond the legacy shelf", () => {
     const items = purchasableMartItems([
-      { offerKey: "shop.tm-electric", itemQuantity: 1n, priceAmount: 1500n,
-        displayName: "TM Electric", itemKind: "TM" },
-      { offerKey: "shop.thunder-stone", itemQuantity: 1n, priceAmount: 2500n,
-        displayName: "Thunder Stone", itemKind: "EVOLUTION" },
+      {
+        offerKey: "shop.tm-electric",
+        itemQuantity: 1n,
+        priceAmount: 1500n,
+        displayName: "TM Electric",
+        itemKind: "TM",
+      },
+      {
+        offerKey: "shop.thunder-stone",
+        itemQuantity: 1n,
+        priceAmount: 2500n,
+        displayName: "Thunder Stone",
+        itemKind: "EVOLUTION",
+      },
     ]);
     expect(items).toEqual([
       expect.objectContaining({ displayName: "Thunder Stone", category: "EVOLUTION", code: "17" }),

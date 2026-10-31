@@ -1,0 +1,41 @@
+name: Release1 Isolated Formatting Candidate
+on:
+  push:
+    branches:
+      - fix/release1-formatting-20261030
+    paths:
+      - ".github/workflows/release1-isolated-formatting.yml"
+permissions:
+  contents: write
+jobs:
+  format-source-branch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          ref: fix/release1-formatting-20261030
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.23.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Format tracked source in disposable runner
+        run: pnpm exec biome format --write .
+      - name: Inspect size and commit ONLY to this isolated candidate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "fix/release1-formatting-20261030"
+          git diff --stat
+          git add -u -- src db scripts tests
+          if git diff --cached --quiet; then
+            echo "NO_FORMATTING_CHANGES"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(release): apply Biome format across isolated release candidate'
+          git push origin HEAD:refs/heads/fix/release1-formatting-20261030
+          echo "FORMATTED_BRANCH_PUSHED_NO_MERGE_NO_DEPLOY"

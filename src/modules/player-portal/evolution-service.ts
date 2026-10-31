@@ -28,8 +28,8 @@ const EvolutionRequestSchema = z
 interface PlayerPortalEvolutionDependencies {
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly profiles: Pick<PlayerStarterService, "getProfile">;
-  readonly reads: Pick<OperationalUxReadModel,
-    "activeBattleId" | "listEvolutionOptions"> & Partial<Pick<OperationalUxReadModel, "listOwnedPokemon">>;
+  readonly reads: Pick<OperationalUxReadModel, "activeBattleId" | "listEvolutionOptions"> &
+    Partial<Pick<OperationalUxReadModel, "listOwnedPokemon">>;
   readonly progression: Pick<ProgressionService, "evolvePokemon">;
 }
 
@@ -81,7 +81,10 @@ export class PlayerPortalEvolutionService {
     });
   }
 
-  public async evolve(identity: ExternalIdentity, input: unknown): Promise<Result<EvolutionResult>> {
+  public async evolve(
+    identity: ExternalIdentity,
+    input: unknown,
+  ): Promise<Result<EvolutionResult>> {
     const parsed = EvolutionRequestSchema.safeParse(input);
     const who = ExternalIdentitySchema.safeParse(identity);
     if (!parsed.success || !who.success) {
@@ -90,8 +93,12 @@ export class PlayerPortalEvolutionService {
     // Keep the original ACTION_INVALID semantics for normal LEVEL requests.
     // No client may turn an ordinary level evolution into manual use.
     if (parsed.data.trigger.kind === "LEVEL" && parsed.data.recovery !== true) {
-      return err(appError("ACTION_INVALID",
-        "A evolução por nível é automática. Apenas uma evolução já atrasada pode ser regularizada."));
+      return err(
+        appError(
+          "ACTION_INVALID",
+          "A evolução por nível é automática. Apenas uma evolução já atrasada pode ser regularizada.",
+        ),
+      );
     }
     if (parsed.data.trigger.kind !== "LEVEL" && parsed.data.recovery === true) {
       return err(appError("VALIDATION_FAILED", "Regularização não usa itens nem condições."));
@@ -122,10 +129,20 @@ export class PlayerPortalEvolutionService {
       if (current === undefined) {
         return err(appError("NOT_FOUND", "Pokémon não encontrado na conta do treinador."));
       }
-      if (!rules.some((rule) => rule.triggerKind === "LEVEL" &&
-        rule.requiredLevel !== null && current.level >= rule.requiredLevel)) {
-        return err(appError("ACTION_INVALID",
-          "Nenhuma evolução por nível atrasada; a progressão normal é automática."));
+      if (
+        !rules.some(
+          (rule) =>
+            rule.triggerKind === "LEVEL" &&
+            rule.requiredLevel !== null &&
+            current.level >= rule.requiredLevel,
+        )
+      ) {
+        return err(
+          appError(
+            "ACTION_INVALID",
+            "Nenhuma evolução por nível atrasada; a progressão normal é automática.",
+          ),
+        );
       }
       // Current stats, final target and historical idempotency are validated
       // again inside the canonical Pokémon row-locked evolution transaction.
@@ -134,9 +151,10 @@ export class PlayerPortalEvolutionService {
     const evolved = await this.dependencies.progression.evolvePokemon({
       playerId: player.value.playerId,
       pokemonInstanceId: parsed.data.pokemonInstanceId,
-      idempotencyKey: parsed.data.recovery === true
-        ? `hub.evolution-repair:${player.value.playerId}:${parsed.data.requestId}`
-        : `hub.evolution:${player.value.playerId}:${parsed.data.requestId}`,
+      idempotencyKey:
+        parsed.data.recovery === true
+          ? `hub.evolution-repair:${player.value.playerId}:${parsed.data.requestId}`
+          : `hub.evolution:${player.value.playerId}:${parsed.data.requestId}`,
       correlationId: randomUUID(),
       trigger: parsed.data.trigger,
     });
@@ -147,9 +165,11 @@ export class PlayerPortalEvolutionService {
         return err(appError("NOT_FOUND", "Pokémon não encontrado na conta do treinador."));
       case "EVOLUTION_NOT_ELIGIBLE":
       case "EVOLUTION_ITEM_MISSING":
-        return err(appError("ACTION_INVALID", evolved.error.message, {
-          progressionCode: evolved.error.code,
-        }));
+        return err(
+          appError("ACTION_INVALID", evolved.error.message, {
+            progressionCode: evolved.error.code,
+          }),
+        );
       case "PROGRESSION_IDEMPOTENCY_CONFLICT":
         return err(appError("REVISION_CONFLICT", "Esta chave já foi usada em outra evolução."));
       case "PROGRESSION_INPUT_INVALID":

@@ -291,10 +291,14 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
     const limited = attempts.filter((item) => item.kind === "DAILY_LIMIT_REACHED");
     expect(reserved).toHaveLength(5);
     expect(limited).toHaveLength(7);
-    expect(reserved.map((item) => item.kind === "RESERVED" ? item.attemptNo : -1).sort((a, b) => a - b))
-      .toEqual([1, 2, 3, 4, 5]);
-    expect(limited.every((item) => item.kind === "DAILY_LIMIT_REACHED" && item.remainingAttempts === 0))
-      .toBe(true);
+    expect(
+      reserved
+        .map((item) => (item.kind === "RESERVED" ? item.attemptNo : -1))
+        .sort((a, b) => a - b),
+    ).toEqual([1, 2, 3, 4, 5]);
+    expect(
+      limited.every((item) => item.kind === "DAILY_LIMIT_REACHED" && item.remainingAttempts === 0),
+    ).toBe(true);
 
     const persisted = await pool.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM fishing_attempts WHERE player_id = $1",
@@ -350,60 +354,87 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
   it("ROLLS BACK the daily cast when the published rarity table cannot create a canonical encounter", async () => {
     const playerId = await playerAt(fishingAreaId);
     const atomicRepo = new PostgresFishingAttemptRepository(pool, {
-      seedProvider: new AesEncounterSeedProvider(
-        Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32, 0x4c),
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
+        Buffer.alloc(32, 0x4c),
       ),
       clock: new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
-      feature: {enabled:true, reason:null},
+      feature: { enabled: true, reason: null },
       fishingDayTimeZone: "Etc/UTC",
     });
-    const failed=await atomicRepo.reserveAndResolve({
-      playerId,idempotencyKey:"fish-rollback-invalid-published-table",roll:16,
+    const failed = await atomicRepo.reserveAndResolve({
+      playerId,
+      idempotencyKey: "fish-rollback-invalid-published-table",
+      roll: 16,
     });
     expect(failed.ok).toBe(false);
-    const empty=await pool.query<{count:string}>(
+    const empty = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
       [playerId],
     );
     expect(empty.rows[0]?.count).toBe("0");
-    expect((await pool.query<{count:string}>(
-      "SELECT count(*)::text AS count FROM encounters WHERE player_id=$1",
-      [playerId],
-    )).rows[0]?.count).toBe("0");
+    expect(
+      (
+        await pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM encounters WHERE player_id=$1",
+          [playerId],
+        )
+      ).rows[0]?.count,
+    ).toBe("0");
 
     // The exact same user action is retryable after the failed transaction.
     // A new no-bite roll can be stored as attempt 1 rather than consuming 2.
-    const later=await atomicRepo.reserveAndResolve({
-      playerId,idempotencyKey:"fish-rollback-invalid-published-table",roll:9,
+    const later = await atomicRepo.reserveAndResolve({
+      playerId,
+      idempotencyKey: "fish-rollback-invalid-published-table",
+      roll: 9,
     });
     expect(later).toMatchObject({
-      ok:true,value:{reservation:{kind:"RESERVED",attemptNo:1,roll:9},encounter:null},
+      ok: true,
+      value: { reservation: { kind: "RESERVED", attemptNo: 1, roll: 9 }, encounter: null },
     });
-    expect((await pool.query<{count:string}>(
-      "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
-      [playerId],
-    )).rows[0]?.count).toBe("1");
+    expect(
+      (
+        await pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
+          [playerId],
+        )
+      ).rows[0]?.count,
+    ).toBe("1");
   });
 
   it("atomically replays no-bite fishing without taking a sixth quota or new encounter", async () => {
-    const playerId=await playerAt(fishingAreaId);
-    const repo=new PostgresFishingAttemptRepository(pool, {
-      seedProvider:new AesEncounterSeedProvider(Buffer.alloc(32,0xb1),1,()=>Buffer.alloc(32,0xb2)),
-      clock:new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
-      feature:{enabled:true,reason:null},
+    const playerId = await playerAt(fishingAreaId);
+    const repo = new PostgresFishingAttemptRepository(pool, {
+      seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xb1), 1, () =>
+        Buffer.alloc(32, 0xb2),
+      ),
+      clock: new ManualClock(new Date("2026-09-08T12:00:00.000Z")),
+      feature: { enabled: true, reason: null },
       fishingDayTimeZone: "Etc/UTC",
     });
-    const input={playerId,idempotencyKey:"fish-atomic-replay",roll:8};
-    const results=await Promise.all(Array.from({length:6},()=>repo.reserveAndResolve(input)));
-    expect(results.every(x=>x.ok)).toBe(true);
-    expect(results.filter(x=>x.ok && x.value.reservation.kind==="RESERVED" &&
-      !x.value.reservation.replayed)).toHaveLength(1);
-    expect(results.filter(x=>x.ok && x.value.reservation.kind==="RESERVED" &&
-      x.value.reservation.replayed)).toHaveLength(5);
-    expect((await pool.query<{count:string}>(
-      "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
-      [playerId],
-    )).rows[0]?.count).toBe("1");
+    const input = { playerId, idempotencyKey: "fish-atomic-replay", roll: 8 };
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => repo.reserveAndResolve(input)),
+    );
+    expect(results.every((x) => x.ok)).toBe(true);
+    expect(
+      results.filter(
+        (x) => x.ok && x.value.reservation.kind === "RESERVED" && !x.value.reservation.replayed,
+      ),
+    ).toHaveLength(1);
+    expect(
+      results.filter(
+        (x) => x.ok && x.value.reservation.kind === "RESERVED" && x.value.reservation.replayed,
+      ),
+    ).toHaveLength(5);
+    expect(
+      (
+        await pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM fishing_attempts WHERE player_id=$1",
+          [playerId],
+        )
+      ).rows[0]?.count,
+    ).toBe("1");
   });
 
   it("resets exactly at the configured calendar midnight, not the PostgreSQL UTC date", async () => {
@@ -413,33 +444,51 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
       clock,
       fishingDayTimeZone: "America/Recife", // proof fixture, NOT an approved world policy
     });
-    const before = Array.from({length:5},(_,n)=>zoned.reserveAttempt({
-      playerId, idempotencyKey:`boundary-${n}`, roll:9,
-    }));
+    const before = Array.from({ length: 5 }, (_, n) =>
+      zoned.reserveAttempt({
+        playerId,
+        idempotencyKey: `boundary-${n}`,
+        roll: 9,
+      }),
+    );
     const used = await Promise.all(before);
-    expect(used.map(x=>x.kind==="RESERVED"?x.attemptNo:null).sort((a,b)=>(a??0)-(b??0)))
-      .toEqual([1,2,3,4,5]);
-    expect(await zoned.reserveAttempt({
-      playerId,idempotencyKey:"boundary-sixth",roll:9,
-    })).toMatchObject({kind:"DAILY_LIMIT_REACHED"});
+    expect(
+      used
+        .map((x) => (x.kind === "RESERVED" ? x.attemptNo : null))
+        .sort((a, b) => (a ?? 0) - (b ?? 0)),
+    ).toEqual([1, 2, 3, 4, 5]);
+    expect(
+      await zoned.reserveAttempt({
+        playerId,
+        idempotencyKey: "boundary-sixth",
+        roll: 9,
+      }),
+    ).toMatchObject({ kind: "DAILY_LIMIT_REACHED" });
 
     // Same message still replays its persisted outcome after the day changed.
     clock.advanceMs(1000);
-    expect(await zoned.reserveAttempt({
-      playerId,idempotencyKey:"boundary-0",roll:20,
-    })).toMatchObject({kind:"RESERVED",replayed:true,attemptNo:1,roll:9});
-    expect(await zoned.reserveAttempt({
-      playerId,idempotencyKey:"boundary-new-day",roll:9,
-    })).toMatchObject({kind:"RESERVED",replayed:false,attemptNo:1,remainingAttempts:4});
-    const rows=await pool.query<{fishing_day:string;n:string}>(
+    expect(
+      await zoned.reserveAttempt({
+        playerId,
+        idempotencyKey: "boundary-0",
+        roll: 20,
+      }),
+    ).toMatchObject({ kind: "RESERVED", replayed: true, attemptNo: 1, roll: 9 });
+    expect(
+      await zoned.reserveAttempt({
+        playerId,
+        idempotencyKey: "boundary-new-day",
+        roll: 9,
+      }),
+    ).toMatchObject({ kind: "RESERVED", replayed: false, attemptNo: 1, remainingAttempts: 4 });
+    const rows = await pool.query<{ fishing_day: string; n: string }>(
       `SELECT fishing_day::text AS fishing_day,count(*)::text AS n
        FROM fishing_attempts WHERE player_id=$1 GROUP BY fishing_day ORDER BY fishing_day`,
       [playerId],
     );
     expect(rows.rows).toEqual([
-      {fishing_day:"2026-10-30",n:"5"},
-      {fishing_day:"2026-10-31",n:"1"},
+      { fishing_day: "2026-10-30", n: "5" },
+      { fishing_day: "2026-10-31", n: "1" },
     ]);
   });
-
 });

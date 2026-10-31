@@ -117,7 +117,10 @@ interface PlayerPortalHttpDependencies {
   >;
   readonly adminMutations: PlayerPortalAdminMutationAccess;
   readonly premiumDelivery?: Pick<ManualPremiumDeliveryService, "catalog" | "history" | "deliver">;
-  readonly premiumCases?: Pick<PremiumDeliveryCaseService, "catalog" | "list" | "timeline" | "open" | "advance">;
+  readonly premiumCases?: Pick<
+    PremiumDeliveryCaseService,
+    "catalog" | "list" | "timeline" | "open" | "advance"
+  >;
   readonly premiumRead?: {
     readonly orders: Pick<PremiumOrderService, "listPlayerOrders">;
     readonly entitlements: Pick<EntitlementService, "listPlayerEntitlements">;
@@ -137,42 +140,65 @@ export class PlayerPortalHttpHandler {
       return this.withSession(request, (identity) => this.getSelf(identity));
     }
     // Human-operated support cases are NEVER automatic grants or payment approvals.
-    if (url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
-        request.method === "GET" && !url.search) {
+    if (
+      url.pathname === "/v1/hub/admin/premium/delivery/cases/catalog" &&
+      request.method === "GET" &&
+      !url.search
+    ) {
       return this.withSession(request, (identity) =>
         this.manualPremiumCase(request, identity, "catalog"),
       );
     }
-    if (url.pathname === "/v1/hub/admin/premium/delivery/cases" &&
-        ((request.method === "POST" && !url.search) ||
-         (request.method === "GET" && url.searchParams.size === 1 && url.searchParams.has("playerId")))) {
+    if (
+      url.pathname === "/v1/hub/admin/premium/delivery/cases" &&
+      ((request.method === "POST" && !url.search) ||
+        (request.method === "GET" &&
+          url.searchParams.size === 1 &&
+          url.searchParams.has("playerId")))
+    ) {
       return this.withSession(request, (identity) =>
-        this.manualPremiumCase(request, identity, request.method === "POST" ? "open" : "list",
-          url.searchParams.get("playerId") ?? undefined),
+        this.manualPremiumCase(
+          request,
+          identity,
+          request.method === "POST" ? "open" : "list",
+          url.searchParams.get("playerId") ?? undefined,
+        ),
       );
     }
     const caseMatch = url.pathname.match(
       /^\/v1\/hub\/admin\/premium\/delivery\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(transition|events)$/i,
     );
-    if (caseMatch?.[1] && !url.search &&
-        ((caseMatch[2] === "transition" && request.method === "POST") ||
-         (caseMatch[2] === "events" && request.method === "GET"))) {
+    if (
+      caseMatch?.[1] &&
+      !url.search &&
+      ((caseMatch[2] === "transition" && request.method === "POST") ||
+        (caseMatch[2] === "events" && request.method === "GET"))
+    ) {
       const caseId = caseMatch[1];
       return this.withSession(request, (identity) =>
         this.manualPremiumCase(
-          request, identity, caseMatch[2] === "events" ? "timeline" : "advance", caseId,
+          request,
+          identity,
+          caseMatch[2] === "events" ? "timeline" : "advance",
+          caseId,
         ),
       );
     }
     // Commerce grants are independent of payment approvals; never infer a paid order.
-    if (request.method === "GET" && url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
-        !url.search) {
+    if (
+      request.method === "GET" &&
+      url.pathname === "/v1/hub/admin/premium/delivery/catalog" &&
+      !url.search
+    ) {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "catalog"),
       );
     }
-    if (request.method === "POST" && url.pathname === "/v1/hub/admin/premium/delivery" &&
-        !url.search) {
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/hub/admin/premium/delivery" &&
+      !url.search
+    ) {
       return this.withSession(request, (identity) =>
         this.manualPremiumDelivery(request, identity, "deliver"),
       );
@@ -366,8 +392,10 @@ export class PlayerPortalHttpHandler {
     targetId?: string,
   ): Promise<Response> {
     const admin = await this.resolvePortalAdmin(identity);
-    if (admin === null ||
-        (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+    if (
+      admin === null ||
+      (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true
+    ) {
       return jsonResponse(403, { error: "PREMIUM_CASE_FORBIDDEN" });
     }
     const cases = this.dependencies.premiumCases;
@@ -396,7 +424,8 @@ export class PlayerPortalHttpHandler {
           );
         }
         return jsonResponse(result.replayed ? 200 : 201, {
-          replayed: result.replayed, case: result.case,
+          replayed: result.replayed,
+          case: result.case,
         });
       }
       const parsed = AdvancePremiumDeliveryCaseSchema.safeParse(input);
@@ -466,8 +495,10 @@ export class PlayerPortalHttpHandler {
     const admin = await this.resolvePortalAdmin(identity);
     // Payments and all entitlements are owner-only; a delegated delivery
     // capability must never reveal the commercial/order ledger.
-    if (admin === null ||
-        (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true) {
+    if (
+      admin === null ||
+      (await this.dependencies.adminTeam?.isOwner(admin.principalId)) !== true
+    ) {
       return jsonResponse(403, { error: "PREMIUM_READ_FORBIDDEN" });
     }
     if (!this.dependencies.premiumRead) {
@@ -480,7 +511,8 @@ export class PlayerPortalHttpHandler {
         });
       }
       return jsonResponse(200, {
-        entitlements: await this.dependencies.premiumRead.entitlements.listPlayerEntitlements(playerId),
+        entitlements:
+          await this.dependencies.premiumRead.entitlements.listPlayerEntitlements(playerId),
       });
     } catch {
       return jsonResponse(503, { error: "PREMIUM_READ_UNAVAILABLE" });
@@ -1110,11 +1142,12 @@ function errorResponse(
   if (context === "evolution" && error.code === "NOT_FOUND") {
     return jsonResponse(404, { error: error.code });
   }
-  if (context === "evolution" && (
-    error.code === "FLOW_BLOCKED" ||
-    error.code === "ACTION_INVALID" ||
-    error.code === "REVISION_CONFLICT"
-  )) {
+  if (
+    context === "evolution" &&
+    (error.code === "FLOW_BLOCKED" ||
+      error.code === "ACTION_INVALID" ||
+      error.code === "REVISION_CONFLICT")
+  ) {
     return jsonResponse(409, { error: error.code });
   }
   if (context === "moves" && error.code === "NOT_FOUND") {

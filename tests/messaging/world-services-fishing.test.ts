@@ -201,8 +201,9 @@ describe("Fishing WhatsApp flow", () => {
     const attempt = vi.fn(async () => ok(fishingResult()));
     const deps = dependencies(attempt);
     const { fishingSpecies: _unused, ...noDisplayReader } = deps;
-    const route = createWorldServiceWhatsAppRoutes(noDisplayReader)
-      .find((definition) => definition.command === "pescar");
+    const route = createWorldServiceWhatsAppRoutes(noDisplayReader).find(
+      (definition) => definition.command === "pescar",
+    );
     expect(route).toBeDefined();
     const output = await route!.handler.handle(context("06"));
     expect(output.ok).toBe(true);
@@ -215,8 +216,9 @@ describe("Fishing WhatsApp flow", () => {
     const attempt = vi.fn(async () => ok(fishingResult()));
     const deps = dependencies(attempt);
     const { fishing: _unconfigured, ...noCalendar } = deps;
-    const route = createWorldServiceWhatsAppRoutes(noCalendar)
-      .find((item) => item.command === "pescar");
+    const route = createWorldServiceWhatsAppRoutes(noCalendar).find(
+      (item) => item.command === "pescar",
+    );
     expect(route).toBeDefined();
     const output = await route!.handler.handle(context("07"));
     expect(output).toMatchObject({
@@ -228,5 +230,4 @@ describe("Fishing WhatsApp flow", () => {
     });
     expect(attempt).not.toHaveBeenCalled();
   });
-
 });

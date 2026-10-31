@@ -55,11 +55,13 @@ describe("Poké Mart read-only items command", () => {
       },
       world: { getLocation: vi.fn() },
       martAvailability: {
-        listPublishedOffers: vi.fn(async () => MART_CATALOG.map((item) => ({
-          offerKey: item.offerKey,
-          itemQuantity: 1n,
-          priceAmount: item.unitPrice,
-        }))),
+        listPublishedOffers: vi.fn(async () =>
+          MART_CATALOG.map((item) => ({
+            offerKey: item.offerKey,
+            itemQuantity: 1n,
+            priceAmount: item.unitPrice,
+          })),
+        ),
       },
       sessions: {
         openVisit: vi.fn(),

@@ -5,9 +5,7 @@ import {
   ExpeditionIncidentalMenuDispatcher,
   type SentMessageMenuResolver,
 } from "./expedition-incidental-menu-dispatch.js";
-import type {
-  PostgresIncidentalMenuSnapshots,
-} from "../../platform/exploration/postgres-incidental-menu-snapshots.js";
+import type { PostgresIncidentalMenuSnapshots } from "../../platform/exploration/postgres-incidental-menu-snapshots.js";
 import type { ProviderMessageReference } from "../../platform/exploration/postgres-incidental-menu-reply-binding.js";
 
 /**
@@ -64,14 +62,14 @@ export type TrustedIncidentalReply = {
 };
 
 const cleanReference = (value: string): boolean =>
-  value.length > 0 && value.length <= 256 &&
+  value.length > 0 &&
+  value.length <= 256 &&
   ![...value].some((character) => {
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
 
-const cleanProvider = (value: string): boolean =>
-  /^[a-z0-9_-]{1,30}$/u.test(value);
+const cleanProvider = (value: string): boolean => /^[a-z0-9_-]{1,30}$/u.test(value);
 
 export class ExpeditionIncidentalTransportSeam {
   public constructor(
@@ -87,11 +85,13 @@ export class ExpeditionIncidentalTransportSeam {
    * if the send succeeds but binding fails, fail CLOSED and surface the error.
    * Do not announce successful delivery nor send blindly again after a crash.
    */
-  public async present(input: TrustedIncidentalMenuRequest): Promise<Result<{
-    readonly menuId: string;
-    readonly message: ProviderMessageReference;
-    readonly text: string;
-  }>> {
+  public async present(input: TrustedIncidentalMenuRequest): Promise<
+    Result<{
+      readonly menuId: string;
+      readonly message: ProviderMessageReference;
+      readonly text: string;
+    }>
+  > {
     if (!cleanProvider(input.provider) || !cleanReference(input.chatRef)) {
       return err(appError("VALIDATION_FAILED", "Invalid authenticated outbound context"));
     }
@@ -110,9 +110,11 @@ export class ExpeditionIncidentalTransportSeam {
       menuId: issued.value.menuId,
     });
     if (!delivered.ok) return delivered;
-    if (delivered.value.provider !== input.provider ||
-        delivered.value.chatRef !== input.chatRef ||
-        !cleanReference(delivered.value.externalMessageId)) {
+    if (
+      delivered.value.provider !== input.provider ||
+      delivered.value.chatRef !== input.chatRef ||
+      !cleanReference(delivered.value.externalMessageId)
+    ) {
       return err(appError("FLOW_BLOCKED", "Provider receipt does not match the sent chat"));
     }
     const linked = await this.bindings.bindDelivered({
@@ -132,12 +134,17 @@ export class ExpeditionIncidentalTransportSeam {
    * Does not silently interpret '1' (PvE) or '0' (ignore) as capture.
    * The upcoming dispatcher must implement those actions independently.
    */
-  public async captureQuotedReply(input: TrustedIncidentalReply): Promise<Result<CaptureAttemptResult>> {
-    if (!cleanProvider(input.provider) || !cleanReference(input.chatRef) ||
-        !cleanReference(input.quotedExternalMessageId) ||
-        !/^[234]$/u.test(input.rawChoice) ||
-        input.inboxIdempotencyKey.trim().length === 0 ||
-        input.inboxIdempotencyKey.length > 200) {
+  public async captureQuotedReply(
+    input: TrustedIncidentalReply,
+  ): Promise<Result<CaptureAttemptResult>> {
+    if (
+      !cleanProvider(input.provider) ||
+      !cleanReference(input.chatRef) ||
+      !cleanReference(input.quotedExternalMessageId) ||
+      !/^[234]$/u.test(input.rawChoice) ||
+      input.inboxIdempotencyKey.trim().length === 0 ||
+      input.inboxIdempotencyKey.length > 200
+    ) {
       return err(appError("VALIDATION_FAILED", "Invalid authenticated incidental capture reply"));
     }
     return this.dispatcher.dispatchCaptureReply({

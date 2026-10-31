@@ -1,6 +1,10 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { renderWhatsAppNativeReadMore } from "../messaging/whatsapp-native-read-more.js";
-import { EXPEDITION_WEEKLY_LIMIT, expeditionClock, type ExpeditionPeriod } from "./expedition-clock.js";
+import {
+  EXPEDITION_WEEKLY_LIMIT,
+  expeditionClock,
+  type ExpeditionPeriod,
+} from "./expedition-clock.js";
 import type { ExpeditionMenuChoice } from "./expedition-contextual-menu.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
 
@@ -43,8 +47,9 @@ function safeLocation(value: string): string | null {
     .replace(/\u031d/gu, "")
     .replace(/\s+/gu, " ")
     .trim();
-  return sanitized.length > 0 && sanitized.length <= 70 &&
-    !sanitized.includes("[Ler mais]") ? sanitized : null;
+  return sanitized.length > 0 && sanitized.length <= 70 && !sanitized.includes("[Ler mais]")
+    ? sanitized
+    : null;
 }
 
 function safeMenu(
@@ -74,8 +79,7 @@ function safeMenu(
       .replace(/\u031d/gu, "")
       .replace(/\s+/gu, " ")
       .trim();
-    if (label.length === 0 || label.length > 80 ||
-      label.includes("[Ler mais]")) {
+    if (label.length === 0 || label.length > 80 || label.includes("[Ler mais]")) {
       return err(appError("VALIDATION_FAILED", "Unsafe expedition action label"));
     }
     seenNumbers.add(choice.optionNo);
@@ -86,29 +90,45 @@ function safeMenu(
 }
 
 const PREPARING_INTENTS: ReadonlySet<ExpeditionMenuChoice["intent"]> = new Set([
-  "SEARCH_FREE", "SEARCH_TARGET", "SEARCH_RESOURCES", "DESTINATIONS",
-  "CHANGE_PERIOD", "CANCEL_PREPARATION", "TEAM", "BAG",
+  "SEARCH_FREE",
+  "SEARCH_TARGET",
+  "SEARCH_RESOURCES",
+  "DESTINATIONS",
+  "CHANGE_PERIOD",
+  "CANCEL_PREPARATION",
+  "TEAM",
+  "BAG",
 ]);
 
 export function renderExpeditionV4OpeningPanel(
   input: ExpeditionV4OpeningInput,
 ): Result<ExpeditionV4PresentedPanel> {
   const location = safeLocation(input.locationName);
-  if (input.phase !== "NONE" || input.canPrepareUnderPolicy !== true ||
-    location === null || !Number.isSafeInteger(input.remainingThisWeek) ||
-    input.remainingThisWeek < 1 || input.remainingThisWeek > EXPEDITION_WEEKLY_LIMIT) {
+  if (
+    input.phase !== "NONE" ||
+    input.canPrepareUnderPolicy !== true ||
+    location === null ||
+    !Number.isSafeInteger(input.remainingThisWeek) ||
+    input.remainingThisWeek < 1 ||
+    input.remainingThisWeek > EXPEDITION_WEEKLY_LIMIT
+  ) {
     return err(appError("FLOW_BLOCKED", "Expedition is not eligible for preparation"));
   }
   // No invented period choices: caller supplies both current authorized
   // intents; the renderer only accepts their exact canonical positions.
-  const day = input.choices.find(choice =>
-    choice.optionNo === 1 && choice.intent === "PREPARE_DAY");
-  const night = input.choices.find(choice =>
-    choice.optionNo === 2 && choice.intent === "PREPARE_NIGHT");
+  const day = input.choices.find(
+    (choice) => choice.optionNo === 1 && choice.intent === "PREPARE_DAY",
+  );
+  const night = input.choices.find(
+    (choice) => choice.optionNo === 2 && choice.intent === "PREPARE_NIGHT",
+  );
   if (input.choices.length !== 2 || day === undefined || night === undefined) {
     return err(appError("FLOW_BLOCKED", "Current period options are not available"));
   }
-  const periodMenu = safeMenu(input.choices, new Set<ExpeditionMenuChoice["intent"]>(["PREPARE_DAY", "PREPARE_NIGHT"]));
+  const periodMenu = safeMenu(
+    input.choices,
+    new Set<ExpeditionMenuChoice["intent"]>(["PREPARE_DAY", "PREPARE_NIGHT"]),
+  );
   if (!periodMenu.ok) return periodMenu;
   const visible = [
     "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*",
@@ -121,8 +141,7 @@ export function renderExpeditionV4OpeningPanel(
     "◇ *𝗦𝗨𝗔 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
     "",
     "*⌖ Local:* " + location,
-    "*🎟️ Disponíveis:* " + String(input.remainingThisWeek) + "/" +
-      String(EXPEDITION_WEEKLY_LIMIT),
+    "*🎟️ Disponíveis:* " + String(input.remainingThisWeek) + "/" + String(EXPEDITION_WEEKLY_LIMIT),
     "*⌛ Duração:* 12 horas internas",
     "",
     "> O tempo avança conforme suas ações. A primeira ação efetiva utiliza uma cota de exploração.",
@@ -167,7 +186,11 @@ export function renderExpeditionV4PreparingPanel(
     "> _Exploração " + periodLabel + " preparada!_",
     "",
     (expedition.period === "DAY" ? "☀️" : "🌙") +
-      " `" + clock.currentTime + " → " + clock.endTime + "`",
+      " `" +
+      clock.currentTime +
+      " → " +
+      clock.endTime +
+      "`",
     "⌖ *" + location + "*",
     "*⌛ 12h* disponíveis",
     "*🎟️ Cota ainda não consumida*",
@@ -180,7 +203,9 @@ export function renderExpeditionV4PreparingPanel(
     "> _A primeira ação com custo inicia a aventura_",
   ].join("\n");
   const rendered = renderWhatsAppNativeReadMore({
-    visible, expanded, combiningCount: input.combiningCount,
+    visible,
+    expanded,
+    combiningCount: input.combiningCount,
     ...(input.maxCodeUnits === undefined ? {} : { maxCodeUnits: input.maxCodeUnits }),
   });
   return ok({ visible, expanded, text: rendered.text, padded: rendered.padded });

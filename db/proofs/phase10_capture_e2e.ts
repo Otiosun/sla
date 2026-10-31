@@ -688,119 +688,167 @@ async function proveCrashRollback(pool: Pool, ballItemId: string): Promise<void>
 
 /** Synthetic PG18-only: actual CaptureService with quoted delivered menu.
  * No Baileys sender, production SQL or bypass of capture rules is involved. */
-async function proveIncidentalQuotedCapture(pool:Pool,ballItemId:string):Promise<void> {
-  await pool.query(await readFile(
-    new URL("../drafts/solo_exploration_v1_schema.sql",import.meta.url),"utf8",
-  ));
-  const engaged=await prepareEngagedEncounter(
-    pool,"incidental-quoted-capture","phase10-incidental-quoted-encounter",
+async function proveIncidentalQuotedCapture(pool: Pool, ballItemId: string): Promise<void> {
+  await pool.query(
+    await readFile(new URL("../drafts/solo_exploration_v1_schema.sql", import.meta.url), "utf8"),
   );
-  await setBallBalance(pool,engaged.playerId,ballItemId,2);
-  const location=await pool.query<{area_id:string}>(
-    "SELECT area_id::text FROM encounters WHERE id=$1",[engaged.encounterId],
+  const engaged = await prepareEngagedEncounter(
+    pool,
+    "incidental-quoted-capture",
+    "phase10-incidental-quoted-encounter",
   );
-  const areaId=location.rows[0]?.area_id;
-  if(!areaId)throw Error("Incidental Phase10 fixture area is absent");
-  const expeditionId=randomUUID();
-  const outcomeId=randomUUID();
+  await setBallBalance(pool, engaged.playerId, ballItemId, 2);
+  const location = await pool.query<{ area_id: string }>(
+    "SELECT area_id::text FROM encounters WHERE id=$1",
+    [engaged.encounterId],
+  );
+  const areaId = location.rows[0]?.area_id;
+  if (!areaId) throw Error("Incidental Phase10 fixture area is absent");
+  const expeditionId = randomUUID();
+  const outcomeId = randomUUID();
   await pool.query(
     `INSERT INTO solo_expeditions
        (id,player_id,period,area_id,phase,elapsed_minutes,consumed_week_key,revision)
      VALUES ($1,$2,'DAY',$3,'ACTIVE',30,'2026-08-24',1)`,
-    [expeditionId,engaged.playerId,areaId],
+    [expeditionId, engaged.playerId, areaId],
   );
   await pool.query(
     `INSERT INTO solo_expedition_search_outcomes
        (id,player_id,expedition_id,expedition_revision,kind,encounter_id)
      VALUES ($1,$2,$3,0,'INCIDENTAL',$4)`,
-    [outcomeId,engaged.playerId,expeditionId,engaged.encounterId],
+    [outcomeId, engaged.playerId, expeditionId, engaged.encounterId],
   );
-  const snapshots=new PostgresIncidentalMenuSnapshots(pool);
-  const bindings=new PostgresIncidentalMenuReplyBinding(pool,snapshots);
-  const capture=new CaptureService(
+  const snapshots = new PostgresIncidentalMenuSnapshots(pool);
+  const bindings = new PostgresIncidentalMenuReplyBinding(pool, snapshots);
+  const capture = new CaptureService(
     new PostgresCaptureRepository(pool),
-    new AesEncounterSeedProvider(CAPTURE_KEY,2,()=>Buffer.alloc(32,0x02)),
+    new AesEncounterSeedProvider(CAPTURE_KEY, 2, () => Buffer.alloc(32, 0x02)),
   );
-  const dispatcher=new ExpeditionIncidentalMenuDispatcher(
+  const dispatcher = new ExpeditionIncidentalMenuDispatcher(
     snapshots,
     new ExpeditionIncidentalCaptureAction(
-      new PostgresIncidentalOutcomeAuthorization(pool),capture,
+      new PostgresIncidentalOutcomeAuthorization(pool),
+      capture,
     ),
   );
-  const sentReference={
-    provider:"baileys",chatRef:"phase10-synthetic-group@g.us",
-    externalMessageId:"phase10-sent-incidental-original",
+  const sentReference = {
+    provider: "baileys",
+    chatRef: "phase10-synthetic-group@g.us",
+    externalMessageId: "phase10-sent-incidental-original",
   };
-  let sends=0;
-  const seam=new ExpeditionIncidentalTransportSeam(
-    snapshots,bindings,
-    {send:async sent=>{
-      sends++;
-      if(sent.provider!==sentReference.provider ||
-        sent.chatRef!==sentReference.chatRef ||
-        !sent.text.includes("𝗥𝗢𝗧𝗢𝗠") ||
-        sent.menuId.length===0)throw Error("Transport sent invalid server menu");
-      return {ok:true as const,value:sentReference};
-    }},
+  let sends = 0;
+  const seam = new ExpeditionIncidentalTransportSeam(
+    snapshots,
+    bindings,
+    {
+      send: async (sent) => {
+        sends++;
+        if (
+          sent.provider !== sentReference.provider ||
+          sent.chatRef !== sentReference.chatRef ||
+          !sent.text.includes("𝗥𝗢𝗧𝗢𝗠") ||
+          sent.menuId.length === 0
+        )
+          throw Error("Transport sent invalid server menu");
+        return { ok: true as const, value: sentReference };
+      },
+    },
     dispatcher,
   );
-  const sent=unwrap("issue and bind incidental menu",await seam.present({
-    playerId:engaged.playerId,outcomeId,
-    canBattle:true,canIgnore:true,combiningCount:0,
-    provider:sentReference.provider,chatRef:sentReference.chatRef,
-  }));
-  if(sends!==1 || sent.message.externalMessageId!==sentReference.externalMessageId)
+  const sent = unwrap(
+    "issue and bind incidental menu",
+    await seam.present({
+      playerId: engaged.playerId,
+      outcomeId,
+      canBattle: true,
+      canIgnore: true,
+      combiningCount: 0,
+      provider: sentReference.provider,
+      chatRef: sentReference.chatRef,
+    }),
+  );
+  if (sends !== 1 || sent.message.externalMessageId !== sentReference.externalMessageId)
     throw Error("Incidental menu delivery receipt not bound");
-  const menu=unwrap("read original incidental menu",
-    await snapshots.findForPlayer(engaged.playerId,sent.menuId));
-  const ballChoice=menu.menu.choices.find(choice=>choice.kind==="CAPTURE" && choice.optionNo===2);
-  if(!ballChoice || menu.ballItemIds.POKE!==ballItemId)
+  const menu = unwrap(
+    "read original incidental menu",
+    await snapshots.findForPlayer(engaged.playerId, sent.menuId),
+  );
+  const ballChoice = menu.menu.choices.find(
+    (choice) => choice.kind === "CAPTURE" && choice.optionNo === 2,
+  );
+  if (!ballChoice || menu.ballItemIds.POKE !== ballItemId)
     throw Error("Published Phase10 ruleset did not authorize an offered Poké Ball");
   // Prove the existing OutboxWorker preparation model: record the provider
   // ID deterministically BEFORE the provider is called. This survives a crash
   // after send without needing to recover an unknown WhatsApp acknowledgment.
-  const outbound:PendingOutboxMessage={
-    id:randomUUID(),channel:"whatsapp",destinationRef:"phase10-outbox-group@g.us",
-    messageType:"TEXT",
-    payload:{
-      text:sent.text,
-      incidentalMenu:{playerId:engaged.playerId,menuId:sent.menuId},
+  const outbound: PendingOutboxMessage = {
+    id: randomUUID(),
+    channel: "whatsapp",
+    destinationRef: "phase10-outbox-group@g.us",
+    messageType: "TEXT",
+    payload: {
+      text: sent.text,
+      incidentalMenu: { playerId: engaged.playerId, menuId: sent.menuId },
     },
-    idempotencyKey:"expedition.menu:"+sent.menuId,
-    correlationId:randomUUID(),causationId:null,attempts:1,
+    idempotencyKey: "expedition.menu:" + sent.menuId,
+    correlationId: randomUUID(),
+    causationId: null,
+    attempts: 1,
   };
-  const prepareOutbox=new IncidentalMenuOutboxDeliveryPreparation({
-    provider:"baileys",snapshots,binding:bindings,
-    providerMessageIdFor:baileysOutboundMessageId,
+  const prepareOutbox = new IncidentalMenuOutboxDeliveryPreparation({
+    provider: "baileys",
+    snapshots,
+    binding: bindings,
+    providerMessageIdFor: baileysOutboundMessageId,
   });
   await prepareOutbox.prepare(outbound);
-  await prepareOutbox.prepare({...outbound,attempts:3});
-  const deterministicRef={
-    provider:"baileys",chatRef:outbound.destinationRef,
-    externalMessageId:baileysOutboundMessageId(outbound),
+  await prepareOutbox.prepare({ ...outbound, attempts: 3 });
+  const deterministicRef = {
+    provider: "baileys",
+    chatRef: outbound.destinationRef,
+    externalMessageId: baileysOutboundMessageId(outbound),
   };
-  if(unwrap("resolve prebound outbox quote",await bindings.resolveReply({
-    playerId:engaged.playerId,repliedTo:deterministicRef,
-  })).menuId!==sent.menuId)
+  if (
+    unwrap(
+      "resolve prebound outbox quote",
+      await bindings.resolveReply({
+        playerId: engaged.playerId,
+        repliedTo: deterministicRef,
+      }),
+    ).menuId !== sent.menuId
+  )
     throw Error("Outbox prebinding did not recover exact issued menu");
-  const reply={
-    playerId:engaged.playerId,provider:deterministicRef.provider,
-    chatRef:deterministicRef.chatRef,
-    quotedExternalMessageId:deterministicRef.externalMessageId,
-    rawChoice:"2",inboxIdempotencyKey:"inbox:phase10-incidental-original",
-    correlationId:createCorrelationId(),causationId:null,
+  const reply = {
+    playerId: engaged.playerId,
+    provider: deterministicRef.provider,
+    chatRef: deterministicRef.chatRef,
+    quotedExternalMessageId: deterministicRef.externalMessageId,
+    rawChoice: "2",
+    inboxIdempotencyKey: "inbox:phase10-incidental-original",
+    correlationId: createCorrelationId(),
+    causationId: null,
   };
-  const first=unwrap("capture via quoted incidental reply",await seam.captureQuotedReply(reply));
-  const replay=unwrap("replay original quoted reply",await seam.captureQuotedReply(reply));
-  if(first.replayed || !replay.replayed ||
-    first.captureAttemptId!==replay.captureAttemptId ||
-    first.status!==replay.status)
+  const first = unwrap("capture via quoted incidental reply", await seam.captureQuotedReply(reply));
+  const replay = unwrap("replay original quoted reply", await seam.captureQuotedReply(reply));
+  if (
+    first.replayed ||
+    !replay.replayed ||
+    first.captureAttemptId !== replay.captureAttemptId ||
+    first.status !== replay.status
+  )
     throw Error("Incidental CaptureService replay did not converge");
-  const unauthorized=await seam.captureQuotedReply({
-    ...reply,playerId:createPlayerId(),inboxIdempotencyKey:"inbox:foreign",
+  const unauthorized = await seam.captureQuotedReply({
+    ...reply,
+    playerId: createPlayerId(),
+    inboxIdempotencyKey: "inbox:foreign",
   });
-  if(unauthorized.ok)throw Error("A foreign trainer resolved another player's menu");
-  const audit=await pool.query<{attempts:string;ledger:string;balance:string;deliveries:string}>(
+  if (unauthorized.ok) throw Error("A foreign trainer resolved another player's menu");
+  const audit = await pool.query<{
+    attempts: string;
+    ledger: string;
+    balance: string;
+    deliveries: string;
+  }>(
     `SELECT
       (SELECT count(*)::text FROM capture_attempts WHERE player_id=$1) AS attempts,
       (SELECT count(*)::text FROM inventory_ledger
@@ -809,13 +857,20 @@ async function proveIncidentalQuotedCapture(pool:Pool,ballItemId:string):Promise
        WHERE player_id=$1 AND item_id=$2) AS balance,
       (SELECT count(*)::text FROM solo_incidental_menu_deliveries
        WHERE player_id=$1 AND external_message_id=$3) AS deliveries`,
-    [engaged.playerId,ballItemId,sentReference.externalMessageId],
+    [engaged.playerId, ballItemId, sentReference.externalMessageId],
   );
-  if(audit.rows[0]?.attempts!=="1" ||
-    audit.rows[0].ledger!=="1" || audit.rows[0].balance!=="1" ||
-    audit.rows[0].deliveries!=="1")
-    throw Error("Quoted incidental capture was not atomic/idempotent: "+JSON.stringify(audit.rows[0]));
-  console.log("Incidental Phase10 quoted reply E2E: issued menu, provider ACK + deterministic prebinding, 1 Ball debit, 1 attempt, replay, foreign trainer denied");
+  if (
+    audit.rows[0]?.attempts !== "1" ||
+    audit.rows[0].ledger !== "1" ||
+    audit.rows[0].balance !== "1" ||
+    audit.rows[0].deliveries !== "1"
+  )
+    throw Error(
+      "Quoted incidental capture was not atomic/idempotent: " + JSON.stringify(audit.rows[0]),
+    );
+  console.log(
+    "Incidental Phase10 quoted reply E2E: issued menu, provider ACK + deterministic prebinding, 1 Ball debit, 1 attempt, replay, foreign trainer denied",
+  );
 }
 
 async function main(): Promise<void> {
@@ -825,8 +880,8 @@ async function main(): Promise<void> {
     await proveConcurrentBattleSuccess(pool, ballItemId);
     await proveFailureReplay(pool, ballItemId);
     await proveCrashRollback(pool, ballItemId);
-    if(process.env.EXPLORATION_INCIDENTAL_PHASE10_PROOF==="true") {
-      await proveIncidentalQuotedCapture(pool,ballItemId);
+    if (process.env.EXPLORATION_INCIDENTAL_PHASE10_PROOF === "true") {
+      await proveIncidentalQuotedCapture(pool, ballItemId);
     }
     console.log(
       "Phase 10 Capture E2E complete: concurrent success converged, failure replayed, injected crash rolled back",

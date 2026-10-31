@@ -26,7 +26,8 @@ function styledUpper(value: string): string {
 }
 
 export function renderFishingCast(result: FishingAttemptResult): string {
-  const pointName = result.fishingPointName.replace(/\s+/gu, " ").trim().slice(0, 80) || "Ponto de Pesca";
+  const pointName =
+    result.fishingPointName.replace(/\s+/gu, " ").trim().slice(0, 80) || "Ponto de Pesca";
   return [
     `⌁ *${styledUpper(pointName)}*`,
     "　🎣 Ponto de Pesca",

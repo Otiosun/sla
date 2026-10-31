@@ -74,9 +74,10 @@ export class MoveTrainingService {
     const pokemon = pokemonResult.rows[0] ?? null;
     if (pokemon === null) return { pokemon: null, options: [] };
 
-    const optionsResult = method === "REMINDER"
-      ? await client.query<OptionRow>(
-          `WITH permitted AS (
+    const optionsResult =
+      method === "REMINDER"
+        ? await client.query<OptionRow>(
+            `WITH permitted AS (
              SELECT entry.move_id FROM move_learnset_entries entry
              WHERE entry.content_release_id = $2 AND entry.form_id = $3
                AND entry.active = TRUE
@@ -124,10 +125,10 @@ export class MoveTrainingService {
              WHERE slot.pokemon_instance_id = $1 AND slot.move_id = revision.move_id
            )
            ORDER BY revision.display_name, revision.move_id`,
-          [pokemonInstanceId, pokemon.content_release_id, pokemon.form_id, pokemon.level],
-        )
-      : await client.query<OptionRow>(
-          `SELECT DISTINCT ON (revision.move_id, item.item_id)
+            [pokemonInstanceId, pokemon.content_release_id, pokemon.form_id, pokemon.level],
+          )
+        : await client.query<OptionRow>(
+            `SELECT DISTINCT ON (revision.move_id, item.item_id)
                     revision.move_id, revision.display_name,
                     item.item_id::text, item.display_name AS item_name,
                     balance.quantity::text AS item_quantity
@@ -149,18 +150,20 @@ export class MoveTrainingService {
                WHERE slot.pokemon_instance_id = $1 AND slot.move_id = entry.move_id
              )
            ORDER BY revision.move_id, item.item_id`,
-          [pokemonInstanceId, pokemon.content_release_id, pokemon.form_id, playerId],
-        );
+            [pokemonInstanceId, pokemon.content_release_id, pokemon.form_id, playerId],
+          );
     return {
       pokemon,
-      options: optionsResult.rows.map((row) => ({
-        moveId: row.move_id,
-        displayName: row.display_name,
-        method,
-        itemId: row.item_id,
-        itemName: row.item_name,
-        itemQuantity: row.item_quantity === null ? null : BigInt(row.item_quantity),
-      })).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      options: optionsResult.rows
+        .map((row) => ({
+          moveId: row.move_id,
+          displayName: row.display_name,
+          method,
+          itemId: row.item_id,
+          itemName: row.item_name,
+          itemQuantity: row.item_quantity === null ? null : BigInt(row.item_quantity),
+        }))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
     };
   }
 
@@ -171,7 +174,12 @@ export class MoveTrainingService {
   }): Promise<Result<readonly MoveTrainingOption[]>> {
     const client = await this.pool.connect();
     try {
-      const data = await this.eligible(client, input.playerId, input.pokemonInstanceId, input.method);
+      const data = await this.eligible(
+        client,
+        input.playerId,
+        input.pokemonInstanceId,
+        input.method,
+      );
       return data.pokemon === null
         ? err(appError("NOT_FOUND", "Pokémon não encontrado na conta."))
         : ok(data.options);
@@ -181,27 +189,38 @@ export class MoveTrainingService {
   }
 
   public async learn(input: MoveTrainingInput): Promise<Result<MoveTrainingResult>> {
-    if (!/^[0-9a-f-]{36}$/iu.test(input.moveId) ||
-        input.idempotencyKey.trim().length === 0 ||
-        (input.replaceSlotNo !== null &&
-         (!Number.isInteger(input.replaceSlotNo) || input.replaceSlotNo < 1 || input.replaceSlotNo > 4))) {
+    if (
+      !/^[0-9a-f-]{36}$/iu.test(input.moveId) ||
+      input.idempotencyKey.trim().length === 0 ||
+      (input.replaceSlotNo !== null &&
+        (!Number.isInteger(input.replaceSlotNo) ||
+          input.replaceSlotNo < 1 ||
+          input.replaceSlotNo > 4))
+    ) {
       return err(appError("VALIDATION_FAILED", "Golpe, chave ou posição inválidos."));
     }
-    if (input.method === "TM" && (input.itemId === null || !/^[0-9a-f-]{36}$/iu.test(input.itemId))) {
+    if (
+      input.method === "TM" &&
+      (input.itemId === null || !/^[0-9a-f-]{36}$/iu.test(input.itemId))
+    ) {
       return err(appError("VALIDATION_FAILED", "Máquina inválida."));
     }
     if (input.method === "REMINDER" && input.itemId !== null) {
       return err(appError("VALIDATION_FAILED", "Reaprendizado não consome TM."));
     }
     const requestKey = createHash("sha256").update(input.idempotencyKey).digest("hex");
-    const fingerprint = createHash("sha256").update(JSON.stringify({
-      pokemonId: input.pokemonInstanceId,
-      playerId: input.playerId,
-      moveId: input.moveId,
-      method: input.method,
-      itemId: input.itemId,
-      slot: input.replaceSlotNo,
-    })).digest("hex");
+    const fingerprint = createHash("sha256")
+      .update(
+        JSON.stringify({
+          pokemonId: input.pokemonInstanceId,
+          playerId: input.playerId,
+          moveId: input.moveId,
+          method: input.method,
+          itemId: input.itemId,
+          slot: input.replaceSlotNo,
+        }),
+      )
+      .digest("hex");
 
     return withTransaction(this.pool, async (client): Promise<Result<MoveTrainingResult>> => {
       // A single message/request key is globally idempotent across all Pokémon.
@@ -219,7 +238,9 @@ export class MoveTrainingService {
       const replay = existing.rows[0]?.payload;
       if (replay !== undefined) {
         if (replay.fingerprint !== fingerprint) {
-          return err(appError("FINGERPRINT_MISMATCH", "A mensagem já foi usada para outra operação."));
+          return err(
+            appError("FINGERPRINT_MISMATCH", "A mensagem já foi usada para outra operação."),
+          );
         }
         return ok({ ...replay.result, replayed: true });
       }
@@ -231,7 +252,8 @@ export class MoveTrainingService {
          WHERE id = $1 AND owner_player_id = $2 AND status = 'ACTIVE' FOR UPDATE`,
         [input.pokemonInstanceId, input.playerId],
       );
-      if (locked.rows.length === 0) return err(appError("NOT_FOUND", "Pokémon não pertence a você."));
+      if (locked.rows.length === 0)
+        return err(appError("NOT_FOUND", "Pokémon não pertence a você."));
 
       const battle = await client.query(
         `SELECT battle.id FROM battles battle
@@ -245,14 +267,25 @@ export class MoveTrainingService {
       if (battle.rows.length > 0) {
         return err(appError("FLOW_BLOCKED", "Termine a batalha antes de alterar golpes."));
       }
-      const eligible = await this.eligible(client, input.playerId, input.pokemonInstanceId, input.method);
+      const eligible = await this.eligible(
+        client,
+        input.playerId,
+        input.pokemonInstanceId,
+        input.method,
+      );
       if (eligible.pokemon === null) return err(appError("NOT_FOUND", "Pokémon não encontrado."));
-      const chosen = eligible.options.find((choice) =>
-        choice.moveId === input.moveId && choice.itemId === input.itemId);
+      const chosen = eligible.options.find(
+        (choice) => choice.moveId === input.moveId && choice.itemId === input.itemId,
+      );
       if (chosen === undefined) {
-        return err(appError("ACTION_INVALID",
-          input.method === "TM" ? "TM indisponível ou incompatível com este Pokémon."
-            : "Movimento não elegível para reaprendizado nesta versão."));
+        return err(
+          appError(
+            "ACTION_INVALID",
+            input.method === "TM"
+              ? "TM indisponível ou incompatível com este Pokémon."
+              : "Movimento não elegível para reaprendizado nesta versão.",
+          ),
+        );
       }
       const slots = await client.query<{ slot_no: number; move_id: string }>(
         `SELECT slot_no, move_id FROM pokemon_move_slots
@@ -266,13 +299,21 @@ export class MoveTrainingService {
       const free = [1, 2, 3, 4].find((no) => !filled.has(no)) ?? null;
       const target = input.replaceSlotNo ?? free;
       if (target === null) {
-        return err(appError("ACTION_INVALID",
-          "Este Pokémon já tem quatro golpes. Escolha uma posição de 1 a 4 para substituir."));
+        return err(
+          appError(
+            "ACTION_INVALID",
+            "Este Pokémon já tem quatro golpes. Escolha uma posição de 1 a 4 para substituir.",
+          ),
+        );
       }
       const replaced = slots.rows.find((slot) => slot.slot_no === target);
       if (input.replaceSlotNo !== null && replaced === undefined) {
-        return err(appError("VALIDATION_FAILED",
-          "Essa posição está livre: omita o número do slot para aprender automaticamente."));
+        return err(
+          appError(
+            "VALIDATION_FAILED",
+            "Essa posição está livre: omita o número do slot para aprender automaticamente.",
+          ),
+        );
       }
       const revision = await client.query<{ max_pp: number | null }>(
         `SELECT max_pp FROM move_revisions
@@ -280,7 +321,8 @@ export class MoveTrainingService {
         [eligible.pokemon.content_release_id, input.moveId],
       );
       const maxPp = revision.rows[0]?.max_pp;
-      if (maxPp === undefined) return err(appError("ACTION_INVALID", "Movimento indisponível no catálogo."));
+      if (maxPp === undefined)
+        return err(appError("ACTION_INVALID", "Movimento indisponível no catálogo."));
 
       if (input.method === "TM") {
         const spent = await client.query(
@@ -331,10 +373,20 @@ export class MoveTrainingService {
         `INSERT INTO pokemon_history_events(
            id, pokemon_instance_id, event_type, payload, actor_type, actor_id, correlation_id
          ) VALUES ($1, $2, 'MOVE_TRAINED', $3::jsonb, 'PLAYER', $4, $5)`,
-        [randomUUID(), input.pokemonInstanceId, JSON.stringify({
-          requestKey, fingerprint, moveId: input.moveId,
-          replacedMoveId: replaced?.move_id ?? null, method: input.method, result,
-        }), input.playerId, input.correlationId],
+        [
+          randomUUID(),
+          input.pokemonInstanceId,
+          JSON.stringify({
+            requestKey,
+            fingerprint,
+            moveId: input.moveId,
+            replacedMoveId: replaced?.move_id ?? null,
+            method: input.method,
+            result,
+          }),
+          input.playerId,
+          input.correlationId,
+        ],
       );
       return ok(result);
     });

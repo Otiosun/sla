@@ -14,11 +14,26 @@ const periods: readonly ExpeditionMenuChoice[] = [
   { optionNo: 2, intent: "PREPARE_NIGHT", label: "Noturno", phrases: ["noturno"] },
 ];
 const preparingActions: readonly ExpeditionMenuChoice[] = [
-  { optionNo: 1, intent: "SEARCH_FREE", label: "🔎 Buscar Pokémon ● `30 min`", phrases: ["buscar"] },
-  { optionNo: 2, intent: "SEARCH_RESOURCES", label: "🎒 Buscar recursos ● `60 min`", phrases: ["recursos"] },
+  {
+    optionNo: 1,
+    intent: "SEARCH_FREE",
+    label: "🔎 Buscar Pokémon ● `30 min`",
+    phrases: ["buscar"],
+  },
+  {
+    optionNo: 2,
+    intent: "SEARCH_RESOURCES",
+    label: "🎒 Buscar recursos ● `60 min`",
+    phrases: ["recursos"],
+  },
   { optionNo: 3, intent: "DESTINATIONS", label: "🗺️ Consultar destinos", phrases: ["destinos"] },
   { optionNo: 4, intent: "CHANGE_PERIOD", label: "🔄 Alterar período", phrases: ["alterar"] },
-  { optionNo: 5, intent: "CANCEL_PREPARATION", label: "↩️ Cancelar preparação", phrases: ["cancelar"] },
+  {
+    optionNo: 5,
+    intent: "CANCEL_PREPARATION",
+    label: "↩️ Cancelar preparação",
+    phrases: ["cancelar"],
+  },
 ];
 const expedition: ExpeditionSnapshot = {
   expeditionId: "synthetic-preparation",
@@ -54,22 +69,38 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
   });
 
   it("does not offer a new expedition when all slots are used or period is unauthorized", () => {
-    const valid = { phase: "NONE" as const, locationName: "Campos de Yun",
-      remainingThisWeek: 3, canPrepareUnderPolicy: true as const, choices: periods };
+    const valid = {
+      phase: "NONE" as const,
+      locationName: "Campos de Yun",
+      remainingThisWeek: 3,
+      canPrepareUnderPolicy: true as const,
+      choices: periods,
+    };
     expect(renderExpeditionV4OpeningPanel({ ...valid, remainingThisWeek: 0 }).ok).toBe(false);
-    expect(renderExpeditionV4OpeningPanel({ ...valid, choices: periods.slice(0, 1) }).ok).toBe(false);
-    expect(renderExpeditionV4OpeningPanel({
-      ...valid, choices: [{ ...periods[1]!, optionNo: 1 }, periods[0]!],
-    }).ok).toBe(false);
-    expect(renderExpeditionV4OpeningPanel({
-      ...valid, locationName: "`[Ler mais]`",
-    }).ok).toBe(false);
+    expect(renderExpeditionV4OpeningPanel({ ...valid, choices: periods.slice(0, 1) }).ok).toBe(
+      false,
+    );
+    expect(
+      renderExpeditionV4OpeningPanel({
+        ...valid,
+        choices: [{ ...periods[1]!, optionNo: 1 }, periods[0]!],
+      }).ok,
+    ).toBe(false);
+    expect(
+      renderExpeditionV4OpeningPanel({
+        ...valid,
+        locationName: "`[Ler mais]`",
+      }).ok,
+    ).toBe(false);
   });
 
   it("renders the PREPARING state with the exact 12h clock and quota unconsumed", () => {
     const result = renderExpeditionV4PreparingPanel({
-      expedition, locationName: "Campos de Yun", remainingThisWeek: 3,
-      combiningCount: 450, choices: preparingActions,
+      expedition,
+      locationName: "Campos de Yun",
+      remainingThisWeek: 3,
+      combiningCount: 450,
+      choices: preparingActions,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -87,8 +118,12 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
   });
 
   it("retains all current options with uncalibrated or too-large fold on text/caption", () => {
-    const common = { expedition, locationName: "Campos de Yun",
-      remainingThisWeek: 2, choices: preparingActions };
+    const common = {
+      expedition,
+      locationName: "Campos de Yun",
+      remainingThisWeek: 2,
+      choices: preparingActions,
+    };
     for (const input of [
       { ...common, combiningCount: 0 },
       { ...common, combiningCount: 450, maxCodeUnits: 120 },
@@ -103,27 +138,54 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
   });
 
   it("refuses ACTIVE, consumed quota, invalid location and unauthorized menu intents", () => {
-    const common = { expedition, locationName: "Campos de Yun",
-      remainingThisWeek: 3, combiningCount: 0, choices: preparingActions };
-    expect(renderExpeditionV4PreparingPanel({ ...common, expedition: { ...expedition, phase: "ACTIVE" } }).ok)
-      .toBe(false);
-    expect(renderExpeditionV4PreparingPanel({ ...common, expedition: { ...expedition, elapsedMinutes: 30 } }).ok)
-      .toBe(false);
-    expect(renderExpeditionV4PreparingPanel({ ...common, expedition: {
-      ...expedition, consumedWeekKey: "2026-10-26",
-    } }).ok).toBe(false);
-    expect(renderExpeditionV4PreparingPanel({ ...common, choices: [
-      { optionNo: 6, intent: "CAPTURE", label: "Poké Ball", phrases: [] },
-    ] }).ok).toBe(false);
-    expect(renderExpeditionV4PreparingPanel({ ...common, choices: [
-      preparingActions[0]!, { ...preparingActions[1]!, optionNo: 1 },
-    ] }).ok).toBe(false);
+    const common = {
+      expedition,
+      locationName: "Campos de Yun",
+      remainingThisWeek: 3,
+      combiningCount: 0,
+      choices: preparingActions,
+    };
+    expect(
+      renderExpeditionV4PreparingPanel({
+        ...common,
+        expedition: { ...expedition, phase: "ACTIVE" },
+      }).ok,
+    ).toBe(false);
+    expect(
+      renderExpeditionV4PreparingPanel({
+        ...common,
+        expedition: { ...expedition, elapsedMinutes: 30 },
+      }).ok,
+    ).toBe(false);
+    expect(
+      renderExpeditionV4PreparingPanel({
+        ...common,
+        expedition: {
+          ...expedition,
+          consumedWeekKey: "2026-10-26",
+        },
+      }).ok,
+    ).toBe(false);
+    expect(
+      renderExpeditionV4PreparingPanel({
+        ...common,
+        choices: [{ optionNo: 6, intent: "CAPTURE", label: "Poké Ball", phrases: [] }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      renderExpeditionV4PreparingPanel({
+        ...common,
+        choices: [preparingActions[0]!, { ...preparingActions[1]!, optionNo: 1 }],
+      }).ok,
+    ).toBe(false);
   });
 
   it("requires server authorization for preparing, changing period, cancelling and spending time", () => {
     for (const choice of [...periods, ...preparingActions]) {
-      const result = selectExpeditionMenuChoice({ text: String(choice.optionNo), choices:
-        periods.includes(choice) ? periods : preparingActions });
+      const result = selectExpeditionMenuChoice({
+        text: String(choice.optionNo),
+        choices: periods.includes(choice) ? periods : preparingActions,
+      });
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
       const isReadOnly = choice.intent === "DESTINATIONS";

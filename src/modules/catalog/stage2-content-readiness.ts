@@ -47,48 +47,62 @@ export function auditStage2ContentReadiness(
     ...[...offers.values()].map((offer) => offer.itemId),
   ]);
   for (const form of activeForms) {
-    const entries = release.learnsets.filter((entry) => entry.active && entry.formId === form.formId);
+    const entries = release.learnsets.filter(
+      (entry) => entry.active && entry.formId === form.formId,
+    );
     if (!entries.some((entry) => entry.learnMethod === "START")) {
       issues.push({
-        code: "MISSING_START_MOVES", entityId: form.formId,
+        code: "MISSING_START_MOVES",
+        entityId: form.formId,
         detail: "No starter move can initialize this Pokémon safely",
       });
     }
     if (!options.learnsetVersionGroupByForm.has(form.formId)) {
       issues.push({
-        code: "UNPINNED_LEARNSET_SOURCE", entityId: form.formId,
+        code: "UNPINNED_LEARNSET_SOURCE",
+        entityId: form.formId,
         detail: "No verified source version for the current form learnset",
       });
     }
     for (const entry of entries) {
       if (!moves.has(entry.moveId)) {
         issues.push({
-          code: "UNKNOWN_OR_INACTIVE_MOVE", entityId: form.formId,
+          code: "UNKNOWN_OR_INACTIVE_MOVE",
+          entityId: form.formId,
           detail: `Learnset points to unknown or inactive move ${entry.moveId}`,
         });
       }
     }
   }
-  for (const rule of release.evolutions.filter((entry) => entry.active && forms.has(entry.fromFormId))) {
+  for (const rule of release.evolutions.filter(
+    (entry) => entry.active && forms.has(entry.fromFormId),
+  )) {
     if (!forms.has(rule.toFormId)) {
       issues.push({
-        code: "UNKNOWN_EVOLUTION_TARGET", entityId: rule.fromFormId,
+        code: "UNKNOWN_EVOLUTION_TARGET",
+        entityId: rule.fromFormId,
         detail: `Target form ${rule.toFormId} is not active`,
       });
     }
     const parsed = EvolutionTriggerSchemas[rule.triggerKind].safeParse(rule.triggerConfig);
     if (!parsed.success) {
       issues.push({
-        code: "INVALID_EVOLUTION_RULE", entityId: rule.fromFormId,
+        code: "INVALID_EVOLUTION_RULE",
+        entityId: rule.fromFormId,
         detail: `Trigger ${rule.triggerKind} is not in the canonical schema`,
       });
       continue;
     }
     if (rule.triggerKind === "ITEM") {
       const itemRule = EvolutionTriggerSchemas.ITEM.safeParse(rule.triggerConfig);
-      if (!itemRule.success || !items.has(itemRule.data.itemId) || !obtainable.has(itemRule.data.itemId)) {
+      if (
+        !itemRule.success ||
+        !items.has(itemRule.data.itemId) ||
+        !obtainable.has(itemRule.data.itemId)
+      ) {
         issues.push({
-          code: "UNOBTAINABLE_EVOLUTION_ITEM", entityId: rule.fromFormId,
+          code: "UNOBTAINABLE_EVOLUTION_ITEM",
+          entityId: rule.fromFormId,
           detail: "The required evolution item has no verified player-facing acquisition source",
         });
       }
@@ -98,8 +112,10 @@ export function auditStage2ContentReadiness(
     const offer = offers.get(key);
     if (offer === undefined || !items.has(offer.itemId)) {
       issues.push({
-        code: "SHOP_OFFER_NOT_PUBLISHED", entityId: key,
-        detail: "The shop is advertising an offer absent from the published active purchase catalog",
+        code: "SHOP_OFFER_NOT_PUBLISHED",
+        entityId: key,
+        detail:
+          "The shop is advertising an offer absent from the published active purchase catalog",
       });
     }
   }

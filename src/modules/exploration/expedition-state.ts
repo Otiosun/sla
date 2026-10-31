@@ -165,7 +165,9 @@ export function changeExpeditionPeriod(input: {
   const safe = guard(current, input.expectedRevision);
   if (!safe.ok) return safe;
   if (current.phase !== "PREPARING") {
-    return err(appError("FLOW_BLOCKED", "The expedition period cannot change after the first action"));
+    return err(
+      appError("FLOW_BLOCKED", "The expedition period cannot change after the first action"),
+    );
   }
   if (input.period !== "DAY" && input.period !== "NIGHT") {
     return err(appError("VALIDATION_FAILED", "Invalid expedition period"));

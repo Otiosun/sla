@@ -43,8 +43,11 @@ export function renderWhatsAppNativeReadMore(input: WhatsAppReadMoreInput): What
   ) {
     return { text: fallback, padded: false, reason: "INVALID_CONTENT" };
   }
-  if (!Number.isSafeInteger(input.combiningCount) || input.combiningCount <= 0 ||
-    input.combiningCount > 16384) {
+  if (
+    !Number.isSafeInteger(input.combiningCount) ||
+    input.combiningCount <= 0 ||
+    input.combiningCount > 16384
+  ) {
     return { text: fallback, padded: false, reason: "UNCALIBRATED" };
   }
   const separator = WHATSAPP_READ_MORE_COMBINING_CHARACTER.repeat(input.combiningCount);

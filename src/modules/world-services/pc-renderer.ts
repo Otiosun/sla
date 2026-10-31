@@ -20,9 +20,7 @@ export function renderPokemonPcDepositSelection(snapshot: PokemonPcStorageSnapsh
         ? "> _Você não possui Pokémon ativos para depositar._"
         : "> _O último Pokémon da equipe não pode ser guardado._",
       "",
-      ...(team.length === 1
-        ? [`◇ *${team[0]!.displayName}* · Equipe 01/06`, ""]
-        : []),
+      ...(team.length === 1 ? [`◇ *${team[0]!.displayName}* · Equipe 01/06`, ""] : []),
       "↑ `/retirar` · Traga outro Pokémon primeiro",
       "‹ `/pc` · Voltar ao terminal",
     ].join("\n");

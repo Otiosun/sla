@@ -23,7 +23,7 @@ export async function prepareIncidentalEncounterForCapture(
     readonly outcomeId: string;
   },
 ): Promise<Result<EncounterView>> {
-  if (!await deps.authorize.belongsToPlayer(input)) {
+  if (!(await deps.authorize.belongsToPlayer(input))) {
     return err(appError("FLOW_BLOCKED", "The incidental outcome is not active for this trainer"));
   }
   const current = await deps.encounters.get(input.playerId, input.encounterId);
