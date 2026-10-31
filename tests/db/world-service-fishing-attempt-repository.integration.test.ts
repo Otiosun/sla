@@ -417,7 +417,8 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
       playerId, idempotencyKey:`boundary-${n}`, roll:9,
     }));
     const used = await Promise.all(before);
-    expect(used.map(x=>x.kind==="RESERVED"?x.attemptNo:null)).toEqual([1,2,3,4,5]);
+    expect(used.map(x=>x.kind==="RESERVED"?x.attemptNo:null).sort((a,b)=>(a??0)-(b??0)))
+      .toEqual([1,2,3,4,5]);
     expect(await zoned.reserveAttempt({
       playerId,idempotencyKey:"boundary-sixth",roll:9,
     })).toMatchObject({kind:"DAILY_LIMIT_REACHED"});
