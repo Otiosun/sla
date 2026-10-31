@@ -17,7 +17,10 @@ function validRef(ref:ProviderMessageReference):boolean {
   return /^[a-z0-9_-]{1,30}$/u.test(ref.provider) &&
     ref.chatRef.length>0 && ref.chatRef.length<=256 &&
     ref.externalMessageId.length>0 && ref.externalMessageId.length<=256 &&
-    !/[\u0000-\u001f\u007f]/u.test(ref.chatRef+ref.externalMessageId);
+    ![...(ref.chatRef + ref.externalMessageId)].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    });
 }
 
 /**
