@@ -24,6 +24,8 @@ import { prepareIncidentalEncounterForCapture } from "../../src/modules/explorat
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository, encounterRepositoryWithinTransaction } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
+import { FishingService } from "../../src/modules/world-services/fishing-service.js";
 import { createCorrelationId, createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 import type { Result } from "../../src/shared-kernel/result.js";
 
@@ -175,6 +177,10 @@ async function seedFixture(client: PoolClient): Promise<Fixture> {
         safePoint: true,
         startingArea: true,
         relocationPriority: 0,
+        fishing: {
+          pointName: "Rio Sintético",
+          encounterTables: { COMMON: "grass" },
+        },
       }),
     ],
   );
@@ -1385,4 +1391,47 @@ describe("encounter PostgreSQL integration", () => {
     client.release();
     expect(row.rows[0]?.creation_idempotency_key).toBe(`legacy:${encounterId}`);
   });
+  it("atomically persists one fishing quota + real EncounterService encounter and replays the same inbox", async () => {
+    const client=await pool.connect();
+    let playerId:PlayerId;
+    try {playerId=await createEligiblePlayer(client,fixture.areaId);}
+    finally {client.release();}
+    // This fixture is isolated in disposable PostgreSQL and its fishing
+    // rarity COMMON points at an ACTUAL eligible published encounter table.
+    const repository=new PostgresFishingAttemptRepository(pool,{
+      seedProvider:new AesEncounterSeedProvider(
+        Buffer.alloc(32,0xa5),1,()=>Buffer.alloc(32,0x4c),
+      ),
+      clock:new ManualClock(FIXED_NOW),
+      feature:FEATURE_ENABLED,
+    });
+    const fakeStandalone={
+      createOrReplay:async()=>{throw new Error("Standalone encounter must not be called")},
+    };
+    const fishing=new FishingService(repository,fakeStandalone,{
+      randomFloat:()=>0,
+      randomInt:()=>9,
+    });
+    const first=unwrap(await fishing.attempt({
+      playerId,idempotencyKey:"fishing:atomic:published-common",
+    }));
+    expect(first).toMatchObject({
+      rarity:"COMMON",roll:10,attemptNo:1,replayed:false,remainingAttempts:4,
+    });
+    expect(first.encounter?.playerId).toBe(playerId);
+    expect(first.encounter?.areaId).toBe(fixture.areaId);
+    const replay=unwrap(await fishing.attempt({
+      playerId,idempotencyKey:"fishing:atomic:published-common",
+    }));
+    expect(replay.replayed).toBe(true);
+    expect(replay.encounter?.encounterId).toBe(first.encounter?.encounterId);
+    const totals=await pool.query<{casts:string;encounters:string}>(
+      `SELECT
+        (SELECT count(*)::text FROM fishing_attempts WHERE player_id=$1) AS casts,
+        (SELECT count(*)::text FROM encounters WHERE player_id=$1) AS encounters`,
+      [playerId],
+    );
+    expect(totals.rows[0]).toEqual({casts:"1",encounters:"1"});
+  });
+
 });
