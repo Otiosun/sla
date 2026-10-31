@@ -297,6 +297,12 @@ async function createPlayerPokemon(
   });
 
   await pool.query("INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')", [playerId]);
+  // Evolution reads the trainer's pinned onboarding release. Historical
+  // fixtures must persist that context, not rely on the ACTIVE pointer.
+  await pool.query(
+    "INSERT INTO player_onboarding_context(player_id, content_release_id, ruleset_id) VALUES ($1, $2, $3)",
+    [playerId, release.releaseId, release.rulesetId],
+  );
   await pool.query(
     `INSERT INTO trainer_progression(player_id, level, progression_points)
      VALUES ($1, $2, $3)`,

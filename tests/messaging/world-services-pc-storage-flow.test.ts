@@ -88,8 +88,24 @@ function routeByCommand(
   return route;
 }
 
-function fixture() {
-  const getStorage = vi.fn(async () => ok(STORAGE));
+function fixture(withSecondTeamPokemon = false) {
+  const storage: PokemonPcStorageSnapshot = withSecondTeamPokemon
+    ? {
+        ...STORAGE,
+        team: [
+          ...STORAGE.team,
+          {
+            pokemonInstanceId: createPokemonInstanceId(),
+            displayName: "Charmander",
+            level: 7,
+            placementKind: "TEAM",
+            boxNo: null,
+            slotNo: 2,
+          },
+        ],
+      }
+    : STORAGE;
+  const getStorage = vi.fn(async () => ok(storage));
   const dependencies = {
     players: {
       resolvePlayer: vi.fn(async () =>
@@ -161,7 +177,7 @@ describe("Pokemon PC WhatsApp storage reads", () => {
   });
 
   it("opens /depositar as an exact-reply selection prompt backed by the real team snapshot", async () => {
-    const current = fixture();
+    const current = fixture(true);
 
     const result = await routeByCommand(current.routes, "depositar").handler.handle(
       context("/depositar", "03"),
@@ -179,4 +195,15 @@ describe("Pokemon PC WhatsApp storage reads", () => {
       expectedRevision: "7",
     });
   });
+  it("blocks depositing the last team Pokémon without creating a selectable prompt", async () => {
+    const current = fixture();
+    const result = await routeByCommand(current.routes, "depositar").handler.handle(
+      context("/depositar", "04"),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outgoing[0]?.payload.text).toContain("𝗗𝗘𝗣Ó𝗦𝗜𝗧𝗢 𝗕𝗟𝗢𝗤𝗨𝗘𝗔𝗗𝗢");
+    expect(result.value.outgoing[0]?.payload.worldServicePrompt).toBeUndefined();
+  });
+
 });

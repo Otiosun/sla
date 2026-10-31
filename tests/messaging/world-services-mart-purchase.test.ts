@@ -6,6 +6,7 @@ import type {
 } from "../../src/modules/messaging/contracts.js";
 import type { WorldServiceSessionRecord } from "../../src/modules/world-services/contracts.js";
 import { WorldServiceConversationResolver } from "../../src/modules/world-services/conversation-resolver.js";
+import { MART_CATALOG } from "../../src/modules/world-services/mart-catalog.js";
 import { createWorldServiceWhatsAppRoutes } from "../../src/modules/world-services/whatsapp-handlers.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { err, ok } from "../../src/shared-kernel/result.js";
@@ -67,6 +68,18 @@ function session(
   };
 }
 
+/** All products come from the published-offer port, never an implicit static catalog. */
+function publishedMartOffers() {
+  return {
+    listPublishedOffers: vi.fn(async () => MART_CATALOG.map((item) => ({
+      offerKey: item.offerKey,
+      itemQuantity: 1n,
+      priceAmount: item.unitPrice,
+      displayName: item.displayName,
+    }))),
+  };
+}
+
 function playerResolver() {
   return {
     resolvePlayer: vi.fn(async () =>
@@ -117,6 +130,7 @@ describe("Poké Mart purchase conversation", () => {
     const current = session(null, null, 3n);
     const routes = createWorldServiceWhatsAppRoutes({
       players: playerResolver(),
+      martAvailability: publishedMartOffers(),
       world: { getLocation: vi.fn(async () => ok(worldLocation())) },
       sessions: {
         openVisit: vi.fn(),
@@ -159,6 +173,7 @@ describe("Poké Mart purchase conversation", () => {
         recordSceneProof: vi.fn(),
       },
       replyIntent: exactReplyVerifier(promptId),
+      martAvailability: publishedMartOffers(),
       economy: {
         purchaseQuantity: vi.fn(),
       },
@@ -197,6 +212,7 @@ describe("Poké Mart purchase conversation", () => {
         recordSceneProof: vi.fn(),
       },
       replyIntent: exactReplyVerifier(promptId),
+      martAvailability: publishedMartOffers(),
       economy: { purchaseQuantity: vi.fn() },
     });
 
@@ -243,6 +259,7 @@ describe("Poké Mart purchase conversation", () => {
         recordSceneProof: vi.fn(),
       },
       replyIntent: exactReplyVerifier(promptId),
+      martAvailability: publishedMartOffers(),
       economy: { purchaseQuantity },
     });
 
@@ -293,6 +310,7 @@ describe("Poké Mart purchase conversation", () => {
         recordSceneProof: vi.fn(),
       },
       replyIntent: exactReplyVerifier(promptId),
+      martAvailability: publishedMartOffers(),
       economy: { purchaseQuantity, getWalletBalance },
     });
 
