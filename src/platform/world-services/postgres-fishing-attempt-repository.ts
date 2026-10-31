@@ -104,7 +104,9 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
     readonly encounter: EncounterView | null;
   }>> {
     const config = this.config;
-    if (config.seedProvider === undefined || config.feature === undefined) {
+    const seedProvider = config.seedProvider;
+    const feature = config.feature;
+    if (seedProvider === undefined || feature === undefined) {
       return err(appError("FEATURE_UNAVAILABLE", "Atomic fishing encounter dependencies are missing"));
     }
     try {
@@ -120,9 +122,9 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
         }
         const encounter = await new EncounterService(
           encounterRepositoryWithinTransaction(client),
-          config.seedProvider,
+          seedProvider,
           config.clock,
-          config.feature,
+          feature,
         ).createOrReplay({
           playerId: input.playerId,
           idempotencyKey: `fishing:${reservation.attemptId}`,
