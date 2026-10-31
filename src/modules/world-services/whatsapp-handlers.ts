@@ -655,7 +655,9 @@ export function createWorldServiceWhatsAppRoutes(
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
     if (dependencies.fishing === undefined) {
-      return err(appError("INVALID_STATE_TRANSITION", "Fishing service is unavailable"));
+      return err(appError("FEATURE_UNAVAILABLE", "Fishing calendar or service is not configured", {
+        userMessage: "A pesca ainda não foi habilitada para o calendário deste mundo. Avise a equipe do RPG.",
+      }));
     }
 
     const attempted = await dependencies.fishing.attempt({
@@ -684,22 +686,23 @@ export function createWorldServiceWhatsAppRoutes(
         idempotencyKey: `${context.idempotencyKey}:world-service:fishing:result`,
       });
     } else {
-      if (dependencies.fishingSpecies === undefined) {
-        return err(
-          appError("INVALID_STATE_TRANSITION", "Fishing species display reader is unavailable"),
-        );
-      }
-      const speciesDisplayName = await dependencies.fishingSpecies.speciesDisplayName(
-        result.encounter.contentReleaseId,
-        result.encounter.snapshot.speciesId,
-      );
-      if (speciesDisplayName === null || speciesDisplayName.trim().length === 0) {
-        return err(
-          appError(
-            "INVALID_STATE_TRANSITION",
-            "Fishing encounter species display name is unavailable",
-          ),
-        );
+      // The fishing quota and canonical Encounter are already committed at
+      // this point. A transient catalog-display failure MUST NOT turn a real
+      // successful cast into an error (or invite a second charged attempt).
+      // The fallback labels an unknown species, never invents one.
+      let speciesDisplayName = "Pokémon selvagem";
+      if (dependencies.fishingSpecies !== undefined) {
+        try {
+          const resolved = await dependencies.fishingSpecies.speciesDisplayName(
+            result.encounter.contentReleaseId,
+            result.encounter.snapshot.speciesId,
+          );
+          if (resolved !== null && resolved.trim().length > 0) {
+            speciesDisplayName = resolved;
+          }
+        } catch {
+          // Display enrichment is best effort after the authoritative commit.
+        }
       }
 
       outgoing.push(

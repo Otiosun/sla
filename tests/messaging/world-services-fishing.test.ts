@@ -170,4 +170,63 @@ describe("Fishing WhatsApp flow", () => {
     expect(result.value.outgoing[1]?.payload.text).not.toContain("𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
     expect(result.value.resultRefId).toBe("00000000-0000-4000-8000-000000005009");
   });
+  it("preserves a committed encounter and quota when species name is temporarily missing", async () => {
+    const current = fishingRoute(fishingResult());
+    current.speciesDisplayName.mockResolvedValueOnce(null as never);
+    const output = await current.route.handler.handle(context("04"));
+    expect(output.ok).toBe(true);
+    if (!output.ok) return;
+    expect(output.value.resultRefId).toBe(ENCOUNTER_ID);
+    expect(output.value.outgoing).toHaveLength(3);
+    const last = output.value.outgoing[2]?.payload.text;
+    expect(last).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠");
+    expect(last).toContain("𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢 𝗜𝗡𝗜𝗖𝗜𝗔𝗗𝗢");
+    expect(last).toContain("`3/5`");
+    expect(last).not.toContain("Wooper");
+  });
+
+  it("does not erase a real fishing encounter when species read fails", async () => {
+    const current = fishingRoute(fishingResult());
+    current.speciesDisplayName.mockRejectedValueOnce(new Error("catalog reader offline"));
+    const output = await current.route.handler.handle(context("05"));
+    expect(output.ok).toBe(true);
+    if (!output.ok) return;
+    expect(output.value.outgoing).toHaveLength(3);
+    expect(output.value.resultRefType).toBe("ENCOUNTER");
+    expect(output.value.resultRefId).toBe(ENCOUNTER_ID);
+    expect(output.value.outgoing[2]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠");
+  });
+
+  it("renders the anonymous fallback when the optional species reader is absent", async () => {
+    const attempt = vi.fn(async () => ok(fishingResult()));
+    const deps = dependencies(attempt);
+    const { fishingSpecies: _unused, ...noDisplayReader } = deps;
+    const route = createWorldServiceWhatsAppRoutes(noDisplayReader)
+      .find((definition) => definition.command === "pescar");
+    expect(route).toBeDefined();
+    const output = await route!.handler.handle(context("06"));
+    expect(output.ok).toBe(true);
+    if (!output.ok) return;
+    expect(output.value.resultRefId).toBe(ENCOUNTER_ID);
+    expect(output.value.outgoing[2]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠");
+  });
+
+  it("explains the world-calendar release gate without consuming a cast", async () => {
+    const attempt = vi.fn(async () => ok(fishingResult()));
+    const deps = dependencies(attempt);
+    const { fishing: _unconfigured, ...noCalendar } = deps;
+    const route = createWorldServiceWhatsAppRoutes(noCalendar)
+      .find((item) => item.command === "pescar");
+    expect(route).toBeDefined();
+    const output = await route!.handler.handle(context("07"));
+    expect(output).toMatchObject({
+      ok: false,
+      error: {
+        code: "FEATURE_UNAVAILABLE",
+        details: { userMessage: expect.stringContaining("calendário deste mundo") },
+      },
+    });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
 });

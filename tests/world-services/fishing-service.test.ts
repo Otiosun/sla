@@ -8,7 +8,8 @@ import {
 } from "../../src/modules/world-services/fishing-service.js";
 import type { RandomSource } from "../../src/platform/rng/index.js";
 import { createEncounterId, createPlayerId } from "../../src/shared-kernel/ids.js";
-import { ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
+import type { FishingAttemptReservationResult } from "../../src/modules/world-services/fishing-service.js";
 
 const PLAYER_ID = createPlayerId();
 const ATTEMPT_ID = "00000000-0000-4000-8000-000000004001";
@@ -223,5 +224,59 @@ describe("FishingService", () => {
         },
       },
     });
+  });
+});
+
+describe("FishingService atomic production port", () => {
+  it("delegates quota and encounter to one atomic executor; never separately creates", async () => {
+    const reserveAttempt = vi.fn();
+    const createOrReplay = vi.fn();
+    const reserveAndResolve = vi.fn(async () => ok({
+      reservation: reservation({
+        roll: 16, rarity: "UNCOMMON", encounterTableSlug: "fishing-uncommon",
+      }),
+      encounter: encounterView(),
+    }));
+    const service = new FishingService(
+      { reserveAttempt, reserveAndResolve }, { createOrReplay }, rng(16),
+    );
+    const result = await service.attempt({playerId: PLAYER_ID, idempotencyKey: "atomic-001"});
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.encounter?.encounterId).toBe(ENCOUNTER_ID);
+    expect(reserveAndResolve).toHaveBeenCalledExactlyOnceWith({
+      playerId: PLAYER_ID, idempotencyKey: "atomic-001", roll: 16,
+    });
+    expect(reserveAttempt).not.toHaveBeenCalled();
+    expect(createOrReplay).not.toHaveBeenCalled();
+  });
+
+  it("passes atomic failure directly without sending any fishing success", async () => {
+    const reserveAttempt=vi.fn();
+    const createOrReplay=vi.fn();
+    const reserveAndResolve = vi.fn(async (): Promise<Result<{
+      readonly reservation: FishingAttemptReservationResult;
+      readonly encounter: EncounterView | null;
+    }>> => err(appError("FLOW_BLOCKED", "No active fishing encounter pool")));
+    const result = await new FishingService(
+      {reserveAttempt,reserveAndResolve},{createOrReplay},rng(16),
+    ).attempt({playerId:PLAYER_ID,idempotencyKey:"atomic-failure"});
+    expect(result).toMatchObject({ok:false,error:{code:"FLOW_BLOCKED"}});
+    expect(reserveAttempt).not.toHaveBeenCalled();
+    expect(createOrReplay).not.toHaveBeenCalled();
+  });
+
+  it("rejects impossible atomic result instead of pretending a wild Pokemon appeared", async () => {
+    const service=new FishingService({
+      reserveAttempt:vi.fn(),
+      reserveAndResolve:vi.fn(async()=>ok({
+        reservation:reservation({
+          roll:16,rarity:"UNCOMMON",encounterTableSlug:"fishing-uncommon",
+        }),
+        encounter:null,
+      })),
+    },{createOrReplay:vi.fn()},rng(16));
+    expect(await service.attempt({playerId:PLAYER_ID,idempotencyKey:"missing-encounter"}))
+      .toMatchObject({ok:false,error:{code:"INVALID_STATE_TRANSITION"}});
   });
 });

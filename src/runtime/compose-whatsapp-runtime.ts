@@ -175,6 +175,8 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly auth: BaileysAuthBinding;
   readonly logger: StructuredLogger;
   readonly encounterRngConfig?: EncounterRngRuntimeConfig;
+  /** Approved fishing day timezone; absent means fishing is disabled, never server-local. */
+  readonly fishingDayTimeZone?: string | null;
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly hubPublicUrl?: string | null;
@@ -209,6 +211,7 @@ export function createOperationalMessagingComposition(
   worldServiceMedia: WorldServiceMediaCatalog | null = null,
   pveBattleConfig: PveBattleRuntimeConfig | null = null,
   hubPublicUrl: string | null = null,
+  fishingDayTimeZone: string | null = null,
 ): OperationalMessagingComposition {
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
@@ -283,10 +286,18 @@ export function createOperationalMessagingComposition(
         );
   const captureBalls = new PostgresCaptureBallReader(pool);
   const fishing =
-    encounterWriter === undefined
+    encounterWriter === undefined || encounterRngConfig === null || fishingDayTimeZone === null
       ? undefined
       : new FishingService(
-          new PostgresFishingAttemptRepository(pool),
+          new PostgresFishingAttemptRepository(pool, {
+            seedProvider: new AesEncounterSeedProvider(
+              encounterRngConfig.encryptionKey,
+              encounterRngConfig.encryptionKeyVersion,
+            ),
+            clock,
+            feature: { enabled: true, reason: null },
+            fishingDayTimeZone,
+          }),
           encounterWriter,
           new CryptoRandomSource(),
         );
@@ -1110,6 +1121,7 @@ export function createOperationalWhatsAppRuntime(
     options.worldServiceMedia ?? null,
     options.pveBattleConfig ?? null,
     options.hubPublicUrl ?? null,
+    options.fishingDayTimeZone ?? process.env.FISHING_DAY_TIME_ZONE ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
