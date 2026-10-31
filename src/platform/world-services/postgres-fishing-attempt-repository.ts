@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
+import { EncounterService } from "../../modules/encounter/service.js";
+import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
+import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
+import type { EncounterView } from "../../modules/encounter/contracts.js";
+import type { Clock } from "../clock/index.js";
+import type { FeatureAvailability } from "../../shared-kernel/gates.js";
+import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
 import { WorldAreaConfigSchema } from "../../modules/catalog/world-contracts.js";
 import {
   type FishingAttemptRepository,
@@ -54,14 +61,84 @@ function reserved(
   };
 }
 
+class FishingAtomicRollback extends Error {
+  public constructor(public readonly failure: AppError) {
+    super(failure.message);
+  }
+}
+
 function unavailable(playerId: PlayerId, reason: string): FishingAttemptReservationResult {
   return { kind: "FISHING_UNAVAILABLE", playerId, reason };
 }
 
 export class PostgresFishingAttemptRepository implements FishingAttemptRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly atomicEncounter?: {
+      readonly seedProvider: EncounterSeedProvider;
+      readonly clock: Clock;
+      readonly feature: FeatureAvailability;
+    },
+  ) {}
 
   public async reserveAttempt(
+    input: ReserveFishingAttemptInput,
+  ): Promise<FishingAttemptReservationResult> {
+    return withTransaction(this.pool, client => this.reserveWithin(client, input));
+  }
+
+  /**
+   * The operational fishing path: the per-player daily quota and encounter
+   * creation share a single PoolClient, lock and COMMIT. Failed encounter
+   * results throw the private rollback sentinel, which withTransaction
+   * converts into a PostgreSQL ROLLBACK before returning a domain error.
+   */
+  public async reserveAndResolve(input: ReserveFishingAttemptInput): Promise<Result<{
+    readonly reservation: FishingAttemptReservationResult;
+    readonly encounter: EncounterView | null;
+  }>> {
+    if (this.atomicEncounter === undefined) {
+      return err(appError("FEATURE_UNAVAILABLE", "Atomic fishing encounter dependencies are missing"));
+    }
+    try {
+      return await withTransaction(this.pool, async client => {
+        const reservation = await this.reserveWithin(client, input);
+        if (reservation.kind !== "RESERVED" || reservation.rarity === null) {
+          return ok({ reservation, encounter: null });
+        }
+        if (reservation.encounterTableSlug === null) {
+          throw new FishingAtomicRollback(appError(
+            "FLOW_BLOCKED", "Fishing encounter table was not persisted",
+          ));
+        }
+        const encounter = await new EncounterService(
+          encounterRepositoryWithinTransaction(client),
+          this.atomicEncounter!.seedProvider,
+          this.atomicEncounter!.clock,
+          this.atomicEncounter!.feature,
+        ).createOrReplay({
+          playerId: input.playerId,
+          idempotencyKey: `fishing:${reservation.attemptId}`,
+          encounterTableSlug: reservation.encounterTableSlug,
+          environment: { surface: "WATER" },
+        });
+        if (!encounter.ok) throw new FishingAtomicRollback(encounter.error);
+        if (encounter.value.playerId !== input.playerId ||
+            encounter.value.areaId !== reservation.areaId) {
+          throw new FishingAtomicRollback(appError(
+            "FLOW_BLOCKED", "Fishing encounter is not in the reserved area",
+          ));
+        }
+        return ok({ reservation, encounter: encounter.value });
+      });
+    } catch (error) {
+      if (error instanceof FishingAtomicRollback) return err(error.failure);
+      throw error;
+    }
+  }
+
+  private async reserveWithin(
+    client: PoolClient,
     input: ReserveFishingAttemptInput,
   ): Promise<FishingAttemptReservationResult> {
     if (input.idempotencyKey.trim().length < 1 || input.idempotencyKey.trim().length > 200) {
@@ -69,7 +146,6 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
     }
     fishingRarityForRoll(input.roll);
 
-    return withTransaction(this.pool, async (client) => {
       const player = await client.query<{ status: string }>(
         "SELECT status FROM players WHERE id = $1 FOR UPDATE",
         [input.playerId],
@@ -198,6 +274,5 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
       const insertedRow = inserted.rows[0];
       if (insertedRow === undefined) throw new Error("Fishing attempt insert returned no row");
       return reserved(insertedRow, input.playerId, false);
-    });
   }
 }
