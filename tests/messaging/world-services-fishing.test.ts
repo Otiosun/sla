@@ -211,4 +211,22 @@ describe("Fishing WhatsApp flow", () => {
     expect(output.value.outgoing[2]?.payload.text).toContain("𝗣𝗢𝗞É𝗠𝗢𝗡 𝗦𝗘𝗟𝗩𝗔𝗚𝗘𝗠");
   });
 
+  it("explains the world-calendar release gate without consuming a cast", async () => {
+    const attempt = vi.fn(async () => ok(fishingResult()));
+    const deps = dependencies(attempt);
+    const { fishing: _unconfigured, ...noCalendar } = deps;
+    const route = createWorldServiceWhatsAppRoutes(noCalendar)
+      .find((item) => item.command === "pescar");
+    expect(route).toBeDefined();
+    const output = await route!.handler.handle(context("07"));
+    expect(output).toMatchObject({
+      ok: false,
+      error: {
+        code: "FEATURE_UNAVAILABLE",
+        details: { userMessage: expect.stringContaining("calendário deste mundo") },
+      },
+    });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
 });
