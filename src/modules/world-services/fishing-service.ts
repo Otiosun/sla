@@ -50,6 +50,15 @@ export type FishingAttemptReservationResult =
 
 export interface FishingAttemptRepository {
   reserveAttempt(input: ReserveFishingAttemptInput): Promise<FishingAttemptReservationResult>;
+  /**
+   * Runtime PostgreSQL path: reserve quota and persist the canonical encounter
+   * under ONE transaction. No successful reservation is committed if the
+   * encounter effect fails. Older isolated fakes can use reserveAttempt only.
+   */
+  reserveAndResolve?(input: ReserveFishingAttemptInput): Promise<Result<{
+    readonly reservation: FishingAttemptReservationResult;
+    readonly encounter: EncounterView | null;
+  }>>;
 }
 
 export interface FishingAttemptResult {
@@ -109,7 +118,13 @@ export class FishingService {
 
   public async attempt(input: FishingAttemptInput): Promise<Result<FishingAttemptResult>> {
     const generatedRoll = this.random.randomInt(20) + 1;
-    const reservation = await this.repository.reserveAttempt({ ...input, roll: generatedRoll });
+    const atomic = this.repository.reserveAndResolve === undefined
+      ? null
+      : await this.repository.reserveAndResolve({ ...input, roll: generatedRoll });
+    if (atomic !== null && !atomic.ok) return atomic;
+    const reservation = atomic === null
+      ? await this.repository.reserveAttempt({ ...input, roll: generatedRoll })
+      : atomic.value.reservation;
     if (reservation.kind === "DAILY_LIMIT_REACHED") {
       return err(
         appError("ACTION_INVALID", "Daily fishing attempt limit reached", {
@@ -135,7 +150,7 @@ export class FishingService {
       );
     }
 
-    let encounter: EncounterView | null = null;
+    let encounter: EncounterView | null = atomic?.value.encounter ?? null;
     if (rarity !== null) {
       const encounterTableSlug = reservation.encounterTableSlug?.trim() ?? "";
       if (encounterTableSlug.length === 0) {
@@ -146,13 +161,19 @@ export class FishingService {
         );
       }
 
-      const created = await this.encounters.createOrReplay({
-        playerId: reservation.playerId,
-        idempotencyKey: `fishing:${reservation.attemptId}`,
-        encounterTableSlug,
-      });
-      if (!created.ok) return created;
-      encounter = created.value;
+      if (atomic === null) {
+        // Only used by focused in-memory legacy fakes. The PostgreSQL runtime
+        // always uses reserveAndResolve and cannot commit partial quota.
+        const created = await this.encounters.createOrReplay({
+          playerId: reservation.playerId,
+          idempotencyKey: `fishing:${reservation.attemptId}`,
+          encounterTableSlug,
+        });
+        if (!created.ok) return created;
+        encounter = created.value;
+      } else if (encounter === null) {
+        return err(appError("INVALID_STATE_TRANSITION", "Atomic fishing encounter was not persisted"));
+      }
     }
 
     return ok({
