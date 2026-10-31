@@ -1425,6 +1425,36 @@ describe("encounter PostgreSQL integration", () => {
     }));
     expect(replay.replayed).toBe(true);
     expect(replay.encounter?.encounterId).toBe(first.encounter?.encounterId);
+
+    // A fishing bite creates a regular Encounter, not a secret parallel battle.
+    // The authorized PVE flow can subsequently observe, engage and start
+    // exactly one canonical battle without spending another fishing quota.
+    if (first.encounter === null) throw new Error("Fishing fixture did not create an encounter");
+    const engine=service(pool,new ManualClock(FIXED_NOW));
+    const presented=unwrap(await engine.observe({
+      playerId,encounterId:first.encounter.encounterId,expectedRevision:first.encounter.revision,
+    }));
+    expect(presented.status).toBe("PRESENTED");
+    const engaged=unwrap(await engine.engage({
+      playerId,encounterId:first.encounter.encounterId,expectedRevision:presented.revision,
+    }));
+    expect(engaged.status).toBe("ENGAGED");
+    const started=unwrap(await engine.startBattle({
+      playerId,encounterId:first.encounter.encounterId,expectedRevision:engaged.revision,
+    }));
+    expect(started.encounter.status).toBe("IN_BATTLE");
+    expect(started.replayed).toBe(false);
+    const battleReplay=unwrap(await engine.startBattle({
+      playerId,encounterId:first.encounter.encounterId,expectedRevision:engaged.revision,
+    }));
+    expect(battleReplay.replayed).toBe(true);
+    expect(battleReplay.battleId).toBe(started.battleId);
+    const battleCount=await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM battles WHERE encounter_id=$1",
+      [first.encounter.encounterId],
+    );
+    expect(battleCount.rows[0]?.count).toBe("1");
+
     const totals=await pool.query<{casts:string;encounters:string}>(
       `SELECT
         (SELECT count(*)::text FROM fishing_attempts WHERE player_id=$1) AS casts,
