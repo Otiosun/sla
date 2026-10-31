@@ -226,12 +226,13 @@ describe("CaptureService RNG context", () => {
     expect(contexts[0]).not.toBe(contexts[1]);
   });
   it("applies permanent 2x Luck only to the server-owned capture chance before RNG", async () => {
-    const inspect = async (multiplier: 1 | 2, catchRate: number) => {
+    const inspect = async (multiplier: 1 | 2, catchRate: number, modifierCount = 0) => {
       const base = context();
       // Damaged wild Pokemon creates a genuine maximum-capture clamp case.
       const value = {
         ...base,
         catchRate,
+        explicitModifierBasisPoints: Array.from({ length: modifierCount }, () => 10_000),
         encounterSnapshot: { ...base.encounterSnapshot, currentHp: 1 },
       };
       let probability = -1;
@@ -293,5 +294,7 @@ describe("CaptureService RNG context", () => {
 
     const clamped = await inspect(2, 255);
     expect(clamped.probability).toBe(9_500); // Pinned ruleset never exceeded.
+    const maxModifiers = await inspect(2, 40, 16);
+    expect(maxModifiers.modifiers).toHaveLength(17);
   });
 });

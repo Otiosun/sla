@@ -1428,6 +1428,28 @@ export class PostgresProgressionRepository implements ProgressionRepository {
 
         let result: PokemonXpAdjustmentResult;
 
+        let awardedDelta = input.delta;
+        if (
+          eligibleEarnedTrainerAdjustment({
+            delta: input.delta,
+            actorType: input.metadata.actorType,
+            sourceType: input.metadata.sourceType,
+          })
+        ) {
+          const boost = await client.query<{ multiplier: number }>(
+            `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
+            [input.playerId],
+          );
+          const multiplier = boost.rows[0]?.multiplier ?? 1;
+          if (multiplier !== 1 && multiplier !== 2) {
+            return { kind: "STATE_INVALID", reason: "Pokemon earned XP multiplier is invalid" };
+          }
+          if (!Number.isSafeInteger(input.delta * multiplier)) {
+            return { kind: "STATE_INVALID", reason: "Pokemon earned XP exceeds safe range" };
+          }
+          awardedDelta = multiplyEarnedXp(input.delta, multiplier);
+        }
+
         if (input.delta > 0) {
           if (row.level >= progression.pokemon.levelCap) {
             return { kind: "STATE_INVALID", reason: "Pokemon is already at the level cap" };
@@ -1439,7 +1461,7 @@ export class PostgresProgressionRepository implements ProgressionRepository {
             config,
             progression,
             combatant: snapshot,
-            offeredXp: input.delta,
+            offeredXp: awardedDelta,
             correlationId: input.correlationId,
             source: {
               sourceType: input.metadata.sourceType,
@@ -1609,29 +1631,33 @@ export class PostgresProgressionRepository implements ProgressionRepository {
         );
         const replay = existing.rows[0];
         if (replay !== undefined) {
-          const compatible =
-            replay.player_id === input.playerId &&
-            safeInteger(replay.delta, "trainer progress ledger delta") === input.delta &&
-            replay.source_type === input.metadata.sourceType &&
-            replay.source_id === input.metadata.sourceId &&
-            replay.reason === input.metadata.reason &&
-            replay.actor_type === input.metadata.actorType &&
-            replay.actor_id === input.metadata.actorId;
-          if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
           if (replay.ruleset_id === null || replay.result === null) {
             return {
               kind: "STATE_INVALID",
               reason: "Trainer adjustment replay lacks durable result metadata",
             };
           }
-          const parsed = TrainerProgressAdjustmentResultSchema.parse(replay.result);
-          if (parsed.rulesetId !== replay.ruleset_id) {
+          const parsed = TrainerProgressAdjustmentResultSchema.safeParse(replay.result);
+          if (!parsed.success) {
+            return { kind: "STATE_INVALID", reason: "Invalid stored trainer adjustment result" };
+          }
+          const compatible =
+            replay.player_id === input.playerId &&
+            safeInteger(replay.delta, "trainer progress ledger delta") === parsed.data.delta &&
+            (parsed.data.requestedDelta ?? parsed.data.delta) === input.delta &&
+            replay.source_type === input.metadata.sourceType &&
+            replay.source_id === input.metadata.sourceId &&
+            replay.reason === input.metadata.reason &&
+            replay.actor_type === input.metadata.actorType &&
+            replay.actor_id === input.metadata.actorId;
+          if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
+          if (parsed.data.rulesetId !== replay.ruleset_id) {
             return {
               kind: "STATE_INVALID",
               reason: "Trainer adjustment result ruleset drifted from ledger",
             };
           }
-          return { kind: "REPLAYED", result: { ...parsed, replayed: true } };
+          return { kind: "REPLAYED", result: { ...parsed.data, replayed: true } };
         }
 
         const player = await client.query<{ status: string }>(
