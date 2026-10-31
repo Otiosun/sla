@@ -108,4 +108,46 @@ describe.sequential("XP_2X battle multiplier policy", () => {
 
     expect(await multiplierAt("2026-10-20T20:00:00.000Z")).toBe(1);
   });
+
+  it("applies permanent Luck 2x to captures and respects revocation", async () => {
+    const playerId = randomUUID();
+    await pool.query(`INSERT INTO players(id, status) VALUES ($1, 'ACTIVE')`, [playerId]);
+    const check = async (at: string) => {
+      const res = await pool.query<{ multiplier: number }>(
+        `SELECT premium_capture_luck_multiplier_for($1, $2)::int AS multiplier`,
+        [playerId, at],
+      );
+      return res.rows[0]?.multiplier;
+    };
+    expect(await check("2026-10-20T14:00:00Z")).toBe(1);
+    await pool.query(
+      `INSERT INTO player_entitlements(player_id, entitlement_key, grant_model,
+          administrative_status, starts_at, expires_at, revision)
+       VALUES($1, 'CAPTURE_LUCK_2X', 'PERMANENT', 'ACTIVE',
+          '2026-10-20T14:00:00Z', NULL, 0)`,
+      [playerId],
+    );
+    expect(await check("2026-10-20T13:59:59Z")).toBe(1);
+    expect(await check("2026-10-20T14:00:00Z")).toBe(2);
+    expect(await check("2027-10-20T14:00:00Z")).toBe(2);
+    await pool.query(
+      `UPDATE player_entitlements SET administrative_status = 'REVOKED'
+       WHERE player_id = $1 AND entitlement_key = 'CAPTURE_LUCK_2X'`,
+      [playerId],
+    );
+    expect(await check("2027-10-20T14:00:00Z")).toBe(1);
+  });
+
+  it("checks published entitlement SKU metadata for 2XP and LUCK", async () => {
+    const res = await pool.query<{
+      sku: string; fulfillment_kind: string; active: boolean; scope: string | null;
+    }>(
+      `SELECT sku, fulfillment_kind, active, metadata->>'scope' AS scope
+       FROM premium_product_definitions WHERE sku IN ('2XP', 'LUCK') ORDER BY sku`,
+    );
+    expect(res.rows).toEqual([
+      { sku: "2XP", fulfillment_kind: "ENTITLEMENT", active: true, scope: "ALL_EARNED_XP" },
+      { sku: "LUCK", fulfillment_kind: "ENTITLEMENT", active: true, scope: "ALL_AUTHORIZED_CAPTURES" },
+    ]);
+  });
 });

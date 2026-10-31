@@ -49,7 +49,7 @@ const breakdownSchema = z
     ballMultiplierBasisPoints: z.number().int().min(1).max(100_000),
     status: z.enum(["BURN", "POISON", "PARALYSIS", "SLEEP", "FREEZE"]).nullable(),
     statusMultiplierBasisPoints: z.number().int().min(1).max(100_000),
-    explicitModifierBasisPoints: z.array(z.number().int().min(1).max(100_000)).max(16),
+    explicitModifierBasisPoints: z.array(z.number().int().min(1).max(100_000)).max(17),
     rawProbabilityBasisPoints: z.number().int().min(0).max(10_000),
     maxProbabilityBasisPoints: z.number().int().min(1).max(10_000),
     finalProbabilityBasisPoints: z.number().int().min(0).max(10_000),

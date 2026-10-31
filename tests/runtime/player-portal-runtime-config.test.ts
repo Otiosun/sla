@@ -39,4 +39,28 @@ describe("Player Portal runtime config", () => {
       ),
     ).toThrow(PlayerPortalRuntimeConfigError);
   });
-});
+
+  it("rejects Premium staging against absent or foreign database", () => {
+    const base = {
+      PLAYER_PORTAL_SESSION_SIGNING_KEY_BASE64: KEY,
+      DEPLOY_REVISION: "d".repeat(40),
+      PREMIUM_MANUAL_DELIVERY_ENABLED: "1",
+    };
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "staging" }, base))
+      .toThrow("Premium staging requires the approved isolated database");
+    expect(() => loadPlayerPortalRuntimeConfig({
+      appEnv: "staging",
+      databaseUrl: "postgresql://dummy:dummy@localhost:5432/prod",
+    }, base)).toThrow("Premium staging requires the approved isolated database");
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "production" }, base))
+      .toThrow("Premium manual delivery can only be enabled in staging");
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "development" }, {
+      ...base,
+      PREMIUM_MANUAL_DELIVERY_ENABLED: "0",
+    })).not.toThrow();
+    expect(() => loadPlayerPortalRuntimeConfig({ appEnv: "production" }, {
+      ...base,
+      PREMIUM_MANUAL_DELIVERY_ENABLED: "0",
+      PREMIUM_MASTER_DELIVERY_ENABLED: "1",
+    })).toThrow("Premium manual delivery can only be enabled in staging");
+  });});

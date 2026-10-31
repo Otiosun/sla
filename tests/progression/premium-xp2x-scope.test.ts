@@ -29,10 +29,12 @@ describe("Premium XP2x scope", () => {
     expect(battleSection).not.toContain("pokemonXpMultiplier * pokemonXpMultiplier");
   });
 
-  it("keeps corrective Pokemon XP edits outside Premium scaling", () => {
+  it("boosts eligible Pokemon XP rewards but leaves corrections unmultiplied", () => {
     expect(pokemonAdjustStart).toBeGreaterThan(battleStart);
     expect(trainerAdjustStart).toBeGreaterThan(pokemonAdjustStart);
-    expect(pokemonCorrection).not.toContain("pokemon_battle_xp_multiplier_for");
+    expect(pokemonCorrection).toContain("eligibleEarnedTrainerAdjustment");
+    expect(pokemonCorrection).toContain("offeredXp: awardedDelta,");
+    expect(pokemonCorrection).toContain("if (input.delta > 0) {");
   });
 
   it("separates earned trainer gifts from corrective admin adjustments", () => {
@@ -41,5 +43,6 @@ describe("Premium XP2x scope", () => {
     expect(trainerAdjustment).toContain("input.metadata.sourceType");
     expect(trainerAdjustment).toContain("appliedDelta = multiplyEarnedXp(input.delta, multiplier)");
     expect(trainerAdjustment).toContain("requestedDelta: input.delta");
+    expect(trainerAdjustment).toContain("(parsed.data.requestedDelta ?? parsed.data.delta) === input.delta");
   });
 });

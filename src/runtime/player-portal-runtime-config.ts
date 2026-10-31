@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AppConfig } from "../platform/config/env.js";
+import { isApprovedPremiumStagingDatabaseUrl } from "./premium-staging-database-target.js";
 
 const fullRevisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const runtimeSchema = z.object({
@@ -8,6 +9,8 @@ const runtimeSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   DEPLOY_REVISION: fullRevisionSchema.optional(),
   RAILWAY_GIT_COMMIT_SHA: fullRevisionSchema.optional(),
+  PREMIUM_MANUAL_DELIVERY_ENABLED: z.enum(["0", "1"]).default("0"),
+  PREMIUM_MASTER_DELIVERY_ENABLED: z.enum(["0", "1"]).default("0"),
 });
 
 export interface PlayerPortalRuntimeConfig {
@@ -33,7 +36,7 @@ function decodeSigningKey(value: string): Buffer {
 }
 
 export function loadPlayerPortalRuntimeConfig(
-  appConfig: Pick<AppConfig, "appEnv">,
+  appConfig: Pick<AppConfig, "appEnv"> & Partial<Pick<AppConfig, "databaseUrl">>,
   env: NodeJS.ProcessEnv = process.env,
 ): PlayerPortalRuntimeConfig {
   const parsed = runtimeSchema.safeParse(env);
@@ -59,6 +62,22 @@ export function loadPlayerPortalRuntimeConfig(
   }
 
   const deploymentRevision = railwayRevision ?? explicitRevision ?? null;
+  // Premium staging database isolation gate: no flag can expose live player data.
+  const manualPremiumRequested =
+    parsed.data.PREMIUM_MANUAL_DELIVERY_ENABLED === "1" ||
+    parsed.data.PREMIUM_MASTER_DELIVERY_ENABLED === "1";
+  if (manualPremiumRequested) {
+    if (appConfig.appEnv !== "staging") {
+      throw new PlayerPortalRuntimeConfigError(
+        "Premium manual delivery can only be enabled in staging",
+      );
+    }
+    if (!appConfig.databaseUrl || !isApprovedPremiumStagingDatabaseUrl(appConfig.databaseUrl)) {
+      throw new PlayerPortalRuntimeConfigError(
+        "Premium staging requires the approved isolated database",
+      );
+    }
+  }
   const requiresRevision = appConfig.appEnv === "staging" || appConfig.appEnv === "production";
   if (requiresRevision && deploymentRevision === null) {
     throw new PlayerPortalRuntimeConfigError(
