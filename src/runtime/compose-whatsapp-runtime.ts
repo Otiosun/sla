@@ -897,21 +897,25 @@ export function createOperationalMessagingComposition(
       // Never expose effects or the draft schema on the active WhatsApp bot.
       ...(explorationPreviewTimeZone === null
         ? []
-        : (explorationStagingPreparationEnabled
-            ? createExpeditionV4StagingPreparationRoutes
-            : createExpeditionV4ReadOnlyRoutes)({
-            players: playerRegistration,
-            world,
-            facts: new PostgresExpeditionV4StatusReader(pool),
-            group: new IncidentalGameGroupAdmission(community, {
-              load: async (playerId) => accessRepository.read(async (tx) => tx.load(playerId)),
-            }),
-            clock,
-            timeZone: explorationPreviewTimeZone,
-            ...(explorationStagingPreparationEnabled
-              ? { preparation: new PostgresExpeditionRepository(pool, clock, explorationPreviewTimeZone) }
-              : {}),
-          })),
+        : (() => {
+            const dependencies = {
+              players: playerRegistration,
+              world,
+              facts: new PostgresExpeditionV4StatusReader(pool),
+              group: new IncidentalGameGroupAdmission(community, {
+                load: async (playerId: import("../shared-kernel/ids.js").PlayerId) =>
+                  accessRepository.read(async (tx) => tx.load(playerId)),
+              }),
+              clock,
+              timeZone: explorationPreviewTimeZone,
+            };
+            return explorationStagingPreparationEnabled
+              ? createExpeditionV4StagingPreparationRoutes({
+                  ...dependencies,
+                  preparation: new PostgresExpeditionRepository(pool, clock, explorationPreviewTimeZone),
+                })
+              : createExpeditionV4ReadOnlyRoutes(dependencies);
+          })()),
       ...worldServiceRoutes,
       ...progressionRoutes,
       ...registrationRoutes,
