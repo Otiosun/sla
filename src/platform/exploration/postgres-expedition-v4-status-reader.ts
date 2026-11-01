@@ -2,7 +2,10 @@ import type { Pool } from "pg";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import type { ExpeditionV4StatusFacts } from "../../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
-import type { ExpeditionPhase, ExpeditionEndReason } from "../../modules/exploration/expedition-state.js";
+import type {
+  ExpeditionPhase,
+  ExpeditionEndReason,
+} from "../../modules/exploration/expedition-state.js";
 import { withTransaction } from "../db/transaction.js";
 
 interface ExpeditionRow {
@@ -51,17 +54,20 @@ export class PostgresExpeditionV4StatusReader {
         const row = current.rows[0];
         return {
           usedThisWeek: count.rows[0]?.total ?? -1,
-          expedition: row === undefined ? null : {
-            expeditionId: row.id,
-            playerId: row.player_id,
-            areaId: row.area_id,
-            phase: row.phase,
-            period: row.period,
-            elapsedMinutes: row.elapsed_minutes,
-            consumedWeekKey: row.consumed_week_key,
-            endReason: row.end_reason,
-            revision: BigInt(row.revision),
-          },
+          expedition:
+            row === undefined
+              ? null
+              : {
+                  expeditionId: row.id,
+                  playerId: row.player_id,
+                  areaId: row.area_id,
+                  phase: row.phase,
+                  period: row.period,
+                  elapsedMinutes: row.elapsed_minutes,
+                  consumedWeekKey: row.consumed_week_key,
+                  endReason: row.end_reason,
+                  revision: BigInt(row.revision),
+                },
         };
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
