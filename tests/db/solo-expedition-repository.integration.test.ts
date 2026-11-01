@@ -503,11 +503,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const proof = new PostgresExpeditionSearchSentProof(pool);
     const args = { playerId, encounterId, outcomeId, outboxMessageId, destinationRef };
     expect(await proof.confirm(args)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     await pool.query("UPDATE outbox_messages SET status='SENT' WHERE id=$1", [outboxMessageId]);
     expect(await proof.confirm(args)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     await pool.query("UPDATE outbox_messages SET sent_at=now() WHERE id=$1", [outboxMessageId]);
     const verified = await proof.confirm(args);
@@ -524,13 +526,16 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(await proof.confirm(args)).toEqual(verified);
     expect(await proof.confirm({ ...args, destinationRef: "120363123456789@g.us" })).toMatchObject({
-      ok: false, error: { code: "VALIDATION_FAILED" },
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
     });
     expect(await proof.confirm({ ...args, destinationRef: "123456789012345@lid" })).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     expect(await proof.confirm({ ...args, playerId: await trainer() })).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
