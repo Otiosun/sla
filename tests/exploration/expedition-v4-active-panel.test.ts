@@ -71,6 +71,17 @@ describe("UX V4 ACTIVE Rotom shadow renderer", () => {
     }
   });
 
+  it("never leaks a literal editorial [Ler mais] marker through the ACTIVE menu", () => {
+    for (const label of ["[Ler mais]", "🔎 Buscar [Ler mais] Pokémon"]) {
+      const choices = [{ ...currentChoices()[0]!, label }, ...currentChoices().slice(1)];
+      const result = renderExpeditionV4ActivePanel({ ...input, choices });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "VALIDATION_FAILED" },
+      });
+    }
+  });
+
   it("rejects invalid clock and elapsed minutes", () => {
     expect(renderExpeditionV4ActivePanel({ ...input, currentTime: "27:61" }).ok).toBe(false);
     expect(renderExpeditionV4ActivePanel({ ...input, elapsedMinutes: -1 }).ok).toBe(false);

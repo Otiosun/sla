@@ -161,6 +161,59 @@ describe("published-only expedition search outcome policy (DRAFT, NO default wei
     expect((await policy.decide(spoof.client, expedition)).ok).toBe(false);
   });
 
+  it("blocks inconsistent PREPARING clock/quota before querying the published release", async () => {
+    const policy = new PublishedSearchOutcomePolicy(secret);
+    const invalid: ExpeditionSnapshot[] = [
+      { ...expedition, elapsedMinutes: 1 },
+      { ...expedition, consumedWeekKey: "2026-10-26" },
+      { ...expedition, endReason: "CANCELLED" },
+      { ...expedition, elapsedMinutes: -1 },
+      { ...expedition, elapsedMinutes: Number.NaN },
+      { ...expedition, elapsedMinutes: 0.5 },
+      { ...expedition, revision: -1n },
+    ];
+    for (const input of invalid) {
+      const fake = queryFixture({ ...allZero(), DIRECT: 10_000 });
+      expect(await policy.decide(fake.client, input)).toMatchObject({
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      });
+      expect(fake.query).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows only a quota-consumed, non-ended ACTIVE clock before choosing a search result", async () => {
+    const policy = new PublishedSearchOutcomePolicy(secret);
+    const validActive: ExpeditionSnapshot = {
+      ...expedition,
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+    };
+    const approved = queryFixture({ ...allZero(), DIRECT: 10_000 });
+    expect(await policy.decide(approved.client, validActive)).toEqual({
+      ok: true,
+      value: { kind: "DIRECT" },
+    });
+    expect(approved.query).toHaveBeenCalledOnce();
+
+    const invalid: ExpeditionSnapshot[] = [
+      { ...validActive, elapsedMinutes: 0 },
+      { ...validActive, elapsedMinutes: 720 },
+      { ...validActive, elapsedMinutes: Number.POSITIVE_INFINITY },
+      { ...validActive, consumedWeekKey: null },
+      { ...validActive, endReason: "VOLUNTARY" },
+    ];
+    for (const input of invalid) {
+      const fake = queryFixture({ ...allZero(), DIRECT: 10_000 });
+      expect(await policy.decide(fake.client, input)).toMatchObject({
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      });
+      expect(fake.query).not.toHaveBeenCalled();
+    }
+  });
+
   it("requires a nontrivial server-owned secret", () => {
     expect(() => new PublishedSearchOutcomePolicy(Buffer.alloc(12))).toThrow();
   });
