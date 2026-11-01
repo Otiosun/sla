@@ -123,32 +123,35 @@ describe("post-SENT V4 search proof (never accepts pre-send binding)", () => {
     "1234@s.whatsapp.net",
     "not-a-phone@s.whatsapp.net",
     "1234567890",
-  ])("rejects nonprivate or untrusted WhatsApp destination %s BEFORE SQL", async (destinationRef) => {
-    const f = setup([row]);
-    expect(await f.proof.confirm({ ...input, destinationRef })).toMatchObject({
-      ok: false,
-      error: { code: "VALIDATION_FAILED" },
-    });
-    expect(f.query).not.toHaveBeenCalled();
-  });
+  ])(
+    "rejects nonprivate or untrusted WhatsApp destination %s BEFORE SQL",
+    async (destinationRef) => {
+      const f = setup([row]);
+      expect(await f.proof.confirm({ ...input, destinationRef })).toMatchObject({
+        ok: false,
+        error: { code: "VALIDATION_FAILED" },
+      });
+      expect(f.query).not.toHaveBeenCalled();
+    },
+  );
 
-  it.each([
-    "5579999999999@s.whatsapp.net",
-    "123456789012345@lid",
-  ])("permits direct user/LID destination %s with the exact SENT proof", async (destinationRef) => {
-    const f = setup([row]);
-    expect(await f.proof.confirm({ ...input, destinationRef })).toMatchObject({
-      ok: true,
-      value: { encounterId: input.encounterId, encounterStatus: "CREATED" },
-    });
-    expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.any(String), [
-      input.outboxMessageId,
-      input.outcomeId,
-      playerId,
-      input.encounterId,
-      destinationRef,
-    ]);
-  });
+  it.each(["5579999999999@s.whatsapp.net", "123456789012345@lid"])(
+    "permits direct user/LID destination %s with the exact SENT proof",
+    async (destinationRef) => {
+      const f = setup([row]);
+      expect(await f.proof.confirm({ ...input, destinationRef })).toMatchObject({
+        ok: true,
+        value: { encounterId: input.encounterId, encounterStatus: "CREATED" },
+      });
+      expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.any(String), [
+        input.outboxMessageId,
+        input.outcomeId,
+        playerId,
+        input.encounterId,
+        destinationRef,
+      ]);
+    },
+  );
 
   it("returns SENT proof for already ENGAGED encounter without mutating its state", async () => {
     const f = setup([{ ...row, status: "ENGAGED", revision: "2" }]);
