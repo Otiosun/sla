@@ -23,6 +23,8 @@ export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly hubPublicUrl?: string | null;
+  /** Explicitly opt in ONLY when the disposable DB has the expedition draft schema. */
+  readonly explorationPreviewTimeZone?: string | null;
   readonly now?: SimulatedWhatsAppAdapterOptions["now"];
   readonly onProviderConnectionState?: SimulatedWhatsAppAdapterOptions["onConnectionState"];
   readonly onIncomingProcessingFailure?: (input: {
@@ -47,6 +49,8 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.worldServiceMedia ?? null,
     options.pveBattleConfig ?? null,
     options.hubPublicUrl ?? null,
+    null,
+    options.explorationPreviewTimeZone ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
