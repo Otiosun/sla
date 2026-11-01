@@ -198,11 +198,27 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
         consumedWeeklySlot: false,
       }),
     );
+    const changePeriod = vi.fn(async (
+      input: Parameters<PostgresExpeditionRepository["changePeriod"]>[0],
+    ) => ok({
+      expedition: { ...preparing, playerId: input.playerId, period: input.period, revision: input.expectedRevision + 1n },
+      replayed: false,
+      changed: true,
+      consumedWeeklySlot: false,
+    }));
+    const end = vi.fn(async (
+      input: Parameters<PostgresExpeditionRepository["end"]>[0],
+    ) => ok({
+      expedition: { ...preparing, playerId: input.playerId, phase: "ENDED" as const, endReason: input.reason, revision: input.expectedRevision + 1n },
+      replayed: false,
+      changed: true,
+      consumedWeeklySlot: false,
+    }));
     const route = createExpeditionV4StagingPreparationRoutes({
       ...f.deps,
-      preparation: { prepare },
+      preparation: { prepare, changePeriod, end },
     })[0]!;
-    return { ...f, prepare, route };
+    return { ...f, prepare, changePeriod, end, route };
   }
 
   it("presents approved open-state day/night choice before preparing without writes", async () => {
@@ -262,11 +278,99 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
     const f = staging();
     const readonly = createExpeditionV4ReadOnlyRoutes({
       ...f.deps,
-      preparation: { prepare: f.prepare },
+      preparation: { prepare: f.prepare, changePeriod: f.changePeriod, end: f.end },
     })[0]!;
     const result = await readonly.handler.handle(context("/explorar 1"));
     expect(result.ok).toBe(true);
     expect(f.prepare).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/explorar periodo dia", "DAY"],
+    ["/explorar período noite", "NIGHT"],
+  ] as const)("changes PREPARING period via revision-guarded receipt for %s", async (command, period) => {
+    const f = staging();
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 0 });
+    const result = await f.route.handler.handle(context(command));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(f.changePeriod).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      expeditionId: preparing.expeditionId,
+      expectedRevision: preparing.revision,
+      period,
+      idempotencyKey: "inbox:baileys:read-only-1",
+    });
+    expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma cota consumida");
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.end).not.toHaveBeenCalled();
+  });
+
+  it("cancels only PREPARING and sends the private no-cost acknowledgement", async () => {
+    const f = staging();
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 1 });
+    const result = await f.route.handler.handle(context("/explorar cancelar"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(f.end).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      expeditionId: preparing.expeditionId,
+      expectedRevision: preparing.revision,
+      reason: "CANCELLED",
+      idempotencyKey: "inbox:baileys:read-only-1",
+    });
+    expect(result.value.outgoing).toHaveLength(1);
+    expect(result.value.outgoing[0]?.destinationRef).toBe("5579999999999@s.whatsapp.net");
+    expect(String(result.value.outgoing[0]?.payload.text)).toContain("Preparação cancelada");
+    expect(f.changePeriod).not.toHaveBeenCalled();
+    expect(f.prepare).not.toHaveBeenCalled();
+  });
+
+  it("advertises only available free decisions on PREPARING status in staging", async () => {
+    const f = staging();
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 0 });
+    const result = await f.route.handler.handle(context("/explorar status"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("/explorar periodo dia");
+    expect(text).toContain("/explorar cancelar");
+    expect(text).not.toContain("[Ler mais]");
+    expect(f.changePeriod).not.toHaveBeenCalled();
+    expect(f.end).not.toHaveBeenCalled();
+  });
+
+  it("denies edits when no PREPARING state or once the first timed action began", async () => {
+    const f = staging();
+    for (const expedition of [null, { ...preparing, phase: "ACTIVE" as const, elapsedMinutes: 30, consumedWeekKey: "2026-10-26" }]) {
+      f.read.mockResolvedValueOnce({ expedition, usedThisWeek: 1 });
+      expect((await f.route.handler.handle(context("/explorar periodo dia"))).ok).toBe(false);
+      f.read.mockResolvedValueOnce({ expedition, usedThisWeek: 1 });
+      expect((await f.route.handler.handle(context("/explorar cancelar"))).ok).toBe(false);
+    }
+    expect(f.changePeriod).not.toHaveBeenCalled();
+    expect(f.end).not.toHaveBeenCalled();
+  });
+
+  it("fails closed if the repository returns a changed quota or wrong terminal phase", async () => {
+    const f = staging();
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 0 });
+    f.changePeriod.mockResolvedValueOnce(ok({
+      expedition: { ...preparing, period: "DAY" as const },
+      replayed: false,
+      changed: true,
+      consumedWeeklySlot: true,
+    }));
+    expect((await f.route.handler.handle(context("/explorar periodo dia"))).ok).toBe(false);
+
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 0 });
+    f.end.mockResolvedValueOnce(ok({
+      expedition: { ...preparing, phase: "ENDED" as const, endReason: "VOLUNTARY" as const },
+      replayed: false,
+      changed: true,
+      consumedWeeklySlot: false,
+    }));
+    expect((await f.route.handler.handle(context("/explorar cancelar"))).ok).toBe(false);
   });
 
   it("does not offer staging period choices outside the two approved launch areas", async () => {
