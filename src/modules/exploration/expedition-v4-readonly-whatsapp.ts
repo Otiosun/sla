@@ -6,7 +6,11 @@ import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
-import { EXPEDITION_DURATION_MINUTES, EXPEDITION_WEEKLY_LIMIT, expeditionClock } from "./expedition-clock.js";
+import {
+  EXPEDITION_DURATION_MINUTES,
+  EXPEDITION_WEEKLY_LIMIT,
+  expeditionClock,
+} from "./expedition-clock.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
 import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
 
@@ -28,7 +32,11 @@ export interface ExpeditionV4ReadOnlyDeps {
     read(playerId: PlayerId, weekKey: string): Promise<ExpeditionV4StatusFacts>;
   };
   readonly group: {
-    admits(input: { readonly provider: string; readonly chatRef: string; readonly playerId: PlayerId }): Promise<boolean>;
+    admits(input: {
+      readonly provider: string;
+      readonly chatRef: string;
+      readonly playerId: PlayerId;
+    }): Promise<boolean>;
   };
   readonly clock: Clock;
   readonly timeZone: string;
@@ -38,13 +46,15 @@ function privateText(context: MessageHandlerContext, text: string): Result<Messa
   return ok({
     resultRefType: null,
     resultRefId: null,
-    outgoing: [{
-      channel: "whatsapp",
-      destinationRef: context.message.senderRef,
-      messageType: "TEXT",
-      payload: { text },
-      idempotencyKey: `${context.idempotencyKey}:exploration-readonly`,
-    }],
+    outgoing: [
+      {
+        channel: "whatsapp",
+        destinationRef: context.message.senderRef,
+        messageType: "TEXT",
+        payload: { text },
+        idempotencyKey: `${context.idempotencyKey}:exploration-readonly`,
+      },
+    ],
   });
 }
 
@@ -58,21 +68,38 @@ function safeLabel(value: string): string | null {
   return text.length > 0 && text.length <= 70 && !text.includes("[Ler mais]") ? text : null;
 }
 
-function validExpedition(expedition: ExpeditionSnapshot, playerId: PlayerId, areaId: string): boolean {
-  if (expedition.playerId !== playerId || expedition.areaId !== areaId || expedition.revision < 0n) {
+function validExpedition(
+  expedition: ExpeditionSnapshot,
+  playerId: PlayerId,
+  areaId: string,
+): boolean {
+  if (
+    expedition.playerId !== playerId ||
+    expedition.areaId !== areaId ||
+    expedition.revision < 0n
+  ) {
     return false;
   }
-  if (!Number.isSafeInteger(expedition.elapsedMinutes) || !["DAY", "NIGHT"].includes(expedition.period)) {
+  if (
+    !Number.isSafeInteger(expedition.elapsedMinutes) ||
+    !["DAY", "NIGHT"].includes(expedition.period)
+  ) {
     return false;
   }
   if (expedition.phase === "PREPARING") {
-    return expedition.elapsedMinutes === 0 && expedition.consumedWeekKey === null && expedition.endReason === null;
+    return (
+      expedition.elapsedMinutes === 0 &&
+      expedition.consumedWeekKey === null &&
+      expedition.endReason === null
+    );
   }
-  return expedition.phase === "ACTIVE" &&
+  return (
+    expedition.phase === "ACTIVE" &&
     expedition.elapsedMinutes > 0 &&
     expedition.elapsedMinutes < EXPEDITION_DURATION_MINUTES &&
     expedition.consumedWeekKey !== null &&
-    expedition.endReason === null;
+    expedition.endReason === null
+  );
 }
 
 class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
@@ -83,7 +110,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
 
   public async handle(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
     if (!/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(context.message.text?.trim() ?? "")) {
-      return privateText(context,
+      return privateText(
+        context,
         "◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔*\n\nEsta prévia permite somente `/explorar status` ou `/explorar retomar`.\nNenhuma ação será executada.",
       );
     }
@@ -94,15 +122,21 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     });
     if (!identified.ok) return identified;
     if (identified.value.state !== "COMPLETE") {
-      return err(appError("PLAYER_INELIGIBLE", "Conclua seu cadastro antes de consultar a expedição."));
+      return err(
+        appError("PLAYER_INELIGIBLE", "Conclua seu cadastro antes de consultar a expedição."),
+      );
     }
     const playerId = identified.value.playerId;
-    if (!(await this.deps.group.admits({
-      provider: context.message.provider,
-      chatRef: context.message.chatRef,
-      playerId,
-    }))) {
-      return err(appError("FLOW_BLOCKED", "Exploração disponível somente no grupo GAME autorizado."));
+    if (
+      !(await this.deps.group.admits({
+        provider: context.message.provider,
+        chatRef: context.message.chatRef,
+        playerId,
+      }))
+    ) {
+      return err(
+        appError("FLOW_BLOCKED", "Exploração disponível somente no grupo GAME autorizado."),
+      );
     }
     const located = await this.deps.world.getLocation(playerId);
     if (!located.ok) return located;
@@ -110,21 +144,37 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     if (location === null || located.value.requiresRelocation) {
       return err(appError("FLOW_BLOCKED", "Localização atual não está pronta para a exploração."));
     }
-    const facts = await this.deps.facts.read(playerId, expeditionWeekKey(this.deps.clock.now(), this.deps.timeZone));
+    const facts = await this.deps.facts.read(
+      playerId,
+      expeditionWeekKey(this.deps.clock.now(), this.deps.timeZone),
+    );
     if (
       !Number.isSafeInteger(facts.usedThisWeek) ||
       facts.usedThisWeek < 0 ||
       facts.usedThisWeek > EXPEDITION_WEEKLY_LIMIT ||
-      (facts.expedition !== null && !validExpedition(facts.expedition, playerId, located.value.areaId))
+      (facts.expedition !== null &&
+        !validExpedition(facts.expedition, playerId, located.value.areaId))
     ) {
-      return err(appError("FLOW_BLOCKED", "Registro da expedição está inconsistente; não há ações habilitadas."));
+      return err(
+        appError(
+          "FLOW_BLOCKED",
+          "Registro da expedição está inconsistente; não há ações habilitadas.",
+        ),
+      );
     }
     const state: "NONE" | "PREPARING" | "ACTIVE" =
-      facts.expedition === null ? "NONE" : facts.expedition.phase === "PREPARING" ? "PREPARING" : "ACTIVE";
+      facts.expedition === null
+        ? "NONE"
+        : facts.expedition.phase === "PREPARING"
+          ? "PREPARING"
+          : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
-    const title = facts.expedition === null
-      ? "Nenhuma expedição em andamento"
-      : state === "PREPARING" ? "Preparação registrada" : "Expedição em andamento";
+    const title =
+      facts.expedition === null
+        ? "Nenhuma expedição em andamento"
+        : state === "PREPARING"
+          ? "Preparação registrada"
+          : "Expedição em andamento";
     const lines = [
       "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*",
       "　Prévia segura · somente consulta",
@@ -135,7 +185,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     ];
     if (facts.expedition !== null) {
       const clock = expeditionClock(facts.expedition.period, facts.expedition.elapsedMinutes);
-      lines.push(`${clock.period === "DAY" ? "☀️" : "🌙"} *Relógio:* \`${clock.currentTime}\` · Restam \`${clock.remainingMinutes}min\``);
+      lines.push(
+        `${clock.period === "DAY" ? "☀️" : "🌙"} *Relógio:* \`${clock.currentTime}\` · Restam \`${clock.remainingMinutes}min\``,
+      );
       if (state === "PREPARING") lines.push("⌛ *Cota ainda não consumida*");
     }
     lines.push(
@@ -147,15 +199,19 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
   }
 }
 
-export function createExpeditionV4ReadOnlyRoutes(deps: ExpeditionV4ReadOnlyDeps): readonly CommandRouteDefinition[] {
-  return [{
-    command: "explorar",
-    handler: new ExpeditionV4ReadOnlyHandler(deps),
-    rateLimitClass: "SENSITIVE",
-    policy: {
-      requiredGroupCapabilities: ["world", "player.basic"],
-      allowedPlayerAccess: ["ACTIVE"],
-      requiresMechanicalReady: true,
+export function createExpeditionV4ReadOnlyRoutes(
+  deps: ExpeditionV4ReadOnlyDeps,
+): readonly CommandRouteDefinition[] {
+  return [
+    {
+      command: "explorar",
+      handler: new ExpeditionV4ReadOnlyHandler(deps),
+      rateLimitClass: "SENSITIVE",
+      policy: {
+        requiredGroupCapabilities: ["world", "player.basic"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
-  }];
+  ];
 }
