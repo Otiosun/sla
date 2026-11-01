@@ -391,6 +391,7 @@ export class OutboxWorker {
             attempts: message.attempts,
             maxAttempts: this.options.maxAttempts,
             baseBackoffMs: this.options.baseBackoffMs,
+            maxBackoffMs: this.options.maxBackoffMs,
           }),
           maxAttempts: this.options.maxAttempts,
         });
