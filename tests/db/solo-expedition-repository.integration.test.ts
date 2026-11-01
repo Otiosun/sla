@@ -702,6 +702,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       outcomeId = randomUUID(),
       outboxMessageId = randomUUID();
     const destinationRef = "5579999999999@s.whatsapp.net";
+    const catalogColumns = await pool.query<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      "SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='pokemon_species' ORDER BY ordinal_position",
+    );
+    console.info("PG18_SPECIES_FIXTURE_COLUMNS", JSON.stringify(catalogColumns.rows));
     const speciesId = randomUUID();
     const snapshot = {
       schemaVersion: 1,
