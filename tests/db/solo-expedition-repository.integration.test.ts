@@ -506,12 +506,18 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ok: false,
       error: { code: "FLOW_BLOCKED" },
     });
-    await pool.query("UPDATE outbox_messages SET status='SENT' WHERE id=$1", [outboxMessageId]);
+    // Real schema rejects SENT without a timestamp; do not weaken its CHECK.
+    await expect(
+      pool.query("UPDATE outbox_messages SET status='SENT' WHERE id=$1", [outboxMessageId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "outbox_messages_check" });
     expect(await proof.confirm(args)).toMatchObject({
       ok: false,
       error: { code: "FLOW_BLOCKED" },
     });
-    await pool.query("UPDATE outbox_messages SET sent_at=now() WHERE id=$1", [outboxMessageId]);
+    await pool.query(
+      "UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1",
+      [outboxMessageId],
+    );
     const verified = await proof.confirm(args);
     expect(verified).toMatchObject({
       ok: true,
