@@ -137,9 +137,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
-      ((this.deps.preparation === undefined ||
+      (this.deps.preparation === undefined ||
         (period === null && requestedPeriod === null && !cancel)) &&
-        (!searchFree || this.deps.search === undefined))
+      (!searchFree || this.deps.search === undefined)
     ) {
       return privateText(
         context,
@@ -240,20 +240,27 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       const description = {
         NO_SIGNAL: "Nenhum sinal de Pokémon foi registrado.",
         TRAIL: "Um rastro foi registrado. Seguir rastros ainda não está disponível nesta prévia.",
-        INCIDENTAL: "Encontro incidental registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
-        DIRECT: "Encontro direto registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
+        INCIDENTAL:
+          "Encontro incidental registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
+        DIRECT:
+          "Encontro direto registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
       }[outcome.kind];
       if (!description) return err(appError("FLOW_BLOCKED", "Resultado de busca desconhecido."));
-      return privateText(context, [
-        "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗨𝗦𝗖𝗔*",
-        description,
-        "",
-        "⌛ *30min consumidos na expedição*",
-        transition.consumedWeeklySlot ? "🎟️ *Primeira cota semanal utilizada*" : "🎟️ *Nenhuma cota adicional utilizada*",
-        "",
-        "> _Resultado salvo no banco isolado de staging. Nenhuma recompensa inventada._",
-        "› _Use /explorar status para consultar o tempo restante._",
-      ].join("\n"));
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗨𝗦𝗖𝗔*",
+          description,
+          "",
+          "⌛ *30min consumidos na expedição*",
+          transition.consumedWeeklySlot
+            ? "🎟️ *Primeira cota semanal utilizada*"
+            : "🎟️ *Nenhuma cota adicional utilizada*",
+          "",
+          "> _Resultado salvo no banco isolado de staging. Nenhuma recompensa inventada._",
+          "› _Use /explorar status para consultar o tempo restante._",
+        ].join("\n"),
+      );
     }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING
@@ -470,14 +477,16 @@ export function createExpeditionV4StagingSearchRoutes(
     readonly search: Pick<PostgresExpeditionV4StagingSearch, "execute">;
   },
 ): readonly CommandRouteDefinition[] {
-  return [{
-    command: "explorar",
-    handler: new ExpeditionV4ReadOnlyHandler(deps),
-    rateLimitClass: "SENSITIVE",
-    policy: {
-      requiredGroupCapabilities: ["world", "player.basic"],
-      allowedPlayerAccess: ["ACTIVE"],
-      requiresMechanicalReady: true,
+  return [
+    {
+      command: "explorar",
+      handler: new ExpeditionV4ReadOnlyHandler(deps),
+      rateLimitClass: "SENSITIVE",
+      policy: {
+        requiredGroupCapabilities: ["world", "player.basic"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
     },
-  }];
+  ];
 }
