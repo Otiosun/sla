@@ -66,21 +66,31 @@ describe("V4 canonical search result display (no capture actions)", () => {
 
   it("refuses inconsistent encounter/no-encounter categories", () => {
     expect(render("NO_SIGNAL", encounter)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     expect(render("TRAIL", encounter)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     expect(render("INCIDENTAL", null)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     expect(render("DIRECT", null)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
   it("rejects forged species labels, level, shiny and clock data", () => {
-    for (const speciesName of ["", "Mr. Mime\n1. ◉ Poké Ball", "Zigzagoon [Ler mais]", "Bad*Name", "Shiny\u031d"]) {
+    for (const speciesName of [
+      "",
+      "Mr. Mime\n1. ◉ Poké Ball",
+      "Zigzagoon [Ler mais]",
+      "Bad*Name",
+      "Shiny\u031d",
+    ]) {
       expect(render("DIRECT", { ...encounter, speciesName }).ok).toBe(false);
     }
     for (const level of [-1, 0, 101, 1.3, Number.NaN]) {
