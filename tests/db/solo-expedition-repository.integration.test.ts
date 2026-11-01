@@ -486,8 +486,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     await pool.query(
       `INSERT INTO outbox_messages
-        (id, channel, message_type, destination_ref, status, sent_at, payload, idempotency_key)
-        VALUES ($1, 'whatsapp', 'TEXT', $2, 'PENDING', NULL, $3::jsonb, $4)`,
+        (id, channel, message_type, destination_ref, status, sent_at, payload, idempotency_key, correlation_id)
+        VALUES ($1, 'whatsapp', 'TEXT', $2, 'PENDING', NULL, $3::jsonb, $4, $5)`,
       [
         outboxMessageId,
         destinationRef,
@@ -496,6 +496,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           expeditionSearch: { playerId, encounterId, outcomeId },
         }),
         "real-sent-proof-outbox-" + outboxMessageId,
+        randomUUID(),
       ],
     );
 
