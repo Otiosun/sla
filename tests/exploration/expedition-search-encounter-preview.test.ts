@@ -53,7 +53,8 @@ describe("V4 published canonical encounter preview", () => {
   it("surfaces shiny ONLY from the canonical wild snapshot", async () => {
     const f = fixture([{ ...good, shiny: "true" }]);
     expect(await readVerifiedExpeditionSearchEncounterPreview(f.client, input)).toMatchObject({
-      ok: true, value: { shiny: true },
+      ok: true,
+      value: { shiny: true },
     });
   });
 
@@ -61,7 +62,8 @@ describe("V4 published canonical encounter preview", () => {
     for (const rows of [[], [good, good]]) {
       const f = fixture(rows);
       expect(await readVerifiedExpeditionSearchEncounterPreview(f.client, input)).toMatchObject({
-        ok: false, error: { code: "FLOW_BLOCKED" },
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
       });
     }
   });
@@ -82,7 +84,8 @@ describe("V4 published canonical encounter preview", () => {
     for (const row of bad) {
       const f = fixture([row]);
       expect(await readVerifiedExpeditionSearchEncounterPreview(f.client, input)).toMatchObject({
-        ok: false, error: { code: "FLOW_BLOCKED" },
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
       });
     }
   });
