@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import type { ExpeditionV4StagingSearchInput } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import {
   createExpeditionV4ReadOnlyRoutes,
   createExpeditionV4StagingPreparationRoutes,
+  createExpeditionV4StagingSearchRoutes,
   type ExpeditionV4ReadOnlyDeps,
 } from "../../src/modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
@@ -426,5 +428,117 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
       }),
     );
     expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
+  });
+});
+
+describe("published search staging-only WhatsApp command", () => {
+  const searchReceipt = () => ({
+    transition: {
+      expedition: {
+        ...preparing,
+        playerId,
+        phase: "ACTIVE" as const,
+        elapsedMinutes: 30,
+        consumedWeekKey: "2026-10-26",
+        revision: 1n,
+      },
+      consumedWeeklySlot: true,
+      replayed: false,
+      changed: true,
+      effectRef: randomUUID(),
+    },
+    outcome: {
+      outcomeId: randomUUID(),
+      playerId,
+      expeditionId: preparing.expeditionId,
+      expeditionRevision: preparing.revision,
+      kind: "NO_SIGNAL" as const,
+      encounterId: null,
+    },
+  });
+  function stagingSearch() {
+    const f = setup();
+    f.read.mockResolvedValue({ expedition: preparing, usedThisWeek: 0 });
+    const execute = vi.fn(async (_input: ExpeditionV4StagingSearchInput) => ok(searchReceipt()));
+    const preparation = {
+      prepare: vi.fn(),
+      changePeriod: vi.fn(),
+      end: vi.fn(),
+    } as unknown as Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
+    const deps = { ...f.deps, preparation, search: { execute } };
+    const route = createExpeditionV4StagingSearchRoutes(deps)[0]!;
+    return { ...f, execute, preparation, deps, route };
+  }
+
+  it("sends a private factual saved result and charges only the canonical first action", async () => {
+    const f = stagingSearch();
+    const result = await f.route.handler.handle(context("/explorar buscar"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(f.execute).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      expeditionId: preparing.expeditionId,
+      expectedRevision: preparing.revision,
+      idempotencyKey: "inbox:baileys:read-only-1",
+    });
+    const message = result.value.outgoing[0]!;
+    expect(message.destinationRef).toBe("5579999999999@s.whatsapp.net");
+    expect(String(message.payload.text)).toContain("Nenhum sinal de Pokémon foi registrado.");
+    expect(String(message.payload.text)).toContain("30min consumidos");
+    expect(String(message.payload.text)).toContain("Primeira cota semanal utilizada");
+    expect(String(message.payload.text)).not.toContain("[Ler mais]");
+    expect(String(message.payload.text)).not.toContain(preparing.expeditionId);
+  });
+
+  it("keeps search unreachable through read-only and preparing-only factories", async () => {
+    const f = stagingSearch();
+    const readonly = createExpeditionV4ReadOnlyRoutes(f.deps)[0]!;
+    const preparingOnly = createExpeditionV4StagingPreparationRoutes(f.deps)[0]!;
+    for (const route of [readonly, preparingOnly]) {
+      const result = await route.handler.handle(context("/explorar buscar"));
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      }
+    }
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it("does not search without an active preparation, published location, or GAME group", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
+    f.admits.mockResolvedValueOnce(false);
+    expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
+    f.getLocation.mockResolvedValueOnce(ok({ ...location, areaSlug: "rota-fora-do-escopo" }));
+    expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses a receipt with a mismatched expedition or weekly debit", async () => {
+    const f = stagingSearch();
+    const wrong = searchReceipt();
+    f.execute.mockResolvedValueOnce(ok({
+      ...wrong,
+      outcome: { ...wrong.outcome, expeditionId: randomUUID() },
+    }));
+    expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
+    const wrongCharge = searchReceipt();
+    f.execute.mockResolvedValueOnce(ok({
+      ...wrongCharge,
+      transition: { ...wrongCharge.transition, consumedWeeklySlot: false },
+    }));
+    expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
+  });
+
+  it("does not allow search to run through an unnamespaced numeric or freeform request", async () => {
+    const f = stagingSearch();
+    for (const input of ["1", "/explorar buscar charmander", "/explorar capturar", "/explorar buscar;ganhar"]) {
+      const result = await f.route.handler.handle(context(input));
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    }
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.resolvePlayer).not.toHaveBeenCalled();
   });
 });
