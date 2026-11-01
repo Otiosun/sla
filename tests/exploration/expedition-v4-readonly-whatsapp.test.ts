@@ -224,29 +224,35 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
     ["/explorar 2", "NIGHT"],
     ["/explorar preparar dia", "DAY"],
     ["/explorar preparar noite", "NIGHT"],
-  ] as const)("persists %s through the only authorized preparation writer", async (command, period) => {
-    const f = staging();
-    const result = await f.route.handler.handle(context(command));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(f.prepare).toHaveBeenCalledExactlyOnceWith({
-      playerId,
-      period,
-      idempotencyKey: "inbox:baileys:read-only-1",
-    });
-    const text = String(result.value.outgoing[0]?.payload.text);
-    expect(text).toContain("Cota ainda não consumida");
-    expect(text).toContain(period === "DAY" ? "06:00" : "18:00");
-    expect(text).toContain("buscas, captura e viagem continuam desativadas");
-    expect(result.value.outgoing[0]?.destinationRef).toBe("5579999999999@s.whatsapp.net");
-  });
+  ] as const)(
+    "persists %s through the only authorized preparation writer",
+    async (command, period) => {
+      const f = staging();
+      const result = await f.route.handler.handle(context(command));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(f.prepare).toHaveBeenCalledExactlyOnceWith({
+        playerId,
+        period,
+        idempotencyKey: "inbox:baileys:read-only-1",
+      });
+      const text = String(result.value.outgoing[0]?.payload.text);
+      expect(text).toContain("Cota ainda não consumida");
+      expect(text).toContain(period === "DAY" ? "06:00" : "18:00");
+      expect(text).toContain("buscas, captura e viagem continuam desativadas");
+      expect(result.value.outgoing[0]?.destinationRef).toBe("5579999999999@s.whatsapp.net");
+    },
+  );
 
   it("does not accept bare 1/2, free-form or action words as preparation", async () => {
     const f = staging();
     for (const command of ["1", "2", "/explorar buscar", "/explorar viajar", "/explorar 1 2"]) {
       const result = await f.route.handler.handle(context(command));
       expect(result.ok).toBe(true);
-      if (result.ok) expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      if (result.ok)
+        expect(String(result.value.outgoing[0]?.payload.text)).toContain(
+          "Nenhuma ação será executada",
+        );
     }
     expect(f.prepare).not.toHaveBeenCalled();
     expect(f.resolvePlayer).not.toHaveBeenCalled();
@@ -269,10 +275,14 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
     expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
     expect(f.prepare).not.toHaveBeenCalled();
 
-    f.prepare.mockResolvedValueOnce(ok({
-      expedition: { ...preparing, areaId: randomUUID() },
-      replayed: false, changed: true, consumedWeeklySlot: false,
-    }));
+    f.prepare.mockResolvedValueOnce(
+      ok({
+        expedition: { ...preparing, areaId: randomUUID() },
+        replayed: false,
+        changed: true,
+        consumedWeeklySlot: false,
+      }),
+    );
     expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
   });
 });
