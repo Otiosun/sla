@@ -9,6 +9,10 @@ import {
   type StoredSearchOutcome,
 } from "./expedition-search-outcome-effect.js";
 import {
+  readVerifiedExpeditionSearchEncounterPreview,
+  type VerifiedExpeditionSearchEncounterPreview,
+} from "./postgres-expedition-search-encounter-preview.js";
+import {
   PostgresExpeditionRepository,
   type StoredSearchActionTransition,
 } from "./postgres-expedition-repository.js";
@@ -23,6 +27,7 @@ export interface ExpeditionV4StagingSearchInput {
 export interface ExpeditionV4StagingSearchResult {
   readonly transition: StoredSearchActionTransition;
   readonly outcome: StoredSearchOutcome;
+  readonly encounterPreview: VerifiedExpeditionSearchEncounterPreview | null;
 }
 
 /**
@@ -69,6 +74,17 @@ export class PostgresExpeditionV4StagingSearch {
         ) {
           return err(appError("FLOW_BLOCKED", "Search outcome was not durably committed"));
         }
+        if (found.encounterId !== null) {
+          // Verify the real PUBLISHED species snapshot while charge, outcome
+          // and encounter are still in the same rollback-capable transaction.
+          const preview = await readVerifiedExpeditionSearchEncounterPreview(client, {
+            playerId: persisted.playerId,
+            areaId: persisted.areaId,
+            outcomeId: found.outcomeId,
+            encounterId: found.encounterId,
+          });
+          if (!preview.ok) return preview;
+        }
         return outcome;
       },
     });
@@ -86,7 +102,17 @@ export class PostgresExpeditionV4StagingSearch {
       ) {
         return err(appError("FLOW_BLOCKED", "Search receipt does not match the published outcome"));
       }
-      return ok({ transition: action.value, outcome: found });
+      if (found.encounterId === null) {
+        return ok({ transition: action.value, outcome: found, encounterPreview: null });
+      }
+      const preview = await readVerifiedExpeditionSearchEncounterPreview(client, {
+        playerId: input.playerId,
+        areaId: action.value.expedition.areaId,
+        outcomeId: found.outcomeId,
+        encounterId: found.encounterId,
+      });
+      if (!preview.ok) return preview;
+      return ok({ transition: action.value, outcome: found, encounterPreview: preview.value });
     } finally {
       client.release();
     }

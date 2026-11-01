@@ -16,6 +16,7 @@ import {
 import type { ExpeditionSnapshot } from "./expedition-state.js";
 import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
 import { renderExpeditionV4OpeningPanel } from "./expedition-v4-preparation-panel.js";
+import { renderExpeditionV4SearchResultPanel } from "./expedition-v4-search-result-panel.js";
 
 /**
  * Optional, read-only staging route. There is deliberately no action handler,
@@ -235,32 +236,14 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       ) {
         return err(appError("FLOW_BLOCKED", "O resultado da busca não corresponde à expedição."));
       }
-      // No invented species, loot or trail UX. Do not offer unfinished
-      // capture/battle actions even when a canonical Encounter is stored.
-      const description = {
-        NO_SIGNAL: "Nenhum sinal de Pokémon foi registrado.",
-        TRAIL: "Um rastro foi registrado. Seguir rastros ainda não está disponível nesta prévia.",
-        INCIDENTAL:
-          "Encontro incidental registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
-        DIRECT:
-          "Encontro direto registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
-      }[outcome.kind];
-      if (!description) return err(appError("FLOW_BLOCKED", "Resultado de busca desconhecido."));
-      return privateText(
-        context,
-        [
-          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗨𝗦𝗖𝗔*",
-          description,
-          "",
-          "⌛ *30min consumidos na expedição*",
-          transition.consumedWeeklySlot
-            ? "🎟️ *Primeira cota semanal utilizada*"
-            : "🎟️ *Nenhuma cota adicional utilizada*",
-          "",
-          "> _Resultado salvo no banco isolado de staging. Nenhuma recompensa inventada._",
-          "› _Use /explorar status para consultar o tempo restante._",
-        ].join("\n"),
-      );
+      const panel = renderExpeditionV4SearchResultPanel({
+        kind: outcome.kind,
+        encounterPreview: committed.value.encounterPreview,
+        elapsedMinutes: transition.expedition.elapsedMinutes,
+        consumedWeeklySlot: transition.consumedWeeklySlot,
+      });
+      if (!panel.ok) return panel;
+      return privateText(context, panel.value);
     }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING

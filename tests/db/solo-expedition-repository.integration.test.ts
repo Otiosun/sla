@@ -474,6 +474,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           encounterId: null,
           expeditionRevision: 0n,
         },
+        encounterPreview: null,
       },
     });
     const again = await search.execute(input);
