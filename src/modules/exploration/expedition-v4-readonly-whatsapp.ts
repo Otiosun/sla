@@ -117,13 +117,20 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     // Bare "1"/"2" require a durable menu reference and are not accepted.
     const match = /^\/explorar\s+(?:preparar\s+)?(dia|noite|1|2)$/iu.exec(text);
     const token = match?.[1]?.toLocaleLowerCase("pt-BR");
-    const period = token === "dia" || token === "1" ? "DAY" :
-      token === "noite" || token === "2" ? "NIGHT" : null;
+    const period =
+      token === "dia" || token === "1"
+        ? "DAY"
+        : token === "noite" || token === "2"
+          ? "NIGHT"
+          : null;
     if (
       !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
       (period === null || this.deps.preparation === undefined)
     ) {
-      return privateText(context, "◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔*\n\nEsta prévia permite somente /explorar status ou /explorar retomar.\nNenhuma ação será executada.");
+      return privateText(
+        context,
+        "◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔*\n\nEsta prévia permite somente /explorar status ou /explorar retomar.\nNenhuma ação será executada.",
+      );
     }
 
     const identified = await this.deps.players.resolvePlayer({
@@ -198,20 +205,25 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         expedition.consumedWeekKey !== null ||
         expedition.endReason !== null
       ) {
-        return err(appError("FLOW_BLOCKED", "Persisted preparation disagrees with the canonical World"));
+        return err(
+          appError("FLOW_BLOCKED", "Persisted preparation disagrees with the canonical World"),
+        );
       }
-      return privateText(context, [
-        "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
-        "> _Exploração " + (period === "DAY" ? "diurna" : "noturna") + " preparada!_",
-        "",
-        (period === "DAY" ? "☀️ 06:00 → 18:00" : "🌙 18:00 → 06:00"),
-        "⌖ *" + location + "*",
-        "*⌛ 12h* disponíveis",
-        "*🎟️ Cota ainda não consumida*",
-        "",
-        "> _Prévia de preparação: buscas, captura e viagem continuam desativadas._",
-        "› _Use /explorar status para consultar a expedição._",
-      ].join("\n"));
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+          "> _Exploração " + (period === "DAY" ? "diurna" : "noturna") + " preparada!_",
+          "",
+          period === "DAY" ? "☀️ 06:00 → 18:00" : "🌙 18:00 → 06:00",
+          "⌖ *" + location + "*",
+          "*⌛ 12h* disponíveis",
+          "*🎟️ Cota ainda não consumida*",
+          "",
+          "> _Prévia de preparação: buscas, captura e viagem continuam desativadas._",
+          "› _Use /explorar status para consultar a expedição._",
+        ].join("\n"),
+      );
     }
     if (this.deps.preparation !== undefined && state === "NONE" && quota.canPrepare) {
       const opening = renderExpeditionV4OpeningPanel({
@@ -225,12 +237,15 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ],
       });
       if (!opening.ok) return opening;
-      return privateText(context, [
-        opening.value.text,
-        "",
-        "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
-        "› _Busca, viagem e captura ainda não estão liberadas._",
-      ].join("\n"));
+      return privateText(
+        context,
+        [
+          opening.value.text,
+          "",
+          "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
+          "› _Busca, viagem e captura ainda não estão liberadas._",
+        ].join("\n"),
+      );
     }
     const title =
       facts.expedition === null
