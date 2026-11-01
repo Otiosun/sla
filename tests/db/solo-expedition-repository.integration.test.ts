@@ -297,13 +297,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const change = await store.changePeriod(edit);
     expect(change).toMatchObject({
       ok: true,
-      value: { expedition: { period: "NIGHT", phase: "PREPARING", revision: 1n }, consumedWeeklySlot: false, replayed: false },
+      value: {
+        expedition: { period: "NIGHT", phase: "PREPARING", revision: 1n },
+        consumedWeeklySlot: false,
+        replayed: false,
+      },
     });
     expect(await store.changePeriod(edit)).toMatchObject({
-      ok: true, value: { replayed: true, consumedWeeklySlot: false },
+      ok: true,
+      value: { replayed: true, consumedWeeklySlot: false },
     });
     expect(await store.changePeriod({ ...edit, period: "DAY" })).toMatchObject({
-      ok: false, error: { code: "IDEMPOTENCY_KEY_INVALID" },
+      ok: false,
+      error: { code: "IDEMPOTENCY_KEY_INVALID" },
     });
     const cancel = {
       playerId,
@@ -314,10 +320,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     };
     expect(await store.end(cancel)).toMatchObject({
       ok: true,
-      value: { expedition: { phase: "ENDED", period: "NIGHT", endReason: "CANCELLED" }, consumedWeeklySlot: false, replayed: false },
+      value: {
+        expedition: { phase: "ENDED", period: "NIGHT", endReason: "CANCELLED" },
+        consumedWeeklySlot: false,
+        replayed: false,
+      },
     });
     expect(await store.end(cancel)).toMatchObject({
-      ok: true, value: { replayed: true, consumedWeeklySlot: false },
+      ok: true,
+      value: { replayed: true, consumedWeeklySlot: false },
     });
     expect(await store.current(playerId)).toBeNull();
     expect(await status.read(playerId, "2026-10-19")).toEqual({
@@ -327,10 +338,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expeditions", playerId)).toBe(1);
     expect(await count("solo_expedition_receipts", playerId)).toBe(3);
     const another = await store.prepare({
-      playerId, period: "DAY", idempotencyKey: "stage-decisions-new",
+      playerId,
+      period: "DAY",
+      idempotencyKey: "stage-decisions-new",
     });
     expect(another).toMatchObject({
-      ok: true, value: { expedition: { phase: "PREPARING", period: "DAY" }, consumedWeeklySlot: false },
+      ok: true,
+      value: { expedition: { phase: "PREPARING", period: "DAY" }, consumedWeeklySlot: false },
     });
     expect(await status.read(playerId, "2026-10-19")).toMatchObject({ usedThisWeek: 0 });
   });
