@@ -37,8 +37,12 @@ export class PostgresExpeditionSearchSentProof {
       ![input.outcomeId, input.encounterId, input.outboxMessageId].every((id) =>
         /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(id),
       ) ||
-      input.destinationRef.length < 1 ||
-      input.destinationRef.length > 512
+      // A caller-provided destination that matches an Outbox row does NOT
+      // prove it was a private chat: a group JID could otherwise pass all
+      // SENT/owner/outcome checks and open the encounter from a group send.
+      // Accept only direct Baileys user/LID JIDs, never @g.us, broadcasts,
+      // newsletters, bare numbers, or arbitrary provider destinations.
+      !/^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/u.test(input.destinationRef)
     ) {
       return err(appError("VALIDATION_FAILED", "Invalid delivery proof reference"));
     }
