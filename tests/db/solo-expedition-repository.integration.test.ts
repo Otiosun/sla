@@ -797,7 +797,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
       outboxMessageId,
     ]);
-    const engaged = await afterSent.engageAfterSent(proof);
+    // Two concurrent worker retries must not increment Pokédex seen twice.
+    const [engaged, concurrent] = await Promise.all([
+      afterSent.engageAfterSent(proof),
+      afterSent.engageAfterSent(proof),
+    ]);
+    expect(concurrent).toEqual(engaged);
     expect(engaged).toMatchObject({
       ok: true,
       value: {
