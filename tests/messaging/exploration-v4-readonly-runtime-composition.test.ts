@@ -47,4 +47,22 @@ describe("Exploration V4 status is NOT a default runtime route", () => {
       ),
     ).toThrow();
   });
+  it("requires BOTH staging flags before preparation can be composed", () => {
+    expect(() =>
+      createOperationalMessagingComposition(
+        {} as Pool, null, null, null, null, null, null, true,
+      ),
+    ).toThrow("requires a separate explicit expedition calendar");
+
+    const prepared = createOperationalMessagingComposition(
+      {} as Pool, null, null, null, null, null, "Etc/UTC", true,
+    );
+    expect(prepared.admitCommand(input)).toBe(true);
+
+    const defaultNoWrite = createOperationalMessagingComposition(
+      {} as Pool, null, null, null, null, null, "Etc/UTC", false,
+    );
+    expect(defaultNoWrite.admitCommand(input)).toBe(true);
+  });
+
 });
