@@ -1,0 +1,52 @@
+name: Exploration Published State Invariants Proof
+
+on:
+  pull_request:
+    branches:
+      - gate/release1-windows-wip-20261031
+    paths:
+      - ".github/workflows/exploration-published-state-invariants-proof.yml"
+      - "src/platform/exploration/expedition-published-outcome-policy.ts"
+      - "tests/exploration/expedition-published-outcome-policy.test.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  state-guards:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+    steps:
+      - name: Fetch candidate with no persistent GitHub credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Use pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Install pinned pnpm and immutable lockfile
+        run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify no production secret inputs
+        run: |
+          test "$APP_ENV" = test
+          test "$WHATSAPP_ENABLED" = false
+          test ! -e .env
+          test ! -e .env.local
+          test ! -d auth_info_baileys
+      - name: Source formatting
+        run: |
+          pnpm exec biome format src/platform/exploration/expedition-published-outcome-policy.ts tests/exploration/expedition-published-outcome-policy.test.ts
+      - name: TypeScript and published state regression
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm exec vitest run tests/exploration/expedition-published-outcome-policy.test.ts tests/exploration/expedition-state.test.ts tests/exploration/expedition-v4-active-panel.test.ts
+      - name: Build production artifact without publishing
+        run: pnpm build
