@@ -6,6 +6,8 @@ import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
+import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
   createSearchOutcomeEffect,
   readStoredSearchOutcome,
@@ -401,6 +403,75 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(attempt).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(await count("solo_expeditions", playerId)).toBe(0);
     expect(await count("solo_expedition_receipts", playerId)).toBe(0);
+  });
+
+  it("fails closed with no published odds: no minutes, weekly charge, outcome or receipt", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "published-search-prepare");
+    const encounter = async () => {
+      throw new Error("A search lacking a published policy must never create an encounter");
+    };
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      new PublishedSearchOutcomePolicy(Buffer.alloc(32, 0x27)),
+      encounter,
+    );
+    expect(await search.execute({
+      playerId,
+      expeditionId: exp.expeditionId,
+      expectedRevision: exp.revision,
+      idempotencyKey: "published-search-no-odds",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING", elapsedMinutes: 0, revision: 0n, consumedWeekKey: null,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(0);
+  });
+
+  it("verifies the durable search outcome before returning a receipt and never rerolls a replay", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "stage-outcome-prepare");
+    let decisions = 0;
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      {
+        decide: async () => {
+          decisions++;
+          return ok({ kind: "NO_SIGNAL" as const });
+        },
+      },
+      async () => {
+        throw new Error("No encounter must be emitted for a test-only NO_SIGNAL outcome");
+      },
+    );
+    const input = {
+      playerId,
+      expeditionId: exp.expeditionId,
+      expectedRevision: exp.revision,
+      idempotencyKey: "stage-outcome-first",
+    };
+    const first = await search.execute(input);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        transition: {
+          consumedWeeklySlot: true,
+          replayed: false,
+          expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
+        },
+        outcome: { playerId, expeditionId: exp.expeditionId, kind: "NO_SIGNAL", encounterId: null, expeditionRevision: 0n },
+      },
+    });
+    const again = await search.execute(input);
+    expect(again).toMatchObject({ ok: true, value: { transition: { replayed: true } } });
+    if (first.ok && again.ok) expect(again.value.outcome.outcomeId).toBe(first.value.outcome.outcomeId);
+    expect(decisions).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
+    expect((await store.current(playerId))?.elapsedMinutes).toBe(30);
   });
 
   it("persists NO_SIGNAL then TRAIL, charges once weekly and returns exact result on replay", async () => {
