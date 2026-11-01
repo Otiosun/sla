@@ -386,7 +386,12 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
     f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 0 });
     f.end.mockResolvedValueOnce(
       ok({
-        expedition: { ...preparing, playerId, phase: "ENDED" as const, endReason: "VOLUNTARY" as const },
+        expedition: {
+          ...preparing,
+          playerId,
+          phase: "ENDED" as const,
+          endReason: "VOLUNTARY" as const,
+        },
         replayed: false,
         changed: true,
         consumedWeeklySlot: false,
