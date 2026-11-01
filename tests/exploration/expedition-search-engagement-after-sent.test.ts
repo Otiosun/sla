@@ -124,7 +124,7 @@ describe("V4 staging-only canonical encounter lifecycle after SENT", () => {
 
     f.observe.mockResolvedValueOnce(
       ok({
-      playerId,
+        playerId,
         encounterId: confirmed.encounterId,
         areaId: randomUUID(),
         status: "PRESENTED",
