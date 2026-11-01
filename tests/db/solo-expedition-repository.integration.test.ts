@@ -467,9 +467,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         $1, $2, $3, 'CREATED', $4, $5, $6, $7, $8, 1, 0, 0, $9
       )`,
       [
-        encounterId, playerId, activeAreaId, publishedReleaseId, rulesetId,
-        Buffer.alloc(32, 0x31), Buffer.alloc(12, 0x32),
-        Buffer.alloc(16, 0x33), "real-sent-proof-encounter-" + encounterId,
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x31),
+        Buffer.alloc(12, 0x32),
+        Buffer.alloc(16, 0x33),
+        "real-sent-proof-encounter-" + encounterId,
       ],
     );
     await pool.query(
@@ -483,7 +489,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         (id, channel, message_type, destination_ref, status, sent_at, payload, idempotency_key)
         VALUES ($1, 'whatsapp', 'TEXT', $2, 'PENDING', NULL, $3::jsonb, $4)`,
       [
-        outboxMessageId, destinationRef,
+        outboxMessageId,
+        destinationRef,
         JSON.stringify({
           text: "Resultado canônico de busca",
           expeditionSearch: { playerId, encounterId, outcomeId },
@@ -506,8 +513,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(verified).toMatchObject({
       ok: true,
       value: {
-        playerId, encounterId, outcomeId, areaId: activeAreaId,
-        encounterRevision: 0n, encounterStatus: "CREATED",
+        playerId,
+        encounterId,
+        outcomeId,
+        areaId: activeAreaId,
+        encounterRevision: 0n,
+        encounterStatus: "CREATED",
       },
     });
     expect(await proof.confirm(args)).toEqual(verified);
