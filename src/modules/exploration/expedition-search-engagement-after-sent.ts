@@ -49,7 +49,11 @@ export class ExpeditionSearchEngagementAfterSent {
         return err(appError("FLOW_BLOCKED", "Encounter presentation diverged from SENT proof"));
       }
       if (presented.value.status === "ENGAGED") {
-        return ok({ ...observed, encounterStatus: "ENGAGED", encounterRevision: presented.value.revision });
+        return ok({
+          ...observed,
+          encounterStatus: "ENGAGED",
+          encounterRevision: presented.value.revision,
+        });
       }
       revision = presented.value.revision;
     }
