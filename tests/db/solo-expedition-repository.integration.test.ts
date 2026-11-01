@@ -59,7 +59,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   }
 
   async function count(
-    table: "solo_expeditions" | "solo_expedition_receipts",
+    table: "solo_expeditions" | "solo_expedition_receipts" | "solo_expedition_search_outcomes",
     playerId: PlayerId,
   ): Promise<number> {
     const sql = "SELECT count(*)::int AS n FROM " + table + " WHERE player_id=$1";
