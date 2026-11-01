@@ -124,13 +124,17 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "NIGHT"
           : null;
     const changeMatch = /^\/explorar\s+per[ií]odo\s+(dia|noite)$/iu.exec(text);
-    const requestedPeriod = changeMatch?.[1]?.toLocaleLowerCase("pt-BR") === "dia"
-      ? "DAY"
-      : changeMatch === null ? null : "NIGHT";
+    const requestedPeriod =
+      changeMatch?.[1]?.toLocaleLowerCase("pt-BR") === "dia"
+        ? "DAY"
+        : changeMatch === null
+          ? null
+          : "NIGHT";
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
-      (this.deps.preparation === undefined || (period === null && requestedPeriod === null && !cancel))
+      (this.deps.preparation === undefined ||
+        (period === null && requestedPeriod === null && !cancel))
     ) {
       return privateText(
         context,
@@ -207,21 +211,22 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       if (current === null || current.phase !== "PREPARING") {
         return err(appError("FLOW_BLOCKED", "Não há preparação ativa para alterar ou cancelar."));
       }
-      const result = requestedPeriod === null
-        ? await this.deps.preparation.end({
-            playerId,
-            expeditionId: current.expeditionId,
-            expectedRevision: current.revision,
-            reason: "CANCELLED",
-            idempotencyKey: context.idempotencyKey,
-          })
-        : await this.deps.preparation.changePeriod({
-            playerId,
-            expeditionId: current.expeditionId,
-            expectedRevision: current.revision,
-            period: requestedPeriod,
-            idempotencyKey: context.idempotencyKey,
-          });
+      const result =
+        requestedPeriod === null
+          ? await this.deps.preparation.end({
+              playerId,
+              expeditionId: current.expeditionId,
+              expectedRevision: current.revision,
+              reason: "CANCELLED",
+              idempotencyKey: context.idempotencyKey,
+            })
+          : await this.deps.preparation.changePeriod({
+              playerId,
+              expeditionId: current.expeditionId,
+              expectedRevision: current.revision,
+              period: requestedPeriod,
+              idempotencyKey: context.idempotencyKey,
+            });
       if (!result.ok) return result;
       const changed = result.value.expedition;
       if (
@@ -233,24 +238,29 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         changed.consumedWeekKey !== null ||
         (requestedPeriod === null
           ? changed.phase !== "ENDED" || changed.endReason !== "CANCELLED"
-          : changed.phase !== "PREPARING" || changed.period !== requestedPeriod || changed.endReason !== null)
+          : changed.phase !== "PREPARING" ||
+            changed.period !== requestedPeriod ||
+            changed.endReason !== null)
       ) {
         return err(appError("FLOW_BLOCKED", "O resultado da preparação é inconsistente."));
       }
-      return privateText(context, [
-        "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
-        requestedPeriod === null
-          ? "◇ *Preparação cancelada!*"
-          : requestedPeriod === "DAY"
-            ? "☀️ *Período alterado para Diurno*"
-            : "🌙 *Período alterado para Noturno*",
-        "",
-        "*🎟️ Nenhuma cota consumida*",
-        "*⌛ Nenhum minuto consumido*",
-        "",
-        "> _As ações de busca e captura continuam desativadas nesta prévia._",
-        "› _Use /explorar status para consultar a situação._",
-      ].join("\n"));
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+          requestedPeriod === null
+            ? "◇ *Preparação cancelada!*"
+            : requestedPeriod === "DAY"
+              ? "☀️ *Período alterado para Diurno*"
+              : "🌙 *Período alterado para Noturno*",
+          "",
+          "*🎟️ Nenhuma cota consumida*",
+          "*⌛ Nenhum minuto consumido*",
+          "",
+          "> _As ações de busca e captura continuam desativadas nesta prévia._",
+          "› _Use /explorar status para consultar a situação._",
+        ].join("\n"),
+      );
     }
     if (period !== null && this.deps.preparation !== undefined) {
       // The canonical repo owns locks, World release, weekly quota and
