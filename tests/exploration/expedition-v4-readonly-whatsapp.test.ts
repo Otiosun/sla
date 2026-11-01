@@ -62,9 +62,14 @@ function context(text = "/explorar status"): MessageHandlerContext {
 }
 
 function setup() {
-  const resolvePlayer = vi.fn(async () => ok({ playerId, state: "COMPLETE" as const, created: false }));
+  const resolvePlayer = vi.fn(async () =>
+    ok({ playerId, state: "COMPLETE" as const, created: false }),
+  );
   const getLocation = vi.fn(async () => ok(location));
-  const read = vi.fn(async () => ({ expedition: preparing as ExpeditionSnapshot | null, usedThisWeek: 1 }));
+  const read = vi.fn(async () => ({
+    expedition: preparing as ExpeditionSnapshot | null,
+    usedThisWeek: 1,
+  }));
   const admits = vi.fn(async () => true);
   const deps: ExpeditionV4ReadOnlyDeps = {
     players: { resolvePlayer },
@@ -98,7 +103,9 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
     expect(text).not.toContain(preparing.expeditionId);
     expect(f.read).toHaveBeenCalledExactlyOnceWith(playerId, "2026-10-26");
     expect(f.admits).toHaveBeenCalledExactlyOnceWith({
-      provider: "baileys", chatRef: "120363123456789@g.us", playerId,
+      provider: "baileys",
+      chatRef: "120363123456789@g.us",
+      playerId,
     });
   });
 
@@ -126,9 +133,15 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
 
   it("denies wrong location or incoherent quota/clock; no fabricated encounters", async () => {
     const f = setup();
-    f.read.mockResolvedValueOnce({ expedition: { ...preparing, areaId: randomUUID() }, usedThisWeek: 0 });
+    f.read.mockResolvedValueOnce({
+      expedition: { ...preparing, areaId: randomUUID() },
+      usedThisWeek: 0,
+    });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
-    f.read.mockResolvedValueOnce({ expedition: { ...preparing, elapsedMinutes: 30 }, usedThisWeek: 0 });
+    f.read.mockResolvedValueOnce({
+      expedition: { ...preparing, elapsedMinutes: 30 },
+      usedThisWeek: 0,
+    });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
     f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 4 });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
@@ -163,7 +176,9 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
 
   it("rejects unsafe location labels instead of leaking editorial markers", async () => {
     const f = setup();
-    f.getLocation.mockResolvedValueOnce(ok({ ...location, areaDisplayName: "Campo [Ler mais] de Yun" }));
+    f.getLocation.mockResolvedValueOnce(
+      ok({ ...location, areaDisplayName: "Campo [Ler mais] de Yun" }),
+    );
     expect((await f.route.handler.handle(context())).ok).toBe(false);
     expect(f.read).not.toHaveBeenCalled();
   });
