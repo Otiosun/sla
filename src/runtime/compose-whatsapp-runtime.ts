@@ -75,7 +75,11 @@ import type {
   OutboxDeliveryPreparation,
 } from "../modules/messaging/ports.js";
 import { MessageRouter } from "../modules/messaging/router.js";
-import { MessagingService, OutboxWorker } from "../modules/messaging/service.js";
+import {
+  MessagingService,
+  OutboxWorker,
+  type OutboxPostSentHook,
+} from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
@@ -1136,6 +1140,8 @@ export function createOperationalOutboxWorker(
   pool: Pool,
   messagingRepository: PostgresMessagingRepository,
   adapter: OutboundMessageAdapter,
+  /** Staging injection only. The active WhatsApp runtime passes no hook. */
+  postSentHook?: OutboxPostSentHook,
 ): OutboxWorker {
   const registrationReviewPreparation = new RegistrationReviewDeliveryPreparation({
     provider: "baileys",
@@ -1185,6 +1191,7 @@ export function createOperationalOutboxWorker(
       maxBackoffMs: 60_000,
     },
     deliveryPreparation,
+    postSentHook,
   );
 }
 

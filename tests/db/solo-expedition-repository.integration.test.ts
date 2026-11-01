@@ -10,6 +10,9 @@ import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploratio
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
+import { OutboxWorker } from "../../src/modules/messaging/service.js";
+import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
+import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
@@ -1597,5 +1600,186 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
     expect((await store.current(playerId))?.revision).toBe(0n);
+  });
+
+  it("runs the REAL OutboxWorker post-SENT hook in isolated PG18, preserving Pokédex", async () => {
+    const playerId = await trainer();
+    const expedition = await prepare(playerId, "real-worker-created-prepare");
+    expect(
+      (
+        await store.advance({
+          playerId,
+          expeditionId: expedition.expeditionId,
+          expectedRevision: expedition.revision,
+          minutes: 30,
+          idempotencyKey: "real-worker-created-first-action",
+        })
+      ).ok,
+    ).toBe(true);
+    const release = await pool.query<{ ruleset_id: string }>(
+      "SELECT default_ruleset_id AS ruleset_id FROM content_releases WHERE id=$1",
+      [publishedReleaseId],
+    );
+    const rulesetId = release.rows[0]?.ruleset_id;
+    expect(rulesetId).toBeDefined();
+    const encounterId = randomUUID(),
+      outcomeId = randomUUID(),
+      outboxMessageId = randomUUID();
+    const destinationRef = "5579999999999@s.whatsapp.net";
+    const speciesId = randomUUID();
+    // This is an isolated catalog identity ONLY for PG18 tests, not a
+    // published encounter/odds table or an actual game species.
+    await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,$2,$3)", [
+      speciesId,
+      32001,
+      "solo-created-pg-proof-" + speciesId,
+    ]);
+    const snapshot = {
+      schemaVersion: 1,
+      formId: randomUUID(),
+      speciesId,
+      level: 6,
+      type1Id: randomUUID(),
+      type2Id: null,
+      baseStats: { hp: 35, attack: 55, defense: 40, spAttack: 50, spDefense: 50, speed: 90 },
+      ivs: { hp: 12, attack: 12, defense: 12, spAttack: 12, spDefense: 12, speed: 12 },
+      natureId: randomUUID(),
+      abilityId: randomUUID(),
+      moves: [{ moveId: randomUUID(), ppCurrent: 35 }],
+      maxHp: 19,
+      currentHp: 19,
+      shiny: false,
+      gender: "MALE",
+    };
+    await pool.query(
+      "INSERT INTO encounters(id,player_id,area_id,status,content_release_id,ruleset_id,rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,rng_counter,revision,creation_idempotency_key) VALUES($1,$2,$3,'CREATED',$4,$5,$6,$7,$8,1,0,0,$9)",
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x31),
+        Buffer.alloc(12, 0x32),
+        Buffer.alloc(16, 0x33),
+        "worker-created-pg18-" + encounterId,
+      ],
+    );
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot,created_at) VALUES($1,1,$2::jsonb,now())",
+      [encounterId, JSON.stringify(snapshot)],
+    );
+    await pool.query(
+      "INSERT INTO encounter_wild_snapshots(encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())",
+      [encounterId, JSON.stringify(snapshot)],
+    );
+    await pool.query(
+      "INSERT INTO solo_expedition_search_outcomes(id,player_id,expedition_id,expedition_revision,kind,encounter_id) VALUES($1,$2,$3,$4,'DIRECT',$5)",
+      [outcomeId, playerId, expedition.expeditionId, expedition.revision.toString(), encounterId],
+    );
+    await pool.query(
+      "INSERT INTO outbox_messages(id,channel,message_type,destination_ref,status,sent_at,payload,idempotency_key,correlation_id) VALUES($1,'whatsapp','TEXT',$2,'PENDING',NULL,$3::jsonb,$4,$5)",
+      [
+        outboxMessageId,
+        destinationRef,
+        JSON.stringify({
+          text: "Resultado real de exploração; fixture sem captura",
+          expeditionSearch: { playerId, outcomeId, encounterId },
+        }),
+        "worker-created-pg18-outbox-" + outboxMessageId,
+        randomUUID(),
+      ],
+    );
+    // observe/engage must never create a new seed or wild Pokemon.
+    const encounterService = new EncounterService(
+      new PostgresEncounterRepository(pool),
+      {
+        create: () => {
+          throw new Error("Unexpected seed draw");
+        },
+      },
+      clock,
+      { enabled: true, reason: null },
+    );
+    const afterSent = new ExpeditionSearchEngagementAfterSent(
+      new PostgresExpeditionSearchSentProof(pool),
+      encounterService,
+    );
+    const proof = { playerId, encounterId, outcomeId, outboxMessageId, destinationRef };
+    expect(await afterSent.engageAfterSent(proof)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const state = async () =>
+      (
+        await pool.query<{ status: string; revision: string }>(
+          "SELECT status, revision::text AS revision FROM encounters WHERE id=$1",
+          [encounterId],
+        )
+      ).rows[0];
+    expect(await state()).toMatchObject({ status: "CREATED", revision: "0" });
+    // Real OutboxWorker + real PostgresMessagingRepository; the provider is a
+    // synthetic transport isolated from WhatsApp/Baileys and the live database.
+    // markOutboxSent must commit BEFORE the callback verifies its proof.
+    const delivered: string[] = [];
+    const failures: string[] = [];
+    const hook = new ExpeditionSearchPostSentHook(afterSent, ({ errorCode }) => {
+      failures.push(errorCode);
+    });
+    const worker = new OutboxWorker(
+      new PostgresMessagingRepository(pool),
+      [
+        {
+          channel: "whatsapp",
+          send: async (outgoing) => {
+            delivered.push(outgoing.id);
+            return { providerExternalMessageId: "isolated-pg18-only" };
+          },
+        },
+      ],
+      {
+        batchSize: 100,
+        staleAfterMs: 30_000,
+        maxAttempts: 8,
+        baseBackoffMs: 1_000,
+        maxBackoffMs: 60_000,
+      },
+      undefined,
+      hook,
+    );
+    const delivery = await worker.runOnce();
+    expect(delivered).toContain(outboxMessageId);
+    expect(delivery.sent).toBeGreaterThan(0);
+    expect(delivery.failed).toBe(0);
+    expect(failures).not.toContain("EXPEDITION_POST_SENT_FLOW_BLOCKED");
+    // Worker already advanced it. Concurrent replay still has zero duplicate
+    // Pokédex/capture/battle side-effects.
+    const [engaged, concurrent] = await Promise.all([
+      afterSent.engageAfterSent(proof),
+      afterSent.engageAfterSent(proof),
+    ]);
+    expect(concurrent).toEqual(engaged);
+    expect(engaged).toMatchObject({
+      ok: true,
+      value: {
+        playerId,
+        encounterId,
+        areaId: activeAreaId,
+        encounterStatus: "ENGAGED",
+        encounterRevision: 2n,
+      },
+    });
+    expect(await afterSent.engageAfterSent(proof)).toEqual(engaged);
+    expect(await state()).toMatchObject({ status: "ENGAGED", revision: "2" });
+    const seen = await pool.query<{ seen_count: number; caught_count: number }>(
+      "SELECT seen_count::int AS seen_count,caught_count::int AS caught_count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
+      [playerId, speciesId],
+    );
+    expect(seen.rows).toMatchObject([{ seen_count: 1, caught_count: 0 }]);
+    const battles = await pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM battles WHERE encounter_id=$1",
+      [encounterId],
+    );
+    expect(battles.rows[0]?.n).toBe(0);
   });
 });
