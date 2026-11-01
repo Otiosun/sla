@@ -161,6 +161,15 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     if (location === null || located.value.requiresRelocation) {
       return err(appError("FLOW_BLOCKED", "Localização atual não está pronta para a exploração."));
     }
+    // The PREPARING writer currently permits only the two published
+    // Zhoulia launch areas; do not advertise a period option elsewhere.
+    if (
+      this.deps.preparation !== undefined &&
+      (located.value.regionSlug !== "zhoulia" ||
+        !["vila-dos-arrozais", "campos-de-yun"].includes(located.value.areaSlug))
+    ) {
+      return err(appError("FLOW_BLOCKED", "Esta área ainda não permite preparar uma expedição."));
+    }
     const facts = await this.deps.facts.read(
       playerId,
       expeditionWeekKey(this.deps.clock.now(), this.deps.timeZone),
