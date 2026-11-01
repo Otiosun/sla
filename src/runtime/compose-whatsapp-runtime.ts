@@ -232,9 +232,13 @@ export function createOperationalMessagingComposition(
   }
   if (
     explorationStagingSearchSecret !== null &&
-    (!explorationStagingPreparationEnabled || explorationPreviewTimeZone === null || encounterRngConfig === null)
+    (!explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      encounterRngConfig === null)
   ) {
-    throw new Error("Staging search requires explicit preparation, separate calendar and encounter RNG");
+    throw new Error(
+      "Staging search requires explicit preparation, separate calendar and encounter RNG",
+    );
   }
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
@@ -927,11 +931,14 @@ export function createOperationalMessagingComposition(
               return createExpeditionV4ReadOnlyRoutes(dependencies);
             }
             const preparation = new PostgresExpeditionRepository(
-              pool, clock, explorationPreviewTimeZone,
+              pool,
+              clock,
+              explorationPreviewTimeZone,
             );
             if (explorationStagingSearchSecret === null || encounterRngConfig === null) {
               return createExpeditionV4StagingPreparationRoutes({
-                ...dependencies, preparation,
+                ...dependencies,
+                preparation,
               });
             }
             const seedProvider = new AesEncounterSeedProvider(
