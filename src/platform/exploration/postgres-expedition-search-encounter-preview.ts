@@ -34,7 +34,7 @@ export async function readVerifiedExpeditionSearchEncounterPreview(
          ON encounter.id=outcome.encounter_id
         AND encounter.player_id=outcome.player_id
         AND encounter.area_id=$3
-        AND encounter.status IN ('CREATED','PRESENTED')
+        AND encounter.status IN ('CREATED','PRESENTED','ENGAGED')
        JOIN encounter_wild_snapshots wild
          ON wild.encounter_id=encounter.id
         AND wild.wild_no=1 AND wild.status='ACTIVE'
