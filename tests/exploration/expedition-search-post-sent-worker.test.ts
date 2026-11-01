@@ -27,10 +27,7 @@ const message: PendingOutboxMessage = {
   attempts: 1,
 };
 
-function makeHook(
-  engageAfterSent: (input: unknown) => Promise<unknown>,
-  failures: string[],
-) {
+function makeHook(engageAfterSent: (input: unknown) => Promise<unknown>, failures: string[]) {
   return new ExpeditionSearchPostSentHook(
     { engageAfterSent } as unknown as ConstructorParameters<typeof ExpeditionSearchPostSentHook>[0],
     (input) => failures.push(input.errorCode),
