@@ -65,8 +65,7 @@ export class PostgresExpeditionV4StagingSearch {
           found.playerId !== persisted.playerId ||
           found.expeditionId !== persisted.expeditionId ||
           found.expeditionRevision !== persisted.revision ||
-          ((found.kind === "DIRECT" || found.kind === "INCIDENTAL") !==
-            (found.encounterId !== null))
+          (found.kind === "DIRECT" || found.kind === "INCIDENTAL") !== (found.encounterId !== null)
         ) {
           return err(appError("FLOW_BLOCKED", "Search outcome was not durably committed"));
         }
@@ -83,8 +82,7 @@ export class PostgresExpeditionV4StagingSearch {
         found.playerId !== input.playerId ||
         found.expeditionId !== input.expeditionId ||
         found.expeditionRevision !== input.expectedRevision ||
-        ((found.kind === "DIRECT" || found.kind === "INCIDENTAL") !==
-          (found.encounterId !== null))
+        (found.kind === "DIRECT" || found.kind === "INCIDENTAL") !== (found.encounterId !== null)
       ) {
         return err(appError("FLOW_BLOCKED", "Search receipt does not match the published outcome"));
       }
