@@ -44,10 +44,21 @@ jobs:
           test ! -d auth_info_baileys
       - name: Format five changed source files
         run: |
-          pnpm exec biome format src/modules/exploration/expedition-v4-readonly-whatsapp.ts src/platform/exploration/postgres-expedition-v4-status-reader.ts src/runtime/compose-whatsapp-runtime.ts src/runtime/compose-simulated-whatsapp-runtime.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts
+          pnpm exec biome format --write src/modules/exploration/expedition-v4-readonly-whatsapp.ts src/platform/exploration/postgres-expedition-v4-status-reader.ts src/runtime/compose-whatsapp-runtime.ts src/runtime/compose-simulated-whatsapp-runtime.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts
       - name: Compile and prove read-only router
         run: |
           pnpm exec tsc --noEmit
           pnpm exec vitest run tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts tests/messaging/runtime-command-policy-gate.test.ts
       - name: Build candidate without release
         run: pnpm build
+      - name: Export normalized candidate files for exact review
+        run: |
+          for source in \
+            src/modules/exploration/expedition-v4-readonly-whatsapp.ts \
+            src/platform/exploration/postgres-expedition-v4-status-reader.ts \
+            tests/exploration/expedition-v4-readonly-whatsapp.test.ts; do
+            echo "PB_FORMAT_BEGIN:$source"
+            base64 -w0 "$source"
+            echo
+            echo "PB_FORMAT_END:$source"
+          done
