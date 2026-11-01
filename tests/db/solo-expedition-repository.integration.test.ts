@@ -193,7 +193,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const first = await prepare(owner, "v4-status-prepare");
     const preparingView = await reader.read(owner, week);
     expect(preparingView).toMatchObject({
-      expedition: { playerId: owner, expeditionId: first.expeditionId, phase: "PREPARING", elapsedMinutes: 0 },
+      expedition: {
+        playerId: owner,
+        expeditionId: first.expeditionId,
+        phase: "PREPARING",
+        elapsedMinutes: 0,
+      },
       usedThisWeek: 0,
     });
     expect(await reader.read(other, week)).toEqual({ expedition: null, usedThisWeek: 0 });
