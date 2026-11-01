@@ -86,6 +86,7 @@ export function renderExpeditionV4ActivePanel(
       choice.optionNo < 1 ||
       choice.optionNo > 20 ||
       seen.has(choice.optionNo) ||
+      choice.label.includes("[Ler mais]") ||
       label.length === 0 ||
       label.length > 80
     ) {
