@@ -119,7 +119,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     ) {
       return err(appError("FLOW_BLOCKED", "Registro da expedição está inconsistente; não há ações habilitadas."));
     }
-    const state = facts.expedition === null ? "NONE" : facts.expedition.phase;
+    const state: "NONE" | "PREPARING" | "ACTIVE" =
+      facts.expedition === null ? "NONE" : facts.expedition.phase === "PREPARING" ? "PREPARING" : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
     const title = facts.expedition === null
       ? "Nenhuma expedição em andamento"
