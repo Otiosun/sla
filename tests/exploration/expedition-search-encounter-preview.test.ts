@@ -12,7 +12,7 @@ const input = {
 const good = { display_name: "Zigzagoon", level: "6", shiny: "false" };
 
 function fixture(rows: readonly unknown[]) {
-  const query = vi.fn(async () => ({ rows }));
+  const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows }));
   return { client: { query } as unknown as PoolClient, query };
 }
 
