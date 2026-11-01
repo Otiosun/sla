@@ -494,26 +494,31 @@ describe("published search staging-only WhatsApp command", () => {
   it.each([
     ["INCIDENTAL", "Zigzagoon"],
     ["DIRECT", "Pikachu"],
-  ] as const)("presents verified %s encounter identity without capture buttons", async (kind, speciesName) => {
-    const f = stagingSearch();
-    const receipt = searchReceipt();
-    const encounterPreview = { speciesName, level: 6, shiny: false };
-    f.execute.mockResolvedValueOnce(ok({
-      ...receipt,
-      outcome: { ...receipt.outcome, kind, encounterId: randomUUID() },
-      encounterPreview,
-    }));
-    const result = await f.route.handler.handle(context("/explorar buscar"));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const message = String(result.value.outgoing[0]?.payload.text);
-    expect(message).toContain(speciesName);
-    expect(message).toContain("Nv. 6");
-    expect(message).toContain("continuam desativadas");
-    expect(message).not.toContain("Poké Ball");
-    expect(message).not.toContain("/capturar");
-    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
-  });
+  ] as const)(
+    "presents verified %s encounter identity without capture buttons",
+    async (kind, speciesName) => {
+      const f = stagingSearch();
+      const receipt = searchReceipt();
+      const encounterPreview = { speciesName, level: 6, shiny: false };
+      f.execute.mockResolvedValueOnce(
+        ok({
+          ...receipt,
+          outcome: { ...receipt.outcome, kind, encounterId: randomUUID() },
+          encounterPreview,
+        }),
+      );
+      const result = await f.route.handler.handle(context("/explorar buscar"));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const message = String(result.value.outgoing[0]?.payload.text);
+      expect(message).toContain(speciesName);
+      expect(message).toContain("Nv. 6");
+      expect(message).toContain("continuam desativadas");
+      expect(message).not.toContain("Poké Ball");
+      expect(message).not.toContain("/capturar");
+      expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    },
+  );
 
   it("keeps search unreachable through read-only and preparing-only factories", async () => {
     const f = stagingSearch();
