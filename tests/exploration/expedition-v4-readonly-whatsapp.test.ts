@@ -494,6 +494,7 @@ describe("published search staging-only WhatsApp command", () => {
     expect(String(message.payload.text)).toContain("Primeira cota semanal utilizada");
     expect(String(message.payload.text)).not.toContain("[Ler mais]");
     expect(String(message.payload.text)).not.toContain(preparing.expeditionId);
+    expect(message.payload.expeditionSearch).toBeUndefined();
   });
 
   it.each([
@@ -505,10 +506,11 @@ describe("published search staging-only WhatsApp command", () => {
       const f = stagingSearch();
       const receipt = searchReceipt();
       const encounterPreview = { speciesName, level: 6, shiny: false };
+      const encounterId = randomUUID();
       f.execute.mockResolvedValueOnce(
         ok({
           ...receipt,
-          outcome: { ...receipt.outcome, kind, encounterId: randomUUID() },
+          outcome: { ...receipt.outcome, kind, encounterId },
           encounterPreview,
         }),
       );
@@ -522,6 +524,15 @@ describe("published search staging-only WhatsApp command", () => {
       expect(message).not.toContain("Poké Ball");
       expect(message).not.toContain("/capturar");
       expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+      expect(result.value.resultRefType).toBe("EXPEDITION_SEARCH_OUTCOME");
+      expect(result.value.resultRefId).toBe(receipt.outcome.outcomeId);
+      expect(result.value.outgoing[0]?.payload.expeditionSearch).toEqual({
+        playerId,
+        outcomeId: receipt.outcome.outcomeId,
+        encounterId,
+      });
+      expect(message).not.toContain(receipt.outcome.outcomeId);
+      expect(message).not.toContain(playerId);
     },
   );
 

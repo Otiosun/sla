@@ -1,6 +1,7 @@
 import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
+import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -63,6 +64,41 @@ function privateText(context: MessageHandlerContext, text: string): Result<Messa
         idempotencyKey: `${context.idempotencyKey}:exploration-readonly`,
       },
     ],
+  });
+}
+
+/**
+ * Store a private, server-created anchor ONLY for a confirmed encounter.
+ * A later staging worker must prove this exact Outbox row reached SENT before
+ * advancing the canonical encounter to ENGAGED. This metadata never appears
+ * in the WhatsApp text itself and cannot be supplied by a trainer.
+ */
+function privateSearchResult(
+  context: MessageHandlerContext,
+  text: string,
+  playerId: PlayerId,
+  outcome: StoredSearchOutcome,
+): Result<MessageHandlerResult> {
+  const base = privateText(context, text);
+  if (!base.ok || outcome.encounterId === null) return base;
+  if (outcome.playerId !== playerId || !["DIRECT", "INCIDENTAL"].includes(outcome.kind)) {
+    return err(appError("FLOW_BLOCKED", "Search encounter anchor is inconsistent"));
+  }
+  return ok({
+    ...base.value,
+    resultRefType: "EXPEDITION_SEARCH_OUTCOME",
+    resultRefId: outcome.outcomeId,
+    outgoing: base.value.outgoing.map((message) => ({
+      ...message,
+      payload: {
+        ...message.payload,
+        expeditionSearch: {
+          playerId,
+          outcomeId: outcome.outcomeId,
+          encounterId: outcome.encounterId,
+        },
+      },
+    })),
   });
 }
 
@@ -243,7 +279,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         consumedWeeklySlot: transition.consumedWeeklySlot,
       });
       if (!panel.ok) return panel;
-      return privateText(context, panel.value);
+      return privateSearchResult(context, panel.value, playerId, outcome);
     }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING
