@@ -494,6 +494,7 @@ describe("published search staging-only WhatsApp command", () => {
     expect(String(message.payload.text)).toContain("Primeira cota semanal utilizada");
     expect(String(message.payload.text)).not.toContain("[Ler mais]");
     expect(String(message.payload.text)).not.toContain(preparing.expeditionId);
+    expect(message.payload.expeditionSearch).toBeUndefined();
   });
 
   it.each([
@@ -522,6 +523,16 @@ describe("published search staging-only WhatsApp command", () => {
       expect(message).not.toContain("Poké Ball");
       expect(message).not.toContain("/capturar");
       expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+      expect(result.value.resultRefType).toBe("EXPEDITION_SEARCH_OUTCOME");
+      expect(result.value.resultRefId).toBe(receipt.outcome.outcomeId);
+      expect(result.value.outgoing[0]?.payload.expeditionSearch).toEqual({
+        playerId,
+        outcomeId: receipt.outcome.outcomeId,
+        encounterId: result.value.outgoing[0]?.payload.expeditionSearch &&
+          (result.value.outgoing[0]?.payload.expeditionSearch as { encounterId: string }).encounterId,
+      });
+      expect(message).not.toContain(receipt.outcome.outcomeId);
+      expect(message).not.toContain(playerId);
     },
   );
 
