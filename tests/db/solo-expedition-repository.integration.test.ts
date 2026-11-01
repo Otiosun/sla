@@ -705,10 +705,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const speciesId = randomUUID();
     // This is an isolated catalog identity ONLY for PG18 tests, not a
     // published encounter/odds table or an actual game species.
-    await pool.query(
-      "INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,$2,$3)",
-      [speciesId, 32000, "solo-created-pg-proof-" + speciesId],
-    );
+    await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,$2,$3)", [
+      speciesId,
+      32000,
+      "solo-created-pg-proof-" + speciesId,
+    ]);
     const snapshot = {
       schemaVersion: 1,
       formId: randomUUID(),
