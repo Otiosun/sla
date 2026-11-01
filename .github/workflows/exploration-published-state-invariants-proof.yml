@@ -8,6 +8,8 @@ on:
       - ".github/workflows/exploration-published-state-invariants-proof.yml"
       - "src/platform/exploration/expedition-published-outcome-policy.ts"
       - "tests/exploration/expedition-published-outcome-policy.test.ts"
+      - "src/modules/exploration/expedition-v4-active-panel.ts"
+      - "tests/exploration/expedition-v4-active-panel.test.ts"
 
 permissions:
   contents: read
@@ -43,7 +45,7 @@ jobs:
           test ! -d auth_info_baileys
       - name: Source formatting
         run: |
-          pnpm exec biome format src/platform/exploration/expedition-published-outcome-policy.ts tests/exploration/expedition-published-outcome-policy.test.ts
+          pnpm exec biome format src/platform/exploration/expedition-published-outcome-policy.ts tests/exploration/expedition-published-outcome-policy.test.ts src/modules/exploration/expedition-v4-active-panel.ts tests/exploration/expedition-v4-active-panel.test.ts
       - name: TypeScript and published state regression
         run: |
           pnpm exec tsc --noEmit
