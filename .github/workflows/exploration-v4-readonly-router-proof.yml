@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - feat/exploration-v4-confirmed-encounter-engagement-20261101
+      - fix/exploration-private-sent-proof-20261101
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"
