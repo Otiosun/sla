@@ -30,7 +30,7 @@ import {
 } from "../modules/battle/pve-scene-whatsapp.js";
 import { CaptureService } from "../modules/capture/service.js";
 import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-incidental-game-group-admission.js";
-import { createExpeditionV4ReadOnlyRoutes } from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
+import { createExpeditionV4ReadOnlyRoutes, createExpeditionV4StagingPreparationRoutes } from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   type ReceptionMembershipEvent,
@@ -129,6 +129,7 @@ import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/co
 import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionRepository } from "../platform/exploration/postgres-expedition-repository.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
@@ -216,7 +217,11 @@ export function createOperationalMessagingComposition(
   hubPublicUrl: string | null = null,
   fishingDayTimeZone: string | null = null,
   explorationPreviewTimeZone: string | null = null,
+  explorationStagingPreparationEnabled = false,
 ): OperationalMessagingComposition {
+  if (explorationStagingPreparationEnabled && explorationPreviewTimeZone === null) {
+    throw new Error("Staging preparation requires a separate explicit expedition calendar");
+  }
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
     pveBattleConfig === null ? null : new PostgresBattleRewardWhatsAppProjector(pool);
@@ -888,11 +893,13 @@ export function createOperationalMessagingComposition(
       createCompetitiveSpawnAdminRoute(competitiveSpawn),
       createCompetitiveSpawnGuessRoute(competitiveSpawn),
       ...legacyRoutes,
-      // Explicit test/staging opt-in only. Production never supplies this flag.
-      // There is no mutable expedition command or capture hook in this route.
+      // Two independent staging-only opt-ins; production supplies neither.
+      // Never expose effects or the draft schema on the active WhatsApp bot.
       ...(explorationPreviewTimeZone === null
         ? []
-        : createExpeditionV4ReadOnlyRoutes({
+        : (explorationStagingPreparationEnabled
+            ? createExpeditionV4StagingPreparationRoutes
+            : createExpeditionV4ReadOnlyRoutes)({
             players: playerRegistration,
             world,
             facts: new PostgresExpeditionV4StatusReader(pool),
@@ -901,6 +908,9 @@ export function createOperationalMessagingComposition(
             }),
             clock,
             timeZone: explorationPreviewTimeZone,
+            ...(explorationStagingPreparationEnabled
+              ? { preparation: new PostgresExpeditionRepository(pool, clock, explorationPreviewTimeZone) }
+              : {}),
           })),
       ...worldServiceRoutes,
       ...progressionRoutes,
