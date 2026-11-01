@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
 import {
   createSearchOutcomeEffect,
   readStoredSearchOutcome,
@@ -178,6 +179,56 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
+  });
+
+  it("reads real V4 NONE/PREPARING/ACTIVE status and weekly quota without writes or player leaks", async () => {
+    const reader = new PostgresExpeditionV4StatusReader(pool);
+    const owner = await trainer();
+    const other = await trainer();
+    const week = "2026-10-19";
+
+    expect(await reader.read(owner, week)).toEqual({ expedition: null, usedThisWeek: 0 });
+    expect(await reader.read(other, week)).toEqual({ expedition: null, usedThisWeek: 0 });
+
+    const first = await prepare(owner, "v4-status-prepare");
+    const preparingView = await reader.read(owner, week);
+    expect(preparingView).toMatchObject({
+      expedition: {
+        playerId: owner,
+        expeditionId: first.expeditionId,
+        phase: "PREPARING",
+        elapsedMinutes: 0,
+      },
+      usedThisWeek: 0,
+    });
+    expect(await reader.read(other, week)).toEqual({ expedition: null, usedThisWeek: 0 });
+
+    const advanced = await store.advance({
+      playerId: owner,
+      expeditionId: first.expeditionId,
+      expectedRevision: first.revision,
+      minutes: 30,
+      idempotencyKey: "v4-status-first-cost",
+    });
+    expect(advanced.ok).toBe(true);
+    const receiptCount = await count("solo_expedition_receipts", owner);
+    const activeView = await reader.read(owner, week);
+    expect(activeView).toMatchObject({
+      expedition: {
+        playerId: owner,
+        expeditionId: first.expeditionId,
+        phase: "ACTIVE",
+        elapsedMinutes: 30,
+        consumedWeekKey: week,
+      },
+      usedThisWeek: 1,
+    });
+    expect(await reader.read(owner, "2026-10-26")).toMatchObject({
+      expedition: { phase: "ACTIVE", elapsedMinutes: 30 },
+      usedThisWeek: 0,
+    });
+    expect(await reader.read(other, week)).toEqual({ expedition: null, usedThisWeek: 0 });
+    expect(await count("solo_expedition_receipts", owner)).toBe(receiptCount);
   });
 
   it("rejects an ACTIVE but unregistered player before creating a PREPARING receipt", async () => {
