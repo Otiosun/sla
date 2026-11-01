@@ -811,7 +811,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await afterSent.engageAfterSent(proof)).toEqual(engaged);
     expect(await state()).toMatchObject({ status: "ENGAGED", revision: "2" });
     const seen = await pool.query<{ seen_count: number; caught_count: number }>(
-      "SELECT seen_count,caught_count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
+      "SELECT seen_count::int AS seen_count,caught_count::int AS caught_count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
       [playerId, speciesId],
     );
     expect(seen.rows).toMatchObject([{ seen_count: 1, caught_count: 0 }]);
