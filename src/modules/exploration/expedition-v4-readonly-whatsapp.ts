@@ -1,5 +1,6 @@
 import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
+import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -44,6 +45,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly timeZone: string;
   /** Staging-only: omitted for the existing truly read-only route. */
   readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
+  /** Third explicit stage-only opt-in. No encounter route exists without it. */
+  readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -131,10 +134,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? null
           : "NIGHT";
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
+    const searchFree = /^\/explorar\s+buscar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
-      (this.deps.preparation === undefined ||
-        (period === null && requestedPeriod === null && !cancel))
+      ((this.deps.preparation === undefined ||
+        (period === null && requestedPeriod === null && !cancel)) &&
+        (!searchFree || this.deps.search === undefined))
     ) {
       return privateText(
         context,
@@ -204,6 +209,52 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
+    if (searchFree && this.deps.search !== undefined) {
+      const current = facts.expedition;
+      if (current === null || (current.phase !== "PREPARING" && current.phase !== "ACTIVE")) {
+        return err(appError("FLOW_BLOCKED", "Não há expedição para buscar nesta área."));
+      }
+      const committed = await this.deps.search.execute({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!committed.ok) return committed;
+      const { transition, outcome } = committed.value;
+      if (
+        transition.expedition.expeditionId !== current.expeditionId ||
+        transition.expedition.playerId !== playerId ||
+        transition.expedition.areaId !== located.value.areaId ||
+        outcome.playerId !== playerId ||
+        outcome.expeditionId !== current.expeditionId ||
+        outcome.expeditionRevision !== current.revision ||
+        transition.expedition.elapsedMinutes !== current.elapsedMinutes + 30 ||
+        (current.phase === "PREPARING" && !transition.consumedWeeklySlot) ||
+        (current.phase === "ACTIVE" && transition.consumedWeeklySlot)
+      ) {
+        return err(appError("FLOW_BLOCKED", "O resultado da busca não corresponde à expedição."));
+      }
+      // No invented species, loot or trail UX. Do not offer unfinished
+      // capture/battle actions even when a canonical Encounter is stored.
+      const description = {
+        NO_SIGNAL: "Nenhum sinal de Pokémon foi registrado.",
+        TRAIL: "Um rastro foi registrado. Seguir rastros ainda não está disponível nesta prévia.",
+        INCIDENTAL: "Encontro incidental registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
+        DIRECT: "Encontro direto registrado. A interação com o Pokémon ainda está bloqueada na prévia.",
+      }[outcome.kind];
+      if (!description) return err(appError("FLOW_BLOCKED", "Resultado de busca desconhecido."));
+      return privateText(context, [
+        "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗨𝗦𝗖𝗔*",
+        description,
+        "",
+        "⌛ *30min consumidos na expedição*",
+        transition.consumedWeeklySlot ? "🎟️ *Primeira cota semanal utilizada*" : "🎟️ *Nenhuma cota adicional utilizada*",
+        "",
+        "> _Resultado salvo no banco isolado de staging. Nenhuma recompensa inventada._",
+        "› _Use /explorar status para consultar o tempo restante._",
+      ].join("\n"));
+    }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING
       // row. A stale ACTIVE, ENDED or absent expedition cannot be edited.
@@ -350,9 +401,14 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         }
       }
     }
+    if (this.deps.search !== undefined && facts.expedition !== null) {
+      lines.push("◇ *Busca em staging:* /explorar buscar · consome 30min");
+    }
     lines.push(
       "",
-      "> _Consulta sem custo. Buscar, viajar, capturar ou preparar não estão disponíveis nesta prévia._",
+      this.deps.search === undefined
+        ? "> _Consulta sem custo. Buscar, viajar, capturar ou preparar não estão disponíveis nesta prévia._"
+        : "> _Consulta sem custo. A busca consome tempo e a primeira cota; captura, recursos e viagem continuam bloqueados._",
       "› _Nenhuma ação, cota, item ou encontro foi alterado._",
     );
     return privateText(context, lines.join("\n"));
@@ -406,4 +462,22 @@ export function createExpeditionV4StagingPreparationRoutes(
       },
     },
   ];
+}
+
+export function createExpeditionV4StagingSearchRoutes(
+  deps: ExpeditionV4ReadOnlyDeps & {
+    readonly preparation: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
+    readonly search: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+  },
+): readonly CommandRouteDefinition[] {
+  return [{
+    command: "explorar",
+    handler: new ExpeditionV4ReadOnlyHandler(deps),
+    rateLimitClass: "SENSITIVE",
+    policy: {
+      requiredGroupCapabilities: ["world", "player.basic"],
+      allowedPlayerAccess: ["ACTIVE"],
+      requiresMechanicalReady: true,
+    },
+  }];
 }
