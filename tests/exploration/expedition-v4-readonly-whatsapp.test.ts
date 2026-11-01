@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
-import type { ExpeditionV4StagingSearchInput } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
+import type { ExpeditionV4StagingSearchInput, ExpeditionV4StagingSearchResult } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import {
   createExpeditionV4ReadOnlyRoutes,
   createExpeditionV4StagingPreparationRoutes,
@@ -460,7 +460,7 @@ describe("published search staging-only WhatsApp command", () => {
   function stagingSearch() {
     const f = setup();
     f.read.mockResolvedValue({ expedition: preparing, usedThisWeek: 0 });
-    const execute = vi.fn(async (_input: ExpeditionV4StagingSearchInput) => ok(searchReceipt()));
+    const execute = vi.fn(async (_input: ExpeditionV4StagingSearchInput) => ok(searchReceipt() as ExpeditionV4StagingSearchResult));
     const preparation = {
       prepare: vi.fn(),
       changePeriod: vi.fn(),
