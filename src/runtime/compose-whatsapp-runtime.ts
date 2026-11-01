@@ -30,7 +30,10 @@ import {
 } from "../modules/battle/pve-scene-whatsapp.js";
 import { CaptureService } from "../modules/capture/service.js";
 import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-incidental-game-group-admission.js";
-import { createExpeditionV4ReadOnlyRoutes, createExpeditionV4StagingPreparationRoutes } from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
+import {
+  createExpeditionV4ReadOnlyRoutes,
+  createExpeditionV4StagingPreparationRoutes,
+} from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   type ReceptionMembershipEvent,
@@ -912,7 +915,11 @@ export function createOperationalMessagingComposition(
             return explorationStagingPreparationEnabled
               ? createExpeditionV4StagingPreparationRoutes({
                   ...dependencies,
-                  preparation: new PostgresExpeditionRepository(pool, clock, explorationPreviewTimeZone),
+                  preparation: new PostgresExpeditionRepository(
+                    pool,
+                    clock,
+                    explorationPreviewTimeZone,
+                  ),
                 })
               : createExpeditionV4ReadOnlyRoutes(dependencies);
           })()),
