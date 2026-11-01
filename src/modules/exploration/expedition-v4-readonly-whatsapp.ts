@@ -460,7 +460,16 @@ export function createExpeditionV4StagingPreparationRoutes(
   return [
     {
       command: "explorar",
-      handler: new ExpeditionV4ReadOnlyHandler(deps),
+      // A preparing-only route must not inherit any search port at runtime.
+      handler: new ExpeditionV4ReadOnlyHandler({
+        players: deps.players,
+        world: deps.world,
+        facts: deps.facts,
+        group: deps.group,
+        clock: deps.clock,
+        timeZone: deps.timeZone,
+        preparation: deps.preparation,
+      }),
       rateLimitClass: "SENSITIVE",
       policy: {
         requiredGroupCapabilities: ["world", "player.basic"],
