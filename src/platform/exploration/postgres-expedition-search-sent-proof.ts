@@ -34,8 +34,8 @@ export class PostgresExpeditionSearchSentProof {
     input: ExpeditionSearchSentProofInput,
   ): Promise<Result<DeliveredExpeditionEncounter>> {
     if (
-      ![input.outcomeId, input.encounterId, input.outboxMessageId].every(
-        (id) => /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(id),
+      ![input.outcomeId, input.encounterId, input.outboxMessageId].every((id) =>
+        /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(id),
       ) ||
       input.destinationRef.length < 1 ||
       input.destinationRef.length > 512
