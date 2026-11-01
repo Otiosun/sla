@@ -34,7 +34,7 @@ describe("V4 published canonical encounter preview", () => {
       "outcome.player_id=$2",
       "encounter.player_id=outcome.player_id",
       "encounter.area_id=$3",
-      "encounter.status IN ('CREATED','PRESENTED')",
+      "encounter.status IN ('CREATED','PRESENTED','ENGAGED')",
       "wild.status='ACTIVE'",
       "pointer.pointer_key='ACTIVE'",
       "release.status='PUBLISHED'",
