@@ -44,10 +44,10 @@ function setup(proven: DeliveredExpeditionEncounter = confirmed) {
       revision: 2n,
     } as EncounterView),
   );
-  const worker = new ExpeditionSearchEngagementAfterSent(
-    { confirm },
-    { observe, engage } as unknown as Pick<EncounterService, "observe" | "engage">,
-  );
+  const worker = new ExpeditionSearchEngagementAfterSent({ confirm }, {
+    observe,
+    engage,
+  } as unknown as Pick<EncounterService, "observe" | "engage">);
   return { confirm, observe, engage, worker };
 }
 
@@ -57,7 +57,11 @@ describe("V4 staging-only canonical encounter lifecycle after SENT", () => {
     const result = await f.worker.engageAfterSent(incoming);
     expect(result).toMatchObject({
       ok: true,
-      value: { encounterId: incoming.encounterId, encounterStatus: "ENGAGED", encounterRevision: 2n },
+      value: {
+        encounterId: incoming.encounterId,
+        encounterStatus: "ENGAGED",
+        encounterRevision: 2n,
+      },
     });
     expect(f.confirm).toHaveBeenCalledExactlyOnceWith(incoming);
     expect(f.observe).toHaveBeenCalledExactlyOnceWith({
@@ -106,23 +110,27 @@ describe("V4 staging-only canonical encounter lifecycle after SENT", () => {
 
   it("fails closed if presented encounter belongs to another trainer or area", async () => {
     const f = setup();
-    f.observe.mockResolvedValueOnce(ok({
+    f.observe.mockResolvedValueOnce(
+      ok({
       playerId: createPlayerId(),
       encounterId: confirmed.encounterId,
       areaId: confirmed.areaId,
       status: "PRESENTED",
       revision: 1n,
-    } as EncounterView));
+      } as EncounterView),
+    );
     expect((await f.worker.engageAfterSent(incoming)).ok).toBe(false);
     expect(f.engage).not.toHaveBeenCalled();
 
-    f.observe.mockResolvedValueOnce(ok({
+    f.observe.mockResolvedValueOnce(
+      ok({
       playerId,
       encounterId: confirmed.encounterId,
       areaId: randomUUID(),
       status: "PRESENTED",
       revision: 1n,
-    } as EncounterView));
+      } as EncounterView),
+    );
     expect((await f.worker.engageAfterSent(incoming)).ok).toBe(false);
     expect(f.engage).not.toHaveBeenCalled();
   });
@@ -131,7 +139,8 @@ describe("V4 staging-only canonical encounter lifecycle after SENT", () => {
     const f = setup();
     f.observe.mockResolvedValueOnce(err(appError("REVISION_CONFLICT", "stale")) as never);
     expect(await f.worker.engageAfterSent(incoming)).toMatchObject({
-      ok: false, error: { code: "REVISION_CONFLICT" },
+      ok: false,
+      error: { code: "REVISION_CONFLICT" },
     });
     expect(f.engage).not.toHaveBeenCalled();
   });
