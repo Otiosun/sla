@@ -77,15 +77,17 @@ export class PostgresExpeditionSearchSentProof {
            ON release.id=pointer.content_release_id
           AND release.status='PUBLISHED'
           AND encounter.content_release_id=release.id
+        -- JSONB ->> returns TEXT; UUID-typed params need explicit casts.
+        -- Without these casts PostgreSQL raises 42883 instead of proving SENT.
         WHERE outbox.id=$1
           AND outbox.channel='whatsapp'
           AND outbox.message_type='TEXT'
           AND outbox.status='SENT'
           AND outbox.sent_at IS NOT NULL
           AND outbox.destination_ref=$5
-          AND outbox.payload->'expeditionSearch'->>'playerId'=$3
-          AND outbox.payload->'expeditionSearch'->>'outcomeId'=$2
-          AND outbox.payload->'expeditionSearch'->>'encounterId'=$4
+          AND outbox.payload->'expeditionSearch'->>'playerId'=$3::text
+          AND outbox.payload->'expeditionSearch'->>'outcomeId'=$2::text
+          AND outbox.payload->'expeditionSearch'->>'encounterId'=$4::text
           AND length(outbox.payload->>'text')>0`,
       [
         input.outboxMessageId,

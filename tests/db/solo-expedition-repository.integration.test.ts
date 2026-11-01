@@ -7,6 +7,7 @@ import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
 import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
+import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
   createSearchOutcomeEffect,
@@ -433,6 +434,114 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
     expect(await count("solo_expedition_search_outcomes", playerId)).toBe(0);
+  });
+
+  it("proves real PostgreSQL SENT+private+owner+published encounter gating, never pre-send", async () => {
+    const playerId = await trainer();
+    const expedition = await prepare(playerId, "real-sent-proof-prepare");
+    const advanced = await store.advance({
+      playerId,
+      expeditionId: expedition.expeditionId,
+      expectedRevision: expedition.revision,
+      minutes: 30,
+      idempotencyKey: "real-sent-proof-first-action",
+    });
+    expect(advanced.ok).toBe(true);
+
+    const content = await pool.query<{ ruleset_id: string }>(
+      "SELECT default_ruleset_id AS ruleset_id FROM content_releases WHERE id=$1",
+      [publishedReleaseId],
+    );
+    const rulesetId = content.rows[0]?.ruleset_id;
+    expect(rulesetId).toBeDefined();
+    const encounterId = randomUUID();
+    const outcomeId = randomUUID();
+    const outboxMessageId = randomUUID();
+    const destinationRef = "5579999999999@s.whatsapp.net";
+    await pool.query(
+      `INSERT INTO encounters (
+        id, player_id, area_id, status, content_release_id, ruleset_id,
+        rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version,
+        rng_counter, revision, creation_idempotency_key
+      ) VALUES (
+        $1, $2, $3, 'CREATED', $4, $5, $6, $7, $8, 1, 0, 0, $9
+      )`,
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x31),
+        Buffer.alloc(12, 0x32),
+        Buffer.alloc(16, 0x33),
+        "real-sent-proof-encounter-" + encounterId,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes
+        (id, player_id, expedition_id, expedition_revision, kind, encounter_id)
+        VALUES ($1,$2,$3,$4,'DIRECT',$5)`,
+      [outcomeId, playerId, expedition.expeditionId, expedition.revision.toString(), encounterId],
+    );
+    await pool.query(
+      `INSERT INTO outbox_messages
+        (id, channel, message_type, destination_ref, status, sent_at, payload, idempotency_key, correlation_id)
+        VALUES ($1, 'whatsapp', 'TEXT', $2, 'PENDING', NULL, $3::jsonb, $4, $5)`,
+      [
+        outboxMessageId,
+        destinationRef,
+        JSON.stringify({
+          text: "Resultado canônico de busca",
+          expeditionSearch: { playerId, encounterId, outcomeId },
+        }),
+        "real-sent-proof-outbox-" + outboxMessageId,
+        randomUUID(),
+      ],
+    );
+
+    const proof = new PostgresExpeditionSearchSentProof(pool);
+    const args = { playerId, encounterId, outcomeId, outboxMessageId, destinationRef };
+    expect(await proof.confirm(args)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    // Real schema rejects SENT without a timestamp; do not weaken its CHECK.
+    await expect(
+      pool.query("UPDATE outbox_messages SET status='SENT' WHERE id=$1", [outboxMessageId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "outbox_messages_check" });
+    expect(await proof.confirm(args)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      outboxMessageId,
+    ]);
+    const verified = await proof.confirm(args);
+    expect(verified).toMatchObject({
+      ok: true,
+      value: {
+        playerId,
+        encounterId,
+        outcomeId,
+        areaId: activeAreaId,
+        encounterRevision: 0n,
+        encounterStatus: "CREATED",
+      },
+    });
+    expect(await proof.confirm(args)).toEqual(verified);
+    expect(await proof.confirm({ ...args, destinationRef: "120363123456789@g.us" })).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
+    });
+    expect(await proof.confirm({ ...args, destinationRef: "123456789012345@lid" })).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await proof.confirm({ ...args, playerId: await trainer() })).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
   });
 
   it("verifies the durable search outcome before returning a receipt and never rerolls a replay", async () => {
