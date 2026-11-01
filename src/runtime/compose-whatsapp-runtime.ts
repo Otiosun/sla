@@ -29,6 +29,8 @@ import {
   createPveSceneRoutes,
 } from "../modules/battle/pve-scene-whatsapp.js";
 import { CaptureService } from "../modules/capture/service.js";
+import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-incidental-game-group-admission.js";
+import { createExpeditionV4ReadOnlyRoutes } from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   type ReceptionMembershipEvent,
@@ -126,6 +128,7 @@ import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spaw
 import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-reward-recovery.js";
 import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
+import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
@@ -212,6 +215,7 @@ export function createOperationalMessagingComposition(
   pveBattleConfig: PveBattleRuntimeConfig | null = null,
   hubPublicUrl: string | null = null,
   fishingDayTimeZone: string | null = null,
+  explorationPreviewTimeZone: string | null = null,
 ): OperationalMessagingComposition {
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
@@ -884,6 +888,20 @@ export function createOperationalMessagingComposition(
       createCompetitiveSpawnAdminRoute(competitiveSpawn),
       createCompetitiveSpawnGuessRoute(competitiveSpawn),
       ...legacyRoutes,
+      // Explicit test/staging opt-in only. Production never supplies this flag.
+      // There is no mutable expedition command or capture hook in this route.
+      ...(explorationPreviewTimeZone === null
+        ? []
+        : createExpeditionV4ReadOnlyRoutes({
+            players: playerRegistration,
+            world,
+            facts: new PostgresExpeditionV4StatusReader(pool),
+            group: new IncidentalGameGroupAdmission(community, {
+              load: async (playerId) => accessRepository.read(async (tx) => tx.load(playerId)),
+            }),
+            clock,
+            timeZone: explorationPreviewTimeZone,
+          })),
       ...worldServiceRoutes,
       ...progressionRoutes,
       ...registrationRoutes,
