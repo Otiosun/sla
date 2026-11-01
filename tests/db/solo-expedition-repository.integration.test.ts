@@ -417,14 +417,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       new PublishedSearchOutcomePolicy(Buffer.alloc(32, 0x27)),
       encounter,
     );
-    expect(await search.execute({
-      playerId,
-      expeditionId: exp.expeditionId,
-      expectedRevision: exp.revision,
-      idempotencyKey: "published-search-no-odds",
-    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await search.execute({
+        playerId,
+        expeditionId: exp.expeditionId,
+        expectedRevision: exp.revision,
+        idempotencyKey: "published-search-no-odds",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(await store.current(playerId)).toMatchObject({
-      phase: "PREPARING", elapsedMinutes: 0, revision: 0n, consumedWeekKey: null,
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      revision: 0n,
+      consumedWeekKey: null,
     });
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
     expect(await count("solo_expedition_search_outcomes", playerId)).toBe(0);
@@ -462,12 +467,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           replayed: false,
           expedition: { phase: "ACTIVE", elapsedMinutes: 30, revision: 1n },
         },
-        outcome: { playerId, expeditionId: exp.expeditionId, kind: "NO_SIGNAL", encounterId: null, expeditionRevision: 0n },
+        outcome: {
+          playerId,
+          expeditionId: exp.expeditionId,
+          kind: "NO_SIGNAL",
+          encounterId: null,
+          expeditionRevision: 0n,
+        },
       },
     });
     const again = await search.execute(input);
     expect(again).toMatchObject({ ok: true, value: { transition: { replayed: true } } });
-    if (first.ok && again.ok) expect(again.value.outcome.outcomeId).toBe(first.value.outcome.outcomeId);
+    if (first.ok && again.ok)
+      expect(again.value.outcome.outcomeId).toBe(first.value.outcome.outcomeId);
     expect(decisions).toBe(1);
     expect(await count("solo_expedition_receipts", playerId)).toBe(2);
     expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
