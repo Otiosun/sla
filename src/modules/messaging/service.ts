@@ -320,6 +320,14 @@ export interface OutboxWorkerRunResult {
   readonly claimed: number;
   readonly sent: number;
   readonly failed: number;
+  /** Only present with an explicitly installed staging post-SENT hook. */
+  readonly postSentFailed?: number;
+}
+
+/** Separate from delivery preparation: never retries a SENT transport message. */
+export interface OutboxPostSentHook {
+  afterSent(message: import("./contracts.js").PendingOutboxMessage): Promise<void>;
+  onFailure(message: import("./contracts.js").PendingOutboxMessage, error: unknown): void;
 }
 
 function retryAtForAttempt(input: {
@@ -342,6 +350,7 @@ export class OutboxWorker {
     adapters: readonly OutboundMessageAdapter[],
     private readonly options: OutboxWorkerOptions,
     private readonly deliveryPreparation?: OutboxDeliveryPreparation,
+    private readonly postSentHook?: OutboxPostSentHook,
   ) {
     this.adapters = new Map(adapters.map((adapter) => [adapter.channel, adapter]));
   }
@@ -355,6 +364,7 @@ export class OutboxWorker {
     });
     let sent = 0;
     let failed = 0;
+    let postSentFailed = 0;
 
     for (const message of messages) {
       const adapter = this.adapters.get(message.channel);
@@ -381,15 +391,33 @@ export class OutboxWorker {
             attempts: message.attempts,
             maxAttempts: this.options.maxAttempts,
             baseBackoffMs: this.options.baseBackoffMs,
-            maxBackoffMs: this.options.maxBackoffMs,
           }),
           maxAttempts: this.options.maxAttempts,
         });
         failed += 1;
+        continue;
+      }
+
+      // Transport is already durably SENT. Any callback failure MUST NOT
+      // mark this Outbox row FAILED or issue another WhatsApp send. A separate
+      // staging reconciliation pass can replay canonical domain transitions.
+      if (this.postSentHook !== undefined) {
+        try {
+          await this.postSentHook.afterSent(message);
+        } catch (error) {
+          postSentFailed += 1;
+          try {
+            this.postSentHook.onFailure(message, error);
+          } catch {
+            // Logging failures cannot turn a SENT message into a retry.
+          }
+        }
       }
     }
 
-    return { claimed: messages.length, sent, failed };
+    return this.postSentHook === undefined
+      ? { claimed: messages.length, sent, failed }
+      : { claimed: messages.length, sent, failed, postSentFailed };
   }
 }
 
