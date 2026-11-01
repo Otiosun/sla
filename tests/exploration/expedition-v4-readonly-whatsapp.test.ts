@@ -498,7 +498,9 @@ describe("published search staging-only WhatsApp command", () => {
       const result = await route.handler.handle(context("/explorar buscar"));
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+        expect(String(result.value.outgoing[0]?.payload.text)).toContain(
+          "Nenhuma ação será executada",
+        );
       }
     }
     expect(f.execute).not.toHaveBeenCalled();
@@ -518,25 +520,37 @@ describe("published search staging-only WhatsApp command", () => {
   it("refuses a receipt with a mismatched expedition or weekly debit", async () => {
     const f = stagingSearch();
     const wrong = searchReceipt();
-    f.execute.mockResolvedValueOnce(ok({
-      ...wrong,
-      outcome: { ...wrong.outcome, expeditionId: randomUUID() },
-    }));
+    f.execute.mockResolvedValueOnce(
+      ok({
+        ...wrong,
+        outcome: { ...wrong.outcome, expeditionId: randomUUID() },
+      }),
+    );
     expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
     const wrongCharge = searchReceipt();
-    f.execute.mockResolvedValueOnce(ok({
-      ...wrongCharge,
-      transition: { ...wrongCharge.transition, consumedWeeklySlot: false },
-    }));
+    f.execute.mockResolvedValueOnce(
+      ok({
+        ...wrongCharge,
+        transition: { ...wrongCharge.transition, consumedWeeklySlot: false },
+      }),
+    );
     expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
   });
 
   it("does not allow search to run through an unnamespaced numeric or freeform request", async () => {
     const f = stagingSearch();
-    for (const input of ["1", "/explorar buscar charmander", "/explorar capturar", "/explorar buscar;ganhar"]) {
+    for (const input of [
+      "1",
+      "/explorar buscar charmander",
+      "/explorar capturar",
+      "/explorar buscar;ganhar",
+    ]) {
       const result = await f.route.handler.handle(context(input));
       expect(result.ok).toBe(true);
-      if (result.ok) expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      if (result.ok)
+        expect(String(result.value.outgoing[0]?.payload.text)).toContain(
+          "Nenhuma ação será executada",
+        );
     }
     expect(f.execute).not.toHaveBeenCalled();
     expect(f.resolvePlayer).not.toHaveBeenCalled();
