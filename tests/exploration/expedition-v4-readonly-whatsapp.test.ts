@@ -136,7 +136,7 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
   it("denies wrong location or incoherent quota/clock; no fabricated encounters", async () => {
     const f = setup();
     f.read.mockResolvedValueOnce({
-      expedition: { ...preparing, areaId: randomUUID() },
+      expedition: { ...preparing, playerId, areaId: randomUUID() },
       usedThisWeek: 0,
     });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
