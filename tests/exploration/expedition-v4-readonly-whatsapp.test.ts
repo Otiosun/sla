@@ -506,10 +506,11 @@ describe("published search staging-only WhatsApp command", () => {
       const f = stagingSearch();
       const receipt = searchReceipt();
       const encounterPreview = { speciesName, level: 6, shiny: false };
+      const encounterId = randomUUID();
       f.execute.mockResolvedValueOnce(
         ok({
           ...receipt,
-          outcome: { ...receipt.outcome, kind, encounterId: randomUUID() },
+          outcome: { ...receipt.outcome, kind, encounterId },
           encounterPreview,
         }),
       );
@@ -528,8 +529,7 @@ describe("published search staging-only WhatsApp command", () => {
       expect(result.value.outgoing[0]?.payload.expeditionSearch).toEqual({
         playerId,
         outcomeId: receipt.outcome.outcomeId,
-        encounterId: result.value.outgoing[0]?.payload.expeditionSearch &&
-          (result.value.outgoing[0]?.payload.expeditionSearch as { encounterId: string }).encounterId,
+        encounterId,
       });
       expect(message).not.toContain(receipt.outcome.outcomeId);
       expect(message).not.toContain(playerId);
