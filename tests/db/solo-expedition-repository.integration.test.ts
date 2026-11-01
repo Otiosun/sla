@@ -1782,5 +1782,4 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(battles.rows[0]?.n).toBe(0);
   });
-
 });
