@@ -268,6 +268,38 @@ export function createExpeditionV4ReadOnlyRoutes(
   return [
     {
       command: "explorar",
+      // Explicitly discard any accidentally supplied write capability.
+      handler: new ExpeditionV4ReadOnlyHandler({
+        players: deps.players,
+        world: deps.world,
+        facts: deps.facts,
+        group: deps.group,
+        clock: deps.clock,
+        timeZone: deps.timeZone,
+      }),
+      rateLimitClass: "SENSITIVE",
+      policy: {
+        requiredGroupCapabilities: ["world", "player.basic"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
+    },
+  ];
+}
+
+/**
+ * Isolated staging only. This is intentionally a separate factory to keep
+ * production/read-only callers unable to accidentally inherit write ports.
+ * No capture, resources, travel, time consumption or player rewards exist here.
+ */
+export function createExpeditionV4StagingPreparationRoutes(
+  deps: ExpeditionV4ReadOnlyDeps & {
+    readonly preparation: Pick<PostgresExpeditionRepository, "prepare">;
+  },
+): readonly CommandRouteDefinition[] {
+  return [
+    {
+      command: "explorar",
       handler: new ExpeditionV4ReadOnlyHandler(deps),
       rateLimitClass: "SENSITIVE",
       policy: {
