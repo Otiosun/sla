@@ -112,11 +112,11 @@ describe("V4 staging-only canonical encounter lifecycle after SENT", () => {
     const f = setup();
     f.observe.mockResolvedValueOnce(
       ok({
-      playerId: createPlayerId(),
-      encounterId: confirmed.encounterId,
-      areaId: confirmed.areaId,
-      status: "PRESENTED",
-      revision: 1n,
+        playerId: createPlayerId(),
+        encounterId: confirmed.encounterId,
+        areaId: confirmed.areaId,
+        status: "PRESENTED",
+        revision: 1n,
       } as EncounterView),
     );
     expect((await f.worker.engageAfterSent(incoming)).ok).toBe(false);
@@ -125,10 +125,10 @@ describe("V4 staging-only canonical encounter lifecycle after SENT", () => {
     f.observe.mockResolvedValueOnce(
       ok({
       playerId,
-      encounterId: confirmed.encounterId,
-      areaId: randomUUID(),
-      status: "PRESENTED",
-      revision: 1n,
+        encounterId: confirmed.encounterId,
+        areaId: randomUUID(),
+        status: "PRESENTED",
+        revision: 1n,
       } as EncounterView),
     );
     expect((await f.worker.engageAfterSent(incoming)).ok).toBe(false);
