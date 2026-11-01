@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - fix/exploration-published-outcome-invariants-20261031
+      - feat/exploration-v4-readonly-router-20261101
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"
