@@ -1737,7 +1737,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           },
         },
       ],
-      { batchSize: 100, staleAfterMs: 30_000, maxAttempts: 8, baseBackoffMs: 1_000, maxBackoffMs: 60_000 },
+      {
+        batchSize: 100,
+        staleAfterMs: 30_000,
+        maxAttempts: 8,
+        baseBackoffMs: 1_000,
+        maxBackoffMs: 60_000,
+      },
       undefined,
       hook,
     );
