@@ -27,6 +27,8 @@ export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly explorationPreviewTimeZone?: string | null;
   /** Test-only two-factor opt-in; never accepted by the live options. */
   readonly explorationStagingPreparationEnabled?: boolean;
+  /** Isolated test-only outcome signing key; no production runtime equivalent. */
+  readonly explorationStagingSearchSecret?: Uint8Array | null;
   readonly now?: SimulatedWhatsAppAdapterOptions["now"];
   readonly onProviderConnectionState?: SimulatedWhatsAppAdapterOptions["onConnectionState"];
   readonly onIncomingProcessingFailure?: (input: {
@@ -54,6 +56,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     null,
     options.explorationPreviewTimeZone ?? null,
     options.explorationStagingPreparationEnabled === true,
+    options.explorationStagingSearchSecret ?? null,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);

@@ -33,6 +33,7 @@ import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-
 import {
   createExpeditionV4ReadOnlyRoutes,
   createExpeditionV4StagingPreparationRoutes,
+  createExpeditionV4StagingSearchRoutes,
 } from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
@@ -133,6 +134,9 @@ import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competit
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
 import { PostgresExpeditionRepository } from "../platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
+import { PublishedSearchOutcomePolicy } from "../platform/exploration/expedition-published-outcome-policy.js";
+import { createDirectEncounterEffect } from "../platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
@@ -221,9 +225,20 @@ export function createOperationalMessagingComposition(
   fishingDayTimeZone: string | null = null,
   explorationPreviewTimeZone: string | null = null,
   explorationStagingPreparationEnabled = false,
+  explorationStagingSearchSecret: Uint8Array | null = null,
 ): OperationalMessagingComposition {
   if (explorationStagingPreparationEnabled && explorationPreviewTimeZone === null) {
     throw new Error("Staging preparation requires a separate explicit expedition calendar");
+  }
+  if (
+    explorationStagingSearchSecret !== null &&
+    (!explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      encounterRngConfig === null)
+  ) {
+    throw new Error(
+      "Staging search requires explicit preparation, separate calendar and encounter RNG",
+    );
   }
   const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
   const battleRewardNotifications =
@@ -912,16 +927,38 @@ export function createOperationalMessagingComposition(
               clock,
               timeZone: explorationPreviewTimeZone,
             };
-            return explorationStagingPreparationEnabled
-              ? createExpeditionV4StagingPreparationRoutes({
-                  ...dependencies,
-                  preparation: new PostgresExpeditionRepository(
-                    pool,
-                    clock,
-                    explorationPreviewTimeZone,
-                  ),
-                })
-              : createExpeditionV4ReadOnlyRoutes(dependencies);
+            if (!explorationStagingPreparationEnabled) {
+              return createExpeditionV4ReadOnlyRoutes(dependencies);
+            }
+            const preparation = new PostgresExpeditionRepository(
+              pool,
+              clock,
+              explorationPreviewTimeZone,
+            );
+            if (explorationStagingSearchSecret === null || encounterRngConfig === null) {
+              return createExpeditionV4StagingPreparationRoutes({
+                ...dependencies,
+                preparation,
+              });
+            }
+            const seedProvider = new AesEncounterSeedProvider(
+              encounterRngConfig.encryptionKey,
+              encounterRngConfig.encryptionKeyVersion,
+            );
+            return createExpeditionV4StagingSearchRoutes({
+              ...dependencies,
+              preparation,
+              search: new PostgresExpeditionV4StagingSearch(
+                pool,
+                preparation,
+                new PublishedSearchOutcomePolicy(explorationStagingSearchSecret),
+                createDirectEncounterEffect({
+                  seedProvider,
+                  clock,
+                  feature: { enabled: true, reason: null },
+                }),
+              ),
+            });
           })()),
       ...worldServiceRoutes,
       ...progressionRoutes,
