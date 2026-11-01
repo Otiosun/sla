@@ -277,7 +277,7 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
 
     f.prepare.mockResolvedValueOnce(
       ok({
-        expedition: { ...preparing, areaId: randomUUID() },
+        expedition: { ...preparing, playerId, areaId: randomUUID() },
         replayed: false,
         changed: true,
         consumedWeeklySlot: false,
