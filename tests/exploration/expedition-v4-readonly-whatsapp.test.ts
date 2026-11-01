@@ -1,0 +1,170 @@
+import { randomUUID } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { ManualClock } from "../../src/platform/clock/index.js";
+import {
+  createExpeditionV4ReadOnlyRoutes,
+  type ExpeditionV4ReadOnlyDeps,
+} from "../../src/modules/exploration/expedition-v4-readonly-whatsapp.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import type { WorldLocationView } from "../../src/modules/world/contracts.js";
+import type { ExpeditionSnapshot } from "../../src/modules/exploration/expedition-state.js";
+import { createPlayerId } from "../../src/shared-kernel/ids.js";
+import { ok } from "../../src/shared-kernel/result.js";
+
+const playerId = createPlayerId();
+const currentArea = randomUUID();
+const location: WorldLocationView = {
+  playerId,
+  contentReleaseId: randomUUID(),
+  areaId: currentArea,
+  areaSlug: "campos-de-yun",
+  areaDisplayName: "Campos de Yun",
+  regionId: randomUUID(),
+  regionSlug: "zhoulia",
+  regionDisplayName: "Zhoulia",
+  safePoint: true,
+  revision: 1n,
+  enteredAt: new Date("2026-10-31T15:00:00Z"),
+  requiresRelocation: false,
+  relocationAreaId: null,
+  connections: [],
+};
+const preparing: ExpeditionSnapshot = {
+  expeditionId: randomUUID(),
+  playerId,
+  areaId: currentArea,
+  phase: "PREPARING",
+  period: "NIGHT",
+  elapsedMinutes: 0,
+  consumedWeekKey: null,
+  endReason: null,
+  revision: 0n,
+};
+
+function context(text = "/explorar status"): MessageHandlerContext {
+  return {
+    inboxMessageId: randomUUID(),
+    correlationId: randomUUID(),
+    causationId: randomUUID(),
+    idempotencyKey: "inbox:baileys:read-only-1",
+    message: {
+      provider: "baileys",
+      externalMessageId: "read-only-1",
+      senderRef: "5579999999999@s.whatsapp.net",
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-10-31T15:30:00.000Z",
+      text,
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    },
+  };
+}
+
+function setup() {
+  const resolvePlayer = vi.fn(async () => ok({ playerId, state: "COMPLETE" as const, created: false }));
+  const getLocation = vi.fn(async () => ok(location));
+  const read = vi.fn(async () => ({ expedition: preparing as ExpeditionSnapshot | null, usedThisWeek: 1 }));
+  const admits = vi.fn(async () => true);
+  const deps: ExpeditionV4ReadOnlyDeps = {
+    players: { resolvePlayer },
+    world: { getLocation },
+    facts: { read },
+    group: { admits },
+    clock: new ManualClock(new Date("2026-10-31T15:30:00.000Z")),
+    timeZone: "America/Recife",
+  };
+  const route = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
+  return { route, resolvePlayer, getLocation, read, admits };
+}
+
+describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () => {
+  it("renders saved PREPARING and real quota privately; no action or public group reply", async () => {
+    const f = setup();
+    const result = await f.route.handler.handle(context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.outgoing).toHaveLength(1);
+    const outgoing = result.value.outgoing[0]!;
+    expect(outgoing.destinationRef).toBe("5579999999999@s.whatsapp.net");
+    expect(outgoing.messageType).toBe("TEXT");
+    const text = String(outgoing.payload.text);
+    expect(text).toContain("Campos de Yun");
+    expect(text).toContain("Preparação registrada");
+    expect(text).toContain("Cotas restantes:* 2/3");
+    expect(text).toContain("Cota ainda não consumida");
+    expect(text).toContain("Nenhuma ação, cota, item ou encontro foi alterado");
+    expect(text).not.toContain("[Ler mais]");
+    expect(text).not.toContain(preparing.expeditionId);
+    expect(f.read).toHaveBeenCalledExactlyOnceWith(playerId, "2026-10-26");
+    expect(f.admits).toHaveBeenCalledExactlyOnceWith({
+      provider: "baileys", chatRef: "120363123456789@g.us", playerId,
+    });
+  });
+
+  it("does not interpret a mutating /explorar subcommand or call ANY gameplay reader", async () => {
+    const f = setup();
+    const result = await f.route.handler.handle(context("/explorar buscar"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(String(result.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    expect(f.resolvePlayer).not.toHaveBeenCalled();
+    expect(f.getLocation).not.toHaveBeenCalled();
+    expect(f.read).not.toHaveBeenCalled();
+  });
+
+  it("rejects pending registration and unauthorized groups before World/SQL", async () => {
+    const f = setup();
+    f.resolvePlayer.mockResolvedValueOnce(ok({ playerId, state: "NEW" as never, created: false }));
+    expect((await f.route.handler.handle(context())).ok).toBe(false);
+    expect(f.admits).not.toHaveBeenCalled();
+    f.admits.mockResolvedValueOnce(false);
+    expect((await f.route.handler.handle(context())).ok).toBe(false);
+    expect(f.getLocation).not.toHaveBeenCalled();
+    expect(f.read).not.toHaveBeenCalled();
+  });
+
+  it("denies wrong location or incoherent quota/clock; no fabricated encounters", async () => {
+    const f = setup();
+    f.read.mockResolvedValueOnce({ expedition: { ...preparing, areaId: randomUUID() }, usedThisWeek: 0 });
+    expect((await f.route.handler.handle(context())).ok).toBe(false);
+    f.read.mockResolvedValueOnce({ expedition: { ...preparing, elapsedMinutes: 30 }, usedThisWeek: 0 });
+    expect((await f.route.handler.handle(context())).ok).toBe(false);
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 4 });
+    expect((await f.route.handler.handle(context())).ok).toBe(false);
+  });
+
+  it("reports NONE without offering an unusable numeric menu", async () => {
+    const f = setup();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 3 });
+    const result = await f.route.handler.handle(context("/explorar retomar"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const message = String(result.value.outgoing[0]?.payload.text);
+    expect(message).toContain("Nenhuma expedição em andamento");
+    expect(message).toContain("Cotas restantes:* 0/3");
+    expect(message).not.toContain("1. ☀️");
+  });
+
+  it("preserves router policy and fails closed without the policy gate", async () => {
+    const f = setup();
+    expect(f.route.command).toBe("explorar");
+    expect(f.route.policy).toMatchObject({
+      requiredGroupCapabilities: ["world", "player.basic"],
+      allowedPlayerAccess: ["ACTIVE"],
+      requiresMechanicalReady: true,
+    });
+    const router = new MessageRouter([f.route]);
+    expect((await router.dispatch(context())).ok).toBe(false);
+    expect(f.read).not.toHaveBeenCalled();
+    const allowed = new MessageRouter([f.route], { authorize: async () => ok(undefined) });
+    expect((await allowed.dispatch(context())).ok).toBe(true);
+  });
+
+  it("rejects unsafe location labels instead of leaking editorial markers", async () => {
+    const f = setup();
+    f.getLocation.mockResolvedValueOnce(ok({ ...location, areaDisplayName: "Campo [Ler mais] de Yun" }));
+    expect((await f.route.handler.handle(context())).ok).toBe(false);
+    expect(f.read).not.toHaveBeenCalled();
+  });
+});
