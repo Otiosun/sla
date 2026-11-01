@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
+import type { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import {
   createExpeditionV4ReadOnlyRoutes,
+  createExpeditionV4StagingPreparationRoutes,
   type ExpeditionV4ReadOnlyDeps,
 } from "../../src/modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
@@ -80,7 +82,7 @@ function setup() {
     timeZone: "America/Recife",
   };
   const route = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
-  return { route, resolvePlayer, getLocation, read, admits };
+  return { route, deps, resolvePlayer, getLocation, read, admits };
 }
 
 describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () => {
@@ -134,7 +136,7 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
   it("denies wrong location or incoherent quota/clock; no fabricated encounters", async () => {
     const f = setup();
     f.read.mockResolvedValueOnce({
-      expedition: { ...preparing, areaId: randomUUID() },
+      expedition: { ...preparing, playerId, areaId: randomUUID() },
       usedThisWeek: 0,
     });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
@@ -181,5 +183,117 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
     );
     expect((await f.route.handler.handle(context())).ok).toBe(false);
     expect(f.read).not.toHaveBeenCalled();
+  });
+});
+
+describe("V4 staging-only day/night preparation with canonical write port", () => {
+  function staging() {
+    const f = setup();
+    f.read.mockResolvedValue({ expedition: null, usedThisWeek: 0 });
+    const prepare = vi.fn(async (input: Parameters<PostgresExpeditionRepository["prepare"]>[0]) =>
+      ok({
+        expedition: { ...preparing, playerId: input.playerId, period: input.period },
+        replayed: false,
+        changed: true,
+        consumedWeeklySlot: false,
+      }),
+    );
+    const route = createExpeditionV4StagingPreparationRoutes({
+      ...f.deps,
+      preparation: { prepare },
+    })[0]!;
+    return { ...f, prepare, route };
+  }
+
+  it("presents approved open-state day/night choice before preparing without writes", async () => {
+    const f = staging();
+    const result = await f.route.handler.handle(context("/explorar"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("Diurno");
+    expect(text).toContain("Noturno");
+    expect(text).toContain("/explorar 1");
+    expect(text).not.toContain("[Ler mais]");
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(result.value.outgoing[0]?.destinationRef).toBe("5579999999999@s.whatsapp.net");
+  });
+
+  it.each([
+    ["/explorar 1", "DAY"],
+    ["/explorar 2", "NIGHT"],
+    ["/explorar preparar dia", "DAY"],
+    ["/explorar preparar noite", "NIGHT"],
+  ] as const)(
+    "persists %s through the only authorized preparation writer",
+    async (command, period) => {
+      const f = staging();
+      const result = await f.route.handler.handle(context(command));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(f.prepare).toHaveBeenCalledExactlyOnceWith({
+        playerId,
+        period,
+        idempotencyKey: "inbox:baileys:read-only-1",
+      });
+      const text = String(result.value.outgoing[0]?.payload.text);
+      expect(text).toContain("Cota ainda não consumida");
+      expect(text).toContain(period === "DAY" ? "06:00" : "18:00");
+      expect(text).toContain("buscas, captura e viagem continuam desativadas");
+      expect(result.value.outgoing[0]?.destinationRef).toBe("5579999999999@s.whatsapp.net");
+    },
+  );
+
+  it("does not accept bare 1/2, free-form or action words as preparation", async () => {
+    const f = staging();
+    for (const command of ["1", "2", "/explorar buscar", "/explorar viajar", "/explorar 1 2"]) {
+      const result = await f.route.handler.handle(context(command));
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(String(result.value.outgoing[0]?.payload.text)).toContain(
+          "Nenhuma ação será executada",
+        );
+    }
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.resolvePlayer).not.toHaveBeenCalled();
+  });
+
+  it("keeps the existing read-only factory unable to inherit a writer", async () => {
+    const f = staging();
+    const readonly = createExpeditionV4ReadOnlyRoutes({
+      ...f.deps,
+      preparation: { prepare: f.prepare },
+    })[0]!;
+    const result = await readonly.handler.handle(context("/explorar 1"));
+    expect(result.ok).toBe(true);
+    expect(f.prepare).not.toHaveBeenCalled();
+  });
+
+  it("does not offer staging period choices outside the two approved launch areas", async () => {
+    const f = staging();
+    f.getLocation.mockResolvedValueOnce(
+      ok({ ...location, areaSlug: "rota-externa", areaDisplayName: "Rota Externa" }),
+    );
+    const result = await f.route.handler.handle(context("/explorar"));
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(f.read).not.toHaveBeenCalled();
+    expect(f.prepare).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on invalid group and mismatching persistent preparation", async () => {
+    const f = staging();
+    f.admits.mockResolvedValueOnce(false);
+    expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
+    expect(f.prepare).not.toHaveBeenCalled();
+
+    f.prepare.mockResolvedValueOnce(
+      ok({
+        expedition: { ...preparing, playerId, areaId: randomUUID() },
+        replayed: false,
+        changed: true,
+        consumedWeeklySlot: false,
+      }),
+    );
+    expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
   });
 });

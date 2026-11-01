@@ -231,6 +231,58 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_receipts", owner)).toBe(receiptCount);
   });
 
+  it("stages DAY/NIGHT preparation with no quota consumption and replays the same Inbox receipt", async () => {
+    const playerId = await trainer();
+    const status = new PostgresExpeditionV4StatusReader(pool);
+    const first = await store.prepare({
+      playerId,
+      period: "NIGHT",
+      idempotencyKey: "stage-night-private-message-1",
+    });
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        expedition: {
+          phase: "PREPARING",
+          period: "NIGHT",
+          elapsedMinutes: 0,
+          consumedWeekKey: null,
+        },
+        consumedWeeklySlot: false,
+        replayed: false,
+      },
+    });
+    const second = await store.prepare({
+      playerId,
+      period: "NIGHT",
+      idempotencyKey: "stage-night-private-message-1",
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      value: { replayed: true, consumedWeeklySlot: false },
+    });
+    expect(
+      await store.prepare({
+        playerId,
+        period: "DAY",
+        idempotencyKey: "stage-night-private-message-1",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_KEY_INVALID" } });
+    expect(
+      await store.prepare({
+        playerId,
+        period: "DAY",
+        idempotencyKey: "stage-day-private-message-2",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await status.read(playerId, "2026-10-19")).toMatchObject({
+      usedThisWeek: 0,
+      expedition: { phase: "PREPARING", period: "NIGHT", elapsedMinutes: 0, consumedWeekKey: null },
+    });
+    expect(await count("solo_expeditions", playerId)).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
   it("rejects an ACTIVE but unregistered player before creating a PREPARING receipt", async () => {
     const playerId = createPlayerId();
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [playerId]);

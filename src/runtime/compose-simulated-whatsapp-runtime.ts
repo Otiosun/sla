@@ -25,6 +25,8 @@ export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly hubPublicUrl?: string | null;
   /** Explicitly opt in ONLY when the disposable DB has the expedition draft schema. */
   readonly explorationPreviewTimeZone?: string | null;
+  /** Test-only two-factor opt-in; never accepted by the live options. */
+  readonly explorationStagingPreparationEnabled?: boolean;
   readonly now?: SimulatedWhatsAppAdapterOptions["now"];
   readonly onProviderConnectionState?: SimulatedWhatsAppAdapterOptions["onConnectionState"];
   readonly onIncomingProcessingFailure?: (input: {
@@ -51,6 +53,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.hubPublicUrl ?? null,
     null,
     options.explorationPreviewTimeZone ?? null,
+    options.explorationStagingPreparationEnabled === true,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);

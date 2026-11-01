@@ -1,4 +1,5 @@
 import type { Clock } from "../../platform/clock/index.js";
+import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -13,6 +14,7 @@ import {
 } from "./expedition-clock.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
 import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
+import { renderExpeditionV4OpeningPanel } from "./expedition-v4-preparation-panel.js";
 
 /**
  * Optional, read-only staging route. There is deliberately no action handler,
@@ -40,6 +42,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   };
   readonly clock: Clock;
   readonly timeZone: string;
+  /** Staging-only: omitted for the existing truly read-only route. */
+  readonly preparation?: Pick<PostgresExpeditionRepository, "prepare">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -109,10 +113,23 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
   }
 
   public async handle(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
-    if (!/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(context.message.text?.trim() ?? "")) {
+    const text = context.message.text?.trim() ?? "";
+    // Bare "1"/"2" require a durable menu reference and are not accepted.
+    const match = /^\/explorar\s+(?:preparar\s+)?(dia|noite|1|2)$/iu.exec(text);
+    const token = match?.[1]?.toLocaleLowerCase("pt-BR");
+    const period =
+      token === "dia" || token === "1"
+        ? "DAY"
+        : token === "noite" || token === "2"
+          ? "NIGHT"
+          : null;
+    if (
+      !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
+      (period === null || this.deps.preparation === undefined)
+    ) {
       return privateText(
         context,
-        "◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔*\n\nEsta prévia permite somente `/explorar status` ou `/explorar retomar`.\nNenhuma ação será executada.",
+        "◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗦𝗨𝗟𝗧𝗔*\n\nEsta prévia permite somente /explorar status ou /explorar retomar.\nNenhuma ação será executada.",
       );
     }
 
@@ -144,6 +161,15 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     if (location === null || located.value.requiresRelocation) {
       return err(appError("FLOW_BLOCKED", "Localização atual não está pronta para a exploração."));
     }
+    // The PREPARING writer currently permits only the two published
+    // Zhoulia launch areas; do not advertise a period option elsewhere.
+    if (
+      this.deps.preparation !== undefined &&
+      (located.value.regionSlug !== "zhoulia" ||
+        !["vila-dos-arrozais", "campos-de-yun"].includes(located.value.areaSlug))
+    ) {
+      return err(appError("FLOW_BLOCKED", "Esta área ainda não permite preparar uma expedição."));
+    }
     const facts = await this.deps.facts.read(
       playerId,
       expeditionWeekKey(this.deps.clock.now(), this.deps.timeZone),
@@ -169,6 +195,67 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
+    if (period !== null && this.deps.preparation !== undefined) {
+      // The canonical repo owns locks, World release, weekly quota and
+      // idempotency. We never grant resources or advance expedition time here.
+      const result = await this.deps.preparation.prepare({
+        playerId,
+        period,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!result.ok) return result;
+      const expedition = result.value.expedition;
+      if (
+        expedition.playerId !== playerId ||
+        expedition.areaId !== located.value.areaId ||
+        expedition.period !== period ||
+        expedition.phase !== "PREPARING" ||
+        expedition.elapsedMinutes !== 0 ||
+        expedition.consumedWeekKey !== null ||
+        expedition.endReason !== null
+      ) {
+        return err(
+          appError("FLOW_BLOCKED", "Persisted preparation disagrees with the canonical World"),
+        );
+      }
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+          "> _Exploração " + (period === "DAY" ? "diurna" : "noturna") + " preparada!_",
+          "",
+          period === "DAY" ? "☀️ 06:00 → 18:00" : "🌙 18:00 → 06:00",
+          "⌖ *" + location + "*",
+          "*⌛ 12h* disponíveis",
+          "*🎟️ Cota ainda não consumida*",
+          "",
+          "> _Prévia de preparação: buscas, captura e viagem continuam desativadas._",
+          "› _Use /explorar status para consultar a expedição._",
+        ].join("\n"),
+      );
+    }
+    if (this.deps.preparation !== undefined && state === "NONE" && quota.canPrepare) {
+      const opening = renderExpeditionV4OpeningPanel({
+        phase: "NONE",
+        locationName: location,
+        remainingThisWeek: quota.remaining,
+        canPrepareUnderPolicy: true,
+        choices: [
+          { optionNo: 1, intent: "PREPARE_DAY", label: "☀️ Diurno", phrases: [] },
+          { optionNo: 2, intent: "PREPARE_NIGHT", label: "🌙 Noturno", phrases: [] },
+        ],
+      });
+      if (!opening.ok) return opening;
+      return privateText(
+        context,
+        [
+          opening.value.text,
+          "",
+          "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
+          "› _Busca, viagem e captura ainda não estão liberadas._",
+        ].join("\n"),
+      );
+    }
     const title =
       facts.expedition === null
         ? "Nenhuma expedição em andamento"
@@ -201,6 +288,38 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
 
 export function createExpeditionV4ReadOnlyRoutes(
   deps: ExpeditionV4ReadOnlyDeps,
+): readonly CommandRouteDefinition[] {
+  return [
+    {
+      command: "explorar",
+      // Explicitly discard any accidentally supplied write capability.
+      handler: new ExpeditionV4ReadOnlyHandler({
+        players: deps.players,
+        world: deps.world,
+        facts: deps.facts,
+        group: deps.group,
+        clock: deps.clock,
+        timeZone: deps.timeZone,
+      }),
+      rateLimitClass: "SENSITIVE",
+      policy: {
+        requiredGroupCapabilities: ["world", "player.basic"],
+        allowedPlayerAccess: ["ACTIVE"],
+        requiresMechanicalReady: true,
+      },
+    },
+  ];
+}
+
+/**
+ * Isolated staging only. This is intentionally a separate factory to keep
+ * production/read-only callers unable to accidentally inherit write ports.
+ * No capture, resources, travel, time consumption or player rewards exist here.
+ */
+export function createExpeditionV4StagingPreparationRoutes(
+  deps: ExpeditionV4ReadOnlyDeps & {
+    readonly preparation: Pick<PostgresExpeditionRepository, "prepare">;
+  },
 ): readonly CommandRouteDefinition[] {
   return [
     {
