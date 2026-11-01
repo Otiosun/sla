@@ -80,21 +80,41 @@ describe("Exploration V4 status is NOT a default runtime route", () => {
     const key = Buffer.alloc(32, 0x25);
     expect(() =>
       createOperationalMessagingComposition(
-        {} as Pool, null, null, null, null, null, "Etc/UTC", true, key,
+        {} as Pool,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Etc/UTC",
+        true,
+        key,
       ),
     ).toThrow("requires explicit preparation");
     expect(() =>
       createOperationalMessagingComposition(
         {} as Pool,
         { encryptionKey: Buffer.alloc(32, 0x33), encryptionKeyVersion: 1 },
-        null, null, null, null, "Etc/UTC", false, key,
+        null,
+        null,
+        null,
+        null,
+        "Etc/UTC",
+        false,
+        key,
       ),
     ).toThrow("requires explicit preparation");
     expect(() =>
       createOperationalMessagingComposition(
         {} as Pool,
         { encryptionKey: Buffer.alloc(32, 0x33), encryptionKeyVersion: 1 },
-        null, null, null, null, null, true, key,
+        null,
+        null,
+        null,
+        null,
+        null,
+        true,
+        key,
       ),
     ).toThrow("requires a separate explicit expedition calendar");
   });
@@ -104,19 +124,33 @@ describe("Exploration V4 status is NOT a default runtime route", () => {
       createOperationalMessagingComposition(
         {} as Pool,
         { encryptionKey: Buffer.alloc(32, 0x33), encryptionKeyVersion: 1 },
-        null, null, null, null, "Etc/UTC", true, Buffer.alloc(12),
+        null,
+        null,
+        null,
+        null,
+        "Etc/UTC",
+        true,
+        Buffer.alloc(12),
       ),
     ).toThrow("missing or too short");
 
     const candidate = createOperationalMessagingComposition(
       {} as Pool,
       { encryptionKey: Buffer.alloc(32, 0x33), encryptionKeyVersion: 1 },
-      null, null, null, null, "Etc/UTC", true, Buffer.alloc(32, 0x27),
+      null,
+      null,
+      null,
+      null,
+      "Etc/UTC",
+      true,
+      Buffer.alloc(32, 0x27),
     );
     expect(candidate.admitCommand({ ...input, text: "/explorar buscar" })).toBe(true);
-    expect(createOperationalMessagingComposition({} as Pool).admitCommand({
-      ...input, text: "/explorar buscar",
-    })).toBe(false);
+    expect(
+      createOperationalMessagingComposition({} as Pool).admitCommand({
+        ...input,
+        text: "/explorar buscar",
+      }),
+    ).toBe(false);
   });
-
 });
