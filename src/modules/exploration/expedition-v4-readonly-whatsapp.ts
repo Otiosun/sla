@@ -43,7 +43,7 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly clock: Clock;
   readonly timeZone: string;
   /** Staging-only: omitted for the existing truly read-only route. */
-  readonly preparation?: Pick<PostgresExpeditionRepository, "prepare">;
+  readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -123,9 +123,18 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         : token === "noite" || token === "2"
           ? "NIGHT"
           : null;
+    const changeMatch = /^\/explorar\s+per[ií]odo\s+(dia|noite)$/iu.exec(text);
+    const requestedPeriod =
+      changeMatch?.[1]?.toLocaleLowerCase("pt-BR") === "dia"
+        ? "DAY"
+        : changeMatch === null
+          ? null
+          : "NIGHT";
+    const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
-      (period === null || this.deps.preparation === undefined)
+      (this.deps.preparation === undefined ||
+        (period === null && requestedPeriod === null && !cancel))
     ) {
       return privateText(
         context,
@@ -195,6 +204,64 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
+    if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
+      // This stage-only command is valid solely against the persisted PREPARING
+      // row. A stale ACTIVE, ENDED or absent expedition cannot be edited.
+      const current = facts.expedition;
+      if (current === null || current.phase !== "PREPARING") {
+        return err(appError("FLOW_BLOCKED", "Não há preparação ativa para alterar ou cancelar."));
+      }
+      const result =
+        requestedPeriod === null
+          ? await this.deps.preparation.end({
+              playerId,
+              expeditionId: current.expeditionId,
+              expectedRevision: current.revision,
+              reason: "CANCELLED",
+              idempotencyKey: context.idempotencyKey,
+            })
+          : await this.deps.preparation.changePeriod({
+              playerId,
+              expeditionId: current.expeditionId,
+              expectedRevision: current.revision,
+              period: requestedPeriod,
+              idempotencyKey: context.idempotencyKey,
+            });
+      if (!result.ok) return result;
+      const changed = result.value.expedition;
+      if (
+        changed.playerId !== playerId ||
+        changed.expeditionId !== current.expeditionId ||
+        changed.areaId !== located.value.areaId ||
+        result.value.consumedWeeklySlot ||
+        changed.elapsedMinutes !== 0 ||
+        changed.consumedWeekKey !== null ||
+        (requestedPeriod === null
+          ? changed.phase !== "ENDED" || changed.endReason !== "CANCELLED"
+          : changed.phase !== "PREPARING" ||
+            changed.period !== requestedPeriod ||
+            changed.endReason !== null)
+      ) {
+        return err(appError("FLOW_BLOCKED", "O resultado da preparação é inconsistente."));
+      }
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+          requestedPeriod === null
+            ? "◇ *Preparação cancelada!*"
+            : requestedPeriod === "DAY"
+              ? "☀️ *Período alterado para Diurno*"
+              : "🌙 *Período alterado para Noturno*",
+          "",
+          "*🎟️ Nenhuma cota consumida*",
+          "*⌛ Nenhum minuto consumido*",
+          "",
+          "> _As ações de busca e captura continuam desativadas nesta prévia._",
+          "› _Use /explorar status para consultar a situação._",
+        ].join("\n"),
+      );
+    }
     if (period !== null && this.deps.preparation !== undefined) {
       // The canonical repo owns locks, World release, weekly quota and
       // idempotency. We never grant resources or advance expedition time here.
@@ -275,7 +342,13 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       lines.push(
         `${clock.period === "DAY" ? "☀️" : "🌙"} *Relógio:* \`${clock.currentTime}\` · Restam \`${clock.remainingMinutes}min\``,
       );
-      if (state === "PREPARING") lines.push("⌛ *Cota ainda não consumida*");
+      if (state === "PREPARING") {
+        lines.push("⌛ *Cota ainda não consumida*");
+        if (this.deps.preparation !== undefined) {
+          lines.push("◇ *Ajustes gratuitos:* /explorar periodo dia · /explorar periodo noite");
+          lines.push("◇ *Desistir:* /explorar cancelar");
+        }
+      }
     }
     lines.push(
       "",
@@ -318,7 +391,7 @@ export function createExpeditionV4ReadOnlyRoutes(
  */
 export function createExpeditionV4StagingPreparationRoutes(
   deps: ExpeditionV4ReadOnlyDeps & {
-    readonly preparation: Pick<PostgresExpeditionRepository, "prepare">;
+    readonly preparation: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
   },
 ): readonly CommandRouteDefinition[] {
   return [

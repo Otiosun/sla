@@ -283,6 +283,72 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
   });
 
+  it("changes PREPARING period then cancels it with exact durable receipts and no weekly charge", async () => {
+    const playerId = await trainer();
+    const status = new PostgresExpeditionV4StatusReader(pool);
+    const first = await prepare(playerId, "stage-decisions-prepare");
+    const edit = {
+      playerId,
+      expeditionId: first.expeditionId,
+      expectedRevision: first.revision,
+      period: "NIGHT" as const,
+      idempotencyKey: "stage-decisions-period",
+    };
+    const change = await store.changePeriod(edit);
+    expect(change).toMatchObject({
+      ok: true,
+      value: {
+        expedition: { period: "NIGHT", phase: "PREPARING", revision: 1n },
+        consumedWeeklySlot: false,
+        replayed: false,
+      },
+    });
+    expect(await store.changePeriod(edit)).toMatchObject({
+      ok: true,
+      value: { replayed: true, consumedWeeklySlot: false },
+    });
+    expect(await store.changePeriod({ ...edit, period: "DAY" })).toMatchObject({
+      ok: false,
+      error: { code: "IDEMPOTENCY_KEY_INVALID" },
+    });
+    const cancel = {
+      playerId,
+      expeditionId: first.expeditionId,
+      expectedRevision: 1n,
+      reason: "CANCELLED" as const,
+      idempotencyKey: "stage-decisions-cancel",
+    };
+    expect(await store.end(cancel)).toMatchObject({
+      ok: true,
+      value: {
+        expedition: { phase: "ENDED", period: "NIGHT", endReason: "CANCELLED" },
+        consumedWeeklySlot: false,
+        replayed: false,
+      },
+    });
+    expect(await store.end(cancel)).toMatchObject({
+      ok: true,
+      value: { replayed: true, consumedWeeklySlot: false },
+    });
+    expect(await store.current(playerId)).toBeNull();
+    expect(await status.read(playerId, "2026-10-19")).toEqual({
+      usedThisWeek: 0,
+      expedition: null,
+    });
+    expect(await count("solo_expeditions", playerId)).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(3);
+    const another = await store.prepare({
+      playerId,
+      period: "DAY",
+      idempotencyKey: "stage-decisions-new",
+    });
+    expect(another).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "PREPARING", period: "DAY" }, consumedWeeklySlot: false },
+    });
+    expect(await status.read(playerId, "2026-10-19")).toMatchObject({ usedThisWeek: 0 });
+  });
+
   it("rejects an ACTIVE but unregistered player before creating a PREPARING receipt", async () => {
     const playerId = createPlayerId();
     await pool.query("INSERT INTO players(id,status) VALUES ($1,'ACTIVE')", [playerId]);
