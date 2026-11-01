@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
+import { EXPEDITION_DURATION_MINUTES } from "../../modules/exploration/expedition-clock.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   SearchOutcomeDecision,
@@ -71,10 +72,26 @@ export class PublishedSearchOutcomePolicy implements SearchOutcomePolicy {
     client: PoolClient,
     expedition: ExpeditionSnapshot,
   ): Promise<Result<SearchOutcomeDecision>> {
+    // Defence in depth: the published-policy reader must not authorize a
+    // search against a fabricated/stale clock or weekly quota state, even if
+    // a future caller bypasses the normal persisted expedition transition.
+    const preparing =
+      expedition.phase === "PREPARING" &&
+      expedition.elapsedMinutes === 0 &&
+      expedition.consumedWeekKey === null &&
+      expedition.endReason === null;
+    const active =
+      expedition.phase === "ACTIVE" &&
+      Number.isSafeInteger(expedition.elapsedMinutes) &&
+      expedition.elapsedMinutes > 0 &&
+      expedition.elapsedMinutes < EXPEDITION_DURATION_MINUTES &&
+      expedition.consumedWeekKey !== null &&
+      expedition.endReason === null;
     if (
       !["DAY", "NIGHT"].includes(expedition.period) ||
-      !["PREPARING", "ACTIVE"].includes(expedition.phase) ||
-      expedition.revision < 0n
+      !Number.isSafeInteger(expedition.elapsedMinutes) ||
+      expedition.revision < 0n ||
+      (!preparing && !active)
     ) {
       return err(appError("FLOW_BLOCKED", "No eligible expedition for outcome selection"));
     }
