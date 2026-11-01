@@ -269,6 +269,17 @@ describe("V4 staging-only day/night preparation with canonical write port", () =
     expect(f.prepare).not.toHaveBeenCalled();
   });
 
+  it("does not offer staging period choices outside the two approved launch areas", async () => {
+    const f = staging();
+    f.getLocation.mockResolvedValueOnce(
+      ok({ ...location, areaSlug: "rota-externa", areaDisplayName: "Rota Externa" }),
+    );
+    const result = await f.route.handler.handle(context("/explorar"));
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(f.read).not.toHaveBeenCalled();
+    expect(f.prepare).not.toHaveBeenCalled();
+  });
+
   it("fails closed on invalid group and mismatching persistent preparation", async () => {
     const f = staging();
     f.admits.mockResolvedValueOnce(false);
