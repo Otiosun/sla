@@ -496,7 +496,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ...(this.deps.summary === undefined
           ? ["› _Histórico ainda não está disponível nesta prévia._"]
           : ["› _Resumo da última expedição concluída: /explorar resumo._"]),
-        "› _Recursos e viagem ainda não estão habilitados nesta versão isolada._",
+        ...(this.deps.travel === undefined
+          ? ["› _Recursos e viagem ainda não estão habilitados nesta versão isolada._"]
+          : ["› _Viagem somente por conexão com minutos publicados; recursos ainda indisponíveis._"]),
       ];
       return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
     }
@@ -827,7 +829,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             "› _Cancelar preparação: /explorar cancelar._",
             "3. 🗺️ Consultar destinos",
             "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
-            "› _Recursos e viagem ainda não estão disponíveis._",
+            ...(this.deps.travel === undefined
+              ? ["› _Recursos e viagem ainda não estão disponíveis._"]
+              : ["› _Viajar só quando a conexão tiver minutos aprovados; recursos indisponíveis._"]),
           ].join("\n"),
         );
       }
@@ -867,7 +871,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "› _Busque: /explorar 1 ou /explorar buscar._",
           "› _Consultar destinos: /explorar 3 (sem gasto)._",
           "› _Para encerrar: /explorar 4 (exige confirmação)._",
-          "› _Recursos e viagem ainda não estão habilitados._",
+          ...(this.deps.travel === undefined
+            ? ["› _Recursos e viagem ainda não estão habilitados._"]
+            : ["› _Viagem somente com duração publicada; recursos indisponíveis._"]),
         ].join("\n"),
       );
     }
