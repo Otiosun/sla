@@ -20,6 +20,11 @@ import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/po
 import { CaptureService } from "../../src/modules/capture/service.js";
 import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
+import { BattleService } from "../../src/modules/battle/service.js";
+import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
+import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
+import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
 import type { CaptureContext } from "../../src/modules/capture/contracts.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
@@ -2949,6 +2954,47 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         captureEnabled: false,
         ignoreEnabled: false,
       },
+    });
+
+    // End-to-end canonical PvE mechanics: same frozen team, no fake battle ID,
+    // published ruleset, actual BattleService initialization and rollback port.
+    const testKey = Buffer.alloc(32, 0xb5);
+    const canonicalEncounter = new EncounterService(
+      new PostgresEncounterRepository(pool),
+      new AesEncounterSeedProvider(testKey, 1, () => Buffer.alloc(32, 0x25)),
+      clock,
+      { enabled: true, reason: null },
+    );
+    const canonicalBattle = new BattleService(
+      new PostgresBattleRepository(pool),
+      new AesBattleSeedReader(new Map([[1, testKey]])),
+    );
+    const pveStart = new PveBattleStartService(
+      canonicalEncounter,
+      canonicalBattle,
+      new PostgresPveBattleStartRollback(pool),
+    );
+    const started = await pveStart.startCanonical({
+      playerId,
+      encounterId,
+      expectedRevision: 2n,
+      status: "ENGAGED",
+    });
+    if (!started.ok) {
+      throw new Error("Frozen canonical PvE failed: " + JSON.stringify(started.error));
+    }
+    expect(started.value.initialization.state.status).toBe("ACTIVE");
+    expect(started.value.start.encounter.status).toBe("IN_BATTLE");
+    const battleId = started.value.start.battleId;
+    expect(started.value.initialization.state.combatants.length).toBeGreaterThanOrEqual(2);
+    const recorded = await pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM battle_state_snapshots WHERE battle_id=$1 AND version=0",
+      [battleId],
+    );
+    expect(recorded.rows[0]?.n).toBe(1);
+    expect(await proof.resolve(quoted)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
