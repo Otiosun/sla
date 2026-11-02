@@ -2961,6 +2961,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
       [randomUUID(), playerId, destinationRef],
     );
+    await pool.query(
+      "INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id) VALUES($1,$2,$3)",
+      [playerId, publishedReleaseId, rulesetId],
+    );
     const incoming = IncomingMessageSchema.parse({
       provider: "baileys",
       externalMessageId: randomUUID(),
