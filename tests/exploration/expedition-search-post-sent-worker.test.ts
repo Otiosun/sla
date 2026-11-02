@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Pool } from "pg";
+import { createOperationalOutboxWorker } from "../../src/runtime/compose-whatsapp-runtime.js";
 import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 import type {
   MessagingRepository,
@@ -92,6 +94,29 @@ function harness(input: {
 }
 
 describe("staging exploration hook on the actual OutboxWorker", () => {
+  it("quarantines uncertain deliveries in the composed offline worker only", async () => {
+    const claimOutbox = vi.fn(async () => []);
+    const repo = { claimOutbox } as never;
+    const provider: OutboundMessageAdapter = {
+      channel: "whatsapp",
+      async send() {
+        return { providerExternalMessageId: "offline-synthetic" };
+      },
+    };
+    const hook = makeHook(async () => ok({}), []);
+    const isolated = createOperationalOutboxWorker({} as Pool, repo, provider, hook);
+    expect(await isolated.runOnce()).toMatchObject({ claimed: 0, postSentFailed: 0 });
+    expect(claimOutbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ quarantineStaleSending: true }),
+    );
+    const original = createOperationalOutboxWorker({} as Pool, repo, provider);
+    expect(await original.runOnce()).toMatchObject({ claimed: 0 });
+    expect(claimOutbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ quarantineStaleSending: undefined }),
+    );
+  });
+
+
   it("issues an immutable menu only AFTER canonical engagement of an actual SENT source", async () => {
     const events: string[] = [];
     const failures: string[] = [];
