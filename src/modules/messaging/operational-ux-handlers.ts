@@ -624,22 +624,66 @@ export function createOperationalUxRoutes(
         );
       }
 
-      const lastArg = args.at(-1) ?? "";
-      const explicitSlot =
-        action === "colocar" && args.length >= 3 ? parseMenuNumber(lastArg) : null;
-      const hasExplicitSlot = explicitSlot !== null && explicitSlot <= 6;
-      const referenceParts = hasExplicitSlot ? args.slice(1, -1) : args.slice(1);
-      const pokemonRef = resolveOwnedPokemonReference(owned, referenceParts.join(" "));
+      const fullReference = resolveOwnedPokemonReference(owned, args.slice(1).join(" "));
+      let pokemonRef = fullReference;
+      let explicitSlot: number | null = null;
+
+      if (action === "colocar" && args.length >= 3) {
+        const withoutSlot = resolveOwnedPokemonReference(owned, args.slice(1, -1).join(" "));
+        const requestedSlot = parseMenuNumber(args.at(-1) ?? "");
+        if (withoutSlot.ok) {
+          if (requestedSlot !== null && requestedSlot <= 6) {
+            if (
+              fullReference.ok &&
+              fullReference.value.pokemonInstanceId !== withoutSlot.value.pokemonInstanceId
+            ) {
+              return err(
+                appError(
+                  "VALIDATION_FAILED",
+                  `Nome e slot ambíguos. Para mover #${String(withoutSlot.value.collectionNo)}, use \`/equipe colocar #${String(withoutSlot.value.collectionNo)} ${String(requestedSlot)}\`. Para escolher #${String(fullReference.value.collectionNo)} pelo nome completo, use \`/equipe colocar #${String(fullReference.value.collectionNo)}\`.`,
+                ),
+              );
+            }
+            explicitSlot = requestedSlot;
+            pokemonRef = withoutSlot;
+          } else if (!fullReference.ok) {
+            return err(
+              appError(
+                "VALIDATION_FAILED",
+                "Slot inválido. Escolha um número de 1 a 6. Ex.: `/equipe colocar #13 2`.",
+              ),
+            );
+          }
+        } else if (
+          !fullReference.ok &&
+          withoutSlot.error.code === "VALIDATION_FAILED" &&
+          withoutSlot.error.message.startsWith("Há mais de um Pokémon com esse nome")
+        ) {
+          return withoutSlot;
+        }
+      }
+
       if (!pokemonRef.ok) return pokemonRef;
       const pokemon = pokemonRef.value;
       const ref = pokemon.collectionNo;
+      if (action === "colocar" && explicitSlot === null && pokemon.placementKind === "TEAM") {
+        return textResult(
+          context,
+          [
+            "ℹ️ *Equipe sem mudanças.*",
+            "",
+            `#${String(ref)} já está no slot ${String(pokemon.slotNo)}.`,
+            `Para trocar de posição, use \`/equipe colocar #${String(ref)} <1-6>\`.`,
+          ].join("\n"),
+        );
+      }
       const clear = await ensureRosterMutationClear(player.value);
       if (!clear.ok) return clear;
       const storage = await dependencies.pcStorage.getStorage(player.value);
       if (!storage.ok) return storage;
 
       if (action === "colocar") {
-        let slotNo = hasExplicitSlot ? explicitSlot : null;
+        let slotNo = explicitSlot;
         if (slotNo === null) {
           const occupied = new Set(storage.value.team.map((entry) => entry.slotNo));
           const free = [1, 2, 3, 4, 5, 6].find((slot) => !occupied.has(slot));
@@ -659,9 +703,31 @@ export function createOperationalUxRoutes(
           target: { placementKind: "TEAM", boxNo: null, slotNo },
         });
         if (!moved.ok) return moved;
+        const swappedId = moved.value.swappedPokemonInstanceId;
+        const displaced =
+          swappedId === null || swappedId === undefined
+            ? null
+            : owned.find((entry) => entry.pokemonInstanceId === swappedId);
+        const previousPlacement =
+          moved.value.fromPlacementKind === "TEAM"
+            ? `slot ${String(moved.value.fromSlotNo)}`
+            : `Box ${String(moved.value.fromBoxNo)}, slot ${String(moved.value.fromSlotNo)}`;
+        const swappedText =
+          swappedId === null || swappedId === undefined
+            ? null
+            : displaced === null || displaced === undefined
+              ? `🔁 O Pokémon que ocupava esse slot foi para ${previousPlacement}.`
+              : `🔁 #${String(displaced.collectionNo)} *${pokemonDisplayName(displaced.displayName, displaced.nickname)}* foi para ${previousPlacement}.`;
         return textResult(
           context,
-          `✅ *Equipe atualizada.*\n\n#${String(ref)} agora está no slot ${String(slotNo)}.\nUse \`/equipe\` para conferir.`,
+          [
+            "✅ *Equipe atualizada.*",
+            "",
+            `#${String(ref)} agora está no slot ${String(slotNo)}.`,
+            ...(swappedText === null ? [] : ["", swappedText]),
+            "",
+            "Use `/equipe` para conferir.",
+          ].join("\n"),
         );
       }
 
@@ -702,10 +768,12 @@ export function createOperationalUxRoutes(
     }
 
     if (owned !== null) {
-      const members = owned.filter((entry) => entry.placementKind === "TEAM");
+      const members = owned
+        .filter((entry) => entry.placementKind === "TEAM")
+        .sort((left, right) => left.slotNo - right.slotNo);
       const lines = members.map(
         (member) =>
-          `#${String(member.collectionNo)}　*${member.nickname ?? member.displayName}* · Nv. ${String(member.level)} · HP ${String(member.currentHp)} · slot ${String(member.slotNo)}`,
+          `#${String(member.collectionNo)}　*${pokemonDisplayName(member.displayName, member.nickname)}* · Nv. ${String(member.level)} · HP ${String(member.currentHp)} · slot ${String(member.slotNo)}`,
       );
       return textResult(
         context,
@@ -717,22 +785,31 @@ export function createOperationalUxRoutes(
           "`/colecao` · todos os seus Pokémon",
           "`/box` · armazenados",
           "`/pokemon <#>` · ficha individual",
+          ...(dependencies.pcStorage === undefined
+            ? []
+            : [
+                "",
+                "`/equipe colocar <#> [slot]` · adicionar ou trocar",
+                "`/equipe guardar <#>` · enviar para a Box",
+              ]),
         ].join("\n"),
       );
     }
 
     const members = await dependencies.reads.listTeam(player.value);
-    const lines = members.map(
-      (member) =>
-        "`" +
-        String(member.slotNo) +
-        "`　*" +
-        member.displayName +
-        "* · Nv. " +
-        String(member.level) +
-        " · HP " +
-        String(member.currentHp),
-    );
+    const lines = [...members]
+      .sort((left, right) => left.slotNo - right.slotNo)
+      .map(
+        (member) =>
+          "`" +
+          String(member.slotNo) +
+          "`　*" +
+          member.displayName +
+          "* · Nv. " +
+          String(member.level) +
+          " · HP " +
+          String(member.currentHp),
+      );
     return textResult(
       context,
       [
