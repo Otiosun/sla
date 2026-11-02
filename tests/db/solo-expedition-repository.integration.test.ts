@@ -15,6 +15,7 @@ import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platfor
 import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
 import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -1589,6 +1590,70 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(results.filter((result) => result.ok && result.value.replayed)).toHaveLength(1);
     expect((await store.current(playerId))?.revision).toBe(1n);
     expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
+  it("recovers a real committed voluntary END from exactly the original claimed Inbox", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-end-confirmation-prepare");
+    const active = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-end-confirmation-start",
+    });
+    expect(active.ok).toBe(true);
+    if (!active.ok) throw new Error("Expected an ACTIVE end-recovery expedition");
+    const senderRef = "5579999999901@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T20:00:00.000Z",
+      text: "/explorar encerrar confirmar",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const inbox = new PostgresMessagingRepository(pool);
+    const claim = await inbox.claimIncoming(inbound, 30_000);
+    expect(claim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!claim.ok) throw new Error("Expected original claimed closure Inbox");
+    const key = "inbox:baileys:" + inbound.externalMessageId;
+    const ended = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: active.value.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: key,
+    });
+    expect(ended).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "ENDED", endReason: "VOLUNTARY", elapsedMinutes: 30 } },
+    });
+    const context: MessageHandlerContext = {
+      message: inbound,
+      inboxMessageId: claim.value.inboxMessageId,
+      idempotencyKey: key,
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    const recovery = new PostgresExpeditionEndConfirmationRecovery(pool);
+    expect(await recovery.resolve({ playerId, context })).toEqual(ok({ elapsedMinutes: 30 }));
+    expect(
+      await recovery.resolve({
+        playerId,
+        context: {
+          ...context,
+          message: { ...inbound, externalMessageId: randomUUID() },
+        },
+      }),
+    ).toEqual(ok(null));
+    expect(await store.current(playerId)).toBeNull();
   });
 
   it("blocks the fourth expédition and resets on the local Monday", async () => {
