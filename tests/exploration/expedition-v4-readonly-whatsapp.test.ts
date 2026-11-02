@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { createHash, randomUUID } from "node:crypto";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import type {
   ExpeditionV4StagingSearchInput,
@@ -89,6 +90,8 @@ function setup() {
   const route = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
   return { route, deps, resolvePlayer, getLocation, read, admits };
 }
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () => {
   it("renders saved PREPARING and real quota privately; no action or public group reply", async () => {
@@ -661,8 +664,107 @@ describe("published search staging-only WhatsApp command", () => {
     expect(text).toContain("11h30");
     expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
     expect(text).not.toContain("2. 🎒");
-    expect(text).not.toContain("4. 📋 Encerrar");
+    expect(text).toContain("4. 📋 Encerrar");
     expect(text).not.toContain("[Ler mais]");
+  });
+
+  it("shows an explicit ACTIVE end confirmation before any irreversible mutation", async () => {
+    const f = stagingSearch();
+    const active = {
+      ...preparing,
+      phase: "ACTIVE" as const,
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+      revision: 1n,
+    };
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    const prompt = await f.route.handler.handle(context("/explorar 4"));
+    expect(prompt.ok).toBe(true);
+    if (!prompt.ok) return;
+    const body = String(prompt.value.outgoing[0]?.payload.text);
+    expect(body).toContain("CONFIRMAÇÃO");
+    expect(body).toContain("/explorar encerrar confirmar");
+    expect(f.preparation.end).not.toHaveBeenCalled();
+
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const end = vi.fn(async () =>
+      ok({
+        expedition: { ...active, phase: "ENDED" as const, endReason: "VOLUNTARY" as const, revision: 2n },
+        replayed: false,
+        changed: true,
+        consumedWeeklySlot: false,
+      }),
+    );
+    f.deps.preparation.end = end;
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    const confirmed = await f.route.handler.handle(context("/explorar encerrar confirmar"));
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(end).toHaveBeenCalledWith({
+      playerId,
+      expeditionId: active.expeditionId,
+      expectedRevision: 1n,
+      reason: "VOLUNTARY",
+      idempotencyKey: "inbox:baileys:read-only-1",
+    });
+    const result = String(confirmed.value.outgoing[0]?.payload.text);
+    expect(result).toContain("Expedição encerrada voluntariamente");
+    expect(result).toContain("Tempo utilizado:");
+    expect(result).toContain("Nenhuma recompensa adicional");
+    expect(result).toContain("100 palavras");
+  });
+
+  it("denies voluntary closure before ACTIVE and when offline flags are missing", async () => {
+    const f = stagingSearch();
+    expect((await f.route.handler.handle(context("/explorar 4"))).ok).toBe(false);
+    const active = {
+      ...preparing,
+      phase: "ACTIVE" as const,
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+      revision: 1n,
+    };
+    vi.stubEnv("APP_ENV", "production");
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    expect((await f.route.handler.handle(context("/explorar encerrar confirmar"))).ok).toBe(false);
+    expect(f.preparation.end).not.toHaveBeenCalled();
+  });
+
+  it("recovers committed END only with the matching immutable Inbox receipt and fingerprint", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const original = context("/explorar encerrar confirmar");
+    const expeditionId = randomUUID();
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify(["END", expeditionId, "1", "VOLUNTARY"]))
+      .digest("hex");
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      expect(sql).toContain("inbox.payload_hash=$4");
+      expect(sql).toContain("receipt.operation='END'");
+      expect(sql).toContain("expedition.phase='ENDED'");
+      expect(params).toMatchObject([original.inboxMessageId, playerId, original.idempotencyKey]);
+      return {
+        rows: [
+          { expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint },
+        ],
+      };
+    });
+    const recovery = new PostgresExpeditionEndConfirmationRecovery({ query } as never);
+    expect(await recovery.resolve({ playerId, context: original })).toEqual(
+      ok({ elapsedMinutes: 30 }),
+    );
+    query.mockResolvedValueOnce({
+      rows: [
+        { expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint: "x" },
+      ],
+    });
+    expect(await recovery.resolve({ playerId, context: original })).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
   });
 
   it("routes contextual /explorar 1 into SEARCH only once PREPARING or ACTIVE", async () => {

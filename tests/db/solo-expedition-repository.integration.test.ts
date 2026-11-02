@@ -2912,6 +2912,23 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(afterRejection.rows).toEqual([{ elapsed: 30, receipts: 0 }]);
 
+    const endWhileEncounterOpen = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: active.value.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: "pg18-pve-pending-encounter-end",
+    });
+    expect(endWhileEncounterOpen).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const retained = await pool.query<{ phase: string; elapsed_minutes: number }>(
+      "SELECT phase,elapsed_minutes FROM solo_expeditions WHERE id=$1",
+      [prepared.expeditionId],
+    );
+    expect(retained.rows).toEqual([{ phase: "ACTIVE", elapsed_minutes: 30 }]);
+
     const destinationRef = "5579999999996@s.whatsapp.net";
     const source = randomUUID();
     await pool.query(
