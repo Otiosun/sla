@@ -1803,6 +1803,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       } as unknown as ConstructorParameters<typeof ExpeditionQuotedReplyReadOnlyStagingResolver>[0],
       quoteResolver,
       new EncounterOperationalReadService(new PostgresEncounterRepository(pool)),
+      new PostgresExpeditionIssuedMenuReplyProof(pool),
     );
     const replyContext: MessageHandlerContext = {
       inboxMessageId: randomUUID(),
@@ -1820,18 +1821,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         mediaRefs: [],
       },
     };
-    const stagingReplyResult = await stagingReply.resolve(replyContext);
-    expect(stagingReplyResult).toMatchObject({
-      ok: true,
-      value: { resultRefId: null, resultRefType: null },
+    // A canonical SENT quote *without* an issued menu is deliberately inert.
+    expect(await stagingReply.resolve(replyContext)).toMatchObject({
+      ok: false, error: { code: "FLOW_BLOCKED" },
     });
-    if (stagingReplyResult.ok && stagingReplyResult.value !== null) {
-      expect(stagingReplyResult.value.outgoing).toHaveLength(1);
-      expect(stagingReplyResult.value.outgoing[0]?.destinationRef).toBe(destinationRef);
-      expect(String(stagingReplyResult.value.outgoing[0]?.payload.text)).toContain(
-        "nenhuma ação foi executada",
-      );
-    }
     // Issued menu receipt is immutable, binds provider quote to exact Ball
     // IDs and must never authorize a reply when a newer delivered menu exists.
     const menuProof = new PostgresExpeditionIssuedMenuReplyProof(pool);
@@ -1866,6 +1859,17 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         ballItemIds: { "2": eligibleBallItemId },
       }),
     );
+    const issuedReply = await stagingReply.resolve(replyContext);
+    expect(issuedReply).toMatchObject({
+      ok: true, value: { resultRefId: null, resultRefType: null },
+    });
+    if (issuedReply.ok && issuedReply.value !== null) {
+      expect(issuedReply.value.outgoing).toHaveLength(1);
+      expect(issuedReply.value.outgoing[0]?.destinationRef).toBe(destinationRef);
+      expect(String(issuedReply.value.outgoing[0]?.payload.text)).toContain(
+        "sem executar nenhuma ação",
+      );
+    }
     const nextOutcomeId = randomUUID();
     const nextMenuId = randomUUID();
     const nextOutboxId = randomUUID();
@@ -1922,6 +1926,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await menuProof.resolve(quoted)).toMatchObject({
       ok: false,
       error: { code: "FLOW_BLOCKED" },
+    });
+    expect(await stagingReply.resolve(replyContext)).toMatchObject({
+      ok: false, error: { code: "FLOW_BLOCKED" },
     });
     expect(
       await menuProof.resolve({
