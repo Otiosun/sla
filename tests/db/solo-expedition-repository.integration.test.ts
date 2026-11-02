@@ -8,6 +8,7 @@ import { PostgresExpeditionRepository } from "../../src/platform/exploration/pos
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
 import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
+import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { OutboxWorker } from "../../src/modules/messaging/service.js";
@@ -1718,6 +1719,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         )
       ).rows[0];
     expect(await state()).toMatchObject({ status: "CREATED", revision: "0" });
+    const quoteResolver = new PostgresExpeditionQuotedEncounterProof(pool);
+    const quoted = {
+      provider: "baileys",
+      playerId,
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      replyToExternalMessageId: outboxMessageId.replaceAll("-", "").toUpperCase(),
+    };
+    // A provider-looking quote MUST NOT authorize an encounter while PENDING.
+    expect(await quoteResolver.resolve(quoted)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
     // Real OutboxWorker + real PostgresMessagingRepository; the provider is a
     // synthetic transport isolated from WhatsApp/Baileys and the live database.
     // markOutboxSent must commit BEFORE the callback verifies its proof.
@@ -1771,6 +1785,31 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(await afterSent.engageAfterSent(proof)).toEqual(engaged);
     expect(await state()).toMatchObject({ status: "ENGAGED", revision: "2" });
+    // New SQL exercised against actual disposable PG18, not mocked query rows.
+    expect(await quoteResolver.resolve(quoted)).toEqual(
+      ok({ playerId, outcomeId, encounterId, encounterRevision: 2n }),
+    );
+    const otherPlayer = await trainer();
+    expect(await quoteResolver.resolve({ ...quoted, playerId: otherPlayer })).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(
+      await quoteResolver.resolve({
+        ...quoted,
+        replyToExternalMessageId: randomUUID().replaceAll("-", "").toUpperCase(),
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await quoteResolver.resolve({
+        ...quoted,
+        senderRef: "5588888888888@s.whatsapp.net",
+        chatRef: "5588888888888@s.whatsapp.net",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await quoteResolver.resolve({ ...quoted, chatRef: "120363123456789@g.us" }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     const seen = await pool.query<{ seen_count: number; caught_count: number }>(
       "SELECT seen_count::int AS seen_count,caught_count::int AS caught_count FROM player_pokedex_species WHERE player_id=$1 AND species_id=$2",
       [playerId, speciesId],
