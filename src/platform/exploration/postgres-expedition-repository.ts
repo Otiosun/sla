@@ -229,7 +229,8 @@ async function writeReceipt(
     | "END"
     | "CHANGE_PERIOD"
     | "ACTION_SEARCH_FREE"
-    | "ACTION_IGNORE_INCIDENTAL",
+    | "ACTION_IGNORE_INCIDENTAL"
+    | "ACTION_TRAVEL",
   inputFingerprint: string,
   transition: ExpeditionTransition,
   effectRef?: string,
