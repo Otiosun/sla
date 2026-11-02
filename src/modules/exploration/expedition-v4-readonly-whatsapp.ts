@@ -533,6 +533,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       if (road === undefined || road.destinationAreaId === located.value.areaId) {
         return err(appError("FLOW_BLOCKED", "No approved expedition travel cost for destination"));
       }
+      if (safeLabel(road.destinationDisplayName) === null) {
+        return err(appError("FLOW_BLOCKED", "Travel destination name is unsafe"));
+      }
       const original = facts.expedition;
       const moved = await this.deps.travel.execute({
         playerId,
