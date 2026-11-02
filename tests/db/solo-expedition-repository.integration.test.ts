@@ -11,6 +11,9 @@ import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploratio
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
+import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
+import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/exploration/expedition-quoted-reply-readonly-staging.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { OutboxWorker } from "../../src/modules/messaging/service.js";
 import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
@@ -1789,6 +1792,45 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await quoteResolver.resolve(quoted)).toEqual(
       ok({ playerId, outcomeId, encounterId, encounterRevision: 2n }),
     );
+    // Actual PG18 canonical EncounterOperationalReadService participates in the
+    // same staging-only quoted reply flow; identity mapping is synthetic here.
+    const stagingReply = new ExpeditionQuotedReplyReadOnlyStagingResolver(
+      {
+        async resolvePlayer() {
+          return ok({ playerId, state: "COMPLETE" as const, created: false });
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionQuotedReplyReadOnlyStagingResolver>[0],
+      quoteResolver,
+      new EncounterOperationalReadService(new PostgresEncounterRepository(pool)),
+    );
+    const replyContext: MessageHandlerContext = {
+      inboxMessageId: randomUUID(),
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+      idempotencyKey: "inbox:baileys:pg18-quoted-readonly",
+      message: {
+        provider: "baileys",
+        externalMessageId: randomUUID(),
+        senderRef: destinationRef,
+        chatRef: destinationRef,
+        occurredAt: "2026-11-01T23:35:00.000Z",
+        text: "2",
+        replyToExternalMessageId: quoted.replyToExternalMessageId,
+        mediaRefs: [],
+      },
+    };
+    const stagingReplyResult = await stagingReply.resolve(replyContext);
+    expect(stagingReplyResult).toMatchObject({
+      ok: true,
+      value: { resultRefId: null, resultRefType: null },
+    });
+    if (stagingReplyResult.ok && stagingReplyResult.value !== null) {
+      expect(stagingReplyResult.value.outgoing).toHaveLength(1);
+      expect(stagingReplyResult.value.outgoing[0]?.destinationRef).toBe(destinationRef);
+      expect(String(stagingReplyResult.value.outgoing[0]?.payload.text)).toContain(
+        "nenhuma ação foi executada",
+      );
+    }
     const otherPlayer = await trainer();
     expect(await quoteResolver.resolve({ ...quoted, playerId: otherPlayer })).toMatchObject({
       ok: false,
