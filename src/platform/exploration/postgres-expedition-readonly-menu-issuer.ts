@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { renderExpeditionV4IncidentalPanel } from "../../modules/exploration/expedition-v4-incidental-panel.js";
 import { readVerifiedExpeditionSearchEncounterPreview } from "./postgres-expedition-search-encounter-preview.js";
+import { readOfflineExpeditionBattleEligibility } from "./postgres-expedition-battle-eligibility.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 export interface IssuedReadOnlyExpeditionMenu {
@@ -112,7 +113,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           AND encounter.revision = $4
           AND NOT EXISTS (
             SELECT 1 FROM battles battle
-            WHERE battle.encounter_id = encounter.id AND battle.status = 'ACTIVE'
+            WHERE battle.encounter_id = encounter.id AND battle.status IN ('CREATED','ACTIVE')
           )
          JOIN content_release_pointers pointer ON pointer.pointer_key = 'ACTIVE'
          JOIN content_releases release
@@ -350,8 +351,16 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           );
         }
       }
+      const canBattle =
+        this.issuanceMode === "ACTIONABLE" &&
+        (await readOfflineExpeditionBattleEligibility(client, {
+          playerId: input.playerId,
+          encounterId: input.encounterId,
+          contentReleaseId: releaseId,
+        }));
       const canIgnore = encounterKind === "INCIDENTAL" && elapsedMinutes <= 710;
       const authorizedActions = [
+        ...(canBattle ? ["BATTLE"] : []),
         ...(availableBalls.length > 0 ? ["CAPTURE"] : []),
         ...(canIgnore ? ["IGNORE"] : []),
       ];
@@ -360,10 +369,10 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         if (authorizedActions.length === 0) {
           await client.query("ROLLBACK");
           inTransaction = false;
-          return err(appError("FLOW_BLOCKED", "No usable Ball available for the test encounter"));
+          return err(appError("FLOW_BLOCKED", "No authorized action for the test encounter"));
         }
         // The published species snapshot supplies verified display fields.
-        // This menu does not invent BATTLE, IGNORE or a client-specific fold.
+        // Only the canonical battle preflight can authorize BATTLE; no client-side inference.
         const preview = await readVerifiedExpeditionSearchEncounterPreview(client, {
           playerId: input.playerId,
           areaId,
@@ -382,7 +391,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           encounterRevision: input.expectedEncounterRevision,
           speciesName: preview.value.speciesName,
           level: preview.value.level,
-          canBattle: false,
+          canBattle,
           balls: availableBalls,
           canIgnore,
           ignoreMinutes: 10,
@@ -397,7 +406,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           panel.value.text,
           "› _Responda citando esta mensagem com o número da ação autorizada._",
           ...(canIgnore ? ["› _Ignorar consome exatamente 10 minutos da expedição._"] : []),
-          "› _Batalhar permanece indisponível neste menu._",
+          ...(!canBattle ? ["› _Batalhar permanece indisponível neste menu._"] : []),
           "› _Homologação OFFLINE: indisponível no jogo ativo._",
         ].join("\n\n");
       } else {
