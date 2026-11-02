@@ -54,6 +54,11 @@ export class PostgresExpeditionIssuedMenuReplyProof {
       menu_mode: string | null;
       capture_enabled: boolean;
       battle_enabled: boolean;
+      menu_actions: unknown;
+      outbox_actions: unknown;
+      menu_text: string | null;
+      outbox_text: string | null;
+      outbox_balls: unknown;
     }>(
       `SELECT menu.id::text AS menu_id,
               menu.player_id::text AS player_id,
@@ -62,6 +67,11 @@ export class PostgresExpeditionIssuedMenuReplyProof {
               menu.encounter_revision::text AS encounter_revision,
               menu.ball_item_ids,
               menu.panel->>'mode' AS menu_mode,
+              menu.panel->'actions' AS menu_actions,
+              outbox.payload->'expeditionMenu'->'actions' AS outbox_actions,
+              menu.panel->>'text' AS menu_text,
+              outbox.payload->>'text' AS outbox_text,
+              outbox.payload->'expeditionMenu'->'ballItemIds' AS outbox_balls,
               CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
                 THEN menu.panel->'actions' ? 'CAPTURE' ELSE FALSE END AS capture_enabled,
               CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
@@ -112,6 +122,10 @@ export class PostgresExpeditionIssuedMenuReplyProof {
            OR (
              outbox.payload->'expeditionMenu'->>'menuId' = menu.id::text
              AND outbox.payload->'expeditionMenu'->>'mode' = 'ACTIONABLE'
+             AND menu.panel->>'text' = outbox.payload->>'text'
+             AND jsonb_typeof(menu.panel->'actions') = 'array'
+             AND menu.panel->'actions' = outbox.payload->'expeditionMenu'->'actions'
+             AND menu.ball_item_ids = outbox.payload->'expeditionMenu'->'ballItemIds'
            )
          )
          -- Supersede an old menu only once a different menu for the SAME
@@ -164,6 +178,31 @@ export class PostgresExpeditionIssuedMenuReplyProof {
       new Set(entries.map(([, itemId]) => itemId)).size !== entries.length
     ) {
       return err(appError("FLOW_BLOCKED", "Issued menu has invalid immutable Ball choices"));
+    }
+
+    if (row.menu_mode === "ACTIONABLE") {
+      const actions = row.menu_actions;
+      if (
+        typeof row.menu_text !== "string" ||
+        row.menu_text.length === 0 ||
+        row.menu_text !== row.outbox_text ||
+        !Array.isArray(actions) ||
+        actions.length < 1 ||
+        actions.length > 3 ||
+        actions.some(
+          (action) =>
+            typeof action !== "string" ||
+            !["CAPTURE", "BATTLE", "IGNORE"].includes(action),
+        ) ||
+        new Set(actions).size !== actions.length ||
+        JSON.stringify(actions) !== JSON.stringify(row.outbox_actions) ||
+        JSON.stringify(row.ball_item_ids) !== JSON.stringify(row.outbox_balls) ||
+        (actions.includes("CAPTURE") !== (entries.length > 0)) ||
+        row.capture_enabled !== actions.includes("CAPTURE") ||
+        row.battle_enabled !== actions.includes("BATTLE")
+      ) {
+        return err(appError("FLOW_BLOCKED", "Actionable menu has diverging issued permissions"));
+      }
     }
 
     return ok({

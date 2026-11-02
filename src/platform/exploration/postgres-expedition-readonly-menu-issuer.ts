@@ -184,6 +184,10 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         destination_ref: string;
         menu_mode: string;
         outbox_mode: string;
+        outbox_text: string;
+        outbox_actions: unknown;
+        outbox_balls: unknown;
+        menu_actions: unknown;
       }>(
         `SELECT menu.id::text AS id,
                 menu.panel->>'text' AS text,
@@ -191,7 +195,11 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
                 outbox.id::text AS outbox_id,
                 outbox.destination_ref,
                 menu.panel->>'mode' AS menu_mode,
-                outbox.payload->'expeditionMenu'->>'mode' AS outbox_mode
+                outbox.payload->'expeditionMenu'->>'mode' AS outbox_mode,
+                outbox.payload->>'text' AS outbox_text,
+                outbox.payload->'expeditionMenu'->'actions' AS outbox_actions,
+                outbox.payload->'expeditionMenu'->'ballItemIds' AS outbox_balls,
+                menu.panel->'actions' AS menu_actions
          FROM solo_incidental_menu_snapshots menu
          JOIN solo_incidental_menu_deliveries delivery
            ON delivery.menu_id = menu.id AND delivery.player_id = menu.player_id
@@ -222,6 +230,12 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           previously.menu_mode !== this.issuanceMode ||
           previously.outbox_mode !== this.issuanceMode ||
           typeof previously.text !== "string" ||
+          previously.text !== previously.outbox_text ||
+          (this.issuanceMode === "ACTIONABLE" &&
+            (JSON.stringify(previously.menu_actions) !==
+              JSON.stringify(previously.outbox_actions) ||
+              JSON.stringify(previously.ball_item_ids) !==
+                JSON.stringify(previously.outbox_balls))) ||
           previously.ball_item_ids === null ||
           typeof previously.ball_item_ids !== "object"
         ) {
@@ -418,7 +432,13 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
               outcomeId: input.outcomeId,
               encounterId: input.encounterId,
             },
-            expeditionMenu: { menuId, mode: this.issuanceMode },
+            expeditionMenu: {
+              menuId,
+              mode: this.issuanceMode,
+              ...(this.issuanceMode === "ACTIONABLE"
+                ? { actions: ["CAPTURE"], ballItemIds }
+                : {}),
+            },
           }),
           immutableIdempotencyKey,
           input.correlationId,
