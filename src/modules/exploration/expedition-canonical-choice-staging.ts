@@ -146,14 +146,8 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     if (!attempt.ok) return attempt;
     const lines =
       attempt.value.status === "CAPTURED"
-        ? [
-            "✨ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗔𝗣𝗧𝗨𝗥𝗔*",
-            "> _Pokémon capturado e registrado pelo sistema canônico._",
-          ]
-        : [
-            "◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗔𝗣𝗧𝗨𝗥𝗔*",
-            "> _Poké Ball lançada. O Pokémon escapou._",
-          ];
+        ? ["✨ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗔𝗣𝗧𝗨𝗥𝗔*", "> _Pokémon capturado e registrado pelo sistema canônico._"]
+        : ["◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗔𝗣𝗧𝗨𝗥𝗔*", "> _Poké Ball lançada. O Pokémon escapou._"];
     return ok({
       resultRefType: "ENCOUNTER",
       resultRefId: active.value.encounterId,
