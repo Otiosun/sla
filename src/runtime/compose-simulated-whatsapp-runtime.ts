@@ -29,6 +29,8 @@ export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly explorationStagingPreparationEnabled?: boolean;
   /** Isolated test-only outcome signing key; no production runtime equivalent. */
   readonly explorationStagingSearchSecret?: Uint8Array | null;
+  /** DEVELOPMENT ONLY: real Capture/Ignore/PvE quoted replies on disposable DB. */
+  readonly explorationOfflineChoicesEnabled?: boolean;
   readonly now?: SimulatedWhatsAppAdapterOptions["now"];
   readonly onProviderConnectionState?: SimulatedWhatsAppAdapterOptions["onConnectionState"];
   readonly onIncomingProcessingFailure?: (input: {
@@ -57,6 +59,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.explorationPreviewTimeZone ?? null,
     options.explorationStagingPreparationEnabled === true,
     options.explorationStagingSearchSecret ?? null,
+    options.explorationOfflineChoicesEnabled === true,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);

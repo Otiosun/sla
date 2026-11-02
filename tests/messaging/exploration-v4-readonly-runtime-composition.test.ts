@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../src/modules/messaging/contracts.js";
 import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
 
@@ -14,7 +14,39 @@ const input: IncomingMessage = {
   mediaRefs: [],
 };
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("Exploration V4 status is NOT a default runtime route", () => {
+  it("cannot enable complete offline choices with live WhatsApp, even with staging keys", () => {
+    const inputPool = {} as Pool;
+    const key = Buffer.alloc(32, 0x27);
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    expect(() =>
+      createOperationalMessagingComposition(
+        inputPool,
+        { encryptionKey: key, encryptionKeyVersion: 1 },
+        null,
+        { turnWindowTtlMs: 30000, maintenanceBatchSize: 1, encryptionKeys: new Map([[1, key]]) },
+        null,
+        null,
+        "Etc/UTC",
+        true,
+        key,
+        true,
+      ),
+    ).toThrow("isolated non-Baileys test mode");
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "true");
+    expect(() =>
+      createOperationalMessagingComposition(inputPool, null, null, null, null, null, null, false, null, true),
+    ).toThrow("isolated non-Baileys test mode");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    expect(() =>
+      createOperationalMessagingComposition(inputPool, null, null, null, null, null, null, false, null, true),
+    ).toThrow("complete staging exploration and PvE dependencies");
+  });
   it("keeps exploration command unknown with the exact production positional defaults", () => {
     const composition = createOperationalMessagingComposition({} as Pool);
     expect(composition.admitCommand(input)).toBe(false);
