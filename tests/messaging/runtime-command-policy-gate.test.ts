@@ -237,5 +237,4 @@ describe("RuntimeCommandPolicyGate", () => {
     ).toEqual(ok(undefined));
   });
 
-
 });
