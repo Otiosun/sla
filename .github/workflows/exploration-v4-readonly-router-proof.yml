@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - feat/exploration-canonical-choice-staging-20261102
+      - test/exploration-canonical-capture-idempotency-20261102
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"
