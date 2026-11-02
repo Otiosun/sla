@@ -3032,6 +3032,33 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     // Fail the Inbox *after* the single battle transaction committed. The
     // original quoted encounter is now IN_BATTLE: normal proof must deny it,
     // while an immutable receipt allows only the original confirmation.
+    const directProof = await new PostgresExpeditionBattleConfirmationRecovery(pool).resolve({
+      playerId,
+      context: {
+        inboxMessageId: claimed.value.inboxMessageId,
+        correlationId: claimed.value.correlationId,
+        causationId: claimed.value.inboxMessageId,
+        idempotencyKey: exact.idempotencyKey,
+        message: incoming,
+      },
+    });
+    if (!directProof.ok || directProof.value === null) {
+      const diagnosis = await pool.query(
+        `SELECT inbox.status,inbox.external_message_id,inbox.payload_hash,
+                inbox.normalized_payload
+         FROM inbox_messages inbox WHERE inbox.id=$1`,
+        [claimed.value.inboxMessageId],
+      );
+      throw new Error(
+        "Pre-retry PvE receipt proof rejected: " +
+          JSON.stringify({
+            directProof,
+            inbox: diagnosis.rows,
+            requestedFingerprint: exact.messageFingerprint,
+          }),
+      );
+    }
+    expect(directProof.value.battleId).toBe(battleId);
     await inbox.failIncoming(claimed.value.inboxMessageId, "INJECTED_AFTER_PVE_START");
     const recovery = new ExpeditionCanonicalChoiceStagingResolver(
       new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool)),
