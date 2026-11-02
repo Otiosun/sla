@@ -47,6 +47,12 @@ export async function readOfflineExpeditionBattleEligibility(
      WHERE member.player_id=$1
        AND member.encounter_id=$2
        AND member.active=TRUE
+       AND NOT EXISTS (
+         SELECT 1 FROM encounter_players other
+         WHERE other.encounter_id=member.encounter_id
+           AND other.player_id<>member.player_id
+           AND other.active=TRUE
+       )
      LIMIT 2`,
     [input.playerId, input.encounterId, input.contentReleaseId],
   );
