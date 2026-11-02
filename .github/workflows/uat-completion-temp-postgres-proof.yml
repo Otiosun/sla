@@ -1,0 +1,83 @@
+name: UAT Completion PostgreSQL 18 TEMP Isolation
+
+on:
+  pull_request:
+    branches:
+      - test/release-candidate-crossmodule-regression-20261101
+    paths:
+      - ".github/workflows/uat-completion-temp-postgres-proof.yml"
+      - "src/modules/messaging/**"
+      - "src/platform/messaging/**"
+      - "tests/messaging/uat-completion-postgres.test.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-uat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+      DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/postgres
+      UAT_POSTGRES_PROOF: "1"
+      UAT_PROOF_PORT: "5432"
+      PGPASSWORD: test-only-password
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Ensure only ephemeral local Postgres and no WhatsApp session
+        run: |
+          test "$APP_ENV" = test
+          test "$WHATSAPP_ENABLED" = false
+          test ! -e .env
+          test ! -e .env.local
+          test ! -d auth_info_baileys
+          node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='127.0.0.1'||u.port!=='5432'||u.pathname!=='/postgres')process.exit(1)"
+      - name: Apply schema only to ephemeral CI DB and grant temp-table access
+        run: |
+          node --import tsx --input-type=module <<'NODE'
+          import { Pool } from "pg";
+          import { runMigrations } from "./src/platform/db/migrations.ts";
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+          try {
+            await runMigrations(pool, { appliedBy: "ephemeral-uat-temp-only" });
+            const found = await pool.query("SELECT 1 FROM pg_roles WHERE rolname='pokemon_runtime'");
+            if (found.rowCount === 0) {
+              await pool.query("CREATE ROLE pokemon_runtime LOGIN PASSWORD 'test-only-password'");
+            }
+            await pool.query("GRANT CONNECT ON DATABASE postgres TO pokemon_runtime");
+            await pool.query("GRANT USAGE ON SCHEMA public TO pokemon_runtime");
+            await pool.query("GRANT SELECT ON ALL TABLES IN SCHEMA public TO pokemon_runtime");
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Run opt-in real PostgreSQL temp-only UAT messaging proof
+        run: pnpm exec vitest run tests/messaging/uat-completion-postgres.test.ts
+      - name: Typecheck isolated proof
+        run: pnpm exec tsc --noEmit
