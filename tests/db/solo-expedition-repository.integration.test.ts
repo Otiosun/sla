@@ -2410,6 +2410,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         actionable: true,
         captureEnabled: true,
         battleEnabled: true,
+        ignoreEnabled: false,
       }),
     );
     const otherPlayer = await trainer();
@@ -2471,9 +2472,17 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
          rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
          rng_counter,revision,creation_idempotency_key
        ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
-      [encounterId, playerId, activeAreaId, publishedReleaseId, rulesetId,
-        Buffer.alloc(32, 0x51), Buffer.alloc(12, 0x52), Buffer.alloc(16, 0x53),
-        "pg18-ignore-engaged:" + encounterId],
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x51),
+        Buffer.alloc(12, 0x52),
+        Buffer.alloc(16, 0x53),
+        "pg18-ignore-engaged:" + encounterId,
+      ],
     );
     await pool.query(
       "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
@@ -2489,7 +2498,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       `INSERT INTO solo_expedition_search_outcomes(
          id,player_id,expedition_id,expedition_revision,kind,encounter_id
        ) VALUES($1,$2,$3,$4,'INCIDENTAL',$5)`,
-      [outcomeId, playerId, prepared.expeditionId, active.value.expedition.revision.toString(), encounterId],
+      [
+        outcomeId,
+        playerId,
+        prepared.expeditionId,
+        active.value.expedition.revision.toString(),
+        encounterId,
+      ],
     );
     let calls = 0;
     const action = {
@@ -2502,7 +2517,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         calls += 1;
         const encounter = new EncounterService(
           encounterRepositoryWithinTransaction(client),
-          { create: () => { throw new Error("Flee must not draw a seed"); } },
+          {
+          create: () => {
+            throw new Error("Flee must not draw a seed");
+          },
+        },
           clock,
           { enabled: true, reason: null },
         );
@@ -2520,7 +2539,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     const again = await store.executeIgnoreIncidental({
       ...action,
-      flee: async () => { throw new Error("Replay must never call canonical flee again"); },
+      flee: async () => {
+        throw new Error("Replay must never call canonical flee again");
+      },
     });
     expect(again).toMatchObject({
       ok: true,
@@ -2537,10 +2558,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       [playerId],
     );
     expect(receipts.rows[0]?.count).toBe(1);
-    expect(await store.executeIgnoreIncidental({
-      ...action,
-      idempotencyKey: "inbox:baileys:pg18-ignore-new-message",
-    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await store.executeIgnoreIncidental({
+        ...action,
+        idempotencyKey: "inbox:baileys:pg18-ignore-new-message",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     const finalExpedition = await store.current(playerId);
     expect(finalExpedition?.elapsedMinutes).toBe(40);
   });
@@ -2824,6 +2847,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         actionable: true,
         captureEnabled: true,
         battleEnabled: false,
+        ignoreEnabled: false,
       }),
     );
     // A real PostgreSQL Inbox claim establishes the exact correlation/fingerprint

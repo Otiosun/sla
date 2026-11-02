@@ -137,7 +137,10 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
     );
     expect(await withIgnore.resolve(context("0"))).toMatchObject({
       ok: true,
-      value: { resultRefType: "ENCOUNTER", outgoing: [{ payload: { text: expect.stringContaining("10 minutos") } }] },
+      value: {
+        resultRefType: "ENCOUNTER",
+        outgoing: [{ payload: { text: expect.stringContaining("10 minutos") } }],
+      },
     });
     expect(ignoreExecute).toHaveBeenCalledExactlyOnceWith({
       playerId,
