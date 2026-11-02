@@ -101,6 +101,7 @@ describe("PVP WhatsApp routes", () => {
         cancelChallenge: vi.fn(),
       },
       openChallengeIdForTarget: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
+      actionableChallengeIdForTarget: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
       openChallengeIdForChallenger: vi.fn(),
       externalRefForPlayer,
     } as never);
