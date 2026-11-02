@@ -10,6 +10,7 @@ import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploratio
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
@@ -41,6 +42,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let clock: ManualClock;
   let store: PostgresExpeditionRepository;
   let publishedReleaseId: string;
+  let publishedBallItemId: string;
   let activeAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
@@ -166,6 +168,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           relocationPriority: 10,
         }),
       ],
+    );
+    // Catalog revisions must be authored only while their release is DRAFT.
+    // Never bypass the PUBLISHED child-mutation trigger in the test database.
+    publishedBallItemId = randomUUID();
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [
+      publishedBallItemId,
+      "pg18-staging-ball-" + publishedBallItemId,
+    ]);
+    await pool.query(
+      `INSERT INTO item_revisions(
+         id,content_release_id,item_id,display_name,item_kind,effect_key,active
+       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',TRUE)`,
+      [randomUUID(), publishedReleaseId, publishedBallItemId],
     );
     await pool.query(
       "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
@@ -1948,6 +1963,99 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         ballItemIds: { "2": nextBallId },
       }),
     );
+    // The real staging issuer derives choices from real inventory and stages
+    // the Outbox, immutable menu snapshot and Baileys reply link atomically.
+    const issuedOutcomeId = randomUUID();
+    const issuedSourceId = randomUUID();
+    const availableBallId = publishedBallItemId;
+    await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,3)", [
+      playerId,
+      availableBallId,
+    ]);
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,2,'DIRECT',$4)`,
+      [issuedOutcomeId, playerId, expedition.expeditionId, encounterId],
+    );
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,sent_at,
+         payload,idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        issuedSourceId,
+        destinationRef,
+        JSON.stringify({
+          text: "Published encounter search, actual provider read-only",
+          expeditionSearch: { playerId, outcomeId: issuedOutcomeId, encounterId },
+        }),
+        "published-source-menu-pg18-" + issuedSourceId,
+        randomUUID(),
+      ],
+    );
+    const issuer = new PostgresExpeditionReadOnlyMenuIssuer(pool);
+    const issuedInput = {
+      playerId,
+      outcomeId: issuedOutcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      destinationRef,
+      correlationId: randomUUID(),
+    };
+    const actualMenu = await issuer.issue(issuedInput);
+    expect(actualMenu).toMatchObject({
+      ok: true,
+      value: { replayed: false, ballItemIds: { "2": availableBallId } },
+    });
+    if (!actualMenu.ok) throw new Error("Read-only menu issuer declined verified PG18 encounter");
+    expect(actualMenu.value.text).toContain("Poké Ball ×3");
+    expect(actualMenu.value.text).toContain("Nenhuma escolha executa captura");
+    const persistedBeforeSend = await pool.query<{
+      status: string;
+      id: string;
+    }>("SELECT id::text,status FROM outbox_messages WHERE id=$1", [
+      actualMenu.value.outboxMessageId,
+    ]);
+    expect(persistedBeforeSend.rows).toMatchObject([{ status: "PENDING" }]);
+    const issuedQuote = {
+      ...quoted,
+      replyToExternalMessageId: actualMenu.value.outboxMessageId.replaceAll("-", "").toUpperCase(),
+    };
+    expect(await menuProof.resolve(issuedQuote)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const preparedReplay = await issuer.issue(issuedInput);
+    expect(preparedReplay).toEqual(ok({ ...actualMenu.value, replayed: true }));
+    // No duplicate Outbox; first success is exactly once across replays.
+    expect(
+      (
+        await pool.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM outbox_messages WHERE idempotency_key=$1",
+          ["exploration-issued-menu:" + issuedOutcomeId],
+        )
+      ).rows[0]?.n,
+    ).toBe(1);
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      actualMenu.value.outboxMessageId,
+    ]);
+    expect(await menuProof.resolve(issuedQuote)).toEqual(
+      ok({
+        menuId: actualMenu.value.menuId,
+        playerId,
+        outcomeId: issuedOutcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": availableBallId },
+      }),
+    );
+    // A changed live balance must never silently remap the *issued* menu.
+    await pool.query("UPDATE inventory_balances SET quantity=0 WHERE player_id=$1 AND item_id=$2", [
+      playerId,
+      availableBallId,
+    ]);
+    expect(await issuer.issue(issuedInput)).toEqual(preparedReplay);
     const otherPlayer = await trainer();
     expect(await quoteResolver.resolve({ ...quoted, playerId: otherPlayer })).toMatchObject({
       ok: false,
