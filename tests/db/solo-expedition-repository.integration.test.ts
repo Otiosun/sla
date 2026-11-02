@@ -1964,10 +1964,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',TRUE)`,
       [randomUUID(), publishedReleaseId, availableBallId],
     );
-    await pool.query(
-      "INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,3)",
-      [playerId, availableBallId],
-    );
+    await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,3)", [
+      playerId,
+      availableBallId,
+    ]);
     await pool.query(
       `INSERT INTO solo_expedition_search_outcomes(
          id,player_id,expedition_id,expedition_revision,kind,encounter_id
@@ -2010,10 +2010,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const persistedBeforeSend = await pool.query<{
       status: string;
       id: string;
-    }>(
-      "SELECT id::text,status FROM outbox_messages WHERE id=$1",
-      [actualMenu.value.outboxMessageId],
-    );
+    }>("SELECT id::text,status FROM outbox_messages WHERE id=$1", [
+      actualMenu.value.outboxMessageId,
+    ]);
     expect(persistedBeforeSend.rows).toMatchObject([{ status: "PENDING" }]);
     const issuedQuote = {
       ...quoted,
@@ -2024,9 +2023,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       error: { code: "FLOW_BLOCKED" },
     });
     const preparedReplay = await issuer.issue(issuedInput);
-    expect(preparedReplay).toEqual(
-      ok({ ...actualMenu.value, replayed: true }),
-    );
+    expect(preparedReplay).toEqual(ok({ ...actualMenu.value, replayed: true }));
     // No duplicate Outbox; first success is exactly once across replays.
     expect(
       (
@@ -2036,10 +2033,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         )
       ).rows[0]?.n,
     ).toBe(1);
-    await pool.query(
-      "UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1",
-      [actualMenu.value.outboxMessageId],
-    );
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      actualMenu.value.outboxMessageId,
+    ]);
     expect(await menuProof.resolve(issuedQuote)).toEqual(
       ok({
         menuId: actualMenu.value.menuId,
@@ -2051,10 +2047,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       }),
     );
     // A changed live balance must never silently remap the *issued* menu.
-    await pool.query(
-      "UPDATE inventory_balances SET quantity=0 WHERE player_id=$1 AND item_id=$2",
-      [playerId, availableBallId],
-    );
+    await pool.query("UPDATE inventory_balances SET quantity=0 WHERE player_id=$1 AND item_id=$2", [
+      playerId,
+      availableBallId,
+    ]);
     expect(await issuer.issue(issuedInput)).toEqual(preparedReplay);
     const otherPlayer = await trainer();
     expect(await quoteResolver.resolve({ ...quoted, playerId: otherPlayer })).toMatchObject({
