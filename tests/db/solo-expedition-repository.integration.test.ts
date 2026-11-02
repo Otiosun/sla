@@ -2890,6 +2890,28 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         encounterId,
       ],
     );
+    // A second search must not debit 30 minutes while this ENGAGED battle
+    // encounter is unresolved—even if its RNG would return NO_SIGNAL.
+    const blockedSearchKey = "pg18-pve-pending-encounter-second-search";
+    const rejected = await store.executeSearchFree({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: active.value.expedition.revision,
+      idempotencyKey: blockedSearchKey,
+      effect: async () => {
+        throw new Error("NO_SIGNAL must not run while an encounter is unresolved");
+      },
+    });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const afterRejection = await pool.query<{ elapsed: number; receipts: number }>(
+      `SELECT expedition.elapsed_minutes AS elapsed,
+              (SELECT count(*)::int FROM solo_expedition_receipts
+               WHERE player_id=$2 AND idempotency_key=$3) AS receipts
+       FROM solo_expeditions expedition WHERE expedition.id=$1`,
+      [prepared.expeditionId, playerId, blockedSearchKey],
+    );
+    expect(afterRejection.rows).toEqual([{ elapsed: 30, receipts: 0 }]);
+
     const destinationRef = "5579999999996@s.whatsapp.net";
     const source = randomUUID();
     await pool.query(

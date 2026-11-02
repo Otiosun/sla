@@ -501,6 +501,20 @@ export class PostgresExpeditionRepository {
         if (location.rows[0]?.area_id !== original.areaId) {
           return err(appError("FLOW_BLOCKED", "Expedition World location or release changed"));
         }
+        // A search that resolves to NO_SIGNAL would otherwise bypass
+        // EncounterService.create's active-encounter guard and charge 30min.
+        // Block *every* new search while an unresolved encounter exists.
+        // The existing immutable Inbox receipt above remains replayable.
+        const blocked = await client.query(
+          `SELECT 1 FROM encounters
+           WHERE player_id=$1
+             AND status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE')
+           LIMIT 1`,
+          [input.playerId],
+        );
+        if (blocked.rowCount !== 0) {
+          return err(appError("FLOW_BLOCKED", "Resolve the existing encounter before searching again"));
+        }
         const week = expeditionWeekKey(this.clock.now(), this.timeZone);
         const used = await client.query<{ count: string }>(
           "SELECT COUNT(*)::text AS count FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key=$2::date",
