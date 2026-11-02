@@ -1656,6 +1656,48 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await store.current(playerId)).toBeNull();
   });
 
+  it("reads a completed expedition's actual persisted search outcomes without another player's history", async () => {
+    const playerId = await trainer();
+    const otherPlayer = await trainer();
+    const reader = new PostgresExpeditionV4StatusReader(pool);
+    expect(await reader.readLatestCompleted(playerId)).toBeNull();
+    const prepared = await prepare(playerId, "pg18-factual-summary-prepare");
+    const begun = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-factual-summary-search",
+    });
+    expect(begun.ok).toBe(true);
+    if (!begun.ok) throw new Error("Could not start factual summary fixture");
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,0,'NO_SIGNAL',NULL)`,
+      [randomUUID(), playerId, prepared.expeditionId],
+    );
+    const closed = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: begun.value.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: "pg18-factual-summary-end",
+    });
+    expect(closed).toMatchObject({ ok: true, value: { expedition: { phase: "ENDED" } } });
+    expect(await reader.readLatestCompleted(playerId)).toEqual({
+      period: prepared.period,
+      endReason: "VOLUNTARY",
+      elapsedMinutes: 30,
+      searches: 1,
+      noSignal: 1,
+      trail: 0,
+      incidental: 0,
+      direct: 0,
+    });
+    expect(await reader.readLatestCompleted(otherPlayer)).toBeNull();
+  });
+
   it("blocks the fourth expédition and resets on the local Monday", async () => {
     const playerId = await trainer();
     for (let index = 0; index < 3; index += 1) {
