@@ -2582,7 +2582,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await actionableIssuer.issue(issueInput)).toEqual(
       ok({ ...issuedActionable.value, replayed: true }),
     );
-    const persistedActionable = await pool.query<{ mode: string; status: string; actions: string[] }>(
+    const persistedActionable = await pool.query<{
+      mode: string;
+      status: string;
+      actions: string[];
+    }>(
       `SELECT menu.panel->>'mode' AS mode, outbox.status,
               jsonb_array_elements_text(menu.panel->'actions') AS action
        FROM solo_incidental_menu_snapshots menu
