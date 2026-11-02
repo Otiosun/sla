@@ -2057,6 +2057,116 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     ]);
     expect(await issuer.issue(issuedInput)).toEqual(preparedReplay);
 
+    // Two adversarial PostgreSQL 18 proofs, not mocked repositories:
+    // 1) parallel first-issue requests may create one immutable menu only;
+    // 2) a transport queue INSERT failure rolls back snapshot and binding.
+    const eligibleNewOutcome = async (revision: number) => {
+      const outcome = randomUUID();
+      const source = randomUUID();
+      await pool.query(
+        `INSERT INTO solo_expedition_search_outcomes(
+           id,player_id,expedition_id,expedition_revision,kind,encounter_id
+         ) VALUES($1,$2,$3,$4,'DIRECT',$5)`,
+        [outcome, playerId, expedition.expeditionId, revision, encounterId],
+      );
+      await pool.query(
+        `INSERT INTO outbox_messages(
+           id,channel,message_type,destination_ref,status,sent_at,
+           payload,idempotency_key,correlation_id
+         ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+        [
+          source,
+          destinationRef,
+          JSON.stringify({
+            text: "Published search result for menu transaction proof",
+            expeditionSearch: { playerId, outcomeId: outcome, encounterId },
+          }),
+          "menu-transaction-source-pg18-" + source,
+          randomUUID(),
+        ],
+      );
+      return {
+        playerId,
+        outcomeId: outcome,
+        encounterId,
+        expectedEncounterRevision: 2n,
+        destinationRef,
+        correlationId: randomUUID(),
+      };
+    };
+    const concurrentInput = await eligibleNewOutcome(5);
+    const concurrent = await Promise.all(
+      Array.from({ length: 6 }, () => issuer.issue(concurrentInput)),
+    );
+    expect(concurrent.every((result) => result.ok)).toBe(true);
+    const issuedResults = concurrent.flatMap((result) => (result.ok ? [result.value] : []));
+    expect(new Set(issuedResults.map((value) => value.menuId)).size).toBe(1);
+    expect(new Set(issuedResults.map((value) => value.outboxMessageId)).size).toBe(1);
+    expect(issuedResults.filter((value) => !value.replayed)).toHaveLength(1);
+    expect(issuedResults.filter((value) => value.replayed)).toHaveLength(5);
+    expect(
+      (
+        await pool.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
+          [concurrentInput.outcomeId],
+        )
+      ).rows[0]?.count,
+    ).toBe(1);
+    expect(
+      (
+        await pool.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM outbox_messages WHERE idempotency_key=$1",
+          ["exploration-issued-menu:" + concurrentInput.outcomeId],
+        )
+      ).rows[0]?.count,
+    ).toBe(1);
+
+    const failureInput = await eligibleNewOutcome(6);
+    // Temporary test-only trigger injects failure *after* menu INSERT, when
+    // the same SQL transaction tries to enqueue the transport message.
+    await pool.query(
+      `CREATE FUNCTION test_exploration_menu_outbox_failure()
+       RETURNS trigger LANGUAGE plpgsql AS $
+       BEGIN
+         IF NEW.idempotency_key = 'exploration-issued-menu:${failureInput.outcomeId}' THEN
+           RAISE EXCEPTION 'synthetic menu Outbox failure';
+         END IF;
+         RETURN NEW;
+       END $`,
+    );
+    await pool.query(
+      `CREATE TRIGGER test_exploration_menu_outbox_failure_trigger
+       BEFORE INSERT ON outbox_messages FOR EACH ROW
+       EXECUTE FUNCTION test_exploration_menu_outbox_failure()`,
+    );
+    try {
+      await expect(issuer.issue(failureInput)).rejects.toThrow("synthetic menu Outbox failure");
+      expect(
+        (
+          await pool.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
+            [failureInput.outcomeId],
+          )
+        ).rows[0]?.count,
+      ).toBe(0);
+      expect(
+        (
+          await pool.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM outbox_messages WHERE idempotency_key=$1",
+            ["exploration-issued-menu:" + failureInput.outcomeId],
+          )
+        ).rows[0]?.count,
+      ).toBe(0);
+    } finally {
+      await pool.query(
+        "DROP TRIGGER IF EXISTS test_exploration_menu_outbox_failure_trigger ON outbox_messages",
+      );
+      await pool.query("DROP FUNCTION IF EXISTS test_exploration_menu_outbox_failure()");
+    }
+    const afterRollback = await issuer.issue(failureInput);
+    expect(afterRollback).toMatchObject({ ok: true, value: { replayed: false } });
+    // A failed transaction leaves no orphan that could suppress a retry.
+
     // Prove that ACTIONABLE rights cannot be conferred by changing only the
     // snapshot panel: the exact SENT Outbox must opt in with the same menu ID.
     const wrongActionOutcome = randomUUID();
