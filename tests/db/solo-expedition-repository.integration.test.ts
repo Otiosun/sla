@@ -2574,7 +2574,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       value: { replayed: false, ballItemIds: { "2": publishedBallItemId } },
     });
     if (!issuedActionable.ok) throw new Error("Verified offline issuer refused canonical Ball");
-    expect(issuedActionable.value.text).toContain("Poké Ball ×1");
+    expect(issuedActionable.value.text).toContain("2. ◉ Poké Ball ● \`×1\`");
+    expect(issuedActionable.value.text).toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
+    expect(issuedActionable.value.text).toContain("Nv.");
+    expect(issuedActionable.value.text).not.toContain("1. ⚔️ Batalhar");
+    expect(issuedActionable.value.text).not.toContain("0. ↩️ Ignorar");
+    expect(issuedActionable.value.text).not.toContain("[Ler mais]");
     expect(issuedActionable.value.text).not.toContain("somente prévia");
     const emittedMenuId = issuedActionable.value.menuId;
     const emittedOutboxId = issuedActionable.value.outboxMessageId;

@@ -24,6 +24,26 @@ const current: IncidentalEncounterPanelInput = {
 };
 
 describe("incidental V4 shadow scene: canonically authorized actions only", () => {
+  it("renders DIRECT with only authorized capture choices and no imagined fold", () => {
+    const shown = renderExpeditionV4IncidentalPanel({
+      ...current,
+      source: "DIRECT",
+      canBattle: false,
+      canIgnore: false,
+      combiningCount: 0,
+      balls: [{ kind: "POKE", quantity: 1, captureAuthorized: true }],
+    });
+    expect(shown.ok).toBe(true);
+    if (!shown.ok) return;
+    expect(shown.value.visible).toContain("Um encontro selvagem foi confirmado");
+    expect(shown.value.expanded).toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
+    expect(shown.value.choices).toEqual([{ optionNo: 2, kind: "CAPTURE", ball: "POKE" }]);
+    expect(shown.value.text).not.toContain("Batalhar");
+    expect(shown.value.text).not.toContain("Ignorar");
+    expect(shown.value.text).not.toContain("[Ler mais]");
+    expect(shown.value.padded).toBe(false);
+  });
+
   it("preserves V4 battle/capture hierarchy, real stocks and fixed option numbers", () => {
     const shown = renderExpeditionV4IncidentalPanel(current);
     expect(shown.ok).toBe(true);

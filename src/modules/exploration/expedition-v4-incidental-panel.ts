@@ -23,7 +23,7 @@ export interface IncidentalBallAvailability {
 }
 
 export interface IncidentalEncounterPanelInput {
-  readonly source: "INCIDENTAL";
+  readonly source: "INCIDENTAL" | "DIRECT";
   readonly encounterStatus: "ENGAGED";
   readonly encounterId: string;
   readonly encounterRevision: bigint;
@@ -67,7 +67,7 @@ export function renderExpeditionV4IncidentalPanel(
 ): Result<IncidentalEncounterPanel> {
   const species = input.speciesName.replace(/\s+/gu, " ").trim();
   if (
-    input.source !== "INCIDENTAL" ||
+    (input.source !== "INCIDENTAL" && input.source !== "DIRECT") ||
     input.encounterStatus !== "ENGAGED" ||
     !/^[a-f0-9-]{36}$/iu.test(input.encounterId) ||
     input.encounterRevision < 0n ||
@@ -120,12 +120,16 @@ export function renderExpeditionV4IncidentalPanel(
   }
   const visible = [
     "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
-    "> _Bip! Um Pokémon inesperado cruzou seu caminho!_",
+    input.source === "INCIDENTAL"
+      ? "> _Bip! Um Pokémon inesperado cruzou seu caminho!_"
+      : "> _Um encontro selvagem foi confirmado pela busca._",
     "",
     "◇ *" + species + "* ● `Nv. " + String(input.level) + "`",
   ].join("\n");
   const expanded = [
-    "> _Você procurava outra espécie, mas encontrou um Pokémon pelo caminho..._",
+    input.source === "INCIDENTAL"
+      ? "> _Você procurava outra espécie, mas encontrou um Pokémon pelo caminho..._"
+      : "> _O Pokémon encontrado está à sua frente._",
     ...(actions.length > 0 ? ["", "◇ *𝗔ÇÕ𝗘𝗦*", "", ...actions] : []),
     ...(captureLines.length > 0 ? ["", "◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*", "", ...captureLines] : []),
     ...(input.canIgnore ? ["", "0. ↩️ Ignorar ● `10 min`"] : []),
