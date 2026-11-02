@@ -40,11 +40,33 @@ describe("Exploration V4 status is NOT a default runtime route", () => {
     vi.stubEnv("APP_ENV", "test");
     vi.stubEnv("WHATSAPP_ENABLED", "true");
     expect(() =>
-      createOperationalMessagingComposition(inputPool, null, null, null, null, null, null, false, null, true),
+      createOperationalMessagingComposition(
+        inputPool,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        false,
+        null,
+        true,
+      ),
     ).toThrow("isolated non-Baileys test mode");
     vi.stubEnv("WHATSAPP_ENABLED", "false");
     expect(() =>
-      createOperationalMessagingComposition(inputPool, null, null, null, null, null, null, false, null, true),
+      createOperationalMessagingComposition(
+        inputPool,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        false,
+        null,
+        true,
+      ),
     ).toThrow("complete staging exploration and PvE dependencies");
   });
   it("keeps exploration command unknown with the exact production positional defaults", () => {
