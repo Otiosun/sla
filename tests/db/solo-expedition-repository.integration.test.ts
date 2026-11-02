@@ -11,6 +11,11 @@ import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploratio
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
+import { CaptureService } from "../../src/modules/capture/service.js";
+import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import type { CaptureContext } from "../../src/modules/capture/contracts.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
@@ -25,7 +30,12 @@ import {
   createSearchOutcomeEffect,
   readStoredSearchOutcome,
 } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
-import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import {
+  createCorrelationId,
+  createEncounterId,
+  createPlayerId,
+  type PlayerId,
+} from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const dbName = "pokemon_solo_exp_" + process.pid + "_" + Date.now();
@@ -43,6 +53,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let store: PostgresExpeditionRepository;
   let publishedReleaseId: string;
   let publishedBallItemId: string;
+  let publishedCaptureSnapshot: CaptureContext["encounterSnapshot"];
   let activeAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
@@ -178,10 +189,93 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     ]);
     await pool.query(
       `INSERT INTO item_revisions(
-         id,content_release_id,item_id,display_name,item_kind,effect_key,active
-       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',TRUE)`,
-      [randomUUID(), publishedReleaseId, publishedBallItemId],
+         id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active
+       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',$4::jsonb,TRUE)`,
+      [
+        randomUUID(),
+        publishedReleaseId,
+        publishedBallItemId,
+        JSON.stringify({ multiplierBasisPoints: 10000 }),
+      ],
     );
+    // One real, published and FK-valid wild Pokémon for CaptureService's
+    // PostgreSQL transaction: master catalog is authored before publication.
+    const speciesId = randomUUID();
+    const formId = randomUUID();
+    const typeId = randomUUID();
+    const natureId = randomUUID();
+    const abilityId = randomUUID();
+    const moveId = randomUUID();
+    await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,$2)", [
+      typeId,
+      "pg18-capture-type-" + typeId,
+    ]);
+    await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,9997,$2)", [
+      speciesId,
+      "pg18-capture-species-" + speciesId,
+    ]);
+    await pool.query("INSERT INTO pokemon_forms(id,species_id,slug) VALUES($1,$2,'default')", [
+      formId,
+      speciesId,
+    ]);
+    await pool.query("INSERT INTO natures(id,slug) VALUES($1,$2)", [
+      natureId,
+      "pg18-capture-nature-" + natureId,
+    ]);
+    await pool.query("INSERT INTO abilities(id,slug) VALUES($1,$2)", [
+      abilityId,
+      "pg18-capture-ability-" + abilityId,
+    ]);
+    await pool.query("INSERT INTO moves(id,slug) VALUES($1,$2)", [
+      moveId,
+      "pg18-capture-move-" + moveId,
+    ]);
+    await pool.query(
+      "INSERT INTO pokemon_type_revisions(id,content_release_id,type_id,display_name) VALUES($1,$2,$3,'Normal')",
+      [randomUUID(), publishedReleaseId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_species_revisions(id,content_release_id,species_id,display_name,catch_rate,base_exp) VALUES($1,$2,$3,'Published Testmon',255,50)",
+      [randomUUID(), publishedReleaseId, speciesId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_form_revisions(
+         id,content_release_id,form_id,display_name,type1_id,
+         base_hp,base_attack,base_defense,base_sp_attack,base_sp_defense,base_speed
+       ) VALUES($1,$2,$3,'Published Testmon',$4,40,45,40,35,35,56)`,
+      [randomUUID(), publishedReleaseId, formId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO ability_revisions(id,content_release_id,ability_id,display_name) VALUES($1,$2,$3,'Test Ability')",
+      [randomUUID(), publishedReleaseId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO nature_revisions(id,content_release_id,nature_id,display_name) VALUES($1,$2,$3,'Hardy')",
+      [randomUUID(), publishedReleaseId, natureId],
+    );
+    await pool.query(
+      `INSERT INTO move_revisions(
+         id,content_release_id,move_id,display_name,type_id,category,power,accuracy,priority,max_pp
+       ) VALUES($1,$2,$3,'Tackle',$4,'PHYSICAL',40,100,0,35)`,
+      [randomUUID(), publishedReleaseId, moveId, typeId],
+    );
+    publishedCaptureSnapshot = {
+      schemaVersion: 1,
+      formId,
+      speciesId,
+      level: 3,
+      type1Id: typeId,
+      type2Id: null,
+      baseStats: { hp: 40, attack: 45, defense: 40, spAttack: 35, spDefense: 35, speed: 56 },
+      ivs: { hp: 1, attack: 2, defense: 3, spAttack: 4, spDefense: 5, speed: 6 },
+      natureId,
+      abilityId,
+      moves: [{ moveId, ppCurrent: 35 }],
+      maxHp: 18,
+      currentHp: 1,
+      shiny: false,
+      gender: null,
+    };
     await pool.query(
       "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
       [publishedReleaseId, JSON.stringify({ valid: true, issues: [] }), "b".repeat(64)],
@@ -2329,5 +2423,205 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       [encounterId],
     );
     expect(battles.rows[0]?.n).toBe(0);
+  });
+  it("routes an authorized Ball to real CaptureService + PostgresCaptureRepository in disposable PG18", async () => {
+    // Unlike the unit test, this case commits real capture attempts, inventory
+    // ledger and encounter transitions in PostgreSQL. Auth/menu ports remain
+    // synthetic because the production WhatsApp runtime is never enabled.
+    const playerId = await trainer();
+    const encounterId = createEncounterId();
+    const captureRulesetId = randomUUID();
+    const captureConfig = {
+      schemaVersion: 1,
+      battle: {
+        statModel: "SIX_STATS",
+        physicalSpecialByMove: true,
+        ivEnabled: true,
+        evEnabled: false,
+        natureEnabled: true,
+        maxMoves: 4,
+        ppEnabled: true,
+        criticalMultiplierBasisPoints: 15000,
+        accuracyEvasionEnabled: true,
+      },
+      capture: {
+        model: "POKEMON_INSPIRED_V1",
+        maxProbabilityBasisPoints: 9500,
+        allowedEncounterStates: ["ENGAGED", "IN_BATTLE"],
+      },
+      defeat: { automaticMoneyLoss: false },
+      narrative: { authority: "N0_FLAVOR_ONLY" },
+    };
+    await pool.query(
+      `INSERT INTO rulesets(id,key,version,engine_contract_version,config,status)
+       VALUES($1,$2,1,1,$3::jsonb,'DRAFT')`,
+      [captureRulesetId, "pg18-real-capture-" + captureRulesetId, JSON.stringify(captureConfig)],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [captureRulesetId, JSON.stringify({ valid: true, issues: [] }), "c".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [
+      captureRulesetId,
+    ]);
+    await pool.query(
+      `INSERT INTO encounters(
+         id,player_id,area_id,status,content_release_id,ruleset_id,
+         rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
+         rng_counter,revision,creation_idempotency_key
+       ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        captureRulesetId,
+        Buffer.alloc(32, 0x55),
+        Buffer.alloc(12, 0x56),
+        Buffer.alloc(16, 0x57),
+        "pg18-real-capture-encounter-" + encounterId,
+      ],
+    );
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
+      [encounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query(
+      `INSERT INTO encounter_wild_snapshots(
+         encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at
+       ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
+      [encounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,1)", [
+      playerId,
+      publishedBallItemId,
+    ]);
+    const capture = new CaptureService(
+      new PostgresCaptureRepository(pool),
+      new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32)),
+    );
+    const outcomeId = randomUUID();
+    const destinationRef = "5579999999999@s.whatsapp.net";
+    const activeEncounters = new EncounterOperationalReadService(
+      new PostgresEncounterRepository(pool),
+    );
+    const gateway = new ExpeditionCanonicalChoiceStagingResolver(
+      {
+        async resolvePlayer() {
+          return ok({ playerId, state: "COMPLETE" as const, created: false });
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[0],
+      {
+        async resolve() {
+          return ok({ playerId, outcomeId, encounterId, encounterRevision: 2n });
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[1],
+      activeEncounters,
+      {
+        async resolve() {
+          return ok({
+            menuId: randomUUID(),
+            playerId,
+            outcomeId,
+            encounterId,
+            encounterRevision: 2n,
+            ballItemIds: { "2": publishedBallItemId },
+            actionable: true as const,
+            captureEnabled: true,
+            battleEnabled: false,
+          });
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[3],
+      capture,
+      {
+        async startCanonical(): Promise<never> {
+          throw new Error("Capture must not start PvE");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
+    );
+    const correlationId = createCorrelationId();
+    const context: MessageHandlerContext = {
+      inboxMessageId: randomUUID(),
+      causationId: randomUUID(),
+      correlationId,
+      idempotencyKey: "pg18-real-capture:" + encounterId,
+      message: {
+        provider: "baileys",
+        externalMessageId: randomUUID(),
+        senderRef: destinationRef,
+        chatRef: destinationRef,
+        occurredAt: "2026-11-02T01:50:00.000Z",
+        text: "2",
+        replyToExternalMessageId: randomUUID().replaceAll("-", "").toUpperCase(),
+        mediaRefs: [],
+      },
+    };
+    const first = await gateway.resolve(context);
+    expect(first).toMatchObject({
+      ok: true,
+      value: { resultRefType: "ENCOUNTER" },
+    });
+    if (!first.ok) throw new Error("Real capture repository declined the published test fixture");
+    const beforeReplay = await pool.query<{
+      attempts: number;
+      ledger: number;
+      internal_outbox: number;
+      balance: string;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM capture_attempts WHERE encounter_id=$1) AS attempts,
+         (SELECT count(*)::int FROM inventory_ledger
+          WHERE player_id=$2 AND item_id=$3 AND source_type='CAPTURE_ATTEMPT') AS ledger,
+         (SELECT count(*)::int FROM outbox_messages
+          WHERE channel='INTERNAL' AND idempotency_key LIKE 'capture.result:%'
+            AND payload->>'encounterId'=$1::text) AS internal_outbox,
+         (SELECT quantity::text FROM inventory_balances
+          WHERE player_id=$2 AND item_id=$3) AS balance`,
+      [encounterId, playerId, publishedBallItemId],
+    );
+    expect(beforeReplay.rows).toMatchObject([
+      { attempts: 1, ledger: 1, internal_outbox: 1, balance: "0" },
+    ]);
+    const replay = await capture.attempt({
+      playerId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      expectedBattleVersion: null,
+      ballItemId: publishedBallItemId,
+      idempotencyKey: context.idempotencyKey,
+      correlationId: createCorrelationId(),
+      causationId: context.causationId,
+    });
+    expect(replay).toMatchObject({ ok: true, value: { replayed: true } });
+    const afterReplay = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM capture_attempts WHERE encounter_id=$1) AS attempts,
+         (SELECT count(*)::int FROM inventory_ledger
+          WHERE player_id=$2 AND item_id=$3 AND source_type='CAPTURE_ATTEMPT') AS ledger,
+         (SELECT count(*)::int FROM outbox_messages
+          WHERE channel='INTERNAL' AND payload->>'encounterId'=$1::text) AS internal_outbox,
+         (SELECT quantity::text FROM inventory_balances
+          WHERE player_id=$2 AND item_id=$3) AS balance`,
+      [encounterId, playerId, publishedBallItemId],
+    );
+    expect(afterReplay.rows).toEqual(beforeReplay.rows);
+    const competing = await capture.attempt({
+      playerId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      expectedBattleVersion: null,
+      ballItemId: publishedBallItemId,
+      idempotencyKey: "pg18-competing-capture:" + encounterId,
+      correlationId: createCorrelationId(),
+      causationId: null,
+    });
+    expect(competing.ok).toBe(false);
+    // Even a distinct submitted action cannot consume a second Ball after
+    // the first canonical transaction changed the encounter revision/status.
+    const final = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [playerId, publishedBallItemId],
+    );
+    expect(final.rows[0]?.quantity).toBe("0");
   });
 });
