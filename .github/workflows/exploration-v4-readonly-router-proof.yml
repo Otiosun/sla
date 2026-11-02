@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - fix/ux-combat-contextual-reconciliation-20261102
+      - fix/ux-pvp-accepted-start-resume-20261102
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/battle/pve-scene-whatsapp.ts"
