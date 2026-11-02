@@ -1823,7 +1823,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     };
     // A canonical SENT quote *without* an issued menu is deliberately inert.
     expect(await stagingReply.resolve(replyContext)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     // Issued menu receipt is immutable, binds provider quote to exact Ball
     // IDs and must never authorize a reply when a newer delivered menu exists.
@@ -1861,7 +1862,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     const issuedReply = await stagingReply.resolve(replyContext);
     expect(issuedReply).toMatchObject({
-      ok: true, value: { resultRefId: null, resultRefType: null },
+      ok: true,
+      value: { resultRefId: null, resultRefType: null },
     });
     if (issuedReply.ok && issuedReply.value !== null) {
       expect(issuedReply.value.outgoing).toHaveLength(1);
@@ -1928,7 +1930,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       error: { code: "FLOW_BLOCKED" },
     });
     expect(await stagingReply.resolve(replyContext)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
     expect(
       await menuProof.resolve({
