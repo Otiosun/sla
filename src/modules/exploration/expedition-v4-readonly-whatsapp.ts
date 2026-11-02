@@ -16,7 +16,11 @@ import {
 } from "./expedition-clock.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
 import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
-import { renderExpeditionV4OpeningPanel } from "./expedition-v4-preparation-panel.js";
+import {
+  renderExpeditionV4OpeningPanel,
+  renderExpeditionV4PreparingPanel,
+} from "./expedition-v4-preparation-panel.js";
+import { renderExpeditionV4ActivePanel } from "./expedition-v4-active-panel.js";
 import { renderExpeditionV4SearchResultPanel } from "./expedition-v4-search-result-panel.js";
 
 /**
@@ -246,7 +250,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
-    if (searchFree && this.deps.search !== undefined) {
+    // A numeric option is contextual, not a second day-preparation command:
+    // in NONE, /explorar 1 selects day; in PREPARING/ACTIVE, /explorar 1
+    // is SEARCH_FREE only when the real search writer is configured.
+    const searchRequested =
+      searchFree || (this.deps.search !== undefined && token === "1" && state !== "NONE");
+    if (searchRequested && this.deps.search !== undefined) {
       const current = facts.expedition;
       if (current === null || (current.phase !== "PREPARING" && current.phase !== "ACTIVE")) {
         return err(appError("FLOW_BLOCKED", "Não há expedição para buscar nesta área."));
@@ -340,6 +349,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       );
     }
     if (period !== null && this.deps.preparation !== undefined) {
+      if (state !== "NONE") {
+        return err(appError("FLOW_BLOCKED", "This period choice is no longer the current expedition menu"));
+      }
       // The canonical repo owns locks, World release, weekly quota and
       // idempotency. We never grant resources or advance expedition time here.
       const result = await this.deps.preparation.prepare({
@@ -373,7 +385,14 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "*⌛ 12h* disponíveis",
           "*🎟️ Cota ainda não consumida*",
           "",
-          "> _Prévia de preparação: buscas, captura e viagem continuam desativadas._",
+          ...(this.deps.search === undefined
+            ? ["> _Prévia de preparação: buscas, captura e viagem continuam desativadas._"]
+            : [
+                "◇ *𝗔ÇÕ𝗘𝗦*",
+                "1. 🔎 Buscar Pokémon ● `30 min`",
+                "› _Use /explorar 1 ou /explorar buscar para iniciar a busca._",
+                "› _Recursos e viagem ainda não estão disponíveis._",
+              ]),
           "› _Use /explorar status para consultar a expedição._",
         ].join("\n"),
       );
@@ -397,6 +416,65 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "",
           "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
           "› _Busca, viagem e captura ainda não estão liberadas._",
+        ].join("\n"),
+      );
+    }
+    // Render the approved V4 state hierarchy only when the canonical search
+    // service is actually wired. Non-existent resource/travel/end actions are
+    // not offered. Until device calibration, display every action accessibly
+    // with combiningCount=0 instead of faking the native WhatsApp fold.
+    if (this.deps.search !== undefined && facts.expedition !== null) {
+      if (state === "PREPARING") {
+        const current = facts.expedition;
+        const shown = renderExpeditionV4PreparingPanel({
+          expedition: current,
+          locationName: location,
+          remainingThisWeek: quota.remaining,
+          choices: [
+            {
+              optionNo: 1,
+              intent: "SEARCH_FREE",
+              label: "🔎 Buscar Pokémon ● 30 min",
+              phrases: [],
+            },
+          ],
+          combiningCount: 0,
+        });
+        if (!shown.ok) return shown;
+        return privateText(
+          context,
+          [
+            shown.value.text,
+            "› _Busque: /explorar 1 ou /explorar buscar._",
+            "› _Alterar gratuitamente: /explorar periodo dia ou /explorar periodo noite._",
+            "› _Cancelar preparação: /explorar cancelar._",
+            "› _Recursos e destinos ainda não estão habilitados._",
+          ].join("\n"),
+        );
+      }
+      const clock = expeditionClock(facts.expedition.period, facts.expedition.elapsedMinutes);
+      const shown = renderExpeditionV4ActivePanel({
+        phase: "ACTIVE",
+        period: facts.expedition.period,
+        currentTime: clock.currentTime,
+        elapsedMinutes: facts.expedition.elapsedMinutes,
+        choices: [
+          {
+            optionNo: 1,
+            intent: "SEARCH_FREE",
+            label: "🔎 Buscar Pokémon ● 30 min",
+            phrases: [],
+          },
+        ],
+        combiningCount: 0,
+      });
+      if (!shown.ok) return shown;
+      return privateText(
+        context,
+        [
+          shown.value.text,
+          "› _Busque: /explorar 1 ou /explorar buscar._",
+          "› _Recursos, viagem e encerramento ainda não estão habilitados._",
         ].join("\n"),
       );
     }

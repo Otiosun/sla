@@ -583,6 +583,78 @@ describe("published search staging-only WhatsApp command", () => {
     expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
   });
 
+  it("presents V4 PREPARING actions only when search is operational", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 1 });
+    const result = await f.route.handler.handle(context("/explorar status"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*");
+    expect(text).toContain("◇ *𝗔ÇÕ𝗘𝗦*");
+    expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
+    expect(text).toContain("/explorar periodo noite");
+    expect(text).not.toContain("2. 🎒");
+    expect(text).not.toContain("[Ler mais]");
+    expect(text).not.toContain("\\u031d");
+  });
+
+  it("presents V4 ACTIVE compact clock and only executable search", async () => {
+    const f = stagingSearch();
+    const active = {
+      ...preparing,
+      phase: "ACTIVE" as const,
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+      revision: 1n,
+    };
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    const result = await f.route.handler.handle(context("/explorar status"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("◇ *𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*");
+    expect(text).toContain("11h30");
+    expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
+    expect(text).not.toContain("2. 🎒");
+    expect(text).not.toContain("4. 📋 Encerrar");
+    expect(text).not.toContain("[Ler mais]");
+  });
+
+  it("routes contextual /explorar 1 into SEARCH only once PREPARING or ACTIVE", async () => {
+    const f = stagingSearch();
+    const result = await f.route.handler.handle(context("/explorar 1"));
+    expect(result.ok).toBe(true);
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(f.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId,
+        expeditionId: preparing.expeditionId,
+        expectedRevision: preparing.revision,
+      }),
+    );
+  });
+
+  it("denies stale period choices in PREPARING or ACTIVE rather than re-preparing", async () => {
+    const f = stagingSearch();
+    for (const item of [
+      preparing,
+      {
+        ...preparing,
+        phase: "ACTIVE" as const,
+        elapsedMinutes: 30,
+        consumedWeekKey: "2026-10-26",
+      },
+    ]) {
+      f.read.mockResolvedValueOnce({ expedition: item, usedThisWeek: 1 });
+      expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
+      f.read.mockResolvedValueOnce({ expedition: item, usedThisWeek: 1 });
+      expect((await f.route.handler.handle(context("/explorar dia"))).ok).toBe(false);
+    }
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
   it("does not allow search to run through an unnamespaced numeric or freeform request", async () => {
     const f = stagingSearch();
     for (const input of [
