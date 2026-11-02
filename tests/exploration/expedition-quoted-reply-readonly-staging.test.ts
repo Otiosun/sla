@@ -59,6 +59,26 @@ function setup() {
       }>
     > => ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null }),
   );
+  const issued = vi.fn(
+    async (): Promise<
+      Result<{
+        menuId: string;
+        playerId: typeof playerId;
+        outcomeId: string;
+        encounterId: string;
+        encounterRevision: bigint;
+        ballItemIds: Readonly<Record<string, string>>;
+      }>
+    > =>
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": randomUUID(), "3": randomUUID(), "4": randomUUID() },
+      }),
+  );
   const resolver = new ExpeditionQuotedReplyReadOnlyStagingResolver(
     { resolvePlayer } as unknown as ConstructorParameters<
       typeof ExpeditionQuotedReplyReadOnlyStagingResolver
@@ -69,12 +89,15 @@ function setup() {
     { activeForPlayer } as unknown as ConstructorParameters<
       typeof ExpeditionQuotedReplyReadOnlyStagingResolver
     >[2],
+    { resolve: issued } as unknown as ConstructorParameters<
+      typeof ExpeditionQuotedReplyReadOnlyStagingResolver
+    >[3],
   );
-  return { resolver, resolvePlayer, resolve, activeForPlayer };
+  return { resolver, resolvePlayer, resolve, activeForPlayer, issued };
 }
 
 describe("V4 staging quoted reply read-only routing with authenticated player", () => {
-  it.each(["0", "1", "2", "3", "4"])(
+  it.each(["2", "3", "4"])(
     "binds quoted numeric choice %s to its player without executing an action",
     async (selection) => {
       const f = setup();
@@ -94,6 +117,13 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
         replyToExternalMessageId: quote,
       });
       expect(f.activeForPlayer).toHaveBeenCalledExactlyOnceWith(playerId);
+      expect(f.issued).toHaveBeenCalledExactlyOnceWith({
+        provider: "baileys",
+        playerId,
+        senderRef: recipient,
+        chatRef: recipient,
+        replyToExternalMessageId: quote,
+      });
       expect(answer.value.resultRefId).toBeNull();
       expect(answer.value.resultRefType).toBeNull();
       expect(answer.value.outgoing).toHaveLength(1);
@@ -104,7 +134,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
         idempotencyKey: "inbox:baileys:synthetic-reply:quoted-encounter-preview",
       });
       const text = String(answer.value.outgoing[0]?.payload.text);
-      expect(text).toContain("nenhuma ação foi executada");
+      expect(text).toContain("sem executar nenhuma ação");
       expect(text).not.toContain(encounterId);
       expect(text).not.toContain("Poké Ball ●");
     },
@@ -186,6 +216,62 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
       error: { code: "FLOW_BLOCKED" },
     });
     expect(f.activeForPlayer).toHaveBeenCalledExactlyOnceWith(playerId);
+  });
+
+  it.each(["0", "1"])(
+    "blocks non-issued action %s, even with a valid encounter",
+    async (selection) => {
+      const f = setup();
+      expect(await f.resolver.resolve(context(selection))).toMatchObject({
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      });
+    },
+  );
+
+  it("blocks a missing, superseded or forged issued menu after encounter verification", async () => {
+    const f = setup();
+    f.issued.mockResolvedValueOnce(err(appError("FLOW_BLOCKED", "Older menu was superseded")));
+    expect(await f.resolver.resolve(context("2"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+  });
+
+  it("blocks a menu whose saved outcome differs from the authenticated quoted encounter", async () => {
+    const f = setup();
+    f.issued.mockResolvedValueOnce(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        encounterId,
+        outcomeId: randomUUID(),
+        encounterRevision: 2n,
+        ballItemIds: { "2": randomUUID() },
+      }),
+    );
+    expect(await f.resolver.resolve(context("2"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+  });
+
+  it("blocks choice not included in the server-issued Ball IDs", async () => {
+    const f = setup();
+    f.issued.mockResolvedValueOnce(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        encounterId,
+        outcomeId,
+        encounterRevision: 2n,
+        ballItemIds: { "3": randomUUID() },
+      }),
+    );
+    expect(await f.resolver.resolve(context("2"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
   });
 
   it("returns a repeatable staging-only preview without any gameplay write port", async () => {
