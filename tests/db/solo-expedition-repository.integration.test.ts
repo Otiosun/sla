@@ -9,6 +9,7 @@ import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration
 import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
+import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
@@ -1831,6 +1832,106 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         "nenhuma ação foi executada",
       );
     }
+    // Issued menu receipt is immutable, binds provider quote to exact Ball
+    // IDs and must never authorize a reply when a newer delivered menu exists.
+    const menuProof = new PostgresExpeditionIssuedMenuReplyProof(pool);
+    const menuId = randomUUID();
+    const eligibleBallItemId = randomUUID();
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_snapshots(
+         id,player_id,outcome_id,encounter_id,encounter_revision,panel,ball_item_ids
+       ) VALUES($1,$2,$3,$4,2,$5::jsonb,$6::jsonb)`,
+      [
+        menuId,
+        playerId,
+        outcomeId,
+        encounterId,
+        JSON.stringify({ text: "synthetic menu, not sent by live WhatsApp" }),
+        JSON.stringify({ "2": eligibleBallItemId }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_deliveries(
+         id,menu_id,player_id,provider,chat_ref,external_message_id
+       ) VALUES($1,$2,$3,'baileys',$4,$5)`,
+      [randomUUID(), menuId, playerId, destinationRef, quoted.replyToExternalMessageId],
+    );
+    expect(await menuProof.resolve(quoted)).toEqual(
+      ok({
+        menuId,
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": eligibleBallItemId },
+      }),
+    );
+    const nextOutcomeId = randomUUID();
+    const nextMenuId = randomUUID();
+    const nextOutboxId = randomUUID();
+    const nextBallId = randomUUID();
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,1,'DIRECT',$4)`,
+      [nextOutcomeId, playerId, expedition.expeditionId, encounterId],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_snapshots(
+         id,player_id,outcome_id,encounter_id,encounter_revision,panel,ball_item_ids
+       ) VALUES($1,$2,$3,$4,2,$5::jsonb,$6::jsonb)`,
+      [
+        nextMenuId,
+        playerId,
+        nextOutcomeId,
+        encounterId,
+        JSON.stringify({ text: "newer immutable menu" }),
+        JSON.stringify({ "2": nextBallId }),
+      ],
+    );
+    // An un-delivered newer menu cannot invalidate the last usable menu.
+    expect((await menuProof.resolve(quoted)).ok).toBe(true);
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,sent_at,
+         payload,idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        nextOutboxId,
+        destinationRef,
+        JSON.stringify({
+          text: "newer menu staging-only",
+          expeditionSearch: { playerId, outcomeId: nextOutcomeId, encounterId },
+        }),
+        "newer-menu-pg18-" + nextOutboxId,
+        randomUUID(),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_deliveries(
+         id,menu_id,player_id,provider,chat_ref,external_message_id
+       ) VALUES($1,$2,$3,'baileys',$4,$5)`,
+      [randomUUID(), nextMenuId, playerId, destinationRef, nextOutboxId.replaceAll("-", "").toUpperCase()],
+    );
+    expect(await menuProof.resolve(quoted)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(
+      await menuProof.resolve({
+        ...quoted,
+        replyToExternalMessageId: nextOutboxId.replaceAll("-", "").toUpperCase(),
+      }),
+    ).toEqual(
+      ok({
+        menuId: nextMenuId,
+        playerId,
+        outcomeId: nextOutcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": nextBallId },
+      }),
+    );
     const otherPlayer = await trainer();
     expect(await quoteResolver.resolve({ ...quoted, playerId: otherPlayer })).toMatchObject({
       ok: false,
