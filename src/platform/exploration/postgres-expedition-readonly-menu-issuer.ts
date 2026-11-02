@@ -266,7 +266,12 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
              )
            )
          ORDER BY revision.display_name, balance.item_id`,
-        [input.playerId, releaseId, BALL_CHOICES.map((ball) => ball.displayName), this.issuanceMode],
+        [
+          input.playerId,
+          releaseId,
+          BALL_CHOICES.map((ball) => ball.displayName),
+          this.issuanceMode,
+        ],
       );
       const byName = new Map<string, { itemId: string; quantity: string }>();
       for (const row of inventory.rows) {
