@@ -2658,10 +2658,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
       [racingEncounterId, JSON.stringify(publishedCaptureSnapshot)],
     );
-    await pool.query(
-      "INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,1)",
-      [racingPlayerId, publishedBallItemId],
-    );
+    await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,1)", [
+      racingPlayerId,
+      publishedBallItemId,
+    ]);
     const raceBase = {
       playerId: racingPlayerId,
       encounterId: racingEncounterId,
@@ -2680,14 +2680,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       idempotencyKey: "pg18-racing-throw-B:" + racingEncounterId,
       correlationId: createCorrelationId(),
     };
-    const [raceA, raceB] = await Promise.all([
-      capture.attempt(choiceA),
-      capture.attempt(choiceB),
-    ]);
-    const winningKeys = [
-      ...(raceA.ok ? [choiceA] : []),
-      ...(raceB.ok ? [choiceB] : []),
-    ];
+    const [raceA, raceB] = await Promise.all([capture.attempt(choiceA), capture.attempt(choiceB)]);
+    const winningKeys = [...(raceA.ok ? [choiceA] : []), ...(raceB.ok ? [choiceB] : [])];
     expect(winningKeys).toHaveLength(1);
     expect([raceA.ok, raceB.ok].filter(Boolean)).toHaveLength(1);
     const racedCounts = await pool.query<{
