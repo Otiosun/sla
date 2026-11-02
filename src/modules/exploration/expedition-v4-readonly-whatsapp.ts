@@ -176,8 +176,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : "NIGHT";
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
+    const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     if (
-      !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
+      !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
       (this.deps.preparation === undefined ||
         (period === null && requestedPeriod === null && !cancel)) &&
       (!searchFree || this.deps.search === undefined)
@@ -250,6 +251,35 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
+    if (helpRequested) {
+      const choices = [
+        "› _Consulte o estado: /explorar status ou /explorar retomar._",
+        ...(state === "NONE" && this.deps.preparation !== undefined && quota.canPrepare
+          ? [
+              "1. ☀️ Diurno ● /explorar 1",
+              "2. 🌙 Noturno ● /explorar 2",
+              "› _Preparar não consome tempo nem cota semanal._",
+            ]
+          : []),
+        ...(state !== "NONE" && this.deps.search !== undefined
+          ? [
+              "1. 🔎 Buscar Pokémon ● `30 min`",
+              "› _Use /explorar 1 ou /explorar buscar._",
+            ]
+          : []),
+        ...(state === "PREPARING" && this.deps.preparation !== undefined
+          ? [
+              "› _Trocar período: /explorar periodo dia ou /explorar periodo noite._",
+              "› _Cancelar sem custo: /explorar cancelar._",
+            ]
+          : []),
+        "› _Recursos, viagem e relatório ainda não estão habilitados nesta versão isolada._",
+      ];
+      return privateText(
+        context,
+        ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"),
+      );
+    }
     // A numeric option is contextual, not a second day-preparation command:
     // in NONE, /explorar 1 selects day; in PREPARING/ACTIVE, /explorar 1
     // is SEARCH_FREE only when the real search writer is configured.
@@ -343,7 +373,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "*🎟️ Nenhuma cota consumida*",
           "*⌛ Nenhum minuto consumido*",
           "",
-          "> _As ações de busca e captura continuam desativadas nesta prévia._",
+          ...(requestedPeriod !== null && this.deps.search !== undefined
+            ? [
+                "1. 🔎 Buscar Pokémon ● `30 min`",
+                "› _Para buscar: /explorar 1 ou /explorar buscar._",
+              ]
+            : ["> _As ações de busca e captura continuam desativadas nesta prévia._"]),
           "› _Use /explorar status para consultar a situação._",
         ].join("\n"),
       );
@@ -417,7 +452,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           opening.value.text,
           "",
           "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
-          "› _Busca, viagem e captura ainda não estão liberadas._",
+          ...(this.deps.search === undefined
+            ? ["› _Busca, viagem e captura ainda não estão liberadas._"]
+            : ["› _Prepare um período para liberar a busca; recursos e viagem seguem indisponíveis._"]),
         ].join("\n"),
       );
     }

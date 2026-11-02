@@ -583,6 +583,50 @@ describe("published search staging-only WhatsApp command", () => {
     expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
   });
 
+  it("makes approved /explorar ajuda accurate for NONE and PREPARING without writes", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    const none = await f.route.handler.handle(context("/explorar ajuda"));
+    expect(none.ok).toBe(true);
+    if (!none.ok) return;
+    const start = String(none.value.outgoing[0]?.payload.text);
+    expect(start).toContain("1. ☀️ Diurno ● /explorar 1");
+    expect(start).toContain("2. 🌙 Noturno ● /explorar 2");
+    expect(start).not.toContain("Buscar Pokémon");
+
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 1 });
+    const prep = await f.route.handler.handle(context("/explorar ajuda"));
+    expect(prep.ok).toBe(true);
+    if (!prep.ok) return;
+    const available = String(prep.value.outgoing[0]?.payload.text);
+    expect(available).toContain("1. 🔎 Buscar Pokémon");
+    expect(available).toContain("/explorar cancelar");
+    expect(available).not.toContain("2. 🌙 Noturno");
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+  });
+
+  it("advertises search after period preparation but never enables resources or travel", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    const outcome = {
+      expedition: preparing,
+      replayed: false,
+      changed: true,
+      consumedWeeklySlot: false,
+    };
+    const prepare = vi.fn(async () => ok(outcome));
+    f.deps.preparation.prepare = prepare;
+    const returned = await f.route.handler.handle(context("/explorar 2"));
+    expect(returned.ok).toBe(true);
+    if (!returned.ok) return;
+    const panel = String(returned.value.outgoing[0]?.payload.text);
+    expect(panel).toContain("1. 🔎 Buscar Pokémon");
+    expect(panel).toContain("/explorar buscar");
+    expect(panel).not.toContain("buscas, captura e viagem continuam desativadas");
+    expect(prepare).toHaveBeenCalledOnce();
+  });
+
   it("presents V4 PREPARING actions only when search is operational", async () => {
     const f = stagingSearch();
     f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 1 });
