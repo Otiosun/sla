@@ -590,7 +590,7 @@ export function createOperationalMessagingComposition(
     offlineExpeditionChoices !== null &&
     message.provider === "baileys" &&
     message.chatRef === message.senderRef &&
-    /^[0-9]{5,20}@(s\\.whatsapp\\.net|lid)$/u.test(message.senderRef) &&
+    /^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/u.test(message.senderRef) &&
     /^[0-4]$/u.test(message.text?.trim() ?? "") &&
     message.replyToExternalMessageId !== null;
 
