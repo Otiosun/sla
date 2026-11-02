@@ -464,10 +464,7 @@ export class PostgresExpeditionRepository {
   ): Promise<Result<StoredExpeditionTransition>> {
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
-    if (
-      !/^[a-f0-9-]{36}$/iu.test(input.destinationAreaId) ||
-      input.expectedWorldRevision < 0n
-    ) {
+    if (!/^[a-f0-9-]{36}$/iu.test(input.destinationAreaId) || input.expectedWorldRevision < 0n) {
       return err(appError("VALIDATION_FAILED", "Invalid expedition travel destination/revision"));
     }
     const inputFingerprint = fingerprint([
