@@ -2056,6 +2056,138 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       availableBallId,
     ]);
     expect(await issuer.issue(issuedInput)).toEqual(preparedReplay);
+
+    // Prove that ACTIONABLE rights cannot be conferred by changing only the
+    // snapshot panel: the exact SENT Outbox must opt in with the same menu ID.
+    const wrongActionOutcome = randomUUID();
+    const wrongActionMenu = randomUUID();
+    const wrongActionOutbox = randomUUID();
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+        id,player_id,expedition_id,expedition_revision,kind,encounter_id
+      ) VALUES($1,$2,$3,3,'DIRECT',$4)`,
+      [wrongActionOutcome, playerId, expedition.expeditionId, encounterId],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_snapshots(
+        id,player_id,outcome_id,encounter_id,encounter_revision,panel,ball_item_ids
+      ) VALUES($1,$2,$3,$4,2,$5::jsonb,$6::jsonb)`,
+      [
+        wrongActionMenu,
+        playerId,
+        wrongActionOutcome,
+        encounterId,
+        JSON.stringify({ mode: "ACTIONABLE", actions: ["CAPTURE", "BATTLE"] }),
+        JSON.stringify({ "2": availableBallId }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO outbox_messages(
+        id,channel,message_type,destination_ref,status,sent_at,payload,idempotency_key,correlation_id
+      ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        wrongActionOutbox,
+        destinationRef,
+        JSON.stringify({
+          text: "Mismatch: do not allow mechanical actions",
+          expeditionSearch: {
+            playerId,
+            outcomeId: wrongActionOutcome,
+            encounterId,
+          },
+          expeditionMenu: { menuId: wrongActionMenu, mode: "READ_ONLY" },
+        }),
+        "nonactionable-mismatch-pg18-" + wrongActionOutbox,
+        randomUUID(),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_deliveries(
+        id,menu_id,player_id,provider,chat_ref,external_message_id
+      ) VALUES($1,$2,$3,'baileys',$4,$5)`,
+      [
+        randomUUID(),
+        wrongActionMenu,
+        playerId,
+        destinationRef,
+        wrongActionOutbox.replaceAll("-", "").toUpperCase(),
+      ],
+    );
+    expect(
+      await menuProof.resolve({
+        ...quoted,
+        replyToExternalMessageId: wrongActionOutbox.replaceAll("-", "").toUpperCase(),
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+
+    const actionOutcome = randomUUID();
+    const actionMenu = randomUUID();
+    const actionOutbox = randomUUID();
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+        id,player_id,expedition_id,expedition_revision,kind,encounter_id
+      ) VALUES($1,$2,$3,4,'DIRECT',$4)`,
+      [actionOutcome, playerId, expedition.expeditionId, encounterId],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_snapshots(
+        id,player_id,outcome_id,encounter_id,encounter_revision,panel,ball_item_ids,created_at
+      ) VALUES($1,$2,$3,$4,2,$5::jsonb,$6::jsonb,now()+interval '5 seconds')`,
+      [
+        actionMenu,
+        playerId,
+        actionOutcome,
+        encounterId,
+        JSON.stringify({ mode: "ACTIONABLE", actions: ["CAPTURE", "BATTLE"] }),
+        JSON.stringify({ "2": availableBallId }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO outbox_messages(
+        id,channel,message_type,destination_ref,status,sent_at,payload,idempotency_key,correlation_id
+      ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        actionOutbox,
+        destinationRef,
+        JSON.stringify({
+          text: "Synthetic mechanical consent: NOT sent to WhatsApp",
+          expeditionSearch: { playerId, outcomeId: actionOutcome, encounterId },
+          expeditionMenu: { menuId: actionMenu, mode: "ACTIONABLE" },
+        }),
+        "actionable-consent-pg18-" + actionOutbox,
+        randomUUID(),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_deliveries(
+        id,menu_id,player_id,provider,chat_ref,external_message_id
+      ) VALUES($1,$2,$3,'baileys',$4,$5)`,
+      [
+        randomUUID(),
+        actionMenu,
+        playerId,
+        destinationRef,
+        actionOutbox.replaceAll("-", "").toUpperCase(),
+      ],
+    );
+    expect(
+      await menuProof.resolve({
+        ...quoted,
+        replyToExternalMessageId: actionOutbox.replaceAll("-", "").toUpperCase(),
+      }),
+    ).toEqual(
+      ok({
+        menuId: actionMenu,
+        playerId,
+        outcomeId: actionOutcome,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": availableBallId },
+        actionable: true,
+        captureEnabled: true,
+        battleEnabled: true,
+      }),
+    );
     const otherPlayer = await trainer();
     expect(await quoteResolver.resolve({ ...quoted, playerId: otherPlayer })).toMatchObject({
       ok: false,
