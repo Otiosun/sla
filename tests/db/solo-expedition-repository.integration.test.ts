@@ -2727,9 +2727,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     // Even after a committed capture, a modified text with the same external
     // message ID is NOT a replay. The persisted normalized fingerprint wins.
-    expect(
-      await recoveryMessage.receive({ ...realContext.message, text: "3" }),
-    ).toMatchObject({ ok: false, error: { code: "FINGERPRINT_MISMATCH" } });
+    expect(await recoveryMessage.receive({ ...realContext.message, text: "3" })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
     const deliveredAgain = await recoveryMessage.receive(realContext.message);
     if (!deliveredAgain.ok) {
       throw new Error("Capture reply retry error: " + JSON.stringify(deliveredAgain.error));
@@ -2761,7 +2762,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         {
           channel: "whatsapp",
           send: async (outgoing) => {
-            if (outgoing.idempotencyKey === claimedContext.idempotencyKey + ":expedition-canonical-capture") {
+            if (
+              outgoing.idempotencyKey ===
+              claimedContext.idempotencyKey + ":expedition-canonical-capture"
+            ) {
               sentConfirmations.push(outgoing.id);
             }
             return { providerExternalMessageId: outgoing.id.replaceAll("-", "").toUpperCase() };
