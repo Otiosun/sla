@@ -39,6 +39,7 @@ function harness(input: {
   hook?: ConstructorParameters<typeof OutboxWorker>[4];
   outbound?: PendingOutboxMessage;
   failSend?: boolean;
+  failPreparation?: boolean;
   failMarkSent?: boolean;
   quarantineUnknownDelivery?: boolean;
 }) {
@@ -78,7 +79,13 @@ function harness(input: {
       maxBackoffMs: 60_000,
       ...(input.quarantineUnknownDelivery ? { quarantineUnknownDelivery: true } : {}),
     },
-    undefined,
+    input.failPreparation
+      ? {
+          async prepare() {
+            throw new Error("preparation rejected");
+          },
+        }
+      : undefined,
     input.hook,
   );
   return { worker, events, failedCalls, claimOptions };
@@ -148,12 +155,23 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
     expect(claimOptions).toMatchObject([{ quarantineStaleSending: true }]);
   });
 
-  it("retains retry for an actual transport rejection in staging", async () => {
+  it("quarantines a rejected provider call whose delivery outcome is unknown", async () => {
     const { worker, failedCalls } = harness({
       failSend: true,
       quarantineUnknownDelivery: true,
     });
     expect(await worker.runOnce()).toMatchObject({ sent: 0, failed: 1 });
+    expect(failedCalls[0]?.errorCode).toBe("OUTBOX_TRANSPORT_OUTCOME_UNKNOWN");
+    expect(failedCalls[0]?.retryAt).toBeNull();
+  });
+
+  it("retries a preparation failure before any provider send attempt", async () => {
+    const { worker, events, failedCalls } = harness({
+      failPreparation: true,
+      quarantineUnknownDelivery: true,
+    });
+    expect(await worker.runOnce()).toMatchObject({ sent: 0, failed: 1 });
+    expect(events).toEqual(["FAILED"]);
     expect(failedCalls[0]?.errorCode).toBe("OUTBOX_DELIVERY_FAILED");
     expect(failedCalls[0]?.retryAt).toBeInstanceOf(Date);
   });
