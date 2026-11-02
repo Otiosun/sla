@@ -762,6 +762,22 @@ export class PostgresExpeditionRepository {
       if (prior !== null) return prior;
       const original = await lockedExpedition(client, input.playerId, input.expeditionId);
       if (original === null) return unavailable();
+      if (input.reason === "VOLUNTARY") {
+        // A voluntary closure must not strand an already displayed wild,
+        // pending capture or live battle. Same player lock as the end receipt.
+        const pending = await client.query(
+          `SELECT 1 FROM encounters
+           WHERE player_id=$1
+             AND status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE')
+           LIMIT 1`,
+          [input.playerId],
+        );
+        if (pending.rowCount !== 0) {
+          return err(
+            appError("FLOW_BLOCKED", "Resolve the encounter before ending your expedition"),
+          );
+        }
+      }
       const transition = endExpedition({
         expedition: original,
         expectedRevision: input.expectedRevision,
