@@ -642,8 +642,109 @@ describe("published search staging-only WhatsApp command", () => {
     expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
     expect(text).toContain("/explorar periodo noite");
     expect(text).not.toContain("2. 🎒");
+    expect(text).toContain("3. 🗺️ Consultar destinos");
     expect(text).not.toContain("[Ler mais]");
     expect(text).not.toContain("\\u031d");
+  });
+
+  it("consults only unlocked, published, launch-area destinations without any write", async () => {
+    const f = stagingSearch();
+    const candidate = {
+      connectionId: randomUUID(),
+      connectionKey: "yun-to-vila",
+      destinationAreaId: randomUUID(),
+      destinationSlug: "vila-dos-arrozais",
+      destinationDisplayName: "Vila dos Arrozais",
+      available: true,
+      missingUnlockKeys: [] as string[],
+    };
+    f.getLocation.mockResolvedValue(
+      ok({
+        ...location,
+        connections: [
+          candidate,
+          { ...candidate, connectionId: randomUUID() },
+          {
+            ...candidate,
+            destinationAreaId: randomUUID(),
+            destinationSlug: "hidden-secret",
+            destinationDisplayName: "Área Secreta",
+          },
+          {
+            ...candidate,
+            destinationAreaId: randomUUID(),
+            destinationDisplayName: "Proibido por chave",
+            missingUnlockKeys: ["unlock-secret"],
+          },
+          {
+            ...candidate,
+            destinationAreaId: randomUUID(),
+            destinationDisplayName: "Conexão indisponível",
+            available: false,
+          },
+        ],
+      }),
+    );
+    const result = await f.route.handler.handle(context("/explorar 3"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const body = String(result.value.outgoing[0]?.payload.text);
+    expect(body.match(/• Vila dos Arrozais/gu)).toHaveLength(1);
+    expect(body).not.toContain("Área Secreta");
+    expect(body).not.toContain("Proibido por chave");
+    expect(body).not.toContain("Conexão indisponível");
+    expect(body).toContain("Consulta gratuita");
+    expect(body).toContain("deslocamento ainda não está disponível");
+    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+    expect(f.preparation.end).not.toHaveBeenCalled();
+  });
+
+  it("fails safely for missing, unsafe or foreign World destination state", async () => {
+    const f = stagingSearch();
+    f.getLocation.mockResolvedValueOnce(ok({ ...location, connections: [] }));
+    const empty = await f.route.handler.handle(context("/explorar destinos"));
+    expect(empty.ok).toBe(true);
+    if (empty.ok) {
+      const body = String(empty.value.outgoing[0]?.payload.text);
+      expect(body).toContain("Nenhum destino acessível confirmado");
+      expect(body).not.toContain("1. ");
+    }
+    f.getLocation.mockResolvedValueOnce(
+      ok({
+        ...location,
+        connections: [{
+          connectionId: randomUUID(),
+          connectionKey: "unsafe",
+          destinationAreaId: randomUUID(),
+          destinationSlug: "vila-dos-arrozais",
+          destinationDisplayName: "Bait [Ler mais] /comando",
+          available: true,
+          missingUnlockKeys: [],
+        }],
+      }),
+    );
+    expect(await f.route.handler.handle(context("/explorar 3"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    f.getLocation.mockResolvedValueOnce(ok({ ...location, playerId: createPlayerId() }));
+    expect((await f.route.handler.handle(context("/explorar 3"))).ok).toBe(false);
+  });
+
+  it("does not permit destinations before preparing or through read-only production routes", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    expect((await f.route.handler.handle(context("/explorar 3"))).ok).toBe(false);
+    const readonly = createExpeditionV4ReadOnlyRoutes(f.deps)[0]!;
+    const denied = await readonly.handler.handle(context("/explorar 3"));
+    expect(denied.ok).toBe(true);
+    if (denied.ok) {
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    }
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
   });
 
   it("presents V4 ACTIVE compact clock and only executable search", async () => {
@@ -664,6 +765,7 @@ describe("published search staging-only WhatsApp command", () => {
     expect(text).toContain("11h30");
     expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
     expect(text).not.toContain("2. 🎒");
+    expect(text).toContain("3. 🗺️ Consultar destinos");
     expect(text).toContain("4. 📋 Encerrar");
     expect(text).not.toContain("[Ler mais]");
   });
