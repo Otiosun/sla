@@ -93,13 +93,25 @@ export class PostgresExpeditionIssuedMenuReplyProof {
          AND upper(delivery.external_message_id) = upper($3)
          AND delivery.player_id = $4
          AND menu.player_id = $4
-         -- A newer menu for the same encounter supersedes the older version,
-         -- even if the underlying encounter revision is unchanged.
+         -- Supersede an old menu only once a different menu for the SAME
+         -- Encounter was actually delivered; pending previews cannot revoke
+         -- working choices. Tied issue timestamps fail closed.
          AND NOT EXISTS (
            SELECT 1 FROM solo_incidental_menu_snapshots newer
+           JOIN solo_incidental_menu_deliveries newer_delivery
+             ON newer_delivery.menu_id = newer.id
+            AND newer_delivery.player_id = menu.player_id
+           JOIN outbox_messages newer_outbox
+             ON newer_outbox.channel = 'whatsapp'
+            AND newer_outbox.message_type = 'TEXT'
+            AND newer_outbox.status = 'SENT'
+            AND newer_outbox.sent_at IS NOT NULL
+            AND newer_outbox.destination_ref = newer_delivery.chat_ref
+            AND upper(replace(newer_outbox.id::text, '-', '')) = upper(newer_delivery.external_message_id)
            WHERE newer.player_id = menu.player_id
              AND newer.encounter_id = menu.encounter_id
-             AND (newer.created_at, newer.id) > (menu.created_at, menu.id)
+             AND newer.id <> menu.id
+             AND newer.created_at >= menu.created_at
          )
        LIMIT 2`,
       [input.provider, input.senderRef, quoted, input.playerId],
@@ -124,7 +136,10 @@ export class PostgresExpeditionIssuedMenuReplyProof {
     const entries = Object.entries(row.ball_item_ids);
     if (
       entries.length > 3 ||
-      entries.some(([choice, itemId]) => !["2", "3", "4"].includes(choice) || typeof itemId !== "string" || !UUID.test(itemId)) ||
+      entries.some(
+        ([choice, itemId]) =>
+          !["2", "3", "4"].includes(choice) || typeof itemId !== "string" || !UUID.test(itemId),
+      ) ||
       new Set(entries.map(([, itemId]) => itemId)).size !== entries.length
     ) {
       return err(appError("FLOW_BLOCKED", "Issued menu has invalid immutable Ball choices"));
