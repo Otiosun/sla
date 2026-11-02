@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - test/exploration-quoted-reply-pg18-release-gate-20261101
+      - test/uat-completion-temp-postgres-pg18-20261101
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"
@@ -19,6 +19,8 @@ on:
       - "src/platform/messaging/postgres-messaging-repository.ts"
       - "src/platform/exploration/postgres-expedition-quoted-encounter-proof.ts"
       - "tests/exploration/expedition-quoted-encounter-proof.test.ts"
+      - "src/platform/exploration/postgres-expedition-issued-menu-reply-proof.ts"
+      - "tests/exploration/expedition-issued-menu-reply-proof.test.ts"
       - "src/modules/exploration/expedition-quoted-reply-readonly-staging.ts"
       - "tests/exploration/expedition-quoted-reply-readonly-staging.test.ts"
       - "docs/release/LOCAL_CUTOVER_AND_ANNOUNCEMENT_GATE_20261101.md"
@@ -66,11 +68,11 @@ jobs:
           test ! -d auth_info_baileys
       - name: Format all changed source files
         run: |
-          pnpm exec biome format src/modules/exploration/expedition-quoted-reply-readonly-staging.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts src/platform/exploration/postgres-expedition-quoted-encounter-proof.ts tests/exploration/expedition-quoted-encounter-proof.test.ts src/modules/messaging/service.ts src/modules/messaging/ports.ts src/platform/messaging/postgres-messaging-repository.ts src/modules/exploration/expedition-search-post-sent-hook.ts src/platform/exploration/postgres-expedition-post-sent-recovery.ts tests/exploration/expedition-search-post-sent-worker.test.ts src/platform/exploration/postgres-expedition-search-sent-proof.ts src/modules/exploration/expedition-search-engagement-after-sent.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts src/platform/exploration/postgres-expedition-search-encounter-preview.ts src/modules/exploration/expedition-v4-search-result-panel.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts src/platform/exploration/postgres-expedition-v4-search.ts src/modules/exploration/expedition-v4-readonly-whatsapp.ts src/platform/exploration/postgres-expedition-v4-status-reader.ts src/runtime/compose-whatsapp-runtime.ts src/runtime/compose-simulated-whatsapp-runtime.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/db/solo-expedition-repository.integration.test.ts
+          pnpm exec biome format src/platform/exploration/postgres-expedition-issued-menu-reply-proof.ts tests/exploration/expedition-issued-menu-reply-proof.test.ts src/modules/exploration/expedition-quoted-reply-readonly-staging.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts src/platform/exploration/postgres-expedition-quoted-encounter-proof.ts tests/exploration/expedition-quoted-encounter-proof.test.ts src/modules/messaging/service.ts src/modules/messaging/ports.ts src/platform/messaging/postgres-messaging-repository.ts src/modules/exploration/expedition-search-post-sent-hook.ts src/platform/exploration/postgres-expedition-post-sent-recovery.ts tests/exploration/expedition-search-post-sent-worker.test.ts src/platform/exploration/postgres-expedition-search-sent-proof.ts src/modules/exploration/expedition-search-engagement-after-sent.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts src/platform/exploration/postgres-expedition-search-encounter-preview.ts src/modules/exploration/expedition-v4-search-result-panel.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts src/platform/exploration/postgres-expedition-v4-search.ts src/modules/exploration/expedition-v4-readonly-whatsapp.ts src/platform/exploration/postgres-expedition-v4-status-reader.ts src/runtime/compose-whatsapp-runtime.ts src/runtime/compose-simulated-whatsapp-runtime.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/db/solo-expedition-repository.integration.test.ts
       - name: Compile and prove read-only router
         run: |
           pnpm exec tsc --noEmit
-          pnpm exec vitest run tests/exploration/expedition-quoted-reply-readonly-staging.test.ts tests/exploration/expedition-quoted-encounter-proof.test.ts tests/exploration/expedition-search-post-sent-worker.test.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts tests/messaging/runtime-command-policy-gate.test.ts
+          pnpm exec vitest run tests/exploration/expedition-issued-menu-reply-proof.test.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts tests/exploration/expedition-quoted-encounter-proof.test.ts tests/exploration/expedition-search-post-sent-worker.test.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts tests/messaging/runtime-command-policy-gate.test.ts
       - name: Build candidate without release
         run: pnpm build
 
