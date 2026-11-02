@@ -395,12 +395,14 @@ export class OutboxWorker {
         await this.repository.markOutboxFailed({
           outboxMessageId: message.id,
           errorCode: uncertain ? "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED" : "OUTBOX_DELIVERY_FAILED",
-          retryAt: uncertain ? null : retryAtForAttempt({
-            attempts: message.attempts,
-            maxAttempts: this.options.maxAttempts,
-            baseBackoffMs: this.options.baseBackoffMs,
-            maxBackoffMs: this.options.maxBackoffMs,
-          }),
+          retryAt: uncertain
+            ? null
+            : retryAtForAttempt({
+                attempts: message.attempts,
+                maxAttempts: this.options.maxAttempts,
+                baseBackoffMs: this.options.baseBackoffMs,
+                maxBackoffMs: this.options.maxBackoffMs,
+              }),
           maxAttempts: this.options.maxAttempts,
         });
         failed += 1;
