@@ -2747,10 +2747,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       [claimedContext.idempotencyKey + ":expedition-canonical-capture"],
     );
     expect(recoveredOutgoing.rows).toHaveLength(1);
-    expect(recoveredOutgoing.rows[0]).toMatchObject({
-      status: "PENDING",
-      text: expect.stringContaining("CAPTURA"),
-    });
+    expect(recoveredOutgoing.rows[0]?.status).toBe("PENDING");
+    expect(recoveredOutgoing.rows[0]?.text).toBe(first.value?.outgoing[0]?.payload.text);
     const recordedCapture = await pool.query<{ count: number }>(
       "SELECT count(*)::int AS count FROM capture_attempts WHERE encounter_id=$1",
       [encounterId],
