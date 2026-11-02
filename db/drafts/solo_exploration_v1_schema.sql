@@ -143,10 +143,8 @@ CREATE TRIGGER solo_incidental_menu_delivery_immutable
   FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
 
 
--- Immutable, offline-only proof that a PARTICULAR claimed Inbox triggered a
--- canonical PvE battle in the same SQL transaction as its initialization.
--- A battle linked only to an Encounter is not sufficient for confirmation
--- recovery: the receipt also binds the original Inbox and issued menu.
+-- Immutable OFFLINE proof that a specific claimed Inbox triggered a
+-- canonical PvE battle in the same SQL transaction as initialization.
 CREATE TABLE solo_expedition_battle_receipts (
   player_id UUID NOT NULL REFERENCES players(id),
   idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
@@ -156,40 +154,7 @@ CREATE TABLE solo_expedition_battle_receipts (
   encounter_id UUID NOT NULL REFERENCES encounters(id),
   encounter_revision BIGINT NOT NULL CHECK (encounter_revision >= 0),
   battle_id UUID NOT NULL UNIQUE REFERENCES battles(id),
-  fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64} No default
--- percentages are invented. Published content is not editable from gameplay.
-CREATE TABLE solo_search_outcome_policies (
-  id UUID PRIMARY KEY,
-  content_release_id UUID NOT NULL REFERENCES content_releases(id),
-  area_id UUID NOT NULL REFERENCES areas(id),
-  period TEXT NOT NULL CHECK (period IN ('DAY', 'NIGHT')),
-  weights JSONB NOT NULL CHECK (jsonb_typeof(weights) = 'object'),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(content_release_id, area_id, period)
-);
-COMMENT ON TABLE solo_search_outcome_policies IS
-  'Draft-only: approved 10000-basis-point outcome weights; none seeded or inferred.';
-
-CREATE FUNCTION prevent_unapproved_search_policy_write() RETURNS trigger
-LANGUAGE plpgsql AS $$
-DECLARE release_status TEXT;
-BEGIN
-  IF TG_OP = 'DELETE' THEN
-    SELECT status INTO release_status FROM content_releases WHERE id=OLD.content_release_id;
-  ELSE
-    SELECT status INTO release_status FROM content_releases WHERE id=NEW.content_release_id;
-  END IF;
-  IF release_status IS DISTINCT FROM 'DRAFT' THEN
-    RAISE EXCEPTION 'Outcome weights may be authored only before release approval';
-  END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END;
-$$;
-CREATE TRIGGER solo_search_outcome_policy_draft_only
-  BEFORE INSERT OR UPDATE OR DELETE ON solo_search_outcome_policies
-  FOR EACH ROW EXECUTE FUNCTION prevent_unapproved_search_policy_write();
-),
+  fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (player_id,idempotency_key)
 );
@@ -197,7 +162,8 @@ CREATE TRIGGER solo_expedition_battle_receipt_immutable
   BEFORE UPDATE OR DELETE ON solo_expedition_battle_receipts
   FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
 COMMENT ON TABLE solo_expedition_battle_receipts IS
-  'STAGING only: exact Inbox and SENT ACTIONABLE menu -> canonical battle startup provenance. Never migrate to production without a release gate.';
+  'STAGING only: exact Inbox and SENT ACTIONABLE menu to canonical PvE provenance. No production migration.';
+
 
 -- DRAFT ONLY: author-approved area/period search-result weights. No default
 -- percentages are invented. Published content is not editable from gameplay.
