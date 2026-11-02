@@ -12,6 +12,8 @@ import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/explo
 import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
+import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
+import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
 import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
@@ -2505,33 +2507,80 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const activeEncounters = new EncounterOperationalReadService(
       new PostgresEncounterRepository(pool),
     );
+    const emittedMenuId = randomUUID();
+    const emittedOutboxId = randomUUID();
+    const issuedExpedition = await prepare(playerId, "pg18-real-all-authorities-prepare");
+    const activatedExpedition = await store.advance({
+      playerId,
+      expeditionId: issuedExpedition.expeditionId,
+      expectedRevision: issuedExpedition.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-real-all-authorities-active",
+    });
+    expect(activatedExpedition.ok).toBe(true);
+    await pool.query(
+      `INSERT INTO player_identities(id,player_id,provider,external_id,status)
+       VALUES($1,$2,'baileys',$3,'ACTIVE')`,
+      [randomUUID(), playerId, destinationRef],
+    );
+    // The real PlayerRegistrationService joins onboarding_context as well
+    // as player_identities and onboarding_states. The older test helper only
+    // inserted the latter, which is not a complete registered trainer.
+    await pool.query(
+      `INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id)
+       VALUES($1,$2,$3)`,
+      [playerId, publishedReleaseId, captureRulesetId],
+    );
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,2,'DIRECT',$4)`,
+      [outcomeId, playerId, issuedExpedition.expeditionId, encounterId],
+    );
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_snapshots(
+         id,player_id,outcome_id,encounter_id,encounter_revision,panel,ball_item_ids
+       ) VALUES($1,$2,$3,$4,2,$5::jsonb,$6::jsonb)`,
+      [
+        emittedMenuId,
+        playerId,
+        outcomeId,
+        encounterId,
+        JSON.stringify({ mode: "ACTIONABLE", actions: ["CAPTURE"] }),
+        JSON.stringify({ "2": publishedBallItemId }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,payload,idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'PENDING',$3::jsonb,$4,$5)`,
+      [
+        emittedOutboxId,
+        destinationRef,
+        JSON.stringify({
+          text: "Synthetic ACTIONABLE menu, ephemeral PG18 only",
+          expeditionSearch: { playerId, outcomeId, encounterId },
+          expeditionMenu: { menuId: emittedMenuId, mode: "ACTIONABLE" },
+        }),
+        "pg18-authorized-capture-menu:" + emittedOutboxId,
+        randomUUID(),
+      ],
+    );
+    const emittedQuote = emittedOutboxId.replaceAll("-", "").toUpperCase();
+    await pool.query(
+      `INSERT INTO solo_incidental_menu_deliveries(
+         id,menu_id,player_id,provider,chat_ref,external_message_id
+       ) VALUES($1,$2,$3,'baileys',$4,$5)`,
+      [randomUUID(), emittedMenuId, playerId, destinationRef, emittedQuote],
+    );
+    const players = new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool));
+    const quotedEncounter = new PostgresExpeditionQuotedEncounterProof(pool);
+    const issuedMenuProof = new PostgresExpeditionIssuedMenuReplyProof(pool);
     const gateway = new ExpeditionCanonicalChoiceStagingResolver(
-      {
-        async resolvePlayer() {
-          return ok({ playerId, state: "COMPLETE" as const, created: false });
-        },
-      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[0],
-      {
-        async resolve() {
-          return ok({ playerId, outcomeId, encounterId, encounterRevision: 2n });
-        },
-      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[1],
+      players,
+      quotedEncounter,
       activeEncounters,
-      {
-        async resolve() {
-          return ok({
-            menuId: randomUUID(),
-            playerId,
-            outcomeId,
-            encounterId,
-            encounterRevision: 2n,
-            ballItemIds: { "2": publishedBallItemId },
-            actionable: true as const,
-            captureEnabled: true,
-            battleEnabled: false,
-          });
-        },
-      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[3],
+      issuedMenuProof,
       capture,
       {
         async startCanonical(): Promise<never> {
@@ -2556,7 +2605,57 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         mediaRefs: [],
       },
     };
-    const first = await gateway.resolve(context);
+    const realContext: MessageHandlerContext = {
+      ...context,
+      message: { ...context.message, replyToExternalMessageId: emittedQuote },
+    };
+    // Reject forged, not-delivered and wrong-owner quoted requests BEFORE RNG.
+    expect(await gateway.resolve(realContext)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(
+      (
+        await pool.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM capture_attempts WHERE encounter_id=$1",
+          [encounterId],
+        )
+      ).rows[0]?.n,
+    ).toBe(0);
+    const otherRef = "5579999999998@s.whatsapp.net";
+    expect(
+      await gateway.resolve({
+        ...realContext,
+        message: { ...realContext.message, senderRef: otherRef, chatRef: otherRef },
+      }),
+    ).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      emittedOutboxId,
+    ]);
+    const proofInput = {
+      provider: "baileys",
+      playerId,
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      replyToExternalMessageId: emittedQuote,
+    };
+    expect(await quotedEncounter.resolve(proofInput)).toEqual(
+      ok({ playerId, outcomeId, encounterId, encounterRevision: 2n }),
+    );
+    expect(await issuedMenuProof.resolve(proofInput)).toEqual(
+      ok({
+        menuId: emittedMenuId,
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": publishedBallItemId },
+        actionable: true,
+        captureEnabled: true,
+        battleEnabled: false,
+      }),
+    );
+    const first = await gateway.resolve(realContext);
     expect(first).toMatchObject({
       ok: true,
       value: { resultRefType: "ENCOUNTER" },
