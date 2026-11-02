@@ -181,8 +181,13 @@ function privateExpeditionDestinations(
     if (seen.has(road.destinationAreaId)) continue;
     seen.add(road.destinationAreaId);
     const approvedMinutes = road.explorationMinutes;
-    if (canTravel && Number.isSafeInteger(approvedMinutes) && approvedMinutes !== undefined &&
-      approvedMinutes > 0 && approvedMinutes <= EXPEDITION_DURATION_MINUTES) {
+    if (
+      canTravel &&
+      Number.isSafeInteger(approvedMinutes) &&
+      approvedMinutes !== undefined &&
+      approvedMinutes > 0 &&
+      approvedMinutes <= EXPEDITION_DURATION_MINUTES
+    ) {
       destinations.push(
         "• " + label + " ● `" + String(approvedMinutes) + " min`",
         "› _/explorar viajar " + road.destinationSlug + "_",
@@ -274,7 +279,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
     const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
-    const travelRequested = /^\/explorar\s+viajar\s+(vila-dos-arrozais|campos-de-yun)$/iu.exec(text);
+    const travelRequested = /^\/explorar\s+viajar\s+(vila-dos-arrozais|campos-de-yun)$/iu.exec(
+      text,
+    );
     const summaryRequested = /^\/explorar\s+resumo$/iu.test(text);
     const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
@@ -464,11 +471,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           appError("FLOW_BLOCKED", "Prepare an expedition before consulting destinations"),
         );
       }
-      return privateExpeditionDestinations(
-        context,
-        located.value,
-        this.deps.travel !== undefined,
-      );
+      return privateExpeditionDestinations(context, located.value, this.deps.travel !== undefined);
     }
     if (travelRequested !== null && this.deps.travel !== undefined) {
       if (
