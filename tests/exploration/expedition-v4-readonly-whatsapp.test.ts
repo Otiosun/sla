@@ -691,7 +691,12 @@ describe("published search staging-only WhatsApp command", () => {
     vi.stubEnv("WHATSAPP_ENABLED", "false");
     const end = vi.fn(async () =>
       ok({
-        expedition: { ...active, phase: "ENDED" as const, endReason: "VOLUNTARY" as const, revision: 2n },
+        expedition: {
+          ...active,
+          phase: "ENDED" as const,
+          endReason: "VOLUNTARY" as const,
+          revision: 2n,
+        },
         replayed: false,
         changed: true,
         consumedWeeklySlot: false,
@@ -747,9 +752,7 @@ describe("published search staging-only WhatsApp command", () => {
       expect(sql).toContain("expedition.phase='ENDED'");
       expect(params).toMatchObject([original.inboxMessageId, playerId, original.idempotencyKey]);
       return {
-        rows: [
-          { expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint },
-        ],
+        rows: [{ expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint }],
       };
     });
     const recovery = new PostgresExpeditionEndConfirmationRecovery({ query } as never);
@@ -757,9 +760,7 @@ describe("published search staging-only WhatsApp command", () => {
       ok({ elapsedMinutes: 30 }),
     );
     query.mockResolvedValueOnce({
-      rows: [
-        { expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint: "x" },
-      ],
+      rows: [{ expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint: "x" }],
     });
     expect(await recovery.resolve({ playerId, context: original })).toMatchObject({
       ok: false,
