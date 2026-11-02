@@ -2,6 +2,7 @@ import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
+import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
 import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
@@ -60,6 +61,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
   /** Isolated read-only summary; never fabricates capture, XP or item grants. */
   readonly summary?: Pick<PostgresExpeditionV4StatusReader, "readLatestCompleted">;
+  /** Complete atomic World+expedition travel, staging/test only. */
+  readonly travel?: Pick<PostgresExpeditionV4StagingTravel, "execute">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -150,6 +153,7 @@ function safeLabel(value: string): string | null {
 function privateExpeditionDestinations(
   context: MessageHandlerContext,
   location: WorldLocationView,
+  canTravel: boolean,
 ): Result<MessageHandlerResult> {
   const launch = new Set(["campos-de-yun", "vila-dos-arrozais"]);
   if (
@@ -176,7 +180,16 @@ function privateExpeditionDestinations(
     }
     if (seen.has(road.destinationAreaId)) continue;
     seen.add(road.destinationAreaId);
-    destinations.push("• " + label);
+    const approvedMinutes = road.explorationMinutes;
+    if (canTravel && Number.isSafeInteger(approvedMinutes) && approvedMinutes !== undefined &&
+      approvedMinutes > 0 && approvedMinutes <= EXPEDITION_DURATION_MINUTES) {
+      destinations.push(
+        "• " + label + " ● `" + String(approvedMinutes) + " min`",
+        "› _/explorar viajar " + road.destinationSlug + "_",
+      );
+    } else {
+      destinations.push("• " + label + " ● _tempo de viagem ainda não publicado_");
+    }
   }
   const origin = safeLabel(location.areaDisplayName);
   if (origin === null) return err(appError("FLOW_BLOCKED", "World origin is unsafe"));
@@ -193,7 +206,7 @@ function privateExpeditionDestinations(
         : ["> _Nenhum destino acessível confirmado nesta área._"]),
       "",
       "> _Consulta gratuita: não consome tempo nem cota._",
-      "› _O deslocamento ainda não está disponível nesta prévia._",
+      "› _Só conexões com minutos internos publicados podem ser percorridas._",
     ].join("\n"),
   );
 }
@@ -261,6 +274,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
     const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
+    const travelRequested = /^\/explorar\s+viajar\s+(vila-dos-arrozais|campos-de-yun)$/iu.exec(text);
     const summaryRequested = /^\/explorar\s+resumo$/iu.test(text);
     const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
@@ -270,7 +284,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       (!searchFree || this.deps.search === undefined) &&
       (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
       (!destinationsRequested || this.deps.preparation === undefined) &&
-      (!summaryRequested || this.deps.summary === undefined)
+      (!summaryRequested || this.deps.summary === undefined) &&
+      (travelRequested === null || this.deps.travel === undefined)
     ) {
       return privateText(
         context,
@@ -449,7 +464,72 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           appError("FLOW_BLOCKED", "Prepare an expedition before consulting destinations"),
         );
       }
-      return privateExpeditionDestinations(context, located.value);
+      return privateExpeditionDestinations(
+        context,
+        located.value,
+        this.deps.travel !== undefined,
+      );
+    }
+    if (travelRequested !== null && this.deps.travel !== undefined) {
+      if (
+        process.env.APP_ENV !== "test" ||
+        process.env.NODE_ENV !== "test" ||
+        process.env.WHATSAPP_ENABLED !== "false" ||
+        facts.expedition === null
+      ) {
+        return err(appError("FLOW_BLOCKED", "Travel requires isolated prepared expedition"));
+      }
+      const slug = travelRequested[1]?.toLowerCase();
+      const road = located.value.connections.find(
+        (connection) =>
+          connection.available &&
+          connection.missingUnlockKeys.length === 0 &&
+          connection.destinationSlug === slug &&
+          Number.isSafeInteger(connection.explorationMinutes) &&
+          connection.explorationMinutes !== undefined &&
+          connection.explorationMinutes > 0 &&
+          connection.explorationMinutes <= EXPEDITION_DURATION_MINUTES,
+      );
+      if (road === undefined || road.destinationAreaId === located.value.areaId) {
+        return err(appError("FLOW_BLOCKED", "No approved expedition travel cost for destination"));
+      }
+      const original = facts.expedition;
+      const moved = await this.deps.travel.execute({
+        playerId,
+        expeditionId: original.expeditionId,
+        expectedRevision: original.revision,
+        expectedWorldRevision: located.value.revision,
+        destinationAreaId: road.destinationAreaId,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!moved.ok) return moved;
+      const after = moved.value.expedition;
+      if (
+        after.playerId !== playerId ||
+        after.expeditionId !== original.expeditionId ||
+        after.areaId !== road.destinationAreaId ||
+        after.elapsedMinutes !== original.elapsedMinutes + road.explorationMinutes! ||
+        after.revision !== original.revision + 1n ||
+        after.consumedWeeklySlot !== undefined
+      ) {
+        return err(appError("FLOW_BLOCKED", "Travel receipt was inconsistent with the expedition"));
+      }
+      const destination = safeLabel(road.destinationDisplayName);
+      if (destination === null) {
+        return err(appError("FLOW_BLOCKED", "Travel destination label is unsafe"));
+      }
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗩𝗜𝗔𝗚𝗘𝗠*",
+          "⌖ *Destino:* " + destination,
+          "⌛ *Tempo da viagem:* `" + String(road.explorationMinutes) + " min`",
+          "⌛ *Tempo acumulado:* `" + String(after.elapsedMinutes) + " min`",
+          after.phase === "ENDED"
+            ? "> _Expedição concluída pelo limite de tempo._"
+            : "› _Consulte /explorar status para continuar na nova área._",
+        ].join("\n"),
+      );
     }
     if ((endRequested || endConfirmed) && this.deps.search !== undefined) {
       const current = facts.expedition;
