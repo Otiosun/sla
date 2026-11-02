@@ -69,6 +69,34 @@ describe("Exploration V4 status is NOT a default runtime route", () => {
       ),
     ).toThrow("complete staging exploration and PvE dependencies");
   });
+  it("composes real private numeric-choice routing only with the complete offline feature set", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const key = Buffer.alloc(32, 0x29);
+    const composition = createOperationalMessagingComposition(
+      {} as Pool,
+      { encryptionKey: key, encryptionKeyVersion: 1 },
+      null,
+      { turnWindowTtlMs: 30000, maintenanceBatchSize: 1, encryptionKeys: new Map([[1, key]]) },
+      null,
+      null,
+      "Etc/UTC",
+      true,
+      Buffer.alloc(32, 0x37),
+      true,
+    );
+    const reply = {
+      ...input,
+      chatRef: input.senderRef,
+      text: "1",
+      replyToExternalMessageId: "A".repeat(32),
+    };
+    expect(await composition.admitFreeform(reply)).toBe(true);
+    expect(await composition.admitFreeform({ ...reply, text: "0" })).toBe(true);
+    expect(await composition.admitFreeform({ ...reply, text: "4" })).toBe(true);
+  });
+
   it("keeps exploration command unknown with the exact production positional defaults", () => {
     const composition = createOperationalMessagingComposition({} as Pool);
     expect(composition.admitCommand(input)).toBe(false);
