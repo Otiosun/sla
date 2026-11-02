@@ -27,7 +27,9 @@ export class PostgresExpeditionCaptureConfirmationRecovery {
   async resolve(input: {
     readonly playerId: PlayerId;
     readonly context: MessageHandlerContext;
-  }): Promise<Result<{ readonly encounterId: string; readonly status: "CAPTURED" | "FAILED" } | null>> {
+  }): Promise<
+    Result<{ readonly encounterId: string; readonly status: "CAPTURED" | "FAILED" } | null>
+  > {
     const message = input.context.message;
     const choice = message.text?.trim() ?? "";
     if (
