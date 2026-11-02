@@ -800,7 +800,7 @@ describe("published search staging-only WhatsApp command", () => {
     expect(body).not.toContain("Proibido por chave");
     expect(body).not.toContain("Conexão indisponível");
     expect(body).toContain("Consulta gratuita");
-    expect(body).toContain("deslocamento ainda não está disponível");
+    expect(body).toContain("Só conexões com minutos internos publicados");
     expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
     expect(f.execute).not.toHaveBeenCalled();
     expect(f.preparation.prepare).not.toHaveBeenCalled();
