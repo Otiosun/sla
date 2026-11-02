@@ -751,6 +751,75 @@ describe("published search staging-only WhatsApp command", () => {
     expect(f.preparation.prepare).not.toHaveBeenCalled();
   });
 
+  it("returns only a verified, private persisted summary without implying grants", async () => {
+    const f = stagingSearch();
+    const summary = vi.fn(async () => ({
+      period: "NIGHT" as const,
+      endReason: "VOLUNTARY" as const,
+      elapsedMinutes: 90,
+      searches: 4,
+      noSignal: 1,
+      trail: 1,
+      incidental: 1,
+      direct: 1,
+    }));
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      summary: { readLatestCompleted: summary },
+    })[0]!;
+    const result = await route.handler.handle(context("/explorar resumo"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const body = String(result.value.outgoing[0]?.payload.text);
+    expect(body).toContain("90 min");
+    expect(body).toContain("Encontros diretos: `1`");
+    expect(body).toContain("Relatório externo");
+    expect(body).not.toContain("Poké Ball ×");
+    expect(body).not.toContain("₽300");
+    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    expect(summary).toHaveBeenCalledExactlyOnceWith(playerId);
+    expect(f.getLocation).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses inconsistent outcome counts and does not expose summary from readonly factory", async () => {
+    const f = stagingSearch();
+    const latest = vi.fn(async () => ({
+      period: "DAY" as const,
+      endReason: "BLACKOUT" as const,
+      elapsedMinutes: 60,
+      searches: 2,
+      noSignal: 1,
+      trail: 0,
+      incidental: 0,
+      direct: 0,
+    }));
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      summary: { readLatestCompleted: latest },
+    })[0]!;
+    expect(await route.handler.handle(context("/explorar resumo"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    latest.mockResolvedValueOnce(null as never);
+    const empty = await route.handler.handle(context("/explorar resumo"));
+    expect(empty.ok).toBe(true);
+    if (empty.ok) {
+      expect(String(empty.value.outgoing[0]?.payload.text)).toContain("Nenhuma expedição concluída");
+    }
+    const readonly = createExpeditionV4ReadOnlyRoutes({
+      ...f.deps,
+      summary: { readLatestCompleted: latest },
+    })[0]!;
+    const response = await readonly.handler.handle(context("/explorar resumo"));
+    expect(response.ok).toBe(true);
+    if (response.ok) {
+      expect(String(response.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    }
+    expect(latest).toHaveBeenCalledTimes(2);
+  });
+
   it("presents V4 ACTIVE compact clock and only executable search", async () => {
     const f = stagingSearch();
     const active = {
