@@ -647,6 +647,112 @@ describe("published search staging-only WhatsApp command", () => {
     expect(text).not.toContain("\\u031d");
   });
 
+  it("travels only with published expedition minutes through the isolated writer", async () => {
+    const f = stagingSearch();
+    const destinationAreaId = randomUUID();
+    const destination = {
+      connectionId: randomUUID(),
+      connectionKey: "yun-to-vila",
+      destinationAreaId,
+      destinationSlug: "vila-dos-arrozais",
+      destinationDisplayName: "Vila dos Arrozais",
+      available: true,
+      missingUnlockKeys: [],
+      explorationMinutes: 45,
+    };
+    f.getLocation.mockResolvedValue(ok({ ...location, connections: [destination] }));
+    const execute = vi.fn(async () =>
+      ok({
+        expedition: {
+          ...preparing,
+          areaId: destinationAreaId,
+          phase: "ACTIVE" as const,
+          elapsedMinutes: 45,
+          consumedWeekKey: "2026-10-26",
+          revision: 1n,
+        },
+        consumedWeeklySlot: true,
+        changed: true,
+        replayed: false,
+      }),
+    );
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      travel: { execute },
+    })[0]!;
+    const choices = await route.handler.handle(context("/explorar 3"));
+    expect(choices.ok).toBe(true);
+    if (choices.ok) {
+      const body = String(choices.value.outgoing[0]?.payload.text);
+      expect(body).toContain("Vila dos Arrozais ● `45 min`");
+      expect(body).toContain("/explorar viajar vila-dos-arrozais");
+    }
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const confirmed = await route.handler.handle(context("/explorar viajar vila-dos-arrozais"));
+    expect(confirmed.ok).toBe(true);
+    if (confirmed.ok) {
+      const text = String(confirmed.value.outgoing[0]?.payload.text);
+      expect(text).toContain("Tempo da viagem:");
+      expect(text).toContain("45 min");
+      expect(text).toContain("Vila dos Arrozais");
+    }
+    expect(execute).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      expeditionId: preparing.expeditionId,
+      expectedRevision: 0n,
+      expectedWorldRevision: location.revision,
+      destinationAreaId,
+      idempotencyKey: context().idempotencyKey,
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+  });
+
+  it("rejects travel with no approved minutes or outside offline-only safety flags", async () => {
+    const f = stagingSearch();
+    const candidate = {
+      connectionId: randomUUID(),
+      connectionKey: "yun-to-vila",
+      destinationAreaId: randomUUID(),
+      destinationSlug: "vila-dos-arrozais",
+      destinationDisplayName: "Vila dos Arrozais",
+      available: true,
+      missingUnlockKeys: [] as string[],
+    };
+    f.getLocation.mockResolvedValue(ok({ ...location, connections: [candidate] }));
+    const execute = vi.fn();
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      travel: { execute },
+    })[0]!;
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    expect(await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    f.getLocation.mockResolvedValue(ok({
+      ...location,
+      connections: [{ ...candidate, explorationMinutes: 45 }],
+    }));
+    vi.stubEnv("APP_ENV", "production");
+    expect((await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).ok).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    const readonly = createExpeditionV4ReadOnlyRoutes({
+      ...f.deps,
+      travel: { execute },
+    })[0]!;
+    const denied = await readonly.handler.handle(context("/explorar viajar vila-dos-arrozais"));
+    expect(denied.ok).toBe(true);
+    if (denied.ok) {
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    }
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("consults only unlocked, published, launch-area destinations without any write", async () => {
     const f = stagingSearch();
     const candidate = {
