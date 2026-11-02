@@ -13,7 +13,7 @@ const row = {
 };
 
 function fixture(rows: unknown[] = [row]) {
-  const query = vi.fn(async () => ({ rows }));
+  const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows }));
   const proof = new PostgresExpeditionQuotedEncounterProof({
     query,
   } as unknown as ConstructorParameters<typeof PostgresExpeditionQuotedEncounterProof>[0]);
