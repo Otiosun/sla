@@ -11,6 +11,7 @@ import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploratio
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -22,8 +23,12 @@ import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/explorati
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/exploration/expedition-quoted-reply-readonly-staging.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
-import { OutboxWorker } from "../../src/modules/messaging/service.js";
+import {
+  IncomingMessageSchema,
+  type MessageHandlerContext,
+} from "../../src/modules/messaging/contracts.js";
+import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
@@ -2589,14 +2594,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
     );
     const correlationId = createCorrelationId();
+    const receivedExternalId = randomUUID();
     const context: MessageHandlerContext = {
       inboxMessageId: randomUUID(),
       causationId: randomUUID(),
       correlationId,
-      idempotencyKey: "pg18-real-capture:" + encounterId,
+      idempotencyKey: "inbox:baileys:" + receivedExternalId,
       message: {
         provider: "baileys",
-        externalMessageId: randomUUID(),
+        externalMessageId: receivedExternalId,
         senderRef: destinationRef,
         chatRef: destinationRef,
         occurredAt: "2026-11-02T01:50:00.000Z",
@@ -2655,7 +2661,22 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         battleEnabled: false,
       }),
     );
-    const first = await gateway.resolve(realContext);
+    // A real PostgreSQL Inbox claim establishes the exact correlation/fingerprint
+    // that must later be used to recover a previously committed capture.
+    const inboxRepository = new PostgresMessagingRepository(pool);
+    const firstClaim = await inboxRepository.claimIncoming(
+      IncomingMessageSchema.parse(realContext.message),
+      30_000,
+    );
+    expect(firstClaim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!firstClaim.ok) throw new Error("Unable to claim incoming test message");
+    const claimedContext: MessageHandlerContext = {
+      ...realContext,
+      inboxMessageId: firstClaim.value.inboxMessageId,
+      correlationId: firstClaim.value.correlationId,
+      causationId: firstClaim.value.inboxMessageId,
+    };
+    const first = await gateway.resolve(claimedContext);
     expect(first).toMatchObject({
       ok: true,
       value: { resultRefType: "ENCOUNTER" },
@@ -2681,13 +2702,107 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(beforeReplay.rows).toMatchObject([
       { attempts: 1, ledger: 1, internal_outbox: 1, balance: "0" },
     ]);
+
+    // Simulate a transient Inbox/Outbox completion failure *after* the Ball
+    // was consumed in PostgreSQL. On redelivery, the live Encounter/quote is
+    // already stale; exact Inbox + recorded attempt must reconstruct the
+    // original response and commit its WhatsApp Outbox without another throw.
+    await inboxRepository.failIncoming(firstClaim.value.inboxMessageId, "INJECTED_AFTER_CAPTURE");
+    const recoveryGateway = new ExpeditionCanonicalChoiceStagingResolver(
+      players,
+      quotedEncounter,
+      activeEncounters,
+      issuedMenuProof,
+      capture,
+      {
+        async startCanonical(): Promise<never> {
+          throw new Error("Recovery must not start PvE");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
+      new PostgresExpeditionCaptureConfirmationRecovery(pool),
+    );
+    const recoveryMessage = new MessagingService(
+      inboxRepository,
+      new MessageRouter([], undefined, recoveryGateway),
+    );
+    // Even after a committed capture, a modified text with the same external
+    // message ID is NOT a replay. The persisted normalized fingerprint wins.
+    expect(await recoveryMessage.receive({ ...realContext.message, text: "3" })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
+    const deliveredAgain = await recoveryMessage.receive(realContext.message);
+    if (!deliveredAgain.ok) {
+      throw new Error("Capture reply retry error: " + JSON.stringify(deliveredAgain.error));
+    }
+    expect(deliveredAgain).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED", resultRefType: "ENCOUNTER", resultRefId: encounterId },
+    });
+    const secondDelivery = await recoveryMessage.receive(realContext.message);
+    expect(secondDelivery).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED", resultRefType: "ENCOUNTER", resultRefId: encounterId },
+    });
+    const recoveredOutgoing = await pool.query<{
+      status: string;
+      text: string;
+    }>(
+      `SELECT status,payload->>'text' AS text FROM outbox_messages
+       WHERE idempotency_key=$1 AND channel='whatsapp'`,
+      [claimedContext.idempotencyKey + ":expedition-canonical-capture"],
+    );
+    expect(recoveredOutgoing.rows).toHaveLength(1);
+    expect(recoveredOutgoing.rows[0]?.status).toBe("PENDING");
+    expect(recoveredOutgoing.rows[0]?.text).toBe(first.value?.outgoing[0]?.payload.text);
+    const sentConfirmations: string[] = [];
+    const confirmationWorker = new OutboxWorker(
+      inboxRepository,
+      [
+        {
+          channel: "whatsapp",
+          send: async (outgoing) => {
+            if (
+              outgoing.idempotencyKey ===
+              claimedContext.idempotencyKey + ":expedition-canonical-capture"
+            ) {
+              sentConfirmations.push(outgoing.id);
+            }
+            return { providerExternalMessageId: outgoing.id.replaceAll("-", "").toUpperCase() };
+          },
+        },
+      ],
+      {
+        batchSize: 10000,
+        staleAfterMs: 30000,
+        maxAttempts: 8,
+        baseBackoffMs: 1000,
+        maxBackoffMs: 60000,
+      },
+    );
+    await confirmationWorker.runOnce();
+    await confirmationWorker.runOnce();
+    expect(sentConfirmations).toHaveLength(1);
+    expect(
+      (
+        await pool.query<{ status: string }>(
+          "SELECT status FROM outbox_messages WHERE idempotency_key=$1",
+          [claimedContext.idempotencyKey + ":expedition-canonical-capture"],
+        )
+      ).rows[0]?.status,
+    ).toBe("SENT");
+    const recordedCapture = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM capture_attempts WHERE encounter_id=$1",
+      [encounterId],
+    );
+    expect(recordedCapture.rows[0]?.count).toBe(1);
     const replay = await capture.attempt({
       playerId,
       encounterId,
       expectedEncounterRevision: 2n,
       expectedBattleVersion: null,
       ballItemId: publishedBallItemId,
-      idempotencyKey: context.idempotencyKey,
+      idempotencyKey: claimedContext.idempotencyKey,
       correlationId: createCorrelationId(),
       causationId: context.causationId,
     });
