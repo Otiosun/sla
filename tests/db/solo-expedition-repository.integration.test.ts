@@ -3002,10 +3002,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     // AFTER Encounter.startBattle has advanced the row in this transaction.
     // A missing ACTIVE wild snapshot is forbidden by BattleService. This
     // should leave no IN_BATTLE Encounter, battle row or receipt on rollback.
-    await pool.query(
-      "UPDATE encounter_wild_snapshots SET status='FLED' WHERE encounter_id=$1",
-      [encounterId],
-    );
+    await pool.query("UPDATE encounter_wild_snapshots SET status='FLED' WHERE encounter_id=$1", [
+      encounterId,
+    ]);
     expect(await action.execute(exact)).toMatchObject({
       ok: false,
       error: { code: "FLOW_BLOCKED" },
@@ -3026,10 +3025,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(reverted.rows).toEqual([
       { encounter_status: "ENGAGED", revision: "2", battles: 0, receipts: 0 },
     ]);
-    await pool.query(
-      "UPDATE encounter_wild_snapshots SET status='ACTIVE' WHERE encounter_id=$1",
-      [encounterId],
-    );
+    await pool.query("UPDATE encounter_wild_snapshots SET status='ACTIVE' WHERE encounter_id=$1", [
+      encounterId,
+    ]);
 
     const started = await action.execute(exact);
     if (!started.ok) {
