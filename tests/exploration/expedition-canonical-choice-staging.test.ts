@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
+import type { VerifiedExpeditionIssuedMenu } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
-import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
 
 const playerId = createPlayerId();
 const senderRef = "5579999999999@s.whatsapp.net";
@@ -42,7 +43,7 @@ function setup() {
   const activeForPlayer = vi.fn(async () =>
     ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null }),
   );
-  const issuedResolve = vi.fn(async () =>
+  const issuedResolve = vi.fn(async (): Promise<Result<VerifiedExpeditionIssuedMenu>> =>
     ok({
       menuId: randomUUID(),
       playerId,
@@ -52,7 +53,7 @@ function setup() {
       ballItemIds: { "2": ballItemId },
     }),
   );
-  const attempt = vi.fn(async () =>
+  const attempt = vi.fn(async (): Promise<Result<{ status: "FAILED" | "CAPTURED"; replayed: boolean; encounterId: string }>> =>
     ok({ status: "FAILED" as const, replayed: false, encounterId }),
   );
   const startCanonical = vi.fn(async () =>
@@ -88,7 +89,6 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
     expect(await router.dispatch(context("2", null))).toEqual(ok(null));
     expect(await router.dispatch(context("0"))).toEqual(ok(null));
     expect(await router.dispatch(context("12"))).toEqual(ok(null));
-    expect(fixture.capture).toBeUndefined();
     expect(fixture.attempt).not.toHaveBeenCalled();
     expect(fixture.startCanonical).not.toHaveBeenCalled();
   });
@@ -219,7 +219,7 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
       }),
     );
     fixture.attempt.mockResolvedValueOnce(
-      err(appError("FLOW_BLOCKED", "Encounter revision changed")) as never,
+      err(appError("FLOW_BLOCKED", "Encounter revision changed")),
     );
     expect(await fixture.resolver.resolve(context("2"))).toMatchObject({
       ok: false,
