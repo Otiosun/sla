@@ -1,6 +1,7 @@
 import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
 import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
@@ -57,6 +58,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
   /** Test-only recovery of a committed END when Inbox completion was interrupted. */
   readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
+  /** Isolated read-only summary; never fabricates capture, XP or item grants. */
+  readonly summary?: Pick<PostgresExpeditionV4StatusReader, "readLatestCompleted">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -258,6 +261,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
     const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
+    const summaryRequested = /^\/explorar\s+resumo$/iu.test(text);
     const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
@@ -265,7 +269,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         (period === null && requestedPeriod === null && !cancel)) &&
       (!searchFree || this.deps.search === undefined) &&
       (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
-      (!destinationsRequested || this.deps.preparation === undefined)
+      (!destinationsRequested || this.deps.preparation === undefined) &&
+      (!summaryRequested || this.deps.summary === undefined)
     ) {
       return privateText(
         context,
@@ -293,6 +298,63 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     ) {
       return err(
         appError("FLOW_BLOCKED", "Exploração disponível somente no grupo GAME autorizado."),
+      );
+    }
+    if (summaryRequested && this.deps.summary !== undefined) {
+      const latest = await this.deps.summary.readLatestCompleted(playerId);
+      if (latest === null) {
+        return privateText(
+          context,
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗦𝗨𝗠𝗢*\n\nNenhuma expedição concluída com resultados registrados.",
+        );
+      }
+      const counts = [
+        latest.searches,
+        latest.noSignal,
+        latest.trail,
+        latest.incidental,
+        latest.direct,
+      ];
+      if (
+        !counts.every((count) => Number.isSafeInteger(count) && count >= 0) ||
+        latest.searches !== latest.noSignal + latest.trail + latest.incidental + latest.direct ||
+        !Number.isSafeInteger(latest.elapsedMinutes) ||
+        latest.elapsedMinutes < 1 ||
+        latest.elapsedMinutes > EXPEDITION_DURATION_MINUTES ||
+        !["DAY", "NIGHT"].includes(latest.period) ||
+        !["VOLUNTARY", "CLOCK", "BLACKOUT"].includes(latest.endReason)
+      ) {
+        return err(appError("FLOW_BLOCKED", "Persisted expedition history is inconsistent"));
+      }
+      const reason =
+        latest.endReason === "VOLUNTARY"
+          ? "Encerramento voluntário"
+          : latest.endReason === "CLOCK"
+            ? "Tempo esgotado"
+            : "Derrota total";
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗦𝗨𝗠𝗢*",
+          "> _Última expedição concluída — dados confirmados._",
+          "",
+          "◇ *𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+          "☀️🌙 *Período:* " + (latest.period === "DAY" ? "Diurno" : "Noturno"),
+          "⌛ *Tempo utilizado:* `" + String(latest.elapsedMinutes) + " min`",
+          "◇ *Término:* " + reason,
+          "",
+          "◇ *𝗕𝗨𝗦𝗖𝗔𝗦*",
+          "🔎 Total: `" + String(latest.searches) + "`",
+          "• Nenhum sinal: `" + String(latest.noSignal) + "`",
+          "• Rastros: `" + String(latest.trail) + "`",
+          "• Encontros incidentais: `" + String(latest.incidental) + "`",
+          "• Encontros diretos: `" + String(latest.direct) + "`",
+          "",
+          ...(latest.endReason === "BLACKOUT"
+            ? ["> _Derrota total: sem prêmio de conclusão._"]
+            : ["> _Relatório externo (mínimo 100 palavras) e premiação dependem da equipe._"]),
+          "› _Este resumo não confirma capturas, batalhas vencidas, itens ou prêmios._",
+        ].join("\n"),
       );
     }
     // A previous END transaction may have committed before Inbox completion.
@@ -374,7 +436,10 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
               "› _Cancelar sem custo: /explorar cancelar._",
             ]
           : []),
-        "› _Recursos, viagem e relatório ainda não estão habilitados nesta versão isolada._",
+        ...(this.deps.summary === undefined
+          ? ["› _Histórico ainda não está disponível nesta prévia._"]
+          : ["› _Resumo da última expedição concluída: /explorar resumo._"]),
+        "› _Recursos e viagem ainda não estão habilitados nesta versão isolada._",
       ];
       return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
     }
