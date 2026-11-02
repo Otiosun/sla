@@ -95,7 +95,7 @@ function harness(input: {
 
 describe("staging exploration hook on the actual OutboxWorker", () => {
   it("quarantines uncertain deliveries in the composed offline worker only", async () => {
-    const claimOutbox = vi.fn(async () => []);
+    const claimOutbox = vi.fn(async (_options: unknown) => []);
     const repo = { claimOutbox } as never;
     const provider: OutboundMessageAdapter = {
       channel: "whatsapp",
@@ -111,9 +111,7 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
     );
     const original = createOperationalOutboxWorker({} as Pool, repo, provider);
     expect(await original.runOnce()).toMatchObject({ claimed: 0 });
-    expect(claimOutbox).toHaveBeenLastCalledWith(
-      expect.objectContaining({ quarantineStaleSending: undefined }),
-    );
+    expect(claimOutbox.mock.lastCall?.[0]).not.toHaveProperty("quarantineStaleSending");
   });
 
 
