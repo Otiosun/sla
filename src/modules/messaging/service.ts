@@ -309,6 +309,8 @@ export class MessagingService {
 }
 
 export interface OutboxWorkerOptions {
+  /** Staging opt-in; every worker sharing the Outbox must adopt the same policy. */
+  readonly quarantineUnknownDelivery?: boolean;
   readonly batchSize: number;
   readonly staleAfterMs: number;
   readonly maxAttempts: number;
@@ -361,6 +363,7 @@ export class OutboxWorker {
       staleAfterMs: this.options.staleAfterMs,
       maxAttempts: this.options.maxAttempts,
       channels: [...this.adapters.keys()],
+      ...(this.options.quarantineUnknownDelivery ? { quarantineStaleSending: true } : {}),
     });
     let sent = 0;
     let failed = 0;
@@ -378,16 +381,21 @@ export class OutboxWorker {
         failed += 1;
         continue;
       }
+      let sendResolved = false;
       try {
         const prepared = await this.deliveryPreparation?.prepare(message);
         await adapter.send(prepared ?? message);
+        sendResolved = true;
         await this.repository.markOutboxSent(message.id);
         sent += 1;
       } catch {
+        // A resolved send followed by an uncertain SENT persistence can mean
+        // the provider already accepted the message. Staging must not resend.
+        const uncertain = sendResolved && this.options.quarantineUnknownDelivery === true;
         await this.repository.markOutboxFailed({
           outboxMessageId: message.id,
-          errorCode: "OUTBOX_DELIVERY_FAILED",
-          retryAt: retryAtForAttempt({
+          errorCode: uncertain ? "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED" : "OUTBOX_DELIVERY_FAILED",
+          retryAt: uncertain ? null : retryAtForAttempt({
             attempts: message.attempts,
             maxAttempts: this.options.maxAttempts,
             baseBackoffMs: this.options.baseBackoffMs,
