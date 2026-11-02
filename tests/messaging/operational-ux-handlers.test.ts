@@ -640,6 +640,83 @@ describe("Phase 13 operational WhatsApp UX", () => {
     });
   });
 
+  it("fails closed on ambiguous Pokémon name versus requested team slot", async () => {
+    const deps = dependencies();
+    const move = vi.fn();
+    const getStorage = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: "Pikachu 2",
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 7,
+        },
+        {
+          collectionNo: 14,
+          pokemonInstanceId: "00000000-0000-4000-8000-000000000026",
+          displayName: "Eevee",
+          nickname: "Pikachu",
+          level: 6,
+          xp: 0n,
+          currentHp: 15,
+          placementKind: "BOX" as const,
+          boxNo: 1,
+          slotNo: 8,
+        },
+      ]),
+    });
+    Object.assign(deps, { pcStorage: { move, getStorage } });
+    const result = await router(deps).dispatch(
+      context("/equipe colocar Pikachu 2", "ambiguous-pokemon-slot"),
+    );
+    expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+    if (!result.ok) {
+      expect(result.error.message).toContain("Nome e slot ambíguos");
+      expect(result.error.message).toContain("#13");
+      expect(result.error.message).toContain("#14");
+    }
+    expect(move).not.toHaveBeenCalled();
+    expect(getStorage).not.toHaveBeenCalled();
+  });
+
+  it("reports an already-equipped Pokémon without requesting a second move", async () => {
+    const deps = dependencies();
+    const move = vi.fn();
+    const getStorage = vi.fn();
+    Object.assign(deps.reads, {
+      listOwnedPokemon: vi.fn(async () => [
+        {
+          collectionNo: 13,
+          pokemonInstanceId: POKEMON_ID,
+          displayName: "Charmander",
+          nickname: null,
+          level: 5,
+          xp: 0n,
+          currentHp: 19,
+          placementKind: "TEAM" as const,
+          boxNo: null,
+          slotNo: 4,
+        },
+      ]),
+    });
+    Object.assign(deps, { pcStorage: { move, getStorage } });
+    const message = textOf(
+      await router(deps).dispatch(context("/equipe colocar #13", "already-equipped")),
+    );
+    expect(message).toContain("Equipe sem mudanças");
+    expect(message).toContain("slot 4");
+    expect(message).toContain("/equipe colocar #13 <1-6>");
+    expect(move).not.toHaveBeenCalled();
+    expect(getStorage).not.toHaveBeenCalled();
+  });
+
   it("stores a team Pokemon by collection hash without exposing its internal id", async () => {
     const deps = dependencies();
     (deps.reads.activeBattleId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
