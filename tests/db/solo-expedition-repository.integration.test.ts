@@ -11,6 +11,7 @@ import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploratio
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
 import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
@@ -2512,8 +2513,6 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const activeEncounters = new EncounterOperationalReadService(
       new PostgresEncounterRepository(pool),
     );
-    const emittedMenuId = randomUUID();
-    const emittedOutboxId = randomUUID();
     const issuedExpedition = await prepare(playerId, "pg18-real-all-authorities-prepare");
     const activatedExpedition = await store.advance({
       playerId,
@@ -2528,9 +2527,6 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        VALUES($1,$2,'baileys',$3,'ACTIVE')`,
       [randomUUID(), playerId, destinationRef],
     );
-    // The real PlayerRegistrationService joins onboarding_context as well
-    // as player_identities and onboarding_states. The older test helper only
-    // inserted the latter, which is not a complete registered trainer.
     await pool.query(
       `INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id)
        VALUES($1,$2,$3)`,
@@ -2542,42 +2538,61 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        ) VALUES($1,$2,$3,2,'DIRECT',$4)`,
       [outcomeId, playerId, issuedExpedition.expeditionId, encounterId],
     );
-    await pool.query(
-      `INSERT INTO solo_incidental_menu_snapshots(
-         id,player_id,outcome_id,encounter_id,encounter_revision,panel,ball_item_ids
-       ) VALUES($1,$2,$3,$4,2,$5::jsonb,$6::jsonb)`,
-      [
-        emittedMenuId,
-        playerId,
-        outcomeId,
-        encounterId,
-        JSON.stringify({ mode: "ACTIONABLE", actions: ["CAPTURE"] }),
-        JSON.stringify({ "2": publishedBallItemId }),
-      ],
-    );
+
+    // This result is actually delivered according to the test SQL transport
+    // state. The ACTIONABLE menu below is created by production-shaped issuer
+    // transaction, NOT manually forged snapshot/Outbox/delivery INSERTs.
+    const sourceMessageId = randomUUID();
     await pool.query(
       `INSERT INTO outbox_messages(
-         id,channel,message_type,destination_ref,status,payload,idempotency_key,correlation_id
-       ) VALUES($1,'whatsapp','TEXT',$2,'PENDING',$3::jsonb,$4,$5)`,
+         id,channel,message_type,destination_ref,status,sent_at,payload,
+         idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
       [
-        emittedOutboxId,
+        sourceMessageId,
         destinationRef,
         JSON.stringify({
-          text: "Synthetic ACTIONABLE menu, ephemeral PG18 only",
+          text: "Verified synthetic search result",
           expeditionSearch: { playerId, outcomeId, encounterId },
-          expeditionMenu: { menuId: emittedMenuId, mode: "ACTIONABLE" },
         }),
-        "pg18-authorized-capture-menu:" + emittedOutboxId,
+        "pg18-actionable-source:" + sourceMessageId,
         randomUUID(),
       ],
     );
+    const actionableIssuer = new PostgresExpeditionOfflineActionableMenuIssuer(pool);
+    const issueInput = {
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      destinationRef,
+      correlationId: randomUUID(),
+    };
+    const issuedActionable = await actionableIssuer.issue(issueInput);
+    expect(issuedActionable).toMatchObject({
+      ok: true,
+      value: { replayed: false, ballItemIds: { "2": publishedBallItemId } },
+    });
+    if (!issuedActionable.ok) throw new Error("Verified offline issuer refused canonical Ball");
+    expect(issuedActionable.value.text).toContain("Poké Ball ×1");
+    expect(issuedActionable.value.text).not.toContain("somente prévia");
+    const emittedMenuId = issuedActionable.value.menuId;
+    const emittedOutboxId = issuedActionable.value.outboxMessageId;
     const emittedQuote = emittedOutboxId.replaceAll("-", "").toUpperCase();
-    await pool.query(
-      `INSERT INTO solo_incidental_menu_deliveries(
-         id,menu_id,player_id,provider,chat_ref,external_message_id
-       ) VALUES($1,$2,$3,'baileys',$4,$5)`,
-      [randomUUID(), emittedMenuId, playerId, destinationRef, emittedQuote],
+    expect(await actionableIssuer.issue(issueInput)).toEqual(
+      ok({ ...issuedActionable.value, replayed: true }),
     );
+    const persistedActionable = await pool.query<{ mode: string; status: string; actions: string[] }>(
+      `SELECT menu.panel->>'mode' AS mode, outbox.status,
+              jsonb_array_elements_text(menu.panel->'actions') AS action
+       FROM solo_incidental_menu_snapshots menu
+       JOIN solo_incidental_menu_deliveries delivery ON delivery.menu_id=menu.id
+       JOIN outbox_messages outbox
+         ON upper(replace(outbox.id::text,'-',''))=upper(delivery.external_message_id)
+       WHERE menu.id=$1`,
+      [emittedMenuId],
+    );
+    expect(persistedActionable.rows).toMatchObject([{ mode: "ACTIONABLE", status: "PENDING" }]);
     const players = new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool));
     const quotedEncounter = new PostgresExpeditionQuotedEncounterProof(pool);
     const issuedMenuProof = new PostgresExpeditionIssuedMenuReplyProof(pool);
