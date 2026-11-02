@@ -141,6 +141,10 @@ function pageFooter(total: number, page: number, command: string): string {
   return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
 }
 
+function pokemonDisplayName(displayName: string, nickname: string | null): string {
+  return nickname === null || nickname.trim().length === 0 ? displayName : nickname.trim();
+}
+
 function isOwnedPokemonDetail(
   detail: OperationalPokemonDetailView | OperationalOwnedPokemonDetailView,
 ): detail is OperationalOwnedPokemonDetailView {
