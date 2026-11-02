@@ -2910,6 +2910,37 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
 
     const issuer = new PostgresExpeditionOfflineActionableMenuIssuer(pool);
+    // The SENT source is the ONLY trigger: the post-SENT hook performs the
+    // canonical ENGAGED proof and publishes the immutable ACTIONABLE menu.
+    const hook = new ExpeditionSearchPostSentHook(
+      new ExpeditionSearchEngagementAfterSent(
+        new PostgresExpeditionSearchSentProof(pool),
+        new EncounterService(
+          new PostgresEncounterRepository(pool),
+          new AesEncounterSeedProvider(Buffer.alloc(32, 0xb5), 1),
+          clock,
+          { enabled: true, reason: null },
+        ),
+      ),
+      ({ errorCode }) => {
+        throw new Error("Unexpected post-SENT failure: " + errorCode);
+      },
+      issuer,
+    );
+    const originalMessage = {
+      id: source,
+      channel: "whatsapp" as const,
+      messageType: "TEXT" as const,
+      destinationRef,
+      payload: {
+        text: "Frozen ready PvE search",
+        expeditionSearch: { playerId, outcomeId, encounterId },
+      },
+      correlationId: randomUUID(),
+    };
+    await hook.afterSent(originalMessage);
+    // Idempotent callback/recovery must never create another menu.
+    await hook.afterSent(originalMessage);
     const issued = await issuer.issue({
       playerId,
       outcomeId,
@@ -2920,8 +2951,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(issued).toMatchObject({
       ok: true,
-      value: { ballItemIds: {}, replayed: false },
+      value: { ballItemIds: {}, replayed: true },
     });
+    const immutableMenus = await pool.query<{ total: number }>(
+      "SELECT count(*)::int AS total FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
+      [outcomeId],
+    );
+    expect(immutableMenus.rows[0]?.total).toBe(1);
     if (!issued.ok) throw new Error("Published frozen PvE menu rejected");
     expect(issued.value.text).toContain("1. ⚔️ Batalhar");
     expect(issued.value.text).not.toContain("0. ↩️ Ignorar");
