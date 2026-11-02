@@ -2523,6 +2523,14 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        VALUES($1,$2,'baileys',$3,'ACTIVE')`,
       [randomUUID(), playerId, destinationRef],
     );
+    // The real PlayerRegistrationService joins onboarding_context as well
+    // as player_identities and onboarding_states. The older test helper only
+    // inserted the latter, which is not a complete registered trainer.
+    await pool.query(
+      `INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id)
+       VALUES($1,$2,$3)`,
+      [playerId, publishedReleaseId, captureRulesetId],
+    );
     await pool.query(
       `INSERT INTO solo_expedition_search_outcomes(
          id,player_id,expedition_id,expedition_revision,kind,encounter_id
