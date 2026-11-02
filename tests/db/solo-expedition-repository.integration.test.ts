@@ -2763,6 +2763,190 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(finalExpedition?.elapsedMinutes).toBe(40);
   });
 
+
+  it("issues BATALHAR only for a fully frozen and published PvE party in disposable PG18", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-frozen-pve-menu");
+    const active = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-frozen-pve-search",
+    });
+    expect(active.ok).toBe(true);
+    if (!active.ok) throw new Error("Cannot activate synthetic PvE expedition");
+
+    const owned = randomUUID();
+    const snapshot = publishedCaptureSnapshot;
+    if (snapshot.moves[0] === undefined) throw new Error("Published test Pokemon has no move");
+    await pool.query(
+      `INSERT INTO pokemon_instances(
+         id,owner_player_id,form_id,level,current_hp,ability_id,origin_type
+       ) VALUES($1,$2,$3,5,18,$4,'TEST')`,
+      [owned, playerId, snapshot.formId, snapshot.abilityId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_training_values(
+         pokemon_instance_id,nature_id,iv_hp,iv_attack,iv_defense,
+         iv_sp_attack,iv_sp_defense,iv_speed
+       ) VALUES($1,$2,1,2,3,4,5,6)`,
+      [owned, snapshot.natureId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_move_slots(pokemon_instance_id,slot_no,move_id,pp_current) VALUES($1,1,$2,35)",
+      [owned, snapshot.moves[0].moveId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_roster_slots(
+         pokemon_instance_id,player_id,placement_kind,box_no,slot_no
+       ) VALUES($1,$2,'TEAM',NULL,1)`,
+      [owned, playerId],
+    );
+
+    const rulesetId = randomUUID();
+    await pool.query(
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES($1,$2,1,1,$3::jsonb,'DRAFT')",
+      [
+        rulesetId,
+        "pg18-offline-frozen-pve-" + rulesetId,
+        JSON.stringify({
+          schemaVersion: 1,
+          battle: {
+            statModel: "SIX_STATS",
+            physicalSpecialByMove: true,
+            ivEnabled: true,
+            evEnabled: false,
+            natureEnabled: true,
+            maxMoves: 4,
+            ppEnabled: true,
+            criticalMultiplierBasisPoints: 15000,
+            accuracyEvasionEnabled: true,
+          },
+          capture: {
+            model: "POKEMON_INSPIRED_V1",
+            allowedEncounterStates: ["ENGAGED", "IN_BATTLE"],
+          },
+          defeat: { automaticMoneyLoss: false },
+          narrative: { authority: "N0_FLAVOR_ONLY" },
+        }),
+      ],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [rulesetId, JSON.stringify({ valid: true, issues: [] }), "d".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [
+      rulesetId,
+    ]);
+
+    const encounterId = createEncounterId();
+    const outcomeId = randomUUID();
+    await pool.query(
+      `INSERT INTO encounters(
+         id,player_id,area_id,status,content_release_id,ruleset_id,
+         rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
+         rng_counter,revision,creation_idempotency_key
+       ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x75),
+        Buffer.alloc(12, 0x76),
+        Buffer.alloc(16, 0x77),
+        "pg18-offline-pve:" + encounterId,
+      ],
+    );
+    const freeze = await pool.query(
+      "UPDATE encounter_players SET pokemon_instance_ids=ARRAY[$1::uuid] WHERE encounter_id=$2 AND player_id=$3",
+      [owned, encounterId, playerId],
+    );
+    expect(freeze.rowCount).toBe(1);
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
+      [encounterId, JSON.stringify(snapshot)],
+    );
+    await pool.query(
+      `INSERT INTO encounter_wild_snapshots(
+         encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at
+       ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
+      [encounterId, JSON.stringify(snapshot)],
+    );
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,$4,'DIRECT',$5)`,
+      [outcomeId, playerId, prepared.expeditionId, active.value.expedition.revision.toString(), encounterId],
+    );
+    const destinationRef = "5579999999996@s.whatsapp.net";
+    const source = randomUUID();
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,sent_at,payload,
+         idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        source,
+        destinationRef,
+        JSON.stringify({
+          text: "Frozen ready PvE search",
+          expeditionSearch: { playerId, outcomeId, encounterId },
+        }),
+        "pg18-frozen-pve-search:" + source,
+        randomUUID(),
+      ],
+    );
+
+    const issuer = new PostgresExpeditionOfflineActionableMenuIssuer(pool);
+    const issued = await issuer.issue({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      destinationRef,
+      correlationId: randomUUID(),
+    });
+    expect(issued).toMatchObject({
+      ok: true,
+      value: { ballItemIds: {}, replayed: false },
+    });
+    if (!issued.ok) throw new Error("Published frozen PvE menu rejected");
+    expect(issued.value.text).toContain("1. ⚔️ Batalhar");
+    expect(issued.value.text).not.toContain("0. ↩️ Ignorar");
+    const actions = await pool.query<{ actions: string[] }>(
+      "SELECT panel->'actions' AS actions FROM solo_incidental_menu_snapshots WHERE id=$1",
+      [issued.value.menuId],
+    );
+    expect(actions.rows).toEqual([{ actions: ["BATTLE"] }]);
+    const proof = new PostgresExpeditionIssuedMenuReplyProof(pool);
+    const quoted = {
+      provider: "baileys",
+      playerId,
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      replyToExternalMessageId: issued.value.outboxMessageId.replaceAll("-", "").toUpperCase(),
+    };
+    expect(await proof.resolve(quoted)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      issued.value.outboxMessageId,
+    ]);
+    expect(await proof.resolve(quoted)).toMatchObject({
+      ok: true,
+      value: {
+        actionable: true,
+        battleEnabled: true,
+        captureEnabled: false,
+        ignoreEnabled: false,
+      },
+    });
+  });
+
   it("routes an authorized Ball to real CaptureService + PostgresCaptureRepository in disposable PG18", async () => {
     // Unlike the unit test, this case commits real capture attempts, inventory
     // ledger and encounter transitions in PostgreSQL. Auth/menu ports remain

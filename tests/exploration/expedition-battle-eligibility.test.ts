@@ -21,7 +21,7 @@ const ready = {
   major_conditions: 0,
 };
 function fixture(frozen: unknown, team: unknown[]) {
-  const query = vi.fn(async () => ({
+  const query = vi.fn(async (_sql: string, _params: readonly unknown[]) => ({
     rows: query.mock.calls.length === 1 ? frozen : team,
   }));
   return {
