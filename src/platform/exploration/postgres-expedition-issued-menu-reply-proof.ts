@@ -191,13 +191,12 @@ export class PostgresExpeditionIssuedMenuReplyProof {
         actions.length > 3 ||
         actions.some(
           (action) =>
-            typeof action !== "string" ||
-            !["CAPTURE", "BATTLE", "IGNORE"].includes(action),
+            typeof action !== "string" || !["CAPTURE", "BATTLE", "IGNORE"].includes(action),
         ) ||
         new Set(actions).size !== actions.length ||
         JSON.stringify(actions) !== JSON.stringify(row.outbox_actions) ||
         JSON.stringify(row.ball_item_ids) !== JSON.stringify(row.outbox_balls) ||
-        (actions.includes("CAPTURE") !== (entries.length > 0)) ||
+        actions.includes("CAPTURE") !== entries.length > 0 ||
         row.capture_enabled !== actions.includes("CAPTURE") ||
         row.battle_enabled !== actions.includes("BATTLE")
       ) {

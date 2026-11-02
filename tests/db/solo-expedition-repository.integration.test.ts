@@ -2350,7 +2350,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         playerId,
         actionOutcome,
         encounterId,
-        JSON.stringify({ mode: "ACTIONABLE", actions: ["CAPTURE", "BATTLE"], text: "Synthetic mechanical consent: NOT sent to WhatsApp" }),
+        JSON.stringify({
+          mode: "ACTIONABLE",
+          actions: ["CAPTURE", "BATTLE"],
+          text: "Synthetic mechanical consent: NOT sent to WhatsApp",
+        }),
         JSON.stringify({ "2": availableBallId }),
       ],
     );
