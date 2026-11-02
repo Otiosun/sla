@@ -734,7 +734,9 @@ describe("Phase 13 operational WhatsApp UX", () => {
   it("refuses ambiguous or out-of-range page requests before reading any collection", async () => {
     const routerUnderTest = router(dependencies());
     for (const command of ["/colecao", "/box", "/inventario", "/pokedex"]) {
-      const extra = await routerUnderTest.dispatch(context(`${command} 2 lixo`, `${command}-extra`));
+      const extra = await routerUnderTest.dispatch(
+        context(`${command} 2 lixo`, `${command}-extra`),
+      );
       expect(extra).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
       const invalid = await routerUnderTest.dispatch(context(`${command} 0`, `${command}-zero`));
       expect(invalid).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
