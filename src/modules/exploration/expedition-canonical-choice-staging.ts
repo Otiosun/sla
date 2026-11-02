@@ -124,12 +124,14 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       });
       if (!previous.ok) return previous;
       if (previous.value !== null) {
-        return ok(this.ignoreConfirmation({
-          destinationRef: inbound.senderRef,
-          encounterId: previous.value.encounterId,
-          elapsedMinutes: previous.value.elapsedMinutes,
-          idempotencyKey: context.idempotencyKey,
-        }));
+        return ok(
+          this.ignoreConfirmation({
+            destinationRef: inbound.senderRef,
+            encounterId: previous.value.encounterId,
+            elapsedMinutes: previous.value.elapsedMinutes,
+            idempotencyKey: context.idempotencyKey,
+          }),
+        );
       }
     }
 
@@ -184,12 +186,14 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
         idempotencyKey: context.idempotencyKey,
       });
       if (!ignored.ok) return ignored;
-      return ok(this.ignoreConfirmation({
-        destinationRef: inbound.senderRef,
-        encounterId: active.value.encounterId,
-        elapsedMinutes: ignored.value.expedition.elapsedMinutes,
-        idempotencyKey: context.idempotencyKey,
-      }));
+      return ok(
+        this.ignoreConfirmation({
+          destinationRef: inbound.senderRef,
+          encounterId: active.value.encounterId,
+          elapsedMinutes: ignored.value.expedition.elapsedMinutes,
+          idempotencyKey: context.idempotencyKey,
+        }),
+      );
     }
     if (choice === "1") {
       if (menu.value.battleEnabled !== true) {

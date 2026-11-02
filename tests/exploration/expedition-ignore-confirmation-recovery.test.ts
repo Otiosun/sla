@@ -44,7 +44,7 @@ describe("offline ignore: post-commit confirmation recovery is read-only", () =>
     vi.stubEnv("APP_ENV", "test");
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("WHATSAPP_ENABLED", "false");
-    const query = vi.fn(async () => ({ rows: [row] }));
+    const query = vi.fn(async (_sql: string, _params: readonly unknown[]) => ({ rows: [row] }));
     const proof = new PostgresExpeditionIgnoreConfirmationRecovery({ query } as never);
     const ctx = context();
     expect(await proof.resolve({ playerId, context: ctx })).toEqual({
