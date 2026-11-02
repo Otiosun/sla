@@ -39,7 +39,9 @@ const BALL_CHOICES = [
 export class PostgresExpeditionReadOnlyMenuIssuer {
   constructor(private readonly pool: Pool) {}
 
-  async issue(input: IssueReadOnlyExpeditionMenuInput): Promise<Result<IssuedReadOnlyExpeditionMenu>> {
+  async issue(
+    input: IssueReadOnlyExpeditionMenuInput,
+  ): Promise<Result<IssuedReadOnlyExpeditionMenu>> {
     if (
       !UUID.test(input.playerId) ||
       !UUID.test(input.outcomeId) ||
@@ -48,7 +50,9 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
       input.expectedEncounterRevision < 0n ||
       !/^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/u.test(input.destinationRef)
     ) {
-      return err(appError("FLOW_BLOCKED", "Cannot issue an encounter menu to an unverified player"));
+      return err(
+        appError("FLOW_BLOCKED", "Cannot issue an encounter menu to an unverified player"),
+      );
     }
 
     const client = await this.pool.connect();
@@ -120,7 +124,9 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
       if (eligible.rows.length !== 1 || releaseId === undefined) {
         await client.query("ROLLBACK");
         inTransaction = false;
-        return err(appError("FLOW_BLOCKED", "Encounter is not a published, presented active encounter"));
+        return err(
+          appError("FLOW_BLOCKED", "Encounter is not a published, presented active encounter"),
+        );
       }
 
       const existing = await client.query<{
@@ -149,7 +155,12 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
            AND menu.encounter_revision = $4
            AND delivery.provider = 'baileys'
          LIMIT 2`,
-        [input.outcomeId, input.playerId, input.encounterId, input.expectedEncounterRevision.toString()],
+        [
+          input.outcomeId,
+          input.playerId,
+          input.encounterId,
+          input.expectedEncounterRevision.toString(),
+        ],
       );
       const previously = existing.rows[0];
       if (existing.rows.length > 0) {
@@ -184,12 +195,18 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
       if ((orphan.rowCount ?? 0) !== 0) {
         await client.query("ROLLBACK");
         inTransaction = false;
-        return err(appError("FLOW_BLOCKED", "An issued menu is incomplete and needs operator recovery"));
+        return err(
+          appError("FLOW_BLOCKED", "An issued menu is incomplete and needs operator recovery"),
+        );
       }
 
       // The list is pinned from true positive inventory balances and the
       // active content release. No advertised Ball is fabricated.
-      const inventory = await client.query<{ item_id: string; display_name: string; quantity: string }>(
+      const inventory = await client.query<{
+        item_id: string;
+        display_name: string;
+        quantity: string;
+      }>(
         `SELECT balance.item_id::text AS item_id,
                 revision.display_name,
                 balance.quantity::text
