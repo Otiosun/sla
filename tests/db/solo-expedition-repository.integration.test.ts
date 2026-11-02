@@ -42,6 +42,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let clock: ManualClock;
   let store: PostgresExpeditionRepository;
   let publishedReleaseId: string;
+  let publishedBallItemId: string;
   let activeAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
@@ -167,6 +168,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           relocationPriority: 10,
         }),
       ],
+    );
+    // Catalog revisions must be authored only while their release is DRAFT.
+    // Never bypass the PUBLISHED child-mutation trigger in the test database.
+    publishedBallItemId = randomUUID();
+    await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [
+      publishedBallItemId,
+      "pg18-staging-ball-" + publishedBallItemId,
+    ]);
+    await pool.query(
+      `INSERT INTO item_revisions(
+         id,content_release_id,item_id,display_name,item_kind,effect_key,active
+       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',TRUE)`,
+      [randomUUID(), publishedReleaseId, publishedBallItemId],
     );
     await pool.query(
       "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
@@ -1953,17 +1967,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     // the Outbox, immutable menu snapshot and Baileys reply link atomically.
     const issuedOutcomeId = randomUUID();
     const issuedSourceId = randomUUID();
-    const availableBallId = randomUUID();
-    await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [
-      availableBallId,
-      "pg18-staging-ball-" + availableBallId,
-    ]);
-    await pool.query(
-      `INSERT INTO item_revisions(
-         id,content_release_id,item_id,display_name,item_kind,effect_key,active
-       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',TRUE)`,
-      [randomUUID(), publishedReleaseId, availableBallId],
-    );
+    const availableBallId = publishedBallItemId;
     await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,3)", [
       playerId,
       availableBallId,
