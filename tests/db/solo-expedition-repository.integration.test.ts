@@ -14,6 +14,7 @@ import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/explora
 import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
 import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
 import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
+import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -2989,7 +2990,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       expectedEncounterRevision: 2n,
       menuId: issued.value.menuId,
       inboxMessageId: claimed.value.inboxMessageId,
-      idempotencyKey: "inbox:baileys:pve-" + incoming.externalMessageId,
+      idempotencyKey: "inbox:baileys:" + incoming.externalMessageId,
       messageFingerprint: incomingMessageFingerprint(incoming),
       senderRef: destinationRef,
     };
@@ -3027,6 +3028,72 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ok: false,
       error: { code: "FLOW_BLOCKED" },
     });
+
+    // Fail the Inbox *after* the single battle transaction committed. The
+    // original quoted encounter is now IN_BATTLE: normal proof must deny it,
+    // while an immutable receipt allows only the original confirmation.
+    await inbox.failIncoming(claimed.value.inboxMessageId, "INJECTED_AFTER_PVE_START");
+    const recovery = new ExpeditionCanonicalChoiceStagingResolver(
+      new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool)),
+      new PostgresExpeditionQuotedEncounterProof(pool),
+      new EncounterOperationalReadService(new PostgresEncounterRepository(pool)),
+      proof,
+      {
+        async attempt(): Promise<never> {
+          throw new Error("PvE recovery cannot capture");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[4],
+      {
+        async startCanonical(): Promise<never> {
+          throw new Error("PvE recovery cannot start another battle");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
+      undefined,
+      undefined,
+      undefined,
+      {
+        async execute(): Promise<never> {
+          throw new Error("PvE recovery must not execute the battle again");
+        },
+      },
+      new PostgresExpeditionBattleConfirmationRecovery(pool),
+    );
+    const recoveryMessaging = new MessagingService(
+      inbox,
+      new MessageRouter([], undefined, recovery),
+    );
+    expect(await recoveryMessaging.receive({ ...incoming, text: "0" })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
+    const redelivered = await recoveryMessaging.receive(incoming);
+    if (!redelivered.ok) {
+      throw new Error("PvE confirmation retry failed: " + JSON.stringify(redelivered.error));
+    }
+    expect(redelivered).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED", resultRefType: "BATTLE", resultRefId: battleId },
+    });
+    expect(await recoveryMessaging.receive(incoming)).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED", resultRefType: "BATTLE", resultRefId: battleId },
+    });
+    const confirmation = await pool.query<{ status: string; text: string }>(
+      `SELECT status,payload->>'text' AS text FROM outbox_messages
+       WHERE channel='whatsapp' AND idempotency_key=$1`,
+      [exact.idempotencyKey + ":expedition-canonical-battle"],
+    );
+    expect(confirmation.rows).toHaveLength(1);
+    expect(confirmation.rows[0]?.status).toBe("PENDING");
+    expect(confirmation.rows[0]?.text).toContain("Batalha iniciada");
+    expect(
+      (
+        await pool.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM solo_expedition_battle_receipts WHERE battle_id=$1",
+          [battleId],
+        )
+      ).rows[0]?.n,
+    ).toBe(1);
   });
 
   it("routes an authorized Ball to real CaptureService + PostgresCaptureRepository in disposable PG18", async () => {

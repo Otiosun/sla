@@ -96,6 +96,32 @@ function setup(battleExecute?: ReturnType<typeof vi.fn>) {
 }
 
 describe("staging canonical Capture/PvE mechanical command authorization", () => {
+  it("reconstructs committed PvE confirmation without rerunning battle admission", async () => {
+    const fixture = setup();
+    const execute = vi.fn(async () => {
+      throw new Error("No second battle may start during receipt recovery");
+    });
+    const read = vi.fn(async () => ok({ battleId: randomUUID() }));
+    const gateway = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as never,
+      { resolve: fixture.resolve } as never,
+      { activeForPlayer: fixture.activeForPlayer } as never,
+      { resolve: fixture.issuedResolve } as never,
+      { attempt: fixture.attempt } as never,
+      { startCanonical: fixture.startCanonical } as never,
+      undefined,
+      undefined,
+      undefined,
+      { execute },
+      { resolve: read },
+    );
+    const result = await gateway.resolve(context("1"));
+    expect(result).toMatchObject({ ok: true, value: { resultRefType: "BATTLE" } });
+    expect(read).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+    expect(fixture.issuedResolve).not.toHaveBeenCalled();
+  });
+
   it("recovers committed ignore confirmation without issuing a second flee", async () => {
     const fixture = setup();
     const previous = { encounterId, elapsedMinutes: 40 };
