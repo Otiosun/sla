@@ -651,7 +651,7 @@ describe("published search staging-only WhatsApp command", () => {
       f.read.mockResolvedValueOnce({ expedition: item, usedThisWeek: 1 });
       expect((await f.route.handler.handle(context("/explorar dia"))).ok).toBe(false);
     }
-    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
     expect(f.execute).not.toHaveBeenCalled();
   });
 
