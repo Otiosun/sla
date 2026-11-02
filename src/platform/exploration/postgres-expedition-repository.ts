@@ -513,7 +513,9 @@ export class PostgresExpeditionRepository {
           [input.playerId],
         );
         if (blocked.rowCount !== 0) {
-          return err(appError("FLOW_BLOCKED", "Resolve the existing encounter before searching again"));
+          return err(
+            appError("FLOW_BLOCKED", "Resolve the existing encounter before searching again"),
+          );
         }
         const week = expeditionWeekKey(this.clock.now(), this.timeZone);
         const used = await client.query<{ count: string }>(
