@@ -69,17 +69,20 @@ describe("isolated issued menu proof binds quote, player and immutable Ball IDs"
     expect(query).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [],
-    [validRow, validRow],
-    [{ ...validRow, player_id: createPlayerId() }],
-    [{ ...validRow, encounter_revision: "-2" }],
-    [{ ...validRow, ball_item_ids: { "2": "not-uuid" } }],
-    [{ ...validRow, ball_item_ids: { "1": ballId } }],
-    [{ ...validRow, ball_item_ids: { "2": ballId, "3": ballId } }],
-    [{ ...validRow, ball_item_ids: [] }],
-  ])("blocks absent, ambiguous or corrupted server-issued menus", async (rows) => {
-    const { proof } = setup(rows);
-    expect((await proof.resolve(request)).ok).toBe(false);
+  it("blocks absent, ambiguous or corrupted server-issued menus", async () => {
+    const cases: unknown[][] = [
+      [],
+      [validRow, validRow],
+      [{ ...validRow, player_id: createPlayerId() }],
+      [{ ...validRow, encounter_revision: "-2" }],
+      [{ ...validRow, ball_item_ids: { "2": "not-uuid" } }],
+      [{ ...validRow, ball_item_ids: { "1": ballId } }],
+      [{ ...validRow, ball_item_ids: { "2": ballId, "3": ballId } }],
+      [{ ...validRow, ball_item_ids: [] }],
+    ];
+    for (const rows of cases) {
+      const { proof } = setup(rows);
+      expect((await proof.resolve(request)).ok).toBe(false);
+    }
   });
 });
