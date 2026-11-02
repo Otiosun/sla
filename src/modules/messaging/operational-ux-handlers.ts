@@ -15,6 +15,7 @@ import type { MessageHandlerContext, MessageHandlerResult } from "./contracts.js
 import { normalizeHumanText, parseCollectionNumber, parseMenuNumber } from "./human-input.js";
 import type {
   OperationalOwnedPokemonDetailView,
+  OperationalOwnedPokemonView,
   OperationalPokemonDetailView,
   OperationalUxReadModel,
 } from "./operational-ux-read-model.js";
@@ -123,21 +124,39 @@ function cooldownText(availableAt: string, now: Date): string {
   return `⏳ Você acabou de chegar a *Vila dos Arrozais*.\nAguarde *${minutes}min ${seconds % 60}s* antes de seguir por outra rota.`;
 }
 
-function pageNumber(args: readonly string[]): Result<number> {
+function pageNumber(args: readonly string[], command: string): Result<number> {
   if (args.length === 0) return ok(1);
-  const page = Number(args[0]);
-  return Number.isSafeInteger(page) && page > 0
-    ? ok(page)
-    : err(appError("VALIDATION_FAILED", "Página inválida. Use um número inteiro maior que zero."));
+  const page = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
+  return page === null
+    ? err(
+        appError(
+          "VALIDATION_FAILED",
+          `Página inválida. Use apenas o número. Ex.: \`${command} 2\`.`,
+        ),
+      )
+    : ok(page);
 }
 
 function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
   return values.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 }
 
+function pageExists(total: number, page: number): boolean {
+  return page <= Math.max(1, Math.ceil(total / PAGE_SIZE));
+}
+
 function pageFooter(total: number, page: number, command: string): string {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
+  if (totalPages <= 1) return "";
+  return [
+    `📄 Página ${page}/${totalPages}`,
+    ...(page > 1 ? [`⬅️ Anterior: \`${command} ${page - 1}\``] : []),
+    ...(page < totalPages ? [`➡️ Próxima: \`${command} ${page + 1}\``] : []),
+  ].join("\n");
+}
+
+function pokemonDisplayName(displayName: string, nickname: string | null): string {
+  return nickname === null || nickname.trim().length === 0 ? displayName : nickname.trim();
 }
 
 function isOwnedPokemonDetail(
@@ -483,14 +502,14 @@ export function createOperationalUxRoutes(
   const collection: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/colecao");
     if (!page.ok) return page;
     const owned = await listOwned(player.value);
     if (owned === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Coleção Pokémon ainda não está disponível."));
     }
     const slice = pageSlice(owned, page.value);
-    if (owned.length > 0 && slice.length === 0) {
+    if (!pageExists(owned.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da coleção não existe."));
     }
     const lines = slice.map((pokemon) => {
@@ -520,15 +539,17 @@ export function createOperationalUxRoutes(
   const box: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/box");
     if (!page.ok) return page;
     const owned = await listOwned(player.value);
     if (owned === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Boxes ainda não estão disponíveis."));
     }
-    const stored = owned.filter((pokemon) => pokemon.placementKind === "BOX");
+    const stored = owned
+      .filter((pokemon) => pokemon.placementKind === "BOX")
+      .sort((left, right) => (left.boxNo ?? 1) - (right.boxNo ?? 1) || left.slotNo - right.slotNo);
     const slice = pageSlice(stored, page.value);
-    if (stored.length > 0 && slice.length === 0) {
+    if (!pageExists(stored.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da Box não existe."));
     }
     const lines = slice.map(
@@ -542,6 +563,10 @@ export function createOperationalUxRoutes(
         "",
         lines.length === 0 ? "_Nenhum Pokémon armazenado._" : lines.join("\n"),
         pageFooter(stored.length, page.value, "/box"),
+        "",
+        "Abra uma ficha com `/pokemon <#>`.",
+        "`/colecao` · todos os Pokémon",
+        "`/equipe` · formação atual",
       ].join("\n"),
     );
   };
@@ -724,6 +749,7 @@ export function createOperationalUxRoutes(
     const rawReference = commandArgs(context).join(" ");
     const owned = await listOwned(player.value);
     let ref: number;
+    let selectedPokemon: OperationalOwnedPokemonView | null = null;
     if (owned === null) {
       const numericFallback = parseCollectionNumber(rawReference);
       if (numericFallback === null) {
@@ -735,21 +761,55 @@ export function createOperationalUxRoutes(
     } else {
       const resolvedReference = resolveOwnedPokemonReference(owned, rawReference);
       if (!resolvedReference.ok) return resolvedReference;
-      ref = resolvedReference.value.collectionNo;
+      selectedPokemon = resolvedReference.value;
+      ref = selectedPokemon.collectionNo;
     }
 
+    // Collection numbers and team slots are independent identifiers.
     const detail =
-      dependencies.reads.ownedPokemonDetail === undefined
-        ? await dependencies.reads.teamPokemonDetail(player.value, ref)
-        : await dependencies.reads.ownedPokemonDetail(player.value, ref);
+      dependencies.reads.ownedPokemonDetail !== undefined
+        ? await dependencies.reads.ownedPokemonDetail(player.value, ref)
+        : selectedPokemon === null
+          ? await dependencies.reads.teamPokemonDetail(player.value, ref)
+          : selectedPokemon.placementKind === "TEAM"
+            ? await dependencies.reads.teamPokemonDetail(player.value, selectedPokemon.slotNo)
+            : null;
     if (detail === null) {
-      return err(appError("NOT_FOUND", "Não existe um Pokémon com esse número na sua coleção."));
+      if (
+        dependencies.reads.ownedPokemonDetail === undefined &&
+        selectedPokemon?.placementKind === "BOX"
+      ) {
+        return err(
+          appError("FEATURE_UNAVAILABLE", "Ficha de Pokémon da Box indisponível.", {
+            userMessage:
+              "A ficha de Pokémon na Box não está disponível agora. Use `/box` para consultar seus Pokémon.",
+          }),
+        );
+      }
+      return err(
+        appError("NOT_FOUND", "Não foi possível localizar essa ficha.", {
+          userMessage: "Não foi possível localizar essa ficha. Use `/colecao` e tente novamente.",
+        }),
+      );
+    }
+    if (
+      selectedPokemon !== null &&
+      detail.pokemonInstanceId !== selectedPokemon.pokemonInstanceId
+    ) {
+      return err(
+        appError(
+          "REVISION_CONFLICT",
+          "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
+          {
+            userMessage: "A posição desse Pokémon mudou. Use `/colecao` e abra a ficha novamente.",
+          },
+        ),
+      );
     }
 
+    const nickname = pokemonDisplayName(detail.displayName, detail.nickname);
     const displayName =
-      detail.nickname === null || detail.nickname.trim().length === 0
-        ? detail.displayName
-        : `${detail.nickname} · ${detail.displayName}`;
+      nickname === detail.displayName ? detail.displayName : `${nickname} · ${detail.displayName}`;
     const gender = detail.gender === "MALE" ? "♂" : detail.gender === "FEMALE" ? "♀" : "—";
     const statuses =
       detail.statuses.length === 0
@@ -809,6 +869,10 @@ export function createOperationalUxRoutes(
         `\`/evolucao #${String(ref)}\` · evolução e requisitos`,
         "`/centropokemon` · reaprender movimentos antigos",
         "`/equipe` · administrar formação",
+        "`/colecao` · todos os Pokémon",
+        ...(ownedDetail?.placementKind === "BOX" || selectedPokemon?.placementKind === "BOX"
+          ? ["`/box` · voltar às Boxes"]
+          : []),
       ].join("\n"),
     );
   };
@@ -816,7 +880,7 @@ export function createOperationalUxRoutes(
   const inventory: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/inventario");
     if (!page.ok) return page;
     const items = await dependencies.reads.listInventory(player.value);
     const slice = pageSlice(items, page.value);
@@ -837,7 +901,7 @@ export function createOperationalUxRoutes(
   const pokedex: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/pokedex");
     if (!page.ok) return page;
     const entries = await dependencies.reads.listPokedex(player.value);
     const slice = pageSlice(entries, page.value);
