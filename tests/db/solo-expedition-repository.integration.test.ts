@@ -3012,10 +3012,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ok: true,
       value: { battleId, replayed: true },
     });
-    expect(await action.execute({
-      ...exact,
-      idempotencyKey: exact.idempotencyKey + ":altered",
-    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await action.execute({
+        ...exact,
+        idempotencyKey: exact.idempotencyKey + ":altered",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     const receipts = await pool.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM solo_expedition_battle_receipts WHERE battle_id=$1 AND inbox_message_id=$2",
       [battleId, claimed.value.inboxMessageId],

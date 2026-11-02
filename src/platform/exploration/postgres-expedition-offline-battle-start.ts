@@ -99,7 +99,8 @@ export class PostgresExpeditionOfflineBattleStart {
           "SELECT 1 FROM players WHERE id=$1 AND status='ACTIVE' FOR UPDATE",
           [input.playerId],
         );
-        if (owner.rowCount !== 1) return err(appError("PLAYER_INELIGIBLE", "Trainer is not active"));
+        if (owner.rowCount !== 1)
+          return err(appError("PLAYER_INELIGIBLE", "Trainer is not active"));
         const old = await client.query<ReceiptRow>(
           "SELECT battle_id::text, fingerprint, menu_id::text, outcome_id::text, encounter_id::text, encounter_revision::text, inbox_message_id::text FROM solo_expedition_battle_receipts WHERE player_id=$1 AND idempotency_key=$2",
           [input.playerId, input.idempotencyKey],

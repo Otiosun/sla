@@ -844,8 +844,7 @@ export function battleRepositoryWithinTransaction(client: PoolClient): BattleRep
   return {
     transaction: async <T>(work: (tx: BattleTransaction) => Promise<T>): Promise<T> =>
       work(transaction),
-    read: async <T>(work: (tx: BattleTransaction) => Promise<T>): Promise<T> =>
-      work(transaction),
+    read: async <T>(work: (tx: BattleTransaction) => Promise<T>): Promise<T> => work(transaction),
   };
 }
 
