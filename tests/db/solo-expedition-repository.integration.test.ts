@@ -2998,6 +2998,34 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       messageFingerprint: incomingMessageFingerprint(incoming),
       senderRef: destinationRef,
     };
+    // Injection after Encounter.startBattle creates its battle but before
+    // BattleService.initialize decrypts the seed: the transaction MUST roll
+    // back Encounter revision, created battle and immutable receipt together.
+    const brokenReader = new PostgresExpeditionOfflineBattleStart(
+      pool,
+      new AesEncounterSeedProvider(key, 1, () => Buffer.alloc(32, 0x25)),
+      new AesBattleSeedReader(new Map([[2, key]])),
+      clock,
+      { enabled: true, reason: null },
+    );
+    await expect(brokenReader.execute(exact)).rejects.toThrow("Battle RNG key version");
+    const reverted = await pool.query<{
+      encounter_status: string;
+      revision: string;
+      battles: number;
+      receipts: number;
+    }>(
+      `SELECT encounter.status AS encounter_status, encounter.revision::text AS revision,
+              (SELECT count(*)::int FROM battles WHERE encounter_id=$1) AS battles,
+              (SELECT count(*)::int FROM solo_expedition_battle_receipts
+               WHERE encounter_id=$1) AS receipts
+       FROM encounters encounter WHERE encounter.id=$1`,
+      [encounterId],
+    );
+    expect(reverted.rows).toEqual([
+      { encounter_status: "ENGAGED", revision: "2", battles: 0, receipts: 0 },
+    ]);
+
     const started = await action.execute(exact);
     if (!started.ok) {
       throw new Error("Atomic canonical PvE failed: " + JSON.stringify(started.error));
