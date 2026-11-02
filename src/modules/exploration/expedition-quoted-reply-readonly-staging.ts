@@ -54,9 +54,9 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
     });
     if (!bound.ok) return bound;
 
-    // A valid historical quote is not proof that the player is still facing
-    // that encounter. Require the canonical active read model to agree with
-    // identity, encounter, revision and pre-battle status before acknowledging.
+    // The quoted encounter must still be the canonical active one. This
+    // is a read-time check, NOT a durable menu-version binding: an old quote
+    // for the very same unchanged encounter needs a future issued-menu session.
     const active = await this.encounters.activeForPlayer(identified.value.playerId);
     if (
       !active.ok ||
