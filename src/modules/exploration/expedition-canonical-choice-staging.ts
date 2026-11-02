@@ -6,6 +6,7 @@ import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
 import type { PostgresExpeditionOfflineBattleStart } from "../../platform/exploration/postgres-expedition-offline-battle-start.js";
+import type { PostgresExpeditionBattleConfirmationRecovery } from "../../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { incomingMessageFingerprint } from "../messaging/contracts.js";
 import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
 import type { PostgresExpeditionIgnoreConfirmationRecovery } from "../../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
@@ -39,7 +40,34 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     private readonly ignore?: Pick<ExpeditionIncidentalIgnoreStagingAction, "execute">,
     private readonly ignoreRecovery?: Pick<PostgresExpeditionIgnoreConfirmationRecovery, "resolve">,
     private readonly battle?: Pick<PostgresExpeditionOfflineBattleStart, "execute">,
+    private readonly battleRecovery?: Pick<PostgresExpeditionBattleConfirmationRecovery, "resolve">,
   ) {}
+
+  private battleConfirmation(input: {
+    readonly destinationRef: string;
+    readonly battleId: string;
+    readonly idempotencyKey: string;
+  }): MessageHandlerResult {
+    return {
+      resultRefType: "BATTLE",
+      resultRefId: input.battleId,
+      outgoing: [
+        {
+          channel: "whatsapp",
+          destinationRef: input.destinationRef,
+          messageType: "TEXT",
+          payload: {
+            text: [
+              "⚔️ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+              "> _Batalha iniciada pelo encontro autorizado._",
+              "› _Use /batalha para acompanhar os turnos._",
+            ].join("\n"),
+          },
+          idempotencyKey: `${input.idempotencyKey}:expedition-canonical-battle`,
+        },
+      ],
+    };
+  }
 
   private ignoreConfirmation(input: {
     readonly destinationRef: string;
@@ -138,6 +166,26 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       }
     }
 
+    // PvE may have committed with an immutable Inbox/battle receipt before
+    // WhatsApp reply completion failed. Recover the one original confirmation
+    // without re-entering a now-stale ENGAGED encounter or starting another PvE.
+    if (choice === "1" && this.battleRecovery !== undefined) {
+      const previous = await this.battleRecovery.resolve({
+        playerId: identified.value.playerId,
+        context,
+      });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return ok(
+          this.battleConfirmation({
+            destinationRef: inbound.senderRef,
+            battleId: previous.value.battleId,
+            idempotencyKey: context.idempotencyKey,
+          }),
+        );
+      }
+    }
+
     const authorizedInput = {
       provider: "baileys",
       playerId: identified.value.playerId,
@@ -217,25 +265,13 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
         senderRef: inbound.senderRef,
       });
       if (!started.ok) return started;
-      return ok({
-        resultRefType: "BATTLE",
-        resultRefId: started.value.battleId,
-        outgoing: [
-          {
-            channel: "whatsapp",
-            destinationRef: inbound.senderRef,
-            messageType: "TEXT",
-            payload: {
-              text: [
-                "⚔️ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
-                "> _Batalha iniciada pelo encontro autorizado._",
-                "› _Use /batalha para acompanhar os turnos._",
-              ].join("\n"),
-            },
-            idempotencyKey: `${context.idempotencyKey}:expedition-canonical-battle`,
-          },
-        ],
-      });
+      return ok(
+        this.battleConfirmation({
+          destinationRef: inbound.senderRef,
+          battleId: started.value.battleId,
+          idempotencyKey: context.idempotencyKey,
+        }),
+      );
     }
 
     if (menu.value.captureEnabled !== true) {
