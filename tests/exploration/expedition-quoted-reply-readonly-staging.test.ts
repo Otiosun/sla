@@ -59,7 +59,14 @@ function setup() {
       }>
     > => ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null }),
   );
-  const issued = vi.fn(async () =>
+  const issued = vi.fn(async (): Promise<Result<{
+    menuId: string;
+    playerId: typeof playerId;
+    outcomeId: string;
+    encounterId: string;
+    encounterRevision: bigint;
+    ballItemIds: Readonly<Record<string, string>>;
+  }>> =>
     ok({
       menuId: randomUUID(),
       playerId,
@@ -215,7 +222,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
 
   it("blocks a missing, superseded or forged issued menu after encounter verification", async () => {
     const f = setup();
-    f.issued.mockResolvedValueOnce(err(appError("FLOW_BLOCKED", "Older menu was superseded")) as never);
+    f.issued.mockResolvedValueOnce(err(appError("FLOW_BLOCKED", "Older menu was superseded")));
     expect(await f.resolver.resolve(context("2"))).toMatchObject({
       ok: false, error: { code: "FLOW_BLOCKED" },
     });
