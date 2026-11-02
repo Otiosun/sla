@@ -1,5 +1,6 @@
 import type { PostgresExpeditionQuotedEncounterProof } from "../../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageConversationResolver } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
@@ -16,6 +17,7 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
   constructor(
     private readonly players: Pick<PlayerRegistrationService, "resolvePlayer">,
     private readonly proof: Pick<PostgresExpeditionQuotedEncounterProof, "resolve">,
+    private readonly encounters: Pick<EncounterOperationalReadService, "activeForPlayer">,
   ) {}
 
   async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
@@ -51,6 +53,21 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
       replyToExternalMessageId: context.message.replyToExternalMessageId,
     });
     if (!bound.ok) return bound;
+
+    // A valid historical quote is not proof that the player is still facing
+    // that encounter. Require the canonical active read model to agree with
+    // identity, encounter, revision and pre-battle status before acknowledging.
+    const active = await this.encounters.activeForPlayer(identified.value.playerId);
+    if (
+      !active.ok ||
+      active.value.playerId !== identified.value.playerId ||
+      active.value.encounterId !== bound.value.encounterId ||
+      active.value.revision !== bound.value.encounterRevision ||
+      active.value.status !== "ENGAGED" ||
+      active.value.battleId !== null
+    ) {
+      return err(appError("FLOW_BLOCKED", "Quoted encounter is no longer the active encounter"));
+    }
 
     // Never expose internal encounter ids or imply that a selected Ball was
     // spent. A harmless private response makes staging UAT observable.
