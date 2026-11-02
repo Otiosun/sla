@@ -99,7 +99,13 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
         expectedRevision: active.value.revision,
         status: "ENGAGED",
       });
-      if (!started.ok) return started;
+      if (!started.ok) {
+        return err(
+          appError("FLOW_BLOCKED", "The canonical PvE start was rejected", {
+            battleCode: started.error.code,
+          }),
+        );
+      }
       return ok({
         resultRefType: "BATTLE",
         resultRefId: started.value.start.battleId,
