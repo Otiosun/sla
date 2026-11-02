@@ -498,7 +498,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : ["› _Resumo da última expedição concluída: /explorar resumo._"]),
         ...(this.deps.travel === undefined
           ? ["› _Recursos e viagem ainda não estão habilitados nesta versão isolada._"]
-          : ["› _Viagem somente por conexão com minutos publicados; recursos ainda indisponíveis._"]),
+          : [
+              "› _Viagem somente por conexão com minutos publicados; recursos ainda indisponíveis._",
+            ]),
       ];
       return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
     }
@@ -834,7 +836,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
             ...(this.deps.travel === undefined
               ? ["› _Recursos e viagem ainda não estão disponíveis._"]
-              : ["› _Viajar só quando a conexão tiver minutos aprovados; recursos indisponíveis._"]),
+              : [
+                  "› _Viajar só quando a conexão tiver minutos aprovados; recursos indisponíveis._",
+                ]),
           ].join("\n"),
         );
       }
