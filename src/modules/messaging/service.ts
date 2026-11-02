@@ -381,20 +381,25 @@ export class OutboxWorker {
         failed += 1;
         continue;
       }
+      let sendAttempted = false;
       let sendResolved = false;
       try {
         const prepared = await this.deliveryPreparation?.prepare(message);
+        sendAttempted = true;
         await adapter.send(prepared ?? message);
         sendResolved = true;
         await this.repository.markOutboxSent(message.id);
         sent += 1;
       } catch {
-        // A resolved send followed by an uncertain SENT persistence can mean
-        // the provider already accepted the message. Staging must not resend.
-        const uncertain = sendResolved && this.options.quarantineUnknownDelivery === true;
+        // A provider call may have been accepted even when it rejects or the
+        // SENT write fails. Quarantine any attempted send in isolated staging.
+        const uncertain = sendAttempted && this.options.quarantineUnknownDelivery === true;
+        const ambiguousCode = sendResolved
+          ? "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED"
+          : "OUTBOX_TRANSPORT_OUTCOME_UNKNOWN";
         await this.repository.markOutboxFailed({
           outboxMessageId: message.id,
-          errorCode: uncertain ? "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED" : "OUTBOX_DELIVERY_FAILED",
+          errorCode: uncertain ? ambiguousCode : "OUTBOX_DELIVERY_FAILED",
           retryAt: uncertain
             ? null
             : retryAtForAttempt({
