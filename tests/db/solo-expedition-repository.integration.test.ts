@@ -166,10 +166,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         outsideLaunchRegionId,
       ],
     );
-    await pool.query(
-      "INSERT INTO areas(id,region_id,slug) VALUES($1,$2,'campos-de-yun')",
-      [yunAreaId, activeRegionId],
-    );
+    await pool.query("INSERT INTO areas(id,region_id,slug) VALUES($1,$2,'campos-de-yun')", [
+      yunAreaId,
+      activeRegionId,
+    ]);
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
       [publishedReleaseId, rulesetId],
