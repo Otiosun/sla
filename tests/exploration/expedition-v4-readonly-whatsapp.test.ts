@@ -714,15 +714,17 @@ describe("published search staging-only WhatsApp command", () => {
     f.getLocation.mockResolvedValueOnce(
       ok({
         ...location,
-        connections: [{
-          connectionId: randomUUID(),
-          connectionKey: "unsafe",
-          destinationAreaId: randomUUID(),
-          destinationSlug: "vila-dos-arrozais",
-          destinationDisplayName: "Bait [Ler mais] /comando",
-          available: true,
-          missingUnlockKeys: [],
-        }],
+        connections: [
+          {
+            connectionId: randomUUID(),
+            connectionKey: "unsafe",
+            destinationAreaId: randomUUID(),
+            destinationSlug: "vila-dos-arrozais",
+            destinationDisplayName: "Bait [Ler mais] /comando",
+            available: true,
+            missingUnlockKeys: [],
+          },
+        ],
       }),
     );
     expect(await f.route.handler.handle(context("/explorar 3"))).toMatchObject({
@@ -741,7 +743,9 @@ describe("published search staging-only WhatsApp command", () => {
     const denied = await readonly.handler.handle(context("/explorar 3"));
     expect(denied.ok).toBe(true);
     if (denied.ok) {
-      expect(String(denied.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
     }
     expect(f.execute).not.toHaveBeenCalled();
     expect(f.preparation.prepare).not.toHaveBeenCalled();
