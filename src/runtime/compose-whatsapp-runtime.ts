@@ -1290,6 +1290,9 @@ export function createOperationalOutboxWorker(
       maxAttempts: 8,
       baseBackoffMs: 1_000,
       maxBackoffMs: 60_000,
+      // Only the isolated post-SENT integration opts into quarantine:
+      // never retry a delivery whose outcome is uncertain after adapter.send.
+      ...(postSentHook === undefined ? {} : { quarantineUnknownDelivery: true }),
     },
     deliveryPreparation,
     postSentHook,
