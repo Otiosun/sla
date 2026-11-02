@@ -10,6 +10,7 @@ import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
+import type { WorldLocationView } from "../world/contracts.js";
 import {
   EXPEDITION_DURATION_MINUTES,
   EXPEDITION_WEEKLY_LIMIT,
@@ -138,6 +139,62 @@ function safeLabel(value: string): string | null {
   return text.length > 0 && text.length <= 70 && !text.includes("[Ler mais]") ? text : null;
 }
 
+/**
+ * World PUBLISHED is authoritative. A read-only destination consultation must
+ * never create an action option, invent costs, reveal locked locations or
+ * silently change the player's area.
+ */
+function privateExpeditionDestinations(
+  context: MessageHandlerContext,
+  location: WorldLocationView,
+): Result<MessageHandlerResult> {
+  const launch = new Set(["campos-de-yun", "vila-dos-arrozais"]);
+  if (
+    location.regionSlug !== "zhoulia" ||
+    !launch.has(location.areaSlug) ||
+    !/^[a-f0-9-]{36}$/iu.test(location.contentReleaseId)
+  ) {
+    return err(appError("FLOW_BLOCKED", "Current published area cannot offer destinations"));
+  }
+  const seen = new Set<string>();
+  const destinations: string[] = [];
+  for (const road of location.connections) {
+    if (
+      road.available !== true ||
+      road.missingUnlockKeys.length !== 0 ||
+      !launch.has(road.destinationSlug) ||
+      road.destinationSlug === location.areaSlug
+    ) {
+      continue;
+    }
+    const label = safeLabel(road.destinationDisplayName);
+    if (label === null || !/^[a-f0-9-]{36}$/iu.test(road.destinationAreaId)) {
+      return err(appError("FLOW_BLOCKED", "Published World destination is unsafe"));
+    }
+    if (seen.has(road.destinationAreaId)) continue;
+    seen.add(road.destinationAreaId);
+    destinations.push("• " + label);
+  }
+  const origin = safeLabel(location.areaDisplayName);
+  if (origin === null) return err(appError("FLOW_BLOCKED", "World origin is unsafe"));
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗗𝗘𝗦𝗧𝗜𝗡𝗢𝗦*",
+      "⌖ *Local atual:* " + origin,
+      "",
+      "◇ *𝗖𝗢𝗡𝗘𝗫Õ𝗘𝗦 𝗗𝗜𝗦𝗣𝗢𝗡Í𝗩𝗘𝗜𝗦*",
+      "",
+      ...(destinations.length > 0
+        ? destinations
+        : ["> _Nenhum destino acessível confirmado nesta área._"]),
+      "",
+      "> _Consulta gratuita: não consome tempo nem cota._",
+      "› _O deslocamento ainda não está disponível nesta prévia._",
+    ].join("\n"),
+  );
+}
+
 function validExpedition(
   expedition: ExpeditionSnapshot,
   playerId: PlayerId,
@@ -200,13 +257,15 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
+    const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
     const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
       (this.deps.preparation === undefined ||
         (period === null && requestedPeriod === null && !cancel)) &&
       (!searchFree || this.deps.search === undefined) &&
-      (!(endRequested || endConfirmed) || this.deps.search === undefined)
+      (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
+      (!destinationsRequested || this.deps.preparation === undefined)
     ) {
       return privateText(
         context,
@@ -249,7 +308,11 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const located = await this.deps.world.getLocation(playerId);
     if (!located.ok) return located;
     const location = safeLabel(located.value.areaDisplayName);
-    if (location === null || located.value.requiresRelocation) {
+    if (
+      location === null ||
+      located.value.playerId !== playerId ||
+      located.value.requiresRelocation
+    ) {
       return err(appError("FLOW_BLOCKED", "Localização atual não está pronta para a exploração."));
     }
     // The PREPARING writer currently permits only the two published
@@ -299,6 +362,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ...(state !== "NONE" && this.deps.search !== undefined
           ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
           : []),
+        ...(state !== "NONE" && this.deps.preparation !== undefined
+          ? ["3. 🗺️ Consultar destinos ● /explorar 3"]
+          : []),
         ...(state === "ACTIVE" && this.deps.search !== undefined
           ? ["4. 📋 Encerrar ● /explorar 4", "› _A confirmação é obrigatória._"]
           : []),
@@ -311,6 +377,14 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         "› _Recursos, viagem e relatório ainda não estão habilitados nesta versão isolada._",
       ];
       return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
+    }
+    if (destinationsRequested && this.deps.preparation !== undefined) {
+      if (state === "NONE") {
+        return err(
+          appError("FLOW_BLOCKED", "Prepare an expedition before consulting destinations"),
+        );
+      }
+      return privateExpeditionDestinations(context, located.value);
     }
     if ((endRequested || endConfirmed) && this.deps.search !== undefined) {
       const current = facts.expedition;
@@ -512,6 +586,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
                 "› _Use /explorar 1 ou /explorar buscar para iniciar a busca._",
                 "› _Recursos e viagem ainda não estão disponíveis._",
               ]),
+          "3. 🗺️ Consultar destinos ● /explorar 3",
           "› _Use /explorar status para consultar a expedição._",
         ].join("\n"),
       );
@@ -560,6 +635,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
               label: "🔎 Buscar Pokémon ● 30 min",
               phrases: [],
             },
+            {
+              optionNo: 3,
+              intent: "DESTINATIONS",
+              label: "🗺️ Consultar destinos",
+              phrases: [],
+            },
           ],
           combiningCount: 0,
         });
@@ -571,7 +652,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             "› _Busque: /explorar 1 ou /explorar buscar._",
             "› _Alterar gratuitamente: /explorar periodo dia ou /explorar periodo noite._",
             "› _Cancelar preparação: /explorar cancelar._",
-            "› _Recursos e destinos ainda não estão habilitados._",
+            "3. 🗺️ Consultar destinos",
+            "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
+            "› _Recursos e viagem ainda não estão disponíveis._",
           ].join("\n"),
         );
       }
@@ -589,6 +672,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             phrases: [],
           },
           {
+            optionNo: 3,
+            intent: "DESTINATIONS",
+            label: "🗺️ Consultar destinos",
+            phrases: [],
+          },
+          {
             optionNo: 4,
             intent: "END",
             label: "📋 Encerrar",
@@ -603,6 +692,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         [
           shown.value.text,
           "› _Busque: /explorar 1 ou /explorar buscar._",
+          "› _Consultar destinos: /explorar 3 (sem gasto)._",
           "› _Para encerrar: /explorar 4 (exige confirmação)._",
           "› _Recursos e viagem ainda não estão habilitados._",
         ].join("\n"),
