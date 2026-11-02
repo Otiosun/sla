@@ -1051,6 +1051,7 @@ export function createOperationalMessagingComposition(
             return createExpeditionV4StagingSearchRoutes({
               ...dependencies,
               preparation,
+              summary: dependencies.facts,
               endRecovery: new PostgresExpeditionEndConfirmationRecovery(pool),
               search: new PostgresExpeditionV4StagingSearch(
                 pool,
