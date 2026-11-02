@@ -2612,6 +2612,39 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const claim = await ignoreInbox.claimIncoming(ignoredInbound, 30_000);
     expect(claim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
     if (!claim.ok) throw new Error("Isolated ignore Inbox claim was rejected");
+    // An effect that has already written SQL but then fails must roll back
+    // the effect AND the expedition clock/receipt in the same transaction.
+    const abortedEffectId = randomUUID();
+    const aborted = await store.executeIgnoreIncidental({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      idempotencyKey: "inbox:baileys:ignore-aborted",
+      flee: async (client) => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+          [abortedEffectId, playerId, prepared.expeditionId],
+        );
+        return err(appError("FLOW_BLOCKED", "Injected atomic ignore rejection"));
+      },
+    });
+    expect(aborted).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const atomicBefore = await pool.query<{ effects: number; receipts: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM solo_search_effect_test WHERE id=$1) AS effects,
+         (SELECT count(*)::int FROM solo_expedition_receipts
+          WHERE player_id=$2 AND idempotency_key='inbox:baileys:ignore-aborted') AS receipts`,
+      [abortedEffectId, playerId],
+    );
+    expect(atomicBefore.rows).toEqual([{ effects: 0, receipts: 0 }]);
+    expect((await store.current(playerId))?.elapsedMinutes).toBe(30);
+    const stillEngaged = await pool.query<{ status: string; revision: string }>(
+      "SELECT status,revision::text AS revision FROM encounters WHERE id=$1",
+      [encounterId],
+    );
+    expect(stillEngaged.rows).toEqual([{ status: "ENGAGED", revision: "2" }]);
+
     let calls = 0;
     const action = {
       playerId,
