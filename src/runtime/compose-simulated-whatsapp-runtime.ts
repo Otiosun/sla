@@ -7,6 +7,15 @@ import {
 } from "../adapters/whatsapp/simulated-whatsapp-adapter.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { MessagingService } from "../modules/messaging/service.js";
+import { ExpeditionSearchPostSentHook } from "../modules/exploration/expedition-search-post-sent-hook.js";
+import { ExpeditionSearchEngagementAfterSent } from "../modules/exploration/expedition-search-engagement-after-sent.js";
+import { EncounterService } from "../modules/encounter/service.js";
+import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
+import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
+import { SystemClock } from "../platform/clock/index.js";
+import { PostgresExpeditionSearchSentProof } from "../platform/exploration/postgres-expedition-search-sent-proof.js";
+import { PostgresExpeditionOfflineActionableMenuIssuer } from "../platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
+import { PostgresExpeditionPostSentRecovery } from "../platform/exploration/postgres-expedition-post-sent-recovery.js";
 import type { WorldServiceMediaCatalog } from "../modules/world-services/whatsapp-handlers.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import type { PveBattleRuntimeConfig } from "./compose-pve-battle-runtime.js";
@@ -44,6 +53,12 @@ export interface OperationalSimulatedWhatsAppRuntime {
   readonly runtime: WhatsAppMessagingRuntime;
   readonly adapter: SimulatedWhatsAppAdapter;
   readonly composition: OperationalMessagingComposition;
+  /** Inspect failed staging post-SENT callbacks; never loses delivery errors. */
+  readonly expeditionPostSentFailures: readonly {
+    readonly outboxMessageId: string;
+    readonly correlationId: string;
+    readonly errorCode: string;
+  }[];
 }
 
 export function createOperationalSimulatedWhatsAppRuntime(
@@ -71,19 +86,56 @@ export function createOperationalSimulatedWhatsAppRuntime(
       ? {}
       : { onConnectionState: options.onProviderConnectionState }),
   });
-  const outboxWorker = createOperationalOutboxWorker(options.pool, messagingRepository, adapter);
+  const expeditionPostSentFailures: Array<{
+    readonly outboxMessageId: string;
+    readonly correlationId: string;
+    readonly errorCode: string;
+  }> = [];
+  const afterSent =
+    options.explorationOfflineChoicesEnabled === true &&
+    options.encounterRngConfig !== undefined
+      ? new ExpeditionSearchPostSentHook(
+          new ExpeditionSearchEngagementAfterSent(
+            new PostgresExpeditionSearchSentProof(options.pool),
+            new EncounterService(
+              new PostgresEncounterRepository(options.pool),
+              new AesEncounterSeedProvider(
+                options.encounterRngConfig.encryptionKey,
+                options.encounterRngConfig.encryptionKeyVersion,
+              ),
+              new SystemClock(),
+              { enabled: true, reason: null },
+            ),
+          ),
+          (failed) => expeditionPostSentFailures.push(failed),
+          new PostgresExpeditionOfflineActionableMenuIssuer(options.pool),
+        )
+      : undefined;
+  const recovery =
+    afterSent === undefined
+      ? undefined
+      : new PostgresExpeditionPostSentRecovery(options.pool, afterSent);
+  const outboxWorker = createOperationalOutboxWorker(
+    options.pool,
+    messagingRepository,
+    adapter,
+    afterSent,
+  );
 
   const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitCommand: composition.admitRuntimeCommand,
     admitFreeform: composition.admitRuntimeFreeform,
     normalizeCommandLikeFreeform: composition.normalizeRuntimeCommandLikeFreeform,
-    beforeOutboxFlush: composition.runMaintenance,
+    beforeOutboxFlush: async () => {
+      await composition.runMaintenance();
+      await recovery?.runOnce();
+    },
     ...(options.onIncomingProcessingFailure === undefined
       ? {}
       : { onIncomingProcessingFailure: options.onIncomingProcessingFailure }),
   });
 
-  return { runtime, adapter, composition };
+  return { runtime, adapter, composition, expeditionPostSentFailures };
 }
 
 export function simulatedWhatsAppMessage(input: {

@@ -19,8 +19,12 @@ export interface ExpeditionPostSentRecoveryResult {
  * Staging-only repair for the crash window AFTER Outbox SENT but BEFORE
  * engagement. Queries durable SENT receipts; never resends to WhatsApp.
  *
- * Concurrent recovery calls are safe because the proof and canonical
- * EncounterService enforce ownership and idempotent transitions.
+ * Also recovers the crash after ENGAGED but before the ACTIONABLE menu was
+ * issued. A persisted menu snapshot excludes the row: Outbox handles its
+ * pending delivery without ever generating a replacement.
+ *
+ * Concurrent recovery calls are safe because the proof, EncounterService and
+ * immutable menu issuer enforce ownership and idempotent transitions.
  * Caller must provide monitoring for blocked rows. No automatic live wiring.
  */
 export class PostgresExpeditionPostSentRecovery {
@@ -40,12 +44,17 @@ export class PostgresExpeditionPostSentRecovery {
          ON outcome.id::text = o.payload->'expeditionSearch'->>'outcomeId'
        JOIN encounters encounter
          ON encounter.id = outcome.encounter_id
-        AND encounter.status IN ('CREATED', 'PRESENTED')
+        AND encounter.status IN ('CREATED', 'PRESENTED', 'ENGAGED')
        WHERE o.channel = 'whatsapp'
          AND o.message_type = 'TEXT'
          AND o.status = 'SENT'
          AND o.sent_at IS NOT NULL
          AND o.payload ? 'expeditionSearch'
+         AND NOT (o.payload ? 'expeditionMenu')
+         AND NOT EXISTS (
+           SELECT 1 FROM solo_incidental_menu_snapshots issued
+           WHERE issued.outcome_id = outcome.id
+         )
        ORDER BY o.sent_at, o.id
        LIMIT $1`,
       [limit],
