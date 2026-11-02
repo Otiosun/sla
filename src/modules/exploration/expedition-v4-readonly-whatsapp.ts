@@ -262,10 +262,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             ]
           : []),
         ...(state !== "NONE" && this.deps.search !== undefined
-          ? [
-              "1. 🔎 Buscar Pokémon ● `30 min`",
-              "› _Use /explorar 1 ou /explorar buscar._",
-            ]
+          ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
           : []),
         ...(state === "PREPARING" && this.deps.preparation !== undefined
           ? [
@@ -275,10 +272,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : []),
         "› _Recursos, viagem e relatório ainda não estão habilitados nesta versão isolada._",
       ];
-      return privateText(
-        context,
-        ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"),
-      );
+      return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
     }
     // A numeric option is contextual, not a second day-preparation command:
     // in NONE, /explorar 1 selects day; in PREPARING/ACTIVE, /explorar 1
@@ -454,7 +448,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
           ...(this.deps.search === undefined
             ? ["› _Busca, viagem e captura ainda não estão liberadas._"]
-            : ["› _Prepare um período para liberar a busca; recursos e viagem seguem indisponíveis._"]),
+            : [
+                "› _Prepare um período para liberar a busca; recursos e viagem seguem indisponíveis._",
+              ]),
         ].join("\n"),
       );
     }
