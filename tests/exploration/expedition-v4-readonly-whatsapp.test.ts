@@ -750,7 +750,11 @@ describe("published search staging-only WhatsApp command", () => {
       expect(sql).toContain("inbox.payload_hash=$4");
       expect(sql).toContain("receipt.operation='END'");
       expect(sql).toContain("expedition.phase='ENDED'");
-      expect(params.slice(0, 3)).toEqual([original.inboxMessageId, playerId, original.idempotencyKey]);
+      expect(params.slice(0, 3)).toEqual([
+        original.inboxMessageId,
+        playerId,
+        original.idempotencyKey,
+      ]);
       return {
         rows: [{ expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint }],
       };
