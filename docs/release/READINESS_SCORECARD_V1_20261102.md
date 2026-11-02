@@ -26,6 +26,8 @@
 | 02/11/2026 · baseline antes da #321 | PR #320, `4fe1f478af30955a3639d60df38bb02219b99524` | **40%** | — | 795 testes crossmodule, 211 focados, 35 PG18. A régua ainda não existia antes: baseline retrospectivo DECLARADO, não medição histórica. |
 | 02/11/2026 · após política mundial/grupos | PR #321, código `d6e57fcabf9645a351e42300119c32f64a58d205` | **50%** | **+10 pontos percentuais** | [CI focada #41496290867](https://github.com/Otiosun/sla/actions/runs/41496290867) SUCCESS: 225/225 Vitest, 35/35 PG18, TypeScript, Biome 50 arquivos, build; [crossmodule #41496290787](https://github.com/Otiosun/sla/actions/runs/41496290787) SUCCESS: 805 PASS, 1 SKIP; [Narrative #41496290778](https://github.com/Otiosun/sla/actions/runs/41496290778) SUCCESS. |
 
+| 02/11/2026 · continuação V4 de menu offline | PR #321, código `088e2627a1f80afdca78ff8830d4baefc06f4d6e` | **50%** | **0 p.p.** | Renderização V4 publicada/confirmada apenas em menu ACTIONABLE de testes OFFLINE (DIRECT/INCIDENTAL), espécie e nível por wild snapshot/release publicada, Balls fixas 2/3/4, snapshot/Outbox com texto idêntico, sem Batalhar/Ignorar ou dobra não homologada. [Focused #41507657406](https://github.com/Otiosun/sla/actions/runs/41507657406) SUCCESS: 231 Vitest, 35 PG18, TS, Biome52, build; [crossmodule #41507657415](https://github.com/Otiosun/sla/actions/runs/41507657415) SUCCESS: 806 PASS/1 SKIP; [Narrative #41507657379](https://github.com/Otiosun/sla/actions/runs/41507657379) SUCCESS. Gate 5 continua 0/10, RELEASE NO-GO. |
+
 ## Regras para próxima sessão
 
 1. **Sempre** abrir este arquivo primeiro e repetir as dez linhas com valor Concluído e status ✅/🔄/⏳.
