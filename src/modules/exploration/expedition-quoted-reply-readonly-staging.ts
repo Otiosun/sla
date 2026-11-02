@@ -38,7 +38,9 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
     });
     if (!identified.ok) return identified;
     if (identified.value.state !== "COMPLETE") {
-      return err(appError("PLAYER_INELIGIBLE", "Complete registration before opening an encounter"));
+      return err(
+        appError("PLAYER_INELIGIBLE", "Complete registration before opening an encounter"),
+      );
     }
 
     const bound = await this.proof.resolve({
