@@ -9,6 +9,7 @@ import {
 
 const parsedScope = parseIdempotencyScope("capture.attempt");
 if (!parsedScope.ok) throw new Error("Canonical capture attempt scope is invalid");
+const CAPTURE_ATTEMPT_SCOPE = parsedScope.value;
 
 /**
  * STAGING-ONLY post-commit confirmation recovery.
@@ -43,7 +44,7 @@ export class PostgresExpeditionCaptureConfirmationRecovery {
     }
 
     const scoped = createIdempotencyKey(
-      parsedScope.value,
+      CAPTURE_ATTEMPT_SCOPE,
       `${input.playerId}:${input.context.idempotencyKey.trim()}`,
     );
     if (!scoped.ok) return scoped;
