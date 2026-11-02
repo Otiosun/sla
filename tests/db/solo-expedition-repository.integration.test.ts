@@ -478,6 +478,51 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect((await store.current(playerId))?.areaId).toBe(yunAreaId);
   });
 
+  it("rolls back a real canonical World move and its receipt when expedition rejects its evidence", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-travel-world-rollback-preparation");
+    const result = await store.executeTravel({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: 0n,
+      expectedWorldRevision: 0n,
+      destinationAreaId: yunAreaId,
+      idempotencyKey: "pg18-travel-world-evidence-mismatch",
+      travel: async (client, input) => {
+        const canonical = await new WorldService(
+          worldRepositoryWithinTransaction(client),
+          { enabled: true, reason: null },
+          clock,
+        ).travel(input);
+        if (!canonical.ok) return canonical;
+        // Simulate a malicious/buggy adapter lying after the WorldService
+        // already moved location and inserted its own idempotent receipt.
+        return ok({
+          ...canonical.value,
+          to: { ...canonical.value.to, areaId: randomUUID() },
+        });
+      },
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const locationRow = await pool.query<{ area_id: string; revision: string }>(
+      "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    expect(locationRow.rows).toEqual([{ area_id: activeAreaId, revision: "0" }]);
+    const worldReceipt = await pool.query<{ total: number }>(
+      "SELECT count(*)::int AS total FROM world_travel_receipts WHERE player_id=$1",
+      [playerId],
+    );
+    expect(worldReceipt.rows[0]?.total).toBe(0);
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING",
+      areaId: activeAreaId,
+      elapsedMinutes: 0,
+      revision: 0n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
   it("rolls back expedition clock and world-side effects when the travel adapter fails", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "pg18-atomic-travel-failure-preparation");
