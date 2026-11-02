@@ -43,22 +43,23 @@ function setup() {
   const activeForPlayer = vi.fn(async () =>
     ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null }),
   );
-  const issuedResolve = vi.fn(async (): Promise<Result<VerifiedExpeditionIssuedMenu>> =>
-    ok({
-      menuId: randomUUID(),
-      playerId,
-      outcomeId,
-      encounterId,
-      encounterRevision: 2n,
-      ballItemIds: { "2": ballItemId },
-    }),
+  const issuedResolve = vi.fn(
+    async (): Promise<Result<VerifiedExpeditionIssuedMenu>> =>
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": ballItemId },
+      }),
   );
-  const attempt = vi.fn(async (): Promise<Result<{ status: "FAILED" | "CAPTURED"; replayed: boolean; encounterId: string }>> =>
-    ok({ status: "FAILED" as const, replayed: false, encounterId }),
+  const attempt = vi.fn(
+    async (): Promise<
+      Result<{ status: "FAILED" | "CAPTURED"; replayed: boolean; encounterId: string }>
+    > => ok({ status: "FAILED" as const, replayed: false, encounterId }),
   );
-  const startCanonical = vi.fn(async () =>
-    ok({ start: { battleId: randomUUID() } }),
-  );
+  const startCanonical = vi.fn(async () => ok({ start: { battleId: randomUUID() } }));
   const resolver = new ExpeditionCanonicalChoiceStagingResolver(
     { resolvePlayer } as unknown as ConstructorParameters<
       typeof ExpeditionCanonicalChoiceStagingResolver
@@ -79,7 +80,15 @@ function setup() {
       typeof ExpeditionCanonicalChoiceStagingResolver
     >[5],
   );
-  return { resolver, resolvePlayer, resolve, activeForPlayer, issuedResolve, attempt, startCanonical };
+  return {
+    resolver,
+    resolvePlayer,
+    resolve,
+    activeForPlayer,
+    issuedResolve,
+    attempt,
+    startCanonical,
+  };
 }
 
 describe("staging canonical Capture/PvE mechanical command authorization", () => {
