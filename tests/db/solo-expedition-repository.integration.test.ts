@@ -30,7 +30,12 @@ import {
   createSearchOutcomeEffect,
   readStoredSearchOutcome,
 } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
-import { createCorrelationId, createEncounterId, createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
+import {
+  createCorrelationId,
+  createEncounterId,
+  createPlayerId,
+  type PlayerId,
+} from "../../src/shared-kernel/ids.js";
 import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const dbName = "pokemon_solo_exp_" + process.pid + "_" + Date.now();
@@ -186,7 +191,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       `INSERT INTO item_revisions(
          id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active
        ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',$4::jsonb,TRUE)`,
-      [randomUUID(), publishedReleaseId, publishedBallItemId, JSON.stringify({ multiplierBasisPoints: 10000 })],
+      [
+        randomUUID(),
+        publishedReleaseId,
+        publishedBallItemId,
+        JSON.stringify({ multiplierBasisPoints: 10000 }),
+      ],
     );
     // One real, published and FK-valid wild Pokémon for CaptureService's
     // PostgreSQL transaction: master catalog is authored before publication.
@@ -2451,10 +2461,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
       [captureRulesetId, JSON.stringify({ valid: true, issues: [] }), "c".repeat(64)],
     );
-    await pool.query(
-      "UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1",
-      [captureRulesetId],
-    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [
+      captureRulesetId,
+    ]);
     await pool.query(
       `INSERT INTO encounters(
          id,player_id,area_id,status,content_release_id,ruleset_id,
@@ -2483,17 +2492,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
       [encounterId, JSON.stringify(publishedCaptureSnapshot)],
     );
-    await pool.query(
-      "INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,1)",
-      [playerId, publishedBallItemId],
-    );
+    await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,1)", [
+      playerId,
+      publishedBallItemId,
+    ]);
     const capture = new CaptureService(
       new PostgresCaptureRepository(pool),
       new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () => Buffer.alloc(32)),
     );
     const outcomeId = randomUUID();
     const destinationRef = "5579999999999@s.whatsapp.net";
-    const activeEncounters = new EncounterOperationalReadService(new PostgresEncounterRepository(pool));
+    const activeEncounters = new EncounterOperationalReadService(
+      new PostgresEncounterRepository(pool),
+    );
     const gateway = new ExpeditionCanonicalChoiceStagingResolver(
       {
         async resolvePlayer() {
@@ -2613,5 +2624,4 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(final.rows[0]?.quantity).toBe("0");
   });
-
 });
