@@ -9,6 +9,15 @@
 - Backups locais históricos e cópias efêmeras de banco **não** substituem backup externo criptografado e restauração validada.
 - PRs #287 (bot legado/local), #132 (Hub) e stack de exploração #288–#302 precisam de **comparação de branches/HEAD e reconciliação** antes de criar candidato único; um PR Draft verde não representa release consolidado.
 
+## Checkpoint técnico — 02/11/2026, pós-prazo solicitado
+
+**Candidato mais recente:** [PR #316](https://github.com/Otiosun/sla/pull/316), Draft em cima da #315. A #315 já recupera a confirmação após consumo de Ball e está verificada em PG18; #316 elimina o INSERT manual de menu ACTIONABLE no cenário integrado. **NÃO confundir com versão local instalada.**
+
+- Emissão de menu `ACTIONABLE` **somente offline**: `APP_ENV=test`, `NODE_ENV=test`, `WHATSAPP_ENABLED=false` são exigidos antes de abrir conexão. Se qualquer condição falha, retorna `FLOW_BLOCKED`. O emissor compartilha a transação existente de READ_ONLY, valida Encounter ENGAGED, ruleset de captura PUBLISHED com estado ENGAGED permitido, wild snapshot ACTIVE, Ball positiva de revision PUBLISHED e `effect_config` do catch-modifier. Congela menu/Outbox PENDING/entrega/reply de forma atômica; sem BATTLE ou regras de caça inventadas. Uma outcome antiga não pode mudar de modo.
+- A prova PG18 da #314/#315, agora com o emissor offline #316, atravessa identidade real, consulta de quote e menu enviado, captura/ledger/Outbox reais e recuperação de mensagem após a captura. Ainda **não** é Baileys real: o menu ACTIONABLE não existe na composição operacional.
+- **Ordem para atualização local:** 1) fechar Hub/UX/conteúdo e modo autorizado de staging com WhatsApp real, 2) criar release candidata única, preservar o bot em uso e árvore local suja, 3) backup externo criptografado + restauração no clone, 4) migrations numeradas + regressões, 5) UAT Android/iOS/Web inclusive Ler mais, 6) autorização GO, 7) cutover monitorado e anúncio dos recursos realmente ativos.
+- Não usar `#316` como justificativa para mesclar/ativar em produção: o próprio gate impede emissão ACTIONABLE fora de testes offline.
+
 ## 2. Checklist fechada por prova
 
 - [x] Exploração V4 em candidato: deduplicação de busca, prova SENT de Outbox e transição de encontro / Pokédex em PostgreSQL 18 descartável (#298–#299).
