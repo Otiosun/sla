@@ -806,7 +806,9 @@ describe("published search staging-only WhatsApp command", () => {
     const empty = await route.handler.handle(context("/explorar resumo"));
     expect(empty.ok).toBe(true);
     if (empty.ok) {
-      expect(String(empty.value.outgoing[0]?.payload.text)).toContain("Nenhuma expedição concluída");
+      expect(String(empty.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma expedição concluída",
+      );
     }
     const readonly = createExpeditionV4ReadOnlyRoutes({
       ...f.deps,
@@ -815,7 +817,9 @@ describe("published search staging-only WhatsApp command", () => {
     const response = await readonly.handler.handle(context("/explorar resumo"));
     expect(response.ok).toBe(true);
     if (response.ok) {
-      expect(String(response.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      expect(String(response.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
     }
     expect(latest).toHaveBeenCalledTimes(2);
   });
