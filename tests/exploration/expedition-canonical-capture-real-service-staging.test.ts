@@ -10,7 +10,11 @@ import type {
 } from "../../src/modules/capture/ports.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
-import { createPlayerId, createEncounterId, createCorrelationId } from "../../src/shared-kernel/ids.js";
+import {
+  createPlayerId,
+  createEncounterId,
+  createCorrelationId,
+} from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
 const playerId = createPlayerId();
