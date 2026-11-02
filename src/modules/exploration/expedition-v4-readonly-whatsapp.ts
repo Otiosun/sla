@@ -510,7 +510,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         after.areaId !== road.destinationAreaId ||
         after.elapsedMinutes !== original.elapsedMinutes + road.explorationMinutes! ||
         after.revision !== original.revision + 1n ||
-        after.consumedWeeklySlot !== undefined
+        moved.value.consumedWeeklySlot !== (state === "PREPARING")
       ) {
         return err(appError("FLOW_BLOCKED", "Travel receipt was inconsistent with the expedition"));
       }
