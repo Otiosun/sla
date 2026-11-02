@@ -350,7 +350,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     }
     if (period !== null && this.deps.preparation !== undefined) {
       if (state !== "NONE") {
-        return err(appError("FLOW_BLOCKED", "This period choice is no longer the current expedition menu"));
+        return err(
+          appError("FLOW_BLOCKED", "This period choice is no longer the current expedition menu"),
+        );
       }
       // The canonical repo owns locks, World release, weekly quota and
       // idempotency. We never grant resources or advance expedition time here.
