@@ -15,7 +15,7 @@
 - [x] OutboxWorker real com callback pós-SENT opt-in e reconciliação explícita após SENT (#299), sem registro no runtime live.
 - [x] Proteção opt-in contra envios ambíguos e leases expirados (#300), ainda SEM habilitação homogênea em workers reais.
 - [x] Prova de quote privada e dono/Encounter ACTIVE/ENGAGED em mock (#301).
-- [ ] Prova da **SQL real de quote no PostgreSQL 18**, com Outbox PENDING recusado e SENT/ENGAGED aceito somente após worker; o PR #302 acrescenta essa cobertura, sujeita a CI.
+- [x] Prova de **SQL real da quote no PostgreSQL 18** (#302): Outbox PENDING recusado, SENT/ENGAGED após worker aceito; owner incorreto, quote inexistente e outro destinatário recusados. Evidência: [CI #41377509931](https://github.com/Otiosun/sla/actions/runs/41377509931) SUCCESS em `da88ea228489a78415438f7359b6363d13c30e2e` (107/107 Vitest, 31/31 PG18, TypeScript, Biome, build), [Narrative #41377509936](https://github.com/Otiosun/sla/actions/runs/41377509936) SUCCESS. **Sem validação de handset**.
 - [ ] Menu realmente enviado e vinculado à mensagem externa, sessão/índices estáveis, antirreplay e autoridade do jogador por inbox, quota e estado canônicos.
 - [ ] Integração efetiva CaptureService + inventário/consumo de Ball idempotente, e PvE existente, incluindo falhas, replays, concorrência e persistência. Não publicar opções vazias.
 - [ ] Chances/tabelas de espécies, TRAIL, recursos e travessias aprovadas e `PUBLISHED`, sem dados ilustrativos inventados.
