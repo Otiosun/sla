@@ -256,7 +256,9 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
 }
 
 function router(deps: OperationalUxDependencies): MessageRouter {
-  return new MessageRouter(createOperationalUxRoutes(deps));
+  return new MessageRouter(createOperationalUxRoutes(deps), {
+    authorize: async () => ok(undefined),
+  });
 }
 
 describe("Phase 13 operational WhatsApp UX", () => {
