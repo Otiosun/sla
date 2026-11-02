@@ -93,10 +93,12 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         release_id: string;
         area_id: string;
         encounter_kind: "DIRECT" | "INCIDENTAL";
+        elapsed_minutes: number;
       }>(
         `SELECT encounter.content_release_id::text AS release_id,
                 encounter.area_id::text AS area_id,
-                outcome.kind AS encounter_kind
+                outcome.kind AS encounter_kind,
+                expedition.elapsed_minutes
          FROM solo_expedition_search_outcomes outcome
          JOIN solo_expeditions expedition
            ON expedition.id = outcome.expedition_id
@@ -163,11 +165,16 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
       const releaseId = eligible.rows[0]?.release_id;
       const areaId = eligible.rows[0]?.area_id;
       const encounterKind = eligible.rows[0]?.encounter_kind;
+      const elapsedMinutes = eligible.rows[0]?.elapsed_minutes;
       if (
         eligible.rows.length !== 1 ||
         releaseId === undefined ||
         areaId === undefined ||
-        (encounterKind !== "DIRECT" && encounterKind !== "INCIDENTAL")
+        (encounterKind !== "DIRECT" && encounterKind !== "INCIDENTAL") ||
+        !Number.isSafeInteger(elapsedMinutes) ||
+        elapsedMinutes === undefined ||
+        elapsedMinutes < 1 ||
+        elapsedMinutes >= 720
       ) {
         await client.query("ROLLBACK");
         inTransaction = false;
@@ -343,9 +350,14 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           );
         }
       }
+      const canIgnore = encounterKind === "INCIDENTAL" && elapsedMinutes <= 710;
+      const authorizedActions = [
+        ...(availableBalls.length > 0 ? ["CAPTURE"] : []),
+        ...(canIgnore ? ["IGNORE"] : []),
+      ];
       let text: string;
       if (this.issuanceMode === "ACTIONABLE") {
-        if (availableBalls.length === 0) {
+        if (authorizedActions.length === 0) {
           await client.query("ROLLBACK");
           inTransaction = false;
           return err(appError("FLOW_BLOCKED", "No usable Ball available for the test encounter"));
@@ -372,7 +384,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           level: preview.value.level,
           canBattle: false,
           balls: availableBalls,
-          canIgnore: false,
+          canIgnore,
           ignoreMinutes: 10,
           combiningCount: 0,
         });
@@ -383,8 +395,9 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         }
         text = [
           panel.value.text,
-          "› _Responda citando esta mensagem para lançar a Ball escolhida._",
-          "› _Batalhar e ignorar não estão autorizados neste menu._",
+          "› _Responda citando esta mensagem com o número da ação autorizada._",
+          ...(canIgnore ? ["› _Ignorar consome exatamente 10 minutos da expedição._"] : []),
+          "› _Batalhar permanece indisponível neste menu._",
           "› _Homologação OFFLINE: indisponível no jogo ativo._",
         ].join("\n\n");
       } else {
@@ -412,7 +425,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           JSON.stringify({
             mode: this.issuanceMode,
             text,
-            ...(this.issuanceMode === "ACTIONABLE" ? { actions: ["CAPTURE"] } : {}),
+            ...(this.issuanceMode === "ACTIONABLE" ? { actions: authorizedActions } : {}),
           }),
           JSON.stringify(ballItemIds),
         ],
@@ -435,7 +448,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
             expeditionMenu: {
               menuId,
               mode: this.issuanceMode,
-              ...(this.issuanceMode === "ACTIONABLE" ? { actions: ["CAPTURE"], ballItemIds } : {}),
+              ...(this.issuanceMode === "ACTIONABLE" ? { actions: authorizedActions, ballItemIds } : {}),
             },
           }),
           immutableIdempotencyKey,

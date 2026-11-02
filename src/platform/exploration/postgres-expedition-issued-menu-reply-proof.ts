@@ -119,6 +119,10 @@ export class PostgresExpeditionIssuedMenuReplyProof {
          AND upper(delivery.external_message_id) = upper($3)
          AND delivery.player_id = $4
          AND menu.player_id = $4
+         AND (
+           NOT (menu.panel->'actions' ? 'IGNORE')
+           OR outcome.kind = 'INCIDENTAL'
+         )
          -- A screenshot or old read-only Outbox may never be upgraded into
          -- an ACTIONABLE menu by changing only the snapshot's JSON metadata.
          AND (

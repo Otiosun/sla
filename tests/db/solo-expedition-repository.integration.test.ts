@@ -2460,12 +2460,28 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
 
     const encounterId = createEncounterId();
     const outcomeId = randomUUID();
-    const rules = await pool.query<{ ruleset_id: string }>(
-      "SELECT default_ruleset_id::text AS ruleset_id FROM content_releases WHERE id=$1",
-      [publishedReleaseId],
+    const rulesetId = randomUUID();
+    await pool.query(
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,$2,1,1,$3::jsonb,'DRAFT')",
+      [
+        rulesetId,
+        "pg18-ignore-capture-gate-" + rulesetId,
+        JSON.stringify({
+          schemaVersion: 1,
+          capture: {
+            model: "POKEMON_INSPIRED_V1",
+            allowedEncounterStates: ["ENGAGED", "IN_BATTLE"],
+          },
+        }),
+      ],
     );
-    const rulesetId = rules.rows[0]?.ruleset_id;
-    if (rulesetId === undefined) throw new Error("Missing published test ruleset");
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [rulesetId, JSON.stringify({ valid: true, issues: [] }), "b".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [
+      rulesetId,
+    ]);
     await pool.query(
       `INSERT INTO encounters(
          id,player_id,area_id,status,content_release_id,ruleset_id,
@@ -2506,6 +2522,72 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         encounterId,
       ],
     );
+    const destinationRef = "5579999999999@s.whatsapp.net";
+    const sourceMessageId = randomUUID();
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,sent_at,payload,
+         idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        sourceMessageId,
+        destinationRef,
+        JSON.stringify({
+          text: "Synthetic incidental encounter search",
+          expeditionSearch: { playerId, outcomeId, encounterId },
+        }),
+        "pg18-ignore-search:" + sourceMessageId,
+        randomUUID(),
+      ],
+    );
+    const issuer = new PostgresExpeditionOfflineActionableMenuIssuer(pool);
+    const issued = await issuer.issue({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      destinationRef,
+      correlationId: randomUUID(),
+    });
+    expect(issued).toMatchObject({
+      ok: true,
+      value: { ballItemIds: {}, replayed: false },
+    });
+    if (!issued.ok) throw new Error("Offline issued IGNORE was not authorized");
+    expect(issued.value.text).toContain("0. ↩️ Ignorar ● `10 min`");
+    expect(issued.value.text).not.toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
+    const menuState = await pool.query<{ actions: string[] }>(
+      "SELECT panel->'actions' AS actions FROM solo_incidental_menu_snapshots WHERE id=$1",
+      [issued.value.menuId],
+    );
+    expect(menuState.rows).toMatchObject([{ actions: ["IGNORE"] }]);
+    const quote = issued.value.outboxMessageId.replaceAll("-", "").toUpperCase();
+    const proof = new PostgresExpeditionIssuedMenuReplyProof(pool);
+    const authorizedQuote = {
+      provider: "baileys",
+      playerId,
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      replyToExternalMessageId: quote,
+    };
+    expect(await proof.resolve(authorizedQuote)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query(
+      "UPDATE outbox_messages SET status='SENT', sent_at=now() WHERE id=$1",
+      [issued.value.outboxMessageId],
+    );
+    expect(await proof.resolve(authorizedQuote)).toMatchObject({
+      ok: true,
+      value: {
+        actionable: true,
+        captureEnabled: false,
+        battleEnabled: false,
+        ignoreEnabled: true,
+        ballItemIds: {},
+      },
+    });
     let calls = 0;
     const action = {
       playerId,
@@ -2548,6 +2630,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       value: { replayed: true, effectRef: encounterId, expedition: { elapsedMinutes: 40 } },
     });
     expect(calls).toBe(1);
+    expect(await proof.resolve(authorizedQuote)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
     const states = await pool.query<{ status: string; revision: string }>(
       "SELECT status,revision::text AS revision FROM encounters WHERE id=$1",
       [encounterId],
