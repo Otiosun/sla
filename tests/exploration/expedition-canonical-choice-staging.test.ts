@@ -82,7 +82,7 @@ function setup(battleExecute?: ReturnType<typeof vi.fn>) {
     undefined,
     undefined,
     undefined,
-    battleExecute === undefined ? undefined : { execute: battleExecute },
+    battleExecute === undefined ? undefined : ({ execute: battleExecute } as never),
   );
   return {
     resolver,
