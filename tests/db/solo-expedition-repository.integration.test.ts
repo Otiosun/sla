@@ -2725,6 +2725,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       inboxRepository,
       new MessageRouter([], undefined, recoveryGateway),
     );
+    // Even after a committed capture, a modified text with the same external
+    // message ID is NOT a replay. The persisted normalized fingerprint wins.
+    expect(
+      await recoveryMessage.receive({ ...realContext.message, text: "3" }),
+    ).toMatchObject({ ok: false, error: { code: "FINGERPRINT_MISMATCH" } });
     const deliveredAgain = await recoveryMessage.receive(realContext.message);
     if (!deliveredAgain.ok) {
       throw new Error("Capture reply retry error: " + JSON.stringify(deliveredAgain.error));
@@ -2749,6 +2754,39 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(recoveredOutgoing.rows).toHaveLength(1);
     expect(recoveredOutgoing.rows[0]?.status).toBe("PENDING");
     expect(recoveredOutgoing.rows[0]?.text).toBe(first.value?.outgoing[0]?.payload.text);
+    const sentConfirmations: string[] = [];
+    const confirmationWorker = new OutboxWorker(
+      inboxRepository,
+      [
+        {
+          channel: "whatsapp",
+          send: async (outgoing) => {
+            if (outgoing.idempotencyKey === claimedContext.idempotencyKey + ":expedition-canonical-capture") {
+              sentConfirmations.push(outgoing.id);
+            }
+            return { providerExternalMessageId: outgoing.id.replaceAll("-", "").toUpperCase() };
+          },
+        },
+      ],
+      {
+        batchSize: 10000,
+        staleAfterMs: 30000,
+        maxAttempts: 8,
+        baseBackoffMs: 1000,
+        maxBackoffMs: 60000,
+      },
+    );
+    await confirmationWorker.runOnce();
+    await confirmationWorker.runOnce();
+    expect(sentConfirmations).toHaveLength(1);
+    expect(
+      (
+        await pool.query<{ status: string }>(
+          "SELECT status FROM outbox_messages WHERE idempotency_key=$1",
+          [claimedContext.idempotencyKey + ":expedition-canonical-capture"],
+        )
+      ).rows[0]?.status,
+    ).toBe("SENT");
     const recordedCapture = await pool.query<{ count: number }>(
       "SELECT count(*)::int AS count FROM capture_attempts WHERE encounter_id=$1",
       [encounterId],
