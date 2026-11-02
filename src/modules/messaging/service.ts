@@ -309,6 +309,8 @@ export class MessagingService {
 }
 
 export interface OutboxWorkerOptions {
+  /** Staging opt-in; every worker sharing the Outbox must adopt the same policy. */
+  readonly quarantineUnknownDelivery?: boolean;
   readonly batchSize: number;
   readonly staleAfterMs: number;
   readonly maxAttempts: number;
@@ -361,6 +363,7 @@ export class OutboxWorker {
       staleAfterMs: this.options.staleAfterMs,
       maxAttempts: this.options.maxAttempts,
       channels: [...this.adapters.keys()],
+      ...(this.options.quarantineUnknownDelivery ? { quarantineStaleSending: true } : {}),
     });
     let sent = 0;
     let failed = 0;
@@ -378,21 +381,33 @@ export class OutboxWorker {
         failed += 1;
         continue;
       }
+      let sendAttempted = false;
+      let sendResolved = false;
       try {
         const prepared = await this.deliveryPreparation?.prepare(message);
+        sendAttempted = true;
         await adapter.send(prepared ?? message);
+        sendResolved = true;
         await this.repository.markOutboxSent(message.id);
         sent += 1;
       } catch {
+        // A provider call may have been accepted even when it rejects or the
+        // SENT write fails. Quarantine any attempted send in isolated staging.
+        const uncertain = sendAttempted && this.options.quarantineUnknownDelivery === true;
+        const ambiguousCode = sendResolved
+          ? "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED"
+          : "OUTBOX_TRANSPORT_OUTCOME_UNKNOWN";
         await this.repository.markOutboxFailed({
           outboxMessageId: message.id,
-          errorCode: "OUTBOX_DELIVERY_FAILED",
-          retryAt: retryAtForAttempt({
-            attempts: message.attempts,
-            maxAttempts: this.options.maxAttempts,
-            baseBackoffMs: this.options.baseBackoffMs,
-            maxBackoffMs: this.options.maxBackoffMs,
-          }),
+          errorCode: uncertain ? ambiguousCode : "OUTBOX_DELIVERY_FAILED",
+          retryAt: uncertain
+            ? null
+            : retryAtForAttempt({
+                attempts: message.attempts,
+                maxAttempts: this.options.maxAttempts,
+                baseBackoffMs: this.options.baseBackoffMs,
+                maxBackoffMs: this.options.maxBackoffMs,
+              }),
           maxAttempts: this.options.maxAttempts,
         });
         failed += 1;

@@ -5,6 +5,7 @@ import type {
   OutboundMessageAdapter,
 } from "../../src/modules/messaging/ports.js";
 import { OutboxWorker } from "../../src/modules/messaging/service.js";
+import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import { PostgresExpeditionPostSentRecovery } from "../../src/platform/exploration/postgres-expedition-post-sent-recovery.js";
 import { err, appError, ok } from "../../src/shared-kernel/result.js";
@@ -38,19 +39,25 @@ function harness(input: {
   hook?: ConstructorParameters<typeof OutboxWorker>[4];
   outbound?: PendingOutboxMessage;
   failSend?: boolean;
+  failPreparation?: boolean;
   failMarkSent?: boolean;
+  quarantineUnknownDelivery?: boolean;
 }) {
   const events: string[] = [];
+  const failedCalls: Array<{ errorCode: string; retryAt: Date | null }> = [];
+  const claimOptions: unknown[] = [];
   const repository = {
-    async claimOutbox() {
+    async claimOutbox(options: unknown) {
+      claimOptions.push(options);
       return [input.outbound ?? message];
     },
     async markOutboxSent() {
       events.push("SENT");
       if (input.failMarkSent) throw new Error("mark failed");
     },
-    async markOutboxFailed() {
+    async markOutboxFailed(failure: { errorCode: string; retryAt: Date | null }) {
       events.push("FAILED");
+      failedCalls.push(failure);
     },
   } as unknown as MessagingRepository;
   const adapter: OutboundMessageAdapter = {
@@ -70,11 +77,18 @@ function harness(input: {
       maxAttempts: 8,
       baseBackoffMs: 1_000,
       maxBackoffMs: 60_000,
+      ...(input.quarantineUnknownDelivery ? { quarantineUnknownDelivery: true } : {}),
     },
-    undefined,
+    input.failPreparation
+      ? {
+          async prepare() {
+            throw new Error("preparation rejected");
+          },
+        }
+      : undefined,
     input.hook,
   );
-  return { worker, events };
+  return { worker, events, failedCalls, claimOptions };
 }
 
 describe("staging exploration hook on the actual OutboxWorker", () => {
@@ -126,6 +140,49 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
       });
       expect(events).not.toContain("ENGAGED");
     }
+  });
+
+  it("quarantines a provider-accepted message when SENT persistence is uncertain", async () => {
+    const { worker, events, failedCalls, claimOptions } = harness({
+      failMarkSent: true,
+      quarantineUnknownDelivery: true,
+    });
+    expect(await worker.runOnce()).toEqual({ claimed: 1, sent: 0, failed: 1 });
+    expect(events).toEqual(["SEND", "SENT", "FAILED"]);
+    expect(failedCalls).toMatchObject([
+      { errorCode: "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED", retryAt: null },
+    ]);
+    expect(claimOptions).toMatchObject([{ quarantineStaleSending: true }]);
+  });
+
+  it("quarantines a rejected provider call whose delivery outcome is unknown", async () => {
+    const { worker, failedCalls } = harness({
+      failSend: true,
+      quarantineUnknownDelivery: true,
+    });
+    expect(await worker.runOnce()).toMatchObject({ sent: 0, failed: 1 });
+    expect(failedCalls[0]?.errorCode).toBe("OUTBOX_TRANSPORT_OUTCOME_UNKNOWN");
+    expect(failedCalls[0]?.retryAt).toBeNull();
+  });
+
+  it("retries a preparation failure before any provider send attempt", async () => {
+    const { worker, events, failedCalls } = harness({
+      failPreparation: true,
+      quarantineUnknownDelivery: true,
+    });
+    expect(await worker.runOnce()).toMatchObject({ sent: 0, failed: 1 });
+    expect(events).toEqual(["FAILED"]);
+    expect(failedCalls[0]?.errorCode).toBe("OUTBOX_DELIVERY_FAILED");
+    expect(failedCalls[0]?.retryAt).toBeInstanceOf(Date);
+  });
+
+  it("rejects a SENT transition that updated zero sending rows", async () => {
+    const repo = new PostgresMessagingRepository({
+      async query() {
+        return { rowCount: 0 };
+      },
+    } as unknown as ConstructorParameters<typeof PostgresMessagingRepository>[0]);
+    await expect(repo.markOutboxSent(message.id)).rejects.toThrow("lost its sending claim");
   });
 
   it("does not resend after a domain callback failure on a SENT message", async () => {

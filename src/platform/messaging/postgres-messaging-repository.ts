@@ -509,6 +509,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
     readonly staleAfterMs: number;
     readonly maxAttempts: number;
     readonly channels?: readonly string[];
+    readonly quarantineStaleSending?: boolean;
   }): Promise<readonly PendingOutboxMessage[]> {
     const client = await this.pool.connect();
     const channels = input.channels === undefined ? null : [...input.channels];
@@ -516,13 +517,15 @@ export class PostgresMessagingRepository implements MessagingRepository {
       await client.query("BEGIN");
       await client.query(
         `UPDATE outbox_messages
-         SET status = 'FAILED', next_attempt_at = now(), sending_started_at = NULL,
-             last_error_code = 'SENDING_LEASE_EXPIRED'
+         SET status = CASE WHEN $3::boolean THEN 'DEAD' ELSE 'FAILED' END,
+             next_attempt_at = CASE WHEN $3::boolean THEN NULL ELSE now() END,
+             sending_started_at = NULL,
+             last_error_code = CASE WHEN $3::boolean THEN 'SENDING_DELIVERY_OUTCOME_UNKNOWN' ELSE 'SENDING_LEASE_EXPIRED' END
          WHERE status = 'SENDING'
            AND sending_started_at IS NOT NULL
            AND sending_started_at <= now() - ($1::bigint * interval '1 millisecond')
            AND ($2::text[] IS NULL OR channel = ANY($2::text[]))`,
-        [input.staleAfterMs, channels],
+        [input.staleAfterMs, channels, input.quarantineStaleSending === true],
       );
       await client.query(
         `UPDATE outbox_messages
@@ -576,13 +579,16 @@ export class PostgresMessagingRepository implements MessagingRepository {
   }
 
   async markOutboxSent(outboxMessageId: string): Promise<void> {
-    await this.pool.query(
+    const updated = await this.pool.query(
       `UPDATE outbox_messages
        SET status = 'SENT', sent_at = now(), sending_started_at = NULL,
            next_attempt_at = NULL, last_error_code = NULL
        WHERE id = $1 AND status = 'SENDING'`,
       [outboxMessageId],
     );
+    if (updated.rowCount !== 1) {
+      throw new Error("Outbox SENT confirmation lost its sending claim");
+    }
   }
 
   async markOutboxFailed(input: {
