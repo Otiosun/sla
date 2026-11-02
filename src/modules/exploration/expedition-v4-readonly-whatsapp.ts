@@ -1,5 +1,6 @@
 import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
+import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
 import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
@@ -53,6 +54,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
   /** Third explicit stage-only opt-in. No encounter route exists without it. */
   readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+  /** Test-only recovery of a committed END when Inbox completion was interrupted. */
+  readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -104,6 +107,25 @@ function privateSearchResult(
       },
     })),
   });
+}
+
+function privateEndConfirmation(
+  context: MessageHandlerContext,
+  elapsedMinutes: number,
+): Result<MessageHandlerResult> {
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+      "> _Expedição encerrada voluntariamente._",
+      "",
+      "⌛ *Tempo utilizado:* `" + String(elapsedMinutes) + " min`",
+      "🎟️ *Cota semanal já consumida*",
+      "",
+      "› _Nenhuma recompensa adicional foi concedida pelo encerramento._",
+      "› _Relatório externo (mínimo 100 palavras) e premiação dependem de aprovação da equipe._",
+    ].join("\n"),
+  );
 }
 
 function safeLabel(value: string): string | null {
@@ -177,11 +199,14 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
+    const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
+    const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
       (this.deps.preparation === undefined ||
         (period === null && requestedPeriod === null && !cancel)) &&
-      (!searchFree || this.deps.search === undefined)
+      (!searchFree || this.deps.search === undefined) &&
+      (!(endRequested || endConfirmed) || this.deps.search === undefined)
     ) {
       return privateText(
         context,
@@ -210,6 +235,16 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       return err(
         appError("FLOW_BLOCKED", "Exploração disponível somente no grupo GAME autorizado."),
       );
+    }
+    // A previous END transaction may have committed before Inbox completion.
+    // Recover only the exact original message/receipt, before a now-ended
+    // expedition disappears from the active status reader.
+    if (endConfirmed && this.deps.endRecovery !== undefined) {
+      const previous = await this.deps.endRecovery.resolve({ playerId, context });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return privateEndConfirmation(context, previous.value.elapsedMinutes);
+      }
     }
     const located = await this.deps.world.getLocation(playerId);
     if (!located.ok) return located;
@@ -264,6 +299,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ...(state !== "NONE" && this.deps.search !== undefined
           ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
           : []),
+        ...(state === "ACTIVE" && this.deps.search !== undefined
+          ? ["4. 📋 Encerrar ● /explorar 4", "› _A confirmação é obrigatória._"]
+          : []),
         ...(state === "PREPARING" && this.deps.preparation !== undefined
           ? [
               "› _Trocar período: /explorar periodo dia ou /explorar periodo noite._",
@@ -273,6 +311,56 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         "› _Recursos, viagem e relatório ainda não estão habilitados nesta versão isolada._",
       ];
       return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
+    }
+    if ((endRequested || endConfirmed) && this.deps.search !== undefined) {
+      const current = facts.expedition;
+      if (current === null || state !== "ACTIVE" || this.deps.preparation === undefined) {
+        return err(appError("FLOW_BLOCKED", "No active expedition is available to close"));
+      }
+      if (endRequested) {
+        return privateText(
+          context,
+          [
+            "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔ÇÃ𝗢*",
+            "> _Deseja realmente encerrar a expedição atual?_",
+            "",
+            "⌛ *Tempo utilizado:* `" + String(current.elapsedMinutes) + " min`",
+            "🎟️ *A cota já consumida não será devolvida.*",
+            "",
+            "› _Para confirmar: /explorar encerrar confirmar_",
+            "› _Para continuar explorando, não envie essa confirmação._",
+          ].join("\n"),
+        );
+      }
+      if (
+        process.env.APP_ENV !== "test" ||
+        process.env.NODE_ENV !== "test" ||
+        process.env.WHATSAPP_ENABLED !== "false"
+      ) {
+        return err(appError("FLOW_BLOCKED", "Closure is only enabled in isolated development"));
+      }
+      const ended = await this.deps.preparation.end({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        reason: "VOLUNTARY",
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!ended.ok) return ended;
+      if (
+        ended.value.expedition.playerId !== playerId ||
+        ended.value.expedition.expeditionId !== current.expeditionId ||
+        ended.value.expedition.areaId !== located.value.areaId ||
+        ended.value.expedition.phase !== "ENDED" ||
+        ended.value.expedition.endReason !== "VOLUNTARY" ||
+        ended.value.expedition.revision !== current.revision + 1n ||
+        ended.value.expedition.elapsedMinutes !== current.elapsedMinutes ||
+        ended.value.expedition.consumedWeekKey !== current.consumedWeekKey ||
+        ended.value.consumedWeeklySlot
+      ) {
+        return err(appError("FLOW_BLOCKED", "Voluntary closure did not match the expedition"));
+      }
+      return privateEndConfirmation(context, current.elapsedMinutes);
     }
     // A numeric option is contextual, not a second day-preparation command:
     // in NONE, /explorar 1 selects day; in PREPARING/ACTIVE, /explorar 1
@@ -500,6 +588,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             label: "🔎 Buscar Pokémon ● 30 min",
             phrases: [],
           },
+          {
+            optionNo: 4,
+            intent: "END",
+            label: "📋 Encerrar",
+            phrases: [],
+          },
         ],
         combiningCount: 0,
       });
@@ -509,7 +603,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         [
           shown.value.text,
           "› _Busque: /explorar 1 ou /explorar buscar._",
-          "› _Recursos, viagem e encerramento ainda não estão habilitados._",
+          "› _Para encerrar: /explorar 4 (exige confirmação)._",
+          "› _Recursos e viagem ainda não estão habilitados._",
         ].join("\n"),
       );
     }

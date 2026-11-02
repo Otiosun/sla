@@ -70,7 +70,7 @@ export class PostgresExpeditionEndConfirmationRecovery {
          AND inbox.payload_hash=$4
          AND inbox.normalized_payload->>'senderRef'=$5
          AND inbox.normalized_payload->>'chatRef'=$7
-         AND trim(inbox.normalized_payload->>'text')='/explorar encerrar confirmar'
+         AND lower(trim(inbox.normalized_payload->>'text'))='/explorar encerrar confirmar'
        LIMIT 2`,
       [
         input.context.inboxMessageId,
@@ -86,6 +86,9 @@ export class PostgresExpeditionEndConfirmationRecovery {
     const receipt = found.rows[0];
     if (found.rows.length !== 1 || receipt === undefined) {
       return err(appError("FLOW_BLOCKED", "Expedition closure recovery was ambiguous"));
+    }
+    if (!/^[1-9][0-9]*$/u.test(receipt.revision)) {
+      return err(appError("FLOW_BLOCKED", "Committed closure revision is invalid"));
     }
     const revision = BigInt(receipt.revision);
     const expected = createHash("sha256")
