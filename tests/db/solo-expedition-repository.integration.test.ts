@@ -32,7 +32,10 @@ import { MessagingService, OutboxWorker } from "../../src/modules/messaging/serv
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
-import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import {
+  PostgresEncounterRepository,
+  encounterRepositoryWithinTransaction,
+} from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
   createSearchOutcomeEffect,
@@ -2441,6 +2444,107 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(battles.rows[0]?.n).toBe(0);
   });
+  it("atomically ignores an INCIDENTAL encounter with canonical flee and exactly 10 minutes in isolated PG18", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-ignore-preparing");
+    const active = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-ignore-first-search",
+    });
+    expect(active.ok).toBe(true);
+    if (!active.ok) throw new Error("The isolated expedition was not activated");
+
+    const encounterId = createEncounterId();
+    const outcomeId = randomUUID();
+    const rules = await pool.query<{ ruleset_id: string }>(
+      "SELECT default_ruleset_id::text AS ruleset_id FROM content_releases WHERE id=$1",
+      [publishedReleaseId],
+    );
+    const rulesetId = rules.rows[0]?.ruleset_id;
+    if (rulesetId === undefined) throw new Error("Missing published test ruleset");
+    await pool.query(
+      `INSERT INTO encounters(
+         id,player_id,area_id,status,content_release_id,ruleset_id,
+         rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
+         rng_counter,revision,creation_idempotency_key
+       ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
+      [encounterId, playerId, activeAreaId, publishedReleaseId, rulesetId,
+        Buffer.alloc(32, 0x51), Buffer.alloc(12, 0x52), Buffer.alloc(16, 0x53),
+        "pg18-ignore-engaged:" + encounterId],
+    );
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
+      [encounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query(
+      `INSERT INTO encounter_wild_snapshots(
+         encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at
+       ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
+      [encounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,$4,'INCIDENTAL',$5)`,
+      [outcomeId, playerId, prepared.expeditionId, active.value.expedition.revision.toString(), encounterId],
+    );
+    let calls = 0;
+    const action = {
+      playerId,
+      encounterId,
+      outcomeId,
+      expectedEncounterRevision: 2n,
+      idempotencyKey: "inbox:baileys:pg18-ignore-exact",
+      flee: async (client: import("pg").PoolClient) => {
+        calls += 1;
+        const encounter = new EncounterService(
+          encounterRepositoryWithinTransaction(client),
+          { create: () => { throw new Error("Flee must not draw a seed"); } },
+          clock,
+          { enabled: true, reason: null },
+        );
+        return encounter.flee({ playerId, encounterId, expectedRevision: 2n });
+      },
+    };
+    const ignored = await store.executeIgnoreIncidental(action);
+    expect(ignored).toMatchObject({
+      ok: true,
+      value: {
+        replayed: false,
+        effectRef: encounterId,
+        expedition: { elapsedMinutes: 40, phase: "ACTIVE" },
+      },
+    });
+    const again = await store.executeIgnoreIncidental({
+      ...action,
+      flee: async () => { throw new Error("Replay must never call canonical flee again"); },
+    });
+    expect(again).toMatchObject({
+      ok: true,
+      value: { replayed: true, effectRef: encounterId, expedition: { elapsedMinutes: 40 } },
+    });
+    expect(calls).toBe(1);
+    const states = await pool.query<{ status: string; revision: string }>(
+      "SELECT status,revision::text AS revision FROM encounters WHERE id=$1",
+      [encounterId],
+    );
+    expect(states.rows).toMatchObject([{ status: "FLED", revision: "3" }]);
+    const receipts = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM solo_expedition_receipts WHERE player_id=$1 AND operation='ACTION_IGNORE_INCIDENTAL'",
+      [playerId],
+    );
+    expect(receipts.rows[0]?.count).toBe(1);
+    expect(await store.executeIgnoreIncidental({
+      ...action,
+      idempotencyKey: "inbox:baileys:pg18-ignore-new-message",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const finalExpedition = await store.current(playerId);
+    expect(finalExpedition?.elapsedMinutes).toBe(40);
+  });
+
   it("routes an authorized Ball to real CaptureService + PostgresCaptureRepository in disposable PG18", async () => {
     // Unlike the unit test, this case commits real capture attempts, inventory
     // ledger and encounter transitions in PostgreSQL. Auth/menu ports remain

@@ -35,6 +35,18 @@ export interface StoredSearchActionTransition extends StoredExpeditionTransition
  * effects using the provided client; network calls / independent DB pools are
  * forbidden because they cannot roll back with expedition quota and minutes.
  */
+export interface ExecuteIgnoreIncidentalInput {
+  readonly playerId: PlayerId;
+  readonly outcomeId: string;
+  readonly encounterId: string;
+  readonly expectedEncounterRevision: bigint;
+  readonly idempotencyKey: string;
+  /** Caller invokes EncounterService.flee through encounterRepositoryWithinTransaction(client). */
+  readonly flee: (
+    client: PoolClient,
+  ) => Promise<Result<{ readonly status: string; readonly revision: bigint }>>;
+}
+
 export interface ExecuteSearchActionInput {
   readonly playerId: PlayerId;
   readonly expeditionId: string;
@@ -190,7 +202,13 @@ async function writeReceipt(
   playerId: PlayerId,
   key: string,
   expeditionId: string,
-  operation: "PREPARE" | "ADVANCE" | "END" | "CHANGE_PERIOD" | "ACTION_SEARCH_FREE",
+  operation:
+    | "PREPARE"
+    | "ADVANCE"
+    | "END"
+    | "CHANGE_PERIOD"
+    | "ACTION_SEARCH_FREE"
+    | "ACTION_IGNORE_INCIDENTAL",
   inputFingerprint: string,
   transition: ExpeditionTransition,
   effectRef?: string,
@@ -522,6 +540,142 @@ export class PostgresExpeditionRepository {
           effectRef,
         );
         return ok({ ...written, effectRef });
+      });
+    } catch (error) {
+      if (error instanceof AbortedSearchAction) return err(error.domainError);
+      throw error;
+    }
+  }
+
+  /**
+   * OFFLINE ONLY. Atomic 10-minute INCIDENTAL Ignore action: the expedition
+   * clock, immutable receipt and canonical EncounterService.flee all use the
+   * SAME PoolClient and commit or roll back together. No separate SQL state
+   * machine for Encounter. Not wired to any operational WhatsApp runtime.
+   *
+   * Authorization of a quoted, SENT ACTIONABLE menu remains a separate,
+   * mandatory caller gate; this method cannot validate a WhatsApp sender.
+   */
+  public async executeIgnoreIncidental(
+    input: ExecuteIgnoreIncidentalInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false"
+    ) {
+      return err(appError("FLOW_BLOCKED", "Ignore requires isolated offline staging"));
+    }
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    if (
+      !/^[a-f0-9-]{36}$/iu.test(input.outcomeId) ||
+      !/^[a-f0-9-]{36}$/iu.test(input.encounterId) ||
+      input.expectedEncounterRevision < 0n
+    ) {
+      return err(appError("VALIDATION_FAILED", "Invalid frozen incidental encounter identity"));
+    }
+    const inputFingerprint = fingerprint([
+      "ACTION_IGNORE_INCIDENTAL",
+      input.outcomeId,
+      input.encounterId,
+      input.expectedEncounterRevision.toString(),
+      10,
+    ]);
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        const player = await lockedPlayer(client, input.playerId);
+        if (!player.ok) return player;
+        const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
+        if (prior !== null) {
+          return prior.ok
+            ? ok({ ...prior.value, effectRef: input.encounterId })
+            : prior;
+        }
+        const found = await client.query<{ expedition_id: string }>(
+          `SELECT outcome.expedition_id::text AS expedition_id
+           FROM solo_expedition_search_outcomes outcome
+           JOIN solo_expeditions expedition
+             ON expedition.id=outcome.expedition_id
+            AND expedition.player_id=outcome.player_id
+            AND expedition.phase='ACTIVE'
+           JOIN encounters encounter
+             ON encounter.id=outcome.encounter_id
+            AND encounter.player_id=outcome.player_id
+            AND encounter.area_id=expedition.area_id
+            AND encounter.status='ENGAGED'
+            AND encounter.revision=$4::bigint
+           JOIN player_locations location
+             ON location.player_id=outcome.player_id
+            AND location.area_id=expedition.area_id
+           JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
+           JOIN content_releases release
+             ON release.id=pointer.content_release_id
+            AND release.status='PUBLISHED'
+            AND release.id=encounter.content_release_id
+           WHERE outcome.id=$1 AND outcome.player_id=$2
+             AND outcome.encounter_id=$3 AND outcome.kind='INCIDENTAL'
+             AND NOT EXISTS (
+               SELECT 1 FROM battles battle
+               WHERE battle.encounter_id=encounter.id
+                 AND battle.status IN ('CREATED','ACTIVE')
+             )
+           LIMIT 2`,
+          [input.outcomeId, input.playerId, input.encounterId,
+            input.expectedEncounterRevision.toString()],
+        );
+        if (found.rows.length !== 1 || found.rows[0] === undefined) {
+          return err(appError("FLOW_BLOCKED", "Incidental encounter cannot be ignored now"));
+        }
+        const expeditionId = found.rows[0].expedition_id;
+        const original = await lockedExpedition(client, input.playerId, expeditionId);
+        if (original === null || original.phase !== "ACTIVE") return unavailable();
+        const week = expeditionWeekKey(this.clock.now(), this.timeZone);
+        const transition = advanceExpedition({
+          expedition: original,
+          expectedRevision: original.revision,
+          minutes: 10,
+          weekKey: week,
+          consumedThisWeek: 0,
+        });
+        if (!transition.ok) return transition;
+        const fled = await input.flee(client);
+        if (
+          !fled.ok ||
+          fled.value.status !== "FLED" ||
+          fled.value.revision !== input.expectedEncounterRevision + 1n
+        ) {
+          throw new AbortedSearchAction(
+            fled.ok
+              ? appError("FLOW_BLOCKED", "Canonical flee did not produce the expected revision")
+              : fled.error,
+          );
+        }
+        const persisted = await client.query<{ status: string; revision: string }>(
+          "SELECT status, revision::text AS revision FROM encounters WHERE id=$1 AND player_id=$2",
+          [input.encounterId, input.playerId],
+        );
+        if (
+          persisted.rows.length !== 1 ||
+          persisted.rows[0]?.status !== "FLED" ||
+          persisted.rows[0]?.revision !== (input.expectedEncounterRevision + 1n).toString()
+        ) {
+          throw new AbortedSearchAction(
+            appError("FLOW_BLOCKED", "Canonical flee was not persisted in the shared transaction"),
+          );
+        }
+        await persistSnapshot(client, transition.value.expedition, original.revision);
+        const written = await writeReceipt(
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          expeditionId,
+          "ACTION_IGNORE_INCIDENTAL",
+          inputFingerprint,
+          transition.value,
+          input.encounterId,
+        );
+        return ok({ ...written, effectRef: input.encounterId });
       });
     } catch (error) {
       if (error instanceof AbortedSearchAction) return err(error.domainError);
