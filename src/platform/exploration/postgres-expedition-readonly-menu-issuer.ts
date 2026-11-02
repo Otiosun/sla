@@ -83,7 +83,10 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           AND encounter.area_id = expedition.area_id
           AND encounter.status = 'ENGAGED'
           AND encounter.revision = $4
-          AND encounter.battle_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM battles battle
+            WHERE battle.encounter_id = encounter.id AND battle.status = 'ACTIVE'
+          )
          JOIN content_release_pointers pointer ON pointer.pointer_key = 'ACTIVE'
          JOIN content_releases release
            ON release.id = pointer.content_release_id
