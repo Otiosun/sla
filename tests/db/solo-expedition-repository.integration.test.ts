@@ -2998,17 +2998,18 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       messageFingerprint: incomingMessageFingerprint(incoming),
       senderRef: destinationRef,
     };
-    // Injection after Encounter.startBattle creates its battle but before
-    // BattleService.initialize decrypts the seed: the transaction MUST roll
-    // back Encounter revision, created battle and immutable receipt together.
-    const brokenReader = new PostgresExpeditionOfflineBattleStart(
-      pool,
-      new AesEncounterSeedProvider(key, 1, () => Buffer.alloc(32, 0x25)),
-      new AesBattleSeedReader(new Map([[2, key]])),
-      clock,
-      { enabled: true, reason: null },
+    // Force the canonical battle initialization to refuse the encounter
+    // AFTER Encounter.startBattle has advanced the row in this transaction.
+    // A missing ACTIVE wild snapshot is forbidden by BattleService. This
+    // should leave no IN_BATTLE Encounter, battle row or receipt on rollback.
+    await pool.query(
+      "UPDATE encounter_wild_snapshots SET status='FLED' WHERE encounter_id=$1",
+      [encounterId],
     );
-    await expect(brokenReader.execute(exact)).rejects.toThrow("Battle RNG key version");
+    expect(await action.execute(exact)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
     const reverted = await pool.query<{
       encounter_status: string;
       revision: string;
@@ -3025,6 +3026,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(reverted.rows).toEqual([
       { encounter_status: "ENGAGED", revision: "2", battles: 0, receipts: 0 },
     ]);
+    await pool.query(
+      "UPDATE encounter_wild_snapshots SET status='ACTIVE' WHERE encounter_id=$1",
+      [encounterId],
+    );
 
     const started = await action.execute(exact);
     if (!started.ok) {
