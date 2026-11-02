@@ -175,7 +175,7 @@ function setup() {
   const capture = new CaptureService(repository, seedProvider);
 
   let actionable = false;
-  let chosenBallId = itemId;
+  let chosenBallId: string = itemId;
   const resolver = new ExpeditionCanonicalChoiceStagingResolver(
     {
       resolvePlayer: async () => ok({ playerId, state: "COMPLETE" as const, created: false }),
