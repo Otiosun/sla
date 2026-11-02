@@ -37,11 +37,24 @@ const BALL_CHOICES = [
  * the same text/Outbox without issuing another message.
  */
 export class PostgresExpeditionReadOnlyMenuIssuer {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly issuanceMode: "READ_ONLY" | "ACTIONABLE" = "READ_ONLY",
+  ) {}
 
   async issue(
     input: IssueReadOnlyExpeditionMenuInput,
   ): Promise<Result<IssuedReadOnlyExpeditionMenu>> {
+    // ACTIONABLE remains strictly limited to synthetic, offline test runs.
+    // Never generate a spend-authorizing outbound message with live Baileys.
+    if (
+      this.issuanceMode === "ACTIONABLE" &&
+      (process.env.APP_ENV !== "test" ||
+        process.env.NODE_ENV !== "test" ||
+        process.env.WHATSAPP_ENABLED !== "false")
+    ) {
+      return err(appError("FLOW_BLOCKED", "Actionable menus require isolated offline staging"));
+    }
     if (
       !UUID.test(input.playerId) ||
       !UUID.test(input.outcomeId) ||
@@ -100,6 +113,24 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
            AND outcome.player_id = $2
            AND outcome.encounter_id = $3
            AND outcome.kind IN ('DIRECT','INCIDENTAL')
+           AND (
+             $6::text = 'READ_ONLY'
+             OR (
+               EXISTS (
+                 SELECT 1 FROM rulesets ruleset
+                 WHERE ruleset.id = encounter.ruleset_id
+                   AND ruleset.status = 'PUBLISHED'
+                   AND ruleset.config->'capture'->>'model' = 'POKEMON_INSPIRED_V1'
+                   AND ruleset.config->'capture'->'allowedEncounterStates' ? 'ENGAGED'
+               )
+               AND EXISTS (
+                 SELECT 1 FROM encounter_wild_snapshots wild
+                 WHERE wild.encounter_id = encounter.id
+                   AND wild.wild_no = 1
+                   AND wild.status = 'ACTIVE'
+               )
+             )
+           )
            AND EXISTS (
              SELECT 1 FROM outbox_messages source
              WHERE source.channel = 'whatsapp'
@@ -118,6 +149,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           input.encounterId,
           input.expectedEncounterRevision.toString(),
           input.destinationRef,
+          this.issuanceMode,
         ],
       );
       const releaseId = eligible.rows[0]?.release_id;
@@ -135,12 +167,16 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         ball_item_ids: Record<string, string>;
         outbox_id: string;
         destination_ref: string;
+        menu_mode: string;
+        outbox_mode: string;
       }>(
         `SELECT menu.id::text AS id,
                 menu.panel->>'text' AS text,
                 menu.ball_item_ids,
                 outbox.id::text AS outbox_id,
-                outbox.destination_ref
+                outbox.destination_ref,
+                menu.panel->>'mode' AS menu_mode,
+                outbox.payload->'expeditionMenu'->>'mode' AS outbox_mode
          FROM solo_incidental_menu_snapshots menu
          JOIN solo_incidental_menu_deliveries delivery
            ON delivery.menu_id = menu.id AND delivery.player_id = menu.player_id
@@ -168,6 +204,8 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           existing.rows.length !== 1 ||
           previously === undefined ||
           previously.destination_ref !== input.destinationRef ||
+          previously.menu_mode !== this.issuanceMode ||
+          previously.outbox_mode !== this.issuanceMode ||
           typeof previously.text !== "string" ||
           previously.ball_item_ids === null ||
           typeof previously.ball_item_ids !== "object"
@@ -220,8 +258,15 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
            AND revision.item_kind = 'BALL'
            AND revision.effect_key = 'catch-modifier'
            AND revision.display_name = ANY($3::text[])
+           AND (
+             $4::text = 'READ_ONLY'
+             OR (
+               jsonb_typeof(revision.effect_config) = 'object'
+               AND jsonb_typeof(revision.effect_config->'multiplierBasisPoints') = 'number'
+             )
+           )
          ORDER BY revision.display_name, balance.item_id`,
-        [input.playerId, releaseId, BALL_CHOICES.map((ball) => ball.displayName)],
+        [input.playerId, releaseId, BALL_CHOICES.map((ball) => ball.displayName), this.issuanceMode],
       );
       const byName = new Map<string, { itemId: string; quantity: string }>();
       for (const row of inventory.rows) {
@@ -236,26 +281,52 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         }
         byName.set(row.display_name, { itemId: row.item_id, quantity: row.quantity });
       }
-      const lines = [
-        "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
-        "> _Prévia de menu vinculada ao encontro._",
-        "",
-        "◇ *BOLSAS DISPONÍVEIS*",
-      ];
+      const lines =
+        this.issuanceMode === "ACTIONABLE"
+          ? [
+              "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
+              "> _Encontro verificado em ambiente de testes isolado._",
+              "",
+              "◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*",
+            ]
+          : [
+              "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
+              "> _Prévia de menu vinculada ao encontro._",
+              "",
+              "◇ *BOLSAS DISPONÍVEIS*",
+            ];
       const ballItemIds: Record<string, string> = {};
       for (const ball of BALL_CHOICES) {
         const entry = byName.get(ball.displayName);
         if (entry !== undefined) {
-          lines.push(`${ball.choice}. ${ball.displayName} ×${entry.quantity} (somente prévia)`);
+          lines.push(
+            `${ball.choice}. ${ball.displayName} ×${entry.quantity}${
+              this.issuanceMode === "READ_ONLY" ? " (somente prévia)" : ""
+            }`,
+          );
           ballItemIds[ball.choice] = entry.itemId;
         }
       }
       if (byName.size === 0) lines.push("› _Nenhuma Poké Ball elegível no inventário._");
-      lines.push(
-        "",
-        "› _Nenhuma escolha executa captura, batalha ou consumo de item nesta prévia._",
-        "› _Este menu de homologação não está habilitado no jogo ativo._",
-      );
+      if (this.issuanceMode === "ACTIONABLE") {
+        if (byName.size === 0) {
+          await client.query("ROLLBACK");
+          inTransaction = false;
+          return err(appError("FLOW_BLOCKED", "No usable Ball available for the test encounter"));
+        }
+        lines.push(
+          "",
+          "› _Responda citando esta mensagem para lançar a Ball escolhida._",
+          "› _A captura usa exclusivamente o serviço canônico e consome um item real no banco de teste._",
+          "› _Homologação OFFLINE: não disponível no jogo ativo._",
+        );
+      } else {
+        lines.push(
+          "",
+          "› _Nenhuma escolha executa captura, batalha ou consumo de item nesta prévia._",
+          "› _Este menu de homologação não está habilitado no jogo ativo._",
+        );
+      }
       const text = lines.join("\n");
       const menuId = randomUUID();
       const outboxMessageId = randomUUID();
@@ -270,7 +341,11 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           input.outcomeId,
           input.encounterId,
           input.expectedEncounterRevision.toString(),
-          JSON.stringify({ mode: "READ_ONLY", text }),
+          JSON.stringify({
+            mode: this.issuanceMode,
+            text,
+            ...(this.issuanceMode === "ACTIONABLE" ? { actions: ["CAPTURE"] } : {}),
+          }),
           JSON.stringify(ballItemIds),
         ],
       );
@@ -289,7 +364,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
               outcomeId: input.outcomeId,
               encounterId: input.encounterId,
             },
-            expeditionMenu: { menuId, mode: "READ_ONLY" },
+            expeditionMenu: { menuId, mode: this.issuanceMode },
           }),
           immutableIdempotencyKey,
           input.correlationId,
