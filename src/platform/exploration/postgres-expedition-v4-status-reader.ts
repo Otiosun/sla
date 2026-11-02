@@ -20,7 +20,7 @@ interface ExpeditionRow {
   readonly revision: string;
 }
 
-/** 
+/**
  * Counts only actual persisted outcomes: no invented species, item grants,
  * victories, captures, settlement or approved external report are inferred.
  */
