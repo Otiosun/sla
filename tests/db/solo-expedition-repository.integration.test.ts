@@ -13,6 +13,7 @@ import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/explo
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
 import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
 import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
+import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -2523,6 +2524,14 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ],
     );
     const destinationRef = "5579999999999@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, destinationRef],
+    );
+    await pool.query(
+      "INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id) VALUES($1,$2,$3)",
+      [playerId, publishedReleaseId, rulesetId],
+    );
     const sourceMessageId = randomUUID();
     await pool.query(
       `INSERT INTO outbox_messages(
@@ -2587,6 +2596,22 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         ballItemIds: {},
       },
     });
+    // Claim the actual normalized Inbox before the transactional effect.
+    // Once the effect is committed, fail completion to reproduce a lost reply.
+    const ignoredInbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: "pg18-ignore-exact",
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      occurredAt: "2026-11-02T18:20:00.000Z",
+      text: "0",
+      replyToExternalMessageId: quote,
+      mediaRefs: [],
+    });
+    const ignoreInbox = new PostgresMessagingRepository(pool);
+    const claim = await ignoreInbox.claimIncoming(ignoredInbound, 30_000);
+    expect(claim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!claim.ok) throw new Error("Isolated ignore Inbox claim was rejected");
     let calls = 0;
     const action = {
       playerId,
@@ -2629,6 +2654,58 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       value: { replayed: true, effectRef: encounterId, expedition: { elapsedMinutes: 40 } },
     });
     expect(calls).toBe(1);
+    await ignoreInbox.failIncoming(claim.value.inboxMessageId, "INJECTED_AFTER_IGNORE");
+    const recoveredIgnore = new ExpeditionCanonicalChoiceStagingResolver(
+      new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool)),
+      new PostgresExpeditionQuotedEncounterProof(pool),
+      new EncounterOperationalReadService(new PostgresEncounterRepository(pool)),
+      proof,
+      {
+        async attempt(): Promise<never> {
+          throw new Error("Ignore recovery cannot spend a Ball");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[4],
+      {
+        async startCanonical(): Promise<never> {
+          throw new Error("Ignore recovery cannot start PvE");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
+      undefined,
+      {
+        async execute(): Promise<never> {
+          throw new Error("Ignore recovery must never repeat canonical flee");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[7],
+      new PostgresExpeditionIgnoreConfirmationRecovery(pool),
+    );
+    const ignoreMessaging = new MessagingService(
+      ignoreInbox,
+      new MessageRouter([], undefined, recoveredIgnore),
+    );
+    expect(await ignoreMessaging.receive({ ...ignoredInbound, text: "1" })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
+    const recovered = await ignoreMessaging.receive(ignoredInbound);
+    if (!recovered.ok) {
+      throw new Error("Ignore recovery failed: " + JSON.stringify(recovered.error));
+    }
+    expect(recovered).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED", resultRefType: "ENCOUNTER", resultRefId: encounterId },
+    });
+    expect(await ignoreMessaging.receive(ignoredInbound)).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED", resultRefType: "ENCOUNTER" },
+    });
+    const confirmedIgnore = await pool.query<{ text: string; status: string }>(
+      `SELECT payload->>'text' AS text,status FROM outbox_messages
+       WHERE channel='whatsapp' AND idempotency_key=$1`,
+      [action.idempotencyKey + ":expedition-canonical-ignore"],
+    );
+    expect(confirmedIgnore.rows).toHaveLength(1);
+    expect(confirmedIgnore.rows[0]?.text).toContain("10 minutos utilizados");
+    expect(confirmedIgnore.rows[0]?.status).toBe("PENDING");
     expect(await proof.resolve(authorizedQuote)).toMatchObject({
       ok: false,
       error: { code: "FLOW_BLOCKED" },
