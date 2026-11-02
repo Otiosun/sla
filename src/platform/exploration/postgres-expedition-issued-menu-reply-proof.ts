@@ -10,6 +10,10 @@ export interface VerifiedExpeditionIssuedMenu {
   readonly encounterRevision: bigint;
   /** Exact authorized item IDs issued with this immutable menu, never live-index remapped. */
   readonly ballItemIds: Readonly<Record<string, string>>;
+  /** Omitted for any legacy, malformed or READ_ONLY menu. */
+  readonly actionable?: true;
+  readonly captureEnabled?: boolean;
+  readonly battleEnabled?: boolean;
 }
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
@@ -47,13 +51,21 @@ export class PostgresExpeditionIssuedMenuReplyProof {
       encounter_id: string;
       encounter_revision: string;
       ball_item_ids: unknown;
+      menu_mode: string | null;
+      capture_enabled: boolean;
+      battle_enabled: boolean;
     }>(
       `SELECT menu.id::text AS menu_id,
               menu.player_id::text AS player_id,
               menu.outcome_id::text AS outcome_id,
               menu.encounter_id::text AS encounter_id,
               menu.encounter_revision::text AS encounter_revision,
-              menu.ball_item_ids
+              menu.ball_item_ids,
+              menu.panel->>'mode' AS menu_mode,
+              CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
+                THEN menu.panel->'actions' ? 'CAPTURE' ELSE FALSE END AS capture_enabled,
+              CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
+                THEN menu.panel->'actions' ? 'BATTLE' ELSE FALSE END AS battle_enabled
        FROM solo_incidental_menu_deliveries delivery
        JOIN solo_incidental_menu_snapshots menu
          ON menu.id = delivery.menu_id
@@ -152,6 +164,13 @@ export class PostgresExpeditionIssuedMenuReplyProof {
       encounterId: row.encounter_id,
       encounterRevision: BigInt(row.encounter_revision),
       ballItemIds: Object.fromEntries(entries) as Readonly<Record<string, string>>,
+      ...(row.menu_mode === "ACTIONABLE"
+        ? {
+            actionable: true as const,
+            captureEnabled: row.capture_enabled === true,
+            battleEnabled: row.battle_enabled === true,
+          }
+        : {}),
     });
   }
 }
