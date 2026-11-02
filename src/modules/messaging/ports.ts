@@ -29,6 +29,8 @@ export interface MessagingRepository {
     readonly staleAfterMs: number;
     readonly maxAttempts: number;
     readonly channels?: readonly string[];
+    /** Staging only: quarantine stale SENDING rather than replay an uncertain send. */
+    readonly quarantineStaleSending?: boolean;
   }): Promise<readonly PendingOutboxMessage[]>;
   markOutboxSent(outboxMessageId: string): Promise<void>;
   markOutboxFailed(input: {
