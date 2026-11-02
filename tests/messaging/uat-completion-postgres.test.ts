@@ -46,7 +46,8 @@ describe.skipIf(!enabled)("UAT completion with the actual PostgreSQL schema", ()
             known: true,
             groupId: "game",
             role: "GAME",
-            capabilities: [],
+            // UAT admin commands still require a configured GAME group with world.
+            capabilities: ["world"],
           }),
         },
         admins: {
