@@ -233,6 +233,18 @@ describe("PVP challenge PostgreSQL repository", () => {
     expect(loaded?.status).toBe("ACCEPTED");
     expect(loaded?.encounterId).toBe(encounterId);
 
+    // A committed acceptance must remain discoverable for /aceitar retry after
+    // the separate battle-start step fails. /recusar must not reopen it.
+    const resumable = await repository.read((transaction) =>
+      transaction.actionableChallengeForTarget(testFixture.targetPlayerId),
+    );
+    expect(resumable?.id).toBe(challenge.id);
+    expect(resumable?.status).toBe("ACCEPTED");
+    const openOnly = await repository.read((transaction) =>
+      transaction.openChallengeForTarget(testFixture.targetPlayerId),
+    );
+    expect(openOnly).toBeNull();
+
     const parsedTarget = parsePlayerId(testFixture.targetPlayerId);
     expect(parsedTarget.ok).toBe(true);
     if (!parsedTarget.ok) return;
