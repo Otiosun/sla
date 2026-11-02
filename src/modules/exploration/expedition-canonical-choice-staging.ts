@@ -1,5 +1,7 @@
 import type { PostgresExpeditionQuotedEncounterProof } from "../../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import type { PostgresExpeditionIssuedMenuReplyProof } from "../../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import type { PostgresExpeditionCaptureConfirmationRecovery } from "../../platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
+import { expeditionCaptureConfirmation } from "./expedition-capture-confirmation.js";
 import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
@@ -26,6 +28,10 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     private readonly issuedMenu: Pick<PostgresExpeditionIssuedMenuReplyProof, "resolve">,
     private readonly capture: Pick<CaptureService, "attempt">,
     private readonly pve: Pick<PveBattleStartService, "startCanonical">,
+    private readonly captureConfirmationRecovery?: Pick<
+      PostgresExpeditionCaptureConfirmationRecovery,
+      "resolve"
+    >,
   ) {}
 
   async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
@@ -50,6 +56,29 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     if (identified.value.state !== "COMPLETE") {
       return err(appError("PLAYER_INELIGIBLE", "Trainer onboarding is incomplete"));
     }
+
+    // A prior canonical capture may have COMMITTED despite the Inbox/Outbox
+    // completion failing. Reconstruct only its already-authorized answer from
+    // the exact claimed Inbox + SENT issued menu. Do not reenter a now-stale
+    // Encounter, spend a second Ball or require its former ENGAGED status.
+    if (this.captureConfirmationRecovery !== undefined && /^[2-4]$/u.test(choice)) {
+      const previous = await this.captureConfirmationRecovery.resolve({
+        playerId: identified.value.playerId,
+        context,
+      });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return ok(
+          expeditionCaptureConfirmation({
+            destinationRef: inbound.senderRef,
+            encounterId: previous.value.encounterId,
+            status: previous.value.status,
+            idempotencyKey: context.idempotencyKey,
+          }),
+        );
+      }
+    }
+
     const authorizedInput = {
       provider: "baileys",
       playerId: identified.value.playerId,
@@ -150,22 +179,13 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       causationId: context.causationId,
     });
     if (!attempt.ok) return attempt;
-    const lines =
-      attempt.value.status === "CAPTURED"
-        ? ["✨ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗔𝗣𝗧𝗨𝗥𝗔*", "> _Pokémon capturado e registrado pelo sistema canônico._"]
-        : ["◇ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗔𝗣𝗧𝗨𝗥𝗔*", "> _Poké Ball lançada. O Pokémon escapou._"];
-    return ok({
-      resultRefType: "ENCOUNTER",
-      resultRefId: active.value.encounterId,
-      outgoing: [
-        {
-          channel: "whatsapp",
-          destinationRef: inbound.senderRef,
-          messageType: "TEXT",
-          payload: { text: lines.join("\n") },
-          idempotencyKey: `${context.idempotencyKey}:expedition-canonical-capture`,
-        },
-      ],
-    });
+    return ok(
+      expeditionCaptureConfirmation({
+        destinationRef: inbound.senderRef,
+        encounterId: active.value.encounterId,
+        status: attempt.value.status,
+        idempotencyKey: context.idempotencyKey,
+      }),
+    );
   }
 }
