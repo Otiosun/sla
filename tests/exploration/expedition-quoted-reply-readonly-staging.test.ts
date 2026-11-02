@@ -48,6 +48,17 @@ function setup() {
       }>
     > => ok({ playerId, outcomeId, encounterId, encounterRevision: 2n }),
   );
+  const activeForPlayer = vi.fn(
+    async (): Promise<
+      Result<{
+        playerId: typeof playerId;
+        encounterId: string;
+        revision: bigint;
+        status: string;
+        battleId: string | null;
+      }>
+    > => ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null }),
+  );
   const resolver = new ExpeditionQuotedReplyReadOnlyStagingResolver(
     { resolvePlayer } as unknown as ConstructorParameters<
       typeof ExpeditionQuotedReplyReadOnlyStagingResolver
@@ -55,8 +66,11 @@ function setup() {
     { resolve } as unknown as ConstructorParameters<
       typeof ExpeditionQuotedReplyReadOnlyStagingResolver
     >[1],
+    { activeForPlayer } as unknown as ConstructorParameters<
+      typeof ExpeditionQuotedReplyReadOnlyStagingResolver
+    >[2],
   );
-  return { resolver, resolvePlayer, resolve };
+  return { resolver, resolvePlayer, resolve, activeForPlayer };
 }
 
 describe("V4 staging quoted reply read-only routing with authenticated player", () => {
@@ -79,6 +93,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
         chatRef: recipient,
         replyToExternalMessageId: quote,
       });
+      expect(f.activeForPlayer).toHaveBeenCalledExactlyOnceWith(playerId);
       expect(answer.value.resultRefId).toBeNull();
       expect(answer.value.resultRefType).toBeNull();
       expect(answer.value.outgoing).toHaveLength(1);
@@ -103,6 +118,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
     expect(await routed.dispatch(context("12"))).toEqual(ok(null));
     expect(f.resolvePlayer).not.toHaveBeenCalled();
     expect(f.resolve).not.toHaveBeenCalled();
+    expect(f.activeForPlayer).not.toHaveBeenCalled();
   });
 
   it("refuses group replies, mismatched chat and unexpected providers before player lookup", async () => {
@@ -128,6 +144,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
     }
     expect(f.resolvePlayer).not.toHaveBeenCalled();
     expect(f.resolve).not.toHaveBeenCalled();
+    expect(f.activeForPlayer).not.toHaveBeenCalled();
   });
 
   it("rejects players without completed registration before reading the quote", async () => {
@@ -138,6 +155,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
       error: { code: "PLAYER_INELIGIBLE" },
     });
     expect(f.resolve).not.toHaveBeenCalled();
+    expect(f.activeForPlayer).not.toHaveBeenCalled();
   });
 
   it("rejects stale or unauthorized quoted encounter without any outgoing action", async () => {
@@ -149,6 +167,25 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
       ok: false,
       error: { code: "FLOW_BLOCKED" },
     });
+    expect(f.activeForPlayer).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ encounterId: randomUUID() }, "another encounter"],
+    [{ revision: 3n }, "changed revision"],
+    [{ status: "IN_BATTLE" }, "battle started"],
+    [{ battleId: randomUUID() }, "attached battle"],
+    [{ playerId: createPlayerId() }, "different owner"],
+  ] as const)("rejects quoted menu after %s (%s)", async (override) => {
+    const f = setup();
+    f.activeForPlayer.mockResolvedValueOnce(
+      ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null, ...override }),
+    );
+    expect(await f.resolver.resolve(context("2"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(f.activeForPlayer).toHaveBeenCalledExactlyOnceWith(playerId);
   });
 
   it("returns a repeatable staging-only preview without any gameplay write port", async () => {
