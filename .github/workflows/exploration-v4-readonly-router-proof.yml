@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - fix/exploration-outbox-uncertain-delivery-quarantine-20261101
+      - feat/exploration-quote-reply-proof-staging-20261101
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"
@@ -19,6 +19,7 @@ on:
       - "src/platform/messaging/postgres-messaging-repository.ts"
       - "src/platform/exploration/postgres-expedition-quoted-encounter-proof.ts"
       - "tests/exploration/expedition-quoted-encounter-proof.test.ts"
+      - "docs/release/LOCAL_CUTOVER_AND_ANNOUNCEMENT_GATE_20261101.md"
       - "tests/exploration/expedition-search-post-sent-worker.test.ts"
       - "tests/exploration/expedition-search-sent-proof.test.ts"
       - "tests/exploration/expedition-search-engagement-after-sent.test.ts"
