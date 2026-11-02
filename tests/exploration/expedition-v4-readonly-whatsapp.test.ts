@@ -647,6 +647,40 @@ describe("published search staging-only WhatsApp command", () => {
     expect(text).not.toContain("\\u031d");
   });
 
+  it("recovers already-committed travel before consulting stale location or charging again", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const f = stagingSearch();
+    const execute = vi.fn();
+    const resolve = vi.fn(async () =>
+      ok({
+        destinationDisplayName: "Campos de Yun",
+        travelMinutes: 45,
+        elapsedMinutes: 45,
+        phase: "ACTIVE" as const,
+      }),
+    );
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      travel: { execute },
+      travelRecovery: { resolve },
+    })[0]!;
+    const original = context("/explorar viajar campos-de-yun");
+    const confirmed = await route.handler.handle(original);
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(String(confirmed.value.outgoing[0]?.payload.text)).toContain("Campos de Yun");
+    expect(String(confirmed.value.outgoing[0]?.payload.text)).toContain("45 min");
+    expect(resolve).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      context: original,
+    });
+    expect(f.getLocation).not.toHaveBeenCalled();
+    expect(f.read).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("travels only with published expedition minutes through the isolated writer", async () => {
     const f = stagingSearch();
     const destinationAreaId = randomUUID();
