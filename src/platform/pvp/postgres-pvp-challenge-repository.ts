@@ -283,6 +283,26 @@ class PostgresPvpChallengeTransaction implements PvpChallengeTransaction {
     return row === undefined ? null : mapChallenge(row);
   }
 
+  public async actionableChallengeForTarget(
+    targetPlayerId: string,
+    lock = false,
+  ): Promise<PvpChallenge | null> {
+    // ACCEPTED with no battle is the resumable state after /aceitar committed
+    // the encounter but a later start step failed. Never reopen STARTED battles.
+    const result = await this.client.query<PvpChallengeRow>(
+      `${CHALLENGE_SELECT}
+       WHERE target_player_id = $1
+         AND (status = 'OPEN' OR (status = 'ACCEPTED' AND battle_id IS NULL))
+       ORDER BY CASE WHEN status = 'ACCEPTED' THEN 0 ELSE 1 END,
+                created_at DESC, id DESC
+       LIMIT 1
+       ${lock ? "FOR UPDATE" : ""}`,
+      [targetPlayerId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapChallenge(row);
+  }
+
   public async openChallengeForChallenger(
     challengerPlayerId: string,
     lock = false,

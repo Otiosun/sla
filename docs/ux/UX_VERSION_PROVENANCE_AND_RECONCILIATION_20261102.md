@@ -30,9 +30,17 @@
 4. **Reintegrar os 4 testes funcionais exatos da PR #255** que estavam ausentes do candidato: 3 da cena de batalha contextual + 1 do guia /combate; executar CI estrita.
 5. **Preservar byte a byte** quatro documentos que só existiam na #255: HUD vetorial **candidato não aprovado**, gates da cena de combate, auditoria de spawn/narrador e shadow gate da exploração; documentos são referência, não recursos ativos.
 
+## Continuação de reconciliação na PR #318 — PvP retomável
+
+- Recuperado de #255 o contrato e o método SQL `actionableChallengeForTarget` que consulta somente convite `OPEN` ou `ACCEPTED` **sem `battle_id`**, priorizando ACCEPTED; `STARTED` nunca pode reabrir e `/recusar` continua restrito a OPEN.
+- `/aceitar` usa essa consulta pelo runtime, e informa como repetir se `startEncounter` falhar com REVISION_CONFLICT, sem dar a entender que o aceite foi desfeito.
+- Texto informativo de recusa e cancelamento foi restaurado, além dos quatro testes WhatsApp `pvp-whatsapp-resume.test.ts` que faltavam na candidata e das asserções SQL PostgreSQL `pvp-challenge-repository.integration.test.ts`.
+- Regressões consolidadas da candidata da PR #318: [crossmodule](https://github.com/Otiosun/sla/actions/runs/41487045033) **788 PASS / 1 SKIP**, [focused+PG18](https://github.com/Otiosun/sla/actions/runs/41487044918) **204 Vitest PASS + 35 PostgreSQL18 PASS**, Narrative #41487044898 SUCCESS. São CI de uma branch Draft, **não** UAT humana.
+- Persistem outras diferenças de políticas e UX da #255 (inclusive controle de grupos e equipe/PC), portanto **não** há certificação de equivalência total.
+
 ## O que ainda NÃO está correto/provado no release
 
-- A árvore Draft contém diferenças semânticas não conciliadas de PvP (`/aceitar`, retomada), gestão Pokémon, paginação/retorno de `/equipe`, controle de comandos de grupo e policies de `/ir`. A #255 possui testes adicionais ausentes do candidato. Requer revisão seletiva com provas e CI; não certificar equivalência.
+- A árvore Draft já recupera **retomada de PvP após aceite** via PR #318, porém ainda contém diferenças semânticas não conciliadas de outras políticas PvP, gestão Pokémon, paginação/retorno de `/equipe`, controle de comandos de grupo e policies de `/ir`. A #255 possui testes adicionais ausentes do candidato. Requer revisão seletiva com provas e CI; não certificar equivalência.
 - A UX V4 de exploração inclui o painel incidental `◇ AÇÕES / ◇ CAPTURAR` e uso de `[Ler mais]` como **marcador de DESIGN, jamais texto literal**; atualmente o emissor ACTIONABLE só funciona offline, somente captura e não oferece Batalhar. Portanto o fluxo aprovado **ainda NÃO está integralmente implementado nem homologado**.
 - Teste sintético de grupo/Outbox, snapshot e screenshots em CI NÃO prova dobra nativa WhatsApp, mídia final nem interface do jogador. UAT Android/iOS/Web com Baileys real obrigatória.
 - `Otiosun/pokemon-hub-web` PR #132 (HEAD `b997f1e6d2c5d5effced6e396ceca8607b8d34db`) é **outro repositório**, DRAFT, e protege feedback/auditoria Premium. Não está instalado automaticamente pela branch do bot.
