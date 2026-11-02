@@ -2720,6 +2720,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       new MessageRouter([], undefined, recoveryGateway),
     );
     const deliveredAgain = await recoveryMessage.receive(realContext.message);
+    if (!deliveredAgain.ok) {
+      throw new Error("Capture reply retry error: " + JSON.stringify(deliveredAgain.error));
+    }
     expect(deliveredAgain).toMatchObject({
       ok: true,
       value: { status: "PROCESSED", resultRefType: "ENCOUNTER", resultRefId: encounterId },
