@@ -59,22 +59,25 @@ function setup() {
       }>
     > => ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null }),
   );
-  const issued = vi.fn(async (): Promise<Result<{
-    menuId: string;
-    playerId: typeof playerId;
-    outcomeId: string;
-    encounterId: string;
-    encounterRevision: bigint;
-    ballItemIds: Readonly<Record<string, string>>;
-  }>> =>
-    ok({
-      menuId: randomUUID(),
-      playerId,
-      outcomeId,
-      encounterId,
-      encounterRevision: 2n,
-      ballItemIds: { "2": randomUUID(), "3": randomUUID(), "4": randomUUID() },
-    }),
+  const issued = vi.fn(
+    async (): Promise<
+      Result<{
+        menuId: string;
+        playerId: typeof playerId;
+        outcomeId: string;
+        encounterId: string;
+        encounterRevision: bigint;
+        ballItemIds: Readonly<Record<string, string>>;
+      }>
+    > =>
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": randomUUID(), "3": randomUUID(), "4": randomUUID() },
+      }),
   );
   const resolver = new ExpeditionQuotedReplyReadOnlyStagingResolver(
     { resolvePlayer } as unknown as ConstructorParameters<
@@ -115,7 +118,10 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
       });
       expect(f.activeForPlayer).toHaveBeenCalledExactlyOnceWith(playerId);
       expect(f.issued).toHaveBeenCalledExactlyOnceWith({
-        provider: "baileys", playerId, senderRef: recipient, chatRef: recipient,
+        provider: "baileys",
+        playerId,
+        senderRef: recipient,
+        chatRef: recipient,
         replyToExternalMessageId: quote,
       });
       expect(answer.value.resultRefId).toBeNull();
@@ -212,41 +218,59 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
     expect(f.activeForPlayer).toHaveBeenCalledExactlyOnceWith(playerId);
   });
 
-  it.each(["0", "1"])("blocks non-issued action %s, even with a valid encounter", async (selection) => {
-    const f = setup();
-    expect(await f.resolver.resolve(context(selection))).toMatchObject({
-      ok: false,
-      error: { code: "FLOW_BLOCKED" },
-    });
-  });
+  it.each(["0", "1"])(
+    "blocks non-issued action %s, even with a valid encounter",
+    async (selection) => {
+      const f = setup();
+      expect(await f.resolver.resolve(context(selection))).toMatchObject({
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      });
+    },
+  );
 
   it("blocks a missing, superseded or forged issued menu after encounter verification", async () => {
     const f = setup();
     f.issued.mockResolvedValueOnce(err(appError("FLOW_BLOCKED", "Older menu was superseded")));
     expect(await f.resolver.resolve(context("2"))).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
   it("blocks a menu whose saved outcome differs from the authenticated quoted encounter", async () => {
     const f = setup();
-    f.issued.mockResolvedValueOnce(ok({
-      menuId: randomUUID(), playerId, encounterId, outcomeId: randomUUID(),
-      encounterRevision: 2n, ballItemIds: { "2": randomUUID() },
-    }));
+    f.issued.mockResolvedValueOnce(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        encounterId,
+        outcomeId: randomUUID(),
+        encounterRevision: 2n,
+        ballItemIds: { "2": randomUUID() },
+      }),
+    );
     expect(await f.resolver.resolve(context("2"))).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
   it("blocks choice not included in the server-issued Ball IDs", async () => {
     const f = setup();
-    f.issued.mockResolvedValueOnce(ok({
-      menuId: randomUUID(), playerId, encounterId, outcomeId,
-      encounterRevision: 2n, ballItemIds: { "3": randomUUID() },
-    }));
+    f.issued.mockResolvedValueOnce(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        encounterId,
+        outcomeId,
+        encounterRevision: 2n,
+        ballItemIds: { "3": randomUUID() },
+      }),
+    );
     expect(await f.resolver.resolve(context("2"))).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
   });
 
