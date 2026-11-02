@@ -2095,11 +2095,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       };
     };
     const concurrentInput = await eligibleNewOutcome(5);
-    const concurrent = await Promise.all(
+    const concurrentIssues = await Promise.all(
       Array.from({ length: 6 }, () => issuer.issue(concurrentInput)),
     );
-    expect(concurrent.every((result) => result.ok)).toBe(true);
-    const issuedResults = concurrent.flatMap((result) => (result.ok ? [result.value] : []));
+    expect(concurrentIssues.every((result) => result.ok)).toBe(true);
+    const issuedResults = concurrentIssues.flatMap((result) => (result.ok ? [result.value] : []));
     expect(new Set(issuedResults.map((value) => value.menuId)).size).toBe(1);
     expect(new Set(issuedResults.map((value) => value.outboxMessageId)).size).toBe(1);
     expect(issuedResults.filter((value) => !value.replayed)).toHaveLength(1);
