@@ -4,7 +4,7 @@ import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
-import { appError, err, ok } from "../../src/shared-kernel/result.js";
+import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
 
 const playerId = createPlayerId();
 const recipient = "5579999999999@s.whatsapp.net";
@@ -12,7 +12,10 @@ const encounterId = randomUUID();
 const outcomeId = randomUUID();
 const quote = randomUUID().replaceAll("-", "").toUpperCase();
 
-function context(text: string, replyToExternalMessageId: string | null = quote): MessageHandlerContext {
+function context(
+  text: string,
+  replyToExternalMessageId: string | null = quote,
+): MessageHandlerContext {
   return {
     inboxMessageId: randomUUID(),
     correlationId: randomUUID(),
@@ -35,8 +38,15 @@ function setup() {
   const resolvePlayer = vi.fn(async () =>
     ok({ playerId, state: "COMPLETE" as const, created: false }),
   );
-  const resolve = vi.fn(async () =>
-    ok({ playerId, outcomeId, encounterId, encounterRevision: 2n }),
+  const resolve = vi.fn(
+    async (): Promise<
+      Result<{
+        playerId: typeof playerId;
+        outcomeId: string;
+        encounterId: string;
+        encounterRevision: bigint;
+      }>
+    > => ok({ playerId, outcomeId, encounterId, encounterRevision: 2n }),
   );
   const resolver = new ExpeditionQuotedReplyReadOnlyStagingResolver(
     { resolvePlayer } as unknown as ConstructorParameters<
@@ -101,7 +111,14 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
     const candidates = [
       { ...group, message: { ...group.message, chatRef: "120363123456789@g.us" } },
       { ...group, message: { ...group.message, provider: "external" } },
-      { ...group, message: { ...group.message, senderRef: "120363123456789@g.us", chatRef: "120363123456789@g.us" } },
+      {
+        ...group,
+        message: {
+          ...group.message,
+          senderRef: "120363123456789@g.us",
+          chatRef: "120363123456789@g.us",
+        },
+      },
     ];
     for (const candidate of candidates) {
       expect(await f.resolver.resolve(candidate)).toMatchObject({
