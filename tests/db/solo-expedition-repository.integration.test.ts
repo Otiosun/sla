@@ -2608,6 +2608,28 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       [emittedMenuId],
     );
     expect(persistedActionable.rows).toMatchObject([{ mode: "ACTIONABLE", status: "PENDING" }]);
+    const storedPanel = await pool.query<{
+      snapshot_text: string;
+      outbox_text: string;
+      ball_item_ids: Record<string, string>;
+    }>(
+      `SELECT menu.panel->>'text' AS snapshot_text,
+              outbox.payload->>'text' AS outbox_text,
+              menu.ball_item_ids
+       FROM solo_incidental_menu_snapshots menu
+       JOIN solo_incidental_menu_deliveries delivery ON delivery.menu_id=menu.id
+       JOIN outbox_messages outbox
+         ON upper(replace(outbox.id::text,'-',''))=upper(delivery.external_message_id)
+       WHERE menu.id=$1`,
+      [emittedMenuId],
+    );
+    expect(storedPanel.rows).toEqual([
+      {
+        snapshot_text: issuedActionable.value.text,
+        outbox_text: issuedActionable.value.text,
+        ball_item_ids: { "2": publishedBallItemId },
+      },
+    ]);
     const players = new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool));
     const quotedEncounter = new PostgresExpeditionQuotedEncounterProof(pool);
     const issuedMenuProof = new PostgresExpeditionIssuedMenuReplyProof(pool);
