@@ -1,4 +1,5 @@
 import type { PostgresExpeditionQuotedEncounterProof } from "../../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
+import type { PostgresExpeditionIssuedMenuReplyProof } from "../../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -7,7 +8,8 @@ import type { PlayerRegistrationService } from "../player/registration-service.j
 
 /**
  * Explicit, staging-only opt-in. Resolves a private numeric quoted reply
- * through registration and the durable Outbox/Encounter SQL proof, but never
+ * through registration, durable Outbox/Encounter proof and an immutable
+ * server-issued message-to-menu snapshot, but never
  * offers or executes battle, capture, Ball selection or ignore/escape costs.
  *
  * The production WhatsApp runtime MUST NOT register this resolver. Actual
@@ -18,6 +20,7 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
     private readonly players: Pick<PlayerRegistrationService, "resolvePlayer">,
     private readonly proof: Pick<PostgresExpeditionQuotedEncounterProof, "resolve">,
     private readonly encounters: Pick<EncounterOperationalReadService, "activeForPlayer">,
+    private readonly issued: Pick<PostgresExpeditionIssuedMenuReplyProof, "resolve">,
   ) {}
 
   async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
@@ -69,6 +72,29 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
       return err(appError("FLOW_BLOCKED", "Quoted encounter is no longer the active encounter"));
     }
 
+    const menu = await this.issued.resolve({
+      provider: context.message.provider,
+      playerId: identified.value.playerId,
+      senderRef: context.message.senderRef,
+      chatRef: context.message.chatRef,
+      replyToExternalMessageId: context.message.replyToExternalMessageId,
+    });
+    if (!menu.ok) return menu;
+    if (
+      menu.value.playerId !== identified.value.playerId ||
+      menu.value.outcomeId !== bound.value.outcomeId ||
+      menu.value.encounterId !== bound.value.encounterId ||
+      menu.value.encounterRevision !== active.value.revision
+    ) {
+      return err(appError("FLOW_BLOCKED", "Quoted menu does not match the active outcome"));
+    }
+    // 0/1 are not offered or authorized by this technical preview. An index
+    // without a frozen server-selected itemId never becomes a Ball action.
+    const ballItemId = menu.value.ballItemIds[text];
+    if (ballItemId === undefined || !/^[a-f0-9-]{36}$/iu.test(ballItemId)) {
+      return err(appError("FLOW_BLOCKED", "Menu choice was not issued for this encounter"));
+    }
+
     // Never expose internal encounter ids or imply that a selected Ball was
     // spent. A harmless private response makes staging UAT observable.
     return ok({
@@ -82,9 +108,9 @@ export class ExpeditionQuotedReplyReadOnlyStagingResolver implements MessageConv
           payload: {
             text: [
               "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
-              "> _Resposta citada vinculada ao encontro correto._",
+              "> _Resposta citada vinculada ao encontro e ao menu correto._",
               "",
-              "› _Prévia técnica: nenhuma ação foi executada._",
+              "› _Prévia técnica: a escolha foi reconhecida sem executar nenhuma ação._",
               "› _Batalha, captura e gastos ainda não estão habilitados._",
             ].join("\n"),
           },
