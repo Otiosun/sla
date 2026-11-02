@@ -588,7 +588,6 @@ describe("Phase 13 operational WhatsApp UX", () => {
     expect(output).toContain("`/desistir` · PVP");
   });
 
-
   it("renders compact battle state without dumping moves or legal actions", async () => {
     const output = textOf(await router(dependencies()).dispatch(context("/batalha")));
     expect(output).toContain("Turno 3");
