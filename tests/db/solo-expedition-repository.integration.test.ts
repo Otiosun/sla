@@ -2763,7 +2763,6 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(finalExpedition?.elapsedMinutes).toBe(40);
   });
 
-
   it("issues BATALHAR only for a fully frozen and published PvE party in disposable PG18", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "pg18-frozen-pve-menu");
@@ -2879,7 +2878,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       `INSERT INTO solo_expedition_search_outcomes(
          id,player_id,expedition_id,expedition_revision,kind,encounter_id
        ) VALUES($1,$2,$3,$4,'DIRECT',$5)`,
-      [outcomeId, playerId, prepared.expeditionId, active.value.expedition.revision.toString(), encounterId],
+      [
+        outcomeId,
+        playerId,
+        prepared.expeditionId,
+        active.value.expedition.revision.toString(),
+        encounterId,
+      ],
     );
     const destinationRef = "5579999999996@s.whatsapp.net";
     const source = randomUUID();

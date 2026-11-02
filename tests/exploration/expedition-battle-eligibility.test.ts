@@ -27,10 +27,11 @@ function fixture(frozen: unknown, team: unknown[]) {
   return {
     query,
     read: () =>
-      readOfflineExpeditionBattleEligibility(
-        { query } as never,
-        { playerId: owner, encounterId, contentReleaseId: releaseId },
-      ),
+      readOfflineExpeditionBattleEligibility({ query } as never, {
+        playerId: owner,
+        encounterId,
+        contentReleaseId: releaseId,
+      }),
   };
 }
 describe("offline PvE preflight uses only frozen canonical encounter roster", () => {
