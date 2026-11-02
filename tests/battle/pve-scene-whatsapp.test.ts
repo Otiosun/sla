@@ -483,7 +483,6 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(text).not.toContain("Quick Attack");
   });
 
-
   it("offers switch only when a controlled living reserve exists and uses real roster slots", async () => {
     const setup = dependencies(false);
     const reserveId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -520,7 +519,6 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(text).not.toContain("reservas: 01");
   });
 
-
   it("does not offer illegal or unusable actions for PVP with exhausted moves", async () => {
     const setup = dependencies(false);
     const pvpState = {
@@ -553,7 +551,6 @@ describe("PVE/PVP WhatsApp scene actions", () => {
     expect(text).not.toContain("`/capturar`");
     expect(text).not.toContain("`/trocar <número>`");
   });
-
 
   it("shows only the caller's own turn submission state in /batalha", async () => {
     const setup = dependencies(false);
