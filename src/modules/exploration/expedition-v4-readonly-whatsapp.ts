@@ -3,6 +3,7 @@ import type { PostgresExpeditionRepository } from "../../platform/exploration/po
 import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
 import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
+import type { PostgresExpeditionTravelConfirmationRecovery } from "../../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
 import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
@@ -63,6 +64,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly summary?: Pick<PostgresExpeditionV4StatusReader, "readLatestCompleted">;
   /** Complete atomic World+expedition travel, staging/test only. */
   readonly travel?: Pick<PostgresExpeditionV4StagingTravel, "execute">;
+  /** Only exact, original claimed Inbox may recover a previously committed travel. */
+  readonly travelRecovery?: Pick<PostgresExpeditionTravelConfirmationRecovery, "resolve">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -131,6 +134,33 @@ function privateEndConfirmation(
       "",
       "› _Nenhuma recompensa adicional foi concedida pelo encerramento._",
       "› _Relatório externo (mínimo 100 palavras) e premiação dependem de aprovação da equipe._",
+    ].join("\n"),
+  );
+}
+
+function privateTravelConfirmation(
+  context: MessageHandlerContext,
+  info: {
+    readonly destinationDisplayName: string;
+    readonly travelMinutes: number;
+    readonly elapsedMinutes: number;
+    readonly phase: "ACTIVE" | "ENDED";
+  },
+): Result<MessageHandlerResult> {
+  const destination = safeLabel(info.destinationDisplayName);
+  if (destination === null) {
+    return err(appError("FLOW_BLOCKED", "Travel destination label is unsafe"));
+  }
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗩𝗜𝗔𝗚𝗘𝗠*",
+      "⌖ *Destino:* " + destination,
+      "⌛ *Tempo da viagem:* `" + String(info.travelMinutes) + " min`",
+      "⌛ *Tempo acumulado:* `" + String(info.elapsedMinutes) + " min`",
+      info.phase === "ENDED"
+        ? "> _Expedição concluída pelo limite de tempo._"
+        : "› _Consulte /explorar status para continuar na nova área._",
     ].join("\n"),
   );
 }
@@ -379,6 +409,11 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ].join("\n"),
       );
     }
+    if (travelRequested !== null && this.deps.travelRecovery !== undefined) {
+      const committed = await this.deps.travelRecovery.resolve({ playerId, context });
+      if (!committed.ok) return committed;
+      if (committed.value !== null) return privateTravelConfirmation(context, committed.value);
+    }
     // A previous END transaction may have committed before Inbox completion.
     // Recover only the exact original message/receipt, before a now-ended
     // expedition disappears from the active status reader.
@@ -517,22 +552,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       ) {
         return err(appError("FLOW_BLOCKED", "Travel receipt was inconsistent with the expedition"));
       }
-      const destination = safeLabel(road.destinationDisplayName);
-      if (destination === null) {
-        return err(appError("FLOW_BLOCKED", "Travel destination label is unsafe"));
-      }
-      return privateText(
-        context,
-        [
-          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗩𝗜𝗔𝗚𝗘𝗠*",
-          "⌖ *Destino:* " + destination,
-          "⌛ *Tempo da viagem:* `" + String(road.explorationMinutes) + " min`",
-          "⌛ *Tempo acumulado:* `" + String(after.elapsedMinutes) + " min`",
-          after.phase === "ENDED"
-            ? "> _Expedição concluída pelo limite de tempo._"
-            : "› _Consulte /explorar status para continuar na nova área._",
-        ].join("\n"),
-      );
+      return privateTravelConfirmation(context, {
+        destinationDisplayName: road.destinationDisplayName,
+        travelMinutes: road.explorationMinutes!,
+        elapsedMinutes: after.elapsedMinutes,
+        phase: after.phase === "ENDED" ? "ENDED" : "ACTIVE",
+      });
     }
     if ((endRequested || endConfirmed) && this.deps.search !== undefined) {
       const current = facts.expedition;
