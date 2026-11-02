@@ -2518,10 +2518,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         const encounter = new EncounterService(
           encounterRepositoryWithinTransaction(client),
           {
-          create: () => {
-            throw new Error("Flee must not draw a seed");
+            create: () => {
+              throw new Error("Flee must not draw a seed");
+            },
           },
-        },
           clock,
           { enabled: true, reason: null },
         );

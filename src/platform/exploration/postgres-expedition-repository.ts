@@ -588,9 +588,7 @@ export class PostgresExpeditionRepository {
         if (!player.ok) return player;
         const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
         if (prior !== null) {
-          return prior.ok
-            ? ok({ ...prior.value, effectRef: input.encounterId })
-            : prior;
+          return prior.ok ? ok({ ...prior.value, effectRef: input.encounterId }) : prior;
         }
         const found = await client.query<{ expedition_id: string }>(
           `SELECT outcome.expedition_id::text AS expedition_id
@@ -621,8 +619,12 @@ export class PostgresExpeditionRepository {
                  AND battle.status IN ('CREATED','ACTIVE')
              )
            LIMIT 2`,
-          [input.outcomeId, input.playerId, input.encounterId,
-            input.expectedEncounterRevision.toString()],
+          [
+            input.outcomeId,
+            input.playerId,
+            input.encounterId,
+            input.expectedEncounterRevision.toString(),
+          ],
         );
         if (found.rows.length !== 1 || found.rows[0] === undefined) {
           return err(appError("FLOW_BLOCKED", "Incidental encounter cannot be ignored now"));
