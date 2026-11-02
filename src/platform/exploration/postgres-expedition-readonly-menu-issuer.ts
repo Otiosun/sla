@@ -324,7 +324,9 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
             captureAuthorized: true,
           });
         } else {
-          readOnlyLines.push(`${ball.choice}. ${ball.displayName} ×${entry.quantity} (somente prévia)`);
+          readOnlyLines.push(
+            `${ball.choice}. ${ball.displayName} ×${entry.quantity} (somente prévia)`,
+          );
         }
       }
       let text: string;
