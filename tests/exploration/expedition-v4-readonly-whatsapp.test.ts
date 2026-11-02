@@ -730,16 +730,22 @@ describe("published search staging-only WhatsApp command", () => {
     vi.stubEnv("APP_ENV", "test");
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("WHATSAPP_ENABLED", "false");
-    expect(await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).toMatchObject({
-      ok: false,
-      error: { code: "FLOW_BLOCKED" },
-    });
-    f.getLocation.mockResolvedValue(ok({
-      ...location,
-      connections: [{ ...candidate, explorationMinutes: 45 }],
-    }));
+    expect(await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).toMatchObject(
+      {
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      },
+    );
+    f.getLocation.mockResolvedValue(
+      ok({
+        ...location,
+        connections: [{ ...candidate, explorationMinutes: 45 }],
+      }),
+    );
     vi.stubEnv("APP_ENV", "production");
-    expect((await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).ok).toBe(false);
+    expect((await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).ok).toBe(
+      false,
+    );
     expect(execute).not.toHaveBeenCalled();
     const readonly = createExpeditionV4ReadOnlyRoutes({
       ...f.deps,
@@ -748,7 +754,9 @@ describe("published search staging-only WhatsApp command", () => {
     const denied = await readonly.handler.handle(context("/explorar viajar vila-dos-arrozais"));
     expect(denied.ok).toBe(true);
     if (denied.ok) {
-      expect(String(denied.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
     }
     expect(execute).not.toHaveBeenCalled();
   });
