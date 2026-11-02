@@ -104,7 +104,14 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
       } as never,
       ({ errorCode }) => failures.push(errorCode),
       {
-        issue: async (input) => {
+        issue: async (input: {
+          playerId: string;
+          outcomeId: string;
+          encounterId: string;
+          expectedEncounterRevision: bigint;
+          correlationId: string;
+          destinationRef: string;
+        }) => {
           events.push("MENU");
           expect(input).toMatchObject({
             playerId,
@@ -139,7 +146,12 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
     const hook = new ExpeditionSearchPostSentHook(
       { engageAfterSent: async () => err(appError("FLOW_BLOCKED", "stale")) } as never,
       ({ errorCode }) => errors.push(errorCode),
-      { issue: async () => { menus++; return ok({}); } } as never,
+      {
+        issue: async () => {
+          menus++;
+          return ok({});
+        },
+      } as never,
     );
     const { worker } = harness({ hook });
     expect(await worker.runOnce()).toMatchObject({ sent: 1, failed: 0, postSentFailed: 1 });
@@ -158,8 +170,12 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
         expect(args).toEqual([25]);
         return {
           rows: [
-            { id: message.id, destination_ref: message.destinationRef,
-              payload: message.payload, correlation_id: message.correlationId },
+            {
+              id: message.id,
+              destination_ref: message.destinationRef,
+              payload: message.payload,
+              correlation_id: message.correlationId,
+            },
           ],
         };
       },

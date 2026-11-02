@@ -92,8 +92,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     readonly errorCode: string;
   }> = [];
   const afterSent =
-    options.explorationOfflineChoicesEnabled === true &&
-    options.encounterRngConfig !== undefined
+    options.explorationOfflineChoicesEnabled === true && options.encounterRngConfig !== undefined
       ? new ExpeditionSearchPostSentHook(
           new ExpeditionSearchEngagementAfterSent(
             new PostgresExpeditionSearchSentProof(options.pool),
