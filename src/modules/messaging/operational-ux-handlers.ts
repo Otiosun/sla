@@ -124,21 +124,35 @@ function cooldownText(availableAt: string, now: Date): string {
   return `⏳ Você acabou de chegar a *Vila dos Arrozais*.\nAguarde *${minutes}min ${seconds % 60}s* antes de seguir por outra rota.`;
 }
 
-function pageNumber(args: readonly string[]): Result<number> {
+function pageNumber(args: readonly string[], command: string): Result<number> {
   if (args.length === 0) return ok(1);
-  const page = Number(args[0]);
-  return Number.isSafeInteger(page) && page > 0
-    ? ok(page)
-    : err(appError("VALIDATION_FAILED", "Página inválida. Use um número inteiro maior que zero."));
+  const page = args.length === 1 ? parseMenuNumber(args[0] ?? "") : null;
+  return page === null
+    ? err(
+        appError(
+          "VALIDATION_FAILED",
+          `Página inválida. Use apenas o número. Ex.: \`${command} 2\`.`,
+        ),
+      )
+    : ok(page);
 }
 
 function pageSlice<T>(values: readonly T[], page: number): readonly T[] {
   return values.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 }
 
+function pageExists(total: number, page: number): boolean {
+  return page <= Math.max(1, Math.ceil(total / PAGE_SIZE));
+}
+
 function pageFooter(total: number, page: number, command: string): string {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  return totalPages <= 1 ? "" : `\n\nPágina ${page}/${totalPages} · ${command} <página>`;
+  if (totalPages <= 1) return "";
+  return [
+    `📄 Página ${page}/${totalPages}`,
+    ...(page > 1 ? [`⬅️ Anterior: \`${command} ${page - 1}\``] : []),
+    ...(page < totalPages ? [`➡️ Próxima: \`${command} ${page + 1}\``] : []),
+  ].join("\n");
 }
 
 function pokemonDisplayName(displayName: string, nickname: string | null): string {
@@ -488,14 +502,14 @@ export function createOperationalUxRoutes(
   const collection: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/colecao");
     if (!page.ok) return page;
     const owned = await listOwned(player.value);
     if (owned === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Coleção Pokémon ainda não está disponível."));
     }
     const slice = pageSlice(owned, page.value);
-    if (owned.length > 0 && slice.length === 0) {
+    if (!pageExists(owned.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da coleção não existe."));
     }
     const lines = slice.map((pokemon) => {
@@ -525,15 +539,17 @@ export function createOperationalUxRoutes(
   const box: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/box");
     if (!page.ok) return page;
     const owned = await listOwned(player.value);
     if (owned === null) {
       return err(appError("FEATURE_UNAVAILABLE", "Boxes ainda não estão disponíveis."));
     }
-    const stored = owned.filter((pokemon) => pokemon.placementKind === "BOX");
+    const stored = owned
+      .filter((pokemon) => pokemon.placementKind === "BOX")
+      .sort((left, right) => (left.boxNo ?? 1) - (right.boxNo ?? 1) || left.slotNo - right.slotNo);
     const slice = pageSlice(stored, page.value);
-    if (stored.length > 0 && slice.length === 0) {
+    if (!pageExists(stored.length, page.value)) {
       return err(appError("VALIDATION_FAILED", "Essa página da Box não existe."));
     }
     const lines = slice.map(
@@ -547,6 +563,10 @@ export function createOperationalUxRoutes(
         "",
         lines.length === 0 ? "_Nenhum Pokémon armazenado._" : lines.join("\n"),
         pageFooter(stored.length, page.value, "/box"),
+        "",
+        "Abra uma ficha com `/pokemon <#>`.",
+        "`/colecao` · todos os Pokémon",
+        "`/equipe` · formação atual",
       ].join("\n"),
     );
   };
@@ -860,7 +880,7 @@ export function createOperationalUxRoutes(
   const inventory: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/inventario");
     if (!page.ok) return page;
     const items = await dependencies.reads.listInventory(player.value);
     const slice = pageSlice(items, page.value);
@@ -881,7 +901,7 @@ export function createOperationalUxRoutes(
   const pokedex: Handler = async (context) => {
     const player = await resolvePlayer(dependencies, context);
     if (!player.ok) return player;
-    const page = pageNumber(commandArgs(context));
+    const page = pageNumber(commandArgs(context), "/pokedex");
     if (!page.ok) return page;
     const entries = await dependencies.reads.listPokedex(player.value);
     const slice = pageSlice(entries, page.value);
