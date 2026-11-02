@@ -114,7 +114,6 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
     expect(claimOutbox.mock.lastCall?.[0]).not.toHaveProperty("quarantineStaleSending");
   });
 
-
   it("issues an immutable menu only AFTER canonical engagement of an actual SENT source", async () => {
     const events: string[] = [];
     const failures: string[] = [];
