@@ -3,12 +3,16 @@ name: Pokemon Beyond Cross-Module Staging Regression
 on:
   pull_request:
     branches:
-      - feat/exploration-quoted-reply-readonly-staging-20261101
+      - fix/ux-combat-contextual-reconciliation-20261102
     paths:
       - ".github/workflows/release-candidate-crossmodule-regression.yml"
       - "src/modules/exploration/**"
       - "src/modules/capture/**"
       - "src/modules/battle/**"
+      - "src/modules/pvp/**"
+      - "src/platform/pvp/**"
+      - "tests/pvp/**"
+      - "tests/db/pvp-challenge-repository.integration.test.ts"
       - "src/modules/encounter/**"
       - "src/modules/messaging/**"
       - "src/platform/exploration/**"
@@ -70,6 +74,6 @@ jobs:
           test ! -d auth_info_baileys
           node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='127.0.0.1'||u.port!=='5432'||u.pathname!=='/postgres')process.exit(1)"
       - name: Prove cross-module regressions on ephemeral PostgreSQL
-        run: pnpm exec vitest run tests/capture tests/battle tests/encounter tests/messaging tests/exploration
+        run: pnpm exec vitest run tests/capture tests/battle tests/encounter tests/messaging tests/exploration tests/pvp
       - name: Confirm TypeScript contract
         run: pnpm exec tsc --noEmit
