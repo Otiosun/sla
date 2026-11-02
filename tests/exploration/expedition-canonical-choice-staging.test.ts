@@ -92,6 +92,81 @@ function setup() {
 }
 
 describe("staging canonical Capture/PvE mechanical command authorization", () => {
+  it("uses canonical 10-minute ignore only for exact quoted ACTIONABLE permission", async () => {
+    const fixture = setup();
+    const ignoreExecute = vi.fn(async () =>
+      ok({ expedition: { elapsedMinutes: 40, phase: "ACTIVE" }, replayed: false }),
+    );
+    const withIgnore = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[0],
+      { resolve: fixture.resolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[1],
+      { activeForPlayer: fixture.activeForPlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[2],
+      { resolve: fixture.issuedResolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[3],
+      { attempt: fixture.attempt } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[4],
+      { startCanonical: fixture.startCanonical } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[5],
+      undefined,
+      { execute: ignoreExecute } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[7],
+    );
+    fixture.issuedResolve.mockResolvedValue(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: {},
+        actionable: true,
+        captureEnabled: false,
+        battleEnabled: false,
+        ignoreEnabled: true,
+      }),
+    );
+    expect(await withIgnore.resolve(context("0"))).toMatchObject({
+      ok: true,
+      value: { resultRefType: "ENCOUNTER", outgoing: [{ payload: { text: expect.stringContaining("10 minutos") } }] },
+    });
+    expect(ignoreExecute).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      idempotencyKey: "inbox:baileys:staging-immutable-choice",
+    });
+    fixture.issuedResolve.mockResolvedValue(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: {},
+        actionable: true,
+        captureEnabled: false,
+        battleEnabled: false,
+        ignoreEnabled: false,
+      }),
+    );
+    expect(await withIgnore.resolve(context("0"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(ignoreExecute).toHaveBeenCalledTimes(1);
+  });
+
   it("does not interpret unquoted or unrelated numbers as commands", async () => {
     const fixture = setup();
     const router = new MessageRouter([], undefined, fixture.resolver);

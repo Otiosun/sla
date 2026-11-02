@@ -5,6 +5,7 @@ import { expeditionCaptureConfirmation } from "./expedition-capture-confirmation
 import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
+import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
 import type { CaptureService } from "../capture/service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -32,11 +33,15 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       PostgresExpeditionCaptureConfirmationRecovery,
       "resolve"
     >,
+    private readonly ignore?: Pick<ExpeditionIncidentalIgnoreStagingAction, "execute">,
   ) {}
 
   async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
     const choice = context.message.text?.trim() ?? "";
-    if (!/^[1-4]$/u.test(choice) || context.message.replyToExternalMessageId === null) {
+    if (
+      (!/^[1-4]$/u.test(choice) && !(choice === "0" && this.ignore !== undefined)) ||
+      context.message.replyToExternalMessageId === null
+    ) {
       return ok(null);
     }
     const inbound = context.message;
@@ -117,6 +122,39 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       active.value.battleId !== null
     ) {
       return err(appError("FLOW_BLOCKED", "Encounter changed before the selected action"));
+    }
+    if (choice === "0") {
+      if (menu.value.ignoreEnabled !== true || this.ignore === undefined) {
+        return err(appError("FLOW_BLOCKED", "This issued menu cannot ignore the encounter"));
+      }
+      const ignored = await this.ignore.execute({
+        playerId: identified.value.playerId,
+        outcomeId: bound.value.outcomeId,
+        encounterId: active.value.encounterId,
+        expectedEncounterRevision: active.value.revision,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!ignored.ok) return ignored;
+      return ok({
+        resultRefType: "ENCOUNTER",
+        resultRefId: active.value.encounterId,
+        outgoing: [
+          {
+            channel: "whatsapp",
+            destinationRef: inbound.senderRef,
+            messageType: "TEXT",
+            payload: {
+              text: [
+                "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
+                "> _Encontro incidental ignorado._",
+                "⌛ *10 minutos utilizados*",
+                "⌛ *Total: " + ignored.value.expedition.elapsedMinutes + "min da expedição*",
+              ].join("\n"),
+            },
+            idempotencyKey: `${context.idempotencyKey}:expedition-canonical-ignore`,
+          },
+        ],
+      });
     }
     if (choice === "1") {
       if (menu.value.battleEnabled !== true) {

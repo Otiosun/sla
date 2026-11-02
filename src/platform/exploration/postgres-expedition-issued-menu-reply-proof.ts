@@ -14,6 +14,7 @@ export interface VerifiedExpeditionIssuedMenu {
   readonly actionable?: true;
   readonly captureEnabled?: boolean;
   readonly battleEnabled?: boolean;
+  readonly ignoreEnabled?: boolean;
 }
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
@@ -54,6 +55,7 @@ export class PostgresExpeditionIssuedMenuReplyProof {
       menu_mode: string | null;
       capture_enabled: boolean;
       battle_enabled: boolean;
+      ignore_enabled: boolean;
       menu_actions: unknown;
       outbox_actions: unknown;
       menu_text: string | null;
@@ -75,7 +77,9 @@ export class PostgresExpeditionIssuedMenuReplyProof {
               CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
                 THEN menu.panel->'actions' ? 'CAPTURE' ELSE FALSE END AS capture_enabled,
               CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
-                THEN menu.panel->'actions' ? 'BATTLE' ELSE FALSE END AS battle_enabled
+                THEN menu.panel->'actions' ? 'BATTLE' ELSE FALSE END AS battle_enabled,
+              CASE WHEN jsonb_typeof(menu.panel->'actions') = 'array'
+                THEN menu.panel->'actions' ? 'IGNORE' ELSE FALSE END AS ignore_enabled
        FROM solo_incidental_menu_deliveries delivery
        JOIN solo_incidental_menu_snapshots menu
          ON menu.id = delivery.menu_id
@@ -198,7 +202,8 @@ export class PostgresExpeditionIssuedMenuReplyProof {
         JSON.stringify(row.ball_item_ids) !== JSON.stringify(row.outbox_balls) ||
         actions.includes("CAPTURE") !== entries.length > 0 ||
         row.capture_enabled !== actions.includes("CAPTURE") ||
-        row.battle_enabled !== actions.includes("BATTLE")
+        row.battle_enabled !== actions.includes("BATTLE") ||
+        row.ignore_enabled !== actions.includes("IGNORE")
       ) {
         return err(appError("FLOW_BLOCKED", "Actionable menu has diverging issued permissions"));
       }
@@ -216,6 +221,7 @@ export class PostgresExpeditionIssuedMenuReplyProof {
             actionable: true as const,
             captureEnabled: row.capture_enabled === true,
             battleEnabled: row.battle_enabled === true,
+            ignoreEnabled: row.ignore_enabled === true,
           }
         : {}),
     });

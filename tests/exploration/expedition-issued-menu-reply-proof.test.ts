@@ -46,11 +46,12 @@ describe("isolated issued menu proof binds quote, player and immutable Ball IDs"
       outbox_balls: { "2": ballId },
       capture_enabled: true,
       battle_enabled: false,
+      ignore_enabled: false,
     };
     const accepted = setup([good]);
     expect(await accepted.proof.resolve(request)).toMatchObject({
       ok: true,
-      value: { actionable: true, captureEnabled: true, battleEnabled: false },
+      value: { actionable: true, captureEnabled: true, battleEnabled: false, ignoreEnabled: false },
     });
     const sql = String(accepted.query.mock.calls[0]?.[0]);
     expect(sql).toContain("menu.panel->'actions' = outbox.payload->'expeditionMenu'->'actions'");
