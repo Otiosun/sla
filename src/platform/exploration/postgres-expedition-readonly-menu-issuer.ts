@@ -448,7 +448,9 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
             expeditionMenu: {
               menuId,
               mode: this.issuanceMode,
-              ...(this.issuanceMode === "ACTIONABLE" ? { actions: authorizedActions, ballItemIds } : {}),
+              ...(this.issuanceMode === "ACTIONABLE"
+                  ? { actions: authorizedActions, ballItemIds }
+                  : {}),
             },
           }),
           immutableIdempotencyKey,

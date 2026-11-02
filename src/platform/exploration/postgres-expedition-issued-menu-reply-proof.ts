@@ -120,7 +120,7 @@ export class PostgresExpeditionIssuedMenuReplyProof {
          AND delivery.player_id = $4
          AND menu.player_id = $4
          AND (
-           NOT (menu.panel->'actions' ? 'IGNORE')
+           NOT COALESCE(menu.panel->'actions' ? 'IGNORE', FALSE)
            OR outcome.kind = 'INCIDENTAL'
          )
          -- A screenshot or old read-only Outbox may never be upgraded into

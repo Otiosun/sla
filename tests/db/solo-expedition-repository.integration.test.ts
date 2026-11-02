@@ -2574,10 +2574,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       ok: false,
       error: { code: "FLOW_BLOCKED" },
     });
-    await pool.query(
-      "UPDATE outbox_messages SET status='SENT', sent_at=now() WHERE id=$1",
-      [issued.value.outboxMessageId],
-    );
+    await pool.query("UPDATE outbox_messages SET status='SENT', sent_at=now() WHERE id=$1", [
+      issued.value.outboxMessageId,
+    ]);
     expect(await proof.resolve(authorizedQuote)).toMatchObject({
       ok: true,
       value: {
