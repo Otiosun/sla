@@ -171,15 +171,15 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
   });
 
   it.each([
-    [{ encounterId: randomUUID() }, "another encounter"],
-    [{ revision: 3n }, "changed revision"],
-    [{ status: "IN_BATTLE" }, "battle started"],
-    [{ battleId: randomUUID() }, "attached battle"],
-    [{ playerId: createPlayerId() }, "different owner"],
-  ] as const)("rejects quoted menu after %s (%s)", async (override) => {
+    { scenario: "another encounter", change: { encounterId: randomUUID() } },
+    { scenario: "changed revision", change: { revision: 3n } },
+    { scenario: "battle started", change: { status: "IN_BATTLE" } },
+    { scenario: "attached battle", change: { battleId: randomUUID() } },
+    { scenario: "different owner", change: { playerId: createPlayerId() } },
+  ])("rejects quoted menu after $scenario", async ({ change }) => {
     const f = setup();
     f.activeForPlayer.mockResolvedValueOnce(
-      ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null, ...override }),
+      ok({ playerId, encounterId, revision: 2n, status: "ENGAGED", battleId: null, ...change }),
     );
     expect(await f.resolver.resolve(context("2"))).toMatchObject({
       ok: false,
