@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
+import { ConnectionAccessRuleSchema } from "../../modules/catalog/world-contracts.js";
+import type { TravelResult } from "../../modules/world/contracts.js";
 import {
   advanceExpedition,
   changeExpeditionPeriod,
@@ -45,6 +47,25 @@ export interface ExecuteIgnoreIncidentalInput {
   readonly flee: (
     client: PoolClient,
   ) => Promise<Result<{ readonly status: string; readonly revision: bigint }>>;
+}
+
+/** A single, atomic World + expedition action. Duration comes from PUBLISHED content. */
+export interface ExecuteExpeditionTravelInput {
+  readonly playerId: PlayerId;
+  readonly expeditionId: string;
+  readonly expectedRevision: bigint;
+  readonly expectedWorldRevision: bigint;
+  readonly destinationAreaId: string;
+  readonly idempotencyKey: string;
+  readonly travel: (
+    client: PoolClient,
+    input: {
+      readonly playerId: PlayerId;
+      readonly destinationAreaId: string;
+      readonly expectedRevision: bigint;
+      readonly idempotencyKey: string;
+    },
+  ) => Promise<Result<TravelResult>>;
 }
 
 export interface ExecuteSearchActionInput {
@@ -238,7 +259,7 @@ async function persistSnapshot(
   expectedRevision: bigint,
 ): Promise<void> {
   const updated = await client.query(
-    "UPDATE solo_expeditions SET period=$3,phase=$4,elapsed_minutes=$5,consumed_week_key=$6::date,end_reason=$7,revision=$8::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$9::bigint",
+    "UPDATE solo_expeditions SET period=$3,phase=$4,elapsed_minutes=$5,consumed_week_key=$6::date,end_reason=$7,revision=$8::bigint,area_id=$10,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$9::bigint",
     [
       value.expeditionId,
       value.playerId,
@@ -249,6 +270,7 @@ async function persistSnapshot(
       value.endReason,
       value.revision.toString(),
       expectedRevision.toString(),
+      value.areaId,
     ],
   );
   if (updated.rowCount !== 1) throw new Error("Expedition row was lost during locked transition");
@@ -430,6 +452,163 @@ export class PostgresExpeditionRepository {
         ),
       );
     });
+  }
+
+  /**
+   * Staging-only atomic travel. The same PoolClient, player row lock, pinned
+   * PUBLISHED connection and WorldService.travel receipt must commit with
+   * the expedition minute debit. Absent explorationMinutes fails closed.
+   */
+  public async executeTravel(
+    input: ExecuteExpeditionTravelInput,
+  ): Promise<Result<StoredExpeditionTransition>> {
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    if (
+      !/^[a-f0-9-]{36}$/iu.test(input.destinationAreaId) ||
+      input.expectedWorldRevision < 0n
+    ) {
+      return err(appError("VALIDATION_FAILED", "Invalid expedition travel destination/revision"));
+    }
+    const inputFingerprint = fingerprint([
+      "ACTION_TRAVEL",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      input.expectedWorldRevision.toString(),
+      input.destinationAreaId,
+    ]);
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        const player = await lockedPlayer(client, input.playerId);
+        if (!player.ok) return player;
+        const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
+        if (prior !== null) {
+          if (!prior.ok) return prior;
+          if (prior.value.expedition.areaId !== input.destinationAreaId) {
+            return err(appError("FLOW_BLOCKED", "Travel receipt has an unexpected destination"));
+          }
+          return prior;
+        }
+        const original = await lockedExpedition(client, input.playerId, input.expeditionId);
+        if (original === null) return unavailable();
+        const connections = await client.query<{
+          release_id: string;
+          access_rule: unknown;
+        }>(
+          `SELECT release.id::text AS release_id, revision.access_rule
+           FROM player_locations loc
+           JOIN areas source ON source.id=loc.area_id
+           JOIN regions region ON region.id=source.region_id
+           JOIN areas destination ON destination.id=$3
+             AND destination.region_id=region.id
+           JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
+           JOIN content_releases release
+             ON release.id=pointer.content_release_id AND release.status='PUBLISHED'
+           JOIN rulesets ruleset
+             ON ruleset.id=release.default_ruleset_id AND ruleset.status='PUBLISHED'
+           JOIN region_revisions region_rev
+             ON region_rev.content_release_id=release.id
+            AND region_rev.region_id=region.id AND region_rev.active=TRUE
+           JOIN area_revisions source_rev
+             ON source_rev.content_release_id=release.id
+            AND source_rev.area_id=source.id AND source_rev.active=TRUE
+           JOIN area_revisions dest_rev
+             ON dest_rev.content_release_id=release.id
+            AND dest_rev.area_id=destination.id AND dest_rev.active=TRUE
+           JOIN area_connections connection
+             ON connection.from_area_id=source.id AND connection.to_area_id=destination.id
+           JOIN area_connection_revisions revision
+             ON revision.connection_id=connection.id
+            AND revision.content_release_id=release.id AND revision.active=TRUE
+           WHERE loc.player_id=$1 AND loc.revision=$4::bigint
+             AND source.id=$2 AND region.slug='zhoulia'
+             AND source.slug IN ('vila-dos-arrozais','campos-de-yun')
+             AND destination.slug IN ('vila-dos-arrozais','campos-de-yun')
+           FOR UPDATE OF loc`,
+          [
+            input.playerId,
+            original.areaId,
+            input.destinationAreaId,
+            input.expectedWorldRevision.toString(),
+          ],
+        );
+        if (connections.rows.length !== 1) {
+          return err(appError("FLOW_BLOCKED", "No published authorized expedition road"));
+        }
+        const road = ConnectionAccessRuleSchema.safeParse(connections.rows[0]?.access_rule);
+        if (!road.success || road.data.explorationMinutes === undefined) {
+          return err(appError("FLOW_BLOCKED", "Road lacks author-approved expedition minutes"));
+        }
+        const pending = await client.query(
+          `SELECT 1 FROM encounters WHERE player_id=$1
+           AND status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE')
+           LIMIT 1`,
+          [input.playerId],
+        );
+        if (pending.rowCount !== 0) {
+          return err(appError("FLOW_BLOCKED", "Resolve the encounter before travelling"));
+        }
+        const week = expeditionWeekKey(this.clock.now(), this.timeZone);
+        const count = await client.query<{ total: string }>(
+          `SELECT count(*)::text AS total FROM solo_expeditions
+           WHERE player_id=$1 AND consumed_week_key=$2::date`,
+          [input.playerId, week],
+        );
+        const transition = advanceExpedition({
+          expedition: original,
+          expectedRevision: input.expectedRevision,
+          minutes: road.data.explorationMinutes,
+          weekKey: week,
+          consumedThisWeek: Number(count.rows[0]?.total ?? "0"),
+        });
+        if (!transition.ok) return transition;
+
+        const travelled = await input.travel(client, {
+          playerId: input.playerId,
+          destinationAreaId: input.destinationAreaId,
+          expectedRevision: input.expectedWorldRevision,
+          idempotencyKey: input.idempotencyKey,
+        });
+        if (!travelled.ok) throw new AbortedSearchAction(travelled.error);
+        if (
+          travelled.value.replayed ||
+          travelled.value.from.playerId !== input.playerId ||
+          travelled.value.from.areaId !== original.areaId ||
+          travelled.value.from.revision !== input.expectedWorldRevision ||
+          travelled.value.to.playerId !== input.playerId ||
+          travelled.value.to.areaId !== input.destinationAreaId ||
+          travelled.value.to.revision !== input.expectedWorldRevision + 1n ||
+          travelled.value.from.contentReleaseId !== connections.rows[0]?.release_id ||
+          travelled.value.to.contentReleaseId !== connections.rows[0]?.release_id
+        ) {
+          throw new AbortedSearchAction(
+            appError("FLOW_BLOCKED", "World travel disagrees with the pinned expedition route"),
+          );
+        }
+        const updated = {
+          ...transition.value,
+          expedition: {
+            ...transition.value.expedition,
+            areaId: input.destinationAreaId,
+          },
+        };
+        await persistSnapshot(client, updated.expedition, original.revision);
+        return ok(
+          await writeReceipt(
+            client,
+            input.playerId,
+            input.idempotencyKey,
+            input.expeditionId,
+            "ACTION_TRAVEL",
+            inputFingerprint,
+            updated,
+          ),
+        );
+      });
+    } catch (error) {
+      if (error instanceof AbortedSearchAction) return err(error.domainError);
+      throw error;
+    }
   }
 
   /**
