@@ -23,7 +23,7 @@ import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/explorati
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
 import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/exploration/expedition-quoted-reply-readonly-staging.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { IncomingMessageSchema, type MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
@@ -2661,7 +2661,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     // A real PostgreSQL Inbox claim establishes the exact correlation/fingerprint
     // that must later be used to recover a previously committed capture.
     const inboxRepository = new PostgresMessagingRepository(pool);
-    const firstClaim = await inboxRepository.claimIncoming(realContext.message, 30_000);
+    const firstClaim = await inboxRepository.claimIncoming(
+      IncomingMessageSchema.parse(realContext.message),
+      30_000,
+    );
     expect(firstClaim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
     if (!firstClaim.ok) throw new Error("Unable to claim incoming test message");
     const claimedContext: MessageHandlerContext = {
