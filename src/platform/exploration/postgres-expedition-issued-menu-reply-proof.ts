@@ -105,6 +105,15 @@ export class PostgresExpeditionIssuedMenuReplyProof {
          AND upper(delivery.external_message_id) = upper($3)
          AND delivery.player_id = $4
          AND menu.player_id = $4
+         -- A screenshot or old read-only Outbox may never be upgraded into
+         -- an ACTIONABLE menu by changing only the snapshot's JSON metadata.
+         AND (
+           menu.panel->>'mode' IS DISTINCT FROM 'ACTIONABLE'
+           OR (
+             outbox.payload->'expeditionMenu'->>'menuId' = menu.id::text
+             AND outbox.payload->'expeditionMenu'->>'mode' = 'ACTIONABLE'
+           )
+         )
          -- Supersede an old menu only once a different menu for the SAME
          -- Encounter was actually delivered; pending previews cannot revoke
          -- working choices. Tied issue timestamps fail closed.
