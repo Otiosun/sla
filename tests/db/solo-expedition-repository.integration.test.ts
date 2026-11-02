@@ -2582,6 +2582,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await actionableIssuer.issue(issueInput)).toEqual(
       ok({ ...issuedActionable.value, replayed: true }),
     );
+    // Same outcome cannot be silently down-graded/up-graded after issuing.
+    // Neither mode may overwrite an existing immutable Outbox binding.
+    expect(
+      await new PostgresExpeditionReadOnlyMenuIssuer(pool).issue(issueInput),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     const persistedActionable = await pool.query<{
       mode: string;
       status: string;
