@@ -16,6 +16,8 @@ import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platfor
 import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import { WorldService } from "../../src/modules/world/service.js";
+import { worldRepositoryWithinTransaction } from "../../src/platform/world/postgres-world-repository.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
@@ -72,6 +74,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let publishedBallItemId: string;
   let publishedCaptureSnapshot: CaptureContext["encounterSnapshot"];
   let activeAreaId: string;
+  let yunAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
   let outsideLaunchAreaId: string;
@@ -131,6 +134,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const inactiveRegionId = randomUUID();
     const outsideLaunchRegionId = randomUUID();
     activeAreaId = randomUUID();
+    yunAreaId = randomUUID();
     unpublishedAreaId = randomUUID();
     inactiveRegionAreaId = randomUUID();
     outsideLaunchAreaId = randomUUID();
@@ -161,6 +165,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         inactiveRegionId,
         outsideLaunchRegionId,
       ],
+    );
+    await pool.query(
+      "INSERT INTO areas(id,region_id,slug) VALUES($1,$2,'campos-de-yun')",
+      [yunAreaId, activeRegionId],
     );
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
@@ -195,6 +203,39 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
           startingArea: false,
           relocationPriority: 10,
         }),
+      ],
+    );
+    await pool.query(
+      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data) VALUES($1,$2,$3,'Campos de Yun',TRUE,$4::jsonb)",
+      [
+        randomUUID(),
+        publishedReleaseId,
+        yunAreaId,
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: "ROUTE",
+          safePoint: false,
+          startingArea: false,
+          relocationPriority: 11,
+        }),
+      ],
+    );
+    const fromVilaRoad = randomUUID();
+    const reverseRoad = randomUUID();
+    await pool.query(
+      "INSERT INTO area_connections(id,from_area_id,to_area_id,connection_key) VALUES($1,$3,$4,'vila-to-yun'),($2,$4,$3,'yun-to-vila')",
+      [fromVilaRoad, reverseRoad, activeAreaId, yunAreaId],
+    );
+    await pool.query(
+      "INSERT INTO area_connection_revisions(id,content_release_id,connection_id,access_rule,active) VALUES($1,$3,$4,$6::jsonb,TRUE),($2,$3,$5,$7::jsonb,TRUE)",
+      [
+        randomUUID(),
+        randomUUID(),
+        publishedReleaseId,
+        fromVilaRoad,
+        reverseRoad,
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], explorationMinutes: 45 }),
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] }),
       ],
     );
     // Catalog revisions must be authored only while their release is DRAFT.
@@ -319,6 +360,105 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
+  });
+
+  it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-travel-preparation");
+    const worldTravel = async (
+      client: import("pg").PoolClient,
+      input: {
+        playerId: PlayerId;
+        destinationAreaId: string;
+        expectedRevision: bigint;
+        idempotencyKey: string;
+      },
+    ) =>
+      new WorldService(
+        worldRepositoryWithinTransaction(client),
+        { enabled: true, reason: null },
+        clock,
+      ).travel(input);
+    const input = {
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      expectedWorldRevision: 0n,
+      destinationAreaId: yunAreaId,
+      idempotencyKey: "pg18-atomic-travel",
+      travel: worldTravel,
+    };
+    const result = await store.executeTravel(input);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        expedition: { phase: "ACTIVE", areaId: yunAreaId, elapsedMinutes: 45 },
+        consumedWeeklySlot: true,
+        replayed: false,
+      },
+    });
+    const position = await pool.query<{ area_id: string; revision: string }>(
+      "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    expect(position.rows).toEqual([{ area_id: yunAreaId, revision: "1" }]);
+    const receiptCount = await count("solo_expedition_receipts", playerId);
+    expect(await store.executeTravel(input)).toMatchObject({
+      ok: true,
+      value: { replayed: true, expedition: { areaId: yunAreaId, elapsedMinutes: 45 } },
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(receiptCount);
+    expect(await store.executeTravel({ ...input, expectedWorldRevision: 1n })).toMatchObject({
+      ok: false,
+      error: { code: "IDEMPOTENCY_KEY_INVALID" },
+    });
+
+    const reverse = await store.executeTravel({
+      ...input,
+      expectedRevision: 1n,
+      expectedWorldRevision: 1n,
+      destinationAreaId: activeAreaId,
+      idempotencyKey: "pg18-travel-unapproved-cost",
+    });
+    expect(reverse).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect((await store.current(playerId))?.areaId).toBe(yunAreaId);
+  });
+
+  it("rolls back expedition clock and world-side effects when the travel adapter fails", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-atomic-travel-failure-preparation");
+    const result = await store.executeTravel({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: 0n,
+      expectedWorldRevision: 0n,
+      destinationAreaId: yunAreaId,
+      idempotencyKey: "pg18-atomic-travel-adapter-failure",
+      travel: async (client) => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+          [randomUUID(), playerId, prepared.expeditionId],
+        );
+        return err(appError("FLOW_BLOCKED", "Synthetic World failure after a database write"));
+      },
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      areaId: activeAreaId,
+    });
+    const moved = await pool.query<{ area_id: string }>(
+      "SELECT area_id::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    expect(moved.rows).toEqual([{ area_id: activeAreaId }]);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+    const leaked = await pool.query<{ total: number }>(
+      "SELECT count(*)::int AS total FROM solo_search_effect_test WHERE player_id=$1",
+      [playerId],
+    );
+    expect(leaked.rows[0]?.total).toBe(0);
   });
 
   it("reads real V4 NONE/PREPARING/ACTIVE status and weekly quota without writes or player leaks", async () => {
