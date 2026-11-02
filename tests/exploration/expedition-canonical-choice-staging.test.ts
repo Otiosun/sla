@@ -92,6 +92,52 @@ function setup() {
 }
 
 describe("staging canonical Capture/PvE mechanical command authorization", () => {
+  it("recovers committed ignore confirmation without issuing a second flee", async () => {
+    const fixture = setup();
+    const previous = { encounterId, elapsedMinutes: 40 };
+    const ignoreExecute = vi.fn(async () => {
+      throw new Error("Committed ignore may not be executed twice");
+    });
+    const ignoreRecovery = vi.fn(async () => ok(previous));
+    const resolver = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[0],
+      { resolve: fixture.resolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[1],
+      { activeForPlayer: fixture.activeForPlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[2],
+      { resolve: fixture.issuedResolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[3],
+      { attempt: fixture.attempt } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[4],
+      { startCanonical: fixture.startCanonical } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[5],
+      undefined,
+      { execute: ignoreExecute } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[7],
+      { resolve: ignoreRecovery },
+    );
+    expect(await resolver.resolve(context("0"))).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "ENCOUNTER",
+        resultRefId: encounterId,
+        outgoing: [{ payload: { text: expect.stringContaining("Total: 40min") } }],
+      },
+    });
+    expect(ignoreRecovery).toHaveBeenCalledOnce();
+    expect(ignoreExecute).not.toHaveBeenCalled();
+    expect(fixture.issuedResolve).not.toHaveBeenCalled();
+    expect(fixture.activeForPlayer).not.toHaveBeenCalled();
+  });
+
   it("uses canonical 10-minute ignore only for exact quoted ACTIONABLE permission", async () => {
     const fixture = setup();
     const ignoreExecute = vi.fn(async () =>

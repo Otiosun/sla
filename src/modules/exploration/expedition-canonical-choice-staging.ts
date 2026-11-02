@@ -6,6 +6,7 @@ import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
 import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
+import type { PostgresExpeditionIgnoreConfirmationRecovery } from "../../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import type { CaptureService } from "../capture/service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -34,7 +35,36 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       "resolve"
     >,
     private readonly ignore?: Pick<ExpeditionIncidentalIgnoreStagingAction, "execute">,
+    private readonly ignoreRecovery?: Pick<PostgresExpeditionIgnoreConfirmationRecovery, "resolve">,
   ) {}
+
+  private ignoreConfirmation(input: {
+    readonly destinationRef: string;
+    readonly encounterId: string;
+    readonly elapsedMinutes: number;
+    readonly idempotencyKey: string;
+  }): MessageHandlerResult {
+    return {
+      resultRefType: "ENCOUNTER",
+      resultRefId: input.encounterId,
+      outgoing: [
+        {
+          channel: "whatsapp",
+          destinationRef: input.destinationRef,
+          messageType: "TEXT",
+          payload: {
+            text: [
+              "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
+              "> _Encontro incidental ignorado._",
+              "⌛ *10 minutos utilizados*",
+              "⌛ *Total: " + input.elapsedMinutes + "min da expedição*",
+            ].join("\n"),
+          },
+          idempotencyKey: `${input.idempotencyKey}:expedition-canonical-ignore`,
+        },
+      ],
+    };
+  }
 
   async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
     const choice = context.message.text?.trim() ?? "";
@@ -81,6 +111,25 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
             idempotencyKey: context.idempotencyKey,
           }),
         );
+      }
+    }
+
+    // If the canonical FLED transition and 10-minute receipt committed but
+    // Inbox completion failed, the original quote no longer authorizes a new
+    // mutation. Recover only the exact persisted receipt for this Inbox.
+    if (choice === "0" && this.ignoreRecovery !== undefined) {
+      const previous = await this.ignoreRecovery.resolve({
+        playerId: identified.value.playerId,
+        context,
+      });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return ok(this.ignoreConfirmation({
+          destinationRef: inbound.senderRef,
+          encounterId: previous.value.encounterId,
+          elapsedMinutes: previous.value.elapsedMinutes,
+          idempotencyKey: context.idempotencyKey,
+        }));
       }
     }
 
@@ -135,26 +184,12 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
         idempotencyKey: context.idempotencyKey,
       });
       if (!ignored.ok) return ignored;
-      return ok({
-        resultRefType: "ENCOUNTER",
-        resultRefId: active.value.encounterId,
-        outgoing: [
-          {
-            channel: "whatsapp",
-            destinationRef: inbound.senderRef,
-            messageType: "TEXT",
-            payload: {
-              text: [
-                "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
-                "> _Encontro incidental ignorado._",
-                "⌛ *10 minutos utilizados*",
-                "⌛ *Total: " + ignored.value.expedition.elapsedMinutes + "min da expedição*",
-              ].join("\n"),
-            },
-            idempotencyKey: `${context.idempotencyKey}:expedition-canonical-ignore`,
-          },
-        ],
-      });
+      return ok(this.ignoreConfirmation({
+        destinationRef: inbound.senderRef,
+        encounterId: active.value.encounterId,
+        elapsedMinutes: ignored.value.expedition.elapsedMinutes,
+        idempotencyKey: context.idempotencyKey,
+      }));
     }
     if (choice === "1") {
       if (menu.value.battleEnabled !== true) {
