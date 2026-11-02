@@ -11,6 +11,11 @@ import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploratio
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
+import { CaptureService } from "../../src/modules/capture/service.js";
+import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import type { CaptureContext } from "../../src/modules/capture/contracts.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
@@ -43,6 +48,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let store: PostgresExpeditionRepository;
   let publishedReleaseId: string;
   let publishedBallItemId: string;
+  let publishedCaptureSnapshot: CaptureContext["encounterSnapshot"];
   let activeAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
@@ -178,10 +184,88 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     ]);
     await pool.query(
       `INSERT INTO item_revisions(
-         id,content_release_id,item_id,display_name,item_kind,effect_key,active
-       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',TRUE)`,
-      [randomUUID(), publishedReleaseId, publishedBallItemId],
+         id,content_release_id,item_id,display_name,item_kind,effect_key,effect_config,active
+       ) VALUES($1,$2,$3,'Poké Ball','BALL','catch-modifier',$4::jsonb,TRUE)`,
+      [randomUUID(), publishedReleaseId, publishedBallItemId, JSON.stringify({ multiplierBasisPoints: 10000 })],
     );
+    // One real, published and FK-valid wild Pokémon for CaptureService's
+    // PostgreSQL transaction: master catalog is authored before publication.
+    const speciesId = randomUUID();
+    const formId = randomUUID();
+    const typeId = randomUUID();
+    const natureId = randomUUID();
+    const abilityId = randomUUID();
+    const moveId = randomUUID();
+    await pool.query("INSERT INTO pokemon_types(id,slug) VALUES($1,$2)", [
+      typeId,
+      "pg18-capture-type-" + typeId,
+    ]);
+    await pool.query("INSERT INTO pokemon_species(id,national_dex,slug) VALUES($1,9997,$2)", [
+      speciesId,
+      "pg18-capture-species-" + speciesId,
+    ]);
+    await pool.query("INSERT INTO pokemon_forms(id,species_id,slug) VALUES($1,$2,'default')", [
+      formId,
+      speciesId,
+    ]);
+    await pool.query("INSERT INTO natures(id,slug) VALUES($1,$2)", [
+      natureId,
+      "pg18-capture-nature-" + natureId,
+    ]);
+    await pool.query("INSERT INTO abilities(id,slug) VALUES($1,$2)", [
+      abilityId,
+      "pg18-capture-ability-" + abilityId,
+    ]);
+    await pool.query("INSERT INTO moves(id,slug) VALUES($1,$2)", [
+      moveId,
+      "pg18-capture-move-" + moveId,
+    ]);
+    await pool.query(
+      "INSERT INTO pokemon_type_revisions(id,content_release_id,type_id,display_name) VALUES($1,$2,$3,'Normal')",
+      [randomUUID(), publishedReleaseId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_species_revisions(id,content_release_id,species_id,display_name,catch_rate,base_exp) VALUES($1,$2,$3,'Published Testmon',255,50)",
+      [randomUUID(), publishedReleaseId, speciesId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_form_revisions(
+         id,content_release_id,form_id,display_name,type1_id,
+         base_hp,base_attack,base_defense,base_sp_attack,base_sp_defense,base_speed
+       ) VALUES($1,$2,$3,'Published Testmon',$4,40,45,40,35,35,56)`,
+      [randomUUID(), publishedReleaseId, formId, typeId],
+    );
+    await pool.query(
+      "INSERT INTO ability_revisions(id,content_release_id,ability_id,display_name) VALUES($1,$2,$3,'Test Ability')",
+      [randomUUID(), publishedReleaseId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO nature_revisions(id,content_release_id,nature_id,display_name) VALUES($1,$2,$3,'Hardy')",
+      [randomUUID(), publishedReleaseId, natureId],
+    );
+    await pool.query(
+      `INSERT INTO move_revisions(
+         id,content_release_id,move_id,display_name,type_id,category,power,accuracy,priority,max_pp
+       ) VALUES($1,$2,$3,'Tackle',$4,'PHYSICAL',40,100,0,35)`,
+      [randomUUID(), publishedReleaseId, moveId, typeId],
+    );
+    publishedCaptureSnapshot = {
+      schemaVersion: 1,
+      formId,
+      speciesId,
+      level: 3,
+      type1Id: typeId,
+      type2Id: null,
+      baseStats: { hp: 40, attack: 45, defense: 40, spAttack: 35, spDefense: 35, speed: 56 },
+      ivs: { hp: 1, attack: 2, defense: 3, spAttack: 4, spDefense: 5, speed: 6 },
+      natureId,
+      abilityId,
+      moves: [{ moveId, ppCurrent: 35 }],
+      maxHp: 18,
+      currentHp: 1,
+      shiny: false,
+      gender: null,
+    };
     await pool.query(
       "UPDATE content_releases SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,content_fingerprint=$3 WHERE id=$1",
       [publishedReleaseId, JSON.stringify({ valid: true, issues: [] }), "b".repeat(64)],
