@@ -140,6 +140,7 @@ import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competit
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
 import { PostgresExpeditionV4StagingTravel } from "../platform/exploration/postgres-expedition-v4-travel.js";
+import { PostgresExpeditionTravelConfirmationRecovery } from "../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
 import { PostgresExpeditionRepository } from "../platform/exploration/postgres-expedition-repository.js";
 import { PostgresExpeditionEndConfirmationRecovery } from "../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import { PostgresExpeditionQuotedEncounterProof } from "../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
@@ -1053,6 +1054,7 @@ export function createOperationalMessagingComposition(
               ...dependencies,
               preparation,
               travel: new PostgresExpeditionV4StagingTravel(preparation, clock),
+              travelRecovery: new PostgresExpeditionTravelConfirmationRecovery(pool),
               summary: dependencies.facts,
               endRecovery: new PostgresExpeditionEndConfirmationRecovery(pool),
               search: new PostgresExpeditionV4StagingSearch(
