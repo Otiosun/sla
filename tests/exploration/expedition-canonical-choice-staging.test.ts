@@ -33,7 +33,7 @@ function context(choice: string, quoted: string | null = quote): MessageHandlerC
   };
 }
 
-function setup() {
+function setup(battleExecute?: ReturnType<typeof vi.fn>) {
   const resolvePlayer = vi.fn(async () =>
     ok({ playerId, state: "COMPLETE" as const, created: false }),
   );
@@ -79,6 +79,10 @@ function setup() {
     { startCanonical } as unknown as ConstructorParameters<
       typeof ExpeditionCanonicalChoiceStagingResolver
     >[5],
+    undefined,
+    undefined,
+    undefined,
+    battleExecute === undefined ? undefined : { execute: battleExecute },
   );
   return {
     resolver,
@@ -264,8 +268,9 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
     expect(fixture.startCanonical).not.toHaveBeenCalled();
   });
 
-  it("starts existing canonical PvE only if the issued panel explicitly permits BATTLE", async () => {
-    const fixture = setup();
+  it("starts canonical PvE only through an atomic Inbox and battle receipt", async () => {
+    const execute = vi.fn(async () => ok({ battleId: randomUUID(), replayed: false }));
+    const fixture = setup(execute);
     fixture.issuedResolve.mockResolvedValueOnce(
       ok({
         menuId: randomUUID(),
@@ -281,12 +286,20 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
     );
     const result = await fixture.resolver.resolve(context("1"));
     expect(result).toMatchObject({ ok: true, value: { resultRefType: "BATTLE" } });
-    expect(fixture.startCanonical).toHaveBeenCalledExactlyOnceWith({
-      playerId,
-      encounterId,
-      expectedRevision: 2n,
-      status: "ENGAGED",
-    });
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        playerId,
+        outcomeId,
+        encounterId,
+        expectedEncounterRevision: 2n,
+        idempotencyKey: "inbox:baileys:staging-immutable-choice",
+        menuId: expect.any(String),
+        inboxMessageId: expect.any(String),
+        messageFingerprint: expect.any(String),
+        senderRef,
+      }),
+    );
+    expect(fixture.startCanonical).not.toHaveBeenCalled();
     expect(fixture.attempt).not.toHaveBeenCalled();
   });
 

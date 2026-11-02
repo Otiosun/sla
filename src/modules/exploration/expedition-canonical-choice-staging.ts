@@ -5,6 +5,8 @@ import { expeditionCaptureConfirmation } from "./expedition-capture-confirmation
 import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
+import type { PostgresExpeditionOfflineBattleStart } from "../../platform/exploration/postgres-expedition-offline-battle-start.js";
+import { incomingMessageFingerprint } from "../messaging/contracts.js";
 import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
 import type { PostgresExpeditionIgnoreConfirmationRecovery } from "../../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import type { CaptureService } from "../capture/service.js";
@@ -29,13 +31,14 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     private readonly activeEncounters: Pick<EncounterOperationalReadService, "activeForPlayer">,
     private readonly issuedMenu: Pick<PostgresExpeditionIssuedMenuReplyProof, "resolve">,
     private readonly capture: Pick<CaptureService, "attempt">,
-    private readonly pve: Pick<PveBattleStartService, "startCanonical">,
+    _pve: Pick<PveBattleStartService, "startCanonical">,
     private readonly captureConfirmationRecovery?: Pick<
       PostgresExpeditionCaptureConfirmationRecovery,
       "resolve"
     >,
     private readonly ignore?: Pick<ExpeditionIncidentalIgnoreStagingAction, "execute">,
     private readonly ignoreRecovery?: Pick<PostgresExpeditionIgnoreConfirmationRecovery, "resolve">,
+    private readonly battle?: Pick<PostgresExpeditionOfflineBattleStart, "execute">,
   ) {}
 
   private ignoreConfirmation(input: {
@@ -199,22 +202,24 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
       if (menu.value.battleEnabled !== true) {
         return err(appError("FLOW_BLOCKED", "This issued menu does not authorize a battle"));
       }
-      const started = await this.pve.startCanonical({
+      if (this.battle === undefined) {
+        return err(appError("FLOW_BLOCKED", "Atomic battle Inbox receipt is not configured"));
+      }
+      const started = await this.battle.execute({
         playerId: identified.value.playerId,
         encounterId: active.value.encounterId,
-        expectedRevision: active.value.revision,
-        status: "ENGAGED",
+        outcomeId: bound.value.outcomeId,
+        expectedEncounterRevision: active.value.revision,
+        menuId: menu.value.menuId,
+        inboxMessageId: context.inboxMessageId,
+        idempotencyKey: context.idempotencyKey,
+        messageFingerprint: incomingMessageFingerprint(inbound),
+        senderRef: inbound.senderRef,
       });
-      if (!started.ok) {
-        return err(
-          appError("FLOW_BLOCKED", "The canonical PvE start was rejected", {
-            battleCode: started.error.code,
-          }),
-        );
-      }
+      if (!started.ok) return started;
       return ok({
         resultRefType: "BATTLE",
-        resultRefId: started.value.start.battleId,
+        resultRefId: started.value.battleId,
         outgoing: [
           {
             channel: "whatsapp",
