@@ -16,6 +16,7 @@ import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platfor
 import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import { PostgresExpeditionTravelConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
 import { WorldService } from "../../src/modules/world/service.js";
 import { worldRepositoryWithinTransaction } from "../../src/platform/world/postgres-world-repository.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
@@ -365,6 +366,25 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "pg18-travel-preparation");
+    const senderRef = "5579999999928@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T21:00:00.000Z",
+      text: "/explorar viajar campos-de-yun",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const inbox = await new PostgresMessagingRepository(pool).claimIncoming(inbound, 30_000);
+    expect(inbox).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!inbox.ok) throw new Error("Travel Inbox was not claimed");
+    const originalMessageKey = "inbox:baileys:" + inbound.externalMessageId;
     const worldTravel = async (
       client: import("pg").PoolClient,
       input: {
@@ -385,7 +405,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       expectedRevision: prepared.revision,
       expectedWorldRevision: 0n,
       destinationAreaId: yunAreaId,
-      idempotencyKey: "pg18-atomic-travel",
+      idempotencyKey: originalMessageKey,
       travel: worldTravel,
     };
     const result = await store.executeTravel(input);
@@ -397,6 +417,40 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         replayed: false,
       },
     });
+    const recovered = await new PostgresExpeditionTravelConfirmationRecovery(pool).resolve({
+      playerId,
+      context: {
+        message: inbound,
+        inboxMessageId: inbox.value.inboxMessageId,
+        idempotencyKey: originalMessageKey,
+        correlationId: randomUUID(),
+        causationId: randomUUID(),
+      },
+    });
+    expect(recovered).toEqual(
+      ok({
+        destinationDisplayName: "Campos de Yun",
+        travelMinutes: 45,
+        elapsedMinutes: 45,
+        phase: "ACTIVE",
+      }),
+    );
+    const changedInbound = {
+      ...inbound,
+      externalMessageId: randomUUID(),
+    };
+    expect(
+      await new PostgresExpeditionTravelConfirmationRecovery(pool).resolve({
+        playerId,
+        context: {
+          message: changedInbound,
+          inboxMessageId: inbox.value.inboxMessageId,
+          idempotencyKey: originalMessageKey,
+          correlationId: randomUUID(),
+          causationId: randomUUID(),
+        },
+      }),
+    ).toEqual(ok(null));
     const position = await pool.query<{ area_id: string; revision: string }>(
       "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
       [playerId],
