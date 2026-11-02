@@ -132,9 +132,7 @@ describe("V4 staging quoted reply read-only routing with authenticated player", 
 
   it("rejects players without completed registration before reading the quote", async () => {
     const f = setup();
-    f.resolvePlayer.mockResolvedValueOnce(
-      ok({ playerId, state: "NEW" as never, created: false }),
-    );
+    f.resolvePlayer.mockResolvedValueOnce(ok({ playerId, state: "NEW" as never, created: false }));
     expect(await f.resolver.resolve(context("2"))).toMatchObject({
       ok: false,
       error: { code: "PLAYER_INELIGIBLE" },
