@@ -216,7 +216,7 @@ export class PostgresExpeditionOfflineBattleStart {
         );
         const started = await pve.startCanonical({
           playerId: input.playerId,
-          encounterId: input.encounterId as StartOfflineExpeditionBattleInput["encounterId"] & never,
+          encounterId: input.encounterId as never,
           expectedRevision: input.expectedEncounterRevision,
           status: "ENGAGED",
         });

@@ -21,10 +21,7 @@ import { CaptureService } from "../../src/modules/capture/service.js";
 import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
-import { BattleService } from "../../src/modules/battle/service.js";
-import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
-import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
-import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
+import { PostgresExpeditionOfflineBattleStart } from "../../src/platform/exploration/postgres-expedition-offline-battle-start.js";
 import type { CaptureContext } from "../../src/modules/capture/contracts.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
@@ -32,6 +29,7 @@ import { EncounterOperationalReadService } from "../../src/modules/encounter/ope
 import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/exploration/expedition-quoted-reply-readonly-staging.js";
 import {
   IncomingMessageSchema,
+  incomingMessageFingerprint,
   type MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
 import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
@@ -2956,42 +2954,73 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       },
     });
 
-    // End-to-end canonical PvE mechanics: same frozen team, no fake battle ID,
-    // published ruleset, actual BattleService initialization and rollback port.
-    const testKey = Buffer.alloc(32, 0xb5);
-    const canonicalEncounter = new EncounterService(
-      new PostgresEncounterRepository(pool),
-      new AesEncounterSeedProvider(testKey, 1, () => Buffer.alloc(32, 0x25)),
+    // A real claimed Inbox starts BattleService and records provenance in
+    // the SAME transaction. A lost confirmation can be recovered safely.
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, destinationRef],
+    );
+    const incoming = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      occurredAt: "2026-11-02T18:30:00.000Z",
+      text: "1",
+      replyToExternalMessageId: quoted.replyToExternalMessageId,
+      mediaRefs: [],
+    });
+    const inbox = new PostgresMessagingRepository(pool);
+    const claimed = await inbox.claimIncoming(incoming, 30_000);
+    expect(claimed).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!claimed.ok) throw new Error("PvE test Inbox was not claimed");
+    const key = Buffer.alloc(32, 0xb5);
+    const action = new PostgresExpeditionOfflineBattleStart(
+      pool,
+      new AesEncounterSeedProvider(key, 1, () => Buffer.alloc(32, 0x25)),
+      new AesBattleSeedReader(new Map([[1, key]])),
       clock,
       { enabled: true, reason: null },
     );
-    const canonicalBattle = new BattleService(
-      new PostgresBattleRepository(pool),
-      new AesBattleSeedReader(new Map([[1, testKey]])),
-    );
-    const pveStart = new PveBattleStartService(
-      canonicalEncounter,
-      canonicalBattle,
-      new PostgresPveBattleStartRollback(pool),
-    );
-    const started = await pveStart.startCanonical({
+    const exact = {
       playerId,
+      outcomeId,
       encounterId,
-      expectedRevision: 2n,
-      status: "ENGAGED",
-    });
+      expectedEncounterRevision: 2n,
+      menuId: issued.value.menuId,
+      inboxMessageId: claimed.value.inboxMessageId,
+      idempotencyKey: "inbox:baileys:pve-" + incoming.externalMessageId,
+      messageFingerprint: incomingMessageFingerprint(incoming),
+      senderRef: destinationRef,
+    };
+    const started = await action.execute(exact);
     if (!started.ok) {
-      throw new Error("Frozen canonical PvE failed: " + JSON.stringify(started.error));
+      throw new Error("Atomic canonical PvE failed: " + JSON.stringify(started.error));
     }
-    expect(started.value.initialization.state.status).toBe("ACTIVE");
-    expect(started.value.start.encounter.status).toBe("IN_BATTLE");
-    const battleId = started.value.start.battleId;
-    expect(started.value.initialization.state.combatants.length).toBeGreaterThanOrEqual(2);
-    const recorded = await pool.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM battle_state_snapshots WHERE battle_id=$1 AND version=0",
+    expect(started).toMatchObject({ ok: true, value: { replayed: false } });
+    const battleId = started.value.battleId;
+    const recorded = await pool.query<{ n: number; status: string }>(
+      `SELECT count(snapshot.battle_id)::int AS n,battle.status
+       FROM battles battle
+       LEFT JOIN battle_state_snapshots snapshot
+         ON snapshot.battle_id=battle.id AND snapshot.version=0
+       WHERE battle.id=$1 GROUP BY battle.status`,
       [battleId],
     );
-    expect(recorded.rows[0]?.n).toBe(1);
+    expect(recorded.rows).toEqual([{ n: 1, status: "ACTIVE" }]);
+    expect(await action.execute(exact)).toMatchObject({
+      ok: true,
+      value: { battleId, replayed: true },
+    });
+    expect(await action.execute({
+      ...exact,
+      idempotencyKey: exact.idempotencyKey + ":altered",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const receipts = await pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM solo_expedition_battle_receipts WHERE battle_id=$1 AND inbox_message_id=$2",
+      [battleId, claimed.value.inboxMessageId],
+    );
+    expect(receipts.rows[0]?.n).toBe(1);
     expect(await proof.resolve(quoted)).toMatchObject({
       ok: false,
       error: { code: "FLOW_BLOCKED" },
