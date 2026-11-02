@@ -2523,7 +2523,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         encounterId,
       ],
     );
-    const destinationRef = "5579999999999@s.whatsapp.net";
+    const destinationRef = "5579999999997@s.whatsapp.net";
     await pool.query(
       "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
       [randomUUID(), playerId, destinationRef],
