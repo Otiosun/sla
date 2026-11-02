@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - test/exploration-issued-menu-concurrency-rollback-pg18-20261102
+      - test/exploration-real-pg18-capture-postgres-repository-20261102
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"

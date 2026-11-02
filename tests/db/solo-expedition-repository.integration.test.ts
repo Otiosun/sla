@@ -2623,5 +2623,103 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       [playerId, publishedBallItemId],
     );
     expect(final.rows[0]?.quantity).toBe("0");
+
+    // The first test above covered sequential retry. Now race two DIFFERENT
+    // inbox keys against the same ACTIVE encounter with ONE actual Ball.
+    // PostgreSQL must serialize the encounter lock: exactly one attempt and
+    // one debit, regardless of which submission wins.
+    const racingPlayerId = await trainer();
+    const racingEncounterId = createEncounterId();
+    await pool.query(
+      `INSERT INTO encounters(
+         id,player_id,area_id,status,content_release_id,ruleset_id,
+         rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
+         rng_counter,revision,creation_idempotency_key
+       ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
+      [
+        racingEncounterId,
+        racingPlayerId,
+        activeAreaId,
+        publishedReleaseId,
+        captureRulesetId,
+        Buffer.alloc(32, 0x65),
+        Buffer.alloc(12, 0x66),
+        Buffer.alloc(16, 0x67),
+        "pg18-racing-capture-encounter-" + racingEncounterId,
+      ],
+    );
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
+      [racingEncounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query(
+      `INSERT INTO encounter_wild_snapshots(
+         encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at
+       ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
+      [racingEncounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query("INSERT INTO inventory_balances(player_id,item_id,quantity) VALUES($1,$2,1)", [
+      racingPlayerId,
+      publishedBallItemId,
+    ]);
+    const raceBase = {
+      playerId: racingPlayerId,
+      encounterId: racingEncounterId,
+      expectedEncounterRevision: 2n,
+      expectedBattleVersion: null,
+      ballItemId: publishedBallItemId,
+      causationId: null,
+    } as const;
+    const choiceA = {
+      ...raceBase,
+      idempotencyKey: "pg18-racing-throw-A:" + racingEncounterId,
+      correlationId: createCorrelationId(),
+    };
+    const choiceB = {
+      ...raceBase,
+      idempotencyKey: "pg18-racing-throw-B:" + racingEncounterId,
+      correlationId: createCorrelationId(),
+    };
+    const [raceA, raceB] = await Promise.all([capture.attempt(choiceA), capture.attempt(choiceB)]);
+    const winningKeys = [...(raceA.ok ? [choiceA] : []), ...(raceB.ok ? [choiceB] : [])];
+    expect(winningKeys).toHaveLength(1);
+    expect([raceA.ok, raceB.ok].filter(Boolean)).toHaveLength(1);
+    const racedCounts = await pool.query<{
+      attempts: number;
+      ledger: number;
+      internal_outbox: number;
+      balance: string;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM capture_attempts WHERE encounter_id=$1) AS attempts,
+         (SELECT count(*)::int FROM inventory_ledger
+          WHERE player_id=$2 AND item_id=$3 AND source_type='CAPTURE_ATTEMPT') AS ledger,
+         (SELECT count(*)::int FROM outbox_messages
+          WHERE channel='INTERNAL' AND payload->>'encounterId'=$1::text) AS internal_outbox,
+         (SELECT quantity::text FROM inventory_balances
+          WHERE player_id=$2 AND item_id=$3) AS balance`,
+      [racingEncounterId, racingPlayerId, publishedBallItemId],
+    );
+    expect(racedCounts.rows).toMatchObject([
+      { attempts: 1, ledger: 1, internal_outbox: 1, balance: "0" },
+    ]);
+    const winner = winningKeys[0];
+    if (winner === undefined) throw new Error("Racing captures produced no winning transaction");
+    expect(
+      await capture.attempt({ ...winner, correlationId: createCorrelationId() }),
+    ).toMatchObject({ ok: true, value: { replayed: true } });
+    // A replay cannot update the ledger or Outbox either.
+    const afterRacingReplay = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM capture_attempts WHERE encounter_id=$1) AS attempts,
+         (SELECT count(*)::int FROM inventory_ledger
+          WHERE player_id=$2 AND item_id=$3 AND source_type='CAPTURE_ATTEMPT') AS ledger,
+         (SELECT count(*)::int FROM outbox_messages
+          WHERE channel='INTERNAL' AND payload->>'encounterId'=$1::text) AS internal_outbox,
+         (SELECT quantity::text FROM inventory_balances
+          WHERE player_id=$2 AND item_id=$3) AS balance`,
+      [racingEncounterId, racingPlayerId, publishedBallItemId],
+    );
+    expect(afterRacingReplay.rows).toEqual(racedCounts.rows);
   });
 });
