@@ -1911,7 +1911,13 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       `INSERT INTO solo_incidental_menu_deliveries(
          id,menu_id,player_id,provider,chat_ref,external_message_id
        ) VALUES($1,$2,$3,'baileys',$4,$5)`,
-      [randomUUID(), nextMenuId, playerId, destinationRef, nextOutboxId.replaceAll("-", "").toUpperCase()],
+      [
+        randomUUID(),
+        nextMenuId,
+        playerId,
+        destinationRef,
+        nextOutboxId.replaceAll("-", "").toUpperCase(),
+      ],
     );
     expect(await menuProof.resolve(quoted)).toMatchObject({
       ok: false,
