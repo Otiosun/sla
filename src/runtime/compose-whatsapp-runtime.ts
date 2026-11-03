@@ -150,7 +150,10 @@ import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/explor
 import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
 import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
-import { PublishedResourceLootPolicy, PostgresExpeditionV4StagingResourceSearch } from "../platform/exploration/postgres-expedition-v4-resources.js";
+import {
+  PublishedResourceLootPolicy,
+  PostgresExpeditionV4StagingResourceSearch,
+} from "../platform/exploration/postgres-expedition-v4-resources.js";
 import { PublishedSearchOutcomePolicy } from "../platform/exploration/expedition-published-outcome-policy.js";
 import { createDirectEncounterEffect } from "../platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
@@ -1070,13 +1073,15 @@ export function createOperationalMessagingComposition(
               travelRecovery: new PostgresExpeditionTravelConfirmationRecovery(pool),
               summary: dependencies.facts,
               endRecovery: new PostgresExpeditionEndConfirmationRecovery(pool),
-              ...(explorationStagingResourcesEnabled ? {
-                resources: new PostgresExpeditionV4StagingResourceSearch(
-                  pool,
-                  preparation,
-                  new PublishedResourceLootPolicy(explorationStagingSearchSecret),
-                ),
-              } : {}),
+              ...(explorationStagingResourcesEnabled
+                ? {
+                    resources: new PostgresExpeditionV4StagingResourceSearch(
+                      pool,
+                      preparation,
+                      new PublishedResourceLootPolicy(explorationStagingSearchSecret),
+                    ),
+                  }
+                : {}),
               search: new PostgresExpeditionV4StagingSearch(
                 pool,
                 preparation,
