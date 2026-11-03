@@ -6,19 +6,29 @@ import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-st
 import { economyRepositoryWithinTransaction } from "../economy/postgres-economy-repository.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
-import type { PostgresExpeditionRepository, StoredSearchActionTransition } from "./postgres-expedition-repository.js";
+import type {
+  PostgresExpeditionRepository,
+  StoredSearchActionTransition,
+} from "./postgres-expedition-repository.js";
 
-const item = z.object({
-  kind: z.literal("ITEM"),
-  itemId: z.string().uuid(),
-  quantity: z.number().int().safe().positive(),
-  weight: z.number().int().min(0).max(10_000),
-}).strict();
-const none = z.object({
-  kind: z.literal("NONE"),
-  weight: z.number().int().min(0).max(10_000),
-}).strict();
-const entriesSchema = z.array(z.discriminatedUnion("kind", [item, none])).min(1).max(200);
+const item = z
+  .object({
+    kind: z.literal("ITEM"),
+    itemId: z.string().uuid(),
+    quantity: z.number().int().safe().positive(),
+    weight: z.number().int().min(0).max(10_000),
+  })
+  .strict();
+const none = z
+  .object({
+    kind: z.literal("NONE"),
+    weight: z.number().int().min(0).max(10_000),
+  })
+  .strict();
+const entriesSchema = z
+  .array(z.discriminatedUnion("kind", [item, none]))
+  .min(1)
+  .max(200);
 export type ResourceChoice = z.infer<typeof entriesSchema>[number];
 
 export function choosePublishedResource(entries: unknown, roll: number): Result<ResourceChoice> {
@@ -27,9 +37,14 @@ export function choosePublishedResource(entries: unknown, roll: number): Result<
     return err(appError("FLOW_BLOCKED", "Published resource policy is missing or malformed"));
   }
   if (parsed.data.reduce((sum, entry) => sum + entry.weight, 0) !== 10_000) {
-    return err(appError("FLOW_BLOCKED", "Resource probabilities are not approved as a complete table"));
+    return err(
+      appError("FLOW_BLOCKED", "Resource probabilities are not approved as a complete table"),
+    );
   }
-  if (new Set(parsed.data.map((entry) => entry.kind === "ITEM" ? entry.itemId : "NONE")).size !== parsed.data.length) {
+  if (
+    new Set(parsed.data.map((entry) => (entry.kind === "ITEM" ? entry.itemId : "NONE"))).size !==
+    parsed.data.length
+  ) {
     return err(appError("FLOW_BLOCKED", "Published resource entries contain duplicate results"));
   }
   let cumulative = 0;
@@ -87,7 +102,11 @@ function toResource(row: ResourceRow): StoredResourceResult {
     displayName: row.item_name,
   };
 }
-async function readResource(client: PoolClient, playerId: PlayerId, id: string): Promise<StoredResourceResult | null> {
+async function readResource(
+  client: PoolClient,
+  playerId: PlayerId,
+  id: string,
+): Promise<StoredResourceResult | null> {
   const found = await client.query<ResourceRow>(
     `SELECT result.id::text, result.player_id::text, result.expedition_id::text,
             result.expedition_revision::text, result.content_release_id::text,
@@ -97,7 +116,8 @@ async function readResource(client: PoolClient, playerId: PlayerId, id: string):
      FROM solo_expedition_resource_results result
      LEFT JOIN item_revisions item ON item.content_release_id=result.content_release_id
        AND item.item_id=result.item_id
-     WHERE result.player_id=$1 AND result.id=$2`, [playerId, id],
+     WHERE result.player_id=$1 AND result.id=$2`,
+    [playerId, id],
   );
   return found.rows.length === 1 && found.rows[0] ? toResource(found.rows[0]) : null;
 }
@@ -114,13 +134,17 @@ export class PublishedResourceLootPolicy {
   public async decide(
     client: PoolClient,
     expedition: ExpeditionSnapshot,
-  ): Promise<Result<{
-    readonly policyId: string;
-    readonly releaseId: string;
-    readonly selection: ResourceChoice;
-  }>> {
-    if (!["PREPARING", "ACTIVE"].includes(expedition.phase) ||
-        !["DAY", "NIGHT"].includes(expedition.period)) {
+  ): Promise<
+    Result<{
+      readonly policyId: string;
+      readonly releaseId: string;
+      readonly selection: ResourceChoice;
+    }>
+  > {
+    if (
+      !["PREPARING", "ACTIVE"].includes(expedition.phase) ||
+      !["DAY", "NIGHT"].includes(expedition.period)
+    ) {
       return err(appError("FLOW_BLOCKED", "No prepared expedition for resources"));
     }
     const found = await client.query<PolicyRow>(
@@ -139,26 +163,40 @@ export class PublishedResourceLootPolicy {
       [expedition.areaId, expedition.period],
     );
     const row = found.rows[0];
-    if (found.rows.length !== 1 || !row || !z.string().uuid().safeParse(row.policy_id).success ||
-        !z.string().uuid().safeParse(row.release_id).success || !row.approval_ref.trim()) {
+    if (
+      found.rows.length !== 1 ||
+      !row ||
+      !z.string().uuid().safeParse(row.policy_id).success ||
+      !z.string().uuid().safeParse(row.release_id).success ||
+      !row.approval_ref.trim()
+    ) {
       return err(appError("FLOW_BLOCKED", "No approved PUBLISHED resource policy for this area"));
     }
     const fields = [
-      "solo-expedition-resource-v1", row.release_id, row.policy_id,
-      expedition.playerId, expedition.expeditionId, expedition.areaId,
-      expedition.period, expedition.revision.toString(),
+      "solo-expedition-resource-v1",
+      row.release_id,
+      row.policy_id,
+      expedition.playerId,
+      expedition.expeditionId,
+      expedition.areaId,
+      expedition.period,
+      expedition.revision.toString(),
     ];
     const input = fields.map((value) => value.length + ":" + value).join("|");
     const digest = createHmac("sha256", this.secret).update(input).digest("hex");
     const max = 1n << 256n;
     const modulus = 10_000n;
-    const limit = max - max % modulus;
+    const limit = max - (max % modulus);
     let draw = BigInt("0x" + digest);
     let attempt = 0;
     while (draw >= limit) {
       if (++attempt > 16) return err(appError("FLOW_BLOCKED", "Resource RNG exhausted"));
-      draw = BigInt("0x" + createHmac("sha256", this.secret)
-        .update(digest + ":" + attempt).digest("hex"));
+      draw = BigInt(
+        "0x" +
+          createHmac("sha256", this.secret)
+            .update(digest + ":" + attempt)
+            .digest("hex"),
+      );
     }
     const selection = choosePublishedResource(row.entries, Number(draw % modulus));
     if (!selection.ok) return selection;
@@ -187,8 +225,11 @@ export class PostgresExpeditionV4StagingResourceSearch {
   ) {}
 
   public async execute(input: ResourceSearchInput): Promise<Result<ResourceSearchResult>> {
-    if (process.env.APP_ENV !== "test" || process.env.NODE_ENV !== "test" ||
-        process.env.WHATSAPP_ENABLED !== "false") {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false"
+    ) {
       return err(appError("FLOW_BLOCKED", "Resources require isolated development"));
     }
     const action = await this.expedition.executeResourceSearch({
