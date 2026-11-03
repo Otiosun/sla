@@ -150,6 +150,7 @@ import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/explor
 import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
 import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
+import { PostgresExpeditionResourceConfirmationRecovery } from "../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
 import {
   PublishedResourceLootPolicy,
   PostgresExpeditionV4StagingResourceSearch,
@@ -1080,6 +1081,7 @@ export function createOperationalMessagingComposition(
                       preparation,
                       new PublishedResourceLootPolicy(explorationStagingSearchSecret),
                     ),
+                    resourceRecovery: new PostgresExpeditionResourceConfirmationRecovery(pool),
                   }
                 : {}),
               search: new PostgresExpeditionV4StagingSearch(
