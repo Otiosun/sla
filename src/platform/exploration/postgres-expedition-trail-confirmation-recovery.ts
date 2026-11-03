@@ -78,16 +78,21 @@ export class PostgresExpeditionTrailConfirmationRecovery {
        JOIN solo_expedition_search_outcomes source
          ON source.id=follow.source_outcome_id
         AND source.kind='TRAIL' AND source.encounter_id IS NULL
+        AND source.player_id=follow.player_id
+        AND source.expedition_id=follow.expedition_id
         AND source.expedition_revision+1=follow.follow_revision
        JOIN solo_expedition_search_outcomes outcome
          ON outcome.id=follow.followed_outcome_id
         AND outcome.encounter_id=follow.encounter_id
         AND outcome.kind='DIRECT'
+        AND outcome.player_id=follow.player_id
+        AND outcome.expedition_id=follow.expedition_id
         AND outcome.expedition_revision=follow.follow_revision
        JOIN encounters encounter
          ON encounter.id=follow.encounter_id
         AND encounter.player_id=follow.player_id
         AND encounter.content_release_id=follow.content_release_id
+        AND encounter.area_id::text=receipt.result->'expedition'->>'areaId'
        JOIN content_releases release
          ON release.id=follow.content_release_id
         AND release.status IN ('PUBLISHED','ARCHIVED')
@@ -96,6 +101,8 @@ export class PostgresExpeditionTrailConfirmationRecovery {
          AND inbox.external_message_id=$6 AND inbox.payload_hash=$4
          AND inbox.normalized_payload->>'senderRef'=$5
          AND inbox.normalized_payload->>'chatRef'=$7
+         AND receipt.result->'expedition'->>'playerId'=$2::text
+         AND receipt.result->'expedition'->>'expeditionId'=follow.expedition_id::text
          AND lower(trim(inbox.normalized_payload->>'text'))=lower($8)
        LIMIT 2`,
       [
