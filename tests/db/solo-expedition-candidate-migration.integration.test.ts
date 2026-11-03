@@ -45,10 +45,7 @@ suite("candidate 0080 schema reversible only in disposable PG18", () => {
         new URL("../../db/candidates/0080_solo_exploration_v4.sql", import.meta.url),
         "utf8",
       ),
-      readFile(
-        new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url),
-        "utf8",
-      ),
+      readFile(new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url), "utf8"),
     ]);
   }, 70_000);
 
