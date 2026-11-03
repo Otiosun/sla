@@ -150,6 +150,7 @@ import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/explor
 import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
 import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
+import { PublishedResourceLootPolicy, PostgresExpeditionV4StagingResourceSearch } from "../platform/exploration/postgres-expedition-v4-resources.js";
 import { PublishedSearchOutcomePolicy } from "../platform/exploration/expedition-published-outcome-policy.js";
 import { createDirectEncounterEffect } from "../platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
@@ -243,6 +244,7 @@ export function createOperationalMessagingComposition(
   explorationStagingPreparationEnabled = false,
   explorationStagingSearchSecret: Uint8Array | null = null,
   explorationOfflineChoicesEnabled = false,
+  explorationStagingResourcesEnabled = false,
 ): OperationalMessagingComposition {
   // Development integration is separate from local installation and real UAT.
   // Never permit these draft-schema writes or private quoted actions in a
@@ -264,6 +266,17 @@ export function createOperationalMessagingComposition(
       pveBattleConfig === null)
   ) {
     throw new Error("Offline V4 choices require complete staging exploration and PvE dependencies");
+  }
+  if (
+    explorationStagingResourcesEnabled &&
+    (process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      !explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      explorationStagingSearchSecret === null)
+  ) {
+    throw new Error("Resources require explicit test-only staging, calendar and published secret");
   }
   if (explorationStagingPreparationEnabled && explorationPreviewTimeZone === null) {
     throw new Error("Staging preparation requires a separate explicit expedition calendar");
@@ -1057,6 +1070,13 @@ export function createOperationalMessagingComposition(
               travelRecovery: new PostgresExpeditionTravelConfirmationRecovery(pool),
               summary: dependencies.facts,
               endRecovery: new PostgresExpeditionEndConfirmationRecovery(pool),
+              ...(explorationStagingResourcesEnabled ? {
+                resources: new PostgresExpeditionV4StagingResourceSearch(
+                  pool,
+                  preparation,
+                  new PublishedResourceLootPolicy(explorationStagingSearchSecret),
+                ),
+              } : {}),
               search: new PostgresExpeditionV4StagingSearch(
                 pool,
                 preparation,
