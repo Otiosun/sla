@@ -134,7 +134,13 @@ function receiptEvent(row: ReceiptRow, expeditionId: string): Result<ExpeditionF
         return err(appError("FLOW_BLOCKED", "Search receipt has no canonical outcome"));
       kind = "SEARCH";
       description =
-        "Busca: encontro direto registrado";
+        row.search_kind === "NO_SIGNAL"
+          ? "Busca: nenhum sinal"
+          : row.search_kind === "TRAIL"
+            ? "Busca: rastros encontrados"
+            : row.search_kind === "INCIDENTAL"
+              ? "Busca: encontro incidental registrado"
+              : "Busca: encontro direto registrado";
       break;
     }
     case "ACTION_RESOURCE_SEARCH": {
@@ -145,7 +151,8 @@ function receiptEvent(row: ReceiptRow, expeditionId: string): Result<ExpeditionF
         BigInt(row.resource_revision) !== revision - 1n ||
         row.resource_quantity === null ||
         !/^(0|[1-9][0-9]*)$/u.test(row.resource_quantity)
-      ) return err(appError("FLOW_BLOCKED", "Resource receipt has no durable result"));
+      )
+        return err(appError("FLOW_BLOCKED", "Resource receipt has no durable result"));
       kind = "RESOURCES";
       if (row.resource_kind === "NONE") {
         if (row.resource_quantity !== "0" || row.resource_ledger !== null) {
@@ -159,7 +166,10 @@ function receiptEvent(row: ReceiptRow, expeditionId: string): Result<ExpeditionF
           BigInt(row.resource_quantity) < 1n ||
           row.resource_ledger === null ||
           row.resource_ledger !== row.resource_ledger_proven
-        ) return err(appError("FLOW_BLOCKED", "Resource grant is not proven by canonical inventory"));
+        )
+          return err(
+            appError("FLOW_BLOCKED", "Resource grant is not proven by canonical inventory"),
+          );
         description = "Recursos: " + itemName + " ×" + row.resource_quantity;
       }
       break;
@@ -177,26 +187,37 @@ function receiptEvent(row: ReceiptRow, expeditionId: string): Result<ExpeditionF
         row.trail_level === null ||
         row.trail_level < 1 ||
         row.trail_level > 100
-      ) return err(appError("FLOW_BLOCKED", "Trail follow is missing its canonical encounter"));
+      )
+        return err(appError("FLOW_BLOCKED", "Trail follow is missing its canonical encounter"));
       kind = "FOLLOW_TRAIL";
       description = "Seguiu rastros: " + name + " · Nv. " + row.trail_level;
       break;
     }
     case "ACTION_TRAVEL":
-      kind = "TRAVEL"; description = "Viagem registrada no Mundo"; break;
+      kind = "TRAVEL";
+      description = "Viagem registrada no Mundo";
+      break;
     case "ACTION_IGNORE_INCIDENTAL":
       if (typeof ref !== "string" || row.ignore_encounter !== ref) {
         return err(appError("FLOW_BLOCKED", "Incidental ignore has no matching encounter"));
       }
-      kind = "IGNORE"; description = "Encontro incidental ignorado"; break;
+      kind = "IGNORE";
+      description = "Encontro incidental ignorado";
+      break;
     case "ADVANCE":
-      kind = "ADVANCE"; description = "Avanço de tempo registrado"; break;
+      kind = "ADVANCE";
+      description = "Avanço de tempo registrado";
+      break;
     case "END":
       kind = "END";
-      description = state.endReason === "CLOCK" ? "Tempo da expedição esgotado" :
-        state.endReason === "BLACKOUT" ? "Expedição encerrada por derrota total" :
-        state.endReason === "VOLUNTARY" ? "Expedição encerrada voluntariamente" :
-        "Expedição encerrada";
+      description =
+        state.endReason === "CLOCK"
+          ? "Tempo da expedição esgotado"
+          : state.endReason === "BLACKOUT"
+            ? "Expedição encerrada por derrota total"
+            : state.endReason === "VOLUNTARY"
+              ? "Expedição encerrada voluntariamente"
+              : "Expedição encerrada";
       break;
     default:
       return err(appError("FLOW_BLOCKED", "Unknown persisted expedition operation"));
@@ -225,16 +246,16 @@ export class PostgresExpeditionV4EventHistoryReader {
     if (!Number.isSafeInteger(page) || page < 1 || page > 10_000) {
       return err(appError("VALIDATION_FAILED", "Invalid expedition history page"));
     }
-    return withTransaction(this.pool, async client => {
-      const found = await client.query<ExpeditionRow>(
-        `SELECT id::text,period,end_reason,elapsed_minutes FROM solo_expeditions
+    return withTransaction(
+      this.pool,
+      async (client) => {
+        const found = await client.query<ExpeditionRow>(
+          `SELECT id::text,period,end_reason,elapsed_minutes FROM solo_expeditions
           WHERE player_id=$1 AND phase='ENDED'
           AND end_reason IN ('VOLUNTARY','CLOCK','BLACKOUT')
           ORDER BY updated_at DESC,id DESC LIMIT 1`,
-        [playerId],
-      );
-      const expedition = found.rows[0];
-      if (expedition === undefined) return ok(null);
+          [playerId],
+        );
 
       const receipts = await client.query<ReceiptRow>(
         `SELECT r.idempotency_key,r.operation,r.created_at,r.result,
