@@ -609,7 +609,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       new PublishedResourceLootPolicy(Buffer.alloc(32, 0x53)),
     );
     await pool.query(
-      "CREATE FUNCTION fail_solo_resource_result_for_test() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'synthetic resource persistence failure'; END; $",
+      "CREATE FUNCTION fail_solo_resource_result_for_test() RETURNS trigger LANGUAGE plpgsql AS $rollback$ BEGIN RAISE EXCEPTION 'synthetic resource persistence failure'; END; $rollback$",
     );
     await pool.query(
       "CREATE TRIGGER solo_resource_injected_failure BEFORE INSERT ON solo_expedition_resource_results FOR EACH ROW EXECUTE FUNCTION fail_solo_resource_result_for_test()",
