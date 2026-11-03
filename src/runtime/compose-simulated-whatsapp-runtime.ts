@@ -42,6 +42,8 @@ export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly explorationOfflineChoicesEnabled?: boolean;
   /** Fourth opt-in: isolated PUBLISHED resource roll and canonical inventory grant. */
   readonly explorationStagingResourcesEnabled?: boolean;
+  /** Requires all offline choices: trail Encounter must have real post-SENT capture/PvE. */
+  readonly explorationStagingTrailEnabled?: boolean;
   readonly now?: SimulatedWhatsAppAdapterOptions["now"];
   readonly onProviderConnectionState?: SimulatedWhatsAppAdapterOptions["onConnectionState"];
   readonly onIncomingProcessingFailure?: (input: {
@@ -78,6 +80,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.explorationStagingSearchSecret ?? null,
     options.explorationOfflineChoicesEnabled === true,
     options.explorationStagingResourcesEnabled === true,
+    options.explorationStagingTrailEnabled === true,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
