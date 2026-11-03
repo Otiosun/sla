@@ -148,8 +148,14 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     inactiveRegionAreaId = randomUUID();
     outsideLaunchAreaId = randomUUID();
     await pool.query(
-      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,'{}'::jsonb,'DRAFT')",
-      [rulesetId],
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,$2::jsonb,'DRAFT')",
+      [
+        rulesetId,
+        JSON.stringify({
+          schemaVersion: 1,
+          capture: { allowedEncounterStates: ["IN_BATTLE"] },
+        }),
+      ],
     );
     await pool.query(
       "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
