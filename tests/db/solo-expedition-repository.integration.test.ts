@@ -804,11 +804,59 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(counts.rows).toEqual([{ follow_count: 1, encounter_count: 1 }]);
     expect(await count("solo_expedition_search_outcomes", playerId)).toBe(2);
-    const sentProof = await pool.query<{ id: string }>(
-      "SELECT id::text FROM solo_expedition_search_outcomes WHERE id=$1 AND kind='DIRECT' AND encounter_id=$2",
-      [first.value.outcome.outcomeId, first.value.outcome.encounterId],
+    // The canonical SENT proof recognizes the derived DIRECT outcome; it
+    // cannot engage an encounter before the private delivery was confirmed.
+    const outboxMessageId = randomUUID();
+    await pool.query(
+      `INSERT INTO outbox_messages
+        (id,channel,message_type,destination_ref,status,sent_at,payload,idempotency_key,correlation_id)
+        VALUES($1,'whatsapp','TEXT',$2,'PENDING',NULL,$3::jsonb,$4,$5)`,
+      [
+        outboxMessageId,
+        senderRef,
+        JSON.stringify({
+          text: "Resultado de rastro canônico, fixture PG18",
+          expeditionSearch: {
+            playerId,
+            outcomeId: first.value.outcome.outcomeId,
+            encounterId: first.value.outcome.encounterId,
+          },
+        }),
+        "trail-follow-outbox-" + outboxMessageId,
+        randomUUID(),
+      ],
     );
-    expect(sentProof.rowCount).toBe(1);
+    const proof = {
+      playerId,
+      outcomeId: first.value.outcome.outcomeId,
+      encounterId: first.value.outcome.encounterId!,
+      outboxMessageId,
+      destinationRef: senderRef,
+    };
+    const sent = new PostgresExpeditionSearchSentProof(pool);
+    expect(await sent.confirm(proof)).toMatchObject({
+      ok: false, error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query(
+      "UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1",
+      [outboxMessageId],
+    );
+    expect(await sent.confirm(proof)).toMatchObject({
+      ok: true, value: { outcomeId: first.value.outcome.outcomeId },
+    });
+    const engaged = await new ExpeditionSearchEngagementAfterSent(
+      sent,
+      new EncounterService(
+        new PostgresEncounterRepository(pool),
+        new AesEncounterSeedProvider(Buffer.alloc(32, 0x5a), 1),
+        clock,
+        { enabled: true, reason: null },
+      ),
+    ).engageAfterSent(proof);
+    expect(engaged).toMatchObject({
+      ok: true,
+      value: { encounterStatus: "ENGAGED", encounterRevision: 2n },
+    });
   });
 
   it("rejects nonexistent, stale or unfollowable TRAIL without spending time or creating encounters", async () => {
