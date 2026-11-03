@@ -2,6 +2,10 @@ import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
+import type {
+  PostgresExpeditionResourceConfirmationRecovery,
+  RecoveredResourceConfirmation,
+} from "../../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
 import type { PostgresExpeditionV4StagingResourceSearch } from "../../platform/exploration/postgres-expedition-v4-resources.js";
 import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
 import type { PostgresExpeditionTravelConfirmationRecovery } from "../../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
@@ -61,6 +65,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
   /** An explicit, independent 60-minute PUBLISHED resource writer in isolated development. */
   readonly resources?: Pick<PostgresExpeditionV4StagingResourceSearch, "execute">;
+  /** Recover a previously committed resource without rolling or granting twice. */
+  readonly resourceRecovery?: Pick<PostgresExpeditionResourceConfirmationRecovery, "resolve">;
   /** Test-only recovery of a committed END when Inbox completion was interrupted. */
   readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
   /** Isolated read-only summary; never fabricates capture, XP or item grants. */
@@ -283,6 +289,31 @@ function validExpedition(
   );
 }
 
+function privateResourceConfirmation(
+  context: MessageHandlerContext,
+  receipt: RecoveredResourceConfirmation,
+): Result<MessageHandlerResult> {
+  const displayName = receipt.displayName === null ? null : safeLabel(receipt.displayName);
+  if (receipt.kind === "ITEM" && (displayName === null || receipt.quantity <= 0n)) {
+    return err(appError("FLOW_BLOCKED", "Recurso publicado sem identificação válida."));
+  }
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗖𝗨𝗥𝗦𝗢𝗦*",
+      receipt.kind === "ITEM"
+        ? "🎒 *Encontrado:* " + displayName + " ×" + receipt.quantity.toString()
+        : "> _Nenhum recurso encontrado desta vez._",
+      "",
+      "⌛ *Custo:* `60 min`",
+      "⌛ *Tempo utilizado:* `" + String(receipt.elapsedMinutes) + " min`",
+      "🎟️ *Cota da semana:* " +
+        (receipt.consumedWeeklySlot ? "primeira ação contabilizada" : "sem nova cota"),
+      "› _Resultado registrado no inventário canônico, quando houver item._",
+    ].join("\n"),
+  );
+}
+
 class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
   public constructor(private readonly deps: ExpeditionV4ReadOnlyDeps) {
     // The configured calendar must be validated even if no trainer calls the command.
@@ -418,6 +449,17 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       const committed = await this.deps.travelRecovery.resolve({ playerId, context });
       if (!committed.ok) return committed;
       if (committed.value !== null) return privateTravelConfirmation(context, committed.value);
+    }
+    if (
+      (resourceFree || token === "2") &&
+      this.deps.resources !== undefined &&
+      this.deps.resourceRecovery !== undefined
+    ) {
+      const recovered = await this.deps.resourceRecovery.resolve({ playerId, context });
+      if (!recovered.ok) return recovered;
+      if (recovered.value !== null) {
+        return privateResourceConfirmation(context, recovered.value);
+      }
     }
     // A previous END transaction may have committed before Inbox completion.
     // Recover only the exact original message/receipt, before a now-ended
@@ -697,25 +739,13 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       ) {
         return err(appError("FLOW_BLOCKED", "Recibo de recursos não corresponde à expedição."));
       }
-      const displayName = resource.displayName === null ? null : safeLabel(resource.displayName);
-      if (resource.kind === "ITEM" && (displayName === null || resource.quantity <= 0n)) {
-        return err(appError("FLOW_BLOCKED", "Recurso publicado sem identificação válida."));
-      }
-      return privateText(
-        context,
-        [
-          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗖𝗨𝗥𝗦𝗢𝗦*",
-          resource.kind === "ITEM"
-            ? "🎒 *Encontrado:* " + displayName + " ×" + resource.quantity.toString()
-            : "> _Nenhum recurso encontrado desta vez._",
-          "",
-          "⌛ *Custo:* \`60 min\`",
-          "⌛ *Tempo utilizado:* \`" + String(transition.expedition.elapsedMinutes) + " min\`",
-          "🎟️ *Cota da semana:* " +
-            (transition.consumedWeeklySlot ? "primeira ação contabilizada" : "sem nova cota"),
-          "› _Resultado registrado no inventário canônico, quando houver item._",
-        ].join("\n"),
-      );
+      return privateResourceConfirmation(context, {
+        kind: resource.kind,
+        displayName: resource.displayName,
+        quantity: resource.quantity,
+        elapsedMinutes: transition.expedition.elapsedMinutes,
+        consumedWeeklySlot: transition.consumedWeeklySlot,
+      });
     }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING
