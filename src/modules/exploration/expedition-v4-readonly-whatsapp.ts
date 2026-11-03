@@ -2,6 +2,7 @@ import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
+import type { PostgresExpeditionV4StagingResourceSearch } from "../../platform/exploration/postgres-expedition-v4-resources.js";
 import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
 import type { PostgresExpeditionTravelConfirmationRecovery } from "../../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
@@ -58,6 +59,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
   /** Third explicit stage-only opt-in. No encounter route exists without it. */
   readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+  /** An explicit, independent 60-minute PUBLISHED resource writer in isolated development. */
+  readonly resources?: Pick<PostgresExpeditionV4StagingResourceSearch, "execute">;
   /** Test-only recovery of a committed END when Inbox completion was interrupted. */
   readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
   /** Isolated read-only summary; never fabricates capture, XP or item grants. */
@@ -306,6 +309,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : "NIGHT";
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
+    const resourceFree = /^\/explorar\s+recursos$/iu.test(text);
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
     const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
@@ -319,6 +323,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       (this.deps.preparation === undefined ||
         (period === null && requestedPeriod === null && !cancel)) &&
       (!searchFree || this.deps.search === undefined) &&
+      (!resourceFree || this.deps.resources === undefined) &&
       (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
       (!destinationsRequested || this.deps.preparation === undefined) &&
       (!summaryRequested || this.deps.summary === undefined) &&
@@ -480,6 +485,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : []),
         ...(state !== "NONE" && this.deps.search !== undefined
           ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
+          : []),
+        ...(state !== "NONE" && this.deps.resources !== undefined
+          ? ["2. 🎒 Buscar recursos ● `60 min`", "› _Use /explorar 2 ou /explorar recursos; exige tabela publicada._"]
           : []),
         ...(state !== "NONE" && this.deps.preparation !== undefined
           ? ["3. 🗺️ Consultar destinos ● /explorar 3"]
@@ -656,6 +664,55 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       if (!panel.ok) return panel;
       return privateSearchResult(context, panel.value, playerId, outcome);
     }
+    // The contextual 2 is a resource search ONLY in PREPARING/ACTIVE.
+    // In NONE it remains the existing night-preparation choice.
+    const resourcesRequested =
+      resourceFree || (this.deps.resources !== undefined && token === "2" && state !== "NONE");
+    if (resourcesRequested && this.deps.resources !== undefined) {
+      const current = facts.expedition;
+      if (current === null || !["PREPARING", "ACTIVE"].includes(current.phase)) {
+        return err(appError("FLOW_BLOCKED", "Prepare uma expedição antes de procurar recursos."));
+      }
+      const committed = await this.deps.resources.execute({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!committed.ok) return committed;
+      const { transition, resource } = committed.value;
+      if (
+        transition.expedition.playerId !== playerId ||
+        transition.expedition.expeditionId !== current.expeditionId ||
+        transition.expedition.areaId !== located.value.areaId ||
+        transition.expedition.elapsedMinutes !== current.elapsedMinutes + 60 ||
+        resource.playerId !== playerId ||
+        resource.expeditionId !== current.expeditionId ||
+        resource.expeditionRevision !== current.revision ||
+        (current.phase === "PREPARING" && !transition.consumedWeeklySlot) ||
+        (current.phase === "ACTIVE" && transition.consumedWeeklySlot)
+      ) {
+        return err(appError("FLOW_BLOCKED", "Recibo de recursos não corresponde à expedição."));
+      }
+      const displayName = resource.displayName === null ? null : safeLabel(resource.displayName);
+      if (resource.kind === "ITEM" && (displayName === null || resource.quantity <= 0n)) {
+        return err(appError("FLOW_BLOCKED", "Recurso publicado sem identificação válida."));
+      }
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗖𝗨𝗥𝗦𝗢𝗦*",
+          resource.kind === "ITEM"
+            ? "🎒 *Encontrado:* " + displayName + " ×" + resource.quantity.toString()
+            : "> _Nenhum recurso encontrado desta vez._",
+          "",
+          "⌛ *Custo:* \`60 min\`",
+          "⌛ *Tempo utilizado:* \`" + String(transition.expedition.elapsedMinutes) + " min\`",
+          "🎟️ *Cota da semana:* " + (transition.consumedWeeklySlot ? "primeira ação contabilizada" : "sem nova cota"),
+          "› _Resultado registrado no inventário canônico, quando houver item._",
+        ].join("\n"),
+      );
+    }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING
       // row. A stale ACTIVE, ENDED or absent expedition cannot be edited.
@@ -764,7 +821,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
                 "◇ *𝗔ÇÕ𝗘𝗦*",
                 "1. 🔎 Buscar Pokémon ● `30 min`",
                 "› _Use /explorar 1 ou /explorar buscar para iniciar a busca._",
-                "› _Recursos e viagem ainda não estão disponíveis._",
+                ...(this.deps.resources === undefined ? ["› _Recursos indisponíveis._"] : ["2. 🎒 Buscar recursos ● `60 min`", "› _/explorar 2 ou /explorar recursos; somente com tabela publicada._"]),
+                "› _Viagem exige conexão e duração publicada._",
               ]),
           "3. 🗺️ Consultar destinos ● /explorar 3",
           "› _Use /explorar status para consultar a expedição._",
@@ -815,6 +873,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
               label: "🔎 Buscar Pokémon ● 30 min",
               phrases: [],
             },
+            ...(this.deps.resources === undefined ? [] : [{
+              optionNo: 2,
+              intent: "SEARCH_RESOURCES" as const,
+              label: "🎒 Buscar recursos ● 60 min",
+              phrases: [],
+            }]),
             {
               optionNo: 3,
               intent: "DESTINATIONS",
@@ -835,9 +899,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             "3. 🗺️ Consultar destinos",
             "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
             ...(this.deps.travel === undefined
-              ? ["› _Recursos e viagem ainda não estão disponíveis._"]
+              ? ["› _Viagem ainda não está disponível._"]
               : [
-                  "› _Viajar só quando a conexão tiver minutos aprovados; recursos indisponíveis._",
+                  "› _Viajar só quando a conexão tiver minutos aprovados._",
                 ]),
           ].join("\n"),
         );
@@ -855,6 +919,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             label: "🔎 Buscar Pokémon ● 30 min",
             phrases: [],
           },
+          ...(this.deps.resources === undefined ? [] : [{
+            optionNo: 2,
+            intent: "SEARCH_RESOURCES" as const,
+            label: "🎒 Buscar recursos ● 60 min",
+            phrases: [],
+          }]),
           {
             optionNo: 3,
             intent: "DESTINATIONS",
@@ -879,8 +949,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "› _Consultar destinos: /explorar 3 (sem gasto)._",
           "› _Para encerrar: /explorar 4 (exige confirmação)._",
           ...(this.deps.travel === undefined
-            ? ["› _Recursos e viagem ainda não estão habilitados._"]
-            : ["› _Viagem somente com duração publicada; recursos indisponíveis._"]),
+            ? ["› _Viagem ainda não habilitada._"]
+            : ["› _Viagem somente com duração publicada._"]),
         ].join("\n"),
       );
     }
