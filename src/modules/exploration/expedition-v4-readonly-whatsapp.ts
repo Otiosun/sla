@@ -6,6 +6,9 @@ import type {
   PostgresExpeditionResourceConfirmationRecovery,
   RecoveredResourceConfirmation,
 } from "../../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import type { PostgresExpeditionV4StagingTrailFollow } from "../../platform/exploration/postgres-expedition-v4-trail.js";
+import type { PostgresExpeditionTrailConfirmationRecovery } from "../../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { renderExpeditionV4TrailFollowPanel } from "./expedition-v4-trail-follow-panel.js";
 import type { PostgresExpeditionV4StagingResourceSearch } from "../../platform/exploration/postgres-expedition-v4-resources.js";
 import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
 import type { PostgresExpeditionTravelConfirmationRecovery } from "../../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
@@ -63,6 +66,10 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
   /** Third explicit stage-only opt-in. No encounter route exists without it. */
   readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+  /** Trusted TRAIL source + canonical Encounter writer; isolated simulated WhatsApp only. */
+  readonly trail?: Pick<PostgresExpeditionV4StagingTrailFollow, "readPending" | "execute">;
+  /** Recover exactly the original committed follow message after Inbox failure. */
+  readonly trailRecovery?: Pick<PostgresExpeditionTrailConfirmationRecovery, "resolve">;
   /** An explicit, independent 60-minute PUBLISHED resource writer in isolated development. */
   readonly resources?: Pick<PostgresExpeditionV4StagingResourceSearch, "execute">;
   /** Recover a previously committed resource without rolling or granting twice. */
@@ -341,6 +348,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
     const resourceFree = /^\/explorar\s+recursos$/iu.test(text);
+    const trailRequested = /^\/explorar\s+(?:seguir(?:\s+rastros)?|rastros)$/iu.test(text);
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
     const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
     const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
@@ -355,6 +363,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         (period === null && requestedPeriod === null && !cancel)) &&
       (!searchFree || this.deps.search === undefined) &&
       (!resourceFree || this.deps.resources === undefined) &&
+      (!trailRequested || this.deps.trail === undefined) &&
       (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
       (!destinationsRequested || this.deps.preparation === undefined) &&
       (!summaryRequested || this.deps.summary === undefined) &&
@@ -445,6 +454,19 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ].join("\n"),
       );
     }
+    if (trailRequested && this.deps.trailRecovery !== undefined) {
+      const recovered = await this.deps.trailRecovery.resolve({ playerId, context });
+      if (!recovered.ok) return recovered;
+      if (recovered.value !== null) {
+        const shown = renderExpeditionV4TrailFollowPanel({
+          encounterPreview: recovered.value.encounterPreview,
+          elapsedMinutes: recovered.value.elapsedMinutes,
+          consumedWeeklySlot: recovered.value.consumedWeeklySlot,
+        });
+        if (!shown.ok) return shown;
+        return privateSearchResult(context, shown.value, playerId, recovered.value.outcome);
+      }
+    }
     if (travelRequested !== null && this.deps.travelRecovery !== undefined) {
       const committed = await this.deps.travelRecovery.resolve({ playerId, context });
       if (!committed.ok) return committed;
@@ -527,6 +549,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : []),
         ...(state !== "NONE" && this.deps.search !== undefined
           ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
+          : []),
+        ...(state === "ACTIVE" && this.deps.trail !== undefined
+          ? ["› _Seguir rastros recentes: /explorar seguir ● \`15 min\` (somente se houver rastro)._"]
           : []),
         ...(state !== "NONE" && this.deps.resources !== undefined
           ? [
@@ -703,6 +728,49 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       const panel = renderExpeditionV4SearchResultPanel({
         kind: outcome.kind,
         encounterPreview: committed.value.encounterPreview,
+        elapsedMinutes: transition.expedition.elapsedMinutes,
+        consumedWeeklySlot: transition.consumedWeeklySlot,
+        canFollowTrail: this.deps.trail !== undefined,
+      });
+      if (!panel.ok) return panel;
+      return privateSearchResult(context, panel.value, playerId, outcome);
+    }
+    if (trailRequested && this.deps.trail !== undefined) {
+      const current = facts.expedition;
+      if (current === null || current.phase !== "ACTIVE") {
+        return err(appError("FLOW_BLOCKED", "Não há rastros de uma expedição ativa."));
+      }
+      const sourceOutcomeId = await this.deps.trail.readPending(current);
+      if (sourceOutcomeId === null) {
+        return err(appError("FLOW_BLOCKED", "Nenhum rastro recente pode ser seguido agora."));
+      }
+      const followed = await this.deps.trail.execute({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: context.idempotencyKey,
+        sourceOutcomeId,
+      });
+      if (!followed.ok) return followed;
+      const { transition, outcome } = followed.value;
+      if (
+        transition.expedition.playerId !== playerId ||
+        transition.expedition.expeditionId !== current.expeditionId ||
+        transition.expedition.areaId !== located.value.areaId ||
+        transition.expedition.revision !== current.revision + 1n ||
+        transition.expedition.elapsedMinutes !== current.elapsedMinutes + 15 ||
+        transition.consumedWeeklySlot ||
+        followed.value.sourceOutcomeId !== sourceOutcomeId ||
+        outcome.kind !== "DIRECT" ||
+        outcome.encounterId === null ||
+        outcome.playerId !== playerId ||
+        outcome.expeditionId !== current.expeditionId ||
+        outcome.expeditionRevision !== current.revision
+      ) {
+        return err(appError("FLOW_BLOCKED", "O encontro do rastro não corresponde à expedição."));
+      }
+      const panel = renderExpeditionV4TrailFollowPanel({
+        encounterPreview: followed.value.encounterPreview,
         elapsedMinutes: transition.expedition.elapsedMinutes,
         consumedWeeklySlot: transition.consumedWeeklySlot,
       });
@@ -993,6 +1061,10 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "› _Busque: /explorar 1 ou /explorar buscar._",
           "› _Consultar destinos: /explorar 3 (sem gasto)._",
           "› _Para encerrar: /explorar 4 (exige confirmação)._",
+          ...(this.deps.trail !== undefined &&
+          (await this.deps.trail.readPending(facts.expedition)) !== null
+            ? ["› _Há rastros recentes: /explorar seguir ● \`15 min\`._"]
+            : []),
           ...(this.deps.travel === undefined
             ? ["› _Viagem ainda não habilitada._"]
             : ["› _Viagem somente com duração publicada._"]),
