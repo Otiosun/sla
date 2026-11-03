@@ -136,7 +136,7 @@ async function readFollow(
        WHERE follow.id=$1 AND follow.player_id=$2`,
     [id, playerId],
   );
-  return found.rows.length === 1 ? found.rows[0] ?? null : null;
+  return found.rows.length === 1 ? (found.rows[0] ?? null) : null;
 }
 
 export interface ExpeditionV4TrailFollowInput {
@@ -186,7 +186,9 @@ export class PostgresExpeditionV4StagingTrailFollow {
     }
   }
 
-  public async execute(input: ExpeditionV4TrailFollowInput): Promise<Result<ExpeditionV4TrailFollowResult>> {
+  public async execute(
+    input: ExpeditionV4TrailFollowInput,
+  ): Promise<Result<ExpeditionV4TrailFollowResult>> {
     if (
       process.env.APP_ENV !== "test" ||
       process.env.NODE_ENV !== "test" ||
@@ -297,13 +299,19 @@ export class PostgresExpeditionV4StagingTrailFollow {
       ) {
         return err(appError("FLOW_BLOCKED", "Committed trail and action receipt disagree"));
       }
-      const outcome = await readStoredSearchOutcome(client, input.playerId, followed.followed_outcome_id);
+      const outcome = await readStoredSearchOutcome(
+        client,
+        input.playerId,
+        followed.followed_outcome_id,
+      );
       if (
         outcome === null ||
         outcome.kind !== "DIRECT" ||
         outcome.encounterId !== followed.encounter_id
       ) {
-        return err(appError("FLOW_BLOCKED", "Trail follow is missing its canonical encounter outcome"));
+        return err(
+          appError("FLOW_BLOCKED", "Trail follow is missing its canonical encounter outcome"),
+        );
       }
       return ok({
         transition: action.value,
