@@ -44,6 +44,8 @@ on:
       - "db/candidates/0080_solo_exploration_v4.sql"
       - "scripts/operations/backup-envelope.mjs"
       - "tests/release/backup-envelope.test.mjs"
+      - "scripts/operations/prepare-windows-candidate.mjs"
+      - "tests/release/windows-candidate.test.mjs"
       - "tests/db/solo-expedition-candidate-migration.integration.test.ts"
       - "tests/exploration/expedition-v4-incidental-panel.test.ts"
       - "src/platform/exploration/postgres-expedition-search-sent-proof.ts"
@@ -126,14 +128,26 @@ jobs:
           pnpm exec biome format tests/db/solo-expedition-candidate-migration.integration.test.ts src/platform/exploration/postgres-expedition-v4-resources.ts src/platform/exploration/postgres-expedition-v4-trail.ts src/platform/exploration/postgres-expedition-v4-event-history-reader.ts src/modules/exploration/expedition-v4-event-history-panel.ts tests/exploration/expedition-v4-event-history-panel.test.ts src/platform/exploration/postgres-expedition-trail-confirmation-recovery.ts src/modules/exploration/expedition-v4-trail-follow-panel.ts tests/exploration/expedition-v4-trail-follow-panel.test.ts src/platform/exploration/postgres-expedition-resource-confirmation-recovery.ts src/platform/economy/postgres-economy-repository.ts tests/exploration/expedition-published-resources.test.ts
       - name: Verify offline backup crypto formatting and tamper rejection
         run: |
-          pnpm exec biome format scripts/operations/backup-envelope.mjs tests/release/backup-envelope.test.mjs
-          node --test tests/release/backup-envelope.test.mjs
+          pnpm exec biome format scripts/operations/backup-envelope.mjs tests/release/backup-envelope.test.mjs scripts/operations/prepare-windows-candidate.mjs tests/release/windows-candidate.test.mjs
+          node --test tests/release/backup-envelope.test.mjs tests/release/windows-candidate.test.mjs
       - name: Compile and prove read-only router
         run: |
           pnpm exec tsc --noEmit
           pnpm exec vitest run tests/exploration/expedition-v4-event-history-panel.test.ts tests/exploration/expedition-v4-trail-follow-panel.test.ts tests/exploration/expedition-published-resources.test.ts tests/messaging/runtime-command-policy-gate.test.ts tests/messaging/command-router-policy.test.ts tests/messaging/pvp-whatsapp-resume.test.ts tests/messaging/pvp-whatsapp.test.ts tests/battle/pve-scene-whatsapp.test.ts tests/messaging/operational-ux-handlers.test.ts tests/exploration/expedition-offline-actionable-menu-issuer.test.ts tests/exploration/expedition-battle-eligibility.test.ts tests/exploration/expedition-offline-battle-start.test.ts tests/exploration/expedition-battle-confirmation-recovery.test.ts tests/exploration/expedition-ignore-confirmation-recovery.test.ts tests/exploration/expedition-v4-incidental-panel.test.ts tests/exploration/expedition-capture-confirmation-recovery.test.ts tests/exploration/expedition-canonical-capture-real-service-staging.test.ts tests/exploration/expedition-canonical-choice-staging.test.ts tests/exploration/expedition-issued-menu-reply-proof.test.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts tests/exploration/expedition-quoted-encounter-proof.test.ts tests/exploration/expedition-search-post-sent-worker.test.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts tests/messaging/runtime-command-policy-gate.test.ts
       - name: Build candidate without release
         run: pnpm build
+      - name: Prepare Windows PREINSTALL NO-GO inspection archive (no install)
+        run: |
+          node scripts/operations/prepare-windows-candidate.mjs . release-windows-v4-preinstall
+          zip -q -r -X release-windows-v4-preinstall.zip release-windows-v4-preinstall
+          unzip -t release-windows-v4-preinstall.zip
+      - name: Upload auditable NO-GO Windows candidate only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pokemon-beyond-windows-inspection-only
+          path: release-windows-v4-preinstall.zip
+          if-no-files-found: error
+          retention-days: 7
 
   readonly-postgres:
     name: PostgreSQL 18 real V4 status isolation
