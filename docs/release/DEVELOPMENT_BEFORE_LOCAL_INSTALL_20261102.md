@@ -138,3 +138,14 @@ Os dois repositórios continuam em rascunho, **SEM merge, deploy, alteração de
 - **Regressões do bot no SHA acima:** [Cross-module #41693893366](https://github.com/Otiosun/sla/actions/runs/41693893366), [Exploration #41693893442](https://github.com/Otiosun/sla/actions/runs/41693893442) e [Narrative #41693893473](https://github.com/Otiosun/sla/actions/runs/41693893473) passaram. Estes resultados não dispensam auditoria final de release.
 
 **Pendências da Fase A no Hub:** sessão/autenticação e permissões em HTTPS staging verdadeiramente isolado com configuração aprovada; UAT de UX em aparelho apenas na Fase B; revisão dos assets, integração visual e contratos consolidados; qualquer alteração no backend/live exige autorização separada. **Fase A NÃO 100%, release NO-GO, sem instalação local.**
+
+## Windows nativo — primeiro gate de compatibilidade de compilação (03/11/2026)
+
+**HEAD testado:** `afcc62f5e0dc1a639529b21cb8720bf5e73f7332` na PR #321 Draft. Novo workflow `.github/workflows/windows-native-v4-preinstallation-proof.yml`, executado em **windows-2025** com **Node 24.19.0, pnpm 11.23.0**, sem `.env`, sessão Baileys, DB, PM2 nem WhatsApp habilitado. Não houve instalação no computador do operador nem atualização de produção.
+
+- Instalação das dependências do projeto no runner efêmero com lockfile imutável e scripts de instalação bloqueados; `pnpm typecheck` e `pnpm build` passaram.
+- `sharp 0.35.5` carregou no Windows e produziu um PNG sintético 1×1 como teste de suporte ao binário de imagem. **17/17 testes** de Player Portal HTTP e configuração foram aprovados sem transporte nem banco.
+- O candidato `windows-v4-inspection-only` foi empacotado no Windows, verificado pelo `verify-windows-candidate.mjs` contra o SHA da CI, e publicado apenas como artefato NO-GO. [Run Windows #41694863580](https://github.com/Otiosun/sla/actions/runs/41694863580) **SUCCESS**; [artefato #13258816778](https://github.com/Otiosun/sla/actions/runs/41694863580/artifacts/13258816778), retenção de sete dias.
+- O artefato **não inclui `node_modules`, runtime completo, scripts de cutover/rollback testados no Windows, segredos, sessão ou dados de produção**. É somente evidência de build nativo + hash de integridade; ainda **não está instalável**. Arquivos extraídos não têm autenticação de origem pela lista de hashes; requerem revisão do SHA e proveniência da CI.
+
+**Próxima etapa da distribuição:** desenhar e provar em sandbox um pacote Windows com dependências efetivamente executáveis, rotina de preparação/rollback e isolamento do processo em uso. Somente após demais gates da Fase A a instalação real poderá ser considerada. **Release NO-GO.**
