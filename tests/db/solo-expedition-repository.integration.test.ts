@@ -388,7 +388,6 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     }
   });
 
-
   it("commits exactly one canonical inventory grant and 60 minutes, with PG18 receipt replay", async () => {
     const playerId = await trainer();
     const exp = await prepare(playerId, "resource-fixture-prepare");
