@@ -276,14 +276,11 @@ test("actual Hub delivery client crosses its proxy into bot without duplicate sy
       if (!resolved) return Response.json({ error: "HUB_ROUTE_REJECTED" }, { status: 404 });
       const headers = new Headers(init.headers);
       if (signedIn) headers.set("cookie", SESSION_COOKIE);
-      const forwarded = new Request(
-        "https://staging-bot.test" + resolved.upstreamPath,
-        {
-          method,
-          headers,
-          ...(init.body === undefined ? {} : { body: init.body }),
-        },
-      );
+      const forwarded = new Request("https://staging-bot.test" + resolved.upstreamPath, {
+        method,
+        headers,
+        ...(init.body === undefined ? {} : { body: init.body }),
+      });
       return handler.handle(forwarded);
     };
   }
@@ -295,16 +292,10 @@ test("actual Hub delivery client crosses its proxy into bot without duplicate sy
     quantity: 1,
     reason: "Prova sintética de entrega manual aprovada.",
   };
-  const guest = await submitManualDelivery(
-    payload,
-    makeBridge({ signedIn: false, isOwner: true }),
-  );
+  const guest = await submitManualDelivery(payload, makeBridge({ signedIn: false, isOwner: true }));
   assert.equal(guest.status, "unauthenticated");
 
-  const nonOwner = await submitManualDelivery(
-    payload,
-    makeBridge({ isOwner: false }),
-  );
+  const nonOwner = await submitManualDelivery(payload, makeBridge({ isOwner: false }));
   assert.equal(nonOwner.status, "forbidden");
   assert.equal(grants, 0);
 
