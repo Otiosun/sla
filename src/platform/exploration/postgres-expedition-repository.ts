@@ -231,7 +231,8 @@ async function writeReceipt(
     | "ACTION_SEARCH_FREE"
     | "ACTION_IGNORE_INCIDENTAL"
     | "ACTION_TRAVEL"
-    | "ACTION_RESOURCE_SEARCH",
+    | "ACTION_RESOURCE_SEARCH"
+    | "ACTION_FOLLOW_TRAIL",
   inputFingerprint: string,
   transition: ExpeditionTransition,
   effectRef?: string,
@@ -630,6 +631,25 @@ export class PostgresExpeditionRepository {
     return this.executeTimedEffect(input, "ACTION_RESOURCE_SEARCH", 60);
   }
 
+  /**
+   * Follow only the server-persisted source TRAIL. The source identity is
+   * included in the action fingerprint so two different trails cannot share
+   * a WhatsApp idempotency key. All effects stay in the expedition PoolClient.
+   */
+  public async executeFollowTrail(
+    input: ExecuteSearchActionInput & { readonly sourceOutcomeId: string },
+  ): Promise<Result<StoredSearchActionTransition>> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      !/^[a-f0-9-]{36}$/iu.test(input.sourceOutcomeId)
+    ) {
+      return err(appError("FLOW_BLOCKED", "Following trails requires isolated development"));
+    }
+    return this.executeTimedEffect(input, "ACTION_FOLLOW_TRAIL", 15, input.sourceOutcomeId);
+  }
+
   public async executeSearchFree(
     input: ExecuteSearchActionInput,
   ): Promise<Result<StoredSearchActionTransition>> {
@@ -638,8 +658,9 @@ export class PostgresExpeditionRepository {
 
   private async executeTimedEffect(
     input: ExecuteSearchActionInput,
-    operation: "ACTION_SEARCH_FREE" | "ACTION_RESOURCE_SEARCH",
-    minutes: 30 | 60,
+    operation: "ACTION_SEARCH_FREE" | "ACTION_RESOURCE_SEARCH" | "ACTION_FOLLOW_TRAIL",
+    minutes: 15 | 30 | 60,
+    sourceOutcomeId?: string,
   ): Promise<Result<StoredSearchActionTransition>> {
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
@@ -648,6 +669,7 @@ export class PostgresExpeditionRepository {
       input.expeditionId,
       input.expectedRevision.toString(),
       minutes,
+      ...(sourceOutcomeId === undefined ? [] : [sourceOutcomeId]),
     ]);
     try {
       return await withTransaction(this.pool, async (client) => {
