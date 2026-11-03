@@ -21,30 +21,36 @@ const isolated =
   process.env.WHATSAPP_ENABLED === "false" &&
   process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS === "1";
 
-describe.skipIf(!isolated).sequential("candidate 0080 schema reversible only in disposable PG18", () => {
-  const dbName = "pokemon_cand_0080_" + randomUUID().replaceAll("-", "");
-  let admin: Pool;
-  let pool: Pool;
-  let candidate = "";
-  let draft = "";
+describe
+  .skipIf(!isolated)
+  .sequential("candidate 0080 schema reversible only in disposable PG18", () => {
+    const dbName = "pokemon_cand_0080_" + randomUUID().replaceAll("-", "");
+    let admin: Pool;
+    let pool: Pool;
+    let candidate = "";
+    let draft = "";
 
-  beforeAll(async () => {
-    const adminUrl = new URL(sourceUrl);
-    adminUrl.pathname = "/postgres";
-    admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
-    await admin.query('CREATE DATABASE "' + dbName + '"');
-    const dbUrl = new URL(sourceUrl);
-    dbUrl.pathname = "/" + dbName;
-    pool = new Pool({ connectionString: dbUrl.toString(), max: 2 });
-    await runMigrations(pool, { appliedBy: "disposable-candidate-0080-only" });
-    [candidate, draft] = await Promise.all([
-      readFile(new URL("../../db/candidates/0080_solo_exploration_v4.sql", import.meta.url), "utf8"),
-      readFile(new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url), "utf8"),
-    ]);
-  }, 70_000);
+    beforeAll(async () => {
+      const adminUrl = new URL(sourceUrl);
+      adminUrl.pathname = "/postgres";
+      admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
+      await admin.query('CREATE DATABASE "' + dbName + '"');
+      const dbUrl = new URL(sourceUrl);
+      dbUrl.pathname = "/" + dbName;
+      pool = new Pool({ connectionString: dbUrl.toString(), max: 2 });
+      await runMigrations(pool, { appliedBy: "disposable-candidate-0080-only" });
+      [candidate, draft] = await Promise.all([
+        readFile(
+          new URL("../../db/candidates/0080_solo_exploration_v4.sql", import.meta.url),
+          "utf8",
+        ),
+        readFile(
+          new URL("../../db/drafts/solo_exploration_v1_schema.sql", import.meta.url),
+          "utf8",
+        ),
+      ]);
+    }, 70_000);
 
-  afterAll(async () => {
-    if (pool !== undefined) await pool.end();
     if (admin !== undefined) {
       await admin.query(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid <> pg_backend_pid()",
