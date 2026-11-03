@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionV4EventHistoryReader } from "../../src/platform/exploration/postgres-expedition-v4-event-history-reader.js";
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
 import { PostgresExpeditionResourceConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
 import {
@@ -423,6 +424,83 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
+  });
+
+  it("builds last completed factual history from search, 60-minute resource ledger and end without other trainers", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-history-prepare");
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "NO_SIGNAL" as const }) },
+      async () => {
+        throw new Error("History NO_SIGNAL never creates an encounter");
+      },
+    );
+    const first = await search.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "pg18-history-search",
+    });
+    if (!first.ok) throw first.error;
+    const resources = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x42)),
+    );
+    const gained = await resources.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: first.value.transition.expedition.revision,
+      idempotencyKey: "pg18-history-resources",
+    });
+    if (!gained.ok) throw gained.error;
+    const ended = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: gained.value.transition.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: "pg18-history-ended",
+    });
+    expect(ended).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "ENDED", elapsedMinutes: 90, endReason: "VOLUNTARY" } },
+    });
+    const history = new PostgresExpeditionV4EventHistoryReader(pool);
+    const read = await history.readLatestCompleted(playerId);
+    expect(read).toMatchObject({
+      ok: true,
+      value: {
+        period: "DAY",
+        endReason: "VOLUNTARY",
+        elapsedMinutes: 90,
+        page: 1,
+        pages: 1,
+        totalEvents: 4,
+        events: [
+          { kind: "PREPARE", elapsedMinutes: 0 },
+          { kind: "SEARCH", description: "Busca: nenhum sinal", elapsedMinutes: 30 },
+          { kind: "RESOURCES", description: "Recursos: Poké Ball ×2", elapsedMinutes: 90 },
+          { kind: "END", elapsedMinutes: 90 },
+        ],
+      },
+    });
+    expect(await history.readLatestCompleted(await trainer())).toEqual(ok(null));
+    expect(await history.readLatestCompleted(playerId, 2)).toMatchObject({
+      ok: false, error: { code: "VALIDATION_FAILED" },
+    });
+    const before = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+      [playerId],
+    );
+    await history.readLatestCompleted(playerId);
+    const after = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+      [playerId],
+    );
+    expect(before.rows).toEqual(after.rows);
+    expect(after.rows[0]?.n).toBe(1);
   });
 
   it("commits exactly one canonical inventory grant and 60 minutes, with PG18 receipt replay", async () => {
