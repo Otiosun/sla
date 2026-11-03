@@ -10,6 +10,8 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 interface ResourceRecoveryRow {
   readonly expedition_id: string;
   readonly result_revision: string;
+  readonly action_revision: string;
+  readonly result_player_id: string;
   readonly effect_ref: string;
   readonly result_id: string;
   readonly kind: "ITEM" | "NONE";
@@ -58,6 +60,8 @@ export class PostgresExpeditionResourceConfirmationRecovery {
     const found = await this.pool.query<ResourceRecoveryRow>(
       `SELECT receipt.expedition_id::text AS expedition_id,
               receipt.result->'expedition'->>'revision' AS result_revision,
+              resource.expedition_revision::text AS action_revision,
+              receipt.result->'expedition'->>'playerId' AS result_player_id,
               receipt.result->>'effectRef' AS effect_ref,
               resource.id::text AS result_id,
               resource.kind,
@@ -122,6 +126,12 @@ export class PostgresExpeditionResourceConfirmationRecovery {
     if (found.rows.length !== 1) {
       return err(appError("FLOW_BLOCKED", "Ambiguous resource confirmation receipt"));
     }
+    if (
+      !/^[1-9][0-9]*$/u.test(row.result_revision) ||
+      !/^(0|[1-9][0-9]*)$/u.test(row.action_revision)
+    ) {
+      return err(appError("FLOW_BLOCKED", "Invalid resource revision receipt"));
+    }
     const nextRevision = BigInt(row.result_revision);
     const expected = createHash("sha256")
       .update(
@@ -138,7 +148,9 @@ export class PostgresExpeditionResourceConfirmationRecovery {
       nextRevision < 1n ||
       row.fingerprint !== expected ||
       row.effect_ref !== row.result_id ||
-      row.result_phase !== "ACTIVE" && row.result_phase !== "ENDED" ||
+      BigInt(row.action_revision) !== nextRevision - 1n ||
+      row.result_player_id !== input.playerId ||
+      (row.result_phase !== "ACTIVE" && row.result_phase !== "ENDED") ||
       !Number.isSafeInteger(elapsedMinutes) ||
       elapsedMinutes < 60 ||
       elapsedMinutes > 720 ||
@@ -151,6 +163,7 @@ export class PostgresExpeditionResourceConfirmationRecovery {
       (row.kind === "ITEM" &&
         (row.item_id === null ||
           row.item_name === null ||
+          !/^[\p{L}\p{N}][^\r\n<>]{0,69}$/u.test(row.item_name) ||
           row.ledger_id === null ||
           row.ledger_balance === null ||
           quantity <= 0n)) ||
