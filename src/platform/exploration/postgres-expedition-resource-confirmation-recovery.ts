@@ -167,8 +167,7 @@ export class PostgresExpeditionResourceConfirmationRecovery {
           row.ledger_id === null ||
           row.ledger_balance === null ||
           quantity <= 0n)) ||
-      (row.kind === "NONE" &&
-        (row.item_id !== null || row.ledger_id !== null || quantity !== 0n))
+      (row.kind === "NONE" && (row.item_id !== null || row.ledger_id !== null || quantity !== 0n))
     ) {
       return err(appError("FLOW_BLOCKED", "Resource inventory provenance is incomplete"));
     }
