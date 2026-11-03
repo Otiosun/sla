@@ -50,6 +50,9 @@ describe("incidental V4 shadow scene: canonically authorized actions only", () =
     if (!shown.ok) return;
     expect(shown.value.visible).toContain("✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*");
     expect(shown.value.visible).toContain("◇ *Zigzagoon* ● `Nv. 6`");
+    expect(shown.value.expanded).toContain(
+      "> _Você procurava outra espécie, mas encontrou um Zigzagoon pelo caminho..._",
+    );
     expect(shown.value.expanded).toContain("◇ *𝗔ÇÕ𝗘𝗦*");
     expect(shown.value.expanded).toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
     const names = [
