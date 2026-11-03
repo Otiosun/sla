@@ -109,7 +109,10 @@ async function main() {
       "utf8",
     );
     const files = await scanFiles(out);
-    must(files.some((file) => file.path === "dist/src/main.js"), "Compiled bot entrypoint is missing");
+    must(
+      files.some((file) => file.path === "dist/src/main.js"),
+      "Compiled bot entrypoint is missing",
+    );
     const manifest = {
       format: "pokemon-beyond-preinstall-windows-v1",
       gitSha: process.env.GITHUB_SHA,
