@@ -12,7 +12,9 @@ function requireKey() {
   const encoded = process.env.BACKUP_ENCRYPTION_KEY_B64 ?? "";
   const key = Buffer.from(encoded, "base64");
   if (key.length !== 32 || key.toString("base64") !== encoded) {
-    throw new Error("BACKUP_ENCRYPTION_KEY_B64 must be a canonical base64-encoded 32-byte random key");
+    throw new Error(
+      "BACKUP_ENCRYPTION_KEY_B64 must be a canonical base64-encoded 32-byte random key",
+    );
   }
   return key;
 }
@@ -50,7 +52,11 @@ async function encrypt(source, final, key, temp) {
   await appendFile(temp, cipher.getAuthTag());
   const output = await stat(temp);
   const now = await stat(source);
-  if (output.size !== HEADER_BYTES + input.size + TAG_BYTES || now.size !== input.size || now.mtimeMs !== input.mtimeMs) {
+  if (
+    output.size !== HEADER_BYTES + input.size + TAG_BYTES ||
+    now.size !== input.size ||
+    now.mtimeMs !== input.mtimeMs
+  ) {
     throw new Error("Encrypted length or source stability check failed");
   }
   await persistExclusive(temp, final);
@@ -58,7 +64,9 @@ async function encrypt(source, final, key, temp) {
 
 async function decrypt(source, final, key, temp) {
   if (process.env.ALLOW_DISPOSABLE_BACKUP_RESTORE !== "1") {
-    throw new Error("Decrypt requires ALLOW_DISPOSABLE_BACKUP_RESTORE=1 in an isolated restore workspace");
+    throw new Error(
+      "Decrypt requires ALLOW_DISPOSABLE_BACKUP_RESTORE=1 in an isolated restore workspace",
+    );
   }
   const info = await regularFile(source);
   if (info.size <= HEADER_BYTES + TAG_BYTES) throw new Error("Encrypted envelope is incomplete");
@@ -68,14 +76,21 @@ async function decrypt(source, final, key, temp) {
   try {
     const first = await file.read(header, 0, HEADER_BYTES, 0);
     const last = await file.read(tag, 0, TAG_BYTES, info.size - TAG_BYTES);
-    if (first.bytesRead !== HEADER_BYTES || last.bytesRead !== TAG_BYTES || !header.subarray(0, 8).equals(MAGIC)) {
+    if (
+      first.bytesRead !== HEADER_BYTES ||
+      last.bytesRead !== TAG_BYTES ||
+      !header.subarray(0, 8).equals(MAGIC)
+    ) {
       throw new Error("Invalid encrypted backup header");
     }
   } finally {
     await file.close();
   }
   const length = header.readBigUInt64BE(20);
-  if (length > BigInt(Number.MAX_SAFE_INTEGER) || length !== BigInt(info.size - HEADER_BYTES - TAG_BYTES)) {
+  if (
+    length > BigInt(Number.MAX_SAFE_INTEGER) ||
+    length !== BigInt(info.size - HEADER_BYTES - TAG_BYTES)
+  ) {
     throw new Error("Encrypted backup length is inconsistent");
   }
   const decipher = createDecipheriv("aes-256-gcm", key, header.subarray(8, 20));
@@ -95,7 +110,9 @@ async function decrypt(source, final, key, temp) {
 async function main() {
   const [operation, rawInput, rawOutput] = process.argv.slice(2);
   if (process.argv.length !== 5 || !["encrypt", "decrypt"].includes(operation ?? "")) {
-    throw new Error("Usage: backup-envelope.mjs encrypt|decrypt <input> <new-output>; never use production restore paths");
+    throw new Error(
+      "Usage: backup-envelope.mjs encrypt|decrypt <input> <new-output>; never use production restore paths",
+    );
   }
   const source = resolve(rawInput);
   const final = resolve(rawOutput);
