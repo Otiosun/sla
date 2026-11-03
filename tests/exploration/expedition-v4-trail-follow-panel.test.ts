@@ -23,16 +23,20 @@ describe("V4 TRAIL follow is factual and safe", () => {
       { speciesName: "Fake", level: -1, shiny: false },
       { speciesName: "Fake", level: 5, shiny: "false" },
     ]) {
-      expect(renderExpeditionV4TrailFollowPanel({
-        encounterPreview: preview as { speciesName: string; level: number; shiny: boolean },
-        elapsedMinutes: 45,
-        consumedWeeklySlot: false,
-      })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+      expect(
+        renderExpeditionV4TrailFollowPanel({
+          encounterPreview: preview as { speciesName: string; level: number; shiny: boolean },
+          elapsedMinutes: 45,
+          consumedWeeklySlot: false,
+        }),
+      ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     }
-    expect(renderExpeditionV4TrailFollowPanel({
-      encounterPreview: { speciesName: "Published Testmon", level: 4, shiny: false },
-      elapsedMinutes: 45,
-      consumedWeeklySlot: true,
-    })).toMatchObject({ ok: false });
+    expect(
+      renderExpeditionV4TrailFollowPanel({
+        encounterPreview: { speciesName: "Published Testmon", level: 4, shiny: false },
+        elapsedMinutes: 45,
+        consumedWeeklySlot: true,
+      }),
+    ).toMatchObject({ ok: false });
   });
 });
