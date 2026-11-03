@@ -42,6 +42,8 @@ on:
       - "src/platform/exploration/postgres-expedition-repository.ts"
       - "db/drafts/solo_exploration_v1_schema.sql"
       - "db/candidates/0080_solo_exploration_v4.sql"
+      - "scripts/operations/backup-envelope.mjs"
+      - "tests/release/backup-envelope.test.mjs"
       - "tests/db/solo-expedition-candidate-migration.integration.test.ts"
       - "tests/exploration/expedition-v4-incidental-panel.test.ts"
       - "src/platform/exploration/postgres-expedition-search-sent-proof.ts"
@@ -122,6 +124,10 @@ jobs:
       - name: Format added isolated resource proof files
         run: |
           pnpm exec biome format tests/db/solo-expedition-candidate-migration.integration.test.ts src/platform/exploration/postgres-expedition-v4-resources.ts src/platform/exploration/postgres-expedition-v4-trail.ts src/platform/exploration/postgres-expedition-v4-event-history-reader.ts src/modules/exploration/expedition-v4-event-history-panel.ts tests/exploration/expedition-v4-event-history-panel.test.ts src/platform/exploration/postgres-expedition-trail-confirmation-recovery.ts src/modules/exploration/expedition-v4-trail-follow-panel.ts tests/exploration/expedition-v4-trail-follow-panel.test.ts src/platform/exploration/postgres-expedition-resource-confirmation-recovery.ts src/platform/economy/postgres-economy-repository.ts tests/exploration/expedition-published-resources.test.ts
+      - name: Verify offline backup crypto formatting and tamper rejection
+        run: |
+          pnpm exec biome format scripts/operations/backup-envelope.mjs tests/release/backup-envelope.test.mjs
+          node --test tests/release/backup-envelope.test.mjs
       - name: Compile and prove read-only router
         run: |
           pnpm exec tsc --noEmit
