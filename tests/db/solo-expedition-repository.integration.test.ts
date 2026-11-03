@@ -363,10 +363,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     const trailEncounterTableId = randomUUID();
     const trailEncounterRevisionId = randomUUID();
-    await pool.query(
-      "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'grass')",
-      [trailEncounterTableId, activeAreaId],
-    );
+    await pool.query("INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'grass')", [
+      trailEncounterTableId,
+      activeAreaId,
+    ]);
     const trailConditions = JSON.stringify({
       schemaVersion: 1,
       requiredUnlockKeys: [],
@@ -680,7 +680,6 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
   });
 
-
   it("follows a committed TRAIL with canonical EncounterService, 15 minutes, only one encounter and no phantom search", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "trail-follow-preparation");
@@ -688,7 +687,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       pool,
       store,
       { decide: async () => ok({ kind: "TRAIL" as const }) },
-      async () => { throw new Error("A TRAIL source cannot spawn an encounter early"); },
+      async () => {
+        throw new Error("A TRAIL source cannot spawn an encounter early");
+      },
     );
     const source = await search.execute({
       playerId,
@@ -774,7 +775,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await recovery.resolve({ playerId, context })).toMatchObject({
       ok: true,
       value: {
-        outcome: { outcomeId: first.value.outcome.outcomeId, encounterId: first.value.outcome.encounterId },
+        outcome: {
+          outcomeId: first.value.outcome.outcomeId,
+          encounterId: first.value.outcome.encounterId,
+        },
         encounterPreview: { speciesName: "Published Testmon" },
         elapsedMinutes: 45,
         consumedWeeklySlot: false,
@@ -787,7 +791,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       }),
     ).toEqual(ok(null));
     expect(await trail.readPending((await store.current(playerId))!)).toBeNull();
-    expect(await trail.execute({ ...input, idempotencyKey: "different-trail-message" })).toMatchObject({
+    expect(
+      await trail.execute({ ...input, idempotencyKey: "different-trail-message" }),
+    ).toMatchObject({
       ok: false,
     });
     const counts = await pool.query<{ follow_count: number; encounter_count: number }>(
@@ -809,30 +815,39 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "trail-invalid-prepare");
     const search = new PostgresExpeditionV4StagingSearch(
-      pool, store, { decide: async () => ok({ kind: "NO_SIGNAL" as const }) },
-      async () => { throw new Error("No encounter in a NO_SIGNAL search"); },
+      pool,
+      store,
+      { decide: async () => ok({ kind: "NO_SIGNAL" as const }) },
+      async () => {
+        throw new Error("No encounter in a NO_SIGNAL search");
+      },
     );
     const signal = await search.execute({
-      playerId, expeditionId: prepared.expeditionId, expectedRevision: prepared.revision,
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
       idempotencyKey: "trail-no-signal-search",
     });
     if (!signal.ok) throw signal.error;
-    const trail = new PostgresExpeditionV4StagingTrailFollow(
-      pool,
-      store,
-      async () => { throw new Error("No encounter permitted without a TRAIL source"); },
-    );
+    const trail = new PostgresExpeditionV4StagingTrailFollow(pool, store, async () => {
+      throw new Error("No encounter permitted without a TRAIL source");
+    });
     const current = await store.current(playerId);
     if (current === null) throw new Error("Missing active expedition");
     expect(await trail.readPending(current)).toBeNull();
-    expect(await trail.execute({
-      playerId, expeditionId: prepared.expeditionId,
-      expectedRevision: current.revision,
-      idempotencyKey: "trail-invalid-follow",
-      sourceOutcomeId: signal.value.outcome.outcomeId,
-    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(
+      await trail.execute({
+        playerId,
+        expeditionId: prepared.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: "trail-invalid-follow",
+        sourceOutcomeId: signal.value.outcome.outcomeId,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     expect(await store.current(playerId)).toMatchObject({
-      phase: "ACTIVE", elapsedMinutes: 30, revision: 1n,
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
     });
     expect(await count("solo_expedition_receipts", playerId)).toBe(2);
     expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
