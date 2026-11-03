@@ -835,14 +835,15 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     };
     const sent = new PostgresExpeditionSearchSentProof(pool);
     expect(await sent.confirm(proof)).toMatchObject({
-      ok: false, error: { code: "FLOW_BLOCKED" },
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
     });
-    await pool.query(
-      "UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1",
-      [outboxMessageId],
-    );
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      outboxMessageId,
+    ]);
     expect(await sent.confirm(proof)).toMatchObject({
-      ok: true, value: { outcomeId: first.value.outcome.outcomeId },
+      ok: true,
+      value: { outcomeId: first.value.outcome.outcomeId },
     });
     const engaged = await new ExpeditionSearchEngagementAfterSent(
       sent,
