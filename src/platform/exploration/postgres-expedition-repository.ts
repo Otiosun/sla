@@ -230,7 +230,8 @@ async function writeReceipt(
     | "CHANGE_PERIOD"
     | "ACTION_SEARCH_FREE"
     | "ACTION_IGNORE_INCIDENTAL"
-    | "ACTION_TRAVEL",
+    | "ACTION_TRAVEL"
+    | "ACTION_RESOURCE_SEARCH",
   inputFingerprint: string,
   transition: ExpeditionTransition,
   effectRef?: string,
@@ -615,16 +616,38 @@ export class PostgresExpeditionRepository {
    * receipt and all its PG writes roll back together. This is not wired to a
    * WhatsApp command until a canonical Encounter adapter is available.
    */
+  /** A 60-minute resource action; only the explicitly isolated caller may grant items. */
+  public async executeResourceSearch(
+    input: ExecuteSearchActionInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false"
+    ) {
+      return err(appError("FLOW_BLOCKED", "Resource search requires isolated development"));
+    }
+    return this.executeTimedEffect(input, "ACTION_RESOURCE_SEARCH", 60);
+  }
+
   public async executeSearchFree(
     input: ExecuteSearchActionInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    return this.executeTimedEffect(input, "ACTION_SEARCH_FREE", 30);
+  }
+
+  private async executeTimedEffect(
+    input: ExecuteSearchActionInput,
+    operation: "ACTION_SEARCH_FREE" | "ACTION_RESOURCE_SEARCH",
+    minutes: 30 | 60,
   ): Promise<Result<StoredSearchActionTransition>> {
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([
-      "ACTION_SEARCH_FREE",
+      operation,
       input.expeditionId,
       input.expectedRevision.toString(),
-      30,
+      minutes,
     ]);
     try {
       return await withTransaction(this.pool, async (client) => {
@@ -702,7 +725,7 @@ export class PostgresExpeditionRepository {
         const transition = advanceExpedition({
           expedition: original,
           expectedRevision: input.expectedRevision,
-          minutes: 30,
+          minutes,
           weekKey: week,
           consumedThisWeek: Number(used.rows[0]?.count ?? "0"),
         });
@@ -727,7 +750,7 @@ export class PostgresExpeditionRepository {
           input.playerId,
           input.idempotencyKey,
           input.expeditionId,
-          "ACTION_SEARCH_FREE",
+          operation,
           inputFingerprint,
           transition.value,
           effectRef,
