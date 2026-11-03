@@ -5,9 +5,18 @@ import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { withTransaction } from "../db/transaction.js";
 
 export type ExpeditionEventKind =
-  | "PREPARE" | "CHANGE_PERIOD" | "SEARCH" | "RESOURCES"
-  | "FOLLOW_TRAIL" | "TRAVEL" | "IGNORE" | "ADVANCE" | "END"
-  | "BATTLE_STARTED" | "CAPTURED" | "CAPTURE_FAILED";
+  | "PREPARE"
+  | "CHANGE_PERIOD"
+  | "SEARCH"
+  | "RESOURCES"
+  | "FOLLOW_TRAIL"
+  | "TRAVEL"
+  | "IGNORE"
+  | "ADVANCE"
+  | "END"
+  | "BATTLE_STARTED"
+  | "CAPTURED"
+  | "CAPTURE_FAILED";
 
 export interface ExpeditionFactualEvent {
   readonly kind: ExpeditionEventKind;
@@ -71,7 +80,8 @@ function safeLabel(value: string | null): string | null {
     /[\r\n*_~`<>\u031d]/u.test(value) ||
     value.includes("[Ler mais]") ||
     /\p{Cc}/u.test(value)
-  ) return null;
+  )
+    return null;
   return value;
 }
 
@@ -82,7 +92,8 @@ function receiptEvent(row: ReceiptRow, expeditionId: string): Result<ExpeditionF
     Array.isArray(row.result) ||
     !(row.created_at instanceof Date) ||
     Number.isNaN(row.created_at.getTime())
-  ) return err(appError("FLOW_BLOCKED", "Invalid persisted expedition event"));
+  )
+    return err(appError("FLOW_BLOCKED", "Invalid persisted expedition event"));
   const obj = row.result as Record<string, unknown>;
   const snap = obj.expedition;
   if (snap === null || typeof snap !== "object" || Array.isArray(snap)) {
@@ -98,28 +109,31 @@ function receiptEvent(row: ReceiptRow, expeditionId: string): Result<ExpeditionF
     elapsed > 720 ||
     typeof state.revision !== "string" ||
     !/^(0|[1-9][0-9]*)$/u.test(state.revision)
-  ) return err(appError("FLOW_BLOCKED", "Expedition event snapshot is inconsistent"));
+  )
+    return err(appError("FLOW_BLOCKED", "Expedition event snapshot is inconsistent"));
   const revision = BigInt(state.revision);
   let kind: ExpeditionEventKind;
   let description: string;
   const ref = obj.effectRef;
   switch (row.operation) {
     case "PREPARE":
-      kind = "PREPARE"; description = "Preparação registrada"; break;
+      kind = "PREPARE";
+      description = "Preparação registrada";
+      break;
     case "CHANGE_PERIOD":
-      kind = "CHANGE_PERIOD"; description = "Período alterado"; break;
+      kind = "CHANGE_PERIOD";
+      description = "Período alterado";
+      break;
     case "ACTION_SEARCH_FREE": {
       if (
         typeof ref !== "string" ||
         !["NO_SIGNAL", "TRAIL", "INCIDENTAL", "DIRECT"].includes(row.search_kind ?? "") ||
         row.search_revision === null ||
         BigInt(row.search_revision) !== revision - 1n
-      ) return err(appError("FLOW_BLOCKED", "Search receipt has no canonical outcome"));
+      )
+        return err(appError("FLOW_BLOCKED", "Search receipt has no canonical outcome"));
       kind = "SEARCH";
       description =
-        row.search_kind === "NO_SIGNAL" ? "Busca: nenhum sinal" :
-        row.search_kind === "TRAIL" ? "Busca: rastros encontrados" :
-        row.search_kind === "INCIDENTAL" ? "Busca: encontro incidental registrado" :
         "Busca: encontro direto registrado";
       break;
     }
