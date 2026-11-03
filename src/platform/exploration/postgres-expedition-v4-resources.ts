@@ -319,6 +319,8 @@ export class PostgresExpeditionV4StagingResourceSearch {
         resource.expeditionRevision !== input.expectedRevision ||
         action.value.expedition.playerId !== input.playerId ||
         action.value.expedition.expeditionId !== input.expeditionId ||
+        action.value.expedition.elapsedMinutes < 60
+      ) {
         return err(appError("FLOW_BLOCKED", "Resource receipt and persisted result disagree"));
       }
       // A replay must return the original saved item and quantity without granting again.
