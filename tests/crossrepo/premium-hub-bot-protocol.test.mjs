@@ -220,3 +220,115 @@ test("bot production still refuses Premium grants despite a valid synthetic sess
     else process.env.APP_ENV = old;
   }
 });
+
+test("actual Hub delivery client crosses its proxy into bot without duplicate synthetic grant", async () => {
+  const { readManualDeliveryCatalog, submitManualDelivery } = await import(
+    pathToFileURL(join(hubRoot, "src/player-api/manualPremiumDeliveryClient.ts")).href
+  );
+  const ownerPrincipalId = "33333333-3333-4333-8333-333333333333";
+  const requestId = "44444444-4444-4444-8444-444444444444";
+  const playerId = "55555555-5555-4555-8555-555555555555";
+  const delivered = new Map();
+  let grants = 0;
+  const delivery = {
+    catalog: async () => [
+      {
+        sku: "2XP",
+        title: "Experiencia dobrada",
+        maxQuantity: 52,
+        entitlementKey: "XP_2X",
+        grantModel: "TIMED",
+        durationSecondsPerUnit: 86_400,
+      },
+    ],
+    history: async () => [],
+    deliver: async (input) => {
+      const previous = delivered.get(input.requestId);
+      if (previous !== undefined) {
+        return { kind: "APPLIED", replayed: true, entitlement: previous };
+      }
+      grants += 1;
+      const entitlement = {
+        playerId: input.playerId,
+        entitlementKey: "XP_2X",
+        currentlyActive: true,
+      };
+      delivered.set(input.requestId, entitlement);
+      return { kind: "APPLIED", replayed: false, entitlement };
+    },
+  };
+
+  function makeBridge({ isOwner = false, signedIn = true } = {}) {
+    const handler = new PlayerPortalHttpHandler({
+      sessions: {
+        verify: () => ({ ok: true, value: IDENTITY }),
+      },
+      admin: {
+        resolvePrincipal: async () => ({ principalId: ownerPrincipalId }),
+        capabilitiesFor: async () => ["central.view"],
+      },
+      adminTeam: { isOwner: async () => isOwner },
+      premiumDelivery: delivery,
+    });
+    return async (input, init = {}) => {
+      const method = init.method ?? "GET";
+      const resolved = resolvePremiumStageAdminRoute(endpoint(input), method);
+      if (!resolved) return Response.json({ error: "HUB_ROUTE_REJECTED" }, { status: 404 });
+      const headers = new Headers(init.headers);
+      if (signedIn) headers.set("cookie", SESSION_COOKIE);
+      const forwarded = new Request(
+        "https://staging-bot.test" + resolved.upstreamPath,
+        {
+          method,
+          headers,
+          ...(init.body === undefined ? {} : { body: init.body }),
+        },
+      );
+      return handler.handle(forwarded);
+    };
+  }
+
+  const payload = {
+    requestId,
+    playerId,
+    sku: "2XP",
+    quantity: 1,
+    reason: "Prova sintética de entrega manual aprovada.",
+  };
+  const guest = await submitManualDelivery(
+    payload,
+    makeBridge({ signedIn: false, isOwner: true }),
+  );
+  assert.equal(guest.status, "unauthenticated");
+
+  const nonOwner = await submitManualDelivery(
+    payload,
+    makeBridge({ isOwner: false }),
+  );
+  assert.equal(nonOwner.status, "forbidden");
+  assert.equal(grants, 0);
+
+  const owner = makeBridge({ isOwner: true });
+  const catalog = await readManualDeliveryCatalog(owner);
+  assert.equal(catalog[0]?.sku, "2XP");
+  const first = await submitManualDelivery(payload, owner);
+  assert.deepEqual(first, {
+    status: "applied",
+    replayed: false,
+    requestId,
+  });
+  const replay = await submitManualDelivery(payload, owner);
+  assert.deepEqual(replay, {
+    status: "applied",
+    replayed: true,
+    requestId,
+  });
+  assert.equal(grants, 1, "Repeated Hub command must keep the original grant");
+
+  const uncertain = await submitManualDelivery(
+    { ...payload, requestId: "66666666-6666-4666-8666-666666666666" },
+    async () => new Response(null, { status: 503 }),
+  );
+  assert.equal(uncertain.status, "uncertain", "Gateway timeout is NOT an applied grant");
+  assert.equal(grants, 1);
+});
