@@ -258,6 +258,7 @@ CREATE TABLE solo_expedition_trail_follows (
   player_id UUID NOT NULL REFERENCES players(id),
   expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
   source_outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
+  followed_outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
   follow_revision BIGINT NOT NULL CHECK (follow_revision >= 1),
   encounter_id UUID NOT NULL UNIQUE REFERENCES encounters(id),
   content_release_id UUID NOT NULL REFERENCES content_releases(id),
@@ -265,7 +266,8 @@ CREATE TABLE solo_expedition_trail_follows (
   encounter_level SMALLINT NOT NULL CHECK (encounter_level BETWEEN 1 AND 100),
   shiny BOOLEAN NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(expedition_id, follow_revision)
+  UNIQUE(expedition_id, follow_revision),
+  CHECK (source_outcome_id <> followed_outcome_id)
 );
 CREATE INDEX solo_expedition_trail_follows_player
   ON solo_expedition_trail_follows(player_id, expedition_id);
@@ -273,4 +275,4 @@ CREATE TRIGGER solo_expedition_trail_follow_immutable
   BEFORE UPDATE OR DELETE ON solo_expedition_trail_follows
   FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
 COMMENT ON TABLE solo_expedition_trail_follows IS
-  'STAGING draft: immutable source TRAIL -> canonical published Encounter, 15-minute receipt. No active migration.';
+  'STAGING draft: immutable TRAIL source to DIRECT outcome and canonical Encounter, 15-minute receipt. No active migration.';
