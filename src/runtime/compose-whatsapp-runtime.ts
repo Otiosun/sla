@@ -89,6 +89,7 @@ import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handl
 import { ProgressionService } from "../modules/progression/service.js";
 import { createProgressionWhatsAppRoutes } from "../modules/progression/whatsapp-handlers.js";
 import { PvpService } from "../modules/pvp/service.js";
+import { initialPvpTiming } from "../modules/pvp/turn-window-policy.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
@@ -333,10 +334,7 @@ export function createOperationalMessagingComposition(
       new AesEncounterSeedProvider(key, keyVersion),
       new SystemClock(),
       { enabled: true, reason: null },
-      {
-        challengeTtlMs: pveBattleConfig.turnWindowTtlMs,
-        turnWindowTtlMs: pveBattleConfig.turnWindowTtlMs,
-      },
+      initialPvpTiming(pveBattleConfig.turnWindowTtlMs),
       new PostgresPvpStartRepository(pool, new AesEncounterSeedProvider(key, keyVersion)),
     );
     return {
