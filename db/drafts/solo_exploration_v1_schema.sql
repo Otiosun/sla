@@ -51,7 +51,7 @@ CREATE TABLE solo_expedition_receipts (
   player_id UUID NOT NULL REFERENCES players(id),
   idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
   expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
-  operation TEXT NOT NULL CHECK (operation IN ('PREPARE', 'CHANGE_PERIOD', 'ADVANCE', 'END', 'ACTION_SEARCH_FREE', 'ACTION_IGNORE_INCIDENTAL', 'ACTION_TRAVEL', 'ACTION_RESOURCE_SEARCH')),
+  operation TEXT NOT NULL CHECK (operation IN ('PREPARE', 'CHANGE_PERIOD', 'ADVANCE', 'END', 'ACTION_SEARCH_FREE', 'ACTION_IGNORE_INCIDENTAL', 'ACTION_TRAVEL', 'ACTION_RESOURCE_SEARCH', 'ACTION_FOLLOW_TRAIL')),
   fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
   result JSONB NOT NULL CHECK (jsonb_typeof(result) = 'object'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -248,3 +248,29 @@ CREATE TRIGGER solo_resource_result_immutable
   FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
 COMMENT ON TABLE solo_expedition_resource_results IS
   'DRAFT only: immutable 60-minute resource selection, canonical grant ledger and receipt provenance.';
+
+-- DRAFT ONLY. A 15-minute follow-up consumes one and only one TRAIL search
+-- source, creates a real EncounterService encounter and persists the original
+-- vetted PUBLISHED species preview in one caller-owned transaction.
+-- No synthetic creature, species ID, spawn odds or reward is permitted.
+CREATE TABLE solo_expedition_trail_follows (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id),
+  expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
+  source_outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
+  follow_revision BIGINT NOT NULL CHECK (follow_revision >= 1),
+  encounter_id UUID NOT NULL UNIQUE REFERENCES encounters(id),
+  content_release_id UUID NOT NULL REFERENCES content_releases(id),
+  species_name TEXT NOT NULL CHECK (char_length(species_name) BETWEEN 1 AND 70),
+  encounter_level SMALLINT NOT NULL CHECK (encounter_level BETWEEN 1 AND 100),
+  shiny BOOLEAN NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(expedition_id, follow_revision)
+);
+CREATE INDEX solo_expedition_trail_follows_player
+  ON solo_expedition_trail_follows(player_id, expedition_id);
+CREATE TRIGGER solo_expedition_trail_follow_immutable
+  BEFORE UPDATE OR DELETE ON solo_expedition_trail_follows
+  FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
+COMMENT ON TABLE solo_expedition_trail_follows IS
+  'STAGING draft: immutable source TRAIL -> canonical published Encounter, 15-minute receipt. No active migration.';
