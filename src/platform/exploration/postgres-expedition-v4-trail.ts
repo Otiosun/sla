@@ -67,7 +67,7 @@ async function readVerifiedTrailSource(
          AND source.expedition_revision=$3::bigint - 1
          AND source.kind='TRAIL'
          AND source.encounter_id IS NULL
-         AND receipt.result->'expedition'->>'revision'=$3
+         AND receipt.result->'expedition'->>'revision'=$3::text
          AND receipt.result->'expedition'->>'areaId'=$4
          AND receipt.result->'expedition'->>'elapsedMinutes'=$5
          AND NOT EXISTS (
