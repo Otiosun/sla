@@ -119,11 +119,15 @@ test("real PG18 -> encrypted dump -> isolated cloned restore plus synthetic sess
       BACKUP_ENCRYPTION_KEY_B64: key,
     });
     await rm(join(temp, "pg18.dump"));
-    command("node", [ENVELOPE, "decrypt", join(temp, "pg18.pbv4"), join(temp, "pg18.restored.dump")], {
-      ...process.env,
-      BACKUP_ENCRYPTION_KEY_B64: key,
-      ALLOW_DISPOSABLE_BACKUP_RESTORE: "1",
-    });
+    command(
+      "node",
+      [ENVELOPE, "decrypt", join(temp, "pg18.pbv4"), join(temp, "pg18.restored.dump")],
+      {
+        ...process.env,
+        BACKUP_ENCRYPTION_KEY_B64: key,
+        ALLOW_DISPOSABLE_BACKUP_RESTORE: "1",
+      },
+    );
     dockerPostgres(temp, "RESTORE_DATABASE_URL", urlFor(sourceName), [
       "pg_restore",
       "--list",
@@ -131,10 +135,9 @@ test("real PG18 -> encrypted dump -> isolated cloned restore plus synthetic sess
     ]);
 
     // A backup only proves recovery when the original has diverged.
-    await source.query(
-      "UPDATE players SET status='SUSPENDED',revision=revision+1 WHERE id=$1",
-      [syntheticPlayer],
-    );
+    await source.query("UPDATE players SET status='SUSPENDED',revision=revision+1 WHERE id=$1", [
+      syntheticPlayer,
+    ]);
     await admin.query('CREATE DATABASE "' + restoredName + '"');
     cloneCreated = true;
     dockerPostgres(temp, "RESTORE_DATABASE_URL", urlFor(restoredName), [
@@ -144,12 +147,14 @@ test("real PG18 -> encrypted dump -> isolated cloned restore plus synthetic sess
     ]);
     clone = new Pool({ connectionString: urlFor(restoredName), max: 2 });
 
-    const original = await source.query("SELECT status,revision::int AS revision FROM players WHERE id=$1", [
-      syntheticPlayer,
-    ]);
-    const recovered = await clone.query("SELECT status,revision::int AS revision FROM players WHERE id=$1", [
-      syntheticPlayer,
-    ]);
+    const original = await source.query(
+      "SELECT status,revision::int AS revision FROM players WHERE id=$1",
+      [syntheticPlayer],
+    );
+    const recovered = await clone.query(
+      "SELECT status,revision::int AS revision FROM players WHERE id=$1",
+      [syntheticPlayer],
+    );
     assert.deepEqual(original.rows[0], { status: "SUSPENDED", revision: 1 });
     assert.deepEqual(recovered.rows[0], { status: "ACTIVE", revision: 0 });
     assert.equal(await fingerprint(clone), baseline);
@@ -157,7 +162,9 @@ test("real PG18 -> encrypted dump -> isolated cloned restore plus synthetic sess
       "SELECT count(*)::int AS n FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'solo_%'",
     );
     assert.equal(tables.rows[0].n, 10);
-    const policies = await clone.query("SELECT count(*)::int AS n FROM solo_resource_loot_policies");
+    const policies = await clone.query(
+      "SELECT count(*)::int AS n FROM solo_resource_loot_policies",
+    );
     assert.equal(policies.rows[0].n, 0);
     const client = await clone.connect();
     try {
@@ -184,18 +191,25 @@ test("real PG18 -> encrypted dump -> isolated cloned restore plus synthetic sess
       BACKUP_ENCRYPTION_KEY_B64: key,
     });
     await rm(join(temp, "assets.tar.gz"));
-    command("node", [ENVELOPE, "decrypt", join(temp, "assets.pbv4"), join(temp, "assets.restored.tar.gz")], {
-      ...process.env,
-      BACKUP_ENCRYPTION_KEY_B64: key,
-      ALLOW_DISPOSABLE_BACKUP_RESTORE: "1",
-    });
+    command(
+      "node",
+      [ENVELOPE, "decrypt", join(temp, "assets.pbv4"), join(temp, "assets.restored.tar.gz")],
+      {
+        ...process.env,
+        BACKUP_ENCRYPTION_KEY_B64: key,
+        ALLOW_DISPOSABLE_BACKUP_RESTORE: "1",
+      },
+    );
     command("tar", ["-xzf", join(temp, "assets.restored.tar.gz"), "-C", outputAssets]);
     assert.deepEqual(await readFile(join(outputAssets, "session", "creds.json")), fakeSession);
     assert.deepEqual(await readFile(join(outputAssets, "media", "image.png")), fakeMedia);
   } finally {
     if (clone) await clone.end();
     if (source) await source.end();
-    for (const [name, created] of [[restoredName, cloneCreated], [sourceName, sourceCreated]]) {
+    for (const [name, created] of [
+      [restoredName, cloneCreated],
+      [sourceName, sourceCreated],
+    ]) {
       if (!created) continue;
       await admin.query(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid<>pg_backend_pid()",
