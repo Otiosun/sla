@@ -487,7 +487,10 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
           : []),
         ...(state !== "NONE" && this.deps.resources !== undefined
-          ? ["2. 🎒 Buscar recursos ● `60 min`", "› _Use /explorar 2 ou /explorar recursos; exige tabela publicada._"]
+          ? [
+              "2. 🎒 Buscar recursos ● `60 min`",
+              "› _Use /explorar 2 ou /explorar recursos; exige tabela publicada._",
+            ]
           : []),
         ...(state !== "NONE" && this.deps.preparation !== undefined
           ? ["3. 🗺️ Consultar destinos ● /explorar 3"]
@@ -708,7 +711,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "",
           "⌛ *Custo:* \`60 min\`",
           "⌛ *Tempo utilizado:* \`" + String(transition.expedition.elapsedMinutes) + " min\`",
-          "🎟️ *Cota da semana:* " + (transition.consumedWeeklySlot ? "primeira ação contabilizada" : "sem nova cota"),
+          "🎟️ *Cota da semana:* " +
+            (transition.consumedWeeklySlot ? "primeira ação contabilizada" : "sem nova cota"),
           "› _Resultado registrado no inventário canônico, quando houver item._",
         ].join("\n"),
       );
@@ -821,7 +825,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
                 "◇ *𝗔ÇÕ𝗘𝗦*",
                 "1. 🔎 Buscar Pokémon ● `30 min`",
                 "› _Use /explorar 1 ou /explorar buscar para iniciar a busca._",
-                ...(this.deps.resources === undefined ? ["› _Recursos indisponíveis._"] : ["2. 🎒 Buscar recursos ● `60 min`", "› _/explorar 2 ou /explorar recursos; somente com tabela publicada._"]),
+                ...(this.deps.resources === undefined
+                ? ["› _Recursos indisponíveis._"]
+                : [
+                    "2. 🎒 Buscar recursos ● `60 min`",
+                    "› _/explorar 2 ou /explorar recursos; somente com tabela publicada._",
+                  ]),
                 "› _Viagem exige conexão e duração publicada._",
               ]),
           "3. 🗺️ Consultar destinos ● /explorar 3",
@@ -873,12 +882,16 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
               label: "🔎 Buscar Pokémon ● 30 min",
               phrases: [],
             },
-            ...(this.deps.resources === undefined ? [] : [{
-              optionNo: 2,
-              intent: "SEARCH_RESOURCES" as const,
-              label: "🎒 Buscar recursos ● 60 min",
-              phrases: [],
-            }]),
+            ...(this.deps.resources === undefined
+              ? []
+              : [
+                  {
+                    optionNo: 2,
+                    intent: "SEARCH_RESOURCES" as const,
+                    label: "🎒 Buscar recursos ● 60 min",
+                    phrases: [],
+                  },
+                ]),
             {
               optionNo: 3,
               intent: "DESTINATIONS",
@@ -900,9 +913,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
             ...(this.deps.travel === undefined
               ? ["› _Viagem ainda não está disponível._"]
-              : [
-                  "› _Viajar só quando a conexão tiver minutos aprovados._",
-                ]),
+              : ["› _Viajar só quando a conexão tiver minutos aprovados._"]),
           ].join("\n"),
         );
       }
@@ -919,12 +930,16 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             label: "🔎 Buscar Pokémon ● 30 min",
             phrases: [],
           },
-          ...(this.deps.resources === undefined ? [] : [{
-            optionNo: 2,
-            intent: "SEARCH_RESOURCES" as const,
-            label: "🎒 Buscar recursos ● 60 min",
-            phrases: [],
-          }]),
+          ...(this.deps.resources === undefined
+            ? []
+            : [
+                {
+                  optionNo: 2,
+                  intent: "SEARCH_RESOURCES" as const,
+                  label: "🎒 Buscar recursos ● 60 min",
+                  phrases: [],
+                },
+              ]),
           {
             optionNo: 3,
             intent: "DESTINATIONS",
