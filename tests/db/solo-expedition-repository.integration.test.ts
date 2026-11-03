@@ -565,6 +565,84 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(originalLedger.rows[0]?.n).toBe(1);
   });
 
+  it("serializes concurrent duplicate resource Inbox deliveries to one ledger and one result", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "resource-race-prepare");
+    const service = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x52)),
+    );
+    const input = {
+      playerId,
+      expeditionId: exp.expeditionId,
+      expectedRevision: exp.revision,
+      idempotencyKey: "resource-race-same-inbox",
+    };
+    const [first, second] = await Promise.all([service.execute(input), service.execute(input)]);
+    if (!first.ok) throw first.error;
+    if (!second.ok) throw second.error;
+    expect(first.value.resource.resultId).toBe(second.value.resource.resultId);
+    expect(first.value.resource.ledgerId).toBe(second.value.resource.ledgerId);
+    expect([first.value.transition.replayed, second.value.transition.replayed].sort()).toEqual([
+      false,
+      true,
+    ]);
+    const ledger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1 AND source_type='EXPEDITION_RESOURCE'",
+      [playerId],
+    );
+    expect(ledger.rows[0]?.n).toBe(1);
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 60,
+      revision: 1n,
+    });
+  });
+
+  it("rolls back a canonical inventory grant when result persistence fails midtransaction", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "resource-injected-failure-prepare");
+    const service = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x53)),
+    );
+    await pool.query(
+      "CREATE FUNCTION fail_solo_resource_result_for_test() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'synthetic resource persistence failure'; END; $",
+    );
+    await pool.query(
+      "CREATE TRIGGER solo_resource_injected_failure BEFORE INSERT ON solo_expedition_resource_results FOR EACH ROW EXECUTE FUNCTION fail_solo_resource_result_for_test()",
+    );
+    try {
+      await expect(
+        service.execute({
+          playerId,
+          expeditionId: exp.expeditionId,
+          expectedRevision: exp.revision,
+          idempotencyKey: "resource-injected-failure-action",
+        }),
+      ).rejects.toThrow("synthetic resource persistence failure");
+    } finally {
+      await pool.query(
+        "DROP TRIGGER IF EXISTS solo_resource_injected_failure ON solo_expedition_resource_results",
+      );
+      await pool.query("DROP FUNCTION IF EXISTS fail_solo_resource_result_for_test()");
+    }
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      revision: 0n,
+      consumedWeekKey: null,
+    });
+    const ledger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+      [playerId],
+    );
+    expect(ledger.rows[0]?.n).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
   it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "pg18-travel-preparation");
