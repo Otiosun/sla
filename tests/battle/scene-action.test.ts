@@ -7,12 +7,22 @@ describe("scene action contract", () => {
     ["_Cena /movimento 2_", { type: "USE_MOVE", moveRef: "2" }],
     ["Cena /movimento Quick Attack", { type: "USE_MOVE", moveRef: "Quick Attack" }],
     ["/trocar 2", { type: "SWITCH", switchSlot: 2 }],
+    ["/trocar 2 e continuo a Cena no mesmo parágrafo", { type: "SWITCH", switchSlot: 2 }],
+    ["Eu ergo a mão. /trocar 3, enquanto descrevo o retorno.", { type: "SWITCH", switchSlot: 3 }],
     ["/capturar 1", { type: "CAPTURE", captureRef: "1" }],
     ["/capturar", { type: "CAPTURE", captureRef: "" }],
     ["Tento recuar. /fugir", { type: "FLEE" }],
     ["Não dá mais. /desistir", { type: "SURRENDER" }],
   ])("parses %s", (text, intent) =>
     expect(parseSceneAction(text)).toEqual({ kind: "ACTION", intent }),
+  );
+
+  it.each(["/trocar 2abc", "/trocar 2.5", "/trocar 0", "/trocar -2", "/trocar 9999999999999999999999"])(
+    "rejects malformed /trocar slot %s without applying an action",
+    (input) => expect(parseSceneAction(input)).toEqual({
+      kind: "INVALID",
+      reason: "INVALID_DIRECTIVE",
+    }),
   );
 
   it("does not recognize the removed /item directive", () =>
