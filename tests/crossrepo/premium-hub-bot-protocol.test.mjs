@@ -32,25 +32,69 @@ function endpoint(path) {
 }
 
 const CORPUS = [
-  ["GET", "/api/hub/admin/premium/delivery/cases/catalog", "/v1/hub/admin/premium/delivery/cases/catalog"],
-  ["GET", `/api/hub/admin/premium/delivery/cases?playerId=${UUID}`, `/v1/hub/admin/premium/delivery/cases?playerId=${UUID}`],
+  [
+    "GET",
+    "/api/hub/admin/premium/delivery/cases/catalog",
+    "/v1/hub/admin/premium/delivery/cases/catalog",
+  ],
+  [
+    "GET",
+    `/api/hub/admin/premium/delivery/cases?playerId=${UUID}`,
+    `/v1/hub/admin/premium/delivery/cases?playerId=${UUID}`,
+  ],
   ["POST", "/api/hub/admin/premium/delivery/cases", "/v1/hub/admin/premium/delivery/cases"],
-  ["GET", `/api/hub/admin/premium/delivery/cases/${CASE}/events`, `/v1/hub/admin/premium/delivery/cases/${CASE}/events`],
-  ["POST", `/api/hub/admin/premium/delivery/cases/${CASE}/transition`, `/v1/hub/admin/premium/delivery/cases/${CASE}/transition`],
+  [
+    "GET",
+    `/api/hub/admin/premium/delivery/cases/${CASE}/events`,
+    `/v1/hub/admin/premium/delivery/cases/${CASE}/events`,
+  ],
+  [
+    "POST",
+    `/api/hub/admin/premium/delivery/cases/${CASE}/transition`,
+    `/v1/hub/admin/premium/delivery/cases/${CASE}/transition`,
+  ],
   ["GET", "/api/hub/admin/premium/players?q=Trainer", "/v1/hub/admin/players?q=Trainer&limit=8"],
   ["GET", "/api/hub/admin/premium/delivery/catalog", "/v1/hub/admin/premium/delivery/catalog"],
   ["POST", "/api/hub/admin/premium/delivery", "/v1/hub/admin/premium/delivery"],
-  ["GET", "/api/hub/admin/premium/delivery/packs/master", "/v1/hub/admin/premium/delivery/packs/master"],
-  ["POST", "/api/hub/admin/premium/delivery/packs/master", "/v1/hub/admin/premium/delivery/packs/master"],
+  [
+    "GET",
+    "/api/hub/admin/premium/delivery/packs/master",
+    "/v1/hub/admin/premium/delivery/packs/master",
+  ],
+  [
+    "POST",
+    "/api/hub/admin/premium/delivery/packs/master",
+    "/v1/hub/admin/premium/delivery/packs/master",
+  ],
   ["GET", "/api/hub/admin/premium/delivery/items", "/v1/hub/admin/premium/delivery/items"],
   ["POST", "/api/hub/admin/premium/delivery/items", "/v1/hub/admin/premium/delivery/items"],
   ["GET", "/api/hub/admin/premium/delivery/pokemon", "/v1/hub/admin/premium/delivery/pokemon"],
   ["POST", "/api/hub/admin/premium/delivery/pokemon", "/v1/hub/admin/premium/delivery/pokemon"],
-  ["GET", `/api/hub/admin/premium?playerId=${UUID}&resource=orders`, `/v1/hub/admin/premium/players/${UUID}/orders`],
-  ["GET", `/api/hub/admin/premium?playerId=${UUID}&resource=entitlements`, `/v1/hub/admin/premium/players/${UUID}/entitlements`],
-  ["GET", `/api/hub/admin/premium?playerId=${UUID}&resource=deliveries`, `/v1/hub/admin/premium/players/${UUID}/deliveries`],
-  ["GET", `/api/hub/admin/premium?playerId=${UUID}&resource=support`, `/v1/hub/admin/premium/players/${UUID}/support`],
-  ["POST", `/api/hub/admin/premium?playerId=${UUID}&resource=support`, `/v1/hub/admin/premium/players/${UUID}/support`],
+  [
+    "GET",
+    `/api/hub/admin/premium?playerId=${UUID}&resource=orders`,
+    `/v1/hub/admin/premium/players/${UUID}/orders`,
+  ],
+  [
+    "GET",
+    `/api/hub/admin/premium?playerId=${UUID}&resource=entitlements`,
+    `/v1/hub/admin/premium/players/${UUID}/entitlements`,
+  ],
+  [
+    "GET",
+    `/api/hub/admin/premium?playerId=${UUID}&resource=deliveries`,
+    `/v1/hub/admin/premium/players/${UUID}/deliveries`,
+  ],
+  [
+    "GET",
+    `/api/hub/admin/premium?playerId=${UUID}&resource=support`,
+    `/v1/hub/admin/premium/players/${UUID}/support`,
+  ],
+  [
+    "POST",
+    `/api/hub/admin/premium?playerId=${UUID}&resource=support`,
+    `/v1/hub/admin/premium/players/${UUID}/support`,
+  ],
 ];
 
 function botHandler({ signedIn = false } = {}) {
@@ -80,8 +124,15 @@ test("exact Hub #132 allowlisted Premium routes match live bot HTTP handler auth
       const response = await botHandler({ signedIn: authorizedCookie }).handle(
         new Request(`https://staging-bot.test${expected}`, {
           method,
-          headers: authorizedCookie ? { cookie: SESSION_COOKIE } : {},
-          ...(method === "POST" ? { body: "{}", headers: { ...(authorizedCookie ? { cookie: SESSION_COOKIE } : {}), "content-type": "application/json" } } : {}),
+          ...(method === "POST"
+            ? {
+                body: "{}",
+                headers: {
+                  ...(authorizedCookie ? { cookie: SESSION_COOKIE } : {}),
+                  "content-type": "application/json",
+                },
+              }
+            : { headers: authorizedCookie ? { cookie: SESSION_COOKIE } : {} }),
         }),
       );
       assert.equal(
@@ -130,9 +181,15 @@ test("Hub preview needs explicit approved HTTPS staging origin, not production u
     { enabled: "0" },
     { approvedOrigin: "https://different.example" },
     { apiBaseUrl: "http://staging.beyond.example" },
-    { apiBaseUrl: "https://pokemon-api.otiosunbots.xyz", approvedOrigin: "https://pokemon-api.otiosunbots.xyz" },
+    {
+      apiBaseUrl: "https://pokemon-api.otiosunbots.xyz",
+      approvedOrigin: "https://pokemon-api.otiosunbots.xyz",
+    },
     { productionApiBaseUrl: "https://staging.beyond.example" },
-    { apiBaseUrl: "https://staging.beyond.example/secret", approvedOrigin: "https://staging.beyond.example/secret" },
+    {
+      apiBaseUrl: "https://staging.beyond.example/secret",
+      approvedOrigin: "https://staging.beyond.example/secret",
+    },
   ]) {
     assert.equal(resolvePremiumStagingApiBaseUrl({ ...config, ...changed }), null);
   }
