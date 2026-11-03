@@ -6,6 +6,8 @@ import type {
   PostgresExpeditionResourceConfirmationRecovery,
   RecoveredResourceConfirmation,
 } from "../../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import type { PostgresExpeditionV4EventHistoryReader } from "../../platform/exploration/postgres-expedition-v4-event-history-reader.js";
+import { renderExpeditionV4EventHistoryPanel } from "./expedition-v4-event-history-panel.js";
 import type { PostgresExpeditionV4StagingTrailFollow } from "../../platform/exploration/postgres-expedition-v4-trail.js";
 import type { PostgresExpeditionTrailConfirmationRecovery } from "../../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
 import { renderExpeditionV4TrailFollowPanel } from "./expedition-v4-trail-follow-panel.js";
@@ -78,6 +80,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
   /** Isolated read-only summary; never fabricates capture, XP or item grants. */
   readonly summary?: Pick<PostgresExpeditionV4StatusReader, "readLatestCompleted">;
+  /** Read-only, player-scoped complete source-event timeline on isolated PG18. */
+  readonly history?: Pick<PostgresExpeditionV4EventHistoryReader, "readLatestCompleted">;
   /** Complete atomic World+expedition travel, staging/test only. */
   readonly travel?: Pick<PostgresExpeditionV4StagingTravel, "execute">;
   /** Only exact, original claimed Inbox may recover a previously committed travel. */
@@ -356,6 +360,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       text,
     );
     const summaryRequested = /^\/explorar\s+resumo$/iu.test(text);
+    const historyRequested = /^\/explorar\s+eventos(?:\s|$)/iu.test(text);
+    const historyMatch = /^\/explorar\s+eventos(?:\s+([1-9][0-9]{0,3}))?$/iu.exec(text);
     const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
       !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
@@ -367,6 +373,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
       (!destinationsRequested || this.deps.preparation === undefined) &&
       (!summaryRequested || this.deps.summary === undefined) &&
+      (!historyRequested || this.deps.history === undefined) &&
       (travelRequested === null || this.deps.travel === undefined)
     ) {
       return privateText(
@@ -396,6 +403,23 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       return err(
         appError("FLOW_BLOCKED", "Exploração disponível somente no grupo GAME autorizado."),
       );
+    }
+    if (historyRequested && this.deps.history !== undefined) {
+      if (historyMatch === null) {
+        return err(appError("VALIDATION_FAILED", "Use /explorar eventos ou /explorar eventos 2."));
+      }
+      const requestedPage = Number(historyMatch[1] ?? "1");
+      const found = await this.deps.history.readLatestCompleted(playerId, requestedPage);
+      if (!found.ok) return found;
+      if (found.value === null) {
+        return privateText(
+          context,
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗖𝗢*\\n\\nNenhuma expedição encerrada possui histórico disponível.",
+        );
+      }
+      const panel = renderExpeditionV4EventHistoryPanel(found.value);
+      if (!panel.ok) return panel;
+      return privateText(context, panel.value);
     }
     if (summaryRequested && this.deps.summary !== undefined) {
       const latest = await this.deps.summary.readLatestCompleted(playerId);
@@ -572,6 +596,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
               "› _Trocar período: /explorar periodo dia ou /explorar periodo noite._",
               "› _Cancelar sem custo: /explorar cancelar._",
             ]
+          : []),
+        ...(this.deps.history !== undefined
+          ? ["› _Histórico de eventos: /explorar eventos (consultas gratuitas)._"]
           : []),
         ...(this.deps.summary === undefined
           ? ["› _Histórico ainda não está disponível nesta prévia._"]
