@@ -57,6 +57,7 @@ interface ResourceRow {
   readonly item_id: string | null;
   readonly quantity: string;
   readonly ledger_id: string | null;
+  readonly item_name: string | null;
 }
 export interface StoredResourceResult {
   readonly resultId: string;
@@ -69,6 +70,7 @@ export interface StoredResourceResult {
   readonly itemId: string | null;
   readonly quantity: bigint;
   readonly ledgerId: string | null;
+  readonly displayName: string | null;
 }
 function toResource(row: ResourceRow): StoredResourceResult {
   return {
@@ -82,6 +84,7 @@ function toResource(row: ResourceRow): StoredResourceResult {
     itemId: row.item_id,
     quantity: BigInt(row.quantity),
     ledgerId: row.ledger_id,
+    displayName: row.item_name,
   };
 }
 async function readResource(client: PoolClient, playerId: PlayerId, id: string): Promise<StoredResourceResult | null> {
@@ -89,8 +92,11 @@ async function readResource(client: PoolClient, playerId: PlayerId, id: string):
     `SELECT result.id::text, result.player_id::text, result.expedition_id::text,
             result.expedition_revision::text, result.content_release_id::text,
             result.policy_id::text, result.kind, result.item_id::text,
-            result.quantity::text, result.ledger_id::text
+            result.quantity::text, result.ledger_id::text,
+            item.display_name AS item_name
      FROM solo_expedition_resource_results result
+     LEFT JOIN item_revisions item ON item.content_release_id=result.content_release_id
+       AND item.item_id=result.item_id
      WHERE result.player_id=$1 AND result.id=$2`, [playerId, id],
   );
   return found.rows.length === 1 && found.rows[0] ? toResource(found.rows[0]) : null;
