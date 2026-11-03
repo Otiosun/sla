@@ -357,19 +357,25 @@ export class PostgresExpeditionV4EventHistoryReader {
             kind,
             occurredAt: row.created_at,
             elapsedMinutes: null,
-            description: kind === "BATTLE_STARTED" ? "Batalha PvE iniciada" :
-              kind === "CAPTURED" ? "Captura confirmada" : "Tentativa de captura sem sucesso",
+            description:
+              kind === "BATTLE_STARTED"
+                ? "Batalha PvE iniciada"
+                : kind === "CAPTURED"
+                  ? "Captura confirmada"
+                  : "Tentativa de captura sem sucesso",
             receiptRef: row.event_id,
           });
         }
         if (events.length > MAX_EVENTS) {
           return err(appError("FLOW_BLOCKED", "Expedition has too many events for a safe report"));
         }
-        events.sort((a,b) =>
-          a.occurredAt.getTime()-b.occurredAt.getTime() ||
-          a.receiptRef.localeCompare(b.receiptRef));
-        const pages=Math.max(1,Math.ceil(events.length/PAGE_SIZE));
-        if (page>pages) return err(appError("VALIDATION_FAILED", "History page does not exist"));
+        events.sort(
+          (a, b) =>
+            a.occurredAt.getTime() - b.occurredAt.getTime() ||
+            a.receiptRef.localeCompare(b.receiptRef),
+        );
+        const pages = Math.max(1, Math.ceil(events.length / PAGE_SIZE));
+        if (page > pages) return err(appError("VALIDATION_FAILED", "History page does not exist"));
         return ok({
           period: expedition.period,
           endReason: expedition.end_reason,
@@ -377,7 +383,7 @@ export class PostgresExpeditionV4EventHistoryReader {
           page,
           pages,
           totalEvents: events.length,
-          events: events.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE),
+          events: events.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
         });
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
