@@ -499,7 +499,6 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     }
   });
 
-
   it("recovers the original claimed Inbox resource confirmation without a second inventory grant", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "resource-inbox-prepare");
