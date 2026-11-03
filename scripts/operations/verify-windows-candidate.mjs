@@ -5,7 +5,8 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const SHA = /^[0-9a-f]{40}$/u;
 const DIGEST = /^[0-9a-f]{64}$/u;
-const PRIVATE = /(^|\/)(?:\.env(?:\.[^/]*)?|auth_info_baileys|node_modules|\.git|\.npmrc|\.ssh|\.aws)(?:\/|$)/iu;
+const PRIVATE =
+  /(^|\/)(?:\.env(?:\.[^/]*)?|auth_info_baileys|node_modules|\.git|\.npmrc|\.ssh|\.aws)(?:\/|$)/iu;
 const ENTRY = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
 
 async function walk(directory, root) {
@@ -29,8 +30,15 @@ async function walk(directory, root) {
 
 async function main() {
   const [rawDirectory, expectedSha] = process.argv.slice(2);
-  assert.equal(process.argv.length, 4, "Usage: verify-windows-candidate.mjs <dir> <trusted-commit-sha>");
-  assert.ok(SHA.test(expectedSha ?? ""), "Expected git SHA must be an independently verified commit");
+  assert.equal(
+    process.argv.length,
+    4,
+    "Usage: verify-windows-candidate.mjs <dir> <trusted-commit-sha>",
+  );
+  assert.ok(
+    SHA.test(expectedSha ?? ""),
+    "Expected git SHA must be an independently verified commit",
+  );
   const directory = resolve(rawDirectory);
   const root = await lstat(directory);
   assert.ok(root.isDirectory() && !root.isSymbolicLink(), "Bundle root must be a directory");
@@ -78,7 +86,9 @@ async function main() {
   }
   const readme = await readFile(join(directory, "READ_ME_FIRST.txt"), "utf8");
   assert.ok(readme.includes("NO-GO"), "Bundle lost its installation prohibition");
-  console.log("Windows candidate file integrity: PASS. NOT release approval or artifact authenticity.");
+  console.log(
+    "Windows candidate file integrity: PASS. NOT release approval or artifact authenticity.",
+  );
 }
 
 main().catch((error) => {
