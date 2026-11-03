@@ -551,7 +551,9 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
           : []),
         ...(state === "ACTIVE" && this.deps.trail !== undefined
-          ? ["› _Seguir rastros recentes: /explorar seguir ● \`15 min\` (somente se houver rastro)._"]
+          ? [
+              "› _Seguir rastros recentes: /explorar seguir ● \`15 min\` (somente se houver rastro)._",
+            ]
           : []),
         ...(state !== "NONE" && this.deps.resources !== undefined
           ? [
