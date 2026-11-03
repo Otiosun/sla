@@ -6,6 +6,7 @@ import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionResourceConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
 import {
   PublishedResourceLootPolicy,
   PostgresExpeditionV4StagingResourceSearch,
@@ -497,6 +498,73 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       );
       expect(ledger.rows[0]?.n).toBe(0);
     }
+  });
+
+
+  it("recovers the original claimed Inbox resource confirmation without a second inventory grant", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "resource-inbox-prepare");
+    const senderRef = "5579999999927@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T21:00:00.000Z",
+      text: "/explorar recursos",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const inbox = await new PostgresMessagingRepository(pool).claimIncoming(inbound, 30_000);
+    if (!inbox.ok) throw inbox.error;
+    const idempotencyKey = "inbox:baileys:" + inbound.externalMessageId;
+    const resource = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x51)),
+    );
+    const spent = await resource.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey,
+    });
+    expect(spent.ok).toBe(true);
+    const recovery = new PostgresExpeditionResourceConfirmationRecovery(pool);
+    const context = {
+      message: inbound,
+      inboxMessageId: inbox.value.inboxMessageId,
+      idempotencyKey,
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    expect(await recovery.resolve({ playerId, context })).toEqual(
+      ok({
+        kind: "ITEM",
+        displayName: "Poké Ball",
+        quantity: 2n,
+        elapsedMinutes: 60,
+        consumedWeeklySlot: true,
+      }),
+    );
+    expect(
+      await recovery.resolve({
+        playerId,
+        context: {
+          ...context,
+          message: { ...inbound, externalMessageId: randomUUID() },
+        },
+      }),
+    ).toEqual(ok(null));
+    const originalLedger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1 AND source_type='EXPEDITION_RESOURCE'",
+      [playerId],
+    );
+    expect(originalLedger.rows[0]?.n).toBe(1);
   });
 
   it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
