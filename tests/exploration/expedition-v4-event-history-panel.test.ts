@@ -35,9 +35,11 @@ describe("V4 factual event history Rotom presentation", () => {
     expect(renderExpeditionV4EventHistoryPanel({ ...basic, page: 3 })).toMatchObject({
       ok: false,
     });
-    expect(renderExpeditionV4EventHistoryPanel({
-      ...basic,
-      events: [{ ...basic.events[0]!, description: "Poké Ball\n*Admin reward*" }],
-    })).toMatchObject({ ok: false });
+    expect(
+      renderExpeditionV4EventHistoryPanel({
+        ...basic,
+        events: [{ ...basic.events[0]!, description: "Poké Ball\n*Admin reward*" }],
+      }),
+    ).toMatchObject({ ok: false });
   });
 });
