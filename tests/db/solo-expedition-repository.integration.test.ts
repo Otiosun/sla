@@ -6,6 +6,10 @@ import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
+import {
+  PublishedResourceLootPolicy,
+  PostgresExpeditionV4StagingResourceSearch,
+} from "../../src/platform/exploration/postgres-expedition-v4-resources.js";
 import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
@@ -257,6 +261,18 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         JSON.stringify({ multiplierBasisPoints: 10000 }),
       ],
     );
+
+    // SYNTHETIC ONLY: these are never officially approved Vila/Yun loot odds.
+    await pool.query(
+      "INSERT INTO solo_resource_loot_policies(id,content_release_id,area_id,period,entries,approval_ref,approved_at) VALUES($1,$2,$3,'DAY',$4::jsonb,'SYNTHETIC-PG18-ONLY',now())",
+      [randomUUID(), publishedReleaseId, activeAreaId,
+        JSON.stringify([{ kind: "ITEM", itemId: publishedBallItemId, quantity: 2, weight: 10000 }])],
+    );
+    await pool.query(
+      "INSERT INTO solo_resource_loot_policies(id,content_release_id,area_id,period,entries,approval_ref,approved_at) VALUES($1,$2,$3,'NIGHT',$4::jsonb,'SYNTHETIC-BAD-ITEM',now())",
+      [randomUUID(), publishedReleaseId, activeAreaId,
+        JSON.stringify([{ kind: "ITEM", itemId: randomUUID(), quantity: 1, weight: 10000 }])],
+    );
     // One real, published and FK-valid wild Pokémon for CaptureService's
     // PostgreSQL transaction: master catalog is authored before publication.
     const speciesId = randomUUID();
@@ -360,6 +376,92 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       // A plain DROP exposes real leaks instead of masking them.
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
+    }
+  });
+
+
+  it("commits exactly one canonical inventory grant and 60 minutes, with PG18 receipt replay", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "resource-fixture-prepare");
+    const resource = new PostgresExpeditionV4StagingResourceSearch(
+      pool, store, new PublishedResourceLootPolicy(Buffer.alloc(32, 0x48)),
+    );
+    const input = {
+      playerId,
+      expeditionId: exp.expeditionId,
+      expectedRevision: exp.revision,
+      idempotencyKey: "resource-original-inbox",
+    };
+    const first = await resource.execute(input);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        transition: {
+          expedition: { phase: "ACTIVE", elapsedMinutes: 60, revision: 1n },
+          consumedWeeklySlot: true, replayed: false,
+        },
+        resource: { kind: "ITEM", itemId: publishedBallItemId, quantity: 2n, displayName: "Poké Ball" },
+      },
+    });
+    if (!first.ok) throw first.error;
+    const repeated = await resource.execute(input);
+    expect(repeated).toMatchObject({
+      ok: true,
+      value: {
+        transition: { replayed: true },
+        resource: {
+          resultId: first.value.resource.resultId,
+          ledgerId: first.value.resource.ledgerId,
+        },
+      },
+    });
+    expect(await resource.execute({ ...input, idempotencyKey: "new-inbox" })).toMatchObject({ ok: false });
+    const balances = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [playerId, publishedBallItemId],
+    );
+    expect(balances.rows[0]?.quantity).toBe("2");
+    const ledger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1 AND source_type='EXPEDITION_RESOURCE'",
+      [playerId],
+    );
+    expect(ledger.rows[0]?.n).toBe(1);
+    const stored = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM solo_expedition_resource_results WHERE player_id=$1",
+      [playerId],
+    );
+    expect(stored.rows[0]?.n).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
+  it("fails closed without approved area policy or valid published item; no cost or grant", async () => {
+    const resource = new PostgresExpeditionV4StagingResourceSearch(
+      pool, store, new PublishedResourceLootPolicy(Buffer.alloc(32, 0x49)),
+    );
+    const missingPlayer = await trainer(yunAreaId);
+    const missing = await prepare(missingPlayer, "resource-missing-prepare");
+    expect(await resource.execute({
+      playerId: missingPlayer, expeditionId: missing.expeditionId,
+      expectedRevision: missing.revision, idempotencyKey: "resource-missing",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const invalidPlayer = await trainer();
+    const night = await store.prepare({
+      playerId: invalidPlayer, period: "NIGHT", idempotencyKey: "resource-night-prepare",
+    });
+    if (!night.ok) throw night.error;
+    expect(await resource.execute({
+      playerId: invalidPlayer, expeditionId: night.value.expedition.expeditionId,
+      expectedRevision: night.value.expedition.revision, idempotencyKey: "resource-bad-item",
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    for (const playerId of [missingPlayer, invalidPlayer]) {
+      expect(await store.current(playerId)).toMatchObject({
+        phase: "PREPARING", elapsedMinutes: 0, revision: 0n, consumedWeekKey: null,
+      });
+      expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+      const ledger = await pool.query<{ n: number }>(
+        "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1", [playerId],
+      );
+      expect(ledger.rows[0]?.n).toBe(0);
     }
   });
 
