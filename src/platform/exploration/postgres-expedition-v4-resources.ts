@@ -247,7 +247,9 @@ export class PostgresExpeditionV4StagingResourceSearch {
             [releaseId, selection.itemId],
           );
           if (published.rowCount !== 1) {
-            return err(appError("FLOW_BLOCKED", "Resource item is not active in the published release"));
+            return err(
+              appError("FLOW_BLOCKED", "Resource item is not active in the published release"),
+            );
           }
         }
         const resultId = randomUUID();
@@ -267,7 +269,11 @@ export class PostgresExpeditionV4StagingResourceSearch {
               correlationId: randomUUID(),
             },
           });
-          if (!granted.ok || granted.value.replayed || granted.value.delta !== BigInt(selection.quantity)) {
+          if (
+            !granted.ok ||
+            granted.value.replayed ||
+            granted.value.delta !== BigInt(selection.quantity)
+          ) {
             return err(appError("FLOW_BLOCKED", "Canonical inventory grant was not committed"));
           }
           ledgerId = granted.value.ledgerId;
@@ -278,16 +284,26 @@ export class PostgresExpeditionV4StagingResourceSearch {
             policy_id,kind,item_id,quantity,ledger_id)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
           [
-            resultId, input.playerId, expedition.expeditionId, expedition.revision.toString(),
-            releaseId, policyId, selection.kind,
+            resultId,
+            input.playerId,
+            expedition.expeditionId,
+            expedition.revision.toString(),
+            releaseId,
+            policyId,
+            selection.kind,
             selection.kind === "ITEM" ? selection.itemId : null,
-            selection.kind === "ITEM" ? selection.quantity : 0, ledgerId,
+            selection.kind === "ITEM" ? selection.quantity : 0,
+            ledgerId,
           ],
         );
         const stored = await readResource(client, input.playerId, resultId);
-        if (!stored || stored.expeditionId !== expedition.expeditionId ||
-            stored.expeditionRevision !== expedition.revision || stored.policyId !== policyId ||
-            (selection.kind === "ITEM" && stored.ledgerId === null)) {
+        if (
+          !stored ||
+          stored.expeditionId !== expedition.expeditionId ||
+          stored.expeditionRevision !== expedition.revision ||
+          stored.policyId !== policyId ||
+          (selection.kind === "ITEM" && stored.ledgerId === null)
+        ) {
           return err(appError("FLOW_BLOCKED", "Resource result was not durably stored"));
         }
         return ok({ effectRef: resultId });
@@ -297,11 +313,12 @@ export class PostgresExpeditionV4StagingResourceSearch {
     const client = await this.pool.connect();
     try {
       const resource = await readResource(client, input.playerId, action.value.effectRef);
-      if (!resource || resource.expeditionId !== input.expeditionId ||
-          resource.expeditionRevision !== input.expectedRevision ||
-          action.value.expedition.playerId !== input.playerId ||
-          action.value.expedition.expeditionId !== input.expeditionId ||
-          action.value.expedition.elapsedMinutes < 60) {
+      if (
+        !resource ||
+        resource.expeditionId !== input.expeditionId ||
+        resource.expeditionRevision !== input.expectedRevision ||
+        action.value.expedition.playerId !== input.playerId ||
+        action.value.expedition.expeditionId !== input.expeditionId ||
         return err(appError("FLOW_BLOCKED", "Resource receipt and persisted result disagree"));
       }
       // A replay must return the original saved item and quantity without granting again.
