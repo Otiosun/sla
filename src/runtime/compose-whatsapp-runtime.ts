@@ -150,6 +150,8 @@ import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/explor
 import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
 import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
+import { PostgresExpeditionV4StagingTrailFollow } from "../platform/exploration/postgres-expedition-v4-trail.js";
+import { PostgresExpeditionTrailConfirmationRecovery } from "../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
 import { PostgresExpeditionResourceConfirmationRecovery } from "../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
 import {
   PublishedResourceLootPolicy,
@@ -249,6 +251,7 @@ export function createOperationalMessagingComposition(
   explorationStagingSearchSecret: Uint8Array | null = null,
   explorationOfflineChoicesEnabled = false,
   explorationStagingResourcesEnabled = false,
+  explorationStagingTrailEnabled = false,
 ): OperationalMessagingComposition {
   // Development integration is separate from local installation and real UAT.
   // Never permit these draft-schema writes or private quoted actions in a
@@ -270,6 +273,20 @@ export function createOperationalMessagingComposition(
       pveBattleConfig === null)
   ) {
     throw new Error("Offline V4 choices require complete staging exploration and PvE dependencies");
+  }
+  if (
+    explorationStagingTrailEnabled &&
+    (process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      !explorationOfflineChoicesEnabled ||
+      !explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      explorationStagingSearchSecret === null ||
+      encounterRngConfig === null ||
+      pveBattleConfig === null)
+  ) {
+    throw new Error("Following trails requires complete isolated Encounter/PvE/Capture staging");
   }
   if (
     explorationStagingResourcesEnabled &&
@@ -1074,6 +1091,20 @@ export function createOperationalMessagingComposition(
               travelRecovery: new PostgresExpeditionTravelConfirmationRecovery(pool),
               summary: dependencies.facts,
               endRecovery: new PostgresExpeditionEndConfirmationRecovery(pool),
+              ...(explorationStagingTrailEnabled
+                ? {
+                    trail: new PostgresExpeditionV4StagingTrailFollow(
+                      pool,
+                      preparation,
+                      createDirectEncounterEffect({
+                        seedProvider,
+                        clock,
+                        feature: { enabled: true, reason: null },
+                      }),
+                    ),
+                    trailRecovery: new PostgresExpeditionTrailConfirmationRecovery(pool),
+                  }
+                : {}),
               ...(explorationStagingResourcesEnabled
                 ? {
                     resources: new PostgresExpeditionV4StagingResourceSearch(
