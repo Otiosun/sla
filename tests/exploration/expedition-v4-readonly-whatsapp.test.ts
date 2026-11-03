@@ -479,6 +479,46 @@ describe("published search staging-only WhatsApp command", () => {
     return { ...f, execute, preparation, deps, route };
   }
 
+  it("routes /explorar eventos 2 only to player-scoped history in staging without writes", async () => {
+    const f = stagingSearch();
+    const latest = vi.fn(async () => ok({
+      period: "DAY" as const,
+      endReason: "VOLUNTARY" as const,
+      elapsedMinutes: 90,
+      page: 2,
+      pages: 2,
+      totalEvents: 13,
+      events: [{
+        kind: "RESOURCES" as const,
+        occurredAt: new Date("2026-11-02T18:00:00.000Z"),
+        elapsedMinutes: 90,
+        description: "Recursos: Poké Ball ×2",
+        receiptRef: "private-original-receipt",
+      }],
+    }));
+    const deps = { ...f.deps, history: { readLatestCompleted: latest } };
+    const route = createExpeditionV4StagingSearchRoutes(deps)[0]!;
+    const result = await route.handler.handle(context("/explorar eventos 2"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(latest).toHaveBeenCalledExactlyOnceWith(playerId, 2);
+    expect(result.value.outgoing).toHaveLength(1);
+    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    const output = String(result.value.outgoing[0]?.payload.text);
+    expect(output).toContain("Recursos: Poké Ball ×2");
+    expect(output).toContain("/explorar eventos 1");
+    expect(output).not.toContain("private-original-receipt");
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.end).not.toHaveBeenCalled();
+
+    expect((await route.handler.handle(context("/explorar eventos 0"))).ok).toBe(false);
+    const readOnly = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
+    const denied = await readOnly.handler.handle(context("/explorar eventos 2"));
+    expect(denied.ok).toBe(true);
+    if (denied.ok) expect(String(denied.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    expect(latest).toHaveBeenCalledTimes(1);
+  });
+
   it("sends a private factual saved result and charges only the canonical first action", async () => {
     const f = stagingSearch();
     const result = await f.route.handler.handle(context("/explorar buscar"));
