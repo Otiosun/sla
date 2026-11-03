@@ -706,11 +706,28 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     const sourceId = source.value.outcome.outcomeId;
     expect(await trail.readPending(current)).toBe(sourceId);
+    const senderRef = "5579999999926@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T21:00:00.000Z",
+      text: "/explorar seguir",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const claimed = await new PostgresMessagingRepository(pool).claimIncoming(inbound, 30_000);
+    if (!claimed.ok) throw claimed.error;
     const input = {
       playerId,
       expeditionId: prepared.expeditionId,
       expectedRevision: current.revision,
-      idempotencyKey: "inbox:baileys:trail-follow-original",
+      idempotencyKey: "inbox:baileys:" + inbound.externalMessageId,
       sourceOutcomeId: sourceId,
     };
     const first = await trail.execute(input);
@@ -740,6 +757,29 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         },
       },
     });
+    const recovery = new PostgresExpeditionTrailConfirmationRecovery(pool);
+    const context = {
+      message: inbound,
+      inboxMessageId: claimed.value.inboxMessageId,
+      idempotencyKey: input.idempotencyKey,
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    expect(await recovery.resolve({ playerId, context })).toMatchObject({
+      ok: true,
+      value: {
+        outcome: { outcomeId: first.value.outcome.outcomeId, encounterId: first.value.outcome.encounterId },
+        encounterPreview: { speciesName: "Published Testmon" },
+        elapsedMinutes: 45,
+        consumedWeeklySlot: false,
+      },
+    });
+    expect(
+      await recovery.resolve({
+        playerId,
+        context: { ...context, message: { ...inbound, externalMessageId: randomUUID() } },
+      }),
+    ).toEqual(ok(null));
     expect(await trail.readPending((await store.current(playerId))!)).toBeNull();
     expect(await trail.execute({ ...input, idempotencyKey: "different-trail-message" })).toMatchObject({
       ok: false,
