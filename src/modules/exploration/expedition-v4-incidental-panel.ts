@@ -128,7 +128,7 @@ export function renderExpeditionV4IncidentalPanel(
   ].join("\n");
   const expanded = [
     input.source === "INCIDENTAL"
-      ? "> _Você procurava outra espécie, mas encontrou um Pokémon pelo caminho..._"
+      ? "> _Você procurava outra espécie, mas encontrou um " + species + " pelo caminho..._"
       : "> _O Pokémon encontrado está à sua frente._",
     ...(actions.length > 0 ? ["", "◇ *𝗔ÇÕ𝗘𝗦*", "", ...actions] : []),
     ...(captureLines.length > 0 ? ["", "◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*", "", ...captureLines] : []),
