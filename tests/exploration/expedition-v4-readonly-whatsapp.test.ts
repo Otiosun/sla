@@ -481,21 +481,25 @@ describe("published search staging-only WhatsApp command", () => {
 
   it("routes /explorar eventos 2 only to player-scoped history in staging without writes", async () => {
     const f = stagingSearch();
-    const latest = vi.fn(async () => ok({
-      period: "DAY" as const,
-      endReason: "VOLUNTARY" as const,
-      elapsedMinutes: 90,
-      page: 2,
-      pages: 2,
-      totalEvents: 13,
-      events: [{
-        kind: "RESOURCES" as const,
-        occurredAt: new Date("2026-11-02T18:00:00.000Z"),
+    const latest = vi.fn(async () =>
+      ok({
+        period: "DAY" as const,
+        endReason: "VOLUNTARY" as const,
         elapsedMinutes: 90,
-        description: "Recursos: Poké Ball ×2",
-        receiptRef: "private-original-receipt",
-      }],
-    }));
+        page: 2,
+        pages: 2,
+        totalEvents: 13,
+        events: [
+          {
+            kind: "RESOURCES" as const,
+            occurredAt: new Date("2026-11-02T18:00:00.000Z"),
+            elapsedMinutes: 90,
+            description: "Recursos: Poké Ball ×2",
+            receiptRef: "private-original-receipt",
+          },
+        ],
+      }),
+    );
     const deps = { ...f.deps, history: { readLatestCompleted: latest } };
     const route = createExpeditionV4StagingSearchRoutes(deps)[0]!;
     const result = await route.handler.handle(context("/explorar eventos 2"));
@@ -515,7 +519,10 @@ describe("published search staging-only WhatsApp command", () => {
     const readOnly = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
     const denied = await readOnly.handler.handle(context("/explorar eventos 2"));
     expect(denied.ok).toBe(true);
-    if (denied.ok) expect(String(denied.value.outgoing[0]?.payload.text)).toContain("Nenhuma ação será executada");
+    if (denied.ok)
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
     expect(latest).toHaveBeenCalledTimes(1);
   });
 
