@@ -46,6 +46,7 @@ on:
       - "tests/release/backup-envelope.test.mjs"
       - "tests/release/pg18-encrypted-clone-restore.test.mjs"
       - "scripts/operations/prepare-windows-candidate.mjs"
+      - "scripts/operations/verify-windows-candidate.mjs"
       - "tests/release/windows-candidate.test.mjs"
       - "tests/db/solo-expedition-candidate-migration.integration.test.ts"
       - "tests/exploration/expedition-v4-incidental-panel.test.ts"
@@ -129,7 +130,7 @@ jobs:
           pnpm exec biome format tests/db/solo-expedition-candidate-migration.integration.test.ts src/platform/exploration/postgres-expedition-v4-resources.ts src/platform/exploration/postgres-expedition-v4-trail.ts src/platform/exploration/postgres-expedition-v4-event-history-reader.ts src/modules/exploration/expedition-v4-event-history-panel.ts tests/exploration/expedition-v4-event-history-panel.test.ts src/platform/exploration/postgres-expedition-trail-confirmation-recovery.ts src/modules/exploration/expedition-v4-trail-follow-panel.ts tests/exploration/expedition-v4-trail-follow-panel.test.ts src/platform/exploration/postgres-expedition-resource-confirmation-recovery.ts src/platform/economy/postgres-economy-repository.ts tests/exploration/expedition-published-resources.test.ts
       - name: Verify offline backup crypto formatting and tamper rejection
         run: |
-          pnpm exec biome format scripts/operations/backup-envelope.mjs tests/release/backup-envelope.test.mjs scripts/operations/prepare-windows-candidate.mjs tests/release/windows-candidate.test.mjs
+          pnpm exec biome format scripts/operations/backup-envelope.mjs tests/release/backup-envelope.test.mjs scripts/operations/prepare-windows-candidate.mjs tests/release/windows-candidate.test.mjs scripts/operations/verify-windows-candidate.mjs
           node --test tests/release/backup-envelope.test.mjs tests/release/windows-candidate.test.mjs
       - name: Compile and prove read-only router
         run: |
@@ -140,6 +141,7 @@ jobs:
       - name: Prepare Windows PREINSTALL NO-GO inspection archive (no install)
         run: |
           node scripts/operations/prepare-windows-candidate.mjs . release-windows-v4-preinstall
+          node scripts/operations/verify-windows-candidate.mjs release-windows-v4-preinstall "$GITHUB_SHA"
           zip -q -r -X release-windows-v4-preinstall.zip release-windows-v4-preinstall
           unzip -t release-windows-v4-preinstall.zip
       - name: Upload auditable NO-GO Windows candidate only
