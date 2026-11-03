@@ -826,11 +826,11 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
                 "1. 🔎 Buscar Pokémon ● `30 min`",
                 "› _Use /explorar 1 ou /explorar buscar para iniciar a busca._",
                 ...(this.deps.resources === undefined
-                ? ["› _Recursos indisponíveis._"]
-                : [
-                    "2. 🎒 Buscar recursos ● `60 min`",
-                    "› _/explorar 2 ou /explorar recursos; somente com tabela publicada._",
-                  ]),
+                  ? ["› _Recursos indisponíveis._"]
+                  : [
+                      "2. 🎒 Buscar recursos ● `60 min`",
+                      "› _/explorar 2 ou /explorar recursos; somente com tabela publicada._",
+                    ]),
                 "› _Viagem exige conexão e duração publicada._",
               ]),
           "3. 🗺️ Consultar destinos ● /explorar 3",
