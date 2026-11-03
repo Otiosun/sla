@@ -256,127 +256,131 @@ export class PostgresExpeditionV4EventHistoryReader {
           ORDER BY updated_at DESC,id DESC LIMIT 1`,
           [playerId],
         );
+        const expedition = found.rows[0];
+        if (expedition === undefined) return ok(null);
 
-      const receipts = await client.query<ReceiptRow>(
-        `SELECT r.idempotency_key,r.operation,r.created_at,r.result,
-                search.kind AS search_kind,search.expedition_revision::text AS search_revision,
-                resource.kind AS resource_kind,resource.expedition_revision::text AS resource_revision,
-                resource.quantity::text AS resource_quantity,
-                item.display_name AS resource_item_name,
-                resource.ledger_id::text AS resource_ledger,
-                ledger.id::text AS resource_ledger_proven,
-                trail.source_outcome_id::text AS trail_source,
-                trail.followed_outcome_id::text AS trail_direct,
-                trail.follow_revision::text AS trail_revision,
-                trail.species_name AS trail_name,trail.encounter_level AS trail_level,
-                ignored.id::text AS ignore_encounter
-           FROM solo_expedition_receipts r
-           LEFT JOIN solo_expedition_search_outcomes search
-             ON r.operation='ACTION_SEARCH_FREE'
-            AND search.id::text=r.result->>'effectRef'
-            AND search.player_id=r.player_id
-            AND search.expedition_id=r.expedition_id
-           LEFT JOIN solo_expedition_resource_results resource
-             ON r.operation='ACTION_RESOURCE_SEARCH'
-            AND resource.id::text=r.result->>'effectRef'
-            AND resource.player_id=r.player_id
-            AND resource.expedition_id=r.expedition_id
-           LEFT JOIN item_revisions item
-             ON item.item_id=resource.item_id
-            AND item.content_release_id=resource.content_release_id
-           LEFT JOIN inventory_ledger ledger
-             ON ledger.id=resource.ledger_id
-            AND ledger.player_id=resource.player_id
-            AND ledger.item_id=resource.item_id
-            AND ledger.delta=resource.quantity
-            AND ledger.source_type='EXPEDITION_RESOURCE'
-            AND ledger.source_id=resource.id::text
-           LEFT JOIN solo_expedition_trail_follows trail
-             ON r.operation='ACTION_FOLLOW_TRAIL'
-            AND trail.id::text=r.result->>'effectRef'
-            AND trail.player_id=r.player_id
-            AND trail.expedition_id=r.expedition_id
-           LEFT JOIN encounters ignored
-             ON r.operation='ACTION_IGNORE_INCIDENTAL'
-            AND ignored.id::text=r.result->>'effectRef'
-            AND ignored.player_id=r.player_id
-           WHERE r.player_id=$1 AND r.expedition_id=$2
-           ORDER BY r.created_at,r.idempotency_key`,
-        [playerId, expedition.id],
-      );
-      const canonical = await client.query<CanonicalRow>(
-        `SELECT 'BATTLE_STARTED'::text AS kind,
-                battle_receipt.battle_id::text AS event_id,
-                battle_receipt.created_at AS created_at
-           FROM solo_expedition_battle_receipts battle_receipt
-           JOIN solo_expedition_search_outcomes outcome
-             ON outcome.id=battle_receipt.outcome_id
-            AND outcome.player_id=battle_receipt.player_id
-            AND outcome.expedition_id=$2
-            AND outcome.encounter_id=battle_receipt.encounter_id
-           JOIN battles battle
-             ON battle.id=battle_receipt.battle_id
-            AND battle.encounter_id=battle_receipt.encounter_id
-            AND battle.battle_type='WILD'
-           WHERE battle_receipt.player_id=$1
-           UNION ALL
-           SELECT CASE WHEN attempt.status='CAPTURED'
-                         THEN 'CAPTURED' ELSE 'CAPTURE_FAILED' END,
-                  attempt.id::text,attempt.created_at
-           FROM capture_attempts attempt
-           JOIN solo_incidental_menu_snapshots menu
-             ON menu.encounter_id=attempt.encounter_id
-            AND menu.player_id=attempt.player_id
-           JOIN solo_expedition_search_outcomes outcome
-             ON outcome.id=menu.outcome_id
-            AND outcome.player_id=attempt.player_id
-            AND outcome.expedition_id=$2
-           WHERE attempt.player_id=$1 AND attempt.battle_id IS NULL
-             AND attempt.status IN ('CAPTURED','FAILED')
-             AND menu.panel->'actions' ? 'CAPTURE'
-             AND EXISTS (
-               SELECT 1 FROM jsonb_each_text(menu.ball_item_ids) offered(choice_no,ball_id)
-               WHERE offered.ball_id=attempt.ball_item_id::text
-             )`,
-        [playerId, expedition.id],
-      );
-      const events: ExpeditionFactualEvent[] = [];
-      for (const row of receipts.rows) {
-        const event = receiptEvent(row, expedition.id);
-        if (!event.ok) return event;
-        events.push(event.value);
-      }
-      for (const row of canonical.rows) {
-        if (!(row.created_at instanceof Date) || Number.isNaN(row.created_at.getTime())) {
-          return err(appError("FLOW_BLOCKED", "Canonical event has no valid timestamp"));
+        const receipts = await client.query<ReceiptRow>(
+          `SELECT r.idempotency_key,r.operation,r.created_at,r.result,
+                  search.kind AS search_kind,search.expedition_revision::text AS search_revision,
+                  resource.kind AS resource_kind,resource.expedition_revision::text AS resource_revision,
+                  resource.quantity::text AS resource_quantity,
+                  item.display_name AS resource_item_name,
+                  resource.ledger_id::text AS resource_ledger,
+                  ledger.id::text AS resource_ledger_proven,
+                  trail.source_outcome_id::text AS trail_source,
+                  trail.followed_outcome_id::text AS trail_direct,
+                  trail.follow_revision::text AS trail_revision,
+                  trail.species_name AS trail_name,trail.encounter_level AS trail_level,
+                  ignored.id::text AS ignore_encounter
+             FROM solo_expedition_receipts r
+             LEFT JOIN solo_expedition_search_outcomes search
+               ON r.operation='ACTION_SEARCH_FREE'
+              AND search.id::text=r.result->>'effectRef'
+              AND search.player_id=r.player_id
+              AND search.expedition_id=r.expedition_id
+             LEFT JOIN solo_expedition_resource_results resource
+               ON r.operation='ACTION_RESOURCE_SEARCH'
+              AND resource.id::text=r.result->>'effectRef'
+              AND resource.player_id=r.player_id
+              AND resource.expedition_id=r.expedition_id
+             LEFT JOIN item_revisions item
+               ON item.item_id=resource.item_id
+              AND item.content_release_id=resource.content_release_id
+             LEFT JOIN inventory_ledger ledger
+               ON ledger.id=resource.ledger_id
+              AND ledger.player_id=resource.player_id
+              AND ledger.item_id=resource.item_id
+              AND ledger.delta=resource.quantity
+              AND ledger.source_type='EXPEDITION_RESOURCE'
+              AND ledger.source_id=resource.id::text
+             LEFT JOIN solo_expedition_trail_follows trail
+               ON r.operation='ACTION_FOLLOW_TRAIL'
+              AND trail.id::text=r.result->>'effectRef'
+              AND trail.player_id=r.player_id
+              AND trail.expedition_id=r.expedition_id
+             LEFT JOIN encounters ignored
+               ON r.operation='ACTION_IGNORE_INCIDENTAL'
+              AND ignored.id::text=r.result->>'effectRef'
+              AND ignored.player_id=r.player_id
+             WHERE r.player_id=$1 AND r.expedition_id=$2
+             ORDER BY r.created_at,r.idempotency_key`,
+          [playerId, expedition.id],
+        );
+        const canonical = await client.query<CanonicalRow>(
+          `SELECT 'BATTLE_STARTED'::text AS kind,
+                  battle_receipt.battle_id::text AS event_id,
+                  battle_receipt.created_at AS created_at
+             FROM solo_expedition_battle_receipts battle_receipt
+             JOIN solo_expedition_search_outcomes outcome
+               ON outcome.id=battle_receipt.outcome_id
+              AND outcome.player_id=battle_receipt.player_id
+              AND outcome.expedition_id=$2
+              AND outcome.encounter_id=battle_receipt.encounter_id
+             JOIN battles battle
+               ON battle.id=battle_receipt.battle_id
+              AND battle.encounter_id=battle_receipt.encounter_id
+              AND battle.battle_type='WILD'
+             WHERE battle_receipt.player_id=$1
+             UNION ALL
+             SELECT CASE WHEN attempt.status='CAPTURED'
+                           THEN 'CAPTURED' ELSE 'CAPTURE_FAILED' END,
+                    attempt.id::text,attempt.created_at
+             FROM capture_attempts attempt
+             JOIN solo_incidental_menu_snapshots menu
+               ON menu.encounter_id=attempt.encounter_id
+              AND menu.player_id=attempt.player_id
+             JOIN solo_expedition_search_outcomes outcome
+               ON outcome.id=menu.outcome_id
+              AND outcome.player_id=attempt.player_id
+              AND outcome.expedition_id=$2
+             WHERE attempt.player_id=$1 AND attempt.battle_id IS NULL
+               AND attempt.status IN ('CAPTURED','FAILED')
+               AND menu.panel->'actions' ? 'CAPTURE'
+               AND EXISTS (
+                 SELECT 1 FROM jsonb_each_text(menu.ball_item_ids) offered(choice_no,ball_id)
+                 WHERE offered.ball_id=attempt.ball_item_id::text
+               )`,
+          [playerId, expedition.id],
+        );
+        const events: ExpeditionFactualEvent[] = [];
+        for (const row of receipts.rows) {
+          const event = receiptEvent(row, expedition.id);
+          if (!event.ok) return event;
+          events.push(event.value);
         }
-        const kind = row.kind;
-        events.push({
-          kind,
-          occurredAt: row.created_at,
-          elapsedMinutes: null,
-          description: kind === "BATTLE_STARTED" ? "Batalha PvE iniciada" :
-            kind === "CAPTURED" ? "Captura confirmada" : "Tentativa de captura sem sucesso",
-          receiptRef: row.event_id,
+        for (const row of canonical.rows) {
+          if (!(row.created_at instanceof Date) || Number.isNaN(row.created_at.getTime())) {
+            return err(appError("FLOW_BLOCKED", "Canonical event has no valid timestamp"));
+          }
+          const kind = row.kind;
+          events.push({
+            kind,
+            occurredAt: row.created_at,
+            elapsedMinutes: null,
+            description: kind === "BATTLE_STARTED" ? "Batalha PvE iniciada" :
+              kind === "CAPTURED" ? "Captura confirmada" : "Tentativa de captura sem sucesso",
+            receiptRef: row.event_id,
+          });
+        }
+        if (events.length > MAX_EVENTS) {
+          return err(appError("FLOW_BLOCKED", "Expedition has too many events for a safe report"));
+        }
+        events.sort((a,b) =>
+          a.occurredAt.getTime()-b.occurredAt.getTime() ||
+          a.receiptRef.localeCompare(b.receiptRef));
+        const pages=Math.max(1,Math.ceil(events.length/PAGE_SIZE));
+        if (page>pages) return err(appError("VALIDATION_FAILED", "History page does not exist"));
+        return ok({
+          period: expedition.period,
+          endReason: expedition.end_reason,
+          elapsedMinutes: expedition.elapsed_minutes,
+          page,
+          pages,
+          totalEvents: events.length,
+          events: events.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE),
         });
-      }
-      if (events.length > MAX_EVENTS) {
-        return err(appError("FLOW_BLOCKED", "Expedition has too many events for a safe report"));
-      }
-      events.sort((a,b) =>
-        a.occurredAt.getTime()-b.occurredAt.getTime() ||
-        a.receiptRef.localeCompare(b.receiptRef));
-      const pages=Math.max(1,Math.ceil(events.length/PAGE_SIZE));
-      if (page>pages) return err(appError("VALIDATION_FAILED", "History page does not exist"));
-      return ok({
-        period: expedition.period,
-        endReason: expedition.end_reason,
-        elapsedMinutes: expedition.elapsed_minutes,
-        page,
-        pages,
-        totalEvents: events.length,
-        events: events.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE),
-      });
-    }, { isolationLevel: "REPEATABLE READ", readOnly: true });
+      },
+      { isolationLevel: "REPEATABLE READ", readOnly: true },
+    );
   }
 }
