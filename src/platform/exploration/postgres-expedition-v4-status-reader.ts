@@ -119,6 +119,10 @@ export class PostgresExpeditionV4StatusReader {
            LEFT JOIN solo_expedition_search_outcomes outcome
              ON outcome.expedition_id=expedition.id
             AND outcome.player_id=expedition.player_id
+            AND NOT EXISTS (
+              SELECT 1 FROM solo_expedition_trail_follows followed
+              WHERE followed.followed_outcome_id=outcome.id
+            )
            WHERE expedition.player_id=$1
              AND expedition.phase='ENDED'
              AND expedition.end_reason IN ('VOLUNTARY','CLOCK','BLACKOUT')
