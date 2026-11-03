@@ -35,6 +35,42 @@ function setup(rows: unknown[] = [validRow]) {
 }
 
 describe("isolated issued menu proof binds quote, player and immutable Ball IDs", () => {
+  it("denies a forged ACTIONABLE menu whose text or choices diverge from the sent Outbox", async () => {
+    const good = {
+      ...validRow,
+      menu_mode: "ACTIONABLE",
+      menu_text: "2. Poké Ball ×1",
+      outbox_text: "2. Poké Ball ×1",
+      menu_actions: ["CAPTURE"],
+      outbox_actions: ["CAPTURE"],
+      outbox_balls: { "2": ballId },
+      capture_enabled: true,
+      battle_enabled: false,
+      ignore_enabled: false,
+    };
+    const accepted = setup([good]);
+    expect(await accepted.proof.resolve(request)).toMatchObject({
+      ok: true,
+      value: { actionable: true, captureEnabled: true, battleEnabled: false, ignoreEnabled: false },
+    });
+    const sql = String(accepted.query.mock.calls[0]?.[0]);
+    expect(sql).toContain("menu.panel->'actions' = outbox.payload->'expeditionMenu'->'actions'");
+    expect(sql).toContain("menu.ball_item_ids = outbox.payload->'expeditionMenu'->'ballItemIds'");
+    expect(sql).toContain("menu.panel->>'text' = outbox.payload->>'text'");
+    for (const forged of [
+      { ...good, outbox_text: "Somente prévia" },
+      { ...good, outbox_actions: ["CAPTURE", "BATTLE"] },
+      { ...good, outbox_balls: { "2": randomUUID() } },
+      { ...good, menu_actions: ["CAPTURE", "CAPTURE"] },
+      { ...good, menu_actions: ["CAPTURE", "IGNITE"] },
+    ]) {
+      expect(await setup([forged]).proof.resolve(request)).toMatchObject({
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      });
+    }
+  });
+
   it("accepts only the persisted menu mapping, never a client-supplied item ID", async () => {
     const { proof, query } = setup();
     expect(await proof.resolve(request)).toEqual({

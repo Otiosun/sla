@@ -3,7 +3,7 @@ name: Exploration V4 Read-Only Router Proof
 on:
   pull_request:
     branches:
-      - fix/ux-pokemon-detail-identity-proof-20261102
+      - fix/ux-team-slot-ambiguity-20261102
     paths:
       - ".github/workflows/exploration-v4-readonly-router-proof.yml"
       - "src/modules/battle/pve-scene-whatsapp.ts"
@@ -13,13 +13,43 @@ on:
       - "tests/messaging/pvp-whatsapp-resume.test.ts"
       - "tests/db/pvp-challenge-repository.integration.test.ts"
       - "src/modules/messaging/operational-ux-handlers.ts"
+      - "src/modules/messaging/router.ts"
+      - "src/modules/community/runtime-command-policy-gate.ts"
+      - "tests/messaging/runtime-command-policy-gate.test.ts"
+      - "tests/messaging/command-router-policy.test.ts"
       - "tests/battle/pve-scene-whatsapp.test.ts"
       - "tests/messaging/operational-ux-handlers.test.ts"
       - "docs/ux/UX_VERSION_PROVENANCE_AND_RECONCILIATION_20261102.md"
       - "src/modules/exploration/expedition-v4-readonly-whatsapp.ts"
       - "src/platform/exploration/postgres-expedition-v4-search.ts"
+      - "src/platform/exploration/postgres-expedition-v4-resources.ts"
+      - "src/platform/exploration/postgres-expedition-v4-trail.ts"
+      - "src/platform/exploration/postgres-expedition-v4-event-history-reader.ts"
+      - "src/modules/exploration/expedition-v4-event-history-panel.ts"
+      - "tests/exploration/expedition-v4-event-history-panel.test.ts"
+      - "src/platform/exploration/postgres-expedition-trail-confirmation-recovery.ts"
+      - "src/modules/exploration/expedition-v4-trail-follow-panel.ts"
+      - "tests/exploration/expedition-v4-trail-follow-panel.test.ts"
+      - "src/platform/exploration/postgres-expedition-resource-confirmation-recovery.ts"
+      - "src/platform/economy/postgres-economy-repository.ts"
+      - "tests/exploration/expedition-published-resources.test.ts"
       - "src/platform/exploration/postgres-expedition-search-encounter-preview.ts"
       - "src/modules/exploration/expedition-v4-search-result-panel.ts"
+      - "src/modules/exploration/expedition-v4-incidental-panel.ts"
+      - "src/modules/exploration/expedition-incidental-ignore-staging.ts"
+      - "src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.ts"
+      - "tests/exploration/expedition-ignore-confirmation-recovery.test.ts"
+      - "src/platform/exploration/postgres-expedition-repository.ts"
+      - "db/drafts/solo_exploration_v1_schema.sql"
+      - "db/candidates/0080_solo_exploration_v4.sql"
+      - "scripts/operations/backup-envelope.mjs"
+      - "tests/release/backup-envelope.test.mjs"
+      - "tests/release/pg18-encrypted-clone-restore.test.mjs"
+      - "scripts/operations/prepare-windows-candidate.mjs"
+      - "scripts/operations/verify-windows-candidate.mjs"
+      - "tests/release/windows-candidate.test.mjs"
+      - "tests/db/solo-expedition-candidate-migration.integration.test.ts"
+      - "tests/exploration/expedition-v4-incidental-panel.test.ts"
       - "src/platform/exploration/postgres-expedition-search-sent-proof.ts"
       - "src/modules/exploration/expedition-search-engagement-after-sent.ts"
       - "src/modules/exploration/expedition-search-post-sent-hook.ts"
@@ -31,6 +61,13 @@ on:
       - "tests/exploration/expedition-quoted-encounter-proof.test.ts"
       - "src/platform/exploration/postgres-expedition-issued-menu-reply-proof.ts"
       - "src/platform/exploration/postgres-expedition-readonly-menu-issuer.ts"
+      - "src/platform/exploration/postgres-expedition-battle-eligibility.ts"
+      - "src/platform/exploration/postgres-expedition-offline-battle-start.ts"
+      - "src/platform/exploration/postgres-expedition-battle-confirmation-recovery.ts"
+      - "tests/exploration/expedition-battle-confirmation-recovery.test.ts"
+      - "tests/exploration/expedition-offline-battle-start.test.ts"
+      - "src/platform/battle/postgres-battle-repository.ts"
+      - "tests/exploration/expedition-battle-eligibility.test.ts"
       - "src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.ts"
       - "tests/exploration/expedition-offline-actionable-menu-issuer.test.ts"
       - "src/modules/exploration/expedition-canonical-choice-staging.ts"
@@ -87,13 +124,33 @@ jobs:
           test ! -d auth_info_baileys
       - name: Format all changed source files
         run: |
-          pnpm exec biome format src/modules/pvp/ports.ts src/modules/pvp/whatsapp-handlers.ts src/platform/pvp/postgres-pvp-challenge-repository.ts tests/messaging/pvp-whatsapp-resume.test.ts tests/db/pvp-challenge-repository.integration.test.ts src/modules/battle/pve-scene-whatsapp.ts src/modules/messaging/operational-ux-handlers.ts tests/battle/pve-scene-whatsapp.test.ts tests/messaging/operational-ux-handlers.test.ts src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.ts tests/exploration/expedition-offline-actionable-menu-issuer.test.ts src/modules/exploration/expedition-capture-confirmation.ts src/platform/exploration/postgres-expedition-capture-confirmation-recovery.ts tests/exploration/expedition-capture-confirmation-recovery.test.ts tests/exploration/expedition-canonical-capture-real-service-staging.test.ts src/modules/exploration/expedition-canonical-choice-staging.ts tests/exploration/expedition-canonical-choice-staging.test.ts src/platform/exploration/postgres-expedition-readonly-menu-issuer.ts src/platform/exploration/postgres-expedition-issued-menu-reply-proof.ts tests/exploration/expedition-issued-menu-reply-proof.test.ts src/modules/exploration/expedition-quoted-reply-readonly-staging.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts src/platform/exploration/postgres-expedition-quoted-encounter-proof.ts tests/exploration/expedition-quoted-encounter-proof.test.ts src/modules/messaging/service.ts src/modules/messaging/ports.ts src/platform/messaging/postgres-messaging-repository.ts src/modules/exploration/expedition-search-post-sent-hook.ts src/platform/exploration/postgres-expedition-post-sent-recovery.ts tests/exploration/expedition-search-post-sent-worker.test.ts src/platform/exploration/postgres-expedition-search-sent-proof.ts src/modules/exploration/expedition-search-engagement-after-sent.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts src/platform/exploration/postgres-expedition-search-encounter-preview.ts src/modules/exploration/expedition-v4-search-result-panel.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts src/platform/exploration/postgres-expedition-v4-search.ts src/modules/exploration/expedition-v4-readonly-whatsapp.ts src/platform/exploration/postgres-expedition-v4-status-reader.ts src/runtime/compose-whatsapp-runtime.ts src/runtime/compose-simulated-whatsapp-runtime.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/db/solo-expedition-repository.integration.test.ts
+          pnpm exec biome format src/modules/community/runtime-command-policy-gate.ts src/modules/messaging/router.ts tests/messaging/runtime-command-policy-gate.test.ts tests/messaging/command-router-policy.test.ts src/modules/pvp/ports.ts src/modules/pvp/whatsapp-handlers.ts src/platform/pvp/postgres-pvp-challenge-repository.ts tests/messaging/pvp-whatsapp-resume.test.ts tests/db/pvp-challenge-repository.integration.test.ts src/modules/battle/pve-scene-whatsapp.ts src/modules/messaging/operational-ux-handlers.ts tests/battle/pve-scene-whatsapp.test.ts tests/messaging/operational-ux-handlers.test.ts src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.ts tests/exploration/expedition-offline-actionable-menu-issuer.test.ts src/platform/exploration/postgres-expedition-battle-eligibility.ts src/platform/exploration/postgres-expedition-offline-battle-start.ts src/platform/exploration/postgres-expedition-battle-confirmation-recovery.ts src/platform/battle/postgres-battle-repository.ts tests/exploration/expedition-battle-eligibility.test.ts tests/exploration/expedition-offline-battle-start.test.ts tests/exploration/expedition-battle-confirmation-recovery.test.ts src/modules/exploration/expedition-capture-confirmation.ts src/platform/exploration/postgres-expedition-capture-confirmation-recovery.ts tests/exploration/expedition-capture-confirmation-recovery.test.ts tests/exploration/expedition-canonical-capture-real-service-staging.test.ts src/modules/exploration/expedition-canonical-choice-staging.ts tests/exploration/expedition-canonical-choice-staging.test.ts src/platform/exploration/postgres-expedition-readonly-menu-issuer.ts src/platform/exploration/postgres-expedition-repository.ts src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.ts tests/exploration/expedition-ignore-confirmation-recovery.test.ts src/modules/exploration/expedition-v4-incidental-panel.ts src/modules/exploration/expedition-incidental-ignore-staging.ts tests/exploration/expedition-v4-incidental-panel.test.ts src/platform/exploration/postgres-expedition-issued-menu-reply-proof.ts tests/exploration/expedition-issued-menu-reply-proof.test.ts src/modules/exploration/expedition-quoted-reply-readonly-staging.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts src/platform/exploration/postgres-expedition-quoted-encounter-proof.ts tests/exploration/expedition-quoted-encounter-proof.test.ts src/modules/messaging/service.ts src/modules/messaging/ports.ts src/platform/messaging/postgres-messaging-repository.ts src/modules/exploration/expedition-search-post-sent-hook.ts src/platform/exploration/postgres-expedition-post-sent-recovery.ts tests/exploration/expedition-search-post-sent-worker.test.ts src/platform/exploration/postgres-expedition-search-sent-proof.ts src/modules/exploration/expedition-search-engagement-after-sent.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts src/platform/exploration/postgres-expedition-search-encounter-preview.ts src/modules/exploration/expedition-v4-search-result-panel.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts src/platform/exploration/postgres-expedition-v4-search.ts src/modules/exploration/expedition-v4-readonly-whatsapp.ts src/platform/exploration/postgres-expedition-v4-status-reader.ts src/runtime/compose-whatsapp-runtime.ts src/runtime/compose-simulated-whatsapp-runtime.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/db/solo-expedition-repository.integration.test.ts
+      - name: Format added isolated resource proof files
+        run: |
+          pnpm exec biome format tests/db/solo-expedition-candidate-migration.integration.test.ts src/platform/exploration/postgres-expedition-v4-resources.ts src/platform/exploration/postgres-expedition-v4-trail.ts src/platform/exploration/postgres-expedition-v4-event-history-reader.ts src/modules/exploration/expedition-v4-event-history-panel.ts tests/exploration/expedition-v4-event-history-panel.test.ts src/platform/exploration/postgres-expedition-trail-confirmation-recovery.ts src/modules/exploration/expedition-v4-trail-follow-panel.ts tests/exploration/expedition-v4-trail-follow-panel.test.ts src/platform/exploration/postgres-expedition-resource-confirmation-recovery.ts src/platform/economy/postgres-economy-repository.ts tests/exploration/expedition-published-resources.test.ts
+      - name: Verify offline backup crypto formatting and tamper rejection
+        run: |
+          pnpm exec biome format scripts/operations/backup-envelope.mjs tests/release/backup-envelope.test.mjs scripts/operations/prepare-windows-candidate.mjs tests/release/windows-candidate.test.mjs scripts/operations/verify-windows-candidate.mjs
+          node --test tests/release/backup-envelope.test.mjs tests/release/windows-candidate.test.mjs
       - name: Compile and prove read-only router
         run: |
           pnpm exec tsc --noEmit
-          pnpm exec vitest run tests/messaging/pvp-whatsapp-resume.test.ts tests/messaging/pvp-whatsapp.test.ts tests/battle/pve-scene-whatsapp.test.ts tests/messaging/operational-ux-handlers.test.ts tests/exploration/expedition-offline-actionable-menu-issuer.test.ts tests/exploration/expedition-capture-confirmation-recovery.test.ts tests/exploration/expedition-canonical-capture-real-service-staging.test.ts tests/exploration/expedition-canonical-choice-staging.test.ts tests/exploration/expedition-issued-menu-reply-proof.test.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts tests/exploration/expedition-quoted-encounter-proof.test.ts tests/exploration/expedition-search-post-sent-worker.test.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts tests/messaging/runtime-command-policy-gate.test.ts
+          pnpm exec vitest run tests/exploration/expedition-v4-event-history-panel.test.ts tests/exploration/expedition-v4-trail-follow-panel.test.ts tests/exploration/expedition-published-resources.test.ts tests/messaging/runtime-command-policy-gate.test.ts tests/messaging/command-router-policy.test.ts tests/messaging/pvp-whatsapp-resume.test.ts tests/messaging/pvp-whatsapp.test.ts tests/battle/pve-scene-whatsapp.test.ts tests/messaging/operational-ux-handlers.test.ts tests/exploration/expedition-offline-actionable-menu-issuer.test.ts tests/exploration/expedition-battle-eligibility.test.ts tests/exploration/expedition-offline-battle-start.test.ts tests/exploration/expedition-battle-confirmation-recovery.test.ts tests/exploration/expedition-ignore-confirmation-recovery.test.ts tests/exploration/expedition-v4-incidental-panel.test.ts tests/exploration/expedition-capture-confirmation-recovery.test.ts tests/exploration/expedition-canonical-capture-real-service-staging.test.ts tests/exploration/expedition-canonical-choice-staging.test.ts tests/exploration/expedition-issued-menu-reply-proof.test.ts tests/exploration/expedition-quoted-reply-readonly-staging.test.ts tests/exploration/expedition-quoted-encounter-proof.test.ts tests/exploration/expedition-search-post-sent-worker.test.ts tests/exploration/expedition-search-sent-proof.test.ts tests/exploration/expedition-search-engagement-after-sent.test.ts tests/exploration/expedition-search-encounter-preview.test.ts tests/exploration/expedition-v4-search-result-panel.test.ts tests/exploration/expedition-v4-readonly-whatsapp.test.ts tests/messaging/exploration-v4-readonly-runtime-composition.test.ts tests/exploration/expedition-incidental-incoming-admission.test.ts tests/exploration/expedition-incidental-game-group-admission.test.ts tests/messaging/runtime-command-policy-gate.test.ts
       - name: Build candidate without release
         run: pnpm build
+      - name: Prepare Windows PREINSTALL NO-GO inspection archive (no install)
+        run: |
+          node scripts/operations/prepare-windows-candidate.mjs . release-windows-v4-preinstall
+          node scripts/operations/verify-windows-candidate.mjs release-windows-v4-preinstall "$GITHUB_SHA"
+          zip -q -r -X release-windows-v4-preinstall.zip release-windows-v4-preinstall
+          unzip -t release-windows-v4-preinstall.zip
+      - name: Upload auditable NO-GO Windows candidate only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pokemon-beyond-windows-inspection-only
+          path: release-windows-v4-preinstall.zip
+          if-no-files-found: error
+          retention-days: 7
 
   readonly-postgres:
     name: PostgreSQL 18 real V4 status isolation
@@ -118,6 +175,7 @@ jobs:
       NODE_ENV: test
       WHATSAPP_ENABLED: "false"
       DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/postgres
+      ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -133,4 +191,8 @@ jobs:
         run: |
           node -e "const u=new URL(process.env.DATABASE_URL);if(u.hostname!=='127.0.0.1'||u.port!=='5432'||u.pathname!=='/postgres'||process.env.APP_ENV!=='test'||process.env.WHATSAPP_ENABLED!=='false')process.exit(1)"
       - name: Prove real PostgreSQL V4 status and no writes
-        run: pnpm exec vitest run tests/db/solo-expedition-repository.integration.test.ts tests/db/pvp-challenge-repository.integration.test.ts
+        run: pnpm exec vitest run tests/db/solo-expedition-candidate-migration.integration.test.ts tests/db/solo-expedition-repository.integration.test.ts tests/db/pvp-challenge-repository.integration.test.ts
+      - name: Verify encrypted PG18 backup restores older state into independent clone
+        run: |
+          pnpm exec biome format tests/release/pg18-encrypted-clone-restore.test.mjs
+          node --test tests/release/pg18-encrypted-clone-restore.test.mjs

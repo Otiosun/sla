@@ -21,6 +21,21 @@ interface ExpeditionRow {
 }
 
 /**
+ * Counts only actual persisted outcomes: no invented species, item grants,
+ * victories, captures, settlement or approved external report are inferred.
+ */
+export interface ExpeditionV4FactualSummary {
+  readonly period: ExpeditionPeriod;
+  readonly endReason: "VOLUNTARY" | "CLOCK" | "BLACKOUT";
+  readonly elapsedMinutes: number;
+  readonly searches: number;
+  readonly noSignal: number;
+  readonly trail: number;
+  readonly incidental: number;
+  readonly direct: number;
+}
+
+/**
  * Staging-only, immutable read of the DRAFT expedition tables. A read-only
  * repeatable-read PostgreSQL transaction ensures current row + weekly count
  * are coherent; no FOR UPDATE, no quota reservation, no encounter writes.
@@ -69,6 +84,66 @@ export class PostgresExpeditionV4StatusReader {
                   revision: BigInt(row.revision),
                 },
         };
+      },
+      { isolationLevel: "REPEATABLE READ", readOnly: true },
+    );
+  }
+
+  /**
+   * Authoritative read-only snapshot of the most recently completed,
+   * non-cancelled expedition. Used only by the staging V4 /explorar resumo.
+   */
+  public async readLatestCompleted(playerId: PlayerId): Promise<ExpeditionV4FactualSummary | null> {
+    return withTransaction(
+      this.pool,
+      async (client) => {
+        const result = await client.query<{
+          period: ExpeditionPeriod;
+          end_reason: "VOLUNTARY" | "CLOCK" | "BLACKOUT";
+          elapsed_minutes: number;
+          searches: number;
+          no_signal: number;
+          trail: number;
+          incidental: number;
+          direct: number;
+        }>(
+          `SELECT expedition.period,
+                  expedition.end_reason,
+                  expedition.elapsed_minutes,
+                  COUNT(outcome.id)::int AS searches,
+                  COUNT(outcome.id) FILTER (WHERE outcome.kind='NO_SIGNAL')::int AS no_signal,
+                  COUNT(outcome.id) FILTER (WHERE outcome.kind='TRAIL')::int AS trail,
+                  COUNT(outcome.id) FILTER (WHERE outcome.kind='INCIDENTAL')::int AS incidental,
+                  COUNT(outcome.id) FILTER (WHERE outcome.kind='DIRECT')::int AS direct
+           FROM solo_expeditions expedition
+           LEFT JOIN solo_expedition_search_outcomes outcome
+             ON outcome.expedition_id=expedition.id
+            AND outcome.player_id=expedition.player_id
+            AND NOT EXISTS (
+              SELECT 1 FROM solo_expedition_trail_follows followed
+              WHERE followed.followed_outcome_id=outcome.id
+            )
+           WHERE expedition.player_id=$1
+             AND expedition.phase='ENDED'
+             AND expedition.end_reason IN ('VOLUNTARY','CLOCK','BLACKOUT')
+           GROUP BY expedition.id
+           ORDER BY expedition.updated_at DESC, expedition.id DESC
+           LIMIT 1`,
+          [playerId],
+        );
+        const row = result.rows[0];
+        return row === undefined
+          ? null
+          : {
+              period: row.period,
+              endReason: row.end_reason,
+              elapsedMinutes: row.elapsed_minutes,
+              searches: row.searches,
+              noSignal: row.no_signal,
+              trail: row.trail,
+              incidental: row.incidental,
+              direct: row.direct,
+            };
       },
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );

@@ -836,6 +836,18 @@ class PostgresBattleTransaction implements BattleTransaction {
   }
 }
 
+/** Execute canonical BattleService inside an already-owned PostgreSQL transaction.
+ * No nested BEGIN/COMMIT, no second connection, no premature state visibility.
+ */
+export function battleRepositoryWithinTransaction(client: PoolClient): BattleRepository {
+  const transaction = new PostgresBattleTransaction(client);
+  return {
+    transaction: async <T>(work: (tx: BattleTransaction) => Promise<T>): Promise<T> =>
+      work(transaction),
+    read: async <T>(work: (tx: BattleTransaction) => Promise<T>): Promise<T> => work(transaction),
+  };
+}
+
 export class PostgresBattleRepository implements BattleRepository {
   public constructor(
     private readonly pool: Pool,

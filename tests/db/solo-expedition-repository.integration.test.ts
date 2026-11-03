@@ -5,7 +5,16 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionV4EventHistoryReader } from "../../src/platform/exploration/postgres-expedition-v4-event-history-reader.js";
 import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionResourceConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import {
+  PublishedResourceLootPolicy,
+  PostgresExpeditionV4StagingResourceSearch,
+} from "../../src/platform/exploration/postgres-expedition-v4-resources.js";
+import { PostgresExpeditionV4StagingTrailFollow } from "../../src/platform/exploration/postgres-expedition-v4-trail.js";
+import { PostgresExpeditionTrailConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
@@ -13,12 +22,20 @@ import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/explo
 import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
 import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
 import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
+import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
+import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import { PostgresExpeditionTravelConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
+import { WorldService } from "../../src/modules/world/service.js";
+import { worldRepositoryWithinTransaction } from "../../src/platform/world/postgres-world-repository.js";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
 import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
 import { CaptureService } from "../../src/modules/capture/service.js";
 import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
+import { PostgresExpeditionOfflineBattleStart } from "../../src/platform/exploration/postgres-expedition-offline-battle-start.js";
 import type { CaptureContext } from "../../src/modules/capture/contracts.js";
 import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
@@ -26,13 +43,17 @@ import { EncounterOperationalReadService } from "../../src/modules/encounter/ope
 import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/exploration/expedition-quoted-reply-readonly-staging.js";
 import {
   IncomingMessageSchema,
+  incomingMessageFingerprint,
   type MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
 import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
-import { PostgresEncounterRepository } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import {
+  PostgresEncounterRepository,
+  encounterRepositoryWithinTransaction,
+} from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
   createSearchOutcomeEffect,
@@ -63,6 +84,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
   let publishedBallItemId: string;
   let publishedCaptureSnapshot: CaptureContext["encounterSnapshot"];
   let activeAreaId: string;
+  let yunAreaId: string;
   let unpublishedAreaId: string;
   let inactiveRegionAreaId: string;
   let outsideLaunchAreaId: string;
@@ -122,12 +144,19 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     const inactiveRegionId = randomUUID();
     const outsideLaunchRegionId = randomUUID();
     activeAreaId = randomUUID();
+    yunAreaId = randomUUID();
     unpublishedAreaId = randomUUID();
     inactiveRegionAreaId = randomUUID();
     outsideLaunchAreaId = randomUUID();
     await pool.query(
-      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,'{}'::jsonb,'DRAFT')",
-      [rulesetId],
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,'solo-expedition-proof',1,1,$2::jsonb,'DRAFT')",
+      [
+        rulesetId,
+        JSON.stringify({
+          schemaVersion: 1,
+          capture: { allowedEncounterStates: ["IN_BATTLE"] },
+        }),
+      ],
     );
     await pool.query(
       "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
@@ -153,6 +182,10 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         outsideLaunchRegionId,
       ],
     );
+    await pool.query("INSERT INTO areas(id,region_id,slug) VALUES($1,$2,'campos-de-yun')", [
+      yunAreaId,
+      activeRegionId,
+    ]);
     await pool.query(
       "INSERT INTO content_releases(id,release_no,name,status,default_ruleset_id) VALUES ($1,999993,'Solo Expedition Draft UAT','DRAFT',$2)",
       [publishedReleaseId, rulesetId],
@@ -188,6 +221,39 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         }),
       ],
     );
+    await pool.query(
+      "INSERT INTO area_revisions(id,content_release_id,area_id,display_name,active,data) VALUES($1,$2,$3,'Campos de Yun',TRUE,$4::jsonb)",
+      [
+        randomUUID(),
+        publishedReleaseId,
+        yunAreaId,
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: "ROUTE",
+          safePoint: false,
+          startingArea: false,
+          relocationPriority: 11,
+        }),
+      ],
+    );
+    const fromVilaRoad = randomUUID();
+    const reverseRoad = randomUUID();
+    await pool.query(
+      "INSERT INTO area_connections(id,from_area_id,to_area_id,connection_key) VALUES($1,$3,$4,'vila-to-yun'),($2,$4,$3,'yun-to-vila')",
+      [fromVilaRoad, reverseRoad, activeAreaId, yunAreaId],
+    );
+    await pool.query(
+      "INSERT INTO area_connection_revisions(id,content_release_id,connection_id,access_rule,active) VALUES($1,$3,$4,$6::jsonb,TRUE),($2,$3,$5,$7::jsonb,TRUE)",
+      [
+        randomUUID(),
+        randomUUID(),
+        publishedReleaseId,
+        fromVilaRoad,
+        reverseRoad,
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [], explorationMinutes: 45 }),
+        JSON.stringify({ schemaVersion: 1, requiredUnlockKeys: [] }),
+      ],
+    );
     // Catalog revisions must be authored only while their release is DRAFT.
     // Never bypass the PUBLISHED child-mutation trigger in the test database.
     publishedBallItemId = randomUUID();
@@ -204,6 +270,26 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         publishedReleaseId,
         publishedBallItemId,
         JSON.stringify({ multiplierBasisPoints: 10000 }),
+      ],
+    );
+
+    // SYNTHETIC ONLY: these are never officially approved Vila/Yun loot odds.
+    await pool.query(
+      "INSERT INTO solo_resource_loot_policies(id,content_release_id,area_id,period,entries,approval_ref,approved_at) VALUES($1,$2,$3,'DAY',$4::jsonb,'SYNTHETIC-PG18-ONLY',now())",
+      [
+        randomUUID(),
+        publishedReleaseId,
+        activeAreaId,
+        JSON.stringify([{ kind: "ITEM", itemId: publishedBallItemId, quantity: 2, weight: 10000 }]),
+      ],
+    );
+    await pool.query(
+      "INSERT INTO solo_resource_loot_policies(id,content_release_id,area_id,period,entries,approval_ref,approved_at) VALUES($1,$2,$3,'NIGHT',$4::jsonb,'SYNTHETIC-BAD-ITEM',now())",
+      [
+        randomUUID(),
+        publishedReleaseId,
+        activeAreaId,
+        JSON.stringify([{ kind: "ITEM", itemId: randomUUID(), quantity: 1, weight: 10000 }]),
       ],
     );
     // One real, published and FK-valid wild Pokémon for CaptureService's
@@ -267,6 +353,34 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        ) VALUES($1,$2,$3,'Tackle',$4,'PHYSICAL',40,100,0,35)`,
       [randomUUID(), publishedReleaseId, moveId, typeId],
     );
+    // Synthetic PUBLISHED encounter eligibility for TRAIL->EncounterService PG18 proofs.
+    await pool.query(
+      "INSERT INTO pokemon_form_ability_options(id,content_release_id,form_id,ability_id,slot_kind) VALUES($1,$2,$3,$4,'PRIMARY')",
+      [randomUUID(), publishedReleaseId, formId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO move_learnset_entries(id,content_release_id,form_id,move_id,learn_method) VALUES($1,$2,$3,$4,'START')",
+      [randomUUID(), publishedReleaseId, formId, moveId],
+    );
+    const trailEncounterTableId = randomUUID();
+    const trailEncounterRevisionId = randomUUID();
+    await pool.query("INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'grass')", [
+      trailEncounterTableId,
+      activeAreaId,
+    ]);
+    const trailConditions = JSON.stringify({
+      schemaVersion: 1,
+      requiredUnlockKeys: [],
+      blockedUnlockKeys: [],
+    });
+    await pool.query(
+      "INSERT INTO encounter_table_revisions(id,content_release_id,encounter_table_id,active,conditions) VALUES($1,$2,$3,TRUE,$4::jsonb)",
+      [trailEncounterRevisionId, publishedReleaseId, trailEncounterTableId, trailConditions],
+    );
+    await pool.query(
+      "INSERT INTO encounter_entries(id,encounter_table_revision_id,form_id,weight,min_level,max_level,active,conditions) VALUES($1,$2,$3,100,3,5,TRUE,$4::jsonb)",
+      [randomUUID(), trailEncounterRevisionId, formId, trailConditions],
+    );
     publishedCaptureSnapshot = {
       schemaVersion: 1,
       formId,
@@ -310,6 +424,810 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await adminPool.query('DROP DATABASE IF EXISTS "' + dbName + '"');
       await adminPool.end();
     }
+  });
+
+  it("builds last completed factual history from search, 60-minute resource ledger and end without other trainers", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-history-prepare");
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "NO_SIGNAL" as const }) },
+      async () => {
+        throw new Error("History NO_SIGNAL never creates an encounter");
+      },
+    );
+    const first = await search.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "pg18-history-search",
+    });
+    if (!first.ok) throw first.error;
+    const resources = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x42)),
+    );
+    const gained = await resources.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: first.value.transition.expedition.revision,
+      idempotencyKey: "pg18-history-resources",
+    });
+    if (!gained.ok) throw gained.error;
+    const ended = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: gained.value.transition.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: "pg18-history-ended",
+    });
+    expect(ended).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "ENDED", elapsedMinutes: 90, endReason: "VOLUNTARY" } },
+    });
+    const history = new PostgresExpeditionV4EventHistoryReader(pool);
+    const read = await history.readLatestCompleted(playerId);
+    expect(read).toMatchObject({
+      ok: true,
+      value: {
+        period: "DAY",
+        endReason: "VOLUNTARY",
+        elapsedMinutes: 90,
+        page: 1,
+        pages: 1,
+        totalEvents: 4,
+        events: [
+          { kind: "PREPARE", elapsedMinutes: 0 },
+          { kind: "SEARCH", description: "Busca: nenhum sinal", elapsedMinutes: 30 },
+          { kind: "RESOURCES", description: "Recursos: Poké Ball ×2", elapsedMinutes: 90 },
+          { kind: "END", elapsedMinutes: 90 },
+        ],
+      },
+    });
+    expect(await history.readLatestCompleted(await trainer())).toEqual(ok(null));
+    expect(await history.readLatestCompleted(playerId, 2)).toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
+    });
+    const before = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+      [playerId],
+    );
+    await history.readLatestCompleted(playerId);
+    const after = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+      [playerId],
+    );
+    expect(before.rows).toEqual(after.rows);
+    expect(after.rows[0]?.n).toBe(1);
+  });
+
+  it("commits exactly one canonical inventory grant and 60 minutes, with PG18 receipt replay", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "resource-fixture-prepare");
+    const resource = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x48)),
+    );
+    const input = {
+      playerId,
+      expeditionId: exp.expeditionId,
+      expectedRevision: exp.revision,
+      idempotencyKey: "resource-original-inbox",
+    };
+    const first = await resource.execute(input);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        transition: {
+          expedition: { phase: "ACTIVE", elapsedMinutes: 60, revision: 1n },
+          consumedWeeklySlot: true,
+          replayed: false,
+        },
+        resource: {
+          kind: "ITEM",
+          itemId: publishedBallItemId,
+          quantity: 2n,
+          displayName: "Poké Ball",
+        },
+      },
+    });
+    if (!first.ok) throw first.error;
+    const repeated = await resource.execute(input);
+    expect(repeated).toMatchObject({
+      ok: true,
+      value: {
+        transition: { replayed: true },
+        resource: {
+          resultId: first.value.resource.resultId,
+          ledgerId: first.value.resource.ledgerId,
+        },
+      },
+    });
+    expect(await resource.execute({ ...input, idempotencyKey: "new-inbox" })).toMatchObject({
+      ok: false,
+    });
+    const balances = await pool.query<{ quantity: string }>(
+      "SELECT quantity::text FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+      [playerId, publishedBallItemId],
+    );
+    expect(balances.rows[0]?.quantity).toBe("2");
+    const ledger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1 AND source_type='EXPEDITION_RESOURCE'",
+      [playerId],
+    );
+    expect(ledger.rows[0]?.n).toBe(1);
+    const stored = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM solo_expedition_resource_results WHERE player_id=$1",
+      [playerId],
+    );
+    expect(stored.rows[0]?.n).toBe(1);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+  });
+
+  it("fails closed without approved area policy or valid published item; no cost or grant", async () => {
+    const resource = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x49)),
+    );
+    const missingPlayer = await trainer(yunAreaId);
+    const missing = await prepare(missingPlayer, "resource-missing-prepare");
+    expect(
+      await resource.execute({
+        playerId: missingPlayer,
+        expeditionId: missing.expeditionId,
+        expectedRevision: missing.revision,
+        idempotencyKey: "resource-missing",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const invalidPlayer = await trainer();
+    const night = await store.prepare({
+      playerId: invalidPlayer,
+      period: "NIGHT",
+      idempotencyKey: "resource-night-prepare",
+    });
+    if (!night.ok) throw night.error;
+    expect(
+      await resource.execute({
+        playerId: invalidPlayer,
+        expeditionId: night.value.expedition.expeditionId,
+        expectedRevision: night.value.expedition.revision,
+        idempotencyKey: "resource-bad-item",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    for (const playerId of [missingPlayer, invalidPlayer]) {
+      expect(await store.current(playerId)).toMatchObject({
+        phase: "PREPARING",
+        elapsedMinutes: 0,
+        revision: 0n,
+        consumedWeekKey: null,
+      });
+      expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+      const ledger = await pool.query<{ n: number }>(
+        "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+        [playerId],
+      );
+      expect(ledger.rows[0]?.n).toBe(0);
+    }
+  });
+
+  it("recovers the original claimed Inbox resource confirmation without a second inventory grant", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "resource-inbox-prepare");
+    const senderRef = "5579999999927@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T21:00:00.000Z",
+      text: "/explorar recursos",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const inbox = await new PostgresMessagingRepository(pool).claimIncoming(inbound, 30_000);
+    if (!inbox.ok) throw inbox.error;
+    const idempotencyKey = "inbox:baileys:" + inbound.externalMessageId;
+    const resource = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x51)),
+    );
+    const spent = await resource.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey,
+    });
+    expect(spent.ok).toBe(true);
+    const recovery = new PostgresExpeditionResourceConfirmationRecovery(pool);
+    const context = {
+      message: inbound,
+      inboxMessageId: inbox.value.inboxMessageId,
+      idempotencyKey,
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    expect(await recovery.resolve({ playerId, context })).toEqual(
+      ok({
+        kind: "ITEM",
+        displayName: "Poké Ball",
+        quantity: 2n,
+        elapsedMinutes: 60,
+        consumedWeeklySlot: true,
+      }),
+    );
+    expect(
+      await recovery.resolve({
+        playerId,
+        context: {
+          ...context,
+          message: { ...inbound, externalMessageId: randomUUID() },
+        },
+      }),
+    ).toEqual(ok(null));
+    const originalLedger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1 AND source_type='EXPEDITION_RESOURCE'",
+      [playerId],
+    );
+    expect(originalLedger.rows[0]?.n).toBe(1);
+  });
+
+  it("serializes concurrent duplicate resource Inbox deliveries to one ledger and one result", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "resource-race-prepare");
+    const service = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x52)),
+    );
+    const input = {
+      playerId,
+      expeditionId: exp.expeditionId,
+      expectedRevision: exp.revision,
+      idempotencyKey: "resource-race-same-inbox",
+    };
+    const [first, second] = await Promise.all([service.execute(input), service.execute(input)]);
+    if (!first.ok) throw first.error;
+    if (!second.ok) throw second.error;
+    expect(first.value.resource.resultId).toBe(second.value.resource.resultId);
+    expect(first.value.resource.ledgerId).toBe(second.value.resource.ledgerId);
+    expect([first.value.transition.replayed, second.value.transition.replayed].sort()).toEqual([
+      false,
+      true,
+    ]);
+    const ledger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1 AND source_type='EXPEDITION_RESOURCE'",
+      [playerId],
+    );
+    expect(ledger.rows[0]?.n).toBe(1);
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 60,
+      revision: 1n,
+    });
+  });
+
+  it("rolls back a canonical inventory grant when result persistence fails midtransaction", async () => {
+    const playerId = await trainer();
+    const exp = await prepare(playerId, "resource-injected-failure-prepare");
+    const service = new PostgresExpeditionV4StagingResourceSearch(
+      pool,
+      store,
+      new PublishedResourceLootPolicy(Buffer.alloc(32, 0x53)),
+    );
+    await pool.query(
+      "CREATE FUNCTION fail_solo_resource_result_for_test() RETURNS trigger LANGUAGE plpgsql AS $rollback$ BEGIN RAISE EXCEPTION 'synthetic resource persistence failure'; END; $rollback$",
+    );
+    await pool.query(
+      "CREATE TRIGGER solo_resource_injected_failure BEFORE INSERT ON solo_expedition_resource_results FOR EACH ROW EXECUTE FUNCTION fail_solo_resource_result_for_test()",
+    );
+    try {
+      await expect(
+        service.execute({
+          playerId,
+          expeditionId: exp.expeditionId,
+          expectedRevision: exp.revision,
+          idempotencyKey: "resource-injected-failure-action",
+        }),
+      ).rejects.toThrow("synthetic resource persistence failure");
+    } finally {
+      await pool.query(
+        "DROP TRIGGER IF EXISTS solo_resource_injected_failure ON solo_expedition_resource_results",
+      );
+      await pool.query("DROP FUNCTION IF EXISTS fail_solo_resource_result_for_test()");
+    }
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      revision: 0n,
+      consumedWeekKey: null,
+    });
+    const ledger = await pool.query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
+      [playerId],
+    );
+    expect(ledger.rows[0]?.n).toBe(0);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
+  it("follows a committed TRAIL with canonical EncounterService, 15 minutes, only one encounter and no phantom search", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "trail-follow-preparation");
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "TRAIL" as const }) },
+      async () => {
+        throw new Error("A TRAIL source cannot spawn an encounter early");
+      },
+    );
+    const source = await search.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "trail-source-search",
+    });
+    if (!source.ok) throw source.error;
+    expect(source.value.outcome.kind).toBe("TRAIL");
+    expect(source.value.outcome.encounterId).toBeNull();
+    const current = await store.current(playerId);
+    if (current === null) throw new Error("Missing trail expedition");
+    const trail = new PostgresExpeditionV4StagingTrailFollow(
+      pool,
+      store,
+      createDirectEncounterEffect({
+        seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0x5a), 1),
+        clock,
+        feature: { enabled: true, reason: null },
+      }),
+    );
+    const sourceId = source.value.outcome.outcomeId;
+    expect(await trail.readPending(current)).toBe(sourceId);
+    const senderRef = "5579999999926@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T21:00:00.000Z",
+      text: "/explorar seguir",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const claimed = await new PostgresMessagingRepository(pool).claimIncoming(inbound, 30_000);
+    if (!claimed.ok) throw claimed.error;
+    const input = {
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: current.revision,
+      idempotencyKey: "inbox:baileys:" + inbound.externalMessageId,
+      sourceOutcomeId: sourceId,
+    };
+    const first = await trail.execute(input);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        transition: {
+          expedition: { phase: "ACTIVE", elapsedMinutes: 45, revision: 2n },
+          consumedWeeklySlot: false,
+          replayed: false,
+        },
+        sourceOutcomeId: sourceId,
+        outcome: { kind: "DIRECT", expeditionRevision: 1n },
+        encounterPreview: { speciesName: "Published Testmon" },
+      },
+    });
+    if (!first.ok) throw first.error;
+    expect(first.value.outcome.encounterId).not.toBeNull();
+    const again = await trail.execute(input);
+    expect(again).toMatchObject({
+      ok: true,
+      value: {
+        transition: { replayed: true },
+        outcome: {
+          outcomeId: first.value.outcome.outcomeId,
+          encounterId: first.value.outcome.encounterId,
+        },
+      },
+    });
+    const recovery = new PostgresExpeditionTrailConfirmationRecovery(pool);
+    const context = {
+      message: inbound,
+      inboxMessageId: claimed.value.inboxMessageId,
+      idempotencyKey: input.idempotencyKey,
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    expect(await recovery.resolve({ playerId, context })).toMatchObject({
+      ok: true,
+      value: {
+        outcome: {
+          outcomeId: first.value.outcome.outcomeId,
+          encounterId: first.value.outcome.encounterId,
+        },
+        encounterPreview: { speciesName: "Published Testmon" },
+        elapsedMinutes: 45,
+        consumedWeeklySlot: false,
+      },
+    });
+    expect(
+      await recovery.resolve({
+        playerId,
+        context: { ...context, message: { ...inbound, externalMessageId: randomUUID() } },
+      }),
+    ).toEqual(ok(null));
+    expect(await trail.readPending((await store.current(playerId))!)).toBeNull();
+    expect(
+      await trail.execute({ ...input, idempotencyKey: "different-trail-message" }),
+    ).toMatchObject({
+      ok: false,
+    });
+    const counts = await pool.query<{ follow_count: number; encounter_count: number }>(
+      `SELECT
+        (SELECT count(*)::int FROM solo_expedition_trail_follows WHERE player_id=$1) AS follow_count,
+        (SELECT count(*)::int FROM encounters WHERE player_id=$1) AS encounter_count`,
+      [playerId],
+    );
+    expect(counts.rows).toEqual([{ follow_count: 1, encounter_count: 1 }]);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(2);
+    // The canonical SENT proof recognizes the derived DIRECT outcome; it
+    // cannot engage an encounter before the private delivery was confirmed.
+    const outboxMessageId = randomUUID();
+    await pool.query(
+      `INSERT INTO outbox_messages
+        (id,channel,message_type,destination_ref,status,sent_at,payload,idempotency_key,correlation_id)
+        VALUES($1,'whatsapp','TEXT',$2,'PENDING',NULL,$3::jsonb,$4,$5)`,
+      [
+        outboxMessageId,
+        senderRef,
+        JSON.stringify({
+          text: "Resultado de rastro canônico, fixture PG18",
+          expeditionSearch: {
+            playerId,
+            outcomeId: first.value.outcome.outcomeId,
+            encounterId: first.value.outcome.encounterId,
+          },
+        }),
+        "trail-follow-outbox-" + outboxMessageId,
+        randomUUID(),
+      ],
+    );
+    const proof = {
+      playerId,
+      outcomeId: first.value.outcome.outcomeId,
+      encounterId: first.value.outcome.encounterId!,
+      outboxMessageId,
+      destinationRef: senderRef,
+    };
+    const sent = new PostgresExpeditionSearchSentProof(pool);
+    expect(await sent.confirm(proof)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      outboxMessageId,
+    ]);
+    expect(await sent.confirm(proof)).toMatchObject({
+      ok: true,
+      value: { outcomeId: first.value.outcome.outcomeId },
+    });
+    const engaged = await new ExpeditionSearchEngagementAfterSent(
+      sent,
+      new EncounterService(
+        new PostgresEncounterRepository(pool),
+        new AesEncounterSeedProvider(Buffer.alloc(32, 0x5a), 1),
+        clock,
+        { enabled: true, reason: null },
+      ),
+    ).engageAfterSent(proof);
+    expect(engaged).toMatchObject({
+      ok: true,
+      value: { encounterStatus: "ENGAGED", encounterRevision: 2n },
+    });
+  });
+
+  it("rejects nonexistent, stale or unfollowable TRAIL without spending time or creating encounters", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "trail-invalid-prepare");
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "NO_SIGNAL" as const }) },
+      async () => {
+        throw new Error("No encounter in a NO_SIGNAL search");
+      },
+    );
+    const signal = await search.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "trail-no-signal-search",
+    });
+    if (!signal.ok) throw signal.error;
+    const trail = new PostgresExpeditionV4StagingTrailFollow(pool, store, async () => {
+      throw new Error("No encounter permitted without a TRAIL source");
+    });
+    const current = await store.current(playerId);
+    if (current === null) throw new Error("Missing active expedition");
+    expect(await trail.readPending(current)).toBeNull();
+    expect(
+      await trail.execute({
+        playerId,
+        expeditionId: prepared.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: "trail-invalid-follow",
+        sourceOutcomeId: signal.value.outcome.outcomeId,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
+  });
+
+  it("rolls back a failed canonical TRAIL effect without time, receipt or encounter", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "trail-rollback-prepare");
+    const source = await new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "TRAIL" as const }) },
+      async () => {
+        throw new Error("TRAIL does not produce an immediate encounter");
+      },
+    ).execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "trail-rollback-source",
+    });
+    if (!source.ok) throw source.error;
+    const current = await store.current(playerId);
+    if (current === null) throw new Error("No active trail for rollback");
+    const effectId = randomUUID();
+    const trail = new PostgresExpeditionV4StagingTrailFollow(pool, store, async (client) => {
+      await client.query(
+        "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+        [effectId, playerId, prepared.expeditionId],
+      );
+      return err(appError("FLOW_BLOCKED", "Injected canonical encounter refusal"));
+    });
+    expect(await trail.readPending(current)).toBe(source.value.outcome.outcomeId);
+    const follow = await trail.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: current.revision,
+      idempotencyKey: "trail-rollback-follow",
+      sourceOutcomeId: source.value.outcome.outcomeId,
+    });
+    expect(follow).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
+    const rows = await pool.query<{ effects: number; follows: number }>(
+      `SELECT
+        (SELECT count(*)::int FROM solo_search_effect_test WHERE id=$1) AS effects,
+        (SELECT count(*)::int FROM solo_expedition_trail_follows WHERE player_id=$2) AS follows`,
+      [effectId, playerId],
+    );
+    expect(rows.rows).toEqual([{ effects: 0, follows: 0 }]);
+  });
+
+  it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-travel-preparation");
+    const senderRef = "5579999999928@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T21:00:00.000Z",
+      text: "/explorar viajar campos-de-yun",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const inbox = await new PostgresMessagingRepository(pool).claimIncoming(inbound, 30_000);
+    expect(inbox).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!inbox.ok) throw new Error("Travel Inbox was not claimed");
+    const originalMessageKey = "inbox:baileys:" + inbound.externalMessageId;
+    const worldTravel = async (
+      client: import("pg").PoolClient,
+      input: {
+        playerId: PlayerId;
+        destinationAreaId: string;
+        expectedRevision: bigint;
+        idempotencyKey: string;
+      },
+    ) =>
+      new WorldService(
+        worldRepositoryWithinTransaction(client),
+        { enabled: true, reason: null },
+        clock,
+      ).travel(input);
+    const input = {
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      expectedWorldRevision: 0n,
+      destinationAreaId: yunAreaId,
+      idempotencyKey: originalMessageKey,
+      travel: worldTravel,
+    };
+    const result = await store.executeTravel(input);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        expedition: { phase: "ACTIVE", areaId: yunAreaId, elapsedMinutes: 45 },
+        consumedWeeklySlot: true,
+        replayed: false,
+      },
+    });
+    const recovered = await new PostgresExpeditionTravelConfirmationRecovery(pool).resolve({
+      playerId,
+      context: {
+        message: inbound,
+        inboxMessageId: inbox.value.inboxMessageId,
+        idempotencyKey: originalMessageKey,
+        correlationId: randomUUID(),
+        causationId: randomUUID(),
+      },
+    });
+    expect(recovered).toEqual(
+      ok({
+        destinationDisplayName: "Campos de Yun",
+        travelMinutes: 45,
+        elapsedMinutes: 45,
+        phase: "ACTIVE",
+      }),
+    );
+    const changedInbound = {
+      ...inbound,
+      externalMessageId: randomUUID(),
+    };
+    expect(
+      await new PostgresExpeditionTravelConfirmationRecovery(pool).resolve({
+        playerId,
+        context: {
+          message: changedInbound,
+          inboxMessageId: inbox.value.inboxMessageId,
+          idempotencyKey: originalMessageKey,
+          correlationId: randomUUID(),
+          causationId: randomUUID(),
+        },
+      }),
+    ).toEqual(ok(null));
+    const position = await pool.query<{ area_id: string; revision: string }>(
+      "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    expect(position.rows).toEqual([{ area_id: yunAreaId, revision: "1" }]);
+    const receiptCount = await count("solo_expedition_receipts", playerId);
+    expect(await store.executeTravel(input)).toMatchObject({
+      ok: true,
+      value: { replayed: true, expedition: { areaId: yunAreaId, elapsedMinutes: 45 } },
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(receiptCount);
+    expect(await store.executeTravel({ ...input, expectedWorldRevision: 1n })).toMatchObject({
+      ok: false,
+      error: { code: "IDEMPOTENCY_KEY_INVALID" },
+    });
+
+    const reverse = await store.executeTravel({
+      ...input,
+      expectedRevision: 1n,
+      expectedWorldRevision: 1n,
+      destinationAreaId: activeAreaId,
+      idempotencyKey: "pg18-travel-unapproved-cost",
+    });
+    expect(reverse).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect((await store.current(playerId))?.areaId).toBe(yunAreaId);
+  });
+
+  it("rolls back a real canonical World move and its receipt when expedition rejects its evidence", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-travel-world-rollback-preparation");
+    const result = await store.executeTravel({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: 0n,
+      expectedWorldRevision: 0n,
+      destinationAreaId: yunAreaId,
+      idempotencyKey: "pg18-travel-world-evidence-mismatch",
+      travel: async (client, input) => {
+        const canonical = await new WorldService(
+          worldRepositoryWithinTransaction(client),
+          { enabled: true, reason: null },
+          clock,
+        ).travel(input);
+        if (!canonical.ok) return canonical;
+        // Simulate a malicious/buggy adapter lying after the WorldService
+        // already moved location and inserted its own idempotent receipt.
+        return ok({
+          ...canonical.value,
+          to: { ...canonical.value.to, areaId: randomUUID() },
+        });
+      },
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const locationRow = await pool.query<{ area_id: string; revision: string }>(
+      "SELECT area_id::text,revision::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    expect(locationRow.rows).toEqual([{ area_id: activeAreaId, revision: "0" }]);
+    const worldReceipt = await pool.query<{ total: number }>(
+      "SELECT count(*)::int AS total FROM world_travel_receipts WHERE player_id=$1",
+      [playerId],
+    );
+    expect(worldReceipt.rows[0]?.total).toBe(0);
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING",
+      areaId: activeAreaId,
+      elapsedMinutes: 0,
+      revision: 0n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
+  it("rolls back expedition clock and world-side effects when the travel adapter fails", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-atomic-travel-failure-preparation");
+    const result = await store.executeTravel({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: 0n,
+      expectedWorldRevision: 0n,
+      destinationAreaId: yunAreaId,
+      idempotencyKey: "pg18-atomic-travel-adapter-failure",
+      travel: async (client) => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+          [randomUUID(), playerId, prepared.expeditionId],
+        );
+        return err(appError("FLOW_BLOCKED", "Synthetic World failure after a database write"));
+      },
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "PREPARING",
+      elapsedMinutes: 0,
+      areaId: activeAreaId,
+    });
+    const moved = await pool.query<{ area_id: string }>(
+      "SELECT area_id::text FROM player_locations WHERE player_id=$1",
+      [playerId],
+    );
+    expect(moved.rows).toEqual([{ area_id: activeAreaId }]);
+    expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+    const leaked = await pool.query<{ total: number }>(
+      "SELECT count(*)::int AS total FROM solo_search_effect_test WHERE player_id=$1",
+      [playerId],
+    );
+    expect(leaked.rows[0]?.total).toBe(0);
   });
 
   it("reads real V4 NONE/PREPARING/ACTIVE status and weekly quota without writes or player leaks", async () => {
@@ -1583,6 +2501,112 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_receipts", playerId)).toBe(2);
   });
 
+  it("recovers a real committed voluntary END from exactly the original claimed Inbox", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-end-confirmation-prepare");
+    const active = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-end-confirmation-start",
+    });
+    expect(active.ok).toBe(true);
+    if (!active.ok) throw new Error("Expected an ACTIVE end-recovery expedition");
+    const senderRef = "5579999999901@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, senderRef],
+    );
+    const inbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef,
+      chatRef: "120363123456789@g.us",
+      occurredAt: "2026-11-02T20:00:00.000Z",
+      text: "/explorar encerrar confirmar",
+      replyToExternalMessageId: null,
+      mediaRefs: [],
+    });
+    const inbox = new PostgresMessagingRepository(pool);
+    const claim = await inbox.claimIncoming(inbound, 30_000);
+    expect(claim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!claim.ok) throw new Error("Expected original claimed closure Inbox");
+    const key = "inbox:baileys:" + inbound.externalMessageId;
+    const ended = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: active.value.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: key,
+    });
+    expect(ended).toMatchObject({
+      ok: true,
+      value: { expedition: { phase: "ENDED", endReason: "VOLUNTARY", elapsedMinutes: 30 } },
+    });
+    const context: MessageHandlerContext = {
+      message: inbound,
+      inboxMessageId: claim.value.inboxMessageId,
+      idempotencyKey: key,
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    const recovery = new PostgresExpeditionEndConfirmationRecovery(pool);
+    expect(await recovery.resolve({ playerId, context })).toEqual(ok({ elapsedMinutes: 30 }));
+    expect(
+      await recovery.resolve({
+        playerId,
+        context: {
+          ...context,
+          message: { ...inbound, externalMessageId: randomUUID() },
+        },
+      }),
+    ).toEqual(ok(null));
+    expect(await store.current(playerId)).toBeNull();
+  });
+
+  it("reads a completed expedition's actual persisted search outcomes without another player's history", async () => {
+    const playerId = await trainer();
+    const otherPlayer = await trainer();
+    const reader = new PostgresExpeditionV4StatusReader(pool);
+    expect(await reader.readLatestCompleted(playerId)).toBeNull();
+    const prepared = await prepare(playerId, "pg18-factual-summary-prepare");
+    const begun = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-factual-summary-search",
+    });
+    expect(begun.ok).toBe(true);
+    if (!begun.ok) throw new Error("Could not start factual summary fixture");
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,0,'NO_SIGNAL',NULL)`,
+      [randomUUID(), playerId, prepared.expeditionId],
+    );
+    const closed = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: begun.value.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: "pg18-factual-summary-end",
+    });
+    expect(closed).toMatchObject({ ok: true, value: { expedition: { phase: "ENDED" } } });
+    expect(await reader.readLatestCompleted(playerId)).toEqual({
+      period: prepared.period,
+      endReason: "VOLUNTARY",
+      elapsedMinutes: 30,
+      searches: 1,
+      noSignal: 1,
+      trail: 0,
+      incidental: 0,
+      direct: 0,
+    });
+    expect(await reader.readLatestCompleted(otherPlayer)).toBeNull();
+  });
+
   it("blocks the fourth expédition and resets on the local Monday", async () => {
     const playerId = await trainer();
     for (let index = 0; index < 3; index += 1) {
@@ -2350,7 +3374,11 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         playerId,
         actionOutcome,
         encounterId,
-        JSON.stringify({ mode: "ACTIONABLE", actions: ["CAPTURE", "BATTLE"] }),
+        JSON.stringify({
+          mode: "ACTIONABLE",
+          actions: ["CAPTURE", "BATTLE"],
+          text: "Synthetic mechanical consent: NOT sent to WhatsApp",
+        }),
         JSON.stringify({ "2": availableBallId }),
       ],
     );
@@ -2364,7 +3392,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         JSON.stringify({
           text: "Synthetic mechanical consent: NOT sent to WhatsApp",
           expeditionSearch: { playerId, outcomeId: actionOutcome, encounterId },
-          expeditionMenu: { menuId: actionMenu, mode: "ACTIONABLE" },
+          expeditionMenu: {
+            menuId: actionMenu,
+            mode: "ACTIONABLE",
+            actions: ["CAPTURE", "BATTLE"],
+            ballItemIds: { "2": availableBallId },
+          },
         }),
         "actionable-consent-pg18-" + actionOutbox,
         randomUUID(),
@@ -2398,6 +3431,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         actionable: true,
         captureEnabled: true,
         battleEnabled: true,
+        ignoreEnabled: false,
       }),
     );
     const otherPlayer = await trainer();
@@ -2432,6 +3466,789 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(battles.rows[0]?.n).toBe(0);
   });
+  it("atomically ignores an INCIDENTAL encounter with canonical flee and exactly 10 minutes in isolated PG18", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-ignore-preparing");
+    const active = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-ignore-first-search",
+    });
+    expect(active.ok).toBe(true);
+    if (!active.ok) throw new Error("The isolated expedition was not activated");
+
+    const encounterId = createEncounterId();
+    const outcomeId = randomUUID();
+    const rulesetId = randomUUID();
+    await pool.query(
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES ($1,$2,1,1,$3::jsonb,'DRAFT')",
+      [
+        rulesetId,
+        "pg18-ignore-capture-gate-" + rulesetId,
+        JSON.stringify({
+          schemaVersion: 1,
+          capture: {
+            model: "POKEMON_INSPIRED_V1",
+            allowedEncounterStates: ["ENGAGED", "IN_BATTLE"],
+          },
+        }),
+      ],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [rulesetId, JSON.stringify({ valid: true, issues: [] }), "b".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [
+      rulesetId,
+    ]);
+    await pool.query(
+      `INSERT INTO encounters(
+         id,player_id,area_id,status,content_release_id,ruleset_id,
+         rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
+         rng_counter,revision,creation_idempotency_key
+       ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x51),
+        Buffer.alloc(12, 0x52),
+        Buffer.alloc(16, 0x53),
+        "pg18-ignore-engaged:" + encounterId,
+      ],
+    );
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
+      [encounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query(
+      `INSERT INTO encounter_wild_snapshots(
+         encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at
+       ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
+      [encounterId, JSON.stringify(publishedCaptureSnapshot)],
+    );
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,$4,'INCIDENTAL',$5)`,
+      [
+        outcomeId,
+        playerId,
+        prepared.expeditionId,
+        active.value.expedition.revision.toString(),
+        encounterId,
+      ],
+    );
+    const destinationRef = "5579999999997@s.whatsapp.net";
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, destinationRef],
+    );
+    await pool.query(
+      "INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id) VALUES($1,$2,$3)",
+      [playerId, publishedReleaseId, rulesetId],
+    );
+    const sourceMessageId = randomUUID();
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,sent_at,payload,
+         idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        sourceMessageId,
+        destinationRef,
+        JSON.stringify({
+          text: "Synthetic incidental encounter search",
+          expeditionSearch: { playerId, outcomeId, encounterId },
+        }),
+        "pg18-ignore-search:" + sourceMessageId,
+        randomUUID(),
+      ],
+    );
+    const issuer = new PostgresExpeditionOfflineActionableMenuIssuer(pool);
+    const issued = await issuer.issue({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      destinationRef,
+      correlationId: randomUUID(),
+    });
+    expect(issued).toMatchObject({
+      ok: true,
+      value: { ballItemIds: {}, replayed: false },
+    });
+    if (!issued.ok) throw new Error("Offline issued IGNORE was not authorized");
+    expect(issued.value.text).toContain("0. ↩️ Ignorar ● `10 min`");
+    expect(issued.value.text).not.toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
+    const menuState = await pool.query<{ actions: string[] }>(
+      "SELECT panel->'actions' AS actions FROM solo_incidental_menu_snapshots WHERE id=$1",
+      [issued.value.menuId],
+    );
+    expect(menuState.rows).toMatchObject([{ actions: ["IGNORE"] }]);
+    const quote = issued.value.outboxMessageId.replaceAll("-", "").toUpperCase();
+    const proof = new PostgresExpeditionIssuedMenuReplyProof(pool);
+    const authorizedQuote = {
+      provider: "baileys",
+      playerId,
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      replyToExternalMessageId: quote,
+    };
+    expect(await proof.resolve(authorizedQuote)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query("UPDATE outbox_messages SET status='SENT', sent_at=now() WHERE id=$1", [
+      issued.value.outboxMessageId,
+    ]);
+    expect(await proof.resolve(authorizedQuote)).toMatchObject({
+      ok: true,
+      value: {
+        actionable: true,
+        captureEnabled: false,
+        battleEnabled: false,
+        ignoreEnabled: true,
+        ballItemIds: {},
+      },
+    });
+    // Claim the actual normalized Inbox before the transactional effect.
+    // Once the effect is committed, fail completion to reproduce a lost reply.
+    const ignoredInbound = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: "pg18-ignore-exact",
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      occurredAt: "2026-11-02T18:20:00.000Z",
+      text: "0",
+      replyToExternalMessageId: quote,
+      mediaRefs: [],
+    });
+    const ignoreInbox = new PostgresMessagingRepository(pool);
+    const claim = await ignoreInbox.claimIncoming(ignoredInbound, 30_000);
+    expect(claim).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!claim.ok) throw new Error("Isolated ignore Inbox claim was rejected");
+    // An effect that has already written SQL but then fails must roll back
+    // the effect AND the expedition clock/receipt in the same transaction.
+    const abortedEffectId = randomUUID();
+    const aborted = await store.executeIgnoreIncidental({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      idempotencyKey: "inbox:baileys:ignore-aborted",
+      flee: async (client) => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+          [abortedEffectId, playerId, prepared.expeditionId],
+        );
+        return err(appError("FLOW_BLOCKED", "Injected atomic ignore rejection"));
+      },
+    });
+    expect(aborted).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const atomicBefore = await pool.query<{ effects: number; receipts: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM solo_search_effect_test WHERE id=$1) AS effects,
+         (SELECT count(*)::int FROM solo_expedition_receipts
+          WHERE player_id=$2 AND idempotency_key='inbox:baileys:ignore-aborted') AS receipts`,
+      [abortedEffectId, playerId],
+    );
+    expect(atomicBefore.rows).toEqual([{ effects: 0, receipts: 0 }]);
+    expect((await store.current(playerId))?.elapsedMinutes).toBe(30);
+    const stillEngaged = await pool.query<{ status: string; revision: string }>(
+      "SELECT status,revision::text AS revision FROM encounters WHERE id=$1",
+      [encounterId],
+    );
+    expect(stillEngaged.rows).toEqual([{ status: "ENGAGED", revision: "2" }]);
+
+    let calls = 0;
+    const action = {
+      playerId,
+      encounterId,
+      outcomeId,
+      expectedEncounterRevision: 2n,
+      idempotencyKey: "inbox:baileys:pg18-ignore-exact",
+      flee: async (client: import("pg").PoolClient) => {
+        calls += 1;
+        const encounter = new EncounterService(
+          encounterRepositoryWithinTransaction(client),
+          {
+            create: () => {
+              throw new Error("Flee must not draw a seed");
+            },
+          },
+          clock,
+          { enabled: true, reason: null },
+        );
+        return encounter.flee({ playerId, encounterId, expectedRevision: 2n });
+      },
+    };
+    const ignored = await store.executeIgnoreIncidental(action);
+    expect(ignored).toMatchObject({
+      ok: true,
+      value: {
+        replayed: false,
+        effectRef: encounterId,
+        expedition: { elapsedMinutes: 40, phase: "ACTIVE" },
+      },
+    });
+    const again = await store.executeIgnoreIncidental({
+      ...action,
+      flee: async () => {
+        throw new Error("Replay must never call canonical flee again");
+      },
+    });
+    expect(again).toMatchObject({
+      ok: true,
+      value: { replayed: true, effectRef: encounterId, expedition: { elapsedMinutes: 40 } },
+    });
+    expect(calls).toBe(1);
+    await ignoreInbox.failIncoming(claim.value.inboxMessageId, "INJECTED_AFTER_IGNORE");
+    const recoveredIgnore = new ExpeditionCanonicalChoiceStagingResolver(
+      new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool)),
+      new PostgresExpeditionQuotedEncounterProof(pool),
+      new EncounterOperationalReadService(new PostgresEncounterRepository(pool)),
+      proof,
+      {
+        async attempt(): Promise<never> {
+          throw new Error("Ignore recovery cannot spend a Ball");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[4],
+      {
+        async startCanonical(): Promise<never> {
+          throw new Error("Ignore recovery cannot start PvE");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
+      undefined,
+      {
+        async execute(): Promise<never> {
+          throw new Error("Ignore recovery must never repeat canonical flee");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[7],
+      new PostgresExpeditionIgnoreConfirmationRecovery(pool),
+    );
+    const ignoreMessaging = new MessagingService(
+      ignoreInbox,
+      new MessageRouter([], undefined, recoveredIgnore),
+    );
+    expect(await ignoreMessaging.receive({ ...ignoredInbound, text: "1" })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
+    const recovered = await ignoreMessaging.receive(ignoredInbound);
+    if (!recovered.ok) {
+      throw new Error("Ignore recovery failed: " + JSON.stringify(recovered.error));
+    }
+    expect(recovered).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED", resultRefType: "ENCOUNTER", resultRefId: encounterId },
+    });
+    expect(await ignoreMessaging.receive(ignoredInbound)).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED", resultRefType: "ENCOUNTER" },
+    });
+    const confirmedIgnore = await pool.query<{ text: string; status: string }>(
+      `SELECT payload->>'text' AS text,status FROM outbox_messages
+       WHERE channel='whatsapp' AND idempotency_key=$1`,
+      [action.idempotencyKey + ":expedition-canonical-ignore"],
+    );
+    expect(confirmedIgnore.rows).toHaveLength(1);
+    expect(confirmedIgnore.rows[0]?.text).toContain("10 minutos utilizados");
+    expect(confirmedIgnore.rows[0]?.status).toBe("PENDING");
+    expect(await proof.resolve(authorizedQuote)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const states = await pool.query<{ status: string; revision: string }>(
+      "SELECT status,revision::text AS revision FROM encounters WHERE id=$1",
+      [encounterId],
+    );
+    expect(states.rows).toMatchObject([{ status: "FLED", revision: "3" }]);
+    const receipts = await pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM solo_expedition_receipts WHERE player_id=$1 AND operation='ACTION_IGNORE_INCIDENTAL'",
+      [playerId],
+    );
+    expect(receipts.rows[0]?.count).toBe(1);
+    expect(
+      await store.executeIgnoreIncidental({
+        ...action,
+        idempotencyKey: "inbox:baileys:pg18-ignore-new-message",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const finalExpedition = await store.current(playerId);
+    expect(finalExpedition?.elapsedMinutes).toBe(40);
+  });
+
+  it("issues BATALHAR only for a fully frozen and published PvE party in disposable PG18", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "pg18-frozen-pve-menu");
+    const active = await store.advance({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      minutes: 30,
+      idempotencyKey: "pg18-frozen-pve-search",
+    });
+    expect(active.ok).toBe(true);
+    if (!active.ok) throw new Error("Cannot activate synthetic PvE expedition");
+
+    const owned = randomUUID();
+    const snapshot = publishedCaptureSnapshot;
+    if (snapshot.moves[0] === undefined) throw new Error("Published test Pokemon has no move");
+    await pool.query(
+      `INSERT INTO pokemon_instances(
+         id,owner_player_id,form_id,level,current_hp,ability_id,origin_type
+       ) VALUES($1,$2,$3,5,18,$4,'TEST')`,
+      [owned, playerId, snapshot.formId, snapshot.abilityId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_training_values(
+         pokemon_instance_id,nature_id,iv_hp,iv_attack,iv_defense,
+         iv_sp_attack,iv_sp_defense,iv_speed
+       ) VALUES($1,$2,1,2,3,4,5,6)`,
+      [owned, snapshot.natureId],
+    );
+    await pool.query(
+      "INSERT INTO pokemon_move_slots(pokemon_instance_id,slot_no,move_id,pp_current) VALUES($1,1,$2,35)",
+      [owned, snapshot.moves[0].moveId],
+    );
+    await pool.query(
+      `INSERT INTO pokemon_roster_slots(
+         pokemon_instance_id,player_id,placement_kind,box_no,slot_no
+       ) VALUES($1,$2,'TEAM',NULL,1)`,
+      [owned, playerId],
+    );
+
+    const rulesetId = randomUUID();
+    await pool.query(
+      "INSERT INTO rulesets(id,key,version,engine_contract_version,config,status) VALUES($1,$2,1,1,$3::jsonb,'DRAFT')",
+      [
+        rulesetId,
+        "pg18-offline-frozen-pve-" + rulesetId,
+        JSON.stringify({
+          schemaVersion: 1,
+          battle: {
+            statModel: "SIX_STATS",
+            physicalSpecialByMove: true,
+            ivEnabled: true,
+            evEnabled: false,
+            natureEnabled: true,
+            maxMoves: 4,
+            ppEnabled: true,
+            criticalMultiplierBasisPoints: 15000,
+            accuracyEvasionEnabled: true,
+          },
+          capture: {
+            model: "POKEMON_INSPIRED_V1",
+            allowedEncounterStates: ["ENGAGED", "IN_BATTLE"],
+          },
+          defeat: { automaticMoneyLoss: false },
+          narrative: { authority: "N0_FLAVOR_ONLY" },
+        }),
+      ],
+    );
+    await pool.query(
+      "UPDATE rulesets SET status='VALIDATED',validated_at=now(),validation_report=$2::jsonb,config_fingerprint=$3 WHERE id=$1",
+      [rulesetId, JSON.stringify({ valid: true, issues: [] }), "d".repeat(64)],
+    );
+    await pool.query("UPDATE rulesets SET status='PUBLISHED',published_at=now() WHERE id=$1", [
+      rulesetId,
+    ]);
+
+    const encounterId = createEncounterId();
+    const outcomeId = randomUUID();
+    await pool.query(
+      `INSERT INTO encounters(
+         id,player_id,area_id,status,content_release_id,ruleset_id,
+         rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version,
+         rng_counter,revision,creation_idempotency_key
+       ) VALUES($1,$2,$3,'ENGAGED',$4,$5,$6,$7,$8,1,0,2,$9)`,
+      [
+        encounterId,
+        playerId,
+        activeAreaId,
+        publishedReleaseId,
+        rulesetId,
+        Buffer.alloc(32, 0x75),
+        Buffer.alloc(12, 0x76),
+        Buffer.alloc(16, 0x77),
+        "pg18-offline-pve:" + encounterId,
+      ],
+    );
+    const freeze = await pool.query(
+      "UPDATE encounter_players SET pokemon_instance_ids=ARRAY[$1::uuid] WHERE encounter_id=$2 AND player_id=$3",
+      [owned, encounterId, playerId],
+    );
+    expect(freeze.rowCount).toBe(1);
+    await pool.query(
+      "INSERT INTO encounter_snapshots(encounter_id,schema_version,pokemon_snapshot) VALUES($1,1,$2::jsonb)",
+      [encounterId, JSON.stringify(snapshot)],
+    );
+    await pool.query(
+      `INSERT INTO encounter_wild_snapshots(
+         encounter_id,wild_no,status,schema_version,pokemon_snapshot,created_at,updated_at
+       ) VALUES($1,1,'ACTIVE',1,$2::jsonb,now(),now())`,
+      [encounterId, JSON.stringify(snapshot)],
+    );
+    await pool.query(
+      `INSERT INTO solo_expedition_search_outcomes(
+         id,player_id,expedition_id,expedition_revision,kind,encounter_id
+       ) VALUES($1,$2,$3,$4,'DIRECT',$5)`,
+      [
+        outcomeId,
+        playerId,
+        prepared.expeditionId,
+        active.value.expedition.revision.toString(),
+        encounterId,
+      ],
+    );
+    // A second search must not debit 30 minutes while this ENGAGED battle
+    // encounter is unresolved—even if its RNG would return NO_SIGNAL.
+    const blockedSearchKey = "pg18-pve-pending-encounter-second-search";
+    const rejected = await store.executeSearchFree({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: active.value.expedition.revision,
+      idempotencyKey: blockedSearchKey,
+      effect: async () => {
+        throw new Error("NO_SIGNAL must not run while an encounter is unresolved");
+      },
+    });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const afterRejection = await pool.query<{ elapsed: number; receipts: number }>(
+      `SELECT expedition.elapsed_minutes AS elapsed,
+              (SELECT count(*)::int FROM solo_expedition_receipts
+               WHERE player_id=$2 AND idempotency_key=$3) AS receipts
+       FROM solo_expeditions expedition WHERE expedition.id=$1`,
+      [prepared.expeditionId, playerId, blockedSearchKey],
+    );
+    expect(afterRejection.rows).toEqual([{ elapsed: 30, receipts: 0 }]);
+
+    const endWhileEncounterOpen = await store.end({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: active.value.expedition.revision,
+      reason: "VOLUNTARY",
+      idempotencyKey: "pg18-pve-pending-encounter-end",
+    });
+    expect(endWhileEncounterOpen).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const retained = await pool.query<{ phase: string; elapsed_minutes: number }>(
+      "SELECT phase,elapsed_minutes FROM solo_expeditions WHERE id=$1",
+      [prepared.expeditionId],
+    );
+    expect(retained.rows).toEqual([{ phase: "ACTIVE", elapsed_minutes: 30 }]);
+
+    const destinationRef = "5579999999996@s.whatsapp.net";
+    const source = randomUUID();
+    await pool.query(
+      `INSERT INTO outbox_messages(
+         id,channel,message_type,destination_ref,status,sent_at,payload,
+         idempotency_key,correlation_id
+       ) VALUES($1,'whatsapp','TEXT',$2,'SENT',now(),$3::jsonb,$4,$5)`,
+      [
+        source,
+        destinationRef,
+        JSON.stringify({
+          text: "Frozen ready PvE search",
+          expeditionSearch: { playerId, outcomeId, encounterId },
+        }),
+        "pg18-frozen-pve-search:" + source,
+        randomUUID(),
+      ],
+    );
+
+    const issuer = new PostgresExpeditionOfflineActionableMenuIssuer(pool);
+    // The SENT source is the ONLY trigger: the post-SENT hook performs the
+    // canonical ENGAGED proof and publishes the immutable ACTIONABLE menu.
+    const hook = new ExpeditionSearchPostSentHook(
+      new ExpeditionSearchEngagementAfterSent(
+        new PostgresExpeditionSearchSentProof(pool),
+        new EncounterService(
+          new PostgresEncounterRepository(pool),
+          new AesEncounterSeedProvider(Buffer.alloc(32, 0xb5), 1),
+          clock,
+          { enabled: true, reason: null },
+        ),
+      ),
+      ({ errorCode }) => {
+        throw new Error("Unexpected post-SENT failure: " + errorCode);
+      },
+      issuer,
+    );
+    const originalMessage = {
+      id: source,
+      channel: "whatsapp" as const,
+      messageType: "TEXT" as const,
+      destinationRef,
+      payload: {
+        text: "Frozen ready PvE search",
+        expeditionSearch: { playerId, outcomeId, encounterId },
+      },
+      correlationId: randomUUID(),
+    };
+    await hook.afterSent(originalMessage);
+    // Idempotent callback/recovery must never create another menu.
+    await hook.afterSent(originalMessage);
+    const issued = await issuer.issue({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      destinationRef,
+      correlationId: randomUUID(),
+    });
+    expect(issued).toMatchObject({
+      ok: true,
+      value: { ballItemIds: {}, replayed: true },
+    });
+    const immutableMenus = await pool.query<{ total: number }>(
+      "SELECT count(*)::int AS total FROM solo_incidental_menu_snapshots WHERE outcome_id=$1",
+      [outcomeId],
+    );
+    expect(immutableMenus.rows[0]?.total).toBe(1);
+    if (!issued.ok) throw new Error("Published frozen PvE menu rejected");
+    expect(issued.value.text).toContain("1. ⚔️ Batalhar");
+    expect(issued.value.text).not.toContain("0. ↩️ Ignorar");
+    const actions = await pool.query<{ actions: string[] }>(
+      "SELECT panel->'actions' AS actions FROM solo_incidental_menu_snapshots WHERE id=$1",
+      [issued.value.menuId],
+    );
+    expect(actions.rows).toEqual([{ actions: ["BATTLE"] }]);
+    const proof = new PostgresExpeditionIssuedMenuReplyProof(pool);
+    const quoted = {
+      provider: "baileys",
+      playerId,
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      replyToExternalMessageId: issued.value.outboxMessageId.replaceAll("-", "").toUpperCase(),
+    };
+    expect(await proof.resolve(quoted)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    await pool.query("UPDATE outbox_messages SET status='SENT',sent_at=now() WHERE id=$1", [
+      issued.value.outboxMessageId,
+    ]);
+    expect(await proof.resolve(quoted)).toMatchObject({
+      ok: true,
+      value: {
+        actionable: true,
+        battleEnabled: true,
+        captureEnabled: false,
+        ignoreEnabled: false,
+      },
+    });
+
+    // A real claimed Inbox starts BattleService and records provenance in
+    // the SAME transaction. A lost confirmation can be recovered safely.
+    await pool.query(
+      "INSERT INTO player_identities(id,player_id,provider,external_id,status) VALUES($1,$2,'baileys',$3,'ACTIVE')",
+      [randomUUID(), playerId, destinationRef],
+    );
+    await pool.query(
+      "INSERT INTO player_onboarding_context(player_id,content_release_id,ruleset_id) VALUES($1,$2,$3)",
+      [playerId, publishedReleaseId, rulesetId],
+    );
+    const incoming = IncomingMessageSchema.parse({
+      provider: "baileys",
+      externalMessageId: randomUUID(),
+      senderRef: destinationRef,
+      chatRef: destinationRef,
+      occurredAt: "2026-11-02T18:30:00.000Z",
+      text: "1",
+      replyToExternalMessageId: quoted.replyToExternalMessageId,
+      mediaRefs: [],
+    });
+    const inbox = new PostgresMessagingRepository(pool);
+    const claimed = await inbox.claimIncoming(incoming, 30_000);
+    expect(claimed).toMatchObject({ ok: true, value: { status: "CLAIMED" } });
+    if (!claimed.ok) throw new Error("PvE test Inbox was not claimed");
+    const key = Buffer.alloc(32, 0xb5);
+    const action = new PostgresExpeditionOfflineBattleStart(
+      pool,
+      new AesEncounterSeedProvider(key, 1, () => Buffer.alloc(32, 0x25)),
+      new AesBattleSeedReader(new Map([[1, key]])),
+      clock,
+      { enabled: true, reason: null },
+    );
+    const exact = {
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      menuId: issued.value.menuId,
+      inboxMessageId: claimed.value.inboxMessageId,
+      idempotencyKey: "inbox:baileys:" + incoming.externalMessageId,
+      messageFingerprint: incomingMessageFingerprint(incoming),
+      senderRef: destinationRef,
+    };
+    // Force the canonical battle initialization to refuse the encounter
+    // AFTER Encounter.startBattle has advanced the row in this transaction.
+    // A missing ACTIVE wild snapshot is forbidden by BattleService. This
+    // should leave no IN_BATTLE Encounter, battle row or receipt on rollback.
+    await pool.query("UPDATE encounter_wild_snapshots SET status='FLED' WHERE encounter_id=$1", [
+      encounterId,
+    ]);
+    expect(await action.execute(exact)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    const reverted = await pool.query<{
+      encounter_status: string;
+      revision: string;
+      battles: number;
+      receipts: number;
+    }>(
+      `SELECT encounter.status AS encounter_status, encounter.revision::text AS revision,
+              (SELECT count(*)::int FROM battles WHERE encounter_id=$1) AS battles,
+              (SELECT count(*)::int FROM solo_expedition_battle_receipts
+               WHERE encounter_id=$1) AS receipts
+       FROM encounters encounter WHERE encounter.id=$1`,
+      [encounterId],
+    );
+    expect(reverted.rows).toEqual([
+      { encounter_status: "ENGAGED", revision: "2", battles: 0, receipts: 0 },
+    ]);
+    await pool.query("UPDATE encounter_wild_snapshots SET status='ACTIVE' WHERE encounter_id=$1", [
+      encounterId,
+    ]);
+
+    const started = await action.execute(exact);
+    if (!started.ok) {
+      throw new Error("Atomic canonical PvE failed: " + JSON.stringify(started.error));
+    }
+    expect(started).toMatchObject({ ok: true, value: { replayed: false } });
+    const battleId = started.value.battleId;
+    const recorded = await pool.query<{ n: number; status: string }>(
+      `SELECT count(snapshot.battle_id)::int AS n,battle.status
+       FROM battles battle
+       LEFT JOIN battle_state_snapshots snapshot
+         ON snapshot.battle_id=battle.id AND snapshot.version=0
+       WHERE battle.id=$1 GROUP BY battle.status`,
+      [battleId],
+    );
+    expect(recorded.rows).toEqual([{ n: 1, status: "ACTIVE" }]);
+    expect(await action.execute(exact)).toMatchObject({
+      ok: true,
+      value: { battleId, replayed: true },
+    });
+    expect(
+      await action.execute({
+        ...exact,
+        idempotencyKey: exact.idempotencyKey + ":altered",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    const receipts = await pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM solo_expedition_battle_receipts WHERE battle_id=$1 AND inbox_message_id=$2",
+      [battleId, claimed.value.inboxMessageId],
+    );
+    expect(receipts.rows[0]?.n).toBe(1);
+    expect(await proof.resolve(quoted)).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+
+    // Fail the Inbox *after* the single battle transaction committed. The
+    // original quoted encounter is now IN_BATTLE: normal proof must deny it,
+    // while an immutable receipt allows only the original confirmation.
+    const directProof = await new PostgresExpeditionBattleConfirmationRecovery(pool).resolve({
+      playerId,
+      context: {
+        inboxMessageId: claimed.value.inboxMessageId,
+        correlationId: claimed.value.correlationId,
+        causationId: claimed.value.inboxMessageId,
+        idempotencyKey: exact.idempotencyKey,
+        message: incoming,
+      },
+    });
+    if (!directProof.ok || directProof.value === null) {
+      const diagnosis = await pool.query(
+        `SELECT inbox.status,inbox.external_message_id,inbox.payload_hash,
+                inbox.normalized_payload
+         FROM inbox_messages inbox WHERE inbox.id=$1`,
+        [claimed.value.inboxMessageId],
+      );
+      throw new Error(
+        "Pre-retry PvE receipt proof rejected: " +
+          JSON.stringify({
+            directProof,
+            inbox: diagnosis.rows,
+            requestedFingerprint: exact.messageFingerprint,
+          }),
+      );
+    }
+    expect(directProof.value.battleId).toBe(battleId);
+    await inbox.failIncoming(claimed.value.inboxMessageId, "INJECTED_AFTER_PVE_START");
+    const recovery = new ExpeditionCanonicalChoiceStagingResolver(
+      new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool)),
+      new PostgresExpeditionQuotedEncounterProof(pool),
+      new EncounterOperationalReadService(new PostgresEncounterRepository(pool)),
+      proof,
+      {
+        async attempt(): Promise<never> {
+          throw new Error("PvE recovery cannot capture");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[4],
+      {
+        async startCanonical(): Promise<never> {
+          throw new Error("PvE recovery cannot start another battle");
+        },
+      } as unknown as ConstructorParameters<typeof ExpeditionCanonicalChoiceStagingResolver>[5],
+      undefined,
+      undefined,
+      undefined,
+      {
+        async execute(): Promise<never> {
+          throw new Error("PvE recovery must not execute the battle again");
+        },
+      },
+      new PostgresExpeditionBattleConfirmationRecovery(pool),
+    );
+    const recoveryMessaging = new MessagingService(
+      inbox,
+      new MessageRouter([], undefined, recovery),
+    );
+    expect(await recoveryMessaging.receive({ ...incoming, text: "0" })).toMatchObject({
+      ok: false,
+      error: { code: "FINGERPRINT_MISMATCH" },
+    });
+    const redelivered = await recoveryMessaging.receive(incoming);
+    if (!redelivered.ok) {
+      throw new Error("PvE confirmation retry failed: " + JSON.stringify(redelivered.error));
+    }
+    expect(redelivered).toMatchObject({
+      ok: true,
+      value: { status: "PROCESSED", resultRefType: "BATTLE", resultRefId: battleId },
+    });
+    expect(await recoveryMessaging.receive(incoming)).toMatchObject({
+      ok: true,
+      value: { status: "REPLAYED", resultRefType: "BATTLE", resultRefId: battleId },
+    });
+    const confirmation = await pool.query<{ status: string; text: string }>(
+      `SELECT status,payload->>'text' AS text FROM outbox_messages
+       WHERE channel='whatsapp' AND idempotency_key=$1`,
+      [exact.idempotencyKey + ":expedition-canonical-battle"],
+    );
+    expect(confirmation.rows).toHaveLength(1);
+    expect(confirmation.rows[0]?.status).toBe("PENDING");
+    expect(confirmation.rows[0]?.text).toContain("Batalha iniciada");
+    expect(
+      (
+        await pool.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM solo_expedition_battle_receipts WHERE battle_id=$1",
+          [battleId],
+        )
+      ).rows[0]?.n,
+    ).toBe(1);
+  });
+
   it("routes an authorized Ball to real CaptureService + PostgresCaptureRepository in disposable PG18", async () => {
     // Unlike the unit test, this case commits real capture attempts, inventory
     // ledger and encounter transitions in PostgreSQL. Auth/menu ports remain
@@ -2574,7 +4391,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       value: { replayed: false, ballItemIds: { "2": publishedBallItemId } },
     });
     if (!issuedActionable.ok) throw new Error("Verified offline issuer refused canonical Ball");
-    expect(issuedActionable.value.text).toContain("Poké Ball ×1");
+    expect(issuedActionable.value.text).toContain("2. ◉ Poké Ball ● \`×1\`");
+    expect(issuedActionable.value.text).toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
+    expect(issuedActionable.value.text).toContain("Nv.");
+    expect(issuedActionable.value.text).not.toContain("1. ⚔️ Batalhar");
+    expect(issuedActionable.value.text).not.toContain("0. ↩️ Ignorar");
+    expect(issuedActionable.value.text).not.toContain("[Ler mais]");
     expect(issuedActionable.value.text).not.toContain("somente prévia");
     const emittedMenuId = issuedActionable.value.menuId;
     const emittedOutboxId = issuedActionable.value.outboxMessageId;
@@ -2603,6 +4425,28 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       [emittedMenuId],
     );
     expect(persistedActionable.rows).toMatchObject([{ mode: "ACTIONABLE", status: "PENDING" }]);
+    const storedPanel = await pool.query<{
+      snapshot_text: string;
+      outbox_text: string;
+      ball_item_ids: Record<string, string>;
+    }>(
+      `SELECT menu.panel->>'text' AS snapshot_text,
+              outbox.payload->>'text' AS outbox_text,
+              menu.ball_item_ids
+       FROM solo_incidental_menu_snapshots menu
+       JOIN solo_incidental_menu_deliveries delivery ON delivery.menu_id=menu.id
+       JOIN outbox_messages outbox
+         ON upper(replace(outbox.id::text,'-',''))=upper(delivery.external_message_id)
+       WHERE menu.id=$1`,
+      [emittedMenuId],
+    );
+    expect(storedPanel.rows).toEqual([
+      {
+        snapshot_text: issuedActionable.value.text,
+        outbox_text: issuedActionable.value.text,
+        ball_item_ids: { "2": publishedBallItemId },
+      },
+    ]);
     const players = new PlayerRegistrationService(new PostgresPlayerOnboardingRepository(pool));
     const quotedEncounter = new PostgresExpeditionQuotedEncounterProof(pool);
     const issuedMenuProof = new PostgresExpeditionIssuedMenuReplyProof(pool);
@@ -2684,6 +4528,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         actionable: true,
         captureEnabled: true,
         battleEnabled: false,
+        ignoreEnabled: false,
       }),
     );
     // A real PostgreSQL Inbox claim establishes the exact correlation/fingerprint

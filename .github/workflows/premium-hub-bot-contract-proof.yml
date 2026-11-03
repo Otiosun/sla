@@ -1,0 +1,71 @@
+name: Premium Hub-Bot Exact Commit Protocol Contract (NO-GO)
+
+on:
+  push:
+    branches:
+      - fix/ux-world-route-access-policy-20261102
+    paths:
+      - ".github/workflows/premium-hub-bot-contract-proof.yml"
+      - "tests/crossrepo/premium-hub-bot-protocol.test.mjs"
+      - "src/modules/player-portal/http-handler.ts"
+  pull_request:
+    paths:
+      - ".github/workflows/premium-hub-bot-contract-proof.yml"
+      - "tests/crossrepo/premium-hub-bot-protocol.test.mjs"
+      - "src/modules/player-portal/http-handler.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  exact-hub-bot-protocol:
+    name: Hub PR132 exact immutable SHA vs bot HTTP handler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    env:
+      CI: "true"
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+      HUB_PREMIUM_CHECKOUT: __hub_contract
+    steps:
+      - name: Checkout bot review branch without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Checkout ONLY reviewed Hub PR #132 commit, not main or production
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Otiosun/pokemon-hub-web
+          ref: b997f1e6d2c5d5effced6e396ceca8607b8d34db
+          path: __hub_contract
+          persist-credentials: false
+      - name: Verify both source trees and isolation
+        run: |
+          set -euo pipefail
+          test "$APP_ENV" = test
+          test "$NODE_ENV" = test
+          test "$WHATSAPP_ENABLED" = false
+          test "$(git -C __hub_contract rev-parse HEAD)" = b997f1e6d2c5d5effced6e396ceca8607b8d34db
+          test ! -e .env
+          test ! -e .env.local
+          test ! -e __hub_contract/.env
+          test ! -d auth_info_baileys
+          test ! -d __hub_contract/auth_info_baileys
+      - name: Use fixed Node and pnpm versions
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Install immutable bot dependencies without postinstall scripts
+        run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Enforce formatter and type safety
+        run: |
+          pnpm exec biome format tests/crossrepo/premium-hub-bot-protocol.test.mjs
+          pnpm typecheck
+      - name: Build bot code without running it
+        run: pnpm build
+      - name: Execute BOTH Hub PR132 router and bot HTTP handler with synthetic sessions only
+        run: node --import tsx --test tests/crossrepo/premium-hub-bot-protocol.test.mjs

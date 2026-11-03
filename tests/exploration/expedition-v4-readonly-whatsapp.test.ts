@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { createHash, randomUUID } from "node:crypto";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../src/platform/clock/index.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
 import type {
   ExpeditionV4StagingSearchInput,
@@ -89,6 +90,8 @@ function setup() {
   const route = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
   return { route, deps, resolvePlayer, getLocation, read, admits };
 }
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () => {
   it("renders saved PREPARING and real quota privately; no action or public group reply", async () => {
@@ -476,6 +479,53 @@ describe("published search staging-only WhatsApp command", () => {
     return { ...f, execute, preparation, deps, route };
   }
 
+  it("routes /explorar eventos 2 only to player-scoped history in staging without writes", async () => {
+    const f = stagingSearch();
+    const latest = vi.fn(async () =>
+      ok({
+        period: "DAY" as const,
+        endReason: "VOLUNTARY" as const,
+        elapsedMinutes: 90,
+        page: 2,
+        pages: 2,
+        totalEvents: 13,
+        events: [
+          {
+            kind: "RESOURCES" as const,
+            occurredAt: new Date("2026-11-02T18:00:00.000Z"),
+            elapsedMinutes: 90,
+            description: "Recursos: Poké Ball ×2",
+            receiptRef: "private-original-receipt",
+          },
+        ],
+      }),
+    );
+    const deps = { ...f.deps, history: { readLatestCompleted: latest } };
+    const route = createExpeditionV4StagingSearchRoutes(deps)[0]!;
+    const result = await route.handler.handle(context("/explorar eventos 2"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(latest).toHaveBeenCalledExactlyOnceWith(playerId, 2);
+    expect(result.value.outgoing).toHaveLength(1);
+    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    const output = String(result.value.outgoing[0]?.payload.text);
+    expect(output).toContain("Recursos: Poké Ball ×2");
+    expect(output).toContain("/explorar eventos 1");
+    expect(output).not.toContain("private-original-receipt");
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.end).not.toHaveBeenCalled();
+
+    expect((await route.handler.handle(context("/explorar eventos 0"))).ok).toBe(false);
+    const readOnly = createExpeditionV4ReadOnlyRoutes(deps)[0]!;
+    const denied = await readOnly.handler.handle(context("/explorar eventos 2"));
+    expect(denied.ok).toBe(true);
+    if (denied.ok)
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
+    expect(latest).toHaveBeenCalledTimes(1);
+  });
+
   it("sends a private factual saved result and charges only the canonical first action", async () => {
     const f = stagingSearch();
     const result = await f.route.handler.handle(context("/explorar buscar"));
@@ -581,6 +631,553 @@ describe("published search staging-only WhatsApp command", () => {
       }),
     );
     expect((await f.route.handler.handle(context("/explorar buscar"))).ok).toBe(false);
+  });
+
+  it("makes approved /explorar ajuda accurate for NONE and PREPARING without writes", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    const none = await f.route.handler.handle(context("/explorar ajuda"));
+    expect(none.ok).toBe(true);
+    if (!none.ok) return;
+    const start = String(none.value.outgoing[0]?.payload.text);
+    expect(start).toContain("1. ☀️ Diurno ● /explorar 1");
+    expect(start).toContain("2. 🌙 Noturno ● /explorar 2");
+    expect(start).not.toContain("Buscar Pokémon");
+
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 1 });
+    const prep = await f.route.handler.handle(context("/explorar ajuda"));
+    expect(prep.ok).toBe(true);
+    if (!prep.ok) return;
+    const available = String(prep.value.outgoing[0]?.payload.text);
+    expect(available).toContain("1. 🔎 Buscar Pokémon");
+    expect(available).toContain("/explorar cancelar");
+    expect(available).not.toContain("2. 🌙 Noturno");
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+  });
+
+  it("advertises search after period preparation but never enables resources or travel", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    const outcome = {
+      expedition: preparing,
+      replayed: false,
+      changed: true,
+      consumedWeeklySlot: false,
+    };
+    const prepare = vi.fn(async () => ok(outcome));
+    f.deps.preparation.prepare = prepare;
+    const returned = await f.route.handler.handle(context("/explorar 2"));
+    expect(returned.ok).toBe(true);
+    if (!returned.ok) return;
+    const panel = String(returned.value.outgoing[0]?.payload.text);
+    expect(panel).toContain("1. 🔎 Buscar Pokémon");
+    expect(panel).toContain("/explorar buscar");
+    expect(panel).not.toContain("buscas, captura e viagem continuam desativadas");
+    expect(prepare).toHaveBeenCalledOnce();
+  });
+
+  it("presents V4 PREPARING actions only when search is operational", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: preparing, usedThisWeek: 1 });
+    const result = await f.route.handler.handle(context("/explorar status"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*");
+    expect(text).toContain("◇ *𝗔ÇÕ𝗘𝗦*");
+    expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
+    expect(text).toContain("/explorar periodo noite");
+    expect(text).not.toContain("2. 🎒");
+    expect(text).toContain("3. 🗺️ Consultar destinos");
+    expect(text).not.toContain("[Ler mais]");
+    expect(text).not.toContain("\\u031d");
+  });
+
+  it("recovers already-committed travel before consulting stale location or charging again", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const f = stagingSearch();
+    const execute = vi.fn();
+    const resolve = vi.fn(async () =>
+      ok({
+        destinationDisplayName: "Campos de Yun",
+        travelMinutes: 45,
+        elapsedMinutes: 45,
+        phase: "ACTIVE" as const,
+      }),
+    );
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      travel: { execute },
+      travelRecovery: { resolve },
+    })[0]!;
+    const original = context("/explorar viajar campos-de-yun");
+    const confirmed = await route.handler.handle(original);
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(String(confirmed.value.outgoing[0]?.payload.text)).toContain("Campos de Yun");
+    expect(String(confirmed.value.outgoing[0]?.payload.text)).toContain("45 min");
+    expect(resolve).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      context: original,
+    });
+    expect(f.getLocation).not.toHaveBeenCalled();
+    expect(f.read).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("travels only with published expedition minutes through the isolated writer", async () => {
+    const f = stagingSearch();
+    const destinationAreaId = randomUUID();
+    const destination = {
+      connectionId: randomUUID(),
+      connectionKey: "yun-to-vila",
+      destinationAreaId,
+      destinationSlug: "vila-dos-arrozais",
+      destinationDisplayName: "Vila dos Arrozais",
+      available: true,
+      missingUnlockKeys: [],
+      explorationMinutes: 45,
+    };
+    f.getLocation.mockResolvedValue(ok({ ...location, connections: [destination] }));
+    const execute = vi.fn(async () =>
+      ok({
+        expedition: {
+          ...preparing,
+          areaId: destinationAreaId,
+          phase: "ACTIVE" as const,
+          elapsedMinutes: 45,
+          consumedWeekKey: "2026-10-26",
+          revision: 1n,
+        },
+        consumedWeeklySlot: true,
+        changed: true,
+        replayed: false,
+      }),
+    );
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      travel: { execute },
+    })[0]!;
+    const choices = await route.handler.handle(context("/explorar 3"));
+    expect(choices.ok).toBe(true);
+    if (choices.ok) {
+      const body = String(choices.value.outgoing[0]?.payload.text);
+      expect(body).toContain("Vila dos Arrozais ● `45 min`");
+      expect(body).toContain("/explorar viajar vila-dos-arrozais");
+    }
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const confirmed = await route.handler.handle(context("/explorar viajar vila-dos-arrozais"));
+    expect(confirmed.ok).toBe(true);
+    if (confirmed.ok) {
+      const text = String(confirmed.value.outgoing[0]?.payload.text);
+      expect(text).toContain("Tempo da viagem:");
+      expect(text).toContain("45 min");
+      expect(text).toContain("Vila dos Arrozais");
+    }
+    expect(execute).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      expeditionId: preparing.expeditionId,
+      expectedRevision: 0n,
+      expectedWorldRevision: location.revision,
+      destinationAreaId,
+      idempotencyKey: context().idempotencyKey,
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+  });
+
+  it("rejects travel with no approved minutes or outside offline-only safety flags", async () => {
+    const f = stagingSearch();
+    const candidate = {
+      connectionId: randomUUID(),
+      connectionKey: "yun-to-vila",
+      destinationAreaId: randomUUID(),
+      destinationSlug: "vila-dos-arrozais",
+      destinationDisplayName: "Vila dos Arrozais",
+      available: true,
+      missingUnlockKeys: [] as string[],
+    };
+    f.getLocation.mockResolvedValue(ok({ ...location, connections: [candidate] }));
+    const execute = vi.fn();
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      travel: { execute },
+    })[0]!;
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    expect(await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).toMatchObject(
+      {
+        ok: false,
+        error: { code: "FLOW_BLOCKED" },
+      },
+    );
+    f.getLocation.mockResolvedValue(
+      ok({
+        ...location,
+        connections: [{ ...candidate, explorationMinutes: 45 }],
+      }),
+    );
+    vi.stubEnv("APP_ENV", "production");
+    expect((await route.handler.handle(context("/explorar viajar vila-dos-arrozais"))).ok).toBe(
+      false,
+    );
+    expect(execute).not.toHaveBeenCalled();
+    const readonly = createExpeditionV4ReadOnlyRoutes({
+      ...f.deps,
+      travel: { execute },
+    })[0]!;
+    const denied = await readonly.handler.handle(context("/explorar viajar vila-dos-arrozais"));
+    expect(denied.ok).toBe(true);
+    if (denied.ok) {
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
+    }
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("consults only unlocked, published, launch-area destinations without any write", async () => {
+    const f = stagingSearch();
+    const candidate = {
+      connectionId: randomUUID(),
+      connectionKey: "yun-to-vila",
+      destinationAreaId: randomUUID(),
+      destinationSlug: "vila-dos-arrozais",
+      destinationDisplayName: "Vila dos Arrozais",
+      available: true,
+      missingUnlockKeys: [] as string[],
+    };
+    f.getLocation.mockResolvedValue(
+      ok({
+        ...location,
+        connections: [
+          candidate,
+          { ...candidate, connectionId: randomUUID() },
+          {
+            ...candidate,
+            destinationAreaId: randomUUID(),
+            destinationSlug: "hidden-secret",
+            destinationDisplayName: "Área Secreta",
+          },
+          {
+            ...candidate,
+            destinationAreaId: randomUUID(),
+            destinationDisplayName: "Proibido por chave",
+            missingUnlockKeys: ["unlock-secret"],
+          },
+          {
+            ...candidate,
+            destinationAreaId: randomUUID(),
+            destinationDisplayName: "Conexão indisponível",
+            available: false,
+          },
+        ],
+      }),
+    );
+    const result = await f.route.handler.handle(context("/explorar 3"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const body = String(result.value.outgoing[0]?.payload.text);
+    expect(body.match(/• Vila dos Arrozais/gu)).toHaveLength(1);
+    expect(body).not.toContain("Área Secreta");
+    expect(body).not.toContain("Proibido por chave");
+    expect(body).not.toContain("Conexão indisponível");
+    expect(body).toContain("Consulta gratuita");
+    expect(body).toContain("Só conexões com minutos internos publicados");
+    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+    expect(f.preparation.end).not.toHaveBeenCalled();
+  });
+
+  it("fails safely for missing, unsafe or foreign World destination state", async () => {
+    const f = stagingSearch();
+    f.getLocation.mockResolvedValueOnce(ok({ ...location, connections: [] }));
+    const empty = await f.route.handler.handle(context("/explorar destinos"));
+    expect(empty.ok).toBe(true);
+    if (empty.ok) {
+      const body = String(empty.value.outgoing[0]?.payload.text);
+      expect(body).toContain("Nenhum destino acessível confirmado");
+      expect(body).not.toContain("1. ");
+    }
+    f.getLocation.mockResolvedValueOnce(
+      ok({
+        ...location,
+        connections: [
+          {
+            connectionId: randomUUID(),
+            connectionKey: "unsafe",
+            destinationAreaId: randomUUID(),
+            destinationSlug: "vila-dos-arrozais",
+            destinationDisplayName: "Bait [Ler mais] /comando",
+            available: true,
+            missingUnlockKeys: [],
+          },
+        ],
+      }),
+    );
+    expect(await f.route.handler.handle(context("/explorar 3"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    f.getLocation.mockResolvedValueOnce(ok({ ...location, playerId: createPlayerId() }));
+    expect((await f.route.handler.handle(context("/explorar 3"))).ok).toBe(false);
+  });
+
+  it("does not permit destinations before preparing or through read-only production routes", async () => {
+    const f = stagingSearch();
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 0 });
+    expect((await f.route.handler.handle(context("/explorar 3"))).ok).toBe(false);
+    const readonly = createExpeditionV4ReadOnlyRoutes(f.deps)[0]!;
+    const denied = await readonly.handler.handle(context("/explorar 3"));
+    expect(denied.ok).toBe(true);
+    if (denied.ok) {
+      expect(String(denied.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
+    }
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+  });
+
+  it("returns only a verified, private persisted summary without implying grants", async () => {
+    const f = stagingSearch();
+    const summary = vi.fn(async () => ({
+      period: "NIGHT" as const,
+      endReason: "VOLUNTARY" as const,
+      elapsedMinutes: 90,
+      searches: 4,
+      noSignal: 1,
+      trail: 1,
+      incidental: 1,
+      direct: 1,
+    }));
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      summary: { readLatestCompleted: summary },
+    })[0]!;
+    const result = await route.handler.handle(context("/explorar resumo"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const body = String(result.value.outgoing[0]?.payload.text);
+    expect(body).toContain("90 min");
+    expect(body).toContain("Encontros diretos: `1`");
+    expect(body).toContain("Relatório externo");
+    expect(body).not.toContain("Poké Ball ×");
+    expect(body).not.toContain("₽300");
+    expect(result.value.outgoing[0]?.destinationRef).toBe(context().message.senderRef);
+    expect(summary).toHaveBeenCalledExactlyOnceWith(playerId);
+    expect(f.getLocation).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses inconsistent outcome counts and does not expose summary from readonly factory", async () => {
+    const f = stagingSearch();
+    const latest = vi.fn(async () => ({
+      period: "DAY" as const,
+      endReason: "BLACKOUT" as const,
+      elapsedMinutes: 60,
+      searches: 2,
+      noSignal: 1,
+      trail: 0,
+      incidental: 0,
+      direct: 0,
+    }));
+    const route = createExpeditionV4StagingSearchRoutes({
+      ...f.deps,
+      summary: { readLatestCompleted: latest },
+    })[0]!;
+    expect(await route.handler.handle(context("/explorar resumo"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    latest.mockResolvedValueOnce(null as never);
+    const empty = await route.handler.handle(context("/explorar resumo"));
+    expect(empty.ok).toBe(true);
+    if (empty.ok) {
+      expect(String(empty.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma expedição concluída",
+      );
+    }
+    const readonly = createExpeditionV4ReadOnlyRoutes({
+      ...f.deps,
+      summary: { readLatestCompleted: latest },
+    })[0]!;
+    const response = await readonly.handler.handle(context("/explorar resumo"));
+    expect(response.ok).toBe(true);
+    if (response.ok) {
+      expect(String(response.value.outgoing[0]?.payload.text)).toContain(
+        "Nenhuma ação será executada",
+      );
+    }
+    expect(latest).toHaveBeenCalledTimes(2);
+  });
+
+  it("presents V4 ACTIVE compact clock and only executable search", async () => {
+    const f = stagingSearch();
+    const active = {
+      ...preparing,
+      phase: "ACTIVE" as const,
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+      revision: 1n,
+    };
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    const result = await f.route.handler.handle(context("/explorar status"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = String(result.value.outgoing[0]?.payload.text);
+    expect(text).toContain("◇ *𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*");
+    expect(text).toContain("11h30");
+    expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
+    expect(text).not.toContain("2. 🎒");
+    expect(text).toContain("3. 🗺️ Consultar destinos");
+    expect(text).toContain("4. 📋 Encerrar");
+    expect(text).not.toContain("[Ler mais]");
+  });
+
+  it("shows an explicit ACTIVE end confirmation before any irreversible mutation", async () => {
+    const f = stagingSearch();
+    const active = {
+      ...preparing,
+      phase: "ACTIVE" as const,
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+      revision: 1n,
+    };
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    const prompt = await f.route.handler.handle(context("/explorar 4"));
+    expect(prompt.ok).toBe(true);
+    if (!prompt.ok) return;
+    const body = String(prompt.value.outgoing[0]?.payload.text);
+    expect(body).toContain("𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔ÇÃ𝗢");
+    expect(body).toContain("/explorar encerrar confirmar");
+    expect(f.preparation.end).not.toHaveBeenCalled();
+
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const end = vi.fn(async () =>
+      ok({
+        expedition: {
+          ...active,
+          phase: "ENDED" as const,
+          endReason: "VOLUNTARY" as const,
+          revision: 2n,
+        },
+        replayed: false,
+        changed: true,
+        consumedWeeklySlot: false,
+      }),
+    );
+    f.deps.preparation.end = end;
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    const confirmed = await f.route.handler.handle(context("/explorar encerrar confirmar"));
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(end).toHaveBeenCalledWith({
+      playerId,
+      expeditionId: active.expeditionId,
+      expectedRevision: 1n,
+      reason: "VOLUNTARY",
+      idempotencyKey: "inbox:baileys:read-only-1",
+    });
+    const result = String(confirmed.value.outgoing[0]?.payload.text);
+    expect(result).toContain("Expedição encerrada voluntariamente");
+    expect(result).toContain("Tempo utilizado:");
+    expect(result).toContain("Nenhuma recompensa adicional");
+    expect(result).toContain("100 palavras");
+  });
+
+  it("denies voluntary closure before ACTIVE and when offline flags are missing", async () => {
+    const f = stagingSearch();
+    expect((await f.route.handler.handle(context("/explorar 4"))).ok).toBe(false);
+    const active = {
+      ...preparing,
+      phase: "ACTIVE" as const,
+      elapsedMinutes: 30,
+      consumedWeekKey: "2026-10-26",
+      revision: 1n,
+    };
+    vi.stubEnv("APP_ENV", "production");
+    f.read.mockResolvedValueOnce({ expedition: active, usedThisWeek: 1 });
+    expect((await f.route.handler.handle(context("/explorar encerrar confirmar"))).ok).toBe(false);
+    expect(f.preparation.end).not.toHaveBeenCalled();
+  });
+
+  it("recovers committed END only with the matching immutable Inbox receipt and fingerprint", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const original = context("/explorar encerrar confirmar");
+    const expeditionId = randomUUID();
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify(["END", expeditionId, "1", "VOLUNTARY"]))
+      .digest("hex");
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      expect(sql).toContain("inbox.payload_hash=$4");
+      expect(sql).toContain("receipt.operation='END'");
+      expect(sql).toContain("expedition.phase='ENDED'");
+      expect(params.slice(0, 3)).toEqual([
+        original.inboxMessageId,
+        playerId,
+        original.idempotencyKey,
+      ]);
+      return {
+        rows: [{ expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint }],
+      };
+    });
+    const recovery = new PostgresExpeditionEndConfirmationRecovery({ query } as never);
+    expect(await recovery.resolve({ playerId, context: original })).toEqual(
+      ok({ elapsedMinutes: 30 }),
+    );
+    query.mockResolvedValueOnce({
+      rows: [{ expedition_id: expeditionId, revision: "2", elapsed_minutes: 30, fingerprint: "x" }],
+    });
+    expect(await recovery.resolve({ playerId, context: original })).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+  });
+
+  it("routes contextual /explorar 1 into SEARCH only once PREPARING or ACTIVE", async () => {
+    const f = stagingSearch();
+    const result = await f.route.handler.handle(context("/explorar 1"));
+    expect(result.ok).toBe(true);
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(f.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerId,
+        expeditionId: preparing.expeditionId,
+        expectedRevision: preparing.revision,
+      }),
+    );
+  });
+
+  it("denies stale period choices in PREPARING or ACTIVE rather than re-preparing", async () => {
+    const f = stagingSearch();
+    for (const item of [
+      preparing,
+      {
+        ...preparing,
+        phase: "ACTIVE" as const,
+        elapsedMinutes: 30,
+        consumedWeekKey: "2026-10-26",
+      },
+    ]) {
+      f.read.mockResolvedValueOnce({ expedition: item, usedThisWeek: 1 });
+      expect((await f.route.handler.handle(context("/explorar 2"))).ok).toBe(false);
+      f.read.mockResolvedValueOnce({ expedition: item, usedThisWeek: 1 });
+      expect((await f.route.handler.handle(context("/explorar dia"))).ok).toBe(false);
+    }
+    expect(f.preparation.prepare).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
   });
 
   it("does not allow search to run through an unnamespaced numeric or freeform request", async () => {

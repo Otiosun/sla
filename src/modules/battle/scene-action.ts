@@ -36,9 +36,14 @@ function parseDirective(command: string, argument: string): SceneActionIntent | 
   }
 
   if (normalized === "trocar") {
-    if (!/^\d+$/u.test(argument)) return null;
-    const slot = Number(argument);
-    return Number.isSafeInteger(slot) && slot > 0 ? { type: "SWITCH", switchSlot: slot } : null;
+    // A Cena may continue on the same line as the mechanical directive.
+    // Read exactly one positive numeric slot; never interpret its prose as
+    // another parameter or accept malformed numbers such as 2abc / 2.5.
+    const slotToken =
+      /^([1-9]\d*)(?=$|\s|[,;!?](?=$|\s)|\.(?=$|\s))/u.exec(argument)?.[1];
+    if (slotToken === undefined) return null;
+    const slot = Number(slotToken);
+    return Number.isSafeInteger(slot) ? { type: "SWITCH", switchSlot: slot } : null;
   }
 
   if (normalized === "capturar") {

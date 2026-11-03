@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Pool } from "pg";
+import { createOperationalOutboxWorker } from "../../src/runtime/compose-whatsapp-runtime.js";
 import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 import type {
   MessagingRepository,
@@ -92,6 +94,126 @@ function harness(input: {
 }
 
 describe("staging exploration hook on the actual OutboxWorker", () => {
+  it("quarantines uncertain deliveries in the composed offline worker only", async () => {
+    const claimOutbox = vi.fn(async (_options: unknown) => []);
+    const repo = { claimOutbox } as never;
+    const provider: OutboundMessageAdapter = {
+      channel: "whatsapp",
+      async send() {
+        return { providerExternalMessageId: "offline-synthetic" };
+      },
+    };
+    const hook = makeHook(async () => ok({}), []);
+    const isolated = createOperationalOutboxWorker({} as Pool, repo, provider, hook);
+    expect(await isolated.runOnce()).toMatchObject({ claimed: 0, postSentFailed: 0 });
+    expect(claimOutbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ quarantineStaleSending: true }),
+    );
+    const original = createOperationalOutboxWorker({} as Pool, repo, provider);
+    expect(await original.runOnce()).toMatchObject({ claimed: 0 });
+    expect(claimOutbox.mock.lastCall?.[0]).not.toHaveProperty("quarantineStaleSending");
+  });
+
+  it("issues an immutable menu only AFTER canonical engagement of an actual SENT source", async () => {
+    const events: string[] = [];
+    const failures: string[] = [];
+    const hook = new ExpeditionSearchPostSentHook(
+      {
+        engageAfterSent: async () => {
+          events.push("ENGAGED");
+          return ok({ encounterRevision: 2n });
+        },
+      } as never,
+      ({ errorCode }) => failures.push(errorCode),
+      {
+        issue: async (input: {
+          playerId: string;
+          outcomeId: string;
+          encounterId: string;
+          expectedEncounterRevision: bigint;
+          correlationId: string;
+          destinationRef: string;
+        }) => {
+          events.push("MENU");
+          expect(input).toMatchObject({
+            playerId,
+            encounterId,
+            outcomeId,
+            expectedEncounterRevision: 2n,
+            correlationId: message.correlationId,
+            destinationRef: message.destinationRef,
+          });
+          return ok({ menuId: "menu", outboxMessageId: "out", replayed: false });
+        },
+      } as never,
+    );
+    const { worker } = harness({ hook });
+    expect(await worker.runOnce()).toMatchObject({ sent: 1, postSentFailed: 0 });
+    expect(events).toEqual(["ENGAGED", "MENU"]);
+    expect(failures).toEqual([]);
+
+    await hook.afterSent({
+      ...message,
+      payload: {
+        ...message.payload,
+        expeditionMenu: { menuId: "menu", mode: "ACTIONABLE" },
+      },
+    });
+    expect(events).toEqual(["ENGAGED", "MENU"]);
+  });
+
+  it("never issues the menu if engagement was denied, and does not resend SENT", async () => {
+    let menus = 0;
+    const errors: string[] = [];
+    const hook = new ExpeditionSearchPostSentHook(
+      { engageAfterSent: async () => err(appError("FLOW_BLOCKED", "stale")) } as never,
+      ({ errorCode }) => errors.push(errorCode),
+      {
+        issue: async () => {
+          menus++;
+          return ok({});
+        },
+      } as never,
+    );
+    const { worker } = harness({ hook });
+    expect(await worker.runOnce()).toMatchObject({ sent: 1, failed: 0, postSentFailed: 1 });
+    expect(menus).toBe(0);
+    expect(errors).toEqual(["EXPEDITION_POST_SENT_FLOW_BLOCKED"]);
+  });
+
+  it("recovers an ENGAGED search with no menu, excluding menu Outbox and any issued snapshot", async () => {
+    const invoked: string[] = [];
+    const database = {
+      query: async (sql: string, args: unknown[]) => {
+        expect(sql).toContain("'ENGAGED'");
+        expect(sql).toContain("NOT EXISTS");
+        expect(sql).toContain("solo_incidental_menu_snapshots");
+        expect(sql).toContain("NOT (o.payload ? 'expeditionMenu')");
+        expect(args).toEqual([25]);
+        return {
+          rows: [
+            {
+              id: message.id,
+              destination_ref: message.destinationRef,
+              payload: message.payload,
+              correlation_id: message.correlationId,
+            },
+          ],
+        };
+      },
+    };
+    const recovery = new PostgresExpeditionPostSentRecovery(database as never, {
+      async afterSent(replayed) {
+        invoked.push(replayed.id);
+      },
+      onFailure() {
+        throw new Error("No failure expected");
+      },
+    });
+    expect(await recovery.runOnce()).toEqual({ attempted: 1, engaged: 1, blocked: 0 });
+    expect(invoked).toEqual([message.id]);
+  });
+
   it("never engages before adapter.send and durable markOutboxSent", async () => {
     const failures: string[] = [];
     const { worker, events } = harness({

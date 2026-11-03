@@ -51,7 +51,7 @@ CREATE TABLE solo_expedition_receipts (
   player_id UUID NOT NULL REFERENCES players(id),
   idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
   expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
-  operation TEXT NOT NULL CHECK (operation IN ('PREPARE', 'CHANGE_PERIOD', 'ADVANCE', 'END', 'ACTION_SEARCH_FREE')),
+  operation TEXT NOT NULL CHECK (operation IN ('PREPARE', 'CHANGE_PERIOD', 'ADVANCE', 'END', 'ACTION_SEARCH_FREE', 'ACTION_IGNORE_INCIDENTAL', 'ACTION_TRAVEL', 'ACTION_RESOURCE_SEARCH', 'ACTION_FOLLOW_TRAIL')),
   fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
   result JSONB NOT NULL CHECK (jsonb_typeof(result) = 'object'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -143,6 +143,28 @@ CREATE TRIGGER solo_incidental_menu_delivery_immutable
   FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
 
 
+-- Immutable OFFLINE proof that a specific claimed Inbox triggered a
+-- canonical PvE battle in the same SQL transaction as initialization.
+CREATE TABLE solo_expedition_battle_receipts (
+  player_id UUID NOT NULL REFERENCES players(id),
+  idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+  inbox_message_id UUID NOT NULL UNIQUE REFERENCES inbox_messages(id),
+  menu_id UUID NOT NULL REFERENCES solo_incidental_menu_snapshots(id),
+  outcome_id UUID NOT NULL REFERENCES solo_expedition_search_outcomes(id),
+  encounter_id UUID NOT NULL REFERENCES encounters(id),
+  encounter_revision BIGINT NOT NULL CHECK (encounter_revision >= 0),
+  battle_id UUID NOT NULL UNIQUE REFERENCES battles(id),
+  fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (player_id,idempotency_key)
+);
+CREATE TRIGGER solo_expedition_battle_receipt_immutable
+  BEFORE UPDATE OR DELETE ON solo_expedition_battle_receipts
+  FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
+COMMENT ON TABLE solo_expedition_battle_receipts IS
+  'STAGING only: exact Inbox and SENT ACTIONABLE menu to canonical PvE provenance. No production migration.';
+
+
 -- DRAFT ONLY: author-approved area/period search-result weights. No default
 -- percentages are invented. Published content is not editable from gameplay.
 CREATE TABLE solo_search_outcome_policies (
@@ -176,3 +198,81 @@ $$;
 CREATE TRIGGER solo_search_outcome_policy_draft_only
   BEFORE INSERT OR UPDATE OR DELETE ON solo_search_outcome_policies
   FOR EACH ROW EXECUTE FUNCTION prevent_unapproved_search_policy_write();
+
+-- DEVELOPMENT DRAFT ONLY: author-approved resource probabilities per
+-- published area+period. No default loot tables, items or odds are seeded.
+-- A human-approved reference must be recorded while the release is DRAFT,
+-- then the normal content publishing gate freezes its identity.
+CREATE TABLE solo_resource_loot_policies (
+  id UUID PRIMARY KEY,
+  content_release_id UUID NOT NULL REFERENCES content_releases(id),
+  area_id UUID NOT NULL REFERENCES areas(id),
+  period TEXT NOT NULL CHECK (period IN ('DAY','NIGHT')),
+  entries JSONB NOT NULL CHECK (jsonb_typeof(entries) = 'array'),
+  approval_ref TEXT NOT NULL CHECK (char_length(trim(approval_ref)) BETWEEN 1 AND 200),
+  approved_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(content_release_id,area_id,period)
+);
+CREATE TRIGGER solo_resource_loot_policy_draft_only
+  BEFORE INSERT OR UPDATE OR DELETE ON solo_resource_loot_policies
+  FOR EACH ROW EXECUTE FUNCTION prevent_unapproved_search_policy_write();
+COMMENT ON TABLE solo_resource_loot_policies IS
+  'DRAFT only: explicitly approved weights and quantities; publication freezes them. No fixture is official content.';
+
+-- The selected outcome and canonical inventory-ledger reference commit
+-- together with the expedition clock and immutable action receipt.
+CREATE TABLE solo_expedition_resource_results (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id),
+  expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
+  expedition_revision BIGINT NOT NULL CHECK (expedition_revision >= 0),
+  content_release_id UUID NOT NULL REFERENCES content_releases(id),
+  policy_id UUID NOT NULL REFERENCES solo_resource_loot_policies(id),
+  kind TEXT NOT NULL CHECK (kind IN ('ITEM','NONE')),
+  item_id UUID NULL REFERENCES items(id),
+  quantity BIGINT NOT NULL CHECK (quantity >= 0),
+  ledger_id UUID NULL REFERENCES inventory_ledger(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (
+    (kind = 'NONE' AND item_id IS NULL AND quantity = 0 AND ledger_id IS NULL)
+    OR (kind = 'ITEM' AND item_id IS NOT NULL AND quantity > 0 AND ledger_id IS NOT NULL)
+  ),
+  UNIQUE(expedition_id, expedition_revision),
+  UNIQUE(ledger_id)
+);
+CREATE INDEX solo_resource_results_by_player
+  ON solo_expedition_resource_results(player_id,expedition_id);
+CREATE TRIGGER solo_resource_result_immutable
+  BEFORE UPDATE OR DELETE ON solo_expedition_resource_results
+  FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
+COMMENT ON TABLE solo_expedition_resource_results IS
+  'DRAFT only: immutable 60-minute resource selection, canonical grant ledger and receipt provenance.';
+
+-- DRAFT ONLY. A 15-minute follow-up consumes one and only one TRAIL search
+-- source, creates a real EncounterService encounter and persists the original
+-- vetted PUBLISHED species preview in one caller-owned transaction.
+-- No synthetic creature, species ID, spawn odds or reward is permitted.
+CREATE TABLE solo_expedition_trail_follows (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id),
+  expedition_id UUID NOT NULL REFERENCES solo_expeditions(id),
+  source_outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
+  followed_outcome_id UUID NOT NULL UNIQUE REFERENCES solo_expedition_search_outcomes(id),
+  follow_revision BIGINT NOT NULL CHECK (follow_revision >= 1),
+  encounter_id UUID NOT NULL UNIQUE REFERENCES encounters(id),
+  content_release_id UUID NOT NULL REFERENCES content_releases(id),
+  species_name TEXT NOT NULL CHECK (char_length(species_name) BETWEEN 1 AND 70),
+  encounter_level SMALLINT NOT NULL CHECK (encounter_level BETWEEN 1 AND 100),
+  shiny BOOLEAN NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(expedition_id, follow_revision),
+  CHECK (source_outcome_id <> followed_outcome_id)
+);
+CREATE INDEX solo_expedition_trail_follows_player
+  ON solo_expedition_trail_follows(player_id, expedition_id);
+CREATE TRIGGER solo_expedition_trail_follow_immutable
+  BEFORE UPDATE OR DELETE ON solo_expedition_trail_follows
+  FOR EACH ROW EXECUTE FUNCTION reject_solo_incidental_menu_mutation();
+COMMENT ON TABLE solo_expedition_trail_follows IS
+  'STAGING draft: immutable TRAIL source to DIRECT outcome and canonical Encounter, 15-minute receipt. No active migration.';

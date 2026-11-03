@@ -114,8 +114,10 @@ export class RuntimeCommandPolicyGate implements CommandRoutePolicyGate {
     const mechanicalReadyBypassed =
       requirement.mechanicalReadyAdminBypassCapability !== undefined &&
       adminCapabilities.includes(requirement.mechanicalReadyAdminBypassCapability);
+    // An authorized encounter controller may act without a trainer identity,
+    // but only when the route explicitly grants this administrative bypass.
     const needsPlayer =
-      requirement.allowedPlayerAccess !== undefined ||
+      (requirement.allowedPlayerAccess !== undefined && !mechanicalReadyBypassed) ||
       (requirement.requiresMechanicalReady === true && !mechanicalReadyBypassed);
     if (!needsPlayer) return ok(undefined);
 

@@ -1,7 +1,8 @@
 import type { Pool } from "pg";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../src/modules/messaging/contracts.js";
 import { createOperationalMessagingComposition } from "../../src/runtime/compose-whatsapp-runtime.js";
+import { createOperationalSimulatedWhatsAppRuntime } from "../../src/runtime/compose-simulated-whatsapp-runtime.js";
 
 const input: IncomingMessage = {
   provider: "baileys",
@@ -14,7 +15,127 @@ const input: IncomingMessage = {
   mediaRefs: [],
 };
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("Exploration V4 status is NOT a default runtime route", () => {
+  it("cannot enable complete offline choices with live WhatsApp, even with staging keys", () => {
+    const inputPool = {} as Pool;
+    const key = Buffer.alloc(32, 0x27);
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    expect(() =>
+      createOperationalMessagingComposition(
+        inputPool,
+        { encryptionKey: key, encryptionKeyVersion: 1 },
+        null,
+        { turnWindowTtlMs: 30000, maintenanceBatchSize: 1, encryptionKeys: new Map([[1, key]]) },
+        null,
+        null,
+        "Etc/UTC",
+        true,
+        key,
+        true,
+      ),
+    ).toThrow("isolated non-Baileys test mode");
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "true");
+    expect(() =>
+      createOperationalMessagingComposition(
+        inputPool,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        false,
+        null,
+        true,
+      ),
+    ).toThrow("isolated non-Baileys test mode");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    expect(() =>
+      createOperationalMessagingComposition(
+        inputPool,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        false,
+        null,
+        true,
+      ),
+    ).toThrow("complete staging exploration and PvE dependencies");
+  });
+  it("composes real private numeric-choice routing only with the complete offline feature set", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const key = Buffer.alloc(32, 0x29);
+    const composition = createOperationalMessagingComposition(
+      {} as Pool,
+      { encryptionKey: key, encryptionKeyVersion: 1 },
+      null,
+      { turnWindowTtlMs: 30000, maintenanceBatchSize: 1, encryptionKeys: new Map([[1, key]]) },
+      null,
+      null,
+      "Etc/UTC",
+      true,
+      Buffer.alloc(32, 0x37),
+      true,
+    );
+    const reply = {
+      ...input,
+      chatRef: input.senderRef,
+      text: "1",
+      replyToExternalMessageId: "A".repeat(32),
+    };
+    expect(await composition.admitFreeform(reply)).toBe(true);
+    expect(await composition.admitFreeform({ ...reply, text: "0" })).toBe(true);
+    expect(await composition.admitFreeform({ ...reply, text: "4" })).toBe(true);
+  });
+
+  it("assembles all V4 post-SENT, menu and choice services only in the isolated simulator", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WHATSAPP_ENABLED", "false");
+    const secret = Buffer.alloc(32, 0x54);
+    const simulated = createOperationalSimulatedWhatsAppRuntime({
+      pool: {} as Pool,
+      explorationPreviewTimeZone: "Etc/UTC",
+      explorationStagingPreparationEnabled: true,
+      explorationStagingSearchSecret: Buffer.alloc(32, 0x35),
+      explorationOfflineChoicesEnabled: true,
+      encounterRngConfig: {
+        encryptionKey: secret,
+        encryptionKeyVersion: 1,
+      },
+      pveBattleConfig: {
+        turnWindowTtlMs: 30_000,
+        maintenanceBatchSize: 5,
+        encryptionKeys: new Map([[1, secret]]),
+      },
+    });
+    const quoted = {
+      ...input,
+      chatRef: input.senderRef,
+      text: "1",
+      replyToExternalMessageId: "A".repeat(32),
+    };
+    expect(await simulated.composition.admitFreeform(quoted)).toBe(true);
+    expect(simulated.expeditionPostSentFailures).toEqual([]);
+    vi.stubEnv("WHATSAPP_ENABLED", "true");
+    expect(() =>
+      createOperationalSimulatedWhatsAppRuntime({
+        pool: {} as Pool,
+        explorationOfflineChoicesEnabled: true,
+      }),
+    ).toThrow("isolated non-Baileys test mode");
+  });
+
   it("keeps exploration command unknown with the exact production positional defaults", () => {
     const composition = createOperationalMessagingComposition({} as Pool);
     expect(composition.admitCommand(input)).toBe(false);

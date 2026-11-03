@@ -72,7 +72,7 @@ function toSaleOffer(row: SaleOfferRow): SaleOffer {
   };
 }
 
-class PostgresEconomyTransaction implements EconomyTransaction {
+export class PostgresEconomyTransaction implements EconomyTransaction {
   public constructor(private readonly client: PoolClient) {}
 
   public async findInventoryLedger(
@@ -460,4 +460,17 @@ export class PostgresEconomyRepository implements EconomyRepository {
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );
   }
+}
+
+/**
+ * Use only inside a caller-owned PostgreSQL transaction. EconomyService uses
+ * the SAME PoolClient: inventory balance, ledger and expedition cost commit
+ * together; this adapter never begins or commits another transaction.
+ */
+export function economyRepositoryWithinTransaction(client: PoolClient): EconomyRepository {
+  const transaction = new PostgresEconomyTransaction(client);
+  return {
+    transaction: async (work) => work(transaction),
+    read: async (work) => work(transaction),
+  };
 }

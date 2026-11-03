@@ -511,6 +511,9 @@ export class WorldService {
           destinationDisplayName: destination.areaDisplayName,
           available: missing.length === 0,
           missingUnlockKeys: missing,
+          ...(connection.accessRule.explorationMinutes === undefined
+            ? {}
+            : { explorationMinutes: connection.accessRule.explorationMinutes }),
         });
       }
     }

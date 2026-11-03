@@ -5,6 +5,11 @@ import { expeditionCaptureConfirmation } from "./expedition-capture-confirmation
 import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
+import type { PostgresExpeditionOfflineBattleStart } from "../../platform/exploration/postgres-expedition-offline-battle-start.js";
+import type { PostgresExpeditionBattleConfirmationRecovery } from "../../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
+import { incomingMessageFingerprint } from "../messaging/contracts.js";
+import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
+import type { PostgresExpeditionIgnoreConfirmationRecovery } from "../../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import type { CaptureService } from "../capture/service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
@@ -27,16 +32,77 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     private readonly activeEncounters: Pick<EncounterOperationalReadService, "activeForPlayer">,
     private readonly issuedMenu: Pick<PostgresExpeditionIssuedMenuReplyProof, "resolve">,
     private readonly capture: Pick<CaptureService, "attempt">,
-    private readonly pve: Pick<PveBattleStartService, "startCanonical">,
+    _pve: Pick<PveBattleStartService, "startCanonical">,
     private readonly captureConfirmationRecovery?: Pick<
       PostgresExpeditionCaptureConfirmationRecovery,
       "resolve"
     >,
+    private readonly ignore?: Pick<ExpeditionIncidentalIgnoreStagingAction, "execute">,
+    private readonly ignoreRecovery?: Pick<PostgresExpeditionIgnoreConfirmationRecovery, "resolve">,
+    private readonly battle?: Pick<PostgresExpeditionOfflineBattleStart, "execute">,
+    private readonly battleRecovery?: Pick<PostgresExpeditionBattleConfirmationRecovery, "resolve">,
   ) {}
+
+  private battleConfirmation(input: {
+    readonly destinationRef: string;
+    readonly battleId: string;
+    readonly idempotencyKey: string;
+  }): MessageHandlerResult {
+    return {
+      resultRefType: "BATTLE",
+      resultRefId: input.battleId,
+      outgoing: [
+        {
+          channel: "whatsapp",
+          destinationRef: input.destinationRef,
+          messageType: "TEXT",
+          payload: {
+            text: [
+              "⚔️ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
+              "> _Batalha iniciada pelo encontro autorizado._",
+              "› _Use /batalha para acompanhar os turnos._",
+            ].join("\n"),
+          },
+          idempotencyKey: `${input.idempotencyKey}:expedition-canonical-battle`,
+        },
+      ],
+    };
+  }
+
+  private ignoreConfirmation(input: {
+    readonly destinationRef: string;
+    readonly encounterId: string;
+    readonly elapsedMinutes: number;
+    readonly idempotencyKey: string;
+  }): MessageHandlerResult {
+    return {
+      resultRefType: "ENCOUNTER",
+      resultRefId: input.encounterId,
+      outgoing: [
+        {
+          channel: "whatsapp",
+          destinationRef: input.destinationRef,
+          messageType: "TEXT",
+          payload: {
+            text: [
+              "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
+              "> _Encontro incidental ignorado._",
+              "⌛ *10 minutos utilizados*",
+              "⌛ *Total: " + input.elapsedMinutes + "min da expedição*",
+            ].join("\n"),
+          },
+          idempotencyKey: `${input.idempotencyKey}:expedition-canonical-ignore`,
+        },
+      ],
+    };
+  }
 
   async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
     const choice = context.message.text?.trim() ?? "";
-    if (!/^[1-4]$/u.test(choice) || context.message.replyToExternalMessageId === null) {
+    if (
+      (!/^[1-4]$/u.test(choice) && !(choice === "0" && this.ignore !== undefined)) ||
+      context.message.replyToExternalMessageId === null
+    ) {
       return ok(null);
     }
     const inbound = context.message;
@@ -73,6 +139,47 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
             destinationRef: inbound.senderRef,
             encounterId: previous.value.encounterId,
             status: previous.value.status,
+            idempotencyKey: context.idempotencyKey,
+          }),
+        );
+      }
+    }
+
+    // If the canonical FLED transition and 10-minute receipt committed but
+    // Inbox completion failed, the original quote no longer authorizes a new
+    // mutation. Recover only the exact persisted receipt for this Inbox.
+    if (choice === "0" && this.ignoreRecovery !== undefined) {
+      const previous = await this.ignoreRecovery.resolve({
+        playerId: identified.value.playerId,
+        context,
+      });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return ok(
+          this.ignoreConfirmation({
+            destinationRef: inbound.senderRef,
+            encounterId: previous.value.encounterId,
+            elapsedMinutes: previous.value.elapsedMinutes,
+            idempotencyKey: context.idempotencyKey,
+          }),
+        );
+      }
+    }
+
+    // PvE may have committed with an immutable Inbox/battle receipt before
+    // WhatsApp reply completion failed. Recover the one original confirmation
+    // without re-entering a now-stale ENGAGED encounter or starting another PvE.
+    if (choice === "1" && this.battleRecovery !== undefined) {
+      const previous = await this.battleRecovery.resolve({
+        playerId: identified.value.playerId,
+        context,
+      });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return ok(
+          this.battleConfirmation({
+            destinationRef: inbound.senderRef,
+            battleId: previous.value.battleId,
             idempotencyKey: context.idempotencyKey,
           }),
         );
@@ -118,42 +225,53 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     ) {
       return err(appError("FLOW_BLOCKED", "Encounter changed before the selected action"));
     }
+    if (choice === "0") {
+      if (menu.value.ignoreEnabled !== true || this.ignore === undefined) {
+        return err(appError("FLOW_BLOCKED", "This issued menu cannot ignore the encounter"));
+      }
+      const ignored = await this.ignore.execute({
+        playerId: identified.value.playerId,
+        outcomeId: bound.value.outcomeId,
+        encounterId: active.value.encounterId,
+        expectedEncounterRevision: active.value.revision,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!ignored.ok) return ignored;
+      return ok(
+        this.ignoreConfirmation({
+          destinationRef: inbound.senderRef,
+          encounterId: active.value.encounterId,
+          elapsedMinutes: ignored.value.expedition.elapsedMinutes,
+          idempotencyKey: context.idempotencyKey,
+        }),
+      );
+    }
     if (choice === "1") {
       if (menu.value.battleEnabled !== true) {
         return err(appError("FLOW_BLOCKED", "This issued menu does not authorize a battle"));
       }
-      const started = await this.pve.startCanonical({
+      if (this.battle === undefined) {
+        return err(appError("FLOW_BLOCKED", "Atomic battle Inbox receipt is not configured"));
+      }
+      const started = await this.battle.execute({
         playerId: identified.value.playerId,
         encounterId: active.value.encounterId,
-        expectedRevision: active.value.revision,
-        status: "ENGAGED",
+        outcomeId: bound.value.outcomeId,
+        expectedEncounterRevision: active.value.revision,
+        menuId: menu.value.menuId,
+        inboxMessageId: context.inboxMessageId,
+        idempotencyKey: context.idempotencyKey,
+        messageFingerprint: incomingMessageFingerprint(inbound),
+        senderRef: inbound.senderRef,
       });
-      if (!started.ok) {
-        return err(
-          appError("FLOW_BLOCKED", "The canonical PvE start was rejected", {
-            battleCode: started.error.code,
-          }),
-        );
-      }
-      return ok({
-        resultRefType: "BATTLE",
-        resultRefId: started.value.start.battleId,
-        outgoing: [
-          {
-            channel: "whatsapp",
-            destinationRef: inbound.senderRef,
-            messageType: "TEXT",
-            payload: {
-              text: [
-                "⚔️ *𝗥𝗢𝗧𝗢𝗠 · 𝗕𝗔𝗧𝗔𝗟𝗛𝗔*",
-                "> _Batalha iniciada pelo encontro autorizado._",
-                "› _Use /batalha para acompanhar os turnos._",
-              ].join("\n"),
-            },
-            idempotencyKey: `${context.idempotencyKey}:expedition-canonical-battle`,
-          },
-        ],
-      });
+      if (!started.ok) return started;
+      return ok(
+        this.battleConfirmation({
+          destinationRef: inbound.senderRef,
+          battleId: started.value.battleId,
+          idempotencyKey: context.idempotencyKey,
+        }),
+      );
     }
 
     if (menu.value.captureEnabled !== true) {

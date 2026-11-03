@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { renderExpeditionV4IncidentalPanel } from "../../modules/exploration/expedition-v4-incidental-panel.js";
+import { readVerifiedExpeditionSearchEncounterPreview } from "./postgres-expedition-search-encounter-preview.js";
+import { readOfflineExpeditionBattleEligibility } from "./postgres-expedition-battle-eligibility.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 export interface IssuedReadOnlyExpeditionMenu {
@@ -87,8 +90,16 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         inTransaction = false;
         return err(appError("PLAYER_INELIGIBLE", "Trainer is not active and registered"));
       }
-      const eligible = await client.query<{ release_id: string }>(
-        `SELECT encounter.content_release_id::text AS release_id
+      const eligible = await client.query<{
+        release_id: string;
+        area_id: string;
+        encounter_kind: "DIRECT" | "INCIDENTAL";
+        elapsed_minutes: number;
+      }>(
+        `SELECT encounter.content_release_id::text AS release_id,
+                encounter.area_id::text AS area_id,
+                outcome.kind AS encounter_kind,
+                expedition.elapsed_minutes
          FROM solo_expedition_search_outcomes outcome
          JOIN solo_expeditions expedition
            ON expedition.id = outcome.expedition_id
@@ -102,7 +113,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           AND encounter.revision = $4
           AND NOT EXISTS (
             SELECT 1 FROM battles battle
-            WHERE battle.encounter_id = encounter.id AND battle.status = 'ACTIVE'
+            WHERE battle.encounter_id = encounter.id AND battle.status IN ('CREATED','ACTIVE')
           )
          JOIN content_release_pointers pointer ON pointer.pointer_key = 'ACTIVE'
          JOIN content_releases release
@@ -153,7 +164,19 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         ],
       );
       const releaseId = eligible.rows[0]?.release_id;
-      if (eligible.rows.length !== 1 || releaseId === undefined) {
+      const areaId = eligible.rows[0]?.area_id;
+      const encounterKind = eligible.rows[0]?.encounter_kind;
+      const elapsedMinutes = eligible.rows[0]?.elapsed_minutes;
+      if (
+        eligible.rows.length !== 1 ||
+        releaseId === undefined ||
+        areaId === undefined ||
+        (encounterKind !== "DIRECT" && encounterKind !== "INCIDENTAL") ||
+        !Number.isSafeInteger(elapsedMinutes) ||
+        elapsedMinutes === undefined ||
+        elapsedMinutes < 1 ||
+        elapsedMinutes >= 720
+      ) {
         await client.query("ROLLBACK");
         inTransaction = false;
         return err(
@@ -169,6 +192,10 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         destination_ref: string;
         menu_mode: string;
         outbox_mode: string;
+        outbox_text: string;
+        outbox_actions: unknown;
+        outbox_balls: unknown;
+        menu_actions: unknown;
       }>(
         `SELECT menu.id::text AS id,
                 menu.panel->>'text' AS text,
@@ -176,7 +203,11 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
                 outbox.id::text AS outbox_id,
                 outbox.destination_ref,
                 menu.panel->>'mode' AS menu_mode,
-                outbox.payload->'expeditionMenu'->>'mode' AS outbox_mode
+                outbox.payload->'expeditionMenu'->>'mode' AS outbox_mode,
+                outbox.payload->>'text' AS outbox_text,
+                outbox.payload->'expeditionMenu'->'actions' AS outbox_actions,
+                outbox.payload->'expeditionMenu'->'ballItemIds' AS outbox_balls,
+                menu.panel->'actions' AS menu_actions
          FROM solo_incidental_menu_snapshots menu
          JOIN solo_incidental_menu_deliveries delivery
            ON delivery.menu_id = menu.id AND delivery.player_id = menu.player_id
@@ -207,6 +238,12 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           previously.menu_mode !== this.issuanceMode ||
           previously.outbox_mode !== this.issuanceMode ||
           typeof previously.text !== "string" ||
+          previously.text !== previously.outbox_text ||
+          (this.issuanceMode === "ACTIONABLE" &&
+            (JSON.stringify(previously.menu_actions) !==
+              JSON.stringify(previously.outbox_actions) ||
+              JSON.stringify(previously.ball_item_ids) !==
+                JSON.stringify(previously.outbox_balls))) ||
           previously.ball_item_ids === null ||
           typeof previously.ball_item_ids !== "object"
         ) {
@@ -286,53 +323,101 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
         }
         byName.set(row.display_name, { itemId: row.item_id, quantity: row.quantity });
       }
-      const lines =
-        this.issuanceMode === "ACTIONABLE"
-          ? [
-              "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
-              "> _Encontro verificado em ambiente de testes isolado._",
-              "",
-              "◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*",
-            ]
-          : [
-              "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
-              "> _Prévia de menu vinculada ao encontro._",
-              "",
-              "◇ *BOLSAS DISPONÍVEIS*",
-            ];
       const ballItemIds: Record<string, string> = {};
+      const readOnlyLines = [
+        "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗡𝗖𝗢𝗡𝗧𝗥𝗢*",
+        "> _Prévia de menu vinculada ao encontro._",
+        "",
+        "◇ *BOLSAS DISPONÍVEIS*",
+      ];
+      const availableBalls: Array<{
+        kind: "POKE" | "GREAT" | "ULTRA";
+        quantity: number;
+        captureAuthorized: true;
+      }> = [];
       for (const ball of BALL_CHOICES) {
         const entry = byName.get(ball.displayName);
-        if (entry !== undefined) {
-          lines.push(
-            `${ball.choice}. ${ball.displayName} ×${entry.quantity}${
-              this.issuanceMode === "READ_ONLY" ? " (somente prévia)" : ""
-            }`,
+        if (entry === undefined) continue;
+        ballItemIds[ball.choice] = entry.itemId;
+        if (this.issuanceMode === "ACTIONABLE") {
+          availableBalls.push({
+            kind: ball.choice === "2" ? "POKE" : ball.choice === "3" ? "GREAT" : "ULTRA",
+            quantity: Number(entry.quantity),
+            captureAuthorized: true,
+          });
+        } else {
+          readOnlyLines.push(
+            `${ball.choice}. ${ball.displayName} ×${entry.quantity} (somente prévia)`,
           );
-          ballItemIds[ball.choice] = entry.itemId;
         }
       }
-      if (byName.size === 0) lines.push("› _Nenhuma Poké Ball elegível no inventário._");
+      const canBattle =
+        this.issuanceMode === "ACTIONABLE" &&
+        (await readOfflineExpeditionBattleEligibility(client, {
+          playerId: input.playerId,
+          encounterId: input.encounterId,
+          contentReleaseId: releaseId,
+        }));
+      const canIgnore = encounterKind === "INCIDENTAL" && elapsedMinutes <= 710;
+      const authorizedActions = [
+        ...(canBattle ? ["BATTLE"] : []),
+        ...(availableBalls.length > 0 ? ["CAPTURE"] : []),
+        ...(canIgnore ? ["IGNORE"] : []),
+      ];
+      let text: string;
       if (this.issuanceMode === "ACTIONABLE") {
-        if (byName.size === 0) {
+        if (authorizedActions.length === 0) {
           await client.query("ROLLBACK");
           inTransaction = false;
-          return err(appError("FLOW_BLOCKED", "No usable Ball available for the test encounter"));
+          return err(appError("FLOW_BLOCKED", "No authorized action for the test encounter"));
         }
-        lines.push(
-          "",
-          "› _Responda citando esta mensagem para lançar a Ball escolhida._",
-          "› _A captura usa exclusivamente o serviço canônico e consome um item real no banco de teste._",
-          "› _Homologação OFFLINE: não disponível no jogo ativo._",
-        );
+        // The published species snapshot supplies verified display fields.
+        // Only the canonical battle preflight can authorize BATTLE; no client-side inference.
+        const preview = await readVerifiedExpeditionSearchEncounterPreview(client, {
+          playerId: input.playerId,
+          areaId,
+          outcomeId: input.outcomeId,
+          encounterId: input.encounterId,
+        });
+        if (!preview.ok) {
+          await client.query("ROLLBACK");
+          inTransaction = false;
+          return err(appError("FLOW_BLOCKED", "Cannot verify published encounter display"));
+        }
+        const panel = renderExpeditionV4IncidentalPanel({
+          source: encounterKind,
+          encounterStatus: "ENGAGED",
+          encounterId: input.encounterId,
+          encounterRevision: input.expectedEncounterRevision,
+          speciesName: preview.value.speciesName,
+          level: preview.value.level,
+          canBattle,
+          balls: availableBalls,
+          canIgnore,
+          ignoreMinutes: 10,
+          combiningCount: 0,
+        });
+        if (!panel.ok) {
+          await client.query("ROLLBACK");
+          inTransaction = false;
+          return err(appError("FLOW_BLOCKED", "Published encounter panel is unsafe"));
+        }
+        text = [
+          panel.value.text,
+          "› _Responda citando esta mensagem com o número da ação autorizada._",
+          ...(canIgnore ? ["› _Ignorar consome exatamente 10 minutos da expedição._"] : []),
+          ...(!canBattle ? ["› _Batalhar permanece indisponível neste menu._"] : []),
+          "› _Homologação OFFLINE: indisponível no jogo ativo._",
+        ].join("\n\n");
       } else {
-        lines.push(
+        if (byName.size === 0) readOnlyLines.push("› _Nenhuma Poké Ball elegível no inventário._");
+        readOnlyLines.push(
           "",
           "› _Nenhuma escolha executa captura, batalha ou consumo de item nesta prévia._",
           "› _Este menu de homologação não está habilitado no jogo ativo._",
         );
+        text = readOnlyLines.join("\n");
       }
-      const text = lines.join("\n");
       const menuId = randomUUID();
       const outboxMessageId = randomUUID();
       const immutableIdempotencyKey = `exploration-issued-menu:${input.outcomeId}`;
@@ -349,7 +434,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           JSON.stringify({
             mode: this.issuanceMode,
             text,
-            ...(this.issuanceMode === "ACTIONABLE" ? { actions: ["CAPTURE"] } : {}),
+            ...(this.issuanceMode === "ACTIONABLE" ? { actions: authorizedActions } : {}),
           }),
           JSON.stringify(ballItemIds),
         ],
@@ -369,7 +454,13 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
               outcomeId: input.outcomeId,
               encounterId: input.encounterId,
             },
-            expeditionMenu: { menuId, mode: this.issuanceMode },
+            expeditionMenu: {
+              menuId,
+              mode: this.issuanceMode,
+              ...(this.issuanceMode === "ACTIONABLE"
+                ? { actions: authorizedActions, ballItemIds }
+                : {}),
+            },
           }),
           immutableIdempotencyKey,
           input.correlationId,
