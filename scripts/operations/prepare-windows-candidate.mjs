@@ -8,6 +8,7 @@ const REQUIRED = [
   "pnpm-lock.yaml",
   "db/migrations",
   "scripts/operations/release-local-readonly-preflight.ps1",
+  "scripts/operations/verify-windows-candidate.mjs",
 ];
 const SHA = /^[0-9a-f]{40}$/u;
 const BAD_PATH =
@@ -102,6 +103,8 @@ async function main() {
         "No local DB, media, session, runtime secrets, node_modules or PM2 state are included.",
         "Active migrations are source copies only; do not run before approved restore rehearsal.",
         "The V4 0080 draft is NOT an active migration; published gameplay odds need approval.",
+        "Verify file hashes offline: node scripts/operations/verify-windows-candidate.mjs <dir> <trusted-Git-SHA>.",
+        "Hashes detect corruption but do NOT authenticate the archive or authorize installation.",
         "Use the included read-only PowerShell preflight after checking clone identity.",
         "This artifact is not installable without dependencies, content and owner GO.",
         "",
