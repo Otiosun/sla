@@ -39,7 +39,8 @@ function parseDirective(command: string, argument: string): SceneActionIntent | 
     // A Cena may continue on the same line as the mechanical directive.
     // Read exactly one positive numeric slot; never interpret its prose as
     // another parameter or accept malformed numbers such as 2abc / 2.5.
-    const slotToken = /^([1-9]\\d*)(?=$|\\s|[,;!?](?=$|\\s)|\\.(?=$|\\s))/u.exec(argument)?.[1];
+    const slotToken =
+      /^([1-9]\d*)(?=$|\s|[,;!?](?=$|\s)|\.(?=$|\s))/u.exec(argument)?.[1];
     if (slotToken === undefined) return null;
     const slot = Number(slotToken);
     return Number.isSafeInteger(slot) ? { type: "SWITCH", switchSlot: slot } : null;
