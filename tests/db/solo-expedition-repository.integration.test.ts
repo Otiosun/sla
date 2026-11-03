@@ -901,6 +901,58 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
   });
 
+  it("rolls back a failed canonical TRAIL effect without time, receipt or encounter", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "trail-rollback-prepare");
+    const source = await new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "TRAIL" as const }) },
+      async () => {
+        throw new Error("TRAIL does not produce an immediate encounter");
+      },
+    ).execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "trail-rollback-source",
+    });
+    if (!source.ok) throw source.error;
+    const current = await store.current(playerId);
+    if (current === null) throw new Error("No active trail for rollback");
+    const effectId = randomUUID();
+    const trail = new PostgresExpeditionV4StagingTrailFollow(pool, store, async (client) => {
+      await client.query(
+        "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+        [effectId, playerId, prepared.expeditionId],
+      );
+      return err(appError("FLOW_BLOCKED", "Injected canonical encounter refusal"));
+    });
+    expect(await trail.readPending(current)).toBe(source.value.outcome.outcomeId);
+    const follow = await trail.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: current.revision,
+      idempotencyKey: "trail-rollback-follow",
+      sourceOutcomeId: source.value.outcome.outcomeId,
+    });
+    expect(follow).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "ACTIVE",
+      elapsedMinutes: 30,
+      revision: 1n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
+    const rows = await pool.query<{ effects: number; follows: number }>(
+      `SELECT
+        (SELECT count(*)::int FROM solo_search_effect_test WHERE id=$1) AS effects,
+        (SELECT count(*)::int FROM solo_expedition_trail_follows WHERE player_id=$2) AS follows`,
+      [effectId, playerId],
+    );
+    expect(rows.rows).toEqual([{ effects: 0, follows: 0 }]);
+  });
+
   it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
     const playerId = await trainer();
     const prepared = await prepare(playerId, "pg18-travel-preparation");
