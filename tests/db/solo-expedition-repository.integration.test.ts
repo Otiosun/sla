@@ -488,7 +488,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     });
     expect(await history.readLatestCompleted(await trainer())).toEqual(ok(null));
     expect(await history.readLatestCompleted(playerId, 2)).toMatchObject({
-      ok: false, error: { code: "VALIDATION_FAILED" },
+      ok: false,
+      error: { code: "VALIDATION_FAILED" },
     });
     const before = await pool.query<{ n: number }>(
       "SELECT COUNT(*)::int AS n FROM inventory_ledger WHERE player_id=$1",
