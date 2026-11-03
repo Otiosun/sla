@@ -28,11 +28,15 @@ export function renderExpeditionV4EventHistoryPanel(
     "",
     "◇ *𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
     (history.period === "DAY" ? "☀️ Diurna" : "🌙 Noturna") +
-      " · `" + history.elapsedMinutes + " min`",
-    "◇ *Término:* " + (
-      history.endReason === "VOLUNTARY" ? "Voluntário" :
-      history.endReason === "CLOCK" ? "Tempo esgotado" : "Derrota total"
-    ),
+      " · `" +
+      history.elapsedMinutes +
+      " min`",
+    "◇ *Término:* " +
+      (history.endReason === "VOLUNTARY"
+        ? "Voluntário"
+        : history.endReason === "CLOCK"
+          ? "Tempo esgotado"
+          : "Derrota total"),
     "",
     "◇ *𝗘𝗩𝗘𝗡𝗧𝗢𝗦*",
   ];
@@ -43,9 +47,8 @@ export function renderExpeditionV4EventHistoryPanel(
       event.description.length > 100 ||
       /[\r\n*_~`<>\u031d]/u.test(event.description) ||
       event.description.includes("[Ler mais]") ||
-      !Number.isSafeInteger(event.elapsedMinutes) && event.elapsedMinutes !== null ||
-      event.elapsedMinutes !== null &&
-        (event.elapsedMinutes < 0 || event.elapsedMinutes > 720)
+      (!Number.isSafeInteger(event.elapsedMinutes) && event.elapsedMinutes !== null) ||
+      (event.elapsedMinutes !== null && (event.elapsedMinutes < 0 || event.elapsedMinutes > 720))
     ) {
       return err(appError("FLOW_BLOCKED", "Unsafe stored event cannot be displayed"));
     }
@@ -58,9 +61,7 @@ export function renderExpeditionV4EventHistoryPanel(
   lines.push(
     "",
     `◇ *Página ${history.page}/${history.pages}* · ${history.totalEvents} eventos comprovados`,
-    ...(history.page < history.pages
-      ? [`› _Próxima: /explorar eventos ${history.page + 1}_`]
-      : []),
+    ...(history.page < history.pages ? [`› _Próxima: /explorar eventos ${history.page + 1}_`] : []),
     ...(history.page > 1 ? [`› _Anterior: /explorar eventos ${history.page - 1}_`] : []),
     "> _Vitórias, XP, moedas e premiações não são presumidos._",
     "› _Relatório narrativo e recompensa final exigem aprovação da equipe._",
