@@ -11,6 +11,9 @@ import {
   PublishedResourceLootPolicy,
   PostgresExpeditionV4StagingResourceSearch,
 } from "../../src/platform/exploration/postgres-expedition-v4-resources.js";
+import { PostgresExpeditionV4StagingTrailFollow } from "../../src/platform/exploration/postgres-expedition-v4-trail.js";
+import { PostgresExpeditionTrailConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
 import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
@@ -343,6 +346,34 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
        ) VALUES($1,$2,$3,'Tackle',$4,'PHYSICAL',40,100,0,35)`,
       [randomUUID(), publishedReleaseId, moveId, typeId],
     );
+    // Synthetic PUBLISHED encounter eligibility for TRAIL->EncounterService PG18 proofs.
+    await pool.query(
+      "INSERT INTO pokemon_form_ability_options(id,content_release_id,form_id,ability_id,slot_kind) VALUES($1,$2,$3,$4,'PRIMARY')",
+      [randomUUID(), publishedReleaseId, formId, abilityId],
+    );
+    await pool.query(
+      "INSERT INTO move_learnset_entries(id,content_release_id,form_id,move_id,learn_method) VALUES($1,$2,$3,$4,'START')",
+      [randomUUID(), publishedReleaseId, formId, moveId],
+    );
+    const trailEncounterTableId = randomUUID();
+    const trailEncounterRevisionId = randomUUID();
+    await pool.query(
+      "INSERT INTO encounter_tables(id,area_id,slug) VALUES($1,$2,'grass')",
+      [trailEncounterTableId, activeAreaId],
+    );
+    const trailConditions = JSON.stringify({
+      schemaVersion: 1,
+      requiredUnlockKeys: [],
+      blockedUnlockKeys: [],
+    });
+    await pool.query(
+      "INSERT INTO encounter_table_revisions(id,content_release_id,encounter_table_id,active,conditions) VALUES($1,$2,$3,TRUE,$4::jsonb)",
+      [trailEncounterRevisionId, publishedReleaseId, trailEncounterTableId, trailConditions],
+    );
+    await pool.query(
+      "INSERT INTO encounter_entries(id,encounter_table_revision_id,form_id,weight,min_level,max_level,active,conditions) VALUES($1,$2,$3,100,3,5,TRUE,$4::jsonb)",
+      [randomUUID(), trailEncounterRevisionId, formId, trailConditions],
+    );
     publishedCaptureSnapshot = {
       schemaVersion: 1,
       formId,
@@ -641,6 +672,124 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     );
     expect(ledger.rows[0]?.n).toBe(0);
     expect(await count("solo_expedition_receipts", playerId)).toBe(1);
+  });
+
+
+  it("follows a committed TRAIL with canonical EncounterService, 15 minutes, only one encounter and no phantom search", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "trail-follow-preparation");
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool,
+      store,
+      { decide: async () => ok({ kind: "TRAIL" as const }) },
+      async () => { throw new Error("A TRAIL source cannot spawn an encounter early"); },
+    );
+    const source = await search.execute({
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: prepared.revision,
+      idempotencyKey: "trail-source-search",
+    });
+    if (!source.ok) throw source.error;
+    expect(source.value.outcome.kind).toBe("TRAIL");
+    expect(source.value.outcome.encounterId).toBeNull();
+    const current = await store.current(playerId);
+    if (current === null) throw new Error("Missing trail expedition");
+    const trail = new PostgresExpeditionV4StagingTrailFollow(
+      pool,
+      store,
+      createDirectEncounterEffect({
+        seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0x5a), 1),
+        clock,
+        feature: { enabled: true, reason: null },
+      }),
+    );
+    const sourceId = source.value.outcome.outcomeId;
+    expect(await trail.readPending(current)).toBe(sourceId);
+    const input = {
+      playerId,
+      expeditionId: prepared.expeditionId,
+      expectedRevision: current.revision,
+      idempotencyKey: "inbox:baileys:trail-follow-original",
+      sourceOutcomeId: sourceId,
+    };
+    const first = await trail.execute(input);
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        transition: {
+          expedition: { phase: "ACTIVE", elapsedMinutes: 45, revision: 2n },
+          consumedWeeklySlot: false,
+          replayed: false,
+        },
+        sourceOutcomeId: sourceId,
+        outcome: { kind: "DIRECT", expeditionRevision: 1n },
+        encounterPreview: { speciesName: "Published Testmon" },
+      },
+    });
+    if (!first.ok) throw first.error;
+    expect(first.value.outcome.encounterId).not.toBeNull();
+    const again = await trail.execute(input);
+    expect(again).toMatchObject({
+      ok: true,
+      value: {
+        transition: { replayed: true },
+        outcome: {
+          outcomeId: first.value.outcome.outcomeId,
+          encounterId: first.value.outcome.encounterId,
+        },
+      },
+    });
+    expect(await trail.readPending((await store.current(playerId))!)).toBeNull();
+    expect(await trail.execute({ ...input, idempotencyKey: "different-trail-message" })).toMatchObject({
+      ok: false,
+    });
+    const counts = await pool.query<{ follow_count: number; encounter_count: number }>(
+      `SELECT
+        (SELECT count(*)::int FROM solo_expedition_trail_follows WHERE player_id=$1) AS follow_count,
+        (SELECT count(*)::int FROM encounters WHERE player_id=$1) AS encounter_count`,
+      [playerId],
+    );
+    expect(counts.rows).toEqual([{ follow_count: 1, encounter_count: 1 }]);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(2);
+    const sentProof = await pool.query<{ id: string }>(
+      "SELECT id::text FROM solo_expedition_search_outcomes WHERE id=$1 AND kind='DIRECT' AND encounter_id=$2",
+      [first.value.outcome.outcomeId, first.value.outcome.encounterId],
+    );
+    expect(sentProof.rowCount).toBe(1);
+  });
+
+  it("rejects nonexistent, stale or unfollowable TRAIL without spending time or creating encounters", async () => {
+    const playerId = await trainer();
+    const prepared = await prepare(playerId, "trail-invalid-prepare");
+    const search = new PostgresExpeditionV4StagingSearch(
+      pool, store, { decide: async () => ok({ kind: "NO_SIGNAL" as const }) },
+      async () => { throw new Error("No encounter in a NO_SIGNAL search"); },
+    );
+    const signal = await search.execute({
+      playerId, expeditionId: prepared.expeditionId, expectedRevision: prepared.revision,
+      idempotencyKey: "trail-no-signal-search",
+    });
+    if (!signal.ok) throw signal.error;
+    const trail = new PostgresExpeditionV4StagingTrailFollow(
+      pool,
+      store,
+      async () => { throw new Error("No encounter permitted without a TRAIL source"); },
+    );
+    const current = await store.current(playerId);
+    if (current === null) throw new Error("Missing active expedition");
+    expect(await trail.readPending(current)).toBeNull();
+    expect(await trail.execute({
+      playerId, expeditionId: prepared.expeditionId,
+      expectedRevision: current.revision,
+      idempotencyKey: "trail-invalid-follow",
+      sourceOutcomeId: signal.value.outcome.outcomeId,
+    })).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
+    expect(await store.current(playerId)).toMatchObject({
+      phase: "ACTIVE", elapsedMinutes: 30, revision: 1n,
+    });
+    expect(await count("solo_expedition_receipts", playerId)).toBe(2);
+    expect(await count("solo_expedition_search_outcomes", playerId)).toBe(1);
   });
 
   it("atomically travels via canonical WorldService, charges published minutes and replays without moving twice", async () => {
